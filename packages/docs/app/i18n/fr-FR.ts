@@ -1555,6 +1555,7 @@ const frFR = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "Autres Plateformes",
+    ssrCaching: "Mise en Cache SSR",
     environmentVariables: "Variables d'environnement",
     progress: "Progression",
     authentication: "Authentification",

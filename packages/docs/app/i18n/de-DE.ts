@@ -1554,6 +1554,7 @@ const deDE = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "Weitere Plattformen",
+    ssrCaching: "SSR-Caching",
     environmentVariables: "Umgebungsvariablen",
     progress: "Fortschritt",
     authentication: "Authentifizierung",

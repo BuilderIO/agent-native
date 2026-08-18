@@ -1554,6 +1554,7 @@ const esES = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "Otras Plataformas",
+    ssrCaching: "Caché de SSR",
     environmentVariables: "Variables de entorno",
     progress: "Progreso",
     authentication: "Autenticación",

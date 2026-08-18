@@ -1550,6 +1550,7 @@ const ptBR = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "Outras Plataformas",
+    ssrCaching: "Cache de SSR",
     environmentVariables: "Variáveis de ambiente",
     progress: "Progresso",
     authentication: "Autenticação",

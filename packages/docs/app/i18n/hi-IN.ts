@@ -1544,6 +1544,7 @@ const hiIN = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "अन्य Platforms",
+    ssrCaching: "SSR कैशिंग",
     environmentVariables: "पर्यावरण चर",
     progress: "Progress",
     authentication: "Authentication",

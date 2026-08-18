@@ -637,6 +637,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "deploymentOtherPlatforms",
         slug: "deployment-other-platforms",
       },
+      { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
       {
         id: "environment-variables",
         labelKey: "environmentVariables",

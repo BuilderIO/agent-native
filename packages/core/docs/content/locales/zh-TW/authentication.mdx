@@ -414,7 +414,7 @@ function SignInCta() {
 
 一般應用程式頁面會為所有訪客使用同一個非個人化、可公開快取的 SSR 外殼。`AppProviders` 會在用戶端檢查工作階段；造訪 `/dashboard` 等私人路徑時，它會在掛載私人應用程式介面之前將匿名訪客重新導向至 `/sign-in?return=%2Fdashboard`。登入後，訪客會返回 `/dashboard`。公開或 SEO 路由請使用 `isPublicPath`；透過 MCP 內嵌權杖等其他受限機制驗證的介面請使用 `sessionBypass`。
 
-此外殼的快取時長是一個部署範圍的設定——關於 `AGENT_NATIVE_SSR_CACHE`，參見 [SSR Caching](/docs/deployment#ssr-caching)。縮短或停用快取只會改變時長；SSR 仍會在剝離 cookie 後渲染匿名分支。
+此外殼的快取時長是一個部署範圍的設定——關於 `AGENT_NATIVE_SSR_CACHE`，參見 [SSR Caching](/docs/ssr-caching)。縮短或停用快取只會改變時長；SSR 仍會在剝離 cookie 後渲染匿名分支。
 
 ### 幕後花絮：GoogleOAuth
 

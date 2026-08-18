@@ -1526,6 +1526,7 @@ const zhCN = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "其他平台",
+    ssrCaching: "SSR 缓存",
     environmentVariables: "环境变量",
     progress: "进度",
     authentication: "认证",

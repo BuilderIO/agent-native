@@ -18,6 +18,7 @@ ar-SA|integrations
 ar-SA|messaging-internals
 ar-SA|messaging-recipes
 ar-SA|organizations-teams-permissions
+ar-SA|ssr-caching
 ar-SA|template-analytics-connectors
 ar-SA|template-analytics-dashboards
 ar-SA|template-analytics-developers
@@ -96,6 +97,7 @@ de-DE|integrations
 de-DE|messaging-internals
 de-DE|messaging-recipes
 de-DE|organizations-teams-permissions
+de-DE|ssr-caching
 de-DE|template-analytics-connectors
 de-DE|template-analytics-dashboards
 de-DE|template-analytics-developers
@@ -174,6 +176,7 @@ es-ES|integrations
 es-ES|messaging-internals
 es-ES|messaging-recipes
 es-ES|organizations-teams-permissions
+es-ES|ssr-caching
 es-ES|template-analytics-connectors
 es-ES|template-analytics-dashboards
 es-ES|template-analytics-developers
@@ -252,6 +255,7 @@ fr-FR|integrations
 fr-FR|messaging-internals
 fr-FR|messaging-recipes
 fr-FR|organizations-teams-permissions
+fr-FR|ssr-caching
 fr-FR|template-analytics-connectors
 fr-FR|template-analytics-dashboards
 fr-FR|template-analytics-developers
@@ -330,6 +334,7 @@ hi-IN|integrations
 hi-IN|messaging-internals
 hi-IN|messaging-recipes
 hi-IN|organizations-teams-permissions
+hi-IN|ssr-caching
 hi-IN|template-analytics-connectors
 hi-IN|template-analytics-dashboards
 hi-IN|template-analytics-developers
@@ -408,6 +413,7 @@ ja-JP|integrations
 ja-JP|messaging-internals
 ja-JP|messaging-recipes
 ja-JP|organizations-teams-permissions
+ja-JP|ssr-caching
 ja-JP|template-analytics-connectors
 ja-JP|template-analytics-dashboards
 ja-JP|template-analytics-developers
@@ -486,6 +492,7 @@ ko-KR|integrations
 ko-KR|messaging-internals
 ko-KR|messaging-recipes
 ko-KR|organizations-teams-permissions
+ko-KR|ssr-caching
 ko-KR|template-analytics-connectors
 ko-KR|template-analytics-dashboards
 ko-KR|template-analytics-developers
@@ -564,6 +571,7 @@ pt-BR|integrations
 pt-BR|messaging-internals
 pt-BR|messaging-recipes
 pt-BR|organizations-teams-permissions
+pt-BR|ssr-caching
 pt-BR|template-analytics-connectors
 pt-BR|template-analytics-dashboards
 pt-BR|template-analytics-developers
@@ -642,6 +650,7 @@ zh-CN|integrations
 zh-CN|messaging-internals
 zh-CN|messaging-recipes
 zh-CN|organizations-teams-permissions
+zh-CN|ssr-caching
 zh-CN|template-analytics-connectors
 zh-CN|template-analytics-dashboards
 zh-CN|template-analytics-developers
@@ -719,6 +728,7 @@ zh-TW|integrations
 zh-TW|messaging-internals
 zh-TW|messaging-recipes
 zh-TW|organizations-teams-permissions
+zh-TW|ssr-caching
 zh-TW|template-analytics-connectors
 zh-TW|template-analytics-dashboards
 zh-TW|template-analytics-developers

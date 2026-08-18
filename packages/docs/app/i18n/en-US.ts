@@ -1544,6 +1544,7 @@ const enUS = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "Other Platforms",
+    ssrCaching: "SSR Caching",
     environmentVariables: "Environment Variables",
     progress: "Progress",
     authentication: "Authentication",

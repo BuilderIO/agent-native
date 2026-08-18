@@ -162,40 +162,8 @@ See the page for your platform for build and deploy details:
 - [**Cloudflare**](/docs/deployment-cloudflare) — Pages and Workers
 - [**Other Platforms**](/docs/deployment-other-platforms) — AWS Lambda and Deno Deploy
 
-## SSR Caching {#ssr-caching}
-
-Every SSR HTML response and every React Router `.data` response is one impersonal, public shell. `createH3SSRHandler` strips cookies before rendering, so the same bytes are correct for every visitor and all personalization happens on the client after load. That is what makes it safe to stamp a single hard-cache policy on those responses by default:
-
-```txt
-cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
-```
-
-The same value is mirrored onto `cdn-cache-control`. `netlify-cdn-cache-control` carries its own longer-lived default instead, `public, durable, s-maxage=31536000, stale-while-revalidate=604800, stale-if-error=3600`, since Netlify's CDN reads that header separately from the standard one. One shared CDN entry then serves the whole site instead of a per-request render. This is the single biggest lever on first-response latency. Leave it on unless one of the cases below applies to your deployment.
-
-### Overriding with `AGENT_NATIVE_SSR_CACHE` {#ssr-cache-env}
-
-Set `AGENT_NATIVE_SSR_CACHE` in the deploy environment to change the policy for the whole deployment:
-
-| Value                                               | Result                                                                               |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| unset, `on`, `default`, `true`, `1`                 | The default policy above, unchanged. Recommended for best performance.               |
-| `off`, `false`, `0`, `none`, `no-store`, `disabled` | `no-store` on `cache-control`, `cdn-cache-control`, and `netlify-cdn-cache-control`. |
-| A duration: `30`, `30s`, `5m`, `2h`                 | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600` on `cache-control` and `cdn-cache-control`. `netlify-cdn-cache-control` uses the same duration with `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600`. |
-
-Bare numbers are seconds. `stale-while-revalidate` deliberately mirrors `max-age` for a custom duration: a short freshness window paired with the default seven-day stale window would hand back exactly the staleness you opted out of. An unrecognized value logs a warning and falls back to the default, so a typo can never silently disable the CDN.
-
-Turn it down or off when either of these is true:
-
-1. **Your host does not purge its CDN on deploy.** Netlify and Vercel do. Some self-managed setups do not. Without a purge, a shipped build can keep serving the previous shell for `max-age` plus `stale-while-revalidate`.
-2. **Your loaders return mutable public data.** After a successful mutation, a `useRevalidator()` or redirect-after-action re-fetch can read the browser's cached `.data` copy instead of fresh loader output.
-
-The setting applies to every public-shell surface: React Router SSR HTML and `.data`, the login HTML shell, the `/_agent-native/speculation-rules.json` route, the docs site, and the public-form SSR in the forms template. The generated Cloudflare Worker resolves it at build time, so set it in the deploy environment before the build runs.
-
-Three things to keep in mind:
-
-- **Turning caching off does not make SSR personalized.** Cookies are still stripped before render and SSR loaders still see the anonymous branch. Per-user data must still be resolved client-side. This variable controls cache _duration_ only.
-- **It is deployment-wide, not per-route, by design.** A per-route or per-request cache override is how one visitor's payload ends up in another visitor's shared CDN entry, so the framework does not offer one. `guard:ssr-cache-shell` enforces it.
-- **For mutation-fresh data, prefer actions over disabling the cache.** App data belongs in [actions](/docs/actions-overview), read from the client with `useActionQuery` / `useActionMutation` and kept live by `useDbSync()` polling. None of that goes through the SSR shell cache. Keep SSR loaders rendering the public shell, and reach for this variable only when you genuinely want loader data fresher.
+The default SSR shell cache policy, and how to override it with
+`AGENT_NATIVE_SSR_CACHE`, is its own page: see [SSR Caching](/docs/ssr-caching).
 
 ## Environment Variables {#environment-variables}
 
@@ -213,7 +181,7 @@ hosting behavior.
 | `APP_BASE_PATH`                             | Mount the app under a prefix (e.g. `/mail`). Set automatically by `npx @agent-native/core@latest deploy`. Leave unset for standalone.                                                                                                                                                                                                                                   |
 | `APP_URL`                                   | Optional canonical public origin. Checked ahead of `BETTER_AUTH_URL` when resolving the A2A JWT audience, the OAuth public origin, self-dispatch webhook targets, and generated resource links. Set it explicitly on preview/staging deploys where the request host is unreliable.                                                                                      |
 | `AGENT_PROD_CODE_EXECUTION`                 | Optional production code-execution mode: `off` (default), `sandboxed`, or `trusted`. See [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                       |
-| `AGENT_NATIVE_SSR_CACHE`                    | Deployment-wide SSR shell cache policy: unset/`on` keeps the default hard-cache, `off` sends `no-store`, or a duration such as `30s` / `5m` sets a shorter freshness. See [SSR Caching](#ssr-caching).                                                                                                                                                                  |
+| `AGENT_NATIVE_SSR_CACHE`                    | Deployment-wide SSR shell cache policy: unset/`on` keeps the default hard-cache, `off` sends `no-store`, or a duration such as `30s` / `5m` sets a shorter freshness. See [SSR Caching](/docs/ssr-caching).                                                                                                                                                                  |
 | `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opt into the Netlify keep-warm scheduled function. Unset by default. See [Keep-warm](/docs/deployment-netlify#netlify-keep-warm).                                                                                                                                                                                                                                                               |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Compatibility kill switch for the Netlify keep-warm scheduled function. See [Keep-warm](/docs/deployment-netlify#netlify-keep-warm).                                                                                                                                                                                                                                                            |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Override the keep-warm cadence with a 5-field cron expression (default `* * * * *` when enabled). An unparseable value fails the build. See [Keep-warm](/docs/deployment-netlify#netlify-keep-warm).                                                                                                                                                                                            |
@@ -393,6 +361,7 @@ Agent-native apps store all state in SQL via Drizzle and sync the UI via [pollin
 - [**Security**](/docs/security) — the production checklist and opt-in flags referenced throughout this page
 - [**Authentication**](/docs/authentication) — OAuth credentials and env vars for the auth mode you choose
 - [**Workspace Deployment**](/docs/workspace-deployment) — ship every app in a workspace to one origin, or self-host one with Docker Compose
+- [**SSR Caching**](/docs/ssr-caching) — the default hard-cache policy and its override
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — the workspace model behind `deploy`'s one-origin build
 - [**Frames**](/docs/frames) — the embedded agent panel vs. Builder.io's cloud frame for production UI edits
 - [**Public Agent Web**](/docs/agent-web-surfaces) — the `robots.txt`, `llms.txt`, and markdown-mirror files a Vite build writes into the deploy output for public routes

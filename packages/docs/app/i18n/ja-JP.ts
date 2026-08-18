@@ -1551,6 +1551,7 @@ const jaJP = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "その他のプラットフォーム",
+    ssrCaching: "SSRキャッシュ",
     environmentVariables: "環境変数",
     progress: "進行状況",
     authentication: "認証",

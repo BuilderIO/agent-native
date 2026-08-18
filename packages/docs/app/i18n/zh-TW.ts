@@ -1524,6 +1524,7 @@ const messages = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "其他平台",
+    ssrCaching: "SSR 快取",
     environmentVariables: "環境變數",
     progress: "進度",
     authentication: "認證",

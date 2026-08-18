@@ -1542,6 +1542,7 @@ const arSA = {
     deploymentNetlify: "Netlify",
     deploymentCloudflare: "Cloudflare",
     deploymentOtherPlatforms: "منصات أخرى",
+    ssrCaching: "تخزين SSR المؤقت",
     environmentVariables: "متغيرات البيئة",
     progress: "Progress",
     authentication: "Authentication",
