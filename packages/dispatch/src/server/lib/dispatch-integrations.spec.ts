@@ -451,6 +451,45 @@ describe("beforeDispatchProcess", () => {
 });
 
 describe("managed Slack execution identity", () => {
+  it("uses the enterprise-scoped installation for an Enterprise Grid DM", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.isOrgMember.mockResolvedValueOnce(true);
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "alice@example.test" } },
+        }),
+      ),
+    );
+
+    await resolveDispatchExecutionContext(
+      slackIncoming({
+        senderId: "U-ENTERPRISE-ALICE",
+        triggerKind: "dm",
+        conversationType: "dm",
+        platformContext: {
+          teamId: "T-ENTERPRISE-WORKSPACE",
+          enterpriseId: "E-MANAGED",
+          isEnterpriseInstall: true,
+          apiAppId: "A-MANAGED",
+          channelId: "D-MANAGED",
+          channelType: "im",
+        },
+      }),
+    );
+
+    expect(mocks.getActiveIntegrationInstallationByKey).toHaveBeenCalledWith(
+      "slack",
+      "enterprise:E-MANAGED:app:A-MANAGED",
+    );
+  });
+
   it("fails closed with retry guidance when managed installation lookup is unavailable", async () => {
     vi.stubEnv("DISPATCH_DEFAULT_OWNER_EMAIL", "deployment-owner@example.test");
     mocks.getActiveIntegrationInstallationByKey.mockRejectedValueOnce(

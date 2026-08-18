@@ -2256,6 +2256,7 @@ export function createAgentChatPlugin(
             assembleA2AFinalResponse(a2aEvents, a2aToolResults, {
               event: context.event,
               outcome: a2aOutcome,
+              persistedArtifactSecret: recoverableArtifactSecret,
             });
 
           console.log(

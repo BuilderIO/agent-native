@@ -8,6 +8,7 @@ vi.mock("../observability/traces.js", () => ({
   instrumentAgentLoop: instrumentAgentLoopMock,
 }));
 
+import { extractA2APersistedMutationReceipts } from "../a2a/artifact-response.js";
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   assembleA2AFinalResponse,
@@ -728,6 +729,55 @@ describe("assembleA2AFinalResponse", () => {
       }),
     ]);
     expect(assembled.finalText).toContain("/page/feedback-document-1");
+  });
+
+  it("signs final mutation receipts with an organization-only secret", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const secret = "org-only-final-receipt-secret";
+    const toolResults = [
+      {
+        tool: "upsert-database-item-by-key",
+        result: JSON.stringify({
+          receipt: {
+            receiptId: "receipt-org-secret",
+            operation: "upsert",
+            outcome: "created",
+            target: {
+              authorityScope: { kind: "personal", id: "owner@example.test" },
+              spaceId: "space-owner",
+              databaseId: "feedback-db",
+              databaseDocumentId: "feedback-db-document",
+            },
+            row: {
+              itemId: "feedback-item",
+              documentId: "feedback-document",
+              urlPath: "/page/feedback-document",
+            },
+            idempotency: {
+              key: "request-org-secret",
+              result: "applied",
+              payloadDigest: "digest-org-secret",
+            },
+            revisions: { after: "after" },
+            readback: { verified: true, propertyValues: {} },
+          },
+        }),
+      },
+    ];
+
+    const assembled = assembleA2AFinalResponse(
+      [{ type: "text", text: "Created feedback." }, { type: "done" }],
+      toolResults,
+      { persistedArtifactSecret: secret },
+    );
+
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: assembled.finalText }],
+        { persistedArtifactSecrets: [secret] },
+      ),
+    ).toEqual([expect.objectContaining({ receiptId: "receipt-org-secret" })]);
+    vi.unstubAllEnvs();
   });
 
   it.each([

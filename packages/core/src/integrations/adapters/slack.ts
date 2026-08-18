@@ -314,6 +314,7 @@ export function slackAdapter(
               typeof payload.enterprise_id === "string"
                 ? payload.enterprise_id
                 : undefined,
+            isEnterpriseInstall: payload.is_enterprise_install === true,
             eventId: payload.event_id,
             ...(agentContext
               ? {

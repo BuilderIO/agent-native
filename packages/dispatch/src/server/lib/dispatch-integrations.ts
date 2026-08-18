@@ -122,11 +122,20 @@ function configuredDispatchIdentitiesUrl(): string | null {
 async function resolveManagedSlackInstallation(incoming: IncomingMessage) {
   if (incoming.platform !== "slack") return null;
   const teamId = contextString(incoming.platformContext.teamId);
+  const enterpriseId = contextString(incoming.platformContext.enterpriseId);
   const apiAppId = contextString(incoming.platformContext.apiAppId);
-  if (!teamId) return null;
+  const isEnterpriseInstall =
+    incoming.platformContext.isEnterpriseInstall === true;
+  if ((!teamId && !enterpriseId) || (isEnterpriseInstall && !enterpriseId))
+    return null;
   return getActiveIntegrationInstallationByKey(
     "slack",
-    slackInstallationKey({ teamId, apiAppId }),
+    slackInstallationKey({
+      teamId,
+      enterpriseId,
+      apiAppId,
+      isEnterpriseInstall,
+    }),
   );
 }
 
