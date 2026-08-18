@@ -630,6 +630,60 @@ mod macos {
         }
     }
 
+    /// RNNoise's voice-activity output is more useful than a fixed amplitude
+    /// threshold for the meeting microphone. A muted call still leaves Clips
+    /// with the local microphone, and fans, keyboard noise, or room noise can
+    /// be loud enough to cross the old RMS-only gate. Keep this state on the
+    /// worker thread so the realtime capture callback stays allocation-free.
+    struct MicVoiceActivity {
+        state: Box<nnnoiseless::DenoiseState<'static>>,
+        pending: Vec<f32>,
+    }
+
+    impl MicVoiceActivity {
+        const SAMPLE_RATE: f32 = 48_000.0;
+        const INPUT_SCALE: f32 = 32_768.0;
+
+        fn new() -> Self {
+            Self {
+                state: nnnoiseless::DenoiseState::new(),
+                pending: Vec::new(),
+            }
+        }
+
+        fn reset(&mut self) {
+            self.state = nnnoiseless::DenoiseState::new();
+            self.pending.clear();
+        }
+
+        /// Return the highest RNNoise speech probability in `samples`.
+        /// `None` means this capture format is not the 48 kHz PCM that
+        /// RNNoise expects; callers retain the existing RMS fallback for
+        /// those legacy devices.
+        fn observe(&mut self, samples: &[f32], sample_rate: f32) -> Option<f32> {
+            if (sample_rate - Self::SAMPLE_RATE).abs() > 1.0 {
+                self.reset();
+                return None;
+            }
+
+            self.pending.extend(samples.iter().map(|sample| {
+                (sample * Self::INPUT_SCALE).clamp(-Self::INPUT_SCALE, Self::INPUT_SCALE)
+            }));
+
+            let frame_size = nnnoiseless::DenoiseState::FRAME_SIZE;
+            let mut highest_probability = 0.0;
+            while self.pending.len() >= frame_size {
+                let mut denoised = [0.0_f32; nnnoiseless::DenoiseState::FRAME_SIZE];
+                let probability = self
+                    .state
+                    .process_frame(&mut denoised, &self.pending[..frame_size]);
+                highest_probability = highest_probability.max(probability);
+                self.pending.drain(..frame_size);
+            }
+            Some(highest_probability)
+        }
+    }
+
     /// Run whisper over `samples` (16 kHz mono f32), returning each speech
     /// segment as `(start_ms, end_ms, text)` with buffer-relative timestamps.
     /// `language` is the forced language code (e.g. "en"); `None` lets whisper
@@ -698,6 +752,10 @@ mod macos {
     const VOICE_RMS_THRESHOLD: f32 = 0.006;
     /// A second, model-level gate for ambient/no-speech Whisper segments.
     const MAX_NO_SPEECH_PROBABILITY: f32 = 0.72;
+    /// RNNoise speech probability required for a 48 kHz microphone frame to
+    /// count as voice. System audio and non-48 kHz legacy mic captures keep
+    /// the RMS path because this VAD is trained for 48 kHz microphone PCM.
+    const MIN_MIC_VAD_PROBABILITY: f32 = 0.6;
     /// Minimum average per-token probability for a segment to count as real
     /// speech. On noisy/near-silent audio whisper mis-detects the language and
     /// decodes fluent-looking gibberish in another language — but those tokens
@@ -731,6 +789,11 @@ mod macos {
             return 0.0;
         }
         sum / count as f32
+    }
+
+    fn mic_voice_detected(rms: f32, vad_probability: Option<f32>) -> bool {
+        rms > VOICE_RMS_THRESHOLD
+            && vad_probability.is_none_or(|probability| probability >= MIN_MIC_VAD_PROBABILITY)
     }
 
     fn buffer_start_after_drain(now: Instant, pending: Duration) -> Instant {
@@ -788,6 +851,10 @@ mod macos {
         let mut seen_reset_generation = stream.reset_generation.load(Ordering::SeqCst);
         // Growing-utterance resample cache — see `IncrementalResample`.
         let mut resample_state = IncrementalResample::new();
+        // Only the microphone stream needs a speech/noise classifier. The
+        // system stream must preserve remote speech even when it is mixed
+        // with music or other non-voice audio.
+        let mut mic_voice_activity = (stream.source == "mic").then(MicVoiceActivity::new);
 
         while stream.running.load(Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(250));
@@ -800,6 +867,9 @@ mod macos {
                 last_infer = Instant::now() - Duration::from_secs(10);
                 had_voice = false;
                 resample_state.drop_all();
+                if let Some(vad) = mic_voice_activity.as_mut() {
+                    vad.reset();
+                }
                 continue;
             }
 
@@ -807,31 +877,40 @@ mod macos {
             // poll. Inspect that tail in place instead of cloning + resampling
             // the entire growing utterance four times per second. Full snapshots
             // are reserved for an inference that is actually due.
-            let (raw_len, new_rms) = match stream.buf.lock() {
+            let (raw_len, new_rms, new_mic_samples) = match stream.buf.lock() {
                 Ok(b) => {
                     let raw_len = b.len();
-                    let new_rms = if raw_len > last_raw_len {
+                    let (new_rms, new_mic_samples) = if raw_len > last_raw_len {
                         let new = &b[last_raw_len..];
-                        Some((new.iter().map(|x| x * x).sum::<f32>() / new.len() as f32).sqrt())
+                        (
+                            Some(
+                                (new.iter().map(|x| x * x).sum::<f32>() / new.len() as f32).sqrt(),
+                            ),
+                            (stream.source == "mic").then(|| new.to_vec()),
+                        )
                     } else {
-                        None
+                        (None, None)
                     };
-                    (raw_len, new_rms)
+                    (raw_len, new_rms, new_mic_samples)
                 }
                 Err(_) => continue,
             };
             if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
                 continue;
             }
+            let src_rate = (stream.src_rate.load(Ordering::SeqCst) as f32).max(1.0);
             if let Some(rms) = new_rms {
-                if rms > VOICE_RMS_THRESHOLD {
+                let vad_probability = mic_voice_activity
+                    .as_mut()
+                    .zip(new_mic_samples.as_deref())
+                    .and_then(|(vad, samples)| vad.observe(samples, src_rate));
+                if mic_voice_detected(rms, vad_probability) {
                     last_voice = Instant::now();
                     had_voice = true;
                 }
             }
             last_raw_len = raw_len;
 
-            let src_rate = (stream.src_rate.load(Ordering::SeqCst) as f32).max(1.0);
             let have_secs = raw_len as f32 / src_rate;
             let silence = last_voice.elapsed();
 
@@ -878,6 +957,9 @@ mod macos {
                 // so the resample cache is invalid regardless of whether this
                 // utterance ran inference — rebuild fresh from whatever's left.
                 resample_state.drop_all();
+                if let Some(vad) = mic_voice_activity.as_mut() {
+                    vad.reset();
+                }
                 // Advance the timeline offset so the next utterance's whisper
                 // timestamps map correctly. Inference can take seconds, and
                 // audio kept arriving throughout it, so the new buffer starts
@@ -1566,6 +1648,14 @@ mod macos {
                     reuse_voice_processing_engine: false,
                 }
             );
+        }
+
+        #[test]
+        fn mic_voice_gate_requires_speech_probability_on_supported_captures() {
+            assert!(!super::mic_voice_detected(0.02, Some(0.59)));
+            assert!(!super::mic_voice_detected(0.004, Some(0.99)));
+            assert!(super::mic_voice_detected(0.02, Some(0.6)));
+            assert!(super::mic_voice_detected(0.02, None));
         }
 
         #[test]
