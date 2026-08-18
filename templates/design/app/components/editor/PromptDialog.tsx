@@ -10,6 +10,7 @@ import {
 } from "@agent-native/core/embedding/react";
 import {
   IconApps,
+  IconBrain,
   IconCheck,
   IconComponents,
   IconChevronDown,
@@ -333,6 +334,10 @@ interface PromptPopoverProps {
   selectedDesignSystemId?: string | null;
   onDesignSystemChange?: (id: string | null) => void;
   onCreateDesignSystem?: () => void;
+  creativeContexts?: PromptCreativeContextOption[];
+  creativeContextsLoading?: boolean;
+  selectedCreativeContextId?: string | null;
+  onCreativeContextChange?: (id: string | null) => void;
   templateOptions?: PromptTemplateOption[];
   templatesLoading?: boolean;
   selectedTemplateId?: string | null;
@@ -362,6 +367,10 @@ export interface PromptDesignSystemOption {
   title: string;
   description?: string | null;
   isDefault?: boolean;
+}
+export interface PromptCreativeContextOption {
+  id: string;
+  name: string;
 }
 
 export interface PromptTemplateOption {
@@ -431,6 +440,10 @@ export default function PromptPopover({
   selectedDesignSystemId,
   onDesignSystemChange,
   onCreateDesignSystem,
+  creativeContexts = [],
+  creativeContextsLoading = false,
+  selectedCreativeContextId,
+  onCreativeContextChange,
   templateOptions = [],
   templatesLoading = false,
   selectedTemplateId,
@@ -713,6 +726,13 @@ export default function PromptPopover({
   const selectedDesignSystem =
     designSystems.find((system) => system.id === selectedDesignSystemId) ??
     null;
+  const selectedCreativeContext =
+    creativeContexts.find(
+      (context) => context.id === selectedCreativeContextId,
+    ) ?? null;
+  const showCreativeContextPicker =
+    Boolean(onCreativeContextChange) &&
+    (creativeContextsLoading || creativeContexts.length > 0);
 
   return (
     <Popover open={open} onOpenChange={handlePopoverOpenChange}>
@@ -879,6 +899,52 @@ export default function PromptPopover({
                 ) : (
                   <span aria-hidden="true" className="size-9" />
                 )}
+              </>
+            ) : null}
+            {showCreativeContextPicker ? (
+              <>
+                {creativeContextsLoading ? (
+                  <Skeleton className="h-9 w-full rounded-md" />
+                ) : (
+                  <Select
+                    value={selectedCreativeContextId ?? "none"}
+                    onValueChange={(value) =>
+                      onCreativeContextChange?.(value === "none" ? null : value)
+                    }
+                    onOpenChange={(nextOpen) => {
+                      if (!nextOpen) markNestedSelectJustClosed();
+                    }}
+                  >
+                    <SelectTrigger className="h-9 min-w-0 justify-start gap-2 px-2.5 text-xs [&>svg:last-child]:ms-auto">
+                      <IconBrain className="size-4 shrink-0 text-muted-foreground" />
+                      <span
+                        className="min-w-0 flex-1 truncate text-start"
+                        title={
+                          selectedCreativeContext?.name ??
+                          t("creativeContext.automatic")
+                        }
+                      >
+                        {selectedCreativeContext?.name ??
+                          t("creativeContext.automatic")}
+                      </span>
+                    </SelectTrigger>
+                    <SelectContent data-agent-native-prompt-select>
+                      <SelectItem value="none" className="text-xs">
+                        {t("creativeContext.automatic")}
+                      </SelectItem>
+                      {creativeContexts.map((context) => (
+                        <SelectItem
+                          key={context.id}
+                          value={context.id}
+                          className="text-xs"
+                        >
+                          {context.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
+                <span aria-hidden="true" className="size-9" />
               </>
             ) : null}
           </div>

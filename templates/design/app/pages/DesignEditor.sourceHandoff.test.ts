@@ -26,18 +26,29 @@ describe("DesignEditor pending source handoff", () => {
     // A posted handoff is not an applied one, and the Apply control would
     // otherwise never go away.
     expect(handler).toContain("if (delivery.awaitingHostTurn) {");
-    expect(handler).toContain("stagedSourceHandoffRef.current = true;");
+    expect(handler).toContain(
+      'stagedSourceHandoffRef.current = "awaiting-start";',
+    );
     expect(handler).toContain("setApplyingViaHost(true);");
+    // A posted handoff is not an acknowledged one.
+    expect(handler).toContain("HOST_TURN_START_TIMEOUT_MS");
     const chatState = source.slice(
       source.indexOf('if (data.type === "design:chatState")'),
       source.indexOf("const focusDesignInspectorForSelection"),
     );
+    // Only a turn we watched start counts: a turn already generating when Apply
+    // was clicked would otherwise settle and be read as ours.
+    expect(chatState).toContain('stagedSourceHandoffRef.current = "running";');
     expect(chatState).toContain(
-      'if (stagedSourceHandoffRef.current && next === "idle")',
+      'if (stagedSourceHandoffRef.current === "running")',
     );
     expect(chatState).toContain("clearPendingLiveEditStateRef.current();");
     expect(chatState.indexOf("reloadRunningAppPreviewFrames();")).toBeLessThan(
       chatState.indexOf("clearPendingLiveEditStateRef.current();"),
+    );
+    // Released on failure as well, or the shell's only control stays disabled.
+    expect(chatState.indexOf("setApplyingViaHost(false);")).toBeLessThan(
+      chatState.indexOf('if (next === "idle")'),
     );
   });
 
@@ -55,9 +66,7 @@ describe("DesignEditor pending source handoff", () => {
     expect(toolbar.indexOf("{shellMode ? null : (")).toBeLessThan(
       toolbar.indexOf("<DropdownMenu>"),
     );
-    expect(toolbar).toContain(
-      '"designEditor.pendingVisualStyles.applying"',
-    );
+    expect(toolbar).toContain('"designEditor.pendingVisualStyles.applying"');
     expect(toolbar).toContain("applyingViaHost ||");
     expect(toolbar).toContain("{applyingViaHost ? (");
   });
@@ -69,7 +78,8 @@ describe("DesignEditor pending source handoff", () => {
       source.indexOf("const clearPendingLiveEditState = useCallback"),
       source.indexOf("const clearPendingLiveEditStateRef"),
     );
-    expect(clearState).toContain("stagedSourceHandoffRef.current = false;");
+    expect(clearState).toContain('stagedSourceHandoffRef.current = "idle";');
+    expect(clearState).toContain("setApplyingViaHost(false);");
   });
 
   it("opens Design chat only for a local fallback and prevents duplicate sends", () => {

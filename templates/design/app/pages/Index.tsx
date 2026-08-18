@@ -13,8 +13,16 @@ import {
 } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrgMembers } from "@agent-native/core/client/org";
-import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
-import { useSetHeaderActions, useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import {
+  CreativeContextShareSheet,
+  parseCreativeContexts,
+  useCreativeContexts,
+  useCreativeContextState,
+} from "@agent-native/creative-context/client";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
 import { FULL_APP_BUILDING } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
@@ -35,7 +43,10 @@ import { useNavigate, Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import PromptPopover from "@/components/editor/PromptDialog";
-import type { PromptTemplateOption, UploadedFile } from "@/components/editor/PromptDialog";
+import type {
+  PromptTemplateOption,
+  UploadedFile,
+} from "@/components/editor/PromptDialog";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
@@ -65,7 +76,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Spinner } from "@/components/ui/spinner";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 import {
@@ -76,7 +91,10 @@ import {
   normalizeAuthorEmail,
   shouldShowAuthors,
 } from "@/lib/design-authors";
-import { clearPendingGeneration, writePendingGeneration } from "@/lib/pending-generation";
+import {
+  clearPendingGeneration,
+  writePendingGeneration,
+} from "@/lib/pending-generation";
 
 import { withLocalRuntimes } from "../components/design/design-canvas/local-runtime";
 
@@ -104,17 +122,23 @@ export default function Index() {
   const [author, setAuthor] = useState<string>(ALL_AUTHORS);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
-  const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(() => new Set());
+  const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
+    () => new Set(),
+  );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
   const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
-  const [newDesignSystemId, setNewDesignSystemId] = useState<string | null | undefined>(undefined);
+  const [newDesignSystemId, setNewDesignSystemId] = useState<
+    string | null | undefined
+  >(undefined);
   const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
   // "Design" (default, inline prototype) vs "Full app" (Builder Fusion
   // cloud container). Only reachable behind the full-app-building flag — the
   // popover renders no mode control at all when the flag is off, so this
   // state is always "design" in that case.
-  const [newDesignMode, setNewDesignMode] = useState<"design" | "app">("design");
+  const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
+    "design",
+  );
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
@@ -141,7 +165,9 @@ export default function Index() {
   const { data: orgMembersPage } = useOrgMembers();
 
   const createMutation = useActionMutation("create-design");
-  const createFromTemplateMutation = useActionMutation("create-design-from-template");
+  const createFromTemplateMutation = useActionMutation(
+    "create-design-from-template",
+  );
   // Fires the fusion-backed cloud container build; only ever called when
   // runtime flag is true and the user picked "Full app".
   const createFusionAppMutation = useActionMutation("create-fusion-app");
@@ -152,7 +178,11 @@ export default function Index() {
   // Designs the user has manually renamed since creation — an AI-generated
   // title that resolves later must never clobber an explicit rename.
   const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
-  const { designSystems, defaultSystem, isLoading: designSystemsLoading } = useDesignSystems();
+  const {
+    designSystems,
+    defaultSystem,
+    isLoading: designSystemsLoading,
+  } = useDesignSystems();
 
   const designs = (designsData?.designs ?? []) as Design[];
   const templateOptions = useMemo<PromptTemplateOption[]>(
@@ -169,6 +199,35 @@ export default function Index() {
         isBuiltIn: template.isBuiltIn,
       })),
     [templatesData?.templates],
+  );
+  const creativeContextsQuery = useCreativeContexts();
+  const creativeContextState = useCreativeContextState();
+  const creativeContextOptions = useMemo(
+    () =>
+      parseCreativeContexts(creativeContextsQuery.data)
+        .filter((context) => context.memberCount > 0)
+        .map((context) => ({ id: context.id, name: context.name })),
+    [creativeContextsQuery.data],
+  );
+  // The editor rereads persisted creative-context state after navigation to
+  // pick the generation precedent. Track the in-flight save so a submit that
+  // follows a pick right away can wait for it instead of racing it.
+  const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
+  const handleCreativeContextChange = useCallback(
+    (contextId: string | null) => {
+      creativeContextPersistRef.current = creativeContextState
+        .setState({
+          ...creativeContextState.state,
+          contextMode: "auto",
+          selectedContextId: contextId,
+          pinnedPackId: null,
+        })
+        .catch((error) => {
+          toast.error(t("creativeContext.stateSaveFailed"));
+          throw error;
+        });
+    },
+    [creativeContextState, t],
   );
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
@@ -190,12 +249,15 @@ export default function Index() {
     ? filterDesignsByAuthor(designs, author, viewerEmail)
     : designs;
   const filtered = search
-    ? byAuthor.filter((d) => d.title.toLowerCase().includes(search.toLowerCase()))
+    ? byAuthor.filter((d) =>
+        d.title.toLowerCase().includes(search.toLowerCase()),
+      )
     : byAuthor;
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
   const allVisibleSelected =
-    filtered.length > 0 && filtered.every((design) => selectedDesignIds.has(design.id));
+    filtered.length > 0 &&
+    filtered.every((design) => selectedDesignIds.has(design.id));
 
   const resolveDefaultDesignSystemId = useCallback(
     () => defaultSystem?.id ?? designSystems[0]?.id ?? null,
@@ -218,7 +280,9 @@ export default function Index() {
       anchorElRef.current = e.currentTarget;
       newDesignSystemWasChosenRef.current = false;
       syncSelectedTemplate(null);
-      setNewDesignSystemId(designSystemsLoading ? undefined : resolveDefaultDesignSystemId());
+      setNewDesignSystemId(
+        designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
+      );
       setShowNewPrompt(true);
     },
     [designSystemsLoading, resolveDefaultDesignSystemId, syncSelectedTemplate],
@@ -238,14 +302,26 @@ export default function Index() {
   );
 
   useEffect(() => {
-    if (!showNewPrompt || newDesignSystemId !== undefined || designSystemsLoading) return;
+    if (
+      !showNewPrompt ||
+      newDesignSystemId !== undefined ||
+      designSystemsLoading
+    )
+      return;
     setNewDesignSystemId(resolveDefaultDesignSystemId());
-  }, [designSystemsLoading, newDesignSystemId, resolveDefaultDesignSystemId, showNewPrompt]);
+  }, [
+    designSystemsLoading,
+    newDesignSystemId,
+    resolveDefaultDesignSystemId,
+    showNewPrompt,
+  ]);
 
   const handleTemplateChange = useCallback(
     (templateId: string | null) => {
       syncSelectedTemplate(templateId);
-      const template = templateOptions.find((candidate) => candidate.id === templateId);
+      const template = templateOptions.find(
+        (candidate) => candidate.id === templateId,
+      );
       if (newDesignSystemWasChosenRef.current) return;
       const linkedSystemId =
         template?.designSystemId &&
@@ -253,7 +329,8 @@ export default function Index() {
           ? template.designSystemId
           : null;
       setNewDesignSystemId(
-        linkedSystemId ?? (designSystemsLoading ? undefined : resolveDefaultDesignSystemId()),
+        linkedSystemId ??
+          (designSystemsLoading ? undefined : resolveDefaultDesignSystemId()),
       );
     },
     [
@@ -265,10 +342,13 @@ export default function Index() {
     ],
   );
 
-  const handleNewDesignSystemChange = useCallback((designSystemId: string | null) => {
-    newDesignSystemWasChosenRef.current = true;
-    setNewDesignSystemId(designSystemId);
-  }, []);
+  const handleNewDesignSystemChange = useCallback(
+    (designSystemId: string | null) => {
+      newDesignSystemWasChosenRef.current = true;
+      setNewDesignSystemId(designSystemId);
+    },
+    [],
+  );
 
   const toggleDesignSelection = useCallback((id: string) => {
     setSelectedDesignIds((current) => {
@@ -285,7 +365,8 @@ export default function Index() {
   const toggleVisibleSelection = useCallback(() => {
     setSelectedDesignIds((current) => {
       const next = new Set(current);
-      const shouldClear = filtered.length > 0 && filtered.every((design) => next.has(design.id));
+      const shouldClear =
+        filtered.length > 0 && filtered.every((design) => next.has(design.id));
 
       filtered.forEach((design) => {
         if (shouldClear) {
@@ -301,14 +382,18 @@ export default function Index() {
 
   const handleSearchChange = useCallback((query: string) => {
     setSearch(query);
-    setSelectedDesignIds((current) => (current.size === 0 ? current : new Set()));
+    setSelectedDesignIds((current) =>
+      current.size === 0 ? current : new Set(),
+    );
   }, []);
 
   // Bulk actions operate on the visible set, so narrowing the visible set has
   // to drop selections the user can no longer see.
   const handleAuthorChange = useCallback((next: string) => {
     setAuthor(next);
-    setSelectedDesignIds((current) => (current.size === 0 ? current : new Set()));
+    setSelectedDesignIds((current) =>
+      current.size === 0 ? current : new Set(),
+    );
   }, []);
 
   const clearSelection = useCallback(() => {
@@ -349,7 +434,9 @@ export default function Index() {
           id,
           title: finalTitle,
           projectType,
-          ...(linkedDesignSystemId ? { designSystemId: linkedDesignSystemId } : {}),
+          ...(linkedDesignSystemId
+            ? { designSystemId: linkedDesignSystemId }
+            : {}),
         } as any)
         .then(() => undefined)
         .catch((error) => {
@@ -376,16 +463,19 @@ export default function Index() {
         .then((result: any) => {
           if (!result?.updated || !result.title) return;
           if (userRenamedDesignIdsRef.current.has(designId)) return;
-          queryClient.setQueriesData({ queryKey: ["action", "list-designs"] }, (old: any) => {
-            if (!old || typeof old !== "object") return old;
-            return {
-              ...old,
-              count: old.count ?? (old.designs ?? []).length,
-              designs: (old.designs ?? []).map((d: Design) =>
-                d.id === designId ? { ...d, title: result.title } : d,
-              ),
-            };
-          });
+          queryClient.setQueriesData(
+            { queryKey: ["action", "list-designs"] },
+            (old: any) => {
+              if (!old || typeof old !== "object") return old;
+              return {
+                ...old,
+                count: old.count ?? (old.designs ?? []).length,
+                designs: (old.designs ?? []).map((d: Design) =>
+                  d.id === designId ? { ...d, title: result.title } : d,
+                ),
+              };
+            },
+          );
         })
         .catch(() => {
           // Best-effort background enhancement — the placeholder title
@@ -402,13 +492,21 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean },
     ) => {
+      // The rejection already surfaced its own toast in handleCreativeContextChange;
+      // swallow it here so a flaky context save can't block generation, but
+      // only after letting it settle instead of racing it.
+      await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const designSystemId =
-        newDesignSystemId === undefined ? resolveDefaultDesignSystemId() : newDesignSystemId;
+        newDesignSystemId === undefined
+          ? resolveDefaultDesignSystemId()
+          : newDesignSystemId;
 
       if (selectedTemplate && newDesignMode === "design") {
         setNewDesignHandoffPending(true);
-        const title = trimmedPrompt ? derivePromptTitle(trimmedPrompt) : selectedTemplate.title;
+        const title = trimmedPrompt
+          ? derivePromptTitle(trimmedPrompt)
+          : selectedTemplate.title;
         try {
           const result = await createFromTemplateMutation.mutateAsync({
             templateId: selectedTemplate.id,
@@ -422,8 +520,9 @@ export default function Index() {
           const effectiveDesignSystemId = result.designSystemId ?? null;
           if (result.adaptationPending) {
             const effectiveSystemTitle =
-              designSystems.find((system) => system.id === effectiveDesignSystemId)?.title ??
-              t("promptDialog.designSystem");
+              designSystems.find(
+                (system) => system.id === effectiveDesignSystemId,
+              )?.title ?? t("promptDialog.designSystem");
             writePendingGeneration(result.id, {
               prompt:
                 trimmedPrompt ||
@@ -442,7 +541,11 @@ export default function Index() {
             });
           }
           if (trimmedPrompt) {
-            handleGenerateDesignTitle(result.id, trimmedPrompt, result.title ?? title);
+            handleGenerateDesignTitle(
+              result.id,
+              trimmedPrompt,
+              result.title ?? title,
+            );
           }
           void queryClient
             .invalidateQueries({
@@ -453,7 +556,11 @@ export default function Index() {
           return;
         } catch (error) {
           setNewDesignHandoffPending(false);
-          toast.error(error instanceof Error ? error.message : t("templatesPage.createFailed"));
+          toast.error(
+            error instanceof Error
+              ? error.message
+              : t("templatesPage.createFailed"),
+          );
           throw error;
         }
       }
@@ -495,7 +602,10 @@ export default function Index() {
             });
           })
           .catch((error) => {
-            const message = error instanceof Error && error.message ? error.message : String(error);
+            const message =
+              error instanceof Error && error.message
+                ? error.message
+                : String(error);
             sendToDesignAgentChat({
               message: `I want to build this design as a full app: ${prompt}`,
               context:
@@ -545,8 +655,13 @@ export default function Index() {
     setNewDesignHandoffPending(true);
 
     const designSystemId =
-      newDesignSystemId === undefined ? resolveDefaultDesignSystemId() : newDesignSystemId;
-    const { id, ready } = createDesign(t("home.untitledDesign"), designSystemId);
+      newDesignSystemId === undefined
+        ? resolveDefaultDesignSystemId()
+        : newDesignSystemId;
+    const { id, ready } = createDesign(
+      t("home.untitledDesign"),
+      designSystemId,
+    );
 
     try {
       // Unlike prompt-backed creation, an empty shell has no pending-generation
@@ -605,8 +720,13 @@ export default function Index() {
     queryClient.setQueryData(
       ["action", "list-designs", { includePreview: "true" }],
       (old: any) => ({
-        count: Math.max((old?.count ?? (old?.designs ?? []).length) - ids.length, 0),
-        designs: (old?.designs ?? []).filter((d: Design) => !idsToDelete.has(d.id)),
+        count: Math.max(
+          (old?.count ?? (old?.designs ?? []).length) - ids.length,
+          0,
+        ),
+        designs: (old?.designs ?? []).filter(
+          (d: Design) => !idsToDelete.has(d.id),
+        ),
       }),
     );
 
@@ -652,14 +772,19 @@ export default function Index() {
 
     userRenamedDesignIdsRef.current.add(id);
 
-    queryClient.setQueriesData({ queryKey: ["action", "list-designs"] }, (old: any) => {
-      if (!old || typeof old !== "object") return old;
-      return {
-        ...old,
-        count: old.count ?? (old.designs ?? []).length,
-        designs: (old.designs ?? []).map((d: Design) => (d.id === id ? { ...d, title: next } : d)),
-      };
-    });
+    queryClient.setQueriesData(
+      { queryKey: ["action", "list-designs"] },
+      (old: any) => {
+        if (!old || typeof old !== "object") return old;
+        return {
+          ...old,
+          count: old.count ?? (old.designs ?? []).length,
+          designs: (old.designs ?? []).map((d: Design) =>
+            d.id === id ? { ...d, title: next } : d,
+          ),
+        };
+      },
+    );
 
     updateMutation.mutate({ id, title: next } as any, {
       onError: () => {
@@ -694,12 +819,19 @@ export default function Index() {
               <SelectValue placeholder={t("home.createdBy")} />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value={ALL_AUTHORS}>{t("home.allAuthors")}</SelectItem>
-              {viewerHasDesigns ? <SelectItem value={MY_DESIGNS}>{t("home.me")}</SelectItem> : null}
+              <SelectItem value={ALL_AUTHORS}>
+                {t("home.allAuthors")}
+              </SelectItem>
+              {viewerHasDesigns ? (
+                <SelectItem value={MY_DESIGNS}>{t("home.me")}</SelectItem>
+              ) : null}
               {authorEmails
                 .filter(
                   (email) =>
-                    !(viewerHasDesigns && normalizeAuthorEmail(email) === normalizedViewerEmail),
+                    !(
+                      viewerHasDesigns &&
+                      normalizeAuthorEmail(email) === normalizedViewerEmail
+                    ),
                 )
                 .map((email) => (
                   <SelectItem key={email} value={email}>
@@ -729,7 +861,9 @@ export default function Index() {
           ) : (
             <IconPlus className="w-3.5 h-3.5" />
           )}
-          {newDesignHandoffPending ? t("home.openingDesign") : t("home.newDesign")}
+          {newDesignHandoffPending
+            ? t("home.openingDesign")
+            : t("home.newDesign")}
         </Button>
       </div>
     ) : null,
@@ -742,7 +876,10 @@ export default function Index() {
         {isLoading ? (
           <LoadingSkeleton />
         ) : isError ? (
-          <QueryErrorState onRetry={() => void refetch()} retrying={isFetching} />
+          <QueryErrorState
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+          />
         ) : designs.length === 0 ? (
           <EmptyState
             onCreateDesign={openNewDesign}
@@ -801,7 +938,9 @@ export default function Index() {
                     size="sm"
                     onClick={() =>
                       setContextDesigns(
-                        designs.filter((design) => selectedDesignIds.has(design.id)),
+                        designs.filter((design) =>
+                          selectedDesignIds.has(design.id),
+                        ),
                       )
                     }
                     className="cursor-pointer"
@@ -880,7 +1019,9 @@ export default function Index() {
                     key={design.id}
                     aria-selected={isSelected}
                     className={`group relative rounded-xl border bg-card overflow-hidden ${
-                      isSelected ? "border-[#609FF8]/70 ring-2 ring-[#609FF8]/40" : "border-border"
+                      isSelected
+                        ? "border-[#609FF8]/70 ring-2 ring-[#609FF8]/40"
+                        : "border-border"
                     }`}
                   >
                     <Link to={`/design/${design.id}`} className="block">
@@ -897,7 +1038,9 @@ export default function Index() {
                         <TooltipTrigger asChild>
                           <Checkbox
                             checked={isSelected}
-                            onCheckedChange={() => toggleDesignSelection(design.id)}
+                            onCheckedChange={() =>
+                              toggleDesignSelection(design.id)
+                            }
                             onClick={(event) => event.stopPropagation()}
                             aria-label={t("home.selectDesign", {
                               title: design.title,
@@ -927,7 +1070,9 @@ export default function Index() {
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end">
                           <DropdownMenuItem
-                            onClick={() => setTimeout(() => startRename(design))}
+                            onClick={() =>
+                              setTimeout(() => startRename(design))
+                            }
                             className="cursor-pointer"
                           >
                             <IconPencil className="w-3.5 h-3.5 me-2" />
@@ -948,10 +1093,14 @@ export default function Index() {
                             className="cursor-pointer"
                           >
                             <IconPlus className="w-3.5 h-3.5 me-2" />
-                            {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+                            {t(
+                              "creativeContext.addToContext" /* i18n-key-ignore */,
+                            )}
                           </DropdownMenuItem>
                           <DropdownMenuItem
-                            onClick={() => setTimeout(() => setDeleteId(design.id))}
+                            onClick={() =>
+                              setTimeout(() => setDeleteId(design.id))
+                            }
                             className="text-red-400 focus:text-red-400 cursor-pointer"
                           >
                             <IconTrash className="w-3.5 h-3.5 me-2" />
@@ -995,7 +1144,11 @@ export default function Index() {
             : t("home.describeBuild")
         }
         onSkip={handleSkipToEditor}
-        skipLabel={selectedTemplate ? t("templatesPage.useTemplate") : t("home.skipToEditor")}
+        skipLabel={
+          selectedTemplate
+            ? t("templatesPage.useTemplate")
+            : t("home.skipToEditor")
+        }
         onSubmit={handleSubmitPrompt}
         anchorRef={anchorRef}
         templateOptions={templateOptions}
@@ -1006,13 +1159,21 @@ export default function Index() {
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
         onDesignSystemChange={handleNewDesignSystemChange}
+        creativeContexts={creativeContextOptions}
+        creativeContextsLoading={creativeContextsQuery.isLoading}
+        selectedCreativeContextId={
+          creativeContextState.state.selectedContextId ?? null
+        }
+        onCreativeContextChange={handleCreativeContextChange}
         loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);
           navigate("/design-systems/setup");
         }}
         creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
-        onCreationModeChange={fullAppBuildingEnabled ? setNewDesignMode : undefined}
+        onCreationModeChange={
+          fullAppBuildingEnabled ? setNewDesignMode : undefined
+        }
       />
 
       {/* Delete Confirmation */}
@@ -1049,7 +1210,9 @@ export default function Index() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel className="cursor-pointer">{t("home.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel className="cursor-pointer">
+              {t("home.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={bulkDeleteOpen ? handleBulkDelete : handleDelete}
               className="bg-red-600 hover:bg-red-700 cursor-pointer"
@@ -1085,7 +1248,9 @@ export default function Index() {
             className="h-9 text-sm"
           />
           <AlertDialogFooter>
-            <AlertDialogCancel className="cursor-pointer">{t("home.cancel")}</AlertDialogCancel>
+            <AlertDialogCancel className="cursor-pointer">
+              {t("home.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={commitRename}
               disabled={!renameDraft.trim()}
@@ -1165,7 +1330,10 @@ function DesignThumbnail({ html }: { html: string | null }) {
   }
 
   return (
-    <div ref={containerRef} className="aspect-video relative overflow-hidden bg-white">
+    <div
+      ref={containerRef}
+      className="aspect-video relative overflow-hidden bg-white"
+    >
       <iframe
         {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
         srcDoc={injectSessionReplayIframeBootstrap(withLocalRuntimes(html))}
@@ -1208,7 +1376,10 @@ function LoadingSkeleton() {
     <>
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="rounded-xl border border-border bg-card overflow-hidden">
+          <div
+            key={i}
+            className="rounded-xl border border-border bg-card overflow-hidden"
+          >
             <div className="aspect-video bg-muted/50 animate-pulse" />
             <div className="p-4 space-y-2">
               <div className="h-4 w-3/4 rounded bg-muted animate-pulse" />
@@ -1259,7 +1430,9 @@ function EmptyState({
   const t = useT();
   return (
     <div className="flex flex-col items-center justify-center min-h-[60vh] text-center">
-      <h2 className="text-xl font-semibold text-foreground mb-2">{t("home.createFirstDesign")}</h2>
+      <h2 className="text-xl font-semibold text-foreground mb-2">
+        {t("home.createFirstDesign")}
+      </h2>
       <p className="text-sm text-muted-foreground max-w-sm mb-6 leading-relaxed">
         {t("home.pickStartingPoint")}
       </p>

@@ -63,11 +63,20 @@ function makeDb(
   };
 }
 
-function stateWith(db: { exec: { execute: unknown } }, postgres = false) {
-  return new AppSyncState({
+function stateWith(
+  db: { exec: { execute: unknown } },
+  postgres = false,
+  pruneImmediately = true,
+) {
+  const state = new AppSyncState({
     getDb: () => db.exec as never,
     isPostgres: () => postgres,
   });
+  if (pruneImmediately) {
+    (state as unknown as { lastDurablePrune: number }).lastDurablePrune =
+      Date.now() - 5 * 60 * 1000 - 1;
+  }
+  return state;
 }
 
 async function prune(state: AppSyncState, db: { exec: unknown }) {
@@ -108,6 +117,27 @@ describe("sync_events prune", () => {
     expect(first.sql).not.toContain("version <");
     // Bounded: a LIMIT argument, and a cutoff 24h behind the clock.
     expect(first.args).toEqual([1_800_000_000_000 - 86_400_000, 10_000]);
+  });
+
+  it("defers the first prune on a cold process until its throttle window", async () => {
+    const db = makeDb({ deletedPerBatch: [1] });
+    const state = stateWith(db, false, false);
+    await state.persistSyncEvent({
+      version: 1,
+      source: "action",
+      type: "change",
+      key: "k",
+    });
+    expect(db.deletes).toHaveLength(0);
+
+    vi.setSystemTime(1_800_000_000_000 + 5 * 60 * 1000 + 1);
+    await state.persistSyncEvent({
+      version: 2,
+      source: "action",
+      type: "change",
+      key: "k",
+    });
+    expect(db.deletes).toHaveLength(1);
   });
 
   it("stops as soon as a batch comes back short, instead of spinning", async () => {

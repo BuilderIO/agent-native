@@ -36,6 +36,7 @@ import {
   setClientAppState,
   useReconciledState,
   useChangeVersion,
+  useChangeVersions,
   useAvatarUrl,
 } from "@agent-native/core/client/hooks";
 import {
@@ -56,7 +57,13 @@ import {
   normalizeDocumentTitle,
   withBuilderUtmTrackingParams,
 } from "@agent-native/core/shared";
-import { CreativeContextShareTab } from "@agent-native/creative-context/client";
+import {
+  CreativeContextShareTab,
+  parseCreativeContexts,
+  useCreativeContexts,
+  useCreativeContextState,
+  readCreativeContextState,
+} from "@agent-native/creative-context/client";
 import {
   LiveCursorOverlay,
   RemoteSelectionRings,
@@ -607,6 +614,10 @@ import {
 } from "./design-editor/collab-sync";
 import { getCreatedScreenNavigationPlan } from "./design-editor/created-screen-navigation";
 import {
+  designPrecedentDirectives,
+  loadCreativeContextPrecedent,
+} from "./design-editor/creative-context-precedent";
+import {
   adaptAutoTextColorForCrossScreenNode,
   BOARD_TEXT_AUTO_COLOR_MARKER,
   clearAutoTextColorMarkerOnExplicitColorCommit,
@@ -1046,6 +1057,8 @@ interface PendingStructureVerificationSession {
 }
 
 const PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS = 60_000;
+/** Auto-submitted turns report `generating` within a second; this is the giveup. */
+const HOST_TURN_START_TIMEOUT_MS = 15_000;
 const PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS = 15_000;
 const PENDING_STRUCTURE_SOURCE_POLL_MS = 750;
 const PENDING_STRUCTURE_RUNTIME_POLL_MS = 150;
@@ -2291,7 +2304,6 @@ function DesignEditor() {
     return value === "save" || value === "share" ? value : null;
   }, [searchParams]);
   const queryClient = useQueryClient();
-  const appStateVersion = useChangeVersion("app-state");
   const browserTabId = getBrowserTabId();
   /**
    * Shell mode: the host drives the whole canvas over `design:init` and nothing
@@ -2670,11 +2682,20 @@ function DesignEditor() {
   );
   // A handoff the host only prefilled. Its edits stay pending until a host turn
   // settles, which is the one signal that the prompt was actually run.
-  const stagedSourceHandoffRef = useRef(false);
+  // "awaiting-start" until the host reports generating: a turn that was already
+  // running when Apply was clicked would otherwise settle and be read as ours.
+  const stagedSourceHandoffRef = useRef<"idle" | "awaiting-start" | "running">(
+    "idle",
+  );
+  const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
   const [applyingViaHost, setApplyingViaHost] = useState(false);
   const clearPendingLiveEditState = useCallback(() => {
-    stagedSourceHandoffRef.current = false;
+    stagedSourceHandoffRef.current = "idle";
     setApplyingViaHost(false);
+    if (stagedHandoffStartTimerRef.current !== undefined) {
+      window.clearTimeout(stagedHandoffStartTimerRef.current);
+      stagedHandoffStartTimerRef.current = undefined;
+    }
     cancelPendingStructureVerification();
     pendingVisualStyleUndoStackRef.current = [];
     pendingVisualStyleRedoStackRef.current = [];
@@ -3202,7 +3223,7 @@ function DesignEditor() {
   // effect OR via this tab's OWN setActiveBreakpointMutation write (every
   // local breakpoint-bar handler seeds this ref immediately, before the
   // mutation even resolves). Without this, the UI's own write would bump
-  // `appStateVersion`, the effect would read back the exact value this tab
+  // targeted app-state counter, the effect would read back the exact value this tab
   // just wrote, and needlessly re-run every local state setter on every local
   // breakpoint chip click — this ref short-circuits that echo. Mirrors the
   // "ignoreSource" convention `useDbSync({ ignoreSource: getBrowserTabId() })`
@@ -3340,13 +3361,26 @@ function DesignEditor() {
         const next = data.data?.state;
         // Fires once per turn, not per file write: the agent edits source while
         // generating, so the container has rebuilt by the time it settles.
+        if (
+          next === "generating" &&
+          stagedSourceHandoffRef.current === "awaiting-start"
+        ) {
+          stagedSourceHandoffRef.current = "running";
+          if (stagedHandoffStartTimerRef.current !== undefined) {
+            window.clearTimeout(stagedHandoffStartTimerRef.current);
+            stagedHandoffStartTimerRef.current = undefined;
+          }
+        }
         if (hostChatGeneratingRef.current && next !== "generating") {
           reloadRunningAppPreviewFrames();
-          // The reload discards the inline overrides either way, so leaving the
-          // edits pending only offers to re-send a prompt for changes that are
-          // no longer on screen. A failed turn keeps them, so Apply can retry.
-          if (stagedSourceHandoffRef.current && next === "idle") {
-            clearPendingLiveEditStateRef.current();
+          if (stagedSourceHandoffRef.current === "running") {
+            stagedSourceHandoffRef.current = "idle";
+            // Released on failure too, or the only control left in the shell
+            // stays disabled with nothing to retry with.
+            setApplyingViaHost(false);
+            // The reload discarded the inline overrides either way, so keeping
+            // the edits only helps when the run failed and Apply can retry.
+            if (next === "idle") clearPendingLiveEditStateRef.current();
           }
         }
         hostChatGeneratingRef.current = next === "generating";
@@ -4249,6 +4283,34 @@ function DesignEditor() {
     : isDesignData(designResult)
       ? designResult
       : null;
+  const activeBreakpointStateVersion = useChangeVersion(
+    id ? `app-state:design-active-breakpoint:${id}` : "",
+  );
+  const localhostConsentStateVersion = useChangeVersion(
+    id ? `app-state:design-localhost-write-consent-request:${id}` : "",
+  );
+  const designEditorCommandKeys = useMemo(
+    () =>
+      browserTabId
+        ? [designEditorCommandKey(browserTabId), designEditorCommandKey()]
+        : [designEditorCommandKey()],
+    [browserTabId],
+  );
+  const designEditorCommandVersion = useChangeVersions(
+    designEditorCommandKeys.map((key) => `app-state:${key}`),
+  );
+  const pendingNodeRewriteStateKeys = useMemo(
+    () =>
+      id
+        ? (design?.files.map((file) =>
+            designRepromptPendingStateKey(id, file.id),
+          ) ?? [])
+        : [],
+    [design?.files, id],
+  );
+  const pendingNodeRewriteStateVersion = useChangeVersions(
+    pendingNodeRewriteStateKeys.map((key) => `app-state:${key}`),
+  );
   const designAccessRole = design?.accessRole;
   const canShareDesign =
     designAccessRole === "owner" || designAccessRole === "admin";
@@ -5305,6 +5367,32 @@ function DesignEditor() {
     t,
   ]);
 
+  const creativeContextsQuery = useCreativeContexts();
+  const creativeContextState = useCreativeContextState();
+  const creativeContextOptions = useMemo(
+    () =>
+      parseCreativeContexts(creativeContextsQuery.data)
+        .filter((context) => context.memberCount > 0)
+        .map((context) => ({ id: context.id, name: context.name })),
+    [creativeContextsQuery.data],
+  );
+  const creativeContextPersistRef = useRef<Promise<unknown> | null>(null);
+  const handleCreativeContextChange = useCallback(
+    (contextId: string | null) => {
+      creativeContextPersistRef.current = creativeContextState
+        .setState({
+          ...creativeContextState.state,
+          contextMode: "auto",
+          selectedContextId: contextId,
+          pinnedPackId: null,
+        })
+        .catch((error) => {
+          toast.error(t("creativeContext.stateSaveFailed"));
+          throw error;
+        });
+    },
+    [creativeContextState, t],
+  );
   const resolvePromptDesignSystemId = useCallback(
     () =>
       design?.designSystemId ??
@@ -5526,7 +5614,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, id, proposalFileIds]);
+  }, [pendingNodeRewriteStateVersion, id, proposalFileIds]);
   const pendingNodeRewriteByFile = useMemo(
     () =>
       new Map(
@@ -6356,6 +6444,10 @@ function DesignEditor() {
     let cancelled = false;
     void (async () => {
       const shouldExploreVariants = promptRequestsVariantExploration(prompt);
+      const precedent = await loadCreativeContextPrecedent(
+        (await readCreativeContextState()).selectedContextId,
+      );
+      if (cancelled) return;
       // A reference screenshot already answers the questions the intake flow
       // asks. Spending the one turn that can see the image on a questionnaire
       // means the turn that writes HTML never sees it.
@@ -6363,7 +6455,8 @@ function DesignEditor() {
       const shouldSkipQuestions =
         pending.skipQuestions === true ||
         shouldExploreVariants ||
-        hasReferenceImages;
+        hasReferenceImages ||
+        precedent?.status === "strong";
       const designSystemContext = await loadDesignSystemGenerationContext(
         pendingDesignSystemId,
       );
@@ -6388,11 +6481,20 @@ function DesignEditor() {
           : shouldExploreVariants
             ? designVariantGenerationDirectives(id, pendingDesignSystemId)
             : shouldSkipQuestions
-              ? designGenerationDirectives(
-                  id,
-                  pendingDesignSystemId,
-                  images.length,
-                )
+              ? [
+                  ...designGenerationDirectives(
+                    id,
+                    pendingDesignSystemId,
+                    images.length,
+                  ),
+                  ...(precedent?.status === "strong"
+                    ? designPrecedentDirectives(
+                        precedent.contextId,
+                        precedent.matches,
+                        id,
+                      )
+                    : []),
+                ]
               : designIntakeQuestionDirectives(
                   id,
                   pendingDesignSystemId,
@@ -6681,9 +6783,8 @@ function DesignEditor() {
   // application state so the agent and UI agree on the active edit scope;
   // this effect is the UI half that was previously missing — the BreakpointBar
   // chip/viewport-width only ever changed from the UI's own chip clicks.
-  // Polls the same way the `design-editor-command` ("navigate") consumption
-  // effect above does: react to `appStateVersion` (bumped by useDbSync on ANY
-  // app-state write, including this tab's own), read the key, and apply it —
+  // React to the targeted active-breakpoint app-state counter, read the key,
+  // and apply it -
   // except this key is a durable "current scope" value (not a one-shot
   // command), so unlike that effect this one does NOT null the key out after
   // reading; it just dedupes against the last-applied breakpointId so the
@@ -6729,7 +6830,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, designBreakpoints, id, isSignedIn]);
+  }, [activeBreakpointStateVersion, designBreakpoints, id, isSignedIn]);
 
   // Agent→UI: open the write-consent dialog when the agent requests local file
   // write access via request-localhost-write-consent (granting stays human-only).
@@ -6773,7 +6874,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, canEditDesign, id]);
+  }, [localhostConsentStateVersion, canEditDesign, id]);
 
   // §6.4 — The active screen's primary-frame width (the BASE editing
   // context). Overrides written at a narrower active breakpoint apply below
@@ -7207,7 +7308,7 @@ function DesignEditor() {
       cancelled = true;
     };
   }, [
-    appStateVersion,
+    designEditorCommandVersion,
     applyDesignEditorCommand,
     browserTabId,
     canEditDesign,
@@ -24854,8 +24955,19 @@ function DesignEditor() {
         // The host is running the turn, so the edits stay pending until it
         // settles: clearing them now would discard the work on a failed run.
         if (delivery.awaitingHostTurn) {
-          stagedSourceHandoffRef.current = true;
+          stagedSourceHandoffRef.current = "awaiting-start";
           setApplyingViaHost(true);
+          // A posted handoff is not an acknowledged one, so release the control
+          // if the host never starts a turn — the edits stay for a retry.
+          stagedHandoffStartTimerRef.current = window.setTimeout(() => {
+            stagedHandoffStartTimerRef.current = undefined;
+            if (stagedSourceHandoffRef.current !== "awaiting-start") return;
+            stagedSourceHandoffRef.current = "idle";
+            setApplyingViaHost(false);
+            toast.error(
+              t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
+            );
+          }, HOST_TURN_START_TIMEOUT_MS);
         } else finalizeWithoutStructureVerification();
         if (delivery.target === "local") setActiveLeftPanel("agent");
         toast.success(t("designEditor.pendingVisualStyles.sentToast"));
@@ -32332,43 +32444,45 @@ function DesignEditor() {
                             the prompt or aborting into interact mode have no
                             meaning here. */}
                         {shellMode ? null : (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              className="h-9 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
-                              aria-label={t(
-                                "designEditor.pendingVisualStyles.previewLabel",
-                              )}
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                className="h-9 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                                aria-label={t(
+                                  "designEditor.pendingVisualStyles.previewLabel",
+                                )}
+                              >
+                                <IconChevronDown className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              className="design-editor-app-menu-content w-64"
                             >
-                              <IconChevronDown className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            align="end"
-                            className="design-editor-app-menu-content w-64"
-                          >
-                            <DropdownMenuLabel className="text-xs text-muted-foreground">
-                              {t(
-                                "designEditor.pendingVisualStyles.previewLabel",
-                              )}
-                            </DropdownMenuLabel>
-                            <DropdownMenuItem
-                              onClick={handleCopyPendingVisualStylePrompt}
-                            >
-                              <IconClipboard className="mr-2 h-4 w-4" />
-                              {t("designEditor.pendingVisualStyles.copyPrompt")}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={handleAbortPendingVisualStyles}
-                            >
-                              <IconX className="mr-2 h-4 w-4" />
-                              {t(
-                                "designEditor.pendingVisualStyles.abortPreview",
-                              )}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                {t(
+                                  "designEditor.pendingVisualStyles.previewLabel",
+                                )}
+                              </DropdownMenuLabel>
+                              <DropdownMenuItem
+                                onClick={handleCopyPendingVisualStylePrompt}
+                              >
+                                <IconClipboard className="mr-2 h-4 w-4" />
+                                {t(
+                                  "designEditor.pendingVisualStyles.copyPrompt",
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={handleAbortPendingVisualStyles}
+                              >
+                                <IconX className="mr-2 h-4 w-4" />
+                                {t(
+                                  "designEditor.pendingVisualStyles.abortPreview",
+                                )}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         )}
                       </div>
                     </div>
@@ -33265,7 +33379,16 @@ function DesignEditor() {
             await loadDesignSystemGenerationContext(designSystemId);
           const shouldExploreVariants =
             promptRequestsVariantExploration(prompt);
-          const shouldSkipQuestions = shouldExploreVariants;
+          const precedent = shouldExploreVariants
+            ? null
+            : await (async () => {
+                await creativeContextPersistRef.current?.catch(() => {});
+                return loadCreativeContextPrecedent(
+                  (await readCreativeContextState()).selectedContextId,
+                );
+              })();
+          const shouldSkipQuestions =
+            shouldExploreVariants || precedent?.status === "strong";
           const context = [
             `The user has design "${id}" (title: "${design.title}") open and wants to fill it with design files.`,
             `User request: "${prompt}"`,
@@ -33276,7 +33399,16 @@ function DesignEditor() {
             ...(shouldExploreVariants
               ? designVariantGenerationDirectives(id, designSystemId)
               : shouldSkipQuestions
-                ? designGenerationDirectives(id, designSystemId)
+                ? [
+                    ...designGenerationDirectives(id, designSystemId),
+                    ...(precedent?.status === "strong"
+                      ? designPrecedentDirectives(
+                          precedent.contextId,
+                          precedent.matches,
+                          id,
+                        )
+                      : []),
+                  ]
                 : designIntakeQuestionDirectives(id, designSystemId)),
           ].join("\n");
           clearGenerationCompleteTimer();
@@ -33323,6 +33455,12 @@ function DesignEditor() {
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={selectedPromptDesignSystemId}
         onDesignSystemChange={setPromptDesignSystemId}
+        creativeContexts={creativeContextOptions}
+        creativeContextsLoading={creativeContextsQuery.isLoading}
+        selectedCreativeContextId={
+          creativeContextState.state.selectedContextId ?? null
+        }
+        onCreativeContextChange={handleCreativeContextChange}
         onCreateDesignSystem={() => {
           handlePromptOpenChange(false);
           navigate("/design-systems/setup");
