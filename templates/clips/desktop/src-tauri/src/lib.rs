@@ -52,7 +52,7 @@ use state::{
 };
 use util::{
     configure_overlay_behavior, is_recording_active, present_interactive_window,
-    set_capture_excluded,
+    restart_bundle_path, schedule_restart_after_exit, set_capture_excluded,
 };
 
 // Embedded fallback icon — a tiny 16x16 solid purple PNG so the binary always
@@ -116,7 +116,6 @@ pub fn run() {
             clips::close_signin,
             clips::show_flow_bar,
             clips::hide_flow_bar,
-            clips::hide_onboarding_window,
             clips::complete_voice_dictation,
             clips::paste_last_dictation,
             clips::set_recording_state,
@@ -248,6 +247,8 @@ pub fn run() {
             // persistent log file (production debugging)
             logfile::frontend_log,
             logfile::open_logs,
+            restart_bundle_path,
+            schedule_restart_after_exit,
         ])
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_deep_link::init())
@@ -341,15 +342,6 @@ pub fn run() {
             tray::build_tray(app)?;
             config::sync_launch_at_login(app.handle());
             let feature_config = config::feature_config(app.handle());
-            // ONBOARD-WINDOW: first-run onboarding never had a Rust-side
-            // window to appear in — the `#onboarding` hash route and overlay
-            // component existed, but nothing ever called
-            // WebviewWindowBuilder for it. Build it here, after the popover
-            // exists, gated on the persisted `onboarding_complete` flag so
-            // returning users never see it again.
-            if !feature_config.onboarding_complete {
-                clips::show_onboarding_window(app.handle());
-            }
             screen_memory::sync_from_config(app.handle(), &feature_config);
             // Re-show always-on region guides after relaunch/reboot when the
             // setting is on (no-op if a recording owns the window or the

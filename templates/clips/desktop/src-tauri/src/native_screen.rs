@@ -270,6 +270,19 @@ mod native_upload_mode_tests {
     }
 }
 
+#[cfg(test)]
+mod pending_recording_file_name_tests {
+    use super::pending_recording_file_stem;
+
+    #[test]
+    fn uses_a_clips_specific_pending_recording_prefix() {
+        assert_eq!(
+            pending_recording_file_stem("FxGL6zX7HWhU", 4242),
+            "clips-pending-recording-FxGL6zX7HWhU-4242",
+        );
+    }
+}
+
 #[derive(Default)]
 pub struct NativeFullscreenRecordingState {
     inner: Mutex<Option<NativeFullscreenSession>>,
@@ -2764,14 +2777,26 @@ fn discard_session(session: &mut NativeFullscreenSession) {
 
 /// Sibling path next to the original pending recording, numbered with
 /// the segment counter so multiple resume cycles don't clobber each
-/// other. Example: `clips-fullscreen-<id>-<pid>-seg2.mp4`.
+/// other. Example: `clips-pending-recording-<id>-<pid>-seg2.mp4`.
 fn segment_path_for(
     app: &AppHandle,
     safe_id: &str,
     extension: &str,
     counter: u32,
 ) -> Result<PathBuf, String> {
-    pending_recording_path(app, &format!("{safe_id}-seg{counter}"), extension)
+    let base_path = pending_recording_path(app, safe_id, extension)?;
+    let base_stem = base_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| "pending recording path has no valid file stem".to_string())?;
+    Ok(base_path.with_file_name(format!(
+        "{base_stem}-seg{counter}.{}",
+        extension.trim_start_matches('.')
+    )))
+}
+
+fn pending_recording_file_stem(safe_id: &str, pid: u32) -> String {
+    format!("clips-pending-recording-{safe_id}-{pid}")
 }
 
 /// Dispatches to the right backend starter for resume. Mirrors the
@@ -3202,7 +3227,9 @@ fn orphan_recording_id(path: &Path) -> Option<String> {
         return None;
     }
     let stem = path.file_stem().and_then(|value| value.to_str())?;
-    let value = if let Some(value) = stem.strip_prefix("rewind-") {
+    let value = if let Some(value) = stem.strip_prefix("clips-pending-recording-") {
+        value
+    } else if let Some(value) = stem.strip_prefix("rewind-") {
         value
     } else if let Some(value) = stem.strip_prefix("clips-fullscreen-") {
         value
@@ -3525,13 +3552,38 @@ mod orphan_recovery_tests {
             orphan_recording_id(Path::new("clips-fullscreen-e4esSx9NZCZa-1234.mov")),
             Some("e4esSx9NZCZa".into())
         );
+        assert_eq!(
+            orphan_recording_id(Path::new("clips-pending-recording-e4esSx9NZCZa-1234.mp4")),
+            Some("e4esSx9NZCZa".into())
+        );
         assert!(is_recording_segment_path(Path::new(
             "clips-fullscreen-e4esSx9NZCZa-1234-seg2.mp4"
+        )));
+        assert!(is_recording_segment_path(Path::new(
+            "clips-pending-recording-e4esSx9NZCZa-1234-seg2.mp4"
         )));
         assert!(
             orphan_recording_id(Path::new("clips-fullscreen-e4esSx9NZCZa-1234-seg2.mp4")).is_none()
         );
+        assert!(orphan_recording_id(Path::new(
+            "clips-pending-recording-e4esSx9NZCZa-1234-seg2.mp4"
+        ))
+        .is_none());
         assert!(orphan_recording_id(Path::new("unrelated.mp4")).is_none());
+    }
+
+    #[test]
+    fn recovers_new_pending_recording_name_without_intent_sidecar() {
+        let intent = orphan_recording_intent(
+            Path::new("clips-pending-recording-recording-123-456.mp4"),
+            "https://clips.example.test/",
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(intent.recording_id, "recording-123");
+        assert_eq!(intent.server_url, "https://clips.example.test");
+        assert!(!intent.custom_pipeline);
     }
 
     #[test]
@@ -4167,8 +4219,8 @@ fn pending_recording_path(
     extension: &str,
 ) -> Result<PathBuf, String> {
     Ok(pending_uploads_dir(app)?.join(format!(
-        "clips-fullscreen-{safe_id}-{}.{}",
-        std::process::id(),
+        "{}.{}",
+        pending_recording_file_stem(safe_id, std::process::id()),
         extension.trim_start_matches('.')
     )))
 }

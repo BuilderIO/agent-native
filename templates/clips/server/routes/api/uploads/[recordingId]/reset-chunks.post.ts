@@ -174,6 +174,14 @@ export default defineEventHandler(async (event: H3Event) => {
     uploadGenerationId?: string;
     useGenerationFence?: boolean;
   } | null;
+  const requestedStreamingMimeType =
+    body?.requestStreaming === true
+      ? normalizeVideoMimeType(body.mimeType)
+      : null;
+  if (body?.requestStreaming === true && !requestedStreamingMimeType) {
+    setResponseStatus(event, 400);
+    return { error: "A supported video mimeType is required for retry" };
+  }
   const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
     userEmail: ownerEmail,
     userKey: ownerEmail,
@@ -353,6 +361,7 @@ export default defineEventHandler(async (event: H3Event) => {
       if (claimed) cleanupClaim = candidate;
     }
 
+    let resumableCleanupFailed = false;
     if (discardedResumableSession) {
       if (cleanupClaim) {
         const cleaned = await abortResumableUploadSession(
@@ -360,21 +369,34 @@ export default defineEventHandler(async (event: H3Event) => {
           { label: `reset-${recordingId}` },
         );
         if (!cleaned) {
-          setResponseStatus(event, 502);
-          return {
-            error:
-              "The previous recording upload could not be cleaned up. Retry the upload restart.",
-          };
-        }
-        const released = await compareAndSetAppState(
-          cleanupStateKey,
-          cleanupClaim as unknown as Record<string, unknown>,
-          null,
-        );
-        if (!released) {
+          if (!allowsSqlRecordingChunkScratch()) {
+            setResponseStatus(event, 502);
+            return {
+              error:
+                "The previous recording upload could not be cleaned up. Retry the upload restart.",
+            };
+          }
+          // The provider-side session may remain orphaned when abort fails,
+          // but local buffered scratch is a complete recovery path for the
+          // saved file. Keep the cleanup claim for a later retry, remove the
+          // stale local session handle, and force the new chunks through the
+          // buffered handler instead of returning the same 502 repeatedly.
           console.warn(
-            `[reset-chunks-${recordingId}] cleanup claim changed while releasing it`,
+            `[reset-chunks-${recordingId}] provider cleanup failed; using buffered retry and retaining cleanup claim`,
           );
+          resumableCleanupFailed = true;
+        }
+        if (!resumableCleanupFailed) {
+          const released = await compareAndSetAppState(
+            cleanupStateKey,
+            cleanupClaim as unknown as Record<string, unknown>,
+            null,
+          );
+          if (!released) {
+            console.warn(
+              `[reset-chunks-${recordingId}] cleanup claim changed while releasing it`,
+            );
+          }
         }
       }
     }
@@ -385,22 +407,34 @@ export default defineEventHandler(async (event: H3Event) => {
     );
     // Clear any stale resumable session so a buffered retry does not
     // accidentally route through handleResumableChunk with stale offsets.
-    if (!discardedResumableSession || cleanupClaim) {
-      await deleteResumableSession(recordingId, discardedGenerationId).catch(
-        () => {},
-      );
+    if (!discardedResumableSession || cleanupClaim || resumableCleanupFailed) {
+      try {
+        await deleteResumableSession(recordingId, discardedGenerationId);
+      } catch (error) {
+        console.warn(
+          `[reset-chunks-${recordingId}] local resumable session cleanup failed`,
+          error,
+        );
+        setResponseStatus(event, 502);
+        return {
+          error:
+            "The previous recording upload could not be reset locally. Retry the upload restart.",
+        };
+      }
     }
 
     let uploadMode: UploadMode = "buffered";
     let compensateStartedSession: (() => Promise<void>) | null = null;
-    if (body?.requestStreaming === true) {
-      const mimeType = normalizeVideoMimeType(body.mimeType);
+    const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
+    const shouldRetryStreaming =
+      body?.requestStreaming === true && !resumableCleanupFailed;
+    if (shouldRetryStreaming) {
+      const mimeType = requestedStreamingMimeType;
       if (!mimeType) {
         setResponseStatus(event, 400);
         return { error: "A supported video mimeType is required for retry" };
       }
 
-      const bufferedFallbackAvailable = allowsSqlRecordingChunkScratch();
       const uploadProvider = await getActiveFileUploadProviderForRequest();
       if (
         shouldEnableStreamingUpload({
