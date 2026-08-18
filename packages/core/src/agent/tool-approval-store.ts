@@ -9,7 +9,13 @@ import {
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
 
-const APPROVAL_TTL_MS = 15 * 60_000;
+// 15 minutes was too short in practice: a user who steps away mid-approval
+// (switching tabs to update their client, checking something else) comes back
+// to a silently expired grant with no visible error — clicking Approve just
+// does nothing, because `consumeAgentToolApproval`'s `expires_at > ?` no
+// longer matches. An hour gives real human latency room while still bounding
+// how long a stale grant can be replayed.
+const APPROVAL_TTL_MS = 60 * 60_000;
 const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
 
 let initPromise: Promise<void> | undefined;
