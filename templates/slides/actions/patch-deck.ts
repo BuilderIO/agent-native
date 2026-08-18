@@ -365,7 +365,7 @@ export function applyOperation(deck: any, op: Operation): void {
       if (slides.length === 0 && !op.allowEmpty) {
         slides.push({
           id: `slide-${Date.now()}-fallback`,
-          content: `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center;"><div style="font-size: 28px; font-weight: 600; color: rgba(255,255,255,0.4);">Double-click to edit</div></div>`,
+          content: `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;"><div style="font-size: 28px; font-weight: 600; color: hsl(var(--muted-foreground) / 0.4);">Double-click to edit</div></div>`,
           notes: "",
           layout: "blank",
         });

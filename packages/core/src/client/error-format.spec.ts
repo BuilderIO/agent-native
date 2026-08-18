@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import {
   BUILDER_SPACE_SETTINGS_URL,
   NEW_CHAT_ACTION_HREF,
@@ -170,6 +171,65 @@ describe("formatChatErrorText", () => {
     expect(normalized.details).toBe(raw);
   });
 
+  // The engine keeps the real reason on `errorCode` so the site owner can
+  // diagnose it, and this is the layer that turns a code back into copy. Every
+  // code below has a mapping here or in `formatChatErrorText`, so without the
+  // guard the render boundary undoes the server's rewrite and the visitor reads
+  // the owner instruction again — the guarantee has to hold HERE, not only at
+  // the engine that chose the message.
+  describe("a message the server already chose for a visitor", () => {
+    const ownerCodes = [
+      "builder_auth_error",
+      "builder_model_unauthorized",
+      "email_verification_required",
+      "provider_config_error",
+      "credits-limit-reached",
+      "rate_limit_exceeded",
+      "gateway_not_enabled",
+      "too_many_concurrent_requests",
+      "http_403",
+      "invalid_request",
+      "builder_gateway_stream_ended",
+      "missing_credentials",
+    ];
+
+    for (const errorCode of ownerCodes) {
+      it(`survives ${errorCode} unchanged`, () => {
+        const normalized = normalizeChatError(
+          GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+          errorCode,
+        );
+        expect(normalized).toStrictEqual({
+          message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+        });
+        // No owner CTA either: a link to Builder space settings is an action
+        // only the owner of an org the visitor is not in can take.
+        expect(
+          formatChatErrorText(
+            GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+            undefined,
+            errorCode,
+          ),
+        ).toBe(`Error: ${GATEWAY_UNAVAILABLE_VISITOR_MESSAGE}`);
+      });
+    }
+
+    it("still maps the same codes for an owner-facing message", () => {
+      expect(
+        normalizeChatError("Invalid token", "builder_auth_error").message,
+      ).toBe(
+        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
+      );
+      expect(
+        formatChatErrorText(
+          "This space has not enabled the LLM gateway.",
+          undefined,
+          "gateway_not_enabled",
+        ),
+      ).toContain(BUILDER_SPACE_SETTINGS_URL);
+    });
+  });
+
   it("normalizes provider API key authentication failures", () => {
     const raw =
       '401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_example"}';
@@ -228,6 +288,45 @@ describe("formatChatErrorText", () => {
       "The agent connection was interrupted. Check your connection and retry.",
     );
     expect(normalized.details).toBe("connection_error");
+  });
+});
+
+describe("Builder gateway internal-error envelope", () => {
+  const raw =
+    "Sorry, we ran into an issue processing your request. " +
+    "ERROR ID: bebaeb5da13441539790834b63ff955a";
+
+  it("replaces the apology with what actually broke and keeps the id", () => {
+    const normalized = normalizeChatError(
+      raw,
+      "builder_gateway_internal_error",
+    );
+    expect(normalized.message).not.toContain("ERROR ID");
+    expect(normalized.message).toContain("model gateway");
+    expect(normalized.details).toBe(raw);
+  });
+
+  it("has localizable copy", () => {
+    const normalized = normalizeChatError(
+      raw,
+      "builder_gateway_internal_error",
+    );
+    expect(
+      localizeKnownChatErrorText(normalized.message, (key, options) =>
+        key === "agentChat.errorMessages.gatewayInternalError"
+          ? "Interner Gateway-Fehler."
+          : String(options?.defaultValue ?? key),
+      ),
+    ).toBe("Interner Gateway-Fehler.");
+  });
+
+  it("leaves a visitor-rewritten message alone", () => {
+    expect(
+      normalizeChatError(
+        GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+        "builder_gateway_internal_error",
+      ),
+    ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
   });
 });
 

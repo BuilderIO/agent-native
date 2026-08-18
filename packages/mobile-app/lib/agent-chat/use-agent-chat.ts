@@ -118,6 +118,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const liveTurnRef = useRef<LiveTurn | null>(null);
+  const pendingApprovalTurnIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const lastPromptRef = useRef<string | null>(null);
   const runIdsRef = useRef(new Map<string, string>());
@@ -136,12 +137,15 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       text: string,
       extra: Pick<
         ChatSendOptions & { approvedToolCalls?: string[] },
-        "approvedToolCalls" | "attachments" | "references"
+        "approvedToolCalls" | "attachments" | "references" | "turnId"
       > = {},
       currentThreadId?: string,
     ) => {
       const currentGeneration = ++activeGenerationRef.current;
       const activeThreadId = currentThreadId ?? threadId;
+      if (!extra.approvedToolCalls?.length) {
+        pendingApprovalTurnIdRef.current = null;
+      }
       void trackMobileEvent(
         "agent_chat_turn_started",
         {
@@ -208,6 +212,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           text,
           {
             threadId: activeThreadId,
+            ...(extra.turnId ? { turnId: extra.turnId } : {}),
             history,
             model: settingsRef.current.model,
             engine: settingsRef.current.engine,
@@ -257,6 +262,9 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         const applyEvent = (event: WireEvent) => {
           if (typeof event.seq === "number") lastSeq = event.seq;
           if (isTerminalWireEvent(event)) sawTerminal = true;
+          if (event.type === "approval_required") {
+            pendingApprovalTurnIdRef.current = turn.turnId;
+          }
           buffered = applyWireEvent(buffered, event, assistantId);
           dirty = true;
         };
@@ -364,8 +372,10 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const approve = useCallback(
     (approvalKey: string) => {
       if (stateRef.current.isStreaming) return;
+      const turnId = pendingApprovalTurnIdRef.current;
       void runTurn("Approved. Go ahead and run the requested action.", {
         approvedToolCalls: [approvalKey],
+        ...(turnId ? { turnId } : {}),
       });
     },
     [runTurn],
@@ -410,6 +420,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const newChat = useCallback((nextBaseUrl = DEFAULT_CHAT_BASE_URL) => {
     activeGenerationRef.current++;
     liveTurnRef.current?.abort();
+    pendingApprovalTurnIdRef.current = null;
     setThreadId(newThreadId());
     setBaseUrl(nextBaseUrl);
     lastPromptRef.current = null;
@@ -552,6 +563,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     (nextThreadId: string, nextBaseUrl?: string) => {
       const currentGeneration = ++activeGenerationRef.current;
       liveTurnRef.current?.abort();
+      pendingApprovalTurnIdRef.current = null;
       const resolvedBaseUrl = nextBaseUrl ?? DEFAULT_CHAT_BASE_URL;
       // Set synchronously so runTurn/reattach read the right app immediately,
       // before the state update commits.
@@ -572,6 +584,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         fetchThreadMessages(nextThreadId, resolvedBaseUrl),
         getActiveRun(nextThreadId, resolvedBaseUrl).catch(() => ({
           active: false as const,
+          turnId: undefined,
         })),
       ])
         .then(([messages, activeRun]) => {
@@ -582,6 +595,9 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             return;
           }
           setState((current) => ({ ...current, messages }));
+          if (activeRun.turnId) {
+            pendingApprovalTurnIdRef.current = activeRun.turnId;
+          }
           setHistoryLoading(false);
           if (activeRun.active && activeRun.runId) {
             void resumeRun(activeRun.runId, currentGeneration);

@@ -106,7 +106,7 @@ export async function sendChatTurn(
     if (options.signal.aborted) controller.abort();
     else options.signal.addEventListener("abort", () => controller.abort());
   }
-  const turnId = nextLocalId("turn");
+  const turnId = options.turnId ?? nextLocalId("turn");
   const response = await expoFetch(`${baseUrl}${CHAT_PATH}`, {
     method: "POST",
     headers,
@@ -591,6 +591,7 @@ export async function getActiveRun(
   const data = await jsonRequest<{
     active?: boolean;
     runId?: string;
+    turnId?: string;
     status?: string;
   }>(
     `${CHAT_PATH}/runs/active?threadId=${encodeURIComponent(threadId)}`,
@@ -600,6 +601,7 @@ export async function getActiveRun(
   return {
     active: data.active === true,
     runId: typeof data.runId === "string" ? data.runId : undefined,
+    turnId: typeof data.turnId === "string" ? data.turnId : undefined,
     status: typeof data.status === "string" ? data.status : undefined,
   };
 }

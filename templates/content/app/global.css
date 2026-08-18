@@ -1046,7 +1046,7 @@
 }
 
 .notion-toggle__chevron {
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--foreground));
   user-select: none;
   display: flex;
   align-items: center;
@@ -1055,6 +1055,9 @@
   height: 1.7em;
   border-radius: 3px;
   transition: background-color 120ms ease-out;
+}
+.notion-toggle--body-empty .notion-toggle__chevron {
+  color: hsl(var(--muted-foreground));
 }
 .notion-toggle__chevron:hover {
   background: hsl(var(--muted));

@@ -71,14 +71,17 @@ import { getGoogleEventColorHex } from "@/lib/event-colors";
 import { buildEventFormInitializationKey } from "@/lib/event-form-initialization";
 import {
   attachmentsToDrafts,
+  buildRecurrenceRules,
   buildReminderPayload,
   createAttachmentDraft,
   createReminderDraft,
   dateTimeInTimezoneToIso,
   getEventEndValidationMessage,
+  getRecurrencePreset,
   remindersToDraftState,
   resolveEventTimezone,
   type AttachmentDraft,
+  type RecurrencePreset,
   type ReminderDraft,
   type ReminderMode,
   validateAttachmentDrafts,
@@ -180,6 +183,10 @@ function dateTimePartsInTimezone(value: string, timezone: string) {
 
 function allDayEndDate(end: string | undefined, fallback: string) {
   if (!end) return fallback;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    const previous = addDaysToDateString(end, -1);
+    return previous < fallback ? fallback : previous;
+  }
   const parsed = new Date(end);
   if (Number.isNaN(parsed.getTime())) return fallback;
   parsed.setDate(parsed.getDate() - 1);
@@ -261,6 +268,8 @@ export function CreateEventPopover({
   );
   const [availability, setAvailability] = useState<Availability>("opaque");
   const [visibility, setVisibility] = useState<Visibility>("default");
+  const [recurrencePreset, setRecurrencePreset] =
+    useState<RecurrencePreset>("none");
   const [timezone, setTimezone] = useState(defaultTimezone);
   const [colorId, setColorId] = useState<string | undefined>();
   const [reminderMode, setReminderMode] = useState<ReminderMode>("default");
@@ -323,12 +332,14 @@ export function CreateEventPopover({
 
     if (draft) {
       const startParts = draft.start
-        ? draft.fullDay && /^\d{4}-\d{2}-\d{2}$/.test(draft.start)
+        ? (draft.fullDay || draft.allDay) &&
+          /^\d{4}-\d{2}-\d{2}$/.test(draft.start)
           ? { date: draft.start, time: "00:00" }
           : dateTimePartsInTimezone(draft.start, draftTimezone)
         : null;
       const endParts = draft.end
-        ? draft.fullDay && /^\d{4}-\d{2}-\d{2}$/.test(draft.end)
+        ? (draft.fullDay || draft.allDay) &&
+          /^\d{4}-\d{2}-\d{2}$/.test(draft.end)
           ? { date: draft.end, time: "00:00" }
           : dateTimePartsInTimezone(
               draft.end,
@@ -365,6 +376,7 @@ export function CreateEventPopover({
       );
       setAvailability(draft.transparency ?? "opaque");
       setVisibility(draft.visibility ?? "default");
+      setRecurrencePreset(getRecurrencePreset(draft.recurrence));
       setTimezone(draftTimezone);
       setColorId(draft.colorId);
       setReminderMode(reminderState.mode);
@@ -403,6 +415,7 @@ export function CreateEventPopover({
     setDeclineMessage("Declined because I am out of office");
     setAvailability("opaque");
     setVisibility("default");
+    setRecurrencePreset("none");
     setTimezone(defaultTimezone);
     setColorId(undefined);
     setReminderMode("default");
@@ -465,6 +478,11 @@ export function CreateEventPopover({
         : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
     const attachmentResult = validateAttachmentDrafts(attachments);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
+    const recurrence = buildRecurrenceRules(
+      recurrencePreset,
+      effectiveAllDay ? date : startValue,
+      eventTimezone,
+    );
     const nextDraft: CalendarEventDraft = {
       id: draftId,
       createdAt: draft?.createdAt,
@@ -493,6 +511,7 @@ export function CreateEventPopover({
             : "opaque",
       visibility: eventType === "workingLocation" ? "public" : visibility,
       ...reminderPatch,
+      recurrence: recurrence ?? undefined,
       colorId,
       attachments:
         attachmentResult.error ||
@@ -549,6 +568,7 @@ export function CreateEventPopover({
     declineMessage,
     availability,
     visibility,
+    recurrencePreset,
     eventTimezone,
     colorId,
     reminderMode,
@@ -747,6 +767,11 @@ export function CreateEventPopover({
       ...trailingAttendees,
     ]);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
+    const recurrence = buildRecurrenceRules(
+      recurrencePreset,
+      effectiveAllDay ? date : startValue,
+      eventTimezone,
+    );
     const statusPatch =
       eventType === "default"
         ? {}
@@ -782,6 +807,7 @@ export function CreateEventPopover({
             : "opaque",
       visibility: eventType === "workingLocation" ? "public" : visibility,
       ...reminderPatch,
+      recurrence: recurrence ?? undefined,
       ...statusPatch,
       color: colorId ? getGoogleEventColorHex(colorId) : undefined,
       colorId,
@@ -1404,6 +1430,50 @@ export function CreateEventPopover({
                     </div>
                   </div>
                 )}
+
+                <div className="space-y-1.5">
+                  <Label htmlFor="event-recurrence" className="text-xs">
+                    {t("eventForm.repeats")}
+                  </Label>
+                  <Select
+                    value={recurrencePreset}
+                    onValueChange={(value) =>
+                      setRecurrencePreset(value as RecurrencePreset)
+                    }
+                  >
+                    <SelectTrigger
+                      id="event-recurrence"
+                      className="h-8 text-sm"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        {t("eventForm.doesNotRepeat")}
+                      </SelectItem>
+                      <SelectItem value="daily">
+                        {t("eventForm.daily")}
+                      </SelectItem>
+                      <SelectItem value="weekdays">
+                        {t("eventForm.everyWeekday")}
+                      </SelectItem>
+                      <SelectItem value="weekly">
+                        {t("eventForm.weekly")}
+                      </SelectItem>
+                      <SelectItem value="monthly">
+                        {t("eventForm.monthly")}
+                      </SelectItem>
+                      <SelectItem value="yearly">
+                        {t("eventForm.yearly")}
+                      </SelectItem>
+                      {recurrencePreset === "custom" && (
+                        <SelectItem value="custom" disabled>
+                          {t("eventForm.customSchedule")}
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
 
                 {(!allDay || isOutOfOffice) && (
                   <div className="space-y-1.5">

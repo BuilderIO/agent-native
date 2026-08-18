@@ -6,7 +6,242 @@ private struct HelperFailure: Error, CustomStringConvertible {
     let description: String
 }
 
+private final class PhantomCursorView: NSView {
+    static let panelWidth: CGFloat = 70
+    static let panelHeight: CGFloat = 45
+    static let labelGap: CGFloat = 2
+
+    var labelOnLeft = false {
+        didSet { needsDisplay = true }
+    }
+
+    var labelAbove = false {
+        didSet { needsDisplay = true }
+    }
+
+    var pointerOriginX: CGFloat = 1 {
+        didSet { needsDisplay = true }
+    }
+
+    var pointerTipY: CGFloat = 44 {
+        didSet { needsDisplay = true }
+    }
+
+    var preferredLabelWidth: CGFloat {
+        let label = "Agent" as NSString
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 12, weight: .regular),
+        ]
+        return label.size(withAttributes: attributes).width + 12
+    }
+
+    override var isOpaque: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.clear.setFill()
+        dirtyRect.fill()
+
+        let pointerOriginY = pointerTipY - 44
+        let pointer = NSBezierPath()
+        pointer.move(to: NSPoint(x: pointerOriginX, y: pointerOriginY + 44))
+        pointer.line(to: NSPoint(x: pointerOriginX, y: pointerOriginY + 27))
+        pointer.line(to: NSPoint(x: pointerOriginX + 5, y: pointerOriginY + 31))
+        pointer.line(to: NSPoint(x: pointerOriginX + 9, y: pointerOriginY + 24))
+        pointer.line(to: NSPoint(x: pointerOriginX + 12, y: pointerOriginY + 26))
+        pointer.line(to: NSPoint(x: pointerOriginX + 8, y: pointerOriginY + 32))
+        pointer.line(to: NSPoint(x: pointerOriginX + 16, y: pointerOriginY + 32))
+        pointer.close()
+
+        let shadow = NSShadow()
+        shadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.26)
+        shadow.shadowBlurRadius = 1
+        shadow.shadowOffset = NSSize(width: 0, height: -1)
+        NSGraphicsContext.saveGraphicsState()
+        shadow.set()
+        NSColor(calibratedRed: 0.482, green: 0.380, blue: 1, alpha: 1).setFill()
+        pointer.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        NSColor.white.setStroke()
+        pointer.lineWidth = 1.1
+        pointer.stroke()
+
+        let label = "Agent" as NSString
+        let labelFont = NSFont.systemFont(ofSize: 12, weight: .regular)
+        let labelAttributes: [NSAttributedString.Key: Any] = [
+            .font: labelFont,
+            .foregroundColor: NSColor.white,
+        ]
+        let labelSize = label.size(withAttributes: labelAttributes)
+        let labelWidth = labelSize.width + 12
+        let labelRect = NSRect(
+            x: labelOnLeft
+                ? max(0, pointerOriginX - labelWidth - PhantomCursorView.labelGap)
+                : 17,
+            y: labelAbove
+                ? min(max(pointerTipY + 2, 0), PhantomCursorView.panelHeight - 20)
+                : 5,
+            width: labelWidth,
+            height: 20
+        )
+        let labelPath = NSBezierPath(roundedRect: labelRect, xRadius: 2, yRadius: 2)
+        NSGraphicsContext.saveGraphicsState()
+        let labelShadow = NSShadow()
+        labelShadow.shadowColor = NSColor(calibratedWhite: 0, alpha: 0.22)
+        labelShadow.shadowBlurRadius = 2
+        labelShadow.shadowOffset = NSSize(width: 0, height: -1)
+        labelShadow.set()
+        NSColor(calibratedRed: 0.482, green: 0.380, blue: 1, alpha: 1).setFill()
+        labelPath.fill()
+        NSGraphicsContext.restoreGraphicsState()
+        label.draw(
+            at: NSPoint(x: labelRect.minX + 6, y: labelRect.minY + 3),
+            withAttributes: labelAttributes
+        )
+    }
+}
+
+private final class PhantomCursorOverlay {
+    private let visibleDuration: TimeInterval = 1.8
+    private let fadeDuration: TimeInterval = 0.42
+    private var panel: NSPanel?
+    private var fadeTimer: Timer?
+    private var removeTimer: Timer?
+
+    func show(at quartzPoint: CGPoint, click: Bool) {
+        onMain { [self] in
+            guard let placement = placement(for: quartzPoint) else { return }
+            removeTimers()
+
+            let view: PhantomCursorView
+            if let existingView = panel?.contentView as? PhantomCursorView {
+                view = existingView
+            } else {
+                view = PhantomCursorView(
+                    frame: NSRect(
+                        x: 0,
+                        y: 0,
+                        width: PhantomCursorView.panelWidth,
+                        height: PhantomCursorView.panelHeight
+                    )
+                )
+                let nextPanel = NSPanel(
+                    contentRect: view.frame,
+                    styleMask: [.borderless, .nonactivatingPanel],
+                    backing: .buffered,
+                    defer: false
+                )
+                nextPanel.isOpaque = false
+                nextPanel.backgroundColor = .clear
+                nextPanel.hasShadow = false
+                nextPanel.ignoresMouseEvents = true
+                nextPanel.hidesOnDeactivate = false
+                nextPanel.level = .floating
+                nextPanel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+                nextPanel.contentView = view
+                panel = nextPanel
+            }
+
+            let pointerWidth: CGFloat = 17
+            view.labelOnLeft = placement.appKitPoint.x
+                + pointerWidth
+                + PhantomCursorView.labelGap
+                + view.preferredLabelWidth
+                > placement.screen.frame.maxX
+            view.labelAbove = placement.appKitPoint.y - 44 < placement.screen.frame.minY
+            _ = click
+            let desiredOriginX = view.labelOnLeft
+                ? placement.appKitPoint.x
+                    - view.preferredLabelWidth
+                    - PhantomCursorView.labelGap
+                : placement.appKitPoint.x - 1
+            let originX = min(
+                max(desiredOriginX, placement.screen.frame.minX),
+                placement.screen.frame.maxX - PhantomCursorView.panelWidth
+            )
+            // Keep the arrow tip on the action point. The display clips only
+            // the artwork that naturally extends past a physical edge.
+            view.pointerOriginX = max(placement.appKitPoint.x - originX, 1)
+
+            let desiredOriginY = view.labelAbove
+                ? placement.appKitPoint.y - 22
+                : placement.appKitPoint.y - 44
+            let originY = min(
+                max(desiredOriginY, placement.screen.frame.minY),
+                placement.screen.frame.maxY - PhantomCursorView.panelHeight
+            )
+            view.pointerTipY = min(max(placement.appKitPoint.y - originY, 0), 44)
+            panel?.alphaValue = 1
+            panel?.setFrameOrigin(NSPoint(
+                x: originX,
+                y: originY
+            ))
+            panel?.orderFrontRegardless()
+
+            fadeTimer = Timer.scheduledTimer(withTimeInterval: visibleDuration, repeats: false) { [weak self] _ in
+                self?.fade()
+            }
+        }
+    }
+
+    func hide() {
+        onMain { [self] in
+            removeTimers()
+            panel?.orderOut(nil)
+            panel = nil
+        }
+    }
+
+    private func fade() {
+        guard let panel else { return }
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = fadeDuration
+            panel.animator().alphaValue = 0
+        }
+        removeTimer = Timer.scheduledTimer(withTimeInterval: fadeDuration, repeats: false) { [weak self] _ in
+            self?.hide()
+        }
+    }
+
+    private func removeTimers() {
+        fadeTimer?.invalidate()
+        fadeTimer = nil
+        removeTimer?.invalidate()
+        removeTimer = nil
+    }
+
+    private func onMain(_ work: @escaping () -> Void) {
+        if Thread.isMainThread {
+            work()
+        } else {
+            DispatchQueue.main.sync(execute: work)
+        }
+    }
+
+    private struct CursorPlacement {
+        let appKitPoint: NSPoint
+        let screen: NSScreen
+    }
+
+    private func placement(for quartzPoint: CGPoint) -> CursorPlacement? {
+        let screens = NSScreen.screens
+        guard !screens.isEmpty else { return nil }
+
+        // Accessibility and NSScreen frames are both logical points. Derive a
+        // shared top-left space instead of mixing them with display pixels.
+        let referenceScreen = screens.first(where: {
+            $0.frame.minX == 0 && $0.frame.minY == 0
+        }) ?? screens[0]
+        let referenceTop = referenceScreen.frame.maxY
+        let appKitPoint = NSPoint(x: quartzPoint.x, y: referenceTop - quartzPoint.y)
+        guard let screen = screens.first(where: {
+            $0.frame.insetBy(dx: -0.5, dy: -0.5).contains(appKitPoint)
+        }) else { return nil }
+        return CursorPlacement(appKitPoint: appKitPoint, screen: screen)
+    }
+}
+
 private final class ComputerHelper {
+    private let cursorOverlay = PhantomCursorOverlay()
     private var snapshotId: String?
     private var targets: [String: AXUIElement] = [:]
     private var snapshotBundleId: String?
@@ -14,6 +249,10 @@ private final class ComputerHelper {
     private var nodeCount = 0
     private let maxNodes = 500
     private let maxDepth = 8
+
+    func close() {
+        cursorOverlay.hide()
+    }
 
     func handle(_ request: [String: Any]) throws -> Any? {
         guard let command = request["command"] as? String else {
@@ -33,6 +272,7 @@ private final class ComputerHelper {
             return nil
         case "releaseAll":
             releaseAllInputs()
+            cursorOverlay.hide()
             return nil
         default:
             throw HelperFailure(description: "Unsupported command.")
@@ -131,6 +371,13 @@ private final class ComputerHelper {
         }
         guard isElementEnabled(element) else {
             throw HelperFailure(description: "Semantic target is no longer enabled.")
+        }
+
+        if let rect = rect(of: element) {
+            cursorOverlay.show(
+                at: CGPoint(x: rect.midX, y: rect.midY),
+                click: kind == "input.click"
+            )
         }
 
         switch kind {
@@ -359,26 +606,40 @@ private func keyCode(_ name: String) -> CGKeyCode? {
 }
 
 private let helper = ComputerHelper()
-while let line = readLine() {
-    autoreleasepool {
-        var response: [String: Any] = ["ok": false]
-        do {
-            guard let data = line.data(using: .utf8),
-                  let request = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let id = request["id"] as? NSNumber else {
-                throw HelperFailure(description: "Invalid request envelope.")
+let application = NSApplication.shared
+application.setActivationPolicy(.accessory)
+DispatchQueue.global(qos: .userInitiated).async {
+    while let line = readLine() {
+        autoreleasepool {
+            var response: [String: Any] = ["ok": false]
+            do {
+                guard let data = line.data(using: .utf8),
+                      let request = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      let id = request["id"] as? NSNumber else {
+                    throw HelperFailure(description: "Invalid request envelope.")
+                }
+                response["id"] = id
+                // Accessibility and AppKit must stay on the main thread. The
+                // stdin worker remains serialized while the main run loop
+                // owns every helper operation.
+                let result = try DispatchQueue.main.sync {
+                    try helper.handle(request)
+                }
+                response["ok"] = true
+                if let result { response["result"] = result }
+            } catch {
+                response["error"] = String(describing: error)
             }
-            response["id"] = id
-            let result = try helper.handle(request)
-            response["ok"] = true
-            if let result { response["result"] = result }
-        } catch {
-            response["error"] = String(describing: error)
-        }
-        if let data = try? JSONSerialization.data(withJSONObject: response),
-           let output = String(data: data, encoding: .utf8) {
-            print(output)
-            fflush(stdout)
+            if let data = try? JSONSerialization.data(withJSONObject: response),
+               let output = String(data: data, encoding: .utf8) {
+                print(output)
+                fflush(stdout)
+            }
         }
     }
+    DispatchQueue.main.async {
+        helper.close()
+        application.terminate(nil)
+    }
 }
+application.run()

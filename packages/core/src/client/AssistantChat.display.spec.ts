@@ -45,6 +45,7 @@ import {
   shouldShowAssistantChatModelSelector,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
+  shouldSuppressUnauthenticatedDesktopThreadRestore,
   shouldAcceptRunError,
   shouldShowGlobalRunningStatus,
   queuedMessageImageSources,
@@ -69,6 +70,24 @@ describe("shouldShowAssistantChatModelSelector", () => {
 });
 
 describe("AssistantChat thread restore and composer recovery", () => {
+  it("only suppresses unauthenticated restore failures for desktop chat", () => {
+    expect(
+      shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 401),
+    ).toBe(true);
+    expect(
+      shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 403),
+    ).toBe(true);
+    expect(
+      shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 404),
+    ).toBe(false);
+    expect(
+      shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 500),
+    ).toBe(false);
+    expect(shouldSuppressUnauthenticatedDesktopThreadRestore("app", 401)).toBe(
+      false,
+    );
+  });
+
   it("keeps failed thread restores visible and retryable", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
@@ -76,7 +95,9 @@ describe("AssistantChat thread restore and composer recovery", () => {
 
     expect(source).not.toContain("knownAbsentThreadIds");
     expect(source).toContain('setThreadRestoreError("unavailable")');
-    expect(source).toContain('res.status === 404 ? "not-found"');
+    expect(source).toContain("res.status === 404");
+    expect(source).toContain('"not-found"');
+    expect(source).toContain('t("agentChat.message.threadNotFound")');
     expect(source).toContain("retryThreadRestore");
     expect(source).toContain('t("agentChat.common.retry")');
   });

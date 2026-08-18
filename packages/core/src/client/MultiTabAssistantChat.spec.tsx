@@ -912,6 +912,64 @@ describe("MultiTabAssistantChat postMessage bridge", () => {
     );
   });
 
+  it("rehydrates the open tabs for the newly active resource scope", async () => {
+    const storageKey = "scope-navigation-test";
+    const scopedOpenTabsKey = (designId: string) =>
+      `agent-chat-open-tabs:${storageKey}:scope:design:${designId}`;
+    const baseThread = threadMocks.threads[0];
+    threadMocks.threads = [
+      { ...baseThread, id: "thread-a" },
+      { ...baseThread, id: "thread-b" },
+    ];
+    threadMocks.activeThreadId = "thread-a";
+    window.localStorage.setItem(
+      scopedOpenTabsKey("design-a"),
+      JSON.stringify(["thread-a"]),
+    );
+    window.localStorage.setItem(
+      scopedOpenTabsKey("design-b"),
+      JSON.stringify(["thread-b"]),
+    );
+
+    let tabs: Array<{ id: string }> = [];
+    const renderHeader = (props: { tabs: Array<{ id: string }> }) => {
+      tabs = props.tabs;
+      return null;
+    };
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
+          scope={{ type: "design", id: "design-a" }}
+          renderHeader={renderHeader}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(tabs.map((tab) => tab.id)).toEqual(["thread-a"]);
+
+    threadMocks.activeThreadId = "thread-b";
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey={storageKey}
+          scope={{ type: "design", id: "design-b" }}
+          renderHeader={renderHeader}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(tabs.map((tab) => tab.id)).toEqual(["thread-b"]);
+  });
+
   it("renders resource context as a normal composer context item", async () => {
     threadMocks.threads = [
       {

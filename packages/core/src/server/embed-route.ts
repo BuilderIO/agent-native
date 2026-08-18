@@ -182,6 +182,8 @@ function logEmbedConsumeResult(
     ticketRowFound: diagnostic.ticketRowFound,
     consumed: diagnostic.consumed,
     expired: diagnostic.expired,
+    expectedOwnerKey: diagnostic.expectedOwnerKey,
+    ticketOwnerKey: diagnostic.ticketOwnerKey,
     expectedOrgKey: diagnostic.expectedOrgKey,
     ticketOrgKey: diagnostic.ticketOrgKey,
     responseStatus,
@@ -331,7 +333,10 @@ export function createEmbedStartRouteHandler(
       .catch(() => null);
     let consumeDiagnostic: EmbedSessionTicketConsumeDiagnostic | null = null;
     const consumed = await consumeEmbedSessionTicket(ticket, {
-      expectedOrgId: existingSession?.orgId ?? null,
+      // Org ids are app-local in the workspace: the Dispatch parent and a
+      // target app can represent the same signed-in person with different
+      // ids. Bind an existing target session to the ticket owner instead.
+      expectedOwnerEmail: existingSession?.email ?? null,
       onResult: (diagnostic) => {
         consumeDiagnostic = diagnostic;
       },

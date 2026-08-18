@@ -10,6 +10,7 @@
 
 import { createRequire } from "node:module";
 
+import { getAppConfig } from "../../app-config/index.js";
 import {
   assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
@@ -17,6 +18,7 @@ import {
   getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
   resolveBuilderCredentialsDetailed,
+  resolveBuilderGatewayCredentialsDetailed,
   resolveSecret,
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
@@ -30,6 +32,17 @@ import { validateProviderBaseUrl } from "./provider-endpoint-validation.js";
 import type { AgentEngine, EngineCapabilities } from "./types.js";
 
 const require = createRequire(import.meta.url);
+
+export interface AgentEngineEnvCredentialSet {
+  /** Every var here must resolve for the set to satisfy the engine. */
+  envVars: string[];
+  /**
+   * Injected by a deploy pipeline rather than configured by the owner. Selects
+   * when nothing else resolves, but never outranks an owner-configured
+   * credential — including the legacy Builder pair, which keeps normal priority.
+   */
+  deployInjected?: boolean;
+}
 
 export interface AgentEngineEntry {
   /** Unique name, e.g. "anthropic", "ai-sdk:anthropic", "ai-sdk:openai" */
@@ -48,6 +61,8 @@ export interface AgentEngineEntry {
   supportedModels: readonly string[];
   /** Environment variables required for this engine to work */
   requiredEnvVars: string[];
+  /** Alternative credential shapes; detection treats these and `requiredEnvVars` as OR. */
+  alternateRequiredEnvVars?: AgentEngineEnvCredentialSet[];
   /** Create an engine instance from config */
   create(config: Record<string, unknown>): AgentEngine;
 }
@@ -377,10 +392,54 @@ function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
   );
 }
 
+interface EngineEnvCredentialSet {
+  envVars: readonly string[];
+  deployInjected: boolean;
+}
+
+/** The single source both detectors read, so alternates cannot diverge between them. */
+function envCredentialSetsForEntry(
+  entry: AgentEngineEntry,
+): EngineEnvCredentialSet[] {
+  const sets: EngineEnvCredentialSet[] = [];
+  if (entry.requiredEnvVars.length > 0) {
+    sets.push({ envVars: entry.requiredEnvVars, deployInjected: false });
+  }
+  for (const alternate of entry.alternateRequiredEnvVars ?? []) {
+    if (alternate.envVars.length > 0) {
+      sets.push({
+        envVars: alternate.envVars,
+        deployInjected: alternate.deployInjected === true,
+      });
+    }
+  }
+  return sets;
+}
+
+interface DetectedEngineEnvMatch {
+  entry: AgentEngineEntry;
+  /** True when the only credential that qualified it is deploy-injected. */
+  deployInjected: boolean;
+}
+
 /**
- * First registered engine whose requiredEnvVars are all set. Registration
- * order controls priority — the Builder gateway is registered first so it
- * wins when the Builder private key is present.
+ * Registration order decides, except that an injected set loses to any
+ * owner-configured credential. Builder is registered first, so without that
+ * exception an injected token would move a BYO customer onto Builder credits.
+ */
+function selectDetectedEngine(
+  matches: readonly DetectedEngineEnvMatch[],
+): AgentEngineEntry | null {
+  return (
+    matches.find((match) => !match.deployInjected)?.entry ??
+    matches[0]?.entry ??
+    null
+  );
+}
+
+/**
+ * Registered engines whose env credentials are all set. Selection is
+ * {@link selectDetectedEngine}'s job.
  *
  * Escape hatch: AGENT_ENGINE_PREFER_BYO_KEY=true skips the Builder engine
  * on the first pass, so an explicit provider key (ANTHROPIC_API_KEY etc.)
@@ -392,42 +451,27 @@ function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
  * markers can skip rejected deploy keys.
  */
 export function detectEngineFromEnv(): AgentEngineEntry | null {
-  const preferByo = /^(1|true)$/i.test(
-    process.env.AGENT_ENGINE_PREFER_BYO_KEY ?? "",
-  );
+  const preferByo = getAppConfig().agent.preferBringYourOwnKey;
 
-  if (preferByo) {
-    for (const entry of _registry.values()) {
-      if (entry.name === "builder") continue;
-      if (entry.requiredEnvVars.length === 0) continue;
-      if (!isAgentEnginePackageInstalled(entry)) continue;
-      if (
-        entry.requiredEnvVars.every(
-          (v) =>
-            canUseDeployCredentialFallbackForRequest(v) &&
-            !!readDeployCredentialEnv(v),
-        )
-      ) {
-        return entry;
-      }
-    }
-    // No BYO key matched — fall through to include Builder as fallback.
-  }
-
+  const matches: DetectedEngineEnvMatch[] = [];
   for (const entry of _registry.values()) {
-    if (entry.requiredEnvVars.length === 0) continue;
     if (!isAgentEnginePackageInstalled(entry)) continue;
-    if (
-      entry.requiredEnvVars.every(
+    const set = envCredentialSetsForEntry(entry).find((candidate) =>
+      candidate.envVars.every(
         (v) =>
           canUseDeployCredentialFallbackForRequest(v) &&
           !!readDeployCredentialEnv(v),
-      )
-    ) {
-      return entry;
-    }
+      ),
+    );
+    if (set) matches.push({ entry, deployInjected: set.deployInjected });
   }
-  return null;
+
+  if (preferByo) {
+    const byo = matches.find((match) => match.entry.name !== "builder");
+    // No BYO key matched — fall through to include Builder as fallback.
+    if (byo) return byo.entry;
+  }
+  return selectDetectedEngine(matches);
 }
 
 async function envKeyUsableForEntry(key: string): Promise<boolean> {
@@ -444,16 +488,19 @@ async function envKeyUsableForEntry(key: string): Promise<boolean> {
   return !(await getProviderCredentialAuthFailure({ key, value }));
 }
 
+const BUILDER_LEGACY_ENV_PAIR = ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"];
+
+function isBuilderLegacyEnvPair(envVars: readonly string[]): boolean {
+  return BUILDER_LEGACY_ENV_PAIR.every((key) => envVars.includes(key));
+}
+
 /**
- * Builder's deploy-env fallback is checked as a pair, not per-key: the
- * auth-failure marker is fingerprinted from privateKey+publicKey together
- * (see `builderCredentialFingerprint`), so a single-key lookup can never
- * match it. Without this, a rejected deploy-level Builder key would keep
- * reporting "usable" through this env-only path forever — the same class of
- * bug as the per-scope check in `credential-provider.ts`'s
- * `isCompleteBuilderConnection`.
+ * The legacy pair's marker is fingerprinted from both keys together, so the
+ * per-var lookup in {@link envKeyUsableForEntry} can never match it and a rejected
+ * pair would report "usable" forever. Selected by credential shape, not engine
+ * name: every other set carries a per-var marker already.
  */
-async function hasUsableBuilderEnvKeys(): Promise<boolean> {
+async function hasUsableBuilderLegacyEnvPair(): Promise<boolean> {
   const privateKey = canUseDeployCredentialFallbackForRequest(
     "BUILDER_PRIVATE_KEY",
   )
@@ -468,14 +515,31 @@ async function hasUsableBuilderEnvKeys(): Promise<boolean> {
   return !(await getBuilderCredentialAuthFailure({ privateKey, publicKey }));
 }
 
-async function hasUsableEnvKeys(entry: AgentEngineEntry): Promise<boolean> {
-  if (!isAgentEnginePackageInstalled(entry)) return false;
-  if (entry.requiredEnvVars.length === 0) return false;
-  if (entry.name === "builder") return hasUsableBuilderEnvKeys();
-  for (const key of entry.requiredEnvVars) {
+async function isEnvCredentialSetUsable(
+  set: EngineEnvCredentialSet,
+): Promise<boolean> {
+  // Every var in the set must resolve — the paired check answers only for the
+  // two legacy keys, so a set that carries them alongside anything else still
+  // owes the per-var check on the rest, exactly as `detectEngineFromEnv` does.
+  const pairedCheck = isBuilderLegacyEnvPair(set.envVars);
+  if (pairedCheck && !(await hasUsableBuilderLegacyEnvPair())) return false;
+  for (const key of set.envVars) {
+    if (pairedCheck && BUILDER_LEGACY_ENV_PAIR.includes(key)) continue;
     if (!(await envKeyUsableForEntry(key))) return false;
   }
   return true;
+}
+
+async function usableEnvCredentialMatch(
+  entry: AgentEngineEntry,
+): Promise<DetectedEngineEnvMatch | null> {
+  if (!isAgentEnginePackageInstalled(entry)) return null;
+  for (const set of envCredentialSetsForEntry(entry)) {
+    if (await isEnvCredentialSetUsable(set)) {
+      return { entry, deployInjected: set.deployInjected };
+    }
+  }
+  return null;
 }
 
 /**
@@ -485,21 +549,19 @@ async function hasUsableEnvKeys(entry: AgentEngineEntry): Promise<boolean> {
  * on `missing_credentials`.
  */
 export async function detectEngineFromEnvForRequest(): Promise<AgentEngineEntry | null> {
-  const preferByo = /^(1|true)$/i.test(
-    process.env.AGENT_ENGINE_PREFER_BYO_KEY ?? "",
-  );
+  const preferByo = getAppConfig().agent.preferBringYourOwnKey;
+
+  const matches: DetectedEngineEnvMatch[] = [];
+  for (const entry of _registry.values()) {
+    const match = await usableEnvCredentialMatch(entry);
+    if (match) matches.push(match);
+  }
 
   if (preferByo) {
-    for (const entry of _registry.values()) {
-      if (entry.name === "builder") continue;
-      if (await hasUsableEnvKeys(entry)) return entry;
-    }
+    const byo = matches.find((match) => match.entry.name !== "builder");
+    if (byo) return byo.entry;
   }
-
-  for (const entry of _registry.values()) {
-    if (await hasUsableEnvKeys(entry)) return entry;
-  }
-  return null;
+  return selectDetectedEngine(matches);
 }
 
 function shouldTraceEngineDetection(): boolean {
@@ -582,9 +644,7 @@ export async function detectEngineFromUserSecrets(
     return true;
   };
 
-  const preferByo = /^(1|true)$/i.test(
-    process.env.AGENT_ENGINE_PREFER_BYO_KEY ?? "",
-  );
+  const preferByo = getAppConfig().agent.preferBringYourOwnKey;
 
   if (preferByo) {
     for (const entry of _registry.values()) {
@@ -693,6 +753,18 @@ async function hasUsableBuilderConnection(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<boolean> {
   const creds = await resolveBuilderCredentialsDetailed(identity);
+  assertCredentialStoreReadable(creds);
+  return Boolean(creds.privateKey && creds.publicKey);
+}
+
+/**
+ * Either lane. Not {@link hasUsableBuilderConnection}, which asks the narrower
+ * "did this user connect Builder" and is false on every credits-only site.
+ */
+async function canRunBuilderEngine(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<boolean> {
+  const creds = await resolveBuilderGatewayCredentialsDetailed(identity);
   assertCredentialStoreReadable(creds);
   return Boolean(creds.privateKey && creds.publicKey);
 }
@@ -835,11 +907,12 @@ async function engineCreateConfigForEntry(
     entry.name === "builder" &&
     (credentialIdentity !== undefined || safeExtra.credentials == null)
   ) {
-    // Builder authentication is a private/public key pair, not the single
-    // provider key carried by ResolveEngineConfig. Capture the scoped pair
-    // while the verified request identity is available so a later stream or
-    // detached run cannot resolve credentials from the wrong ambient context.
-    const creds = await resolveBuilderCredentialsDetailed(credentialIdentity);
+    // Builder authentication is a token plus space id, not the single provider
+    // key carried by ResolveEngineConfig. Capture the gateway-lane pair while
+    // the verified request identity is available so a later stream or detached
+    // run cannot resolve credentials from the wrong ambient context.
+    const creds =
+      await resolveBuilderGatewayCredentialsDetailed(credentialIdentity);
     assertCredentialStoreReadable(creds);
     if (
       credentialIdentity !== undefined ||
@@ -851,6 +924,7 @@ async function engineCreateConfigForEntry(
         publicKey: creds.publicKey,
         userId: creds.userId,
         orgName: creds.orgName,
+        lane: creds.lane,
       };
     }
   }
@@ -873,10 +947,19 @@ export function isStoredEngineUsable(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
-  return entry.requiredEnvVars.every(
-    (v) =>
-      canUseDeployCredentialFallbackForRequest(v) &&
-      !!readDeployCredentialEnv(v),
+  // Every credential set, not just `requiredEnvVars`. Reading only the latter
+  // reports a Builder engine running on the injected gateway pair as
+  // unconfigured, which the engine-status endpoint surfaces as "no provider" and
+  // the composer refuses to start on — while the request path, which does read
+  // the alternates, runs the same engine perfectly well.
+  const sets = envCredentialSetsForEntry(entry);
+  if (sets.length === 0) return true;
+  return sets.some((set) =>
+    set.envVars.every(
+      (v) =>
+        canUseDeployCredentialFallbackForRequest(v) &&
+        !!readDeployCredentialEnv(v),
+    ),
   );
 }
 
@@ -897,7 +980,7 @@ export async function isStoredEngineUsableForRequest(
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
   if (entry.name === "builder") {
-    return hasUsableBuilderConnection(options.credentialIdentity);
+    return canRunBuilderEngine(options.credentialIdentity);
   }
   for (const key of entry.requiredEnvVars) {
     if (!(await resolveUsableProviderSecret(key))) return false;
@@ -926,7 +1009,7 @@ export async function isResolvedEngineUsableForRequest(
   if (entry.requiredEnvVars.length === 0) return true;
 
   if (entry.name === "builder") {
-    return hasUsableBuilderConnection(options.credentialIdentity);
+    return canRunBuilderEngine(options.credentialIdentity);
   }
 
   if (options.apiKey?.trim()) {
@@ -1112,7 +1195,7 @@ export async function resolveEngine(
   }
 
   // 4. Env var — explicit engine name override
-  const envEngine = process.env.AGENT_ENGINE;
+  const envEngine = getAppConfig().agent.engine;
   if (envEngine) {
     const entry = _registry.get(envEngine);
     if (entry) {

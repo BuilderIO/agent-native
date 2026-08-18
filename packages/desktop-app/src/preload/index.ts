@@ -23,6 +23,10 @@ import {
   type CodeAgentRemoteWaitlistResult,
   type CodeAgentFollowUpRequest,
   type CodeAgentFollowUpResult,
+  type CodeAgentPortalTransferAllRequest,
+  type CodeAgentPortalTransferAllResult,
+  type CodeAgentPortalTransferRequest,
+  type CodeAgentPortalTransferResult,
   type CodeAgentHostMetadata,
   type CodeAgentModelListResult,
   type CodeAgentProjectListResult,
@@ -54,6 +58,8 @@ import {
   type DesktopAppRuntimeStatus,
   type DesktopIdentityAuthRequest,
   type DesktopIdentityAuthResult,
+  type DesktopIdentityMagicLinkRequest,
+  type DesktopIdentityMagicLinkResult,
   type DesktopIdentityStatus,
   type DesktopIdentitySettings,
   type DesktopCreateAppRequest,
@@ -272,6 +278,10 @@ const electronAPI = {
       request: DesktopIdentityAuthRequest,
     ): Promise<DesktopIdentityAuthResult> =>
       ipcRenderer.invoke(IPC.IDENTITY_AUTHENTICATE, request),
+    requestMagicLink: (
+      request: DesktopIdentityMagicLinkRequest,
+    ): Promise<DesktopIdentityMagicLinkResult> =>
+      ipcRenderer.invoke(IPC.IDENTITY_MAGIC_LINK_REQUEST, request),
     signOut: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_OUT),
     onStatusChange: (
       cb: (status: DesktopIdentityStatus) => void,
@@ -424,6 +434,14 @@ const electronAPI = {
       request: CodeAgentFollowUpRequest,
     ): Promise<CodeAgentFollowUpResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_APPEND_FOLLOW_UP, request),
+    transferRun: (
+      request: CodeAgentPortalTransferRequest,
+    ): Promise<CodeAgentPortalTransferResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PORTAL_TRANSFER_RUN, request),
+    transferAll: (
+      request?: CodeAgentPortalTransferAllRequest,
+    ): Promise<CodeAgentPortalTransferAllResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PORTAL_TRANSFER_ALL, request),
     updateRun: (
       request: CodeAgentUpdateRunRequest,
     ): Promise<CodeAgentUpdateRunResult> =>

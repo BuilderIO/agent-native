@@ -1514,7 +1514,6 @@ const messages = {
     transcriptPending: "逐字稿待處理",
     notesPending: "筆記待處理",
     pastRecordings: "過去的錄製",
-    loadOlder: "載入較舊的",
     calendarNeedsReconnect:
       "需要重新連線 Google Calendar，才能繼續顯示即將到來的會議。",
     connectGoogleCalendar: "連線 Google Calendar",
@@ -1540,7 +1539,13 @@ const messages = {
     title: "會議",
     intro:
       "即將到來的日曆會議與您的錄製筆記。會議時間到了，請從 Clips Desktop 開始即時筆記。",
-    searchPlaceholder: "搜尋會議...",
+    searchPlaceholder: "搜尋會議、與會者和逐字稿...",
+    agendaTab: "議程",
+    pastTab: "過往",
+    now: "現在",
+    noPastMeetings: "尚無過往會議",
+    loadOlder: "載入較舊的",
+    searchFailed: "無法搜尋會議。請稍後再試。",
     clearSearch: "清除搜尋",
     noMeetingsYet: "還沒有會議",
     noMeetingsDescription:

@@ -351,7 +351,6 @@ templates/clips/app/i18n/es-ES|meetingsRoute.pageTitle|Meetings · Clips
 templates/clips/app/i18n/es-ES|meetingsRoute.pastRecordings|Past recordings
 templates/clips/app/i18n/es-ES|meetingsRoute.refreshing|Refreshing…
 templates/clips/app/i18n/es-ES|meetingsRoute.requiredForReminders|Desktop captures mic + system audio for meeting transcription.
-templates/clips/app/i18n/es-ES|meetingsRoute.searchPlaceholder|Search meetings...
 templates/clips/app/i18n/es-ES|meetingsRoute.transcriptPending|Transcript pending
 templates/clips/app/i18n/es-ES|playerSettings.addCta|+ Add
 templates/clips/app/i18n/es-ES|playerSettings.allowDownloads|Allow downloads
@@ -557,7 +556,6 @@ templates/clips/app/i18n/pt-BR|meetingsRoute.pageTitle|Meetings · Clips
 templates/clips/app/i18n/pt-BR|meetingsRoute.pastRecordings|Past recordings
 templates/clips/app/i18n/pt-BR|meetingsRoute.refreshing|Refreshing…
 templates/clips/app/i18n/pt-BR|meetingsRoute.requiredForReminders|Desktop captures mic + system audio for meeting transcription.
-templates/clips/app/i18n/pt-BR|meetingsRoute.searchPlaceholder|Search meetings...
 templates/clips/app/i18n/pt-BR|meetingsRoute.transcriptPending|Transcript pending
 templates/clips/app/i18n/pt-BR|playerSettings.addCta|+ Add
 templates/clips/app/i18n/pt-BR|playerSettings.allowDownloads|Allow downloads

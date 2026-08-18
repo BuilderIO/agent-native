@@ -998,7 +998,7 @@ export function deriveInverseOp(
 }
 
 /**
- * Fetch the deck list. Returns `null` on any failure (network error, non-2xx
+ * Fetch the deck metadata list. Returns `null` on any failure (network error, non-2xx
  * response) so callers can distinguish "authoritative empty list" from
  * "couldn't reach the server" — wiping local state on a transient failure
  * kicks the user out of the editor and shows the "Create your first deck"
@@ -1009,7 +1009,7 @@ async function fetchDecksFromAPI(): Promise<Deck[] | null> {
   try {
     const result = await callAction<DeckListActionResult>(
       "list-decks",
-      { includeSlides: "true" },
+      { light: "true" },
       { method: "GET" },
     );
     if (!Array.isArray(result?.decks)) {
@@ -1134,12 +1134,23 @@ export async function includeOpenDeckIfMissing(
 async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
   const currentOpenDeckId = currentOpenDeckIdFromWindow();
   const loaded = await fetchDecksFromAPI();
-  if (loaded !== null) {
-    return includeOpenDeckIfMissing(loaded, currentOpenDeckId);
+  if (loaded === null) {
+    if (!currentOpenDeckId) return null;
+    const directDeck = await fetchDeckFromAPI(currentOpenDeckId);
+    return directDeck ? [directDeck] : null;
   }
-  if (!currentOpenDeckId) return null;
+  if (!currentOpenDeckId) return loaded;
+
+  // The list is intentionally metadata-only. Hydrate just the deck the user
+  // opened so the editor gets full slide content without making the home page
+  // download every deck body.
   const directDeck = await fetchDeckFromAPI(currentOpenDeckId);
-  return directDeck ? [directDeck] : null;
+  if (!directDeck) return loaded;
+  const index = loaded.findIndex((deck) => deck.id === currentOpenDeckId);
+  if (index < 0) return [...loaded, directDeck];
+  const next = [...loaded];
+  next[index] = directDeck;
+  return next;
 }
 
 async function deleteDeckFromAPI(id: string): Promise<void> {

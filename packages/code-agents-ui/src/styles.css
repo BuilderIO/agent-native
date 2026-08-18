@@ -2153,6 +2153,13 @@
   color: hsl(var(--background));
 }
 
+.code-agents-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .code-agents-button--ghost {
   border-color: transparent;
   background: transparent;
