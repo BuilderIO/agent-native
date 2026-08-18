@@ -122,12 +122,11 @@ function normalizeEditorView(
 
 function normalizeInspectorTab(
   value: unknown,
-): "design" | "comments" | "tweaks" | "code" | "extensions" | undefined {
+): "design" | "comments" | "tweaks" | "code" | undefined {
   return value === "design" ||
     value === "comments" ||
     value === "tweaks" ||
-    value === "code" ||
-    value === "extensions"
+    value === "code"
     ? value
     : undefined;
 }
@@ -169,9 +168,12 @@ export function editorPathFromCommand(cmd: NavigationState): string | null {
   const editorView = normalizeEditorView(cmd.editorView);
   if (editorView) params.set("view", editorView);
   if (editorView === "single") params.set("mode", cmd.mode ?? "interact");
-  const inspectorTab = normalizeInspectorTab(cmd.inspectorTab ?? cmd.inspector);
+  const rawInspectorTab = cmd.inspectorTab ?? cmd.inspector;
+  const inspectorTab = normalizeInspectorTab(rawInspectorTab);
   if (inspectorTab) params.set("inspector", inspectorTab);
-  const leftPanel = normalizeLeftPanel(cmd.leftPanel ?? cmd.panel);
+  const leftPanel = normalizeLeftPanel(
+    cmd.leftPanel ?? cmd.panel ?? rawInspectorTab,
+  );
   if (leftPanel) params.set("panel", leftPanel);
   const screen = cmd.fileId ?? cmd.screenId ?? cmd.filename ?? cmd.screen;
   if (screen) params.set("screen", screen);
@@ -194,10 +196,11 @@ export function editorCommandFromNavigate(
 ): DesignEditorCommand | null {
   if (cmd.view !== "editor" || !cmd.designId) return null;
   const editorView = normalizeEditorView(cmd.editorView);
-  const inspectorTab = normalizeInspectorTab(cmd.inspectorTab ?? cmd.inspector);
+  const rawInspectorTab = cmd.inspectorTab ?? cmd.inspector;
+  const inspectorTab = normalizeInspectorTab(rawInspectorTab);
   const leftPanel =
     normalizeLeftPanel(cmd.leftPanel ?? cmd.panel) ??
-    normalizeLeftPanel(cmd.inspectorTab ?? cmd.inspector);
+    normalizeLeftPanel(rawInspectorTab);
   const command: DesignEditorCommand = {
     designId: cmd.designId,
     issuedAt: Date.now(),
@@ -248,11 +251,12 @@ export function useNavigationState(enabled = true) {
         if (editorView) state.editorView = editorView;
         const mode = normalizeEditorMode(searchParams.get("mode"));
         if (mode) state.mode = mode;
-        const inspectorTab = normalizeInspectorTab(
-          searchParams.get("inspector"),
-        );
+        const rawInspectorTab = searchParams.get("inspector");
+        const inspectorTab = normalizeInspectorTab(rawInspectorTab);
         if (inspectorTab) state.inspectorTab = inspectorTab;
-        const leftPanel = normalizeLeftPanel(searchParams.get("panel"));
+        const leftPanel = normalizeLeftPanel(
+          searchParams.get("panel") ?? rawInspectorTab,
+        );
         if (leftPanel) state.leftPanel = leftPanel;
         const screen = searchParams.get("screen");
         if (screen) state.screen = screen;

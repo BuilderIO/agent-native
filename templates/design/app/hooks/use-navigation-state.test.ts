@@ -106,6 +106,22 @@ describe("design navigation state", () => {
     });
   });
 
+  it("drops the legacy extensions inspector alias when Tools is gated", () => {
+    const command = {
+      view: "editor",
+      designId: "design_123",
+      inspectorTab: "extensions" as const,
+    };
+
+    const path = editorPathFromCommand(command);
+
+    expect(path).toBe("/design/design_123");
+    expect(editorCommandFromNavigate(command, path!)).not.toMatchObject({
+      inspectorTab: expect.anything(),
+      leftPanel: expect.anything(),
+    });
+  });
+
   it("ignores unknown design tools in navigation commands", () => {
     const command = {
       view: "editor",

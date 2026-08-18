@@ -63,7 +63,9 @@ export default defineConfig({
         // throwaway local db.
         command: `APP_NAME=design ${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm dev`,
         url: BASE_URL,
-        reuseExistingServer: !process.env.CI,
+        // The panel flag is compiled into the Vite bundle. Reusing a local
+        // server can therefore run this profile with the opposite setting.
+        reuseExistingServer: false,
         // Cold Vite dep-optimization on first boot can exceed two minutes.
         timeout: 300_000,
         stdout: "ignore",
