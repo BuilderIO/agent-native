@@ -983,6 +983,8 @@ const messages = {
     owner: "Owner",
     admin: "Admin",
     member: "Member",
+    workspaceAppsOrganization: "Organization",
+    workspaceAppsCreatorOnly: "Creator only",
     members: "Members",
     inviteMembers: "Invite members",
     invited: "Invited",
