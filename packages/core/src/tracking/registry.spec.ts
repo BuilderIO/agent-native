@@ -30,21 +30,33 @@ describe("tracking registry", () => {
 
   it("attributes an event from an action ctx passed straight through", async () => {
     const events = captureEvents();
+    const previousDeploymentEnvironment =
+      process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT;
+    process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT = "test";
 
-    await runWithRequestContext(
-      {
-        userEmail: "alice@example.com",
-        browserSessionId: "session-1",
-        clientPlatform: "electron",
-      },
-      () => {
-        track(
-          "project_created",
-          { template: "blank" },
-          { caller: "frontend", userEmail: "alice@example.com" },
-        );
-      },
-    );
+    try {
+      await runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          browserSessionId: "session-1",
+          clientPlatform: "electron",
+        },
+        () => {
+          track(
+            "project_created",
+            { template: "blank" },
+            { caller: "frontend", userEmail: "alice@example.com" },
+          );
+        },
+      );
+    } finally {
+      if (previousDeploymentEnvironment === undefined) {
+        delete process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT;
+      } else {
+        process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT =
+          previousDeploymentEnvironment;
+      }
+    }
 
     expect(events).toHaveLength(1);
     expect(events[0]).toMatchObject({

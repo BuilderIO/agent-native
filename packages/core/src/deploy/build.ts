@@ -1149,6 +1149,41 @@ function isTruthyRuntimeValue(value) {
   );
 }
 
+function resolveDeploymentEnvironment() {
+  const env = globalThis.process?.env || {};
+  const explicit = firstNonEmpty(
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
+    env.SENTRY_ENVIRONMENT,
+  );
+  if (explicit) return explicit;
+
+  const context =
+    typeof env.NETLIFY_CONTEXT === "string"
+      ? env.NETLIFY_CONTEXT.trim().toLowerCase()
+      : "";
+  const branch =
+    typeof env.BRANCH === "string" ? env.BRANCH.trim().toLowerCase() : "";
+  if (branch === "beta") return "beta";
+  if (
+    branch === "production" ||
+    (context === "production" && branch !== "beta")
+  ) {
+    return "production";
+  }
+  if (context === "branch-deploy" && branch === "main") return "beta";
+  if (
+    context === "deploy-preview" ||
+    branch.startsWith("deploy-preview") ||
+    String(env.VERCEL_ENV || "").trim().toLowerCase() === "preview"
+  ) {
+    return "preview";
+  }
+  return (
+    firstNonEmpty(env.NETLIFY_CONTEXT, env.VERCEL_ENV, env.NODE_ENV) ||
+    "production"
+  );
+}
+
 function getSentryClientConfigScript() {
   const env = globalThis.process?.env || {};
   const key = firstNonEmpty(env.SENTRY_CLIENT_KEY, env.VITE_SENTRY_CLIENT_KEY);
@@ -1168,24 +1203,11 @@ function getSentryClientConfigScript() {
       env.SENTRY_DSN,
     ) || (key && projectId && host ? "https://" + key + "@" + host + "/" + projectId : undefined);
   if (!dsn) return null;
+  const deploymentEnvironment = resolveDeploymentEnvironment();
   const config = {
     sentryDsn: dsn,
-    sentryEnvironment:
-      firstNonEmpty(
-        env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
-        env.SENTRY_ENVIRONMENT,
-        env.NETLIFY_CONTEXT,
-        env.VERCEL_ENV,
-        env.NODE_ENV,
-      ) || "production",
-    deploymentEnvironment:
-      firstNonEmpty(
-        env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
-        env.SENTRY_ENVIRONMENT,
-        env.NETLIFY_CONTEXT,
-        env.VERCEL_ENV,
-        env.NODE_ENV,
-      ) || "production",
+    sentryEnvironment: deploymentEnvironment,
+    deploymentEnvironment,
   };
   return (
     '<script data-agent-native-sentry-config>' +
