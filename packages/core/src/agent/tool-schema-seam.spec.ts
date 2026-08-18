@@ -56,3 +56,44 @@ describe("hand-written tool schemas", () => {
     expect(bad).toEqual([]);
   });
 });
+
+// `z.string().url()` emits format:"uri", which OpenAI answers with
+// "'uri' is not a valid format" and a 400 for the whole request. Seen in prod
+// on `provider-api-docs` at 19:14, after the previous fix shipped.
+describe("provider-rejected format and constraint keywords", () => {
+  it("drops an unsupported format but keeps a supported one", () => {
+    const schema = {
+      type: "object" as const,
+      properties: {
+        url: { type: "string", format: "uri" },
+        when: { type: "string", format: "date-time" },
+      },
+    };
+    const safe = stripUnsupportedSchemaKeywords(
+      JSON.parse(JSON.stringify(schema)),
+    ) as any;
+    expect(safe.properties.url.format).toBeUndefined();
+    expect(safe.properties.url.type).toBe("string");
+    expect(safe.properties.when.format).toBe("date-time");
+  });
+
+  it("drops constraint-only keywords the validator rejects", () => {
+    const schema = {
+      type: "object" as const,
+      properties: { a: { type: "string" } },
+      patternProperties: { "^x": { type: "string" } },
+      not: { type: "number" },
+      if: { type: "string" },
+      then: { type: "string" },
+      dependentRequired: { a: ["b"] },
+    };
+    const safe = stripUnsupportedSchemaKeywords(
+      JSON.parse(JSON.stringify(schema)),
+    ) as any;
+    for (const k of ["patternProperties","not","if","then","dependentRequired"]) {
+      expect(safe[k]).toBeUndefined();
+    }
+    // The real shape survives.
+    expect(safe.properties.a).toEqual({ type: "string" });
+  });
+});
