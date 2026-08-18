@@ -6,6 +6,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const clientMocks = vi.hoisted(() => ({
   contextItems: [] as Array<{ key: string; title: string; context: string }>,
+  deleteClientAppState: vi.fn(async () => {}),
+  readClientAppState: vi.fn(async (): Promise<unknown> => null),
   remove: vi.fn(),
 }));
 
@@ -19,6 +21,11 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  deleteClientAppState: clientMocks.deleteClientAppState,
+  readClientAppState: clientMocks.readClientAppState,
 }));
 
 vi.mock("@/lib/chat-handoff", () => ({
@@ -36,6 +43,7 @@ describe("AskPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     clientMocks.contextItems = [];
+    clientMocks.readClientAppState.mockResolvedValue(null);
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -74,5 +82,45 @@ describe("AskPage", () => {
     });
 
     expect(clientMocks.remove).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      type: "dashboard",
+      id: "dash-1",
+    },
+    {
+      type: "dashboard-panel",
+      dashboardId: "dash-1",
+      panelId: "panel-1",
+    },
+  ])("clears an owned dashboard selection on Ask entry", async (selection) => {
+    clientMocks.readClientAppState.mockResolvedValueOnce({
+      ...selection,
+      __agentNativeSelectedObjectSource: "test-tab",
+    });
+
+    await act(async () => {
+      root.render(<AskPage />);
+    });
+
+    expect(clientMocks.deleteClientAppState).toHaveBeenCalledWith(
+      "selected-object",
+      expect.objectContaining({ requestSource: "test-tab" }),
+    );
+  });
+
+  it("does not clear a dashboard selection owned by another tab", async () => {
+    clientMocks.readClientAppState.mockResolvedValueOnce({
+      type: "dashboard",
+      id: "dash-1",
+      __agentNativeSelectedObjectSource: "other-tab",
+    });
+
+    await act(async () => {
+      root.render(<AskPage />);
+    });
+
+    expect(clientMocks.deleteClientAppState).not.toHaveBeenCalled();
   });
 });

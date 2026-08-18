@@ -38,7 +38,11 @@ export default defineAction({
       search?: string;
       searchParams?: Record<string, string>;
     } | null;
-    const selectedObject = await readAppStateForCurrentTab("selected-object");
+    const nav = navigation as any;
+    const isAskView = nav?.view === "ask" || url?.pathname === "/ask";
+    const selectedObject = isAskView
+      ? null
+      : await readAppStateForCurrentTab("selected-object");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
@@ -64,8 +68,6 @@ export default defineAction({
         screen.activeFilters = activeFilters;
       }
     }
-
-    const nav = navigation as any;
 
     if (nav?.view === "adhoc" && nav?.dashboardId) {
       try {

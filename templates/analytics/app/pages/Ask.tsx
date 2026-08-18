@@ -7,6 +7,7 @@ import { CreativeContextComposerChip } from "@agent-native/creative-context/clie
 import { useEffect, useMemo } from "react";
 
 import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
+import { clearSelectedDashboardObjectIfOwned } from "@/lib/selected-object";
 import { TAB_ID } from "@/lib/tab-id";
 
 const DASHBOARD_CONTEXT_KEYS = new Set([
@@ -30,6 +31,10 @@ export default function AskPage() {
       removeChatContextItem(staleDashboardContextKey);
     }
   }, [removeChatContextItem, staleDashboardContextKey]);
+
+  useEffect(() => {
+    void clearSelectedDashboardObjectIfOwned();
+  }, []);
 
   return (
     <div className="analytics-ask-page flex h-full min-h-0 flex-col bg-background">

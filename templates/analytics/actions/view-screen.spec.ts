@@ -2,11 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const navigationState: { current: unknown } = { current: null };
 const urlState: { current: unknown } = { current: null };
+const selectedObjectState: { current: unknown } = { current: null };
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppStateForCurrentTab: vi.fn(async (key: string) => {
     if (key === "navigation") return navigationState.current;
     if (key === "__url__") return urlState.current;
+    if (key === "selected-object") return selectedObjectState.current;
     return null;
   }),
 }));
@@ -79,6 +81,20 @@ describe("view-screen monitoring status-pages branch", () => {
     getStatusPagePreview.mockReset();
     listMonitors.mockClear();
     userEmail = "user@example.test";
+    selectedObjectState.current = null;
+  });
+
+  it("does not surface a stale dashboard selection on Ask", async () => {
+    selectedObjectState.current = {
+      type: "dashboard",
+      id: "dash-1",
+      title: "Revenue",
+    };
+    setScreen({ view: "ask" }, { pathname: "/ask" });
+
+    const out = await runScreen();
+
+    expect(out.selectedObject).toBeUndefined();
   });
 
   it("lists status pages in the monitoring surfaces catalog", async () => {

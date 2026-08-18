@@ -5,13 +5,10 @@ import {
   type AgentSidebarStateChangeDetail,
   useAgentChatContext,
 } from "@agent-native/core/client/agent-chat";
-import {
-  deleteClientAppState,
-  readClientAppState,
-  setClientAppState,
-} from "@agent-native/core/client/hooks";
+import { setClientAppState } from "@agent-native/core/client/hooks";
 import { useCallback, useEffect, useState } from "react";
 
+import { clearSelectedDashboardObjectIfOwned } from "@/lib/selected-object";
 import { TAB_ID } from "@/lib/tab-id";
 
 const DASHBOARD_CONTEXT_KEY = "analytics-selected-dashboard";
@@ -78,28 +75,6 @@ function dashboardContext(
     "Use the Analytics dashboard actions to inspect, edit, or restore this dashboard.",
   );
   return lines.join("\n");
-}
-
-async function deleteSelectedObjectIfOwned(dashboardId: string) {
-  try {
-    const current = await readClientAppState<Record<string, unknown>>(
-      SELECTED_OBJECT_STATE_KEY,
-    );
-    if (current?.[SELECTED_OBJECT_SOURCE_FIELD] !== TAB_ID) return;
-    const selectedDashboardId =
-      current.type === "dashboard"
-        ? current.id
-        : current.type === "dashboard-panel"
-          ? current.dashboardId
-          : null;
-    if (selectedDashboardId !== dashboardId) return;
-    await deleteClientAppState(SELECTED_OBJECT_STATE_KEY, {
-      keepalive: true,
-      requestSource: TAB_ID,
-    });
-  } catch {
-    // Best effort only; avoid clearing another tab's selected object on errors.
-  }
 }
 
 function panelSelectionMarker(dashboardId: string, panelId: string): string {
@@ -293,7 +268,7 @@ export function useDashboardChatContext(
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         openSidebar: false,
       });
-      deleteSelectedObjectIfOwned(id);
+      clearSelectedDashboardObjectIfOwned(id);
     };
   }, [id]);
 
