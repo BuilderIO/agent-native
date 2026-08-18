@@ -9,6 +9,7 @@ import { z } from "zod";
 import { interpolate } from "../app/pages/adhoc/sql-dashboard/interpolate";
 import { dryRunQuery } from "../server/lib/bigquery";
 import { queueDashboardCollabSync } from "../server/lib/dashboard-collab-sync";
+import { serializeProgramDescriptorInput } from "../server/lib/dashboard-panel-query";
 import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   upsertDashboard,
@@ -361,6 +362,13 @@ export function validateDashboardConfig(
     }
     if (!isSection && !isExtension && !validSources.has(p.source as string)) {
       return `panel[${i}].source must be 'bigquery', 'ga4', 'amplitude', 'first-party', 'demo', 'prometheus', or 'program' (got '${p.source}'). source selects the backend — put the PromQL/SQL/table name or program descriptor in sql, not here.`;
+    }
+    if (p.source === "program") {
+      try {
+        serializeProgramDescriptorInput(p.sql);
+      } catch (e: any) {
+        return `panel[${i}] "${p.title || p.id}" program descriptor is invalid: ${e?.message ?? e}`;
+      }
     }
     if (isExtension) {
       const cfg = p.config as Record<string, unknown> | undefined;

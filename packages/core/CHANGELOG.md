@@ -1,5 +1,31 @@
 # @agent-native/core
 
+## 0.161.6
+
+### Patch Changes
+
+- ff06749: fix stale home chat pointers so a missing local thread does not render a restore error
+- ff06749: fix mounted embed dev servers serving CSS and other static assets through Vite's normal asset pipeline and allow Builder preview origins to use embed CORS
+- c7ad22e: Fix Portal remote connector initialization so handoffs create remote run records and expose command failures in connector logs.
+- ff06749: Record what was sent when an agent run errors. An errored run's capture now
+  carries the failed request's model, payload bytes, tool count, and message
+  count alongside `gatewayRequestId` — sizes and counts only, never prompt or
+  user content — so an oversized request and an upstream outage stop producing
+  identical, undiagnosable captures.
+- ff06749: Stop a background turn from retrying an identical failure forever. When two
+  consecutive server-driven continuation chunks end on the same terminal error
+  code having produced no assistant text and no tool calls, the chain now stops
+  and the run ends with one non-recoverable error that keeps the original error
+  code and the gateway's `ERROR ID:` reference. A different error, or the same
+  error after real progress, still chains as before.
+
+## 0.161.5
+
+### Patch Changes
+
+- 4c7c289: Keep scoped chat tabs isolated when navigating between resources so an older
+  resource's conversation cannot remain visible on the current resource.
+
 ## 0.161.4
 
 ### Patch Changes

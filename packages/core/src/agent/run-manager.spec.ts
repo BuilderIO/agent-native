@@ -2448,6 +2448,52 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("emits a terminal event the callback installed even when the loop already stashed one", async () => {
+    // `completionRun` is a COPY once the loop stashed a terminal event, so a
+    // callback writing to it used to be silently ignored — the run emitted the
+    // recoverable error the callback was overriding, and the client re-POSTed
+    // the chain the server had just stopped.
+    const events: AgentChatEvent[] = [];
+    const onComplete = vi.fn(async (completionRun: ActiveRun) => {
+      completionRun.continuationTerminalEvent = {
+        type: "error",
+        error: "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
+        errorCode: "builder_gateway_internal_error",
+        recoverable: false,
+      };
+    });
+    const run = startRun(
+      "run-callback-terminal-override",
+      "thread-callback-terminal-override",
+      async (send) => {
+        send({
+          type: "error",
+          error: "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
+          errorCode: "builder_gateway_internal_error",
+          recoverable: true,
+        });
+      },
+      onComplete,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await run.finalized;
+
+    expect(events.at(-1)).toEqual({
+      type: "error",
+      error: "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
+      errorCode: "builder_gateway_internal_error",
+      recoverable: false,
+    });
+    // The row still records the underlying failure, not a generic one.
+    expect(setRunError).toHaveBeenCalledWith(
+      "run-callback-terminal-override",
+      "builder_gateway_internal_error",
+      "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
+    );
+  });
+
   it("auto-continues a foreground run that ends after completed tool work", async () => {
     const events: AgentChatEvent[] = [];
     const run = startRun(
