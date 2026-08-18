@@ -382,6 +382,42 @@ describe("dev server mounted path helpers", () => {
     expect(next).toHaveBeenCalledOnce();
   });
 
+  it("lets direct text assets reach Vite without a fetch destination", () => {
+    process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      transformRequest: vi.fn(),
+    };
+
+    plugin.configureServer(server);
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/picker?mediaType=image",
+      ttlSeconds: 60,
+    });
+    const next = vi.fn();
+
+    middleware!(
+      {
+        method: "GET",
+        url: `/assets/app/robots.txt?__an_embed_token=${token}`,
+        headers: { "sec-fetch-dest": "empty" },
+      },
+      { setHeader: vi.fn() },
+      next,
+    );
+
+    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
   it("keeps Vite module queries for mounted static files", async () => {
     process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
     const plugin = findPlugin("agent-native-base-redirect-guard");
