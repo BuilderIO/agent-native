@@ -1167,6 +1167,7 @@ async function filterWorkspaceAppsByAccess(
   try {
     userEmail = currentOwnerEmail();
   } catch {
+    // coercion-ok: anonymous requests fail closed by receiving no app metadata.
     // App metadata is access-controlled. An anonymous request must not receive
     // the full registry simply because there is no caller to resolve.
     return [];
