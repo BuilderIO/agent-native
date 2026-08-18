@@ -313,7 +313,7 @@ describe("Calendar Google auth-url handler", () => {
     );
   });
 
-  it("tells the user which login already owns the Google account, not the Google account's own address", async () => {
+  it("does not disclose which login owns a conflicting Google account", async () => {
     const event = createEvent({ code: "google-code", state: "encoded-state" });
     mocks.getSession.mockResolvedValue(null);
     mocks.decodeOAuthState.mockReturnValue({
@@ -334,10 +334,9 @@ describe("Calendar Google auth-url handler", () => {
 
     expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);
     const [message] = mocks.oauthErrorPage.mock.calls[0];
-    // The fix: tell the user to sign in as the login that actually owns the
-    // connection (existingOwner), not the Google account's own address.
-    expect(message).toContain("first-login@example.com");
-    expect(message).not.toContain("sign in with shared-calendar@gmail.com");
+    expect(message).toContain("already connected to another login");
+    expect(message).not.toContain("first-login@example.com");
+    expect(message).not.toContain("second-login@example.com");
   });
 
   it("returns a mobile session when Calendar connect came from the native app", async () => {

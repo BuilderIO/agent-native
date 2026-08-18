@@ -2052,6 +2052,7 @@ export async function executeProviderApiRequest(
       rawText,
       response.contentType,
       response.status,
+      response.ok,
     )) as Record<string, unknown>;
     return {
       provider: { id: config.id, label: config.label },
@@ -3025,6 +3026,7 @@ async function executeCustomProviderApiRequest(
       rawText,
       response.contentType,
       response.status,
+      response.ok,
     )) as Record<string, unknown>;
     return {
       provider: {
@@ -5549,6 +5551,7 @@ async function handleSaveToFile(
   responseText: string,
   contentType: string | null,
   status: number,
+  ok = true,
 ): Promise<unknown> {
   const {
     writeWorkspaceFile,
@@ -5589,6 +5592,7 @@ async function handleSaveToFile(
     savedToFile: true,
     savedTo: filePath,
     status,
+    ok,
     bytes,
     contentType: mimeType,
     preview: preview.length < responseText.length ? `${preview}…` : preview,

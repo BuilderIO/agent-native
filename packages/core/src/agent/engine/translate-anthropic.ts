@@ -362,7 +362,10 @@ export function engineMessagesToAnthropic(
   messages: EngineMessage[],
 ): Anthropic.MessageParam[] {
   const normalized = backfillEngineMessagesToolResults(messages);
-  return normalized.map((m) => engineMessageToAnthropic(m));
+  return normalized.flatMap((m) => {
+    const translated = engineMessageToAnthropic(m);
+    return translated.content.length > 0 ? [translated] : [];
+  });
 }
 
 /**

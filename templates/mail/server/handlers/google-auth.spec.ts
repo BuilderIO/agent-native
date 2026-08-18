@@ -155,7 +155,7 @@ describe("Mail Google auth-url handlers", () => {
     await expect(response.text()).resolves.toBe("");
   });
 
-  it("tells the user which login already owns the Google account, not the Google account's own address", async () => {
+  it("does not disclose which login owns a conflicting Google account", async () => {
     mocks.decodeOAuthState.mockReturnValue({
       redirectUri:
         "https://mail.agent-native.com/_agent-native/google/callback",
@@ -179,9 +179,8 @@ describe("Mail Google auth-url handlers", () => {
 
     expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);
     const [message] = mocks.oauthErrorPage.mock.calls[0];
-    // The fix: tell the user to sign in as the login that actually owns the
-    // connection (existingOwner), not the Google account's own address.
-    expect(message).toContain("first-login@example.com");
-    expect(message).not.toContain("sign in with shared-account@gmail.com");
+    expect(message).toContain("already connected to another login");
+    expect(message).not.toContain("first-login@example.com");
+    expect(message).not.toContain("second-login@example.com");
   });
 });

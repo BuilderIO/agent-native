@@ -610,6 +610,17 @@ describe("unsendable thinking blocks", () => {
     expect(JSON.stringify(replayed)).not.toContain('"signature":""');
   });
 
+  it("omits a thinking-only message after dropping its unsigned block", () => {
+    const replayed = engineMessagesToAnthropic([
+      {
+        role: "assistant",
+        content: [{ type: "thinking", text: "unsigned reasoning" }],
+      },
+    ]);
+
+    expect(replayed).toEqual([]);
+  });
+
   it("keeps the Builder gateway path unchanged", () => {
     // The gateway's tolerance for an unsigned thinking block is unverified, so
     // that path is deliberately left as it was.
