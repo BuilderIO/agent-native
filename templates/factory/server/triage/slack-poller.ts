@@ -5,6 +5,7 @@ import { createSlackReader } from "./slack-client";
 const SLACK_HISTORY_LIMIT = 100;
 const MAX_HISTORY_PAGES = 5;
 const MAX_SUMMARY_LENGTH = 500;
+export const SLACK_USER_INFO_CONCURRENCY = 4;
 
 export interface SlackPollInput {
   workspace: Workspace;
@@ -69,17 +70,36 @@ async function resolveUserLabels(
     ),
   ];
   const labels = new Map<string, string>();
-  await Promise.all(
-    userIds.map(async (userId) => {
+  await mapWithConcurrency(
+    userIds,
+    SLACK_USER_INFO_CONCURRENCY,
+    async (userId) => {
       try {
         const user = await slack.getUserInfo(workspace, userId);
         labels.set(userId, slackUserLabel(user, userId));
       } catch {
         labels.set(userId, userId);
       }
-    }),
+    },
   );
   return labels;
+}
+
+async function mapWithConcurrency<T>(
+  values: T[],
+  concurrency: number,
+  mapper: (value: T) => Promise<void>,
+): Promise<void> {
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < values.length) {
+      const index = nextIndex++;
+      await mapper(values[index]!);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, worker),
+  );
 }
 
 function toEnvelope(

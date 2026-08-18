@@ -510,6 +510,7 @@ async function executeBackgroundAutomation(
       } = { current: null };
       let responseText = "";
       let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
+      let hardTimedOut = false;
 
       // This runner executes in-process, synchronously — there is no HTTP
       // self-dispatch to a separate worker. Self-claim the row into
@@ -582,6 +583,9 @@ async function executeBackgroundAutomation(
               reject(err instanceof Error ? err : new Error(String(err)));
               throw err;
             }
+            // Hard timeout owns the runner reject so a serverless return
+            // waits for this persist via `activeRun.finalized`.
+            if (hardTimedOut) return;
             const cutOffReason = backgroundRunCutOffReason(run);
             if (cutOffReason) {
               reject(
@@ -614,14 +618,17 @@ async function executeBackgroundAutomation(
 
         hardAbortTimer = setTimeout(() => {
           hardAbortTimer = null;
-          if (activeRun.status === "running") {
-            activeRun.abort.abort("background_automation_hard_timeout");
-            reject(
-              new Error(
-                `Background automation timed out after ${BACKGROUND_RUN_HARD_TIMEOUT_MS / 60_000} minutes`,
-              ),
-            );
-          }
+          if (activeRun.status !== "running") return;
+          hardTimedOut = true;
+          activeRun.abort.abort("background_automation_hard_timeout");
+          const timeoutError = new Error(
+            `Background automation timed out after ${BACKGROUND_RUN_HARD_TIMEOUT_MS / 60_000} minutes`,
+          );
+          void activeRun.finalized
+            .catch(() => {})
+            .then(() => {
+              reject(timeoutError);
+            });
         }, BACKGROUND_RUN_HARD_TIMEOUT_MS);
       }).finally(() => {
         if (hardAbortTimer) {

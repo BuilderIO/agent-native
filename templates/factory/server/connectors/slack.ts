@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export type Workspace = "primary" | "secondary";
 
 export type SlackTokenResolver = (workspace: Workspace) => Promise<string>;
@@ -71,16 +73,20 @@ async function getToken(
   );
 }
 
+function slackCacheScope(token: string): string {
+  return createHash("sha256").update(token).digest("hex").slice(0, 16);
+}
+
 async function slackApi<T>(
   workspace: Workspace,
   method: string,
   params: Record<string, string> | undefined,
   tokenResolver?: SlackTokenResolver,
 ): Promise<T> {
-  const cacheKey = `${workspace}:${method}:${JSON.stringify(params ?? {})}`;
+  const token = await getToken(workspace, tokenResolver);
+  const cacheKey = `${workspace}:${slackCacheScope(token)}:${method}:${JSON.stringify(params ?? {})}`;
   const cached = cache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) return cached.value as T;
-  const token = await getToken(workspace, tokenResolver);
   const url = new URL(`https://slack.com/api/${method}`);
   for (const [key, value] of Object.entries(params ?? {}))
     url.searchParams.set(key, value);

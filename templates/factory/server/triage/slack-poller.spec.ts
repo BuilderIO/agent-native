@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createSlackReader } from "./slack-client";
-import { pollSlackChannel } from "./slack-poller";
+import { pollSlackChannel, SLACK_USER_INFO_CONCURRENCY } from "./slack-poller";
 
 vi.mock("./slack-client", () => ({
   createSlackReader: vi.fn(),
@@ -187,6 +187,40 @@ describe("pollSlackChannel", () => {
       "Slack user John Smith",
     ]);
     expect(mockedSlackReader.getUserInfo).toHaveBeenCalledTimes(3);
+  });
+
+  it("resolves Slack profiles with bounded concurrency", async () => {
+    const authors = Array.from({ length: 8 }, (_, index) => `U${index + 1}`);
+    mockedSlackReader.getChannelHistory.mockResolvedValue({
+      messages: authors.map((user, index) => ({
+        type: "message",
+        user,
+        text: `msg ${index}`,
+        ts: `50.${index + 1}`,
+      })),
+      has_more: false,
+    });
+
+    let inFlight = 0;
+    let maxInFlight = 0;
+    mockedSlackReader.getUserInfo.mockImplementation(async () => {
+      inFlight += 1;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      inFlight -= 1;
+      return { id: "U", name: null, displayName: null };
+    });
+
+    await pollSlackChannel({
+      workspace: "primary",
+      channelId: "C654",
+      priorLastSlackTs: "50.0",
+      ownerEmail: "owner@example.com",
+    });
+
+    expect(mockedSlackReader.getUserInfo).toHaveBeenCalledTimes(authors.length);
+    expect(maxInFlight).toBeLessThanOrEqual(SLACK_USER_INFO_CONCURRENCY);
+    expect(maxInFlight).toBe(SLACK_USER_INFO_CONCURRENCY);
   });
 
   it("propagates Slack history failures", async () => {

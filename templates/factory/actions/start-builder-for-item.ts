@@ -153,7 +153,7 @@ async function writeMetadata(
     .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
 }
 
-async function recordDecision(input: {
+export async function recordAutomaticBuilderDecision(input: {
   itemId: string;
   userEmail: string;
   orgId: string;
@@ -167,6 +167,7 @@ async function recordDecision(input: {
     input.itemId,
     "automatic-builder",
   );
+  const now = new Date().toISOString();
   await getDb()
     .insert(triageDecisions)
     .values({
@@ -179,11 +180,20 @@ async function recordDecision(input: {
       guardResultsJson: JSON.stringify(input.guardResults),
       model: "factory-automation",
       promptVersion: 1,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
       ownerEmail: input.userEmail,
       orgId: input.orgId,
     })
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: triageDecisions.id,
+      set: {
+        outcome: input.outcome,
+        reason: input.reason,
+        guardResultsJson: JSON.stringify(input.guardResults),
+        createdAt: now,
+        ownerEmail: input.userEmail,
+      },
+    });
   return id;
 }
 
@@ -340,7 +350,7 @@ export default defineAction({
         : []),
     ];
     const blocked = guardResults.some((guard) => !guard.passed);
-    const decisionId = await recordDecision({
+    const decisionId = await recordAutomaticBuilderDecision({
       itemId,
       userEmail,
       orgId,
@@ -542,7 +552,7 @@ export default defineAction({
             .where(
               and(eq(triageItems.id, related.id), eq(triageItems.orgId, orgId)),
             );
-          await recordDecision({
+          await recordAutomaticBuilderDecision({
             itemId: related.id,
             userEmail,
             orgId,

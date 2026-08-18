@@ -389,6 +389,101 @@ describe("runBackgroundAutomation — thread transcript", () => {
       ]),
     );
   });
+
+  it("persists a partial turn when the hard timeout fires", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Still working." });
+        await new Promise<void>((_resolve, reject) => {
+          const signal = opts.signal;
+          if (signal?.aborted) {
+            reject(new Error("aborted"));
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+    updateThreadDataMock.mockClear();
+
+    const realSetTimeout = globalThis.setTimeout;
+    const pendingHardTimeouts: Array<() => void> = [];
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((
+        handler: TimerHandler,
+        delay?: number,
+        ...args: unknown[]
+      ) => {
+        if (delay === BACKGROUND_RUN_HARD_TIMEOUT_MS) {
+          pendingHardTimeouts.push(() => {
+            if (typeof handler === "function") handler(...args);
+          });
+          return 0 as unknown as ReturnType<typeof setTimeout>;
+        }
+        return realSetTimeout(
+          handler as Parameters<typeof setTimeout>[0],
+          delay,
+          ...args,
+        );
+      }) as typeof setTimeout);
+
+    try {
+      const runPromise = runBackgroundAutomation(
+        {
+          automation: {
+            name: "hard-timeout-digest",
+            meta: {
+              schedule: "* * * * *",
+              enabled: true,
+              model: "test-model",
+            },
+            body: "Summarize the inbox.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: "jobs/hard-timeout-digest.md",
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Summarize the inbox.",
+          threadTitle: "Job: hard-timeout-digest — Aug 18, 2026",
+          runIdPrefix: "job-hard-timeout-digest",
+          usageLabel: "recurring-job:hard-timeout-digest",
+        },
+        {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+        },
+      );
+
+      await vi.waitFor(() => {
+        expect(pendingHardTimeouts.length).toBe(1);
+      });
+      pendingHardTimeouts[0]!();
+
+      await expect(runPromise).rejects.toThrow(/timed out after 10 minutes/);
+      expect(updateThreadDataMock).toHaveBeenCalled();
+      const [, , title] = updateThreadDataMock.mock.calls[0];
+      expect(title).toBe("Job: hard-timeout-digest — Aug 18, 2026");
+      expect(assistantContent()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ type: "text", text: "Still working." }),
+        ]),
+      );
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
 });
 
 // Every test above supplies `deps.engine`, which is what let the credential
