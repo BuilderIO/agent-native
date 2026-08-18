@@ -228,6 +228,7 @@ describe("EventDetailPopover characterization", () => {
     if (!unmounted) act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
@@ -616,6 +617,10 @@ describe("EventDetailPopover characterization", () => {
   });
 
   it("uses the event timezone when seeding the time editor", () => {
+    // Keep the assertion independent from the machine running Vitest. Without
+    // the explicit event timezone conversion, UTC would render these values
+    // as 4:00 PM and 5:00 PM.
+    vi.stubEnv("TZ", "UTC");
     const event = baseEvent({
       start: "2026-07-10T16:00:00.000Z",
       end: "2026-07-10T17:00:00.000Z",
