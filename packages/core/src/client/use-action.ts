@@ -32,6 +32,10 @@ import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
+import {
+  agentNativeApiDisabledReason,
+  assertAgentNativeApiEnabled,
+} from "./api-surface.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   clientBuildId,
@@ -532,6 +536,7 @@ async function actionFetch<T>(
   params?: Record<string, any>,
   options?: ActionFetchOptions,
 ): Promise<T> {
+  assertAgentNativeApiEnabled(`${method} ${name}`);
   const startedAt = actionTelemetryNow();
   let response: Response | undefined;
   let responseAt: number | undefined;
@@ -645,7 +650,8 @@ export function callAction<
 
 export type KeepaliveActionCallRejectionReason =
   | "body-too-large"
-  | "budget-exhausted";
+  | "budget-exhausted"
+  | "api-disabled";
 
 export type KeepaliveActionCallResult<TResult> =
   | {
@@ -682,6 +688,17 @@ export function tryCallActionKeepalive<
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   const serializedBody = JSON.stringify(params ?? {});
   const bodyBytes = utf8ByteLength(serializedBody);
+
+  // Reported as a refusal rather than thrown: callers keep the work queued on
+  // `accepted: false`, which is the honest outcome for a surface with no backend.
+  if (agentNativeApiDisabledReason()) {
+    return {
+      accepted: false,
+      bodyBytes,
+      reason: "api-disabled",
+      completion: null,
+    };
+  }
 
   if (bodyBytes > ACTION_KEEPALIVE_BODY_BUDGET_BYTES) {
     return {
@@ -750,6 +767,10 @@ export function useActionQuery<
   >,
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
+  // Not `enabled: false` via options: a disabled surface must win over whatever
+  // the caller asked for, and an unfired query reads as "no data" rather than
+  // as an error the UI has to special-case.
+  const apiDisabled = Boolean(agentNativeApiDisabledReason());
   return useQuery<R>({
     queryKey: ["action", actionName, params],
     // Thread React Query's per-fetch AbortSignal into the network request so
@@ -760,6 +781,7 @@ export function useActionQuery<
     retry: defaultActionQueryRetry,
     retryDelay: defaultActionQueryRetryDelay,
     ...options,
+    ...(apiDisabled ? { enabled: false as const } : {}),
   });
 }
 

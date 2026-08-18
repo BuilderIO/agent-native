@@ -1,5 +1,50 @@
 # @agent-native/core
 
+## 0.161.9
+
+### Patch Changes
+
+- 3c54d4e: Add `setAgentNativeApiDisabled(reason)` for surfaces framed by a host with no
+  agent-native session, so the client stops calling `/_agent-native/*` instead of
+  401-ing on every poll. Action queries do not fire, action fetches and
+  application-state reads/writes throw `AgentNativeApiDisabledError`, session reads
+  resolve as signed out, and the runtime-config ping is skipped.
+- 3c54d4e: `sendToBuilderChat` accepts a `targetOrigin` for embedders that verified the
+  Builder parent through a handshake. `getBuilderParentOrigin()` requires
+  `?builder.*` params to trust a loopback parent, so those embeds previously fell
+  back to posting `"*"`.
+
+## 0.161.8
+
+### Patch Changes
+
+- adf5cb0: Prioritize a selected A2A receiver's declared local capabilities before cross-app delegation.
+
+## 0.161.7
+
+### Patch Changes
+
+- 8a867bc: Fix Cloudflare Pages builds for templates that import the PDF.js legacy entrypoint.
+
+## 0.161.6
+
+### Patch Changes
+
+- ff06749: fix stale home chat pointers so a missing local thread does not render a restore error
+- ff06749: fix mounted embed dev servers serving CSS and other static assets through Vite's normal asset pipeline and allow Builder preview origins to use embed CORS
+- c7ad22e: Fix Portal remote connector initialization so handoffs create remote run records and expose command failures in connector logs.
+- ff06749: Record what was sent when an agent run errors. An errored run's capture now
+  carries the failed request's model, payload bytes, tool count, and message
+  count alongside `gatewayRequestId` — sizes and counts only, never prompt or
+  user content — so an oversized request and an upstream outage stop producing
+  identical, undiagnosable captures.
+- ff06749: Stop a background turn from retrying an identical failure forever. When two
+  consecutive server-driven continuation chunks end on the same terminal error
+  code having produced no assistant text and no tool calls, the chain now stops
+  and the run ends with one non-recoverable error that keeps the original error
+  code and the gateway's `ERROR ID:` reference. A different error, or the same
+  error after real progress, still chains as before.
+
 ## 0.161.5
 
 ### Patch Changes

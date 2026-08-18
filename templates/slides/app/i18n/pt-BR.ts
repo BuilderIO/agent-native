@@ -532,6 +532,11 @@ const messages = {
     newSlide: "Novo slide",
     closeAddSlides: "Fechar",
     describeThisSlide: "Descreva este slide",
+    cut: "Recortar",
+    copy: "Copiar",
+    paste: "Colar",
+    skipSlide: "Pular slide",
+    unskipSlide: "Não pular slide",
   },
   presentation: {
     loadFailed: "Não foi possível carregar esta apresentação.",

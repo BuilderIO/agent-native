@@ -192,6 +192,30 @@ describe("applyWireEvent", () => {
     expect(state.errorCode).toBe("missing_api_key");
   });
 
+  // A session that expires mid-run arrives as a plain error event, not a 401,
+  // so without this the UI offers a Retry that can never succeed.
+  it("classifies an expired session inside a run as an auth error", () => {
+    for (const error of [
+      "Unauthorized",
+      "session expired",
+      "Unauthenticated",
+    ]) {
+      expect(run([{ type: "error", error }]).errorCode).toBe("auth");
+    }
+  });
+
+  it("leaves unrelated errors unclassified", () => {
+    const state = run([{ type: "error", error: "Tool call timed out" }]);
+    expect(state.errorCode).toBeNull();
+  });
+
+  it("keeps a server-sent errorCode over the auth heuristic", () => {
+    const state = run([
+      { type: "error", error: "Unauthorized", errorCode: "credits" },
+    ]);
+    expect(state.errorCode).toBe("credits");
+  });
+
   it("finishes cleanly on done", () => {
     const state = run([{ type: "text", text: "hi" }, { type: "done" }]);
     expect(state.isStreaming).toBe(false);

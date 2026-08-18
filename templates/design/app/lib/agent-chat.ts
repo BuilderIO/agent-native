@@ -5,6 +5,13 @@ import {
   type AgentChatMessage,
   type SendToAgentChatAndConfirmResult,
 } from "@agent-native/core/client/agent-chat";
+import { sendToBuilderChat } from "@agent-native/core/client/host";
+
+import {
+  getVerifiedBuilderHostOrigin,
+  isBuilderHostEmbed,
+} from "./builder-host-origin";
+import { isEmbedChromeRequested } from "./embed-chrome";
 
 export const DESIGN_CHAT_STORAGE_KEY = "design";
 
@@ -39,6 +46,12 @@ export function sendToDesignAgentChatAndConfirm(
 export interface DesignSourceHandoffResult {
   target: "host" | "local";
   delivered: boolean;
+  /**
+   * The host prefilled its composer and the user has not sent it yet. Callers
+   * must not treat this as applied: discarding pending edits here loses work
+   * the agent was never asked to do.
+   */
+  staged?: boolean;
   reason?: string;
   tabId?: string;
 }
@@ -58,6 +71,23 @@ export async function sendDesignSourceHandoffAndConfirm(
   opts: AgentChatMessage,
   options?: { timeoutMs?: number },
 ): Promise<DesignSourceHandoffResult> {
+  // `embedChrome` alone is a display preference any embedder can ask for, so the
+  // shell route is what decides who receives source-edit context. `submit` is
+  // the host's call there, and its composer filling is the delivery evidence.
+  if (isEmbedChromeRequested() && isBuilderHostEmbed()) {
+    const posted = sendToBuilderChat({
+      message: opts.message,
+      context: opts.context,
+      submit: false,
+      targetOrigin: getVerifiedBuilderHostOrigin() ?? undefined,
+    });
+    return {
+      target: "host",
+      delivered: posted,
+      ...(posted ? { staged: true } : { reason: "host-post-failed" }),
+    };
+  }
+
   const hostDelivery = sendMcpAppHostMessage({
     message: opts.message,
     context: opts.context,
