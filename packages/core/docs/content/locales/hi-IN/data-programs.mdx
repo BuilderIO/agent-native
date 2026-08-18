@@ -8,7 +8,7 @@ search: "data program emit rows schema providerFetch dashboard panel program sou
 
 एक **डेटा प्रोग्राम (data program)** एक नामित, सहेजा गया, एजेंट द्वारा लिखा गया JS स्क्रिप्ट है जो डेटा फ़ेच, जॉइन, फ़िल्टर या एग्रीगेट करता है — `providerFetch` / `providerFetchAll` / `providerSearchAll` के ज़रिए provider APIs, `appAction` के ज़रिए app डेटा, या Resources-बैक्ड workspace फ़ाइलें — और परिणाम के साथ बिल्कुल एक बार `emit(rows, schema)` कॉल करता है। परिणाम SQL में कैश होता है और कोई भी chart/table कंपोनेंट इसे रेंडर कर सकता है, जो हर पेज व्यू पर नहीं बल्कि आपकी चुनी हुई पॉलिसी पर रिफ्रेश होता है।
 
-जहाँ भी [`run-code`](/docs/actions) उपलब्ध है वहाँ यह अपने आप उपलब्ध हो जाता है — प्रति app इसे माउंट या कॉन्फ़िगर करने की कोई ज़रूरत नहीं है। अगर आपके app में पहले से run-code सक्षम है, तो `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program`, और `delete-data-program` पहले से ही रजिस्टर्ड actions हैं।
+जहाँ भी [`run-code`](/docs/actions-overview) उपलब्ध है वहाँ यह अपने आप उपलब्ध हो जाता है — प्रति app इसे माउंट या कॉन्फ़िगर करने की कोई ज़रूरत नहीं है। अगर आपके app में पहले से run-code सक्षम है, तो `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program`, और `delete-data-program` पहले से ही रजिस्टर्ड actions हैं।
 
 <Diagram id="doc-block-dp-overview" title={"एडहॉक क्वेरी से लाइव पैनल तक"} summary={"एक run-code स्क्रिप्ट emit() कॉल करते ही एक सहेजे गए प्रोग्राम में बदल जाती है; कोई भी dashboard पैनल इससे बाइंड हो सकता है और उसके बाद कैश/रिफ्रेश पॉलिसी संभाल लेती है।"}>
 
@@ -324,6 +324,6 @@ emit(rows, [
 ## संबंधित दस्तावेज़ {#related}
 
 - [एक्सटेंशन](/docs/extensions) — वह सैंडबॉक्स्ड mini-app प्रिमिटिव जिसके साथ डेटा प्रोग्राम एक सुरक्षा मुद्रा और शेयरिंग मॉडल साझा करते हैं, पर अपनी खुद की UI के साथ।
-- [Actions](/docs/actions) — वे `run-code` कन्वेंशन्स और सैंडबॉक्स ग्लोबल्स (`providerFetch`, `appAction`, आदि) जिन पर डेटा प्रोग्राम बने हैं।
+- [Actions](/docs/actions-overview) — वे `run-code` कन्वेंशन्स और सैंडबॉक्स ग्लोबल्स (`providerFetch`, `appAction`, आदि) जिन पर डेटा प्रोग्राम बने हैं।
 - [शेयरिंग और प्राइवेसी](/docs/sharing) — वह org-आंतरिक, कभी पब्लिक न होने वाला शेयरिंग मॉडल जो डेटा प्रोग्राम इस्तेमाल करते हैं।
 - [सुरक्षा](/docs/security) — फ्रेमवर्क के क्रेडेंशियल-हैंडलिंग और एक्सेस-स्कोपिंग invariants।

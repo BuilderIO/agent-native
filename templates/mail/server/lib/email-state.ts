@@ -14,6 +14,7 @@ import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
  */
 import type { EmailMessage, Label } from "@shared/types.js";
 
+import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import {
   createOAuth2Client,
   gmailGetMessage,
@@ -23,6 +24,11 @@ import {
   gmailUntrashThread,
 } from "./google-api.js";
 import { getOAuth2Credentials, isConnected } from "./google-auth.js";
+import {
+  readLocalEmails,
+  withLocalEmailMutationLock,
+  writeLocalEmails,
+} from "./local-email-store.js";
 import { invalidateThreadCache } from "./thread-cache.js";
 
 // ---------------------------------------------------------------------------
@@ -105,21 +111,6 @@ export async function getAccountToken(
 // ---------------------------------------------------------------------------
 // Local-mode helpers
 // ---------------------------------------------------------------------------
-
-async function readLocalEmails(ownerEmail: string): Promise<EmailMessage[]> {
-  const data = await getUserSetting(ownerEmail, "local-emails");
-  if (data && Array.isArray((data as any).emails)) {
-    return (data as any).emails as EmailMessage[];
-  }
-  return [];
-}
-
-async function writeLocalEmails(
-  ownerEmail: string,
-  emails: EmailMessage[],
-): Promise<void> {
-  await putUserSetting(ownerEmail, "local-emails", { emails });
-}
 
 async function readLocalLabels(ownerEmail: string): Promise<Label[]> {
   const data = await getUserSetting(ownerEmail, "labels");
@@ -205,24 +196,26 @@ export async function archiveEmail(
   } = input;
 
   if (!(await isConnected(ownerEmail))) {
-    const emails = await readLocalEmails(ownerEmail);
-    const target = emails.find((e) => e.id === id);
-    if (!target) throw new Error(`Email ${id} not found`);
-    const threadId = target.threadId || target.id;
-    const updated = emails.map((e) => {
-      if ((e.threadId || e.id) !== threadId) return e;
-      return {
-        ...e,
-        isArchived: true,
-        labelIds: e.labelIds.filter((l) => l !== "inbox"),
-      };
+    return withLocalEmailMutationLock(ownerEmail, async () => {
+      const emails = await readLocalEmails(ownerEmail);
+      const target = emails.find((e) => e.id === id);
+      if (!target) throw new Error(`Email ${id} not found`);
+      const threadId = target.threadId || target.id;
+      const updated = emails.map((e) => {
+        if ((e.threadId || e.id) !== threadId) return e;
+        return {
+          ...e,
+          isArchived: true,
+          labelIds: e.labelIds.filter((l) => l !== "inbox"),
+        };
+      });
+      await writeLocalEmails(ownerEmail, updated);
+      await writeLocalLabels(
+        ownerEmail,
+        recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
+      );
+      return { id, threadId, isArchived: true };
     });
-    await writeLocalEmails(ownerEmail, updated);
-    await writeLocalLabels(
-      ownerEmail,
-      recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
-    );
-    return { id, threadId, isArchived: true };
   }
 
   // Try accountEmail-scoped account first, then fall through to other accounts
@@ -301,26 +294,28 @@ export async function unarchiveEmail(
   const { id, ownerEmail, accountEmail } = input;
 
   if (!(await isConnected(ownerEmail))) {
-    const emails = await readLocalEmails(ownerEmail);
-    const target = emails.find((e) => e.id === id);
-    if (!target) throw new Error(`Email ${id} not found`);
-    const threadId = target.threadId || target.id;
-    const updated = emails.map((e) => {
-      if ((e.threadId || e.id) !== threadId) return e;
-      return {
-        ...e,
-        isArchived: false,
-        labelIds: e.labelIds.includes("inbox")
-          ? e.labelIds
-          : ["inbox", ...e.labelIds],
-      };
+    return withLocalEmailMutationLock(ownerEmail, async () => {
+      const emails = await readLocalEmails(ownerEmail);
+      const target = emails.find((e) => e.id === id);
+      if (!target) throw new Error(`Email ${id} not found`);
+      const threadId = target.threadId || target.id;
+      const updated = emails.map((e) => {
+        if ((e.threadId || e.id) !== threadId) return e;
+        return {
+          ...e,
+          isArchived: false,
+          labelIds: e.labelIds.includes("inbox")
+            ? e.labelIds
+            : ["inbox", ...e.labelIds],
+        };
+      });
+      await writeLocalEmails(ownerEmail, updated);
+      await writeLocalLabels(
+        ownerEmail,
+        recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
+      );
+      return { id, threadId, isArchived: false };
     });
-    await writeLocalEmails(ownerEmail, updated);
-    await writeLocalLabels(
-      ownerEmail,
-      recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
-    );
-    return { id, threadId, isArchived: false };
   }
 
   const token = await getAccountToken(accountEmail ?? ownerEmail, ownerEmail);
@@ -371,12 +366,14 @@ export async function toggleStar(
   } = input;
 
   if (!(await isConnected(ownerEmail))) {
-    const emails = await readLocalEmails(ownerEmail);
-    const idx = emails.findIndex((e) => e.id === id);
-    if (idx === -1) throw new Error(`Email ${id} not found`);
-    emails[idx] = { ...emails[idx], isStarred };
-    await writeLocalEmails(ownerEmail, emails);
-    return { id, threadId: emails[idx].threadId, isStarred };
+    return withLocalEmailMutationLock(ownerEmail, async () => {
+      const emails = await readLocalEmails(ownerEmail);
+      const idx = emails.findIndex((e) => e.id === id);
+      if (idx === -1) throw new Error(`Email ${id} not found`);
+      emails[idx] = { ...emails[idx], isStarred };
+      await writeLocalEmails(ownerEmail, emails);
+      return { id, threadId: emails[idx].threadId, isStarred };
+    });
   }
 
   const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
@@ -444,20 +441,22 @@ export async function trashEmail(
   const { id, ownerEmail, accountEmail } = input;
 
   if (!(await isConnected(ownerEmail))) {
-    const emails = await readLocalEmails(ownerEmail);
-    const target = emails.find((e) => e.id === id);
-    if (!target) throw new Error(`Email ${id} not found`);
-    const threadId = target.threadId || target.id;
-    const updated = emails.map((e) => {
-      if ((e.threadId || e.id) !== threadId) return e;
-      return { ...e, isTrashed: true, isArchived: false };
+    return withLocalEmailMutationLock(ownerEmail, async () => {
+      const emails = await readLocalEmails(ownerEmail);
+      const target = emails.find((e) => e.id === id);
+      if (!target) throw new Error(`Email ${id} not found`);
+      const threadId = target.threadId || target.id;
+      const updated = emails.map((e) => {
+        if ((e.threadId || e.id) !== threadId) return e;
+        return { ...e, isTrashed: true, isArchived: false };
+      });
+      await writeLocalEmails(ownerEmail, updated);
+      await writeLocalLabels(
+        ownerEmail,
+        recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
+      );
+      return { id, threadId, isTrashed: true };
     });
-    await writeLocalEmails(ownerEmail, updated);
-    await writeLocalLabels(
-      ownerEmail,
-      recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
-    );
-    return { id, threadId, isTrashed: true };
   }
 
   const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
@@ -515,26 +514,28 @@ export async function untrashEmail(
   const { id, ownerEmail, accountEmail } = input;
 
   if (!(await isConnected(ownerEmail))) {
-    const emails = await readLocalEmails(ownerEmail);
-    const target = emails.find((e) => e.id === id);
-    if (!target) throw new Error(`Email ${id} not found`);
-    const threadId = target.threadId || target.id;
-    const updated = emails.map((e) => {
-      if ((e.threadId || e.id) !== threadId) return e;
-      return {
-        ...e,
-        isTrashed: false,
-        labelIds: e.labelIds.includes("inbox")
-          ? e.labelIds
-          : ["inbox", ...e.labelIds],
-      };
+    return withLocalEmailMutationLock(ownerEmail, async () => {
+      const emails = await readLocalEmails(ownerEmail);
+      const target = emails.find((e) => e.id === id);
+      if (!target) throw new Error(`Email ${id} not found`);
+      const threadId = target.threadId || target.id;
+      const updated = emails.map((e) => {
+        if ((e.threadId || e.id) !== threadId) return e;
+        return {
+          ...e,
+          isTrashed: false,
+          labelIds: e.labelIds.includes("inbox")
+            ? e.labelIds
+            : ["inbox", ...e.labelIds],
+        };
+      });
+      await writeLocalEmails(ownerEmail, updated);
+      await writeLocalLabels(
+        ownerEmail,
+        recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
+      );
+      return { id, threadId, isTrashed: false };
     });
-    await writeLocalEmails(ownerEmail, updated);
-    await writeLocalLabels(
-      ownerEmail,
-      recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
-    );
-    return { id, threadId, isTrashed: false };
   }
 
   const token = await getAccountToken(accountEmail ?? ownerEmail, ownerEmail);
@@ -575,16 +576,18 @@ export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
   const { id, ownerEmail, isRead, accountEmail } = input;
 
   if (!(await isConnected(ownerEmail))) {
-    const emails = await readLocalEmails(ownerEmail);
-    const idx = emails.findIndex((e) => e.id === id);
-    if (idx === -1) throw new Error(`Email ${id} not found`);
-    emails[idx] = { ...emails[idx], isRead };
-    await writeLocalEmails(ownerEmail, emails);
-    await writeLocalLabels(
-      ownerEmail,
-      recomputeUnreadCounts(emails, await readLocalLabels(ownerEmail)),
-    );
-    return { id, isRead };
+    return withLocalEmailMutationLock(ownerEmail, async () => {
+      const emails = await readLocalEmails(ownerEmail);
+      const idx = emails.findIndex((e) => e.id === id);
+      if (idx === -1) throw new Error(`Email ${id} not found`);
+      emails[idx] = { ...emails[idx], isRead };
+      await writeLocalEmails(ownerEmail, emails);
+      await writeLocalLabels(
+        ownerEmail,
+        recomputeUnreadCounts(emails, await readLocalLabels(ownerEmail)),
+      );
+      return { id, isRead };
+    });
   }
 
   const accounts = await listOAuthAccountsByOwner("google", ownerEmail);
@@ -614,6 +617,86 @@ export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
     }
   }
   throw lastErr ?? new Error("Mark read failed");
+}
+
+export async function markAllLocalUnreadRead(input: {
+  ownerEmail: string;
+  accountEmail: string;
+  excludeThreadIds: string[];
+}): Promise<BulkMarkReadResult> {
+  const { ownerEmail, accountEmail } = input;
+  if (accountEmail.toLowerCase() !== ownerEmail.toLowerCase()) {
+    throw new Error("Local mail only supports the authenticated owner account");
+  }
+
+  const excludedThreadIds = new Set(input.excludeThreadIds.filter(Boolean));
+  return withLocalEmailMutationLock(ownerEmail, async () => {
+    const emails = await readLocalEmails(ownerEmail);
+    const matched = emails.filter((email) => !email.isRead);
+    const excluded = matched.filter((email) =>
+      excludedThreadIds.has(email.threadId || email.id),
+    );
+    const selectedIds = new Set(
+      matched
+        .filter((email) => !excludedThreadIds.has(email.threadId || email.id))
+        .map((email) => email.id),
+    );
+    const updated = emails.map((email) =>
+      selectedIds.has(email.id) ? { ...email, isRead: true } : email,
+    );
+
+    if (selectedIds.size > 0) {
+      await writeLocalEmails(ownerEmail, updated);
+      await writeLocalLabels(
+        ownerEmail,
+        recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
+      );
+    }
+
+    const persisted = await readLocalEmails(ownerEmail);
+    const remaining = persisted.filter((email) => !email.isRead);
+    const matchedIds = new Set(matched.map((email) => email.id));
+    const remainingProtected = remaining.filter((email) =>
+      excludedThreadIds.has(email.threadId || email.id),
+    );
+    const unexpectedRemaining = remaining.filter((email) =>
+      selectedIds.has(email.id),
+    );
+    const newUnread = remaining.filter((email) => !matchedIds.has(email.id));
+
+    return {
+      mode: "all-unread",
+      accountEmail,
+      matchedMessages: matched.length,
+      matchedThreads: new Set(
+        matched.map((email) => email.threadId || email.id),
+      ).size,
+      excludedMessages: excluded.length,
+      excludedThreads: new Set(
+        excluded.map((email) => email.threadId || email.id),
+      ).size,
+      changedMessages: selectedIds.size,
+      batchCount: selectedIds.size > 0 ? 1 : 0,
+      failures: [],
+      remainingUnreadMessages: remaining.length,
+      remainingUnreadThreads: new Set(
+        remaining.map((email) => email.threadId || email.id),
+      ).size,
+      remainingProtectedMessages: remainingProtected.length,
+      remainingProtectedThreads: new Set(
+        remainingProtected.map((email) => email.threadId || email.id),
+      ).size,
+      unexpectedUnreadMessages: unexpectedRemaining.length,
+      unexpectedUnreadThreads: new Set(
+        unexpectedRemaining.map((email) => email.threadId || email.id),
+      ).size,
+      newUnreadMessages: newUnread.length,
+      newUnreadThreads: new Set(
+        newUnread.map((email) => email.threadId || email.id),
+      ).size,
+      verificationComplete: unexpectedRemaining.length === 0,
+    };
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -647,21 +730,23 @@ export async function markThreadRead(
   const { threadId, ownerEmail, isRead, accountEmail } = input;
 
   if (!(await isConnected(ownerEmail))) {
-    const emails = await readLocalEmails(ownerEmail);
-    let changed = false;
-    const updated = emails.map((e) => {
-      if ((e.threadId || e.id) !== threadId || e.isRead === isRead) return e;
-      changed = true;
-      return { ...e, isRead };
+    return withLocalEmailMutationLock(ownerEmail, async () => {
+      const emails = await readLocalEmails(ownerEmail);
+      let changed = false;
+      const updated = emails.map((e) => {
+        if ((e.threadId || e.id) !== threadId || e.isRead === isRead) return e;
+        changed = true;
+        return { ...e, isRead };
+      });
+      if (changed) {
+        await writeLocalEmails(ownerEmail, updated);
+        await writeLocalLabels(
+          ownerEmail,
+          recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
+        );
+      }
+      return { threadId, isRead };
     });
-    if (changed) {
-      await writeLocalEmails(ownerEmail, updated);
-      await writeLocalLabels(
-        ownerEmail,
-        recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
-      );
-    }
-    return { threadId, isRead };
   }
 
   const token = await getAccountToken(accountEmail ?? ownerEmail, ownerEmail);

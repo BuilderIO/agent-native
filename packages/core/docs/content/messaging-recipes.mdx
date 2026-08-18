@@ -1,0 +1,194 @@
+---
+title: "Messaging Recipes: Slack to Notion"
+description: "A worked, end-to-end tutorial: wire an @mention in Slack to a new row in a Notion database, including the provider API setup, vault credentials, and the action the agent writes for you."
+search: "messaging recipe worked example Slack Notion add-notion-row provider api tutorial"
+---
+
+# Messaging Recipes
+
+**This page: one complete worked example.** It walks through connecting a Slack `@mention` to a new row in a Notion database, start to finish, including the two steps that fail silently if you skip them. Follow it after you've finished [Set up Slack](/docs/messaging#slack) on the main [Messaging](/docs/messaging) page.
+
+<Callout tone="info">
+
+**Developer page.** The last step has the agent write a small action file for you, so you'll want an app you can edit. For just connecting a chat platform, see [Messaging](/docs/messaging) instead.
+
+</Callout>
+
+## Worked example: @mention in Slack → row in Notion {#slack-to-notion}
+
+Once Slack mentions work, the most common next request is some version of _"when I @mention the agent in a thread, take what I said and put it in my Notion database."_ That already works — Slack inbound, the Notion provider API, and app actions are all built in — but it needs three pieces connected in the right order, and two of them fail silently if you skip them.
+
+Everything in `<ANGLE_BRACKETS>` below is a placeholder. Never paste a real Notion secret into source, into a committed `.env`, or into a chat message.
+
+### 1. Get mentions reaching the app
+
+Finish [Set up Slack](/docs/messaging#slack) and confirm that an `@mention` in a channel gets a reply before you touch Notion. Two behaviors matter for the rest of this example:
+
+- The `@mention` message is the invocation, and its text is what the agent sees.
+- A plain reply later in the same thread reaches the agent **only while that thread still has work running**. If a run has already finished, your follow-up is ignored — @mention again instead of assuming the agent is still listening.
+
+### 2. Expose the provider API actions
+
+Core ships a Notion provider preset (base URL, `Notion-Version` header, auth, docs links), but the three actions that let the agent use it — `provider-api-catalog`, `provider-api-docs`, and `provider-api-request` — are an **opt-in subpath export**. An app that has never added them has no path to Notion at all, and the agent will report that it has no Notion tool. This is the step most people miss.
+
+Add a provider runtime:
+
+```ts
+// server/lib/provider-api.ts
+import { createProviderApiRuntime } from "@agent-native/core/provider-api";
+
+const runtime = createProviderApiRuntime({
+  appId: "<YOUR_APP_ID>",
+  providerIds: ["notion"],
+});
+
+export function getProviderApiRuntime() {
+  return runtime;
+}
+```
+
+Then add one thin action file per action id. Every factory option is optional, so each file can be a single call:
+
+```ts
+// actions/provider-api-catalog.ts
+import { createProviderApiCatalogAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiCatalogAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-docs.ts
+import { createProviderApiDocsAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiDocsAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-request.ts
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiRequestAction(getProviderApiRuntime());
+```
+
+Files in `actions/` are discovered automatically — there is no registry to edit. See [Integrations — Reuse the Core action factories](/docs/integrations#provider-api-factories) for narrowing the provider list or exposing these over HTTP.
+
+### 3. Put the Notion key in the vault, not in `.env`
+
+Create an internal integration at **[notion.so/my-integrations](https://www.notion.so/my-integrations)** and copy its secret. Then, in your app, open **Settings → API Keys & Connections**, add a key named exactly `NOTION_API_KEY`, paste the value, and pick a scope:
+
+- **Personal** — only runs that execute as you can use it.
+- **Workspace** — shared with the organization. Choose this if anyone other than you will @mention the agent, because a Slack run executes as the integration owner, not as whoever typed the message.
+
+The provider runtime resolves credentials from the encrypted vault in that order — personal, then organization, then workspace — and **deliberately never reads `process.env`**, because a deployment env var would be shared by every user of a multi-tenant app. A `NOTION_API_KEY` line in `.env` will not be picked up here.
+
+### 4. Share the database with the integration
+
+In Notion, open the target database, then **••• → Connections →** add your integration. Skipping this is the most common Notion failure and the most misleading: the API answers **404**, not 403, so it reads like a bad database id. The catalog entry carries this fix-up text, and `provider-api-request` appends it to the `guidance` field of any 401, 403, or 404 response.
+
+Grab the database id from the database URL — it is the 32-character string before the `?`.
+
+### 5. Ask your agent to build it
+
+This is the part no setup screen tells you: you don't wire the two halves together yourself, you ask for the behavior. In the app's agent chat:
+
+> Add an action called `add-notion-row` that appends a row to Notion database `<NOTION_DATABASE_ID>` through the provider API. It should take the message text, the Slack author, and a link back to the Slack message. Then update `AGENTS.md` so that when someone @mentions you in Slack and asks you to log or save something, you call that action and reply with the new Notion page URL.
+
+What the agent should write is **one action** — not a Nitro route, and not a `fetch` from the browser:
+
+```ts
+// actions/add-notion-row.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default defineAction({
+  description:
+    "Append one row to the team's Notion database, e.g. from a Slack reply.",
+  schema: z.object({
+    databaseId: z.string().describe("Notion database id"),
+    text: z.string().min(1).describe("Body of the message to record"),
+    author: z.string().optional().describe("Who said it"),
+    sourceUrl: z.string().url().optional().describe("Link back to Slack"),
+  }),
+  run: async ({ databaseId, text, author, sourceUrl }) => {
+    const runtime = getProviderApiRuntime();
+
+    const database = await runtime.executeRequest({
+      provider: "notion",
+      method: "GET",
+      path: `/databases/${databaseId}`,
+    });
+    if (!database.response.ok) {
+      throw new Error(
+        `Notion rejected the database lookup (${database.response.status}). ${database.guidance}`,
+      );
+    }
+
+    const dataSourceId = (
+      database.response.json as { data_sources?: { id: string }[] }
+    )?.data_sources?.[0]?.id;
+    if (!dataSourceId) {
+      throw new Error("That Notion database has no readable data source.");
+    }
+
+    const created = await runtime.executeRequest({
+      provider: "notion",
+      method: "POST",
+      path: "/pages",
+      body: {
+        parent: { data_source_id: dataSourceId },
+        properties: {
+          Name: { title: [{ text: { content: text.slice(0, 200) } }] },
+          ...(author
+            ? { Author: { rich_text: [{ text: { content: author } }] } }
+            : {}),
+          ...(sourceUrl ? { Source: { url: sourceUrl } } : {}),
+        },
+      },
+    });
+    if (!created.response.ok) {
+      throw new Error(
+        `Notion rejected the new row (${created.response.status}). ${created.guidance}`,
+      );
+    }
+
+    return created.response.json;
+  },
+});
+```
+
+Three details in that sample are load-bearing:
+
+- Current Notion versions attach rows to a **data source** inside a database, so read the database first and use its `data_sources[0].id` as the parent. Passing the database id directly as the parent is the shape from the older API.
+- `executeRequest` returns provider errors instead of throwing, so check `response.ok` yourself and pass the returned `guidance` along — that is where the "share the database" hint arrives.
+- The property names (`Name`, `Author`, `Source`) must match your database's columns exactly, and the property types must match too. Have the agent read the database's `properties` first rather than guessing.
+
+The `AGENTS.md` half is not optional. Without it the agent has the tool but no reason to reach for it when a Slack message says "log this."
+
+### 6. Confirm it, and what to check when it doesn't work
+
+In a Slack channel the agent is in, post `@YourAgent log this to Notion: <SOME_TEXT>`. A working run replies in the thread with the new page URL, and the row is in Notion.
+
+When it doesn't:
+
+| What you see                                                 | Where to look                                                                                                                                           |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slack never replies at all                                   | The mention never reached the app. Re-check the Request URL and signing secret in [Set up Slack](/docs/messaging#slack) — this is not a Notion problem. |
+| The agent replies but says it has no Notion tool             | Step 2. The provider API actions were never added to `actions/`.                                                                                        |
+| `notion credential not configured. Tried: NOTION_API_KEY`    | Step 3. The key is in `.env`, or saved as **Personal** for a different account than the one the run executes as. Save it as **Workspace**.              |
+| Notion answers `404`                                         | Step 4. The database was never shared with the integration.                                                                                             |
+| Notion answers `400` about properties                        | The property names or types in the action don't match the database's columns.                                                                           |
+| It worked once, then a later reply in the thread was ignored | Expected. Unmentioned thread replies only reach the agent while that thread has active work — @mention again.                                           |
+
+## What's next {#whats-next}
+
+- [Messaging](/docs/messaging) — connecting Slack and every other channel
+- [Messaging Internals](/docs/messaging-internals) — the webhook lifecycle and security model this recipe builds on
+- [Integrations](/docs/integrations#provider-apis) — the provider API catalog beyond Notion

@@ -96,9 +96,13 @@ export function getBoardSurfaceLayerStyle(args: {
  */
 export function shouldRenderBoardSurfaceStaticPreview(args: {
   zoom: number;
+  hasSurfaceContent: boolean;
   viewportGeometry?: FrameGeometry | null;
   renderGeometry: FrameGeometry;
 }) {
+  // The replica is opaque. Backing a layer that is not rendering just slabs the
+  // board in its own colour, which reads as a themed background gone wrong.
+  if (!args.hasSurfaceContent) return false;
   if (args.viewportGeometry) {
     return (
       args.viewportGeometry.width > args.renderGeometry.width ||

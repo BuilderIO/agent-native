@@ -1,12 +1,9 @@
-import { defineAction } from "@agent-native/core";
+import { createProviderApiDocsAction } from "@agent-native/core/provider-api/actions/provider-api";
 import { z } from "zod";
 
-import {
-  ANALYTICS_PROVIDER_API_IDS,
-  fetchProviderApiDocs,
-} from "../server/lib/provider-api";
+import { getAnalyticsProviderApiRuntime } from "../server/lib/provider-api";
 
-const ProviderSchema = z.enum(ANALYTICS_PROVIDER_API_IDS);
+const ProviderSchema = z.string().min(1);
 const BooleanFromQuerySchema = z.preprocess(
   (value) => (typeof value === "string" ? value === "true" : value),
   z.boolean(),
@@ -23,12 +20,12 @@ const WebContentSearchSchema = z.object({
   caseSensitive: BooleanFromQuerySchema.optional(),
 });
 
-export default defineAction({
+export default createProviderApiDocsAction(getAnalyticsProviderApiRuntime(), {
   description:
     "Inspect provider API docs/spec metadata, or fetch a public provider docs/spec/changelog URL. Use this before arbitrary provider-api-request calls when the exact endpoint, filter operator, payload shape, pagination, or API version is uncertain.",
   schema: z.object({
     provider: ProviderSchema.describe(
-      "Provider whose API docs/spec to inspect.",
+      "Built-in or custom provider whose API docs/spec to inspect.",
     ),
     url: z
       .string()
@@ -69,6 +66,4 @@ export default defineAction({
     ),
   }),
   http: { method: "GET" },
-  readOnly: true,
-  run: async (args) => fetchProviderApiDocs(args),
 });

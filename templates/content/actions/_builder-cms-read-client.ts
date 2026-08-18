@@ -44,6 +44,111 @@ export interface BuilderCmsEntryLiveState {
   id: string | null;
 }
 
+export interface BuilderCmsEntryFidelitySummary {
+  topLevelBlockCount: number;
+  componentCount: number;
+  textBlockCount: number;
+  imageBlockCount: number;
+  htmlImageCount: number;
+  markdownImageSyntaxCount: number;
+  videoBlockCount: number;
+  headingCount: number;
+  unorderedListCount: number;
+  orderedListCount: number;
+  listItemCount: number;
+  linkCount: number;
+  tableCount: number;
+  escapedTableMarkupCount: number;
+  codeCount: number;
+  blockquoteCount: number;
+  escapedBlockquoteMarkupCount: number;
+  hasYouTubeLink: boolean;
+}
+
+function countMatches(value: string, pattern: RegExp) {
+  return value.match(pattern)?.length ?? 0;
+}
+
+export function summarizeBuilderCmsEntryFidelity(
+  entry: BuilderCmsSourceEntry,
+): BuilderCmsEntryFidelitySummary {
+  const blocks = entry.rawEntry ? builderEntryBlocks(entry.rawEntry) : [];
+  const summary: BuilderCmsEntryFidelitySummary = {
+    topLevelBlockCount: blocks.length,
+    componentCount: 0,
+    textBlockCount: 0,
+    imageBlockCount: 0,
+    htmlImageCount: 0,
+    markdownImageSyntaxCount: 0,
+    videoBlockCount: 0,
+    headingCount: 0,
+    unorderedListCount: 0,
+    orderedListCount: 0,
+    listItemCount: 0,
+    linkCount: 0,
+    tableCount: 0,
+    escapedTableMarkupCount: 0,
+    codeCount: 0,
+    blockquoteCount: 0,
+    escapedBlockquoteMarkupCount: 0,
+    hasYouTubeLink: false,
+  };
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    const component =
+      record.component &&
+      typeof record.component === "object" &&
+      !Array.isArray(record.component)
+        ? (record.component as Record<string, unknown>)
+        : null;
+    if (component) {
+      summary.componentCount += 1;
+      const name = typeof component.name === "string" ? component.name : "";
+      if (name === "Image") summary.imageBlockCount += 1;
+      if (name === "Video") summary.videoBlockCount += 1;
+      if (name === "Text") {
+        summary.textBlockCount += 1;
+        const options =
+          component.options &&
+          typeof component.options === "object" &&
+          !Array.isArray(component.options)
+            ? (component.options as Record<string, unknown>)
+            : {};
+        const html = typeof options.text === "string" ? options.text : "";
+        summary.headingCount += countMatches(html, /<h[1-6]\b/gi);
+        summary.htmlImageCount += countMatches(html, /<img\b/gi);
+        summary.markdownImageSyntaxCount += countMatches(
+          html,
+          /!\[[^\]]*\]\(/g,
+        );
+        summary.unorderedListCount += countMatches(html, /<ul\b/gi);
+        summary.orderedListCount += countMatches(html, /<ol\b/gi);
+        summary.listItemCount += countMatches(html, /<li\b/gi);
+        summary.linkCount += countMatches(html, /<a\b/gi);
+        summary.tableCount += countMatches(html, /<table\b/gi);
+        summary.escapedTableMarkupCount += countMatches(html, /&lt;table\b/gi);
+        summary.codeCount += countMatches(html, /<code\b/gi);
+        summary.blockquoteCount += countMatches(html, /<blockquote\b/gi);
+        summary.escapedBlockquoteMarkupCount += countMatches(
+          html,
+          /&lt;blockquote\b/gi,
+        );
+        if (/youtube\.com|youtu\.be/i.test(html)) {
+          summary.hasYouTubeLink = true;
+        }
+      }
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+  visit(blocks);
+  return summary;
+}
+
 type FetchLike = typeof fetch;
 
 type BuilderMcpContentPart = {
@@ -58,6 +163,7 @@ type BuilderMcpToolResult = {
 const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
 const BUILDER_CMS_MAX_READ_LIMIT = 10_000;
 const BUILDER_CMS_PAGE_SIZE = 100;
+const BUILDER_CMS_PROJECTED_READ_CONCURRENCY = 8;
 const BUILDER_CMS_READ_RETRIES = 2;
 const BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS = [
   "id",
@@ -87,6 +193,10 @@ const BUILDER_CMS_HEAVY_BODY_FIELD_PATHS = [
 const BUILDER_CMS_FIELD_PATH_PATTERN =
   /^[A-Za-z0-9_$-]+(?:\.[A-Za-z0-9_$-]+)*$/;
 
+type BuilderCmsContentPageResult =
+  | { pageLimit: number; pageEntries: BuilderCmsSourceEntry[] }
+  | { pageLimit: number; error: string };
+
 function normalizeBuilderCmsListFieldPath(fieldPath: string) {
   const trimmed = fieldPath.trim();
   if (!trimmed || !BUILDER_CMS_FIELD_PATH_PATTERN.test(trimmed)) return null;
@@ -113,6 +223,36 @@ function normalizeBuilderCmsListFieldPath(fieldPath: string) {
   return normalized;
 }
 
+function preserveProjectedBuilderFieldAbsence(
+  read: BuilderCmsReadResult,
+  fieldPaths: readonly string[] | undefined,
+  rawData: boolean | undefined,
+): BuilderCmsReadResult {
+  if (read.state !== "live" || rawData === true || !fieldPaths?.length) {
+    return read;
+  }
+  const projectedFieldPaths = [
+    ...new Set(
+      fieldPaths
+        .map(normalizeBuilderCmsListFieldPath)
+        .filter((fieldPath): fieldPath is string => fieldPath !== null),
+    ),
+  ];
+  if (projectedFieldPaths.length === 0) return read;
+  return {
+    ...read,
+    entries: read.entries.map((entry) => {
+      const sourceValues = { ...entry.sourceValues };
+      for (const fieldPath of projectedFieldPaths) {
+        if (!Object.prototype.hasOwnProperty.call(sourceValues, fieldPath)) {
+          sourceValues[fieldPath] = null;
+        }
+      }
+      return { ...entry, sourceValues };
+    }),
+  };
+}
+
 export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
   const fields = new Map<string, string>();
   for (const fieldPath of [
@@ -128,6 +268,15 @@ export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
 
 const BUILDER_CMS_METADATA_ENTRY_FIELDS = builderCmsListEntryFields();
 const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`;
+
+function applyBuilderCmsBodyEntryReadParams(url: URL, publicKey: string) {
+  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("includeUnpublished", "true");
+  url.searchParams.set("enrich", "true");
+  url.searchParams.set("noCache", "true");
+  url.searchParams.set("cachebust", String(Date.now()));
+  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+}
 
 function builderContentApiHost() {
   return (
@@ -250,13 +399,14 @@ function sleep(ms: number) {
 async function fetchBuilderContentPage(args: {
   fetchImpl: FetchLike;
   url: URL;
+  privateKey?: string;
 }): Promise<Response> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= BUILDER_CMS_READ_RETRIES; attempt += 1) {
     try {
-      const response = await args.fetchImpl(args.url, {
-        headers: { accept: "application/json" },
-      });
+      const headers: Record<string, string> = { accept: "application/json" };
+      if (args.privateKey) headers.authorization = `Bearer ${args.privateKey}`;
+      const response = await args.fetchImpl(args.url, { headers });
       if (
         !retryableBuilderReadStatus(response.status) ||
         attempt === BUILDER_CMS_READ_RETRIES
@@ -324,19 +474,43 @@ async function postBuilderMcp(args: {
   endpoint: string;
   privateKey: string;
   payload: Record<string, unknown>;
-  sessionId?: string | null;
+  connection?: BuilderMcpConnection;
+  modernClientName?: string;
   fetchImpl: FetchLike;
 }) {
+  const method =
+    typeof args.payload.method === "string" ? args.payload.method : "";
+  const modernClientName =
+    args.modernClientName ??
+    (args.connection?.protocolVersion === "2026-07-28"
+      ? "agent-native-content-template"
+      : undefined);
+  const payload = modernClientName
+    ? withModernBuilderMcpEnvelope(args.payload, modernClientName)
+    : args.payload;
   const headers: Record<string, string> = {
     accept: "application/json, text/event-stream",
     authorization: `Bearer ${args.privateKey}`,
     "content-type": "application/json",
   };
-  if (args.sessionId) headers["mcp-session-id"] = args.sessionId;
+  if (args.connection?.sessionId) {
+    headers["mcp-session-id"] = args.connection.sessionId;
+  }
+  if (modernClientName) {
+    headers["mcp-protocol-version"] = "2026-07-28";
+    headers["mcp-method"] = method;
+    const params = args.payload.params as Record<string, unknown> | undefined;
+    if (typeof params?.name === "string") {
+      headers["mcp-name"] = params.name;
+    }
+    if (method === "resources/read" && typeof params?.uri === "string") {
+      headers["mcp-name"] = params.uri;
+    }
+  }
   const response = await args.fetchImpl(args.endpoint, {
     method: "POST",
     headers,
-    body: JSON.stringify(args.payload),
+    body: JSON.stringify(payload),
   });
   const text = await response.text();
   if (!response.ok) {
@@ -345,6 +519,44 @@ async function postBuilderMcp(args: {
   return {
     json: JSON.parse(text) as Record<string, unknown>,
     sessionId: response.headers.get("mcp-session-id"),
+  };
+}
+
+interface BuilderMcpConnection {
+  protocolVersion: "2026-07-28" | "2025-11-25" | "2024-11-05";
+  sessionId: string | null;
+}
+
+function withModernBuilderMcpEnvelope(
+  payload: Record<string, unknown>,
+  clientName: string,
+): Record<string, unknown> {
+  const params =
+    payload.params &&
+    typeof payload.params === "object" &&
+    !Array.isArray(payload.params)
+      ? (payload.params as Record<string, unknown>)
+      : {};
+  const meta =
+    params._meta &&
+    typeof params._meta === "object" &&
+    !Array.isArray(params._meta)
+      ? (params._meta as Record<string, unknown>)
+      : {};
+  return {
+    ...payload,
+    params: {
+      ...params,
+      _meta: {
+        ...meta,
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": {
+          name: clientName,
+          version: "0.1.0",
+        },
+        "io.modelcontextprotocol/clientCapabilities": {},
+      },
+    },
   };
 }
 
@@ -403,6 +615,10 @@ function normalizeBuilderCmsModel(
                   fieldRecord.friendlyName.trim()
                 ? fieldRecord.friendlyName.trim()
                 : undefined;
+          const model =
+            typeof fieldRecord.model === "string" && fieldRecord.model.trim()
+              ? fieldRecord.model.trim()
+              : undefined;
           const enumOptions = stringOptionsFromUnknown(fieldRecord.enum);
           const options = stringOptionsFromUnknown(
             fieldRecord.options ?? fieldRecord.allowedValues,
@@ -415,6 +631,7 @@ function normalizeBuilderCmsModel(
                 ? fieldRecord.type.trim()
                 : "unknown",
             ...(inputType ? { inputType } : {}),
+            ...(model ? { model } : {}),
             ...(enumOptions ? { enum: enumOptions } : {}),
             ...(options ? { options } : {}),
             required: fieldRecord.required === true,
@@ -473,44 +690,105 @@ async function initializeBuilderMcp(args: {
   privateKey: string;
   fetchImpl: FetchLike;
 }) {
-  const initialized = await postBuilderMcp({
-    endpoint: args.endpoint,
-    privateKey: args.privateKey,
-    fetchImpl: args.fetchImpl,
-    payload: {
-      jsonrpc: "2.0",
-      id: 1,
-      method: "initialize",
-      params: {
-        protocolVersion: "2024-11-05",
-        capabilities: {},
-        clientInfo: {
-          name: "agent-native-content-template",
-          version: "0.1.0",
-        },
-      },
-    },
-  });
-  const sessionId = initialized.sessionId;
-  if (sessionId) {
-    await postBuilderMcp({
+  try {
+    const discovered = await postBuilderMcp({
       endpoint: args.endpoint,
       privateKey: args.privateKey,
       fetchImpl: args.fetchImpl,
-      sessionId,
       payload: {
         jsonrpc: "2.0",
-        method: "notifications/initialized",
+        id: 1,
+        method: "server/discover",
         params: {},
       },
-    }).catch(() => null);
+    });
+    const result = discovered.json.result;
+    if (
+      result &&
+      typeof result === "object" &&
+      Array.isArray((result as Record<string, unknown>).supportedVersions) &&
+      (
+        (result as Record<string, unknown>).supportedVersions as unknown[]
+      ).includes("2026-07-28")
+    ) {
+      return {
+        protocolVersion: "2026-07-28",
+        sessionId: null,
+      } satisfies BuilderMcpConnection;
+    }
+  } catch (error) {
+    // A legacy server may reject server/discover before initialize.
+    if (
+      !(error instanceof Error) ||
+      !/HTTP (?:400|404|405)\./.test(error.message)
+    ) {
+      throw error;
+    }
   }
-  return sessionId;
+
+  const initializeLegacyProtocol = async (
+    protocolVersion: "2025-11-25" | "2024-11-05",
+  ) => {
+    const initialized = await postBuilderMcp({
+      endpoint: args.endpoint,
+      privateKey: args.privateKey,
+      fetchImpl: args.fetchImpl,
+      payload: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion,
+          capabilities: {},
+          clientInfo: {
+            name: "agent-native-content-template",
+            version: "0.1.0",
+          },
+        },
+      },
+    });
+    if (initialized.json.error) {
+      throw new Error(
+        `Builder MCP initialize rejected protocol ${protocolVersion}.`,
+      );
+    }
+    const sessionId = initialized.sessionId;
+    if (sessionId) {
+      await postBuilderMcp({
+        endpoint: args.endpoint,
+        privateKey: args.privateKey,
+        fetchImpl: args.fetchImpl,
+        connection: { protocolVersion, sessionId },
+        payload: {
+          jsonrpc: "2.0",
+          method: "notifications/initialized",
+          params: {},
+        },
+      }).catch(() => null);
+    }
+    return {
+      protocolVersion,
+      sessionId,
+    } satisfies BuilderMcpConnection;
+  };
+
+  try {
+    return await initializeLegacyProtocol("2025-11-25");
+  } catch (error) {
+    const isProtocolRejection =
+      error instanceof Error &&
+      (/HTTP (?:400|404|405|422)\./.test(error.message) ||
+        error.message.includes("initialize rejected protocol"));
+    if (!isProtocolRejection) throw error;
+    return await initializeLegacyProtocol("2024-11-05");
+  }
 }
 
 async function readBuilderCmsContentEntriesViaMcp(args: {
   model: string;
   fieldPaths?: readonly string[];
+  includeBodies?: boolean;
+  rawData?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
@@ -519,7 +797,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
   const endpoint = builderMcpEndpoint();
-  const sessionId = await initializeBuilderMcp({
+  const connection = await initializeBuilderMcp({
     endpoint,
     privateKey: args.privateKey,
     fetchImpl: args.fetchImpl,
@@ -531,7 +809,11 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       ? Math.max(0, Math.floor(args.offset))
       : 0;
   const contentEntries: BuilderCmsSourceEntry[] = [];
-  const fields = builderCmsListEntryFields(args.fieldPaths);
+  const fields = args.rawData
+    ? undefined
+    : args.includeBodies
+      ? `${builderCmsListEntryFields(args.fieldPaths)},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`
+      : builderCmsListEntryFields(args.fieldPaths);
   const seenContentIds = new Set<string>();
   let pagesRead = 0;
   let hasMore = false;
@@ -545,7 +827,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       endpoint,
       privateKey: args.privateKey,
       fetchImpl: args.fetchImpl,
-      sessionId,
+      connection,
       payload: {
         jsonrpc: "2.0",
         id: `content-${offset}`,
@@ -556,8 +838,8 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: pageLimit,
             offset,
-            fields,
-            enrich: true,
+            ...(fields ? { fields } : {}),
+            enrich: args.rawData !== true,
           },
         },
       },
@@ -624,7 +906,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     endpoint,
     privateKey: args.privateKey,
     fetchImpl: args.fetchImpl,
-    sessionId,
+    connection,
     payload: {
       jsonrpc: "2.0",
       id: 3,
@@ -652,7 +934,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       endpoint,
       privateKey: args.privateKey,
       fetchImpl: args.fetchImpl,
-      sessionId,
+      connection,
       payload: {
         jsonrpc: "2.0",
         id: `entry-${entry.id}`,
@@ -663,8 +945,8 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: 1,
             query: { id: entry.id },
-            fields,
-            enrich: true,
+            ...(fields ? { fields } : {}),
+            enrich: args.rawData !== true,
           },
         },
       },
@@ -697,11 +979,15 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
 async function readBuilderCmsContentEntriesViaContentApi(args: {
   model: string;
   fieldPaths?: readonly string[];
+  includeBodies?: boolean;
+  allowCached?: boolean;
+  rawData?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
   fetchImpl: FetchLike;
   publicKey: string;
+  privateKey?: string;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
   const url = new URL(
@@ -709,12 +995,26 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
     builderContentApiHost(),
   );
   url.searchParams.set("apiKey", args.publicKey);
-  // Enrich expands reference fields (e.g. blog-article -> blog-author) inline so
-  // mapped source columns can show the referenced entry's name instead of a
-  // bare reference id.
-  url.searchParams.set("enrich", "true");
-  url.searchParams.set("noCache", "true");
-  url.searchParams.set("fields", builderCmsListEntryFields(args.fieldPaths));
+  // Normal list reads enrich references and project away heavyweight bodies.
+  // Fidelity reads intentionally do neither: Builder's raw data object is the
+  // clone contract, including unresolved references and every nested field.
+  url.searchParams.set("enrich", args.rawData === true ? "false" : "true");
+  if (args.allowCached !== true || args.rawData === true) {
+    url.searchParams.set("noCache", "true");
+    url.searchParams.set(
+      "cachebust",
+      args.rawData === true ? String(Date.now()) : "true",
+    );
+  }
+  url.searchParams.set("includeUnpublished", "true");
+  if (args.rawData !== true) {
+    url.searchParams.set(
+      "fields",
+      args.includeBodies
+        ? `${builderCmsListEntryFields(args.fieldPaths)},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`
+        : builderCmsListEntryFields(args.fieldPaths),
+    );
+  }
 
   const limit = readLimit(args.limit);
   const startOffset =
@@ -725,72 +1025,103 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   const seenIds = new Set<string>();
   let pagesRead = 0;
   let hasMore = false;
-  for (
-    let offset = startOffset;
-    entries.length < limit;
-    offset += BUILDER_CMS_PAGE_SIZE
-  ) {
-    const pageUrl = new URL(url);
-    const pageLimit = readPageLimit(limit - entries.length);
-    pageUrl.searchParams.set("limit", String(pageLimit));
-    pageUrl.searchParams.set("offset", String(offset));
+  const concurrency =
+    args.rawData === true ? 1 : BUILDER_CMS_PROJECTED_READ_CONCURRENCY;
+  const errorResult = (message: string): BuilderCmsReadResult => ({
+    state: "error",
+    entries: [],
+    fetchedAt,
+    message,
+    progress: {
+      requestedLimit: limit,
+      pageSize: BUILDER_CMS_PAGE_SIZE,
+      startOffset,
+      nextOffset: startOffset + entries.length,
+      fetchedEntryCount: startOffset + entries.length,
+      hasMore,
+      partial: Boolean(args.maxPages) && hasMore,
+      readMode: "builder-api",
+    },
+  });
 
-    let response: Response;
-    try {
-      response = await fetchBuilderContentPage({
-        fetchImpl: args.fetchImpl,
-        url: pageUrl,
-      });
-    } catch (error) {
-      return {
-        state: "error",
-        entries: [],
-        fetchedAt,
-        message:
-          error instanceof Error
-            ? `Builder CMS read failed: ${error.message}`
-            : "Builder CMS read failed.",
-        progress: {
-          requestedLimit: limit,
-          pageSize: BUILDER_CMS_PAGE_SIZE,
-          startOffset,
-          nextOffset: startOffset + entries.length,
-          fetchedEntryCount: startOffset + entries.length,
-          hasMore,
-          partial: Boolean(args.maxPages) && hasMore,
-          readMode: "builder-api",
+  while (entries.length < limit) {
+    const pagesRemaining = args.maxPages
+      ? args.maxPages - pagesRead
+      : Number.POSITIVE_INFINITY;
+    if (pagesRemaining <= 0) break;
+    const pageCount = Math.min(
+      pagesRead === 0 ? 1 : concurrency,
+      pagesRemaining,
+      Math.ceil((limit - entries.length) / BUILDER_CMS_PAGE_SIZE),
+    );
+    const pageRequests = Array.from({ length: pageCount }, (_, index) => {
+      const pageUrl = new URL(url);
+      const pageLimit = readPageLimit(
+        limit - entries.length - index * BUILDER_CMS_PAGE_SIZE,
+      );
+      pageUrl.searchParams.set("limit", String(pageLimit));
+      pageUrl.searchParams.set(
+        "offset",
+        String(startOffset + (pagesRead + index) * BUILDER_CMS_PAGE_SIZE),
+      );
+      return { pageLimit, pageUrl };
+    });
+    const pageResults = await Promise.all(
+      pageRequests.map(
+        async ({
+          pageLimit,
+          pageUrl,
+        }): Promise<BuilderCmsContentPageResult> => {
+          try {
+            const response = await fetchBuilderContentPage({
+              fetchImpl: args.fetchImpl,
+              url: pageUrl,
+              privateKey: args.privateKey,
+            });
+            if (!response.ok) {
+              return {
+                pageLimit,
+                error: `Builder CMS read failed with HTTP ${response.status}.`,
+              };
+            }
+            const json = (await response.json()) as unknown;
+            const pageEntries = entryArrayFromResponse(json)
+              .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
+              .filter((entry): entry is BuilderCmsSourceEntry =>
+                Boolean(entry),
+              );
+            return { pageLimit, pageEntries };
+          } catch (error) {
+            return {
+              pageLimit,
+              error:
+                error instanceof Error
+                  ? `Builder CMS read failed: ${error.message}`
+                  : "Builder CMS read failed.",
+            };
+          }
         },
-      };
-    }
+      ),
+    );
 
-    if (!response.ok) {
-      return {
-        state: "error",
-        entries: [],
-        fetchedAt,
-        message: `Builder CMS read failed with HTTP ${response.status}.`,
-        progress: {
-          requestedLimit: limit,
-          pageSize: BUILDER_CMS_PAGE_SIZE,
-          startOffset,
-          nextOffset: startOffset + entries.length,
-          fetchedEntryCount: startOffset + entries.length,
-          hasMore,
-          partial: Boolean(args.maxPages) && hasMore,
-          readMode: "builder-api",
-        },
-      };
+    let stoppedOnShortPage = false;
+    for (const pageResult of pageResults) {
+      if ("error" in pageResult) return errorResult(pageResult.error);
+      const appended = appendUniqueBuilderEntries(
+        entries,
+        seenIds,
+        pageResult.pageEntries,
+      );
+      pagesRead += 1;
+      hasMore =
+        pageResult.pageEntries.length >= pageResult.pageLimit && appended > 0;
+      if (args.maxPages && pagesRead >= args.maxPages) break;
+      if (!hasMore) {
+        stoppedOnShortPage = true;
+        break;
+      }
     }
-
-    const json = (await response.json()) as unknown;
-    const pageEntries = entryArrayFromResponse(json)
-      .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
-      .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
-    const appended = appendUniqueBuilderEntries(entries, seenIds, pageEntries);
-    pagesRead += 1;
-    hasMore = pageEntries.length >= pageLimit && appended > 0;
-    if (args.maxPages && pagesRead >= args.maxPages) break;
-    if (!hasMore) break;
+    if (stoppedOnShortPage || !hasMore) break;
   }
 
   return {
@@ -829,9 +1160,7 @@ export async function readBuilderCmsEntryLiveState(args: {
     )}`,
     builderContentApiHost(),
   );
-  url.searchParams.set("apiKey", publicKey);
-  url.searchParams.set("includeUnpublished", "true");
-  url.searchParams.set("cachebust", String(Date.now()));
+  applyBuilderCmsBodyEntryReadParams(url, publicKey);
 
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,
@@ -874,12 +1203,7 @@ export async function readBuilderCmsContentEntry(args: {
     )}`,
     builderContentApiHost(),
   );
-  url.searchParams.set("apiKey", publicKey);
-  url.searchParams.set("includeUnpublished", "true");
-  url.searchParams.set("enrich", "true");
-  url.searchParams.set("noCache", "true");
-  url.searchParams.set("cachebust", String(Date.now()));
-  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+  applyBuilderCmsBodyEntryReadParams(url, publicKey);
 
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,
@@ -920,7 +1244,7 @@ export async function listBuilderCmsModels(
 
   try {
     const endpoint = builderMcpEndpoint();
-    const sessionId = await initializeBuilderMcp({
+    const connection = await initializeBuilderMcp({
       endpoint,
       privateKey,
       fetchImpl,
@@ -929,7 +1253,7 @@ export async function listBuilderCmsModels(
       endpoint,
       privateKey,
       fetchImpl,
-      sessionId,
+      connection,
       payload: {
         jsonrpc: "2.0",
         id: 2,
@@ -984,6 +1308,10 @@ export async function readBuilderCmsModelFields(args: {
 export async function readBuilderCmsContentEntries(args: {
   model: string;
   fieldPaths?: readonly string[];
+  includeBodies?: boolean;
+  allowCached?: boolean;
+  rawData?: boolean;
+  requirePrivateKey?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
@@ -993,33 +1321,66 @@ export async function readBuilderCmsContentEntries(args: {
   const privateKey = await readBuilderPrivateKey();
   const fetchImpl = args.fetchImpl ?? fetch;
   const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  if (args.requirePrivateKey === true && !privateKey) {
+    return {
+      state: "unconfigured",
+      entries: [],
+      fetchedAt,
+      message:
+        "Builder CMS authenticated read skipped because BUILDER_PRIVATE_KEY is not configured.",
+      progress: {
+        requestedLimit: readLimit(args.limit),
+        pageSize: BUILDER_CMS_PAGE_SIZE,
+        startOffset: 0,
+        nextOffset: 0,
+        fetchedEntryCount: 0,
+        hasMore: false,
+        partial: false,
+        readMode: "none",
+      },
+    };
+  }
   if (publicKey) {
     const contentApiRead = await readBuilderCmsContentEntriesViaContentApi({
       model: args.model,
       fieldPaths: args.fieldPaths,
+      includeBodies: args.includeBodies,
+      allowCached: args.allowCached,
+      rawData: args.rawData,
       limit: args.limit,
       maxPages: args.maxPages,
       offset: args.offset,
       fetchImpl,
       publicKey,
+      privateKey: privateKey ?? undefined,
     });
-    if (contentApiRead.state === "live" && contentApiRead.entries.length > 0) {
-      return contentApiRead;
+    if (contentApiRead.state === "live") {
+      return preserveProjectedBuilderFieldAbsence(
+        contentApiRead,
+        args.fieldPaths,
+        args.rawData,
+      );
     }
     if (!privateKey) return contentApiRead;
   }
 
   if (privateKey) {
     try {
-      return await readBuilderCmsContentEntriesViaMcp({
-        model: args.model,
-        fieldPaths: args.fieldPaths,
-        limit: args.limit,
-        maxPages: args.maxPages,
-        offset: args.offset,
-        fetchImpl,
-        privateKey,
-      });
+      return preserveProjectedBuilderFieldAbsence(
+        await readBuilderCmsContentEntriesViaMcp({
+          model: args.model,
+          fieldPaths: args.fieldPaths,
+          includeBodies: args.includeBodies,
+          rawData: args.rawData,
+          limit: args.limit,
+          maxPages: args.maxPages,
+          offset: args.offset,
+          fetchImpl,
+          privateKey,
+        }),
+        args.fieldPaths,
+        args.rawData,
+      );
     } catch (error) {
       return {
         state: "error",

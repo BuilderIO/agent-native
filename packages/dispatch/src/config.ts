@@ -13,6 +13,8 @@ export interface DispatchAuthConfig {
   googleOnly?: boolean;
   /** Marketing/branding copy passed straight through to `createAuthPlugin`. */
   marketing?: Record<string, unknown>;
+  /** Exact framework routes that perform their own authentication checks. */
+  publicPaths?: string[];
 }
 
 export interface DispatchIntegrationsConfig {
@@ -25,6 +27,11 @@ export interface DispatchIntegrationsConfig {
 
 export interface DispatchConfig {
   auth?: DispatchAuthConfig;
+  /**
+   * Exact Chrome Web Store or managed-install extension ids allowed to pair
+   * with Dispatch browser chat. Wildcards are not supported.
+   */
+  browserExtensionIds?: readonly string[];
   /**
    * App IDs to hide from `list-connected-agents` results. Used to filter
    * out first-party Builder apps (calls, issues, macros, …) from the

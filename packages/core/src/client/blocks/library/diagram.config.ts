@@ -44,6 +44,8 @@ export interface DiagramData {
    */
   html?: string;
   css?: string;
+  /** `design` forces clean HTML/CSS rendering without the sketch overlay. */
+  renderMode?: "wireframe" | "design";
   caption?: string;
   /** Outer surface frame. `auto` lets the host choose the right default. */
   frame?: BlockVisualFrame;
@@ -147,6 +149,7 @@ export const diagramSchema = z
         message: "Diagram css must not include document or script tags.",
       })
       .optional(),
+    renderMode: z.enum(["wireframe", "design"]).optional(),
     caption: z.string().trim().max(600).optional(),
     frame: visualFrameSchema.optional(),
     nodes: z.array(diagramNodeSchema).max(80).optional(),
@@ -173,7 +176,7 @@ function graphDataForAttr(data: DiagramData): DiagramData | undefined {
   if (data.notes?.length) graph.notes = data.notes;
   if (Object.keys(graph).length > 0) return graph;
   if (hasChildFenceData(data)) return undefined;
-  const { frame: _frame, ...dataForAttr } = data;
+  const { frame: _frame, renderMode: _renderMode, ...dataForAttr } = data;
   return Object.keys(dataForAttr).length > 0 ? dataForAttr : undefined;
 }
 
@@ -193,6 +196,7 @@ export const diagramMdx: BlockMdxConfig<DiagramData> = {
       | undefined,
     caption: data.caption,
     frame: data.frame,
+    renderMode: data.renderMode,
   }),
   fromAttrs: (attrs) => ({
     ...(attrs.object<DiagramData>("data") ?? {}),
@@ -201,6 +205,11 @@ export const diagramMdx: BlockMdxConfig<DiagramData> = {
       : {}),
     ...(attrs.string("frame") !== undefined
       ? { frame: attrs.string("frame") as BlockVisualFrame }
+      : {}),
+    ...(attrs.string("renderMode") !== undefined
+      ? {
+          renderMode: attrs.string("renderMode") as DiagramData["renderMode"],
+        }
       : {}),
   }),
   serializeChildren: (data) =>

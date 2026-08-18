@@ -1,7 +1,12 @@
 import type { Visibility } from "../sharing/schema.js";
 
 export type HistoryActorKind = "human" | "agent" | "system";
-export type HistoryResourceRole = "viewer" | "editor" | "admin" | "owner";
+export type HistoryResourceRole =
+  | "viewer"
+  | "commenter"
+  | "editor"
+  | "admin"
+  | "owner";
 
 export interface VersionedResourceAccess {
   role: HistoryResourceRole;

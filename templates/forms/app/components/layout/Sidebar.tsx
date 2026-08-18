@@ -1,17 +1,19 @@
 import {
   useSendToAgentChat,
-  DevDatabaseLink,
-  FeedbackButton,
-  appPath,
   focusAgentChat,
   navigateWithAgentChatViewTransition,
-  useT,
-} from "@agent-native/core/client";
-import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
+} from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { useT } from "@agent-native/core/client/i18n";
+import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
+import { FeedbackButton } from "@agent-native/core/client/ui";
+import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
 import {
   IconArrowUp,
   IconPlus,
+  IconLoader2,
   IconMenu2,
   IconX,
   IconMessageCircle,
@@ -19,6 +21,7 @@ import {
   IconForms,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconSearch,
 } from "@tabler/icons-react";
 import { useState, useRef, useEffect, type MouseEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
@@ -69,6 +72,56 @@ export function Sidebar() {
   });
   const effectiveCollapsed = collapsed && !isMobile;
 
+  const collapseButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => setCollapsed((value) => !value)}
+          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+          aria-label={
+            effectiveCollapsed
+              ? t("sidebar.expandSidebar")
+              : t("sidebar.collapseSidebar")
+          }
+        >
+          {effectiveCollapsed ? (
+            <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+          ) : (
+            <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {effectiveCollapsed
+          ? t("sidebar.expandSidebar")
+          : t("sidebar.collapseSidebar")}
+      </TooltipContent>
+    </Tooltip>
+  );
+  const searchButton = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={openCommandMenu}
+          className="flex size-8 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+          aria-label={t("root.searchForms")}
+        >
+          <IconSearch className="h-4 w-4" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">{t("root.searchForms")}</TooltipContent>
+    </Tooltip>
+  );
+  const feedbackButton = (
+    <FeedbackButton
+      variant={effectiveCollapsed ? "icon" : "sidebar"}
+      side="right"
+      className={effectiveCollapsed ? "size-8" : "min-w-0"}
+    />
+  );
+
   useEffect(() => {
     if (popoverOpen) {
       setPrompt("");
@@ -87,11 +140,9 @@ export function Sidebar() {
 
   function handleSkip() {
     setPopoverOpen(false);
-    const tempId = crypto.randomUUID().replace(/-/g, "").slice(0, 10);
-    navigate(`/forms/${tempId}`);
     createForm.mutate(
       { title: t("sidebar.untitledForm") },
-      { onSuccess: (form) => navigate(`/forms/${form.id}`, { replace: true }) },
+      { onSuccess: (form) => navigate(`/forms/${form.id}`) },
     );
   }
 
@@ -129,9 +180,17 @@ export function Sidebar() {
     navigateWithAgentChatViewTransition(navigate, "/ask");
   }
 
+  function handleBrandClick() {
+    if (isMobile) {
+      toggleLogoView();
+      return;
+    }
+    setCollapsed((value) => !value);
+  }
+
   const newFormButton = (
     <PopoverTrigger asChild>
-      <button className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground">
+      <button className="forms-sidebar-nav-item flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted-foreground active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:bg-accent/50 hover:text-foreground">
         <IconPlus className="h-4 w-4 shrink-0" />
         <span>{t("sidebar.newForm")}</span>
       </button>
@@ -143,7 +202,7 @@ export function Sidebar() {
       side="right"
       align="start"
       sideOffset={8}
-      className="w-80 p-0 rounded-xl"
+      className="forms-new-form-popover w-80 rounded-2xl p-0"
     >
       <div className="p-4 pb-3">
         <p className="text-sm font-semibold">{t("sidebar.newForm")}</p>
@@ -168,9 +227,13 @@ export function Sidebar() {
           <Button
             variant="link"
             size="sm"
-            className="h-auto p-0 text-xs text-muted-foreground"
+            className="min-h-10 px-2 text-xs text-muted-foreground active:scale-[0.96] transition-[background-color,color,transform]"
             onClick={handleSkip}
+            disabled={createForm.isPending}
           >
+            {createForm.isPending && (
+              <IconLoader2 className="h-3 w-3 animate-spin" />
+            )}
             {t("sidebar.skipPrompt")}
           </Button>
           <span className="text-[11px] text-muted-foreground/70">
@@ -180,7 +243,7 @@ export function Sidebar() {
           <Button
             variant="secondary"
             size="icon"
-            className="h-7 w-7"
+            className="size-10 rounded-lg transition-[background-color,box-shadow,transform] active:scale-[0.96] motion-reduce:active:scale-100"
             onClick={handleSubmitPrompt}
             disabled={!prompt.trim() || promptRun.isActivePrompt(prompt)}
             aria-label={t("sidebar.sendPrompt")}
@@ -199,18 +262,33 @@ export function Sidebar() {
           <TooltipTrigger asChild>
             <button
               type="button"
-              onClick={() => setCollapsed(false)}
-              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground/55 transition-colors hover:bg-accent/50 hover:text-muted-foreground"
+              onClick={handleBrandClick}
               aria-label={t("sidebar.expandSidebar")}
+              className="flex size-8 shrink-0 items-center justify-center rounded-lg outline-none transition-[background-color,box-shadow,transform] hover:bg-accent/50 focus-visible:ring-2 focus-visible:ring-ring"
+              data-sidebar-brand-toggle
             >
-              <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
+              <img
+                src={appPath("/agent-native-icon-light.svg")}
+                alt=""
+                aria-hidden="true"
+                width={28}
+                height={16}
+                className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
+              />
+              <img
+                src={appPath("/agent-native-icon-dark.svg")}
+                alt=""
+                aria-hidden="true"
+                width={28}
+                height={16}
+                className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+              />
             </button>
           </TooltipTrigger>
           <TooltipContent side="right">
             {t("sidebar.expandSidebar")}
           </TooltipContent>
         </Tooltip>
-
         <nav className="mt-1 flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto">
           <Tooltip>
             <TooltipTrigger asChild>
@@ -219,7 +297,7 @@ export function Sidebar() {
                 onClick={navigateHomeChat}
                 aria-label={t("navigation.askForms")}
                 className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
                   location.pathname === "/ask" || location.pathname === "/"
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -239,7 +317,7 @@ export function Sidebar() {
                 to="/forms"
                 aria-label={t("navigation.allForms")}
                 className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
                   location.pathname.startsWith("/forms")
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -260,7 +338,7 @@ export function Sidebar() {
                   <button
                     type="button"
                     aria-label={t("sidebar.newForm")}
-                    className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                    className="forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-accent/50 hover:text-foreground active:scale-[0.96] motion-reduce:active:scale-100"
                   >
                     <IconPlus className="h-4 w-4" />
                   </button>
@@ -273,26 +351,34 @@ export function Sidebar() {
             {newFormPopover}
           </Popover>
 
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Link
-                to="/settings"
-                aria-label={t("navigation.settings")}
-                className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
-                  location.pathname === "/settings"
-                    ? "bg-accent text-accent-foreground"
-                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                )}
-              >
-                <IconSettings className="h-4 w-4" />
-              </Link>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("navigation.settings")}
-            </TooltipContent>
-          </Tooltip>
+          <div className="mt-auto flex flex-col items-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Link
+                  to="/settings"
+                  aria-label={t("navigation.settings")}
+                  className={cn(
+                    "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
+                    location.pathname === "/settings"
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  )}
+                >
+                  <IconSettings className="h-4 w-4" />
+                </Link>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {t("navigation.settings")}
+              </TooltipContent>
+            </Tooltip>
+          </div>
         </nav>
+        <SidebarFooterActions
+          collapsed
+          feedback={feedbackButton}
+          search={searchButton}
+          collapse={collapseButton}
+        />
       </TooltipProvider>
     </div>
   ) : (
@@ -309,27 +395,38 @@ export function Sidebar() {
             <TooltipTrigger asChild>
               <button
                 type="button"
-                aria-label={t("sidebar.openAskFullScreen")}
-                className="flex min-w-0 items-center gap-2 rounded-md text-base font-semibold tracking-tight text-muted-foreground/80 transition-colors hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                onClick={toggleLogoView}
+                aria-label={
+                  isMobile
+                    ? t("sidebar.openAskFullScreen")
+                    : t("sidebar.collapseSidebar")
+                }
+                className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-2 text-base font-semibold tracking-tight text-muted-foreground/80 active:scale-[0.96] transition-[color,transform] hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={handleBrandClick}
+                data-sidebar-brand-toggle
               >
                 <img
                   src={appPath("/agent-native-icon-light.svg")}
                   alt=""
                   aria-hidden="true"
-                  className="block h-4 w-auto shrink-0 dark:hidden"
+                  width={28}
+                  height={16}
+                  className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
                 />
                 <img
                   src={appPath("/agent-native-icon-dark.svg")}
                   alt=""
                   aria-hidden="true"
-                  className="hidden h-4 w-auto shrink-0 dark:block"
+                  width={28}
+                  height={16}
+                  className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
                 />
                 <span className="truncate">{t("navigation.brand")}</span>
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {t("sidebar.openAskFullScreen")}
+              {isMobile
+                ? t("sidebar.openAskFullScreen")
+                : t("sidebar.collapseSidebar")}
             </TooltipContent>
           </Tooltip>
         </TooltipProvider>
@@ -337,29 +434,11 @@ export function Sidebar() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="size-10 transition-[background-color,box-shadow,transform] active:scale-[0.96] motion-reduce:active:scale-100"
             onClick={() => setMobileOpen(false)}
           >
             <IconX size={18} />
           </Button>
-        )}
-        {!isMobile && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground/55 hover:bg-accent/50 hover:text-muted-foreground"
-                onClick={() => setCollapsed(true)}
-                aria-label={t("sidebar.collapseSidebar")}
-              >
-                <IconLayoutSidebarLeftCollapse className="h-4 w-4 rtl:-scale-x-100" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {t("sidebar.collapseSidebar")}
-            </TooltipContent>
-          </Tooltip>
         )}
       </div>
 
@@ -374,7 +453,7 @@ export function Sidebar() {
             to="/ask"
             onClick={navigateHomeChat}
             className={cn(
-              "flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm transition-colors hover:text-primary",
+              "forms-sidebar-nav-item flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:text-primary",
               location.pathname === "/ask" || location.pathname === "/"
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -390,7 +469,7 @@ export function Sidebar() {
             to="/forms"
             onClick={() => isMobile && setMobileOpen(false)}
             className={cn(
-              "flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm transition-colors hover:text-primary",
+              "forms-sidebar-nav-item flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:text-primary",
               location.pathname.startsWith("/forms")
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -415,7 +494,7 @@ export function Sidebar() {
           to="/settings"
           onClick={() => isMobile && setMobileOpen(false)}
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm min-h-[44px]",
+            "forms-sidebar-nav-item flex min-h-[44px] w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
             location.pathname === "/settings"
               ? "bg-accent text-accent-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -426,19 +505,19 @@ export function Sidebar() {
         </Link>
       </div>
 
-      {/* Tools */}
-      <div className="shrink-0 px-1.5 py-1.5">
-        <ExtensionsSidebarSection />
-      </div>
-
       {/* Footer */}
       <div className="shrink-0 space-y-2 px-3 py-2">
         <OrgSwitcher />
         <DevDatabaseLink />
-        <div className="flex items-center gap-2">
-          <FeedbackButton className="min-w-0 flex-1" />
+        <div className="flex justify-end">
           <ThemeToggle className="h-9 w-9 shrink-0" />
         </div>
+        <SidebarFooterActions
+          feedback={feedbackButton}
+          search={searchButton}
+          collapse={collapseButton}
+          className="px-0 py-0"
+        />
       </div>
     </div>
   );
@@ -449,7 +528,7 @@ export function Sidebar() {
         <Button
           variant="ghost"
           size="icon"
-          className="fixed top-2 start-2 z-40 h-10 w-10 md:hidden"
+          className="fixed top-2 start-2 z-40 size-10 active:scale-[0.96] transition-[background-color,box-shadow,transform] md:hidden"
           onClick={() => setMobileOpen(true)}
           aria-label={t("sidebar.openSidebar")}
         >

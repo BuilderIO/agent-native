@@ -1,14 +1,34 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildBuilderDesignSystemIndexFiles,
+  collectBuilderDesignSystemGitHubFiles,
   createBuilderDesignSystemProxyFields,
   localBuilderDesignSystemId,
   mimeTypeForBuilderDesignSystemFilename,
   parseBuilderDesignSystemProxyReference,
+  startBuilderDesignSystemIndex,
 } from "./builder-design-systems.js";
 
 describe("Builder design-system helpers", () => {
+  const originalGitHubToken = process.env.GITHUB_TOKEN;
+  const originalBuilderPrivateKey = process.env.BUILDER_PRIVATE_KEY;
+  const originalBuilderPublicKey = process.env.BUILDER_PUBLIC_KEY;
+  const originalBuilderBaseUrl = process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL;
+
+  afterEach(() => {
+    for (const [key, value] of [
+      ["GITHUB_TOKEN", originalGitHubToken],
+      ["BUILDER_PRIVATE_KEY", originalBuilderPrivateKey],
+      ["BUILDER_PUBLIC_KEY", originalBuilderPublicKey],
+      ["BUILDER_DESIGN_SYSTEMS_BASE_URL", originalBuilderBaseUrl],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    vi.unstubAllGlobals();
+  });
+
   it("builds Builder DSI upload files from design.md and code inputs", () => {
     const files = buildBuilderDesignSystemIndexFiles({
       designMd: "# Brand\nUse confident layouts.",
@@ -132,6 +152,7 @@ describe("Builder design-system helpers", () => {
       projectName: "Acme",
       description: "Marketing system",
       surface: "slides",
+      sourceKind: "figma",
     });
 
     expect(fields.title).toBe("Acme");
@@ -141,11 +162,228 @@ describe("Builder design-system helpers", () => {
     expect(fields.customInstructions).toContain("slides");
     expect(parseBuilderDesignSystemProxyReference(fields.data)).toEqual({
       source: "builder",
+      sourceKind: "figma",
       builderDesignSystemId: "ds-1",
       builderJobId: "job-1",
       builderProjectId: "project-1",
       builderUrl: "https://builder.io/app/design-system-intelligence/ds-1",
       builderStatus: "in-progress",
+    });
+  });
+
+  it("persists replayable GitHub source scope in the local proxy", () => {
+    const fields = createBuilderDesignSystemProxyFields({
+      result: {
+        ok: true,
+        source: "builder",
+        projectId: "project-1",
+        jobId: "job-1",
+        designSystemId: "ds-1",
+        suggestedTitle: "Acme",
+        builderUrl: "https://builder.io/app/design-system-intelligence/ds-1",
+        status: "in-progress",
+      },
+      surface: "design",
+      sourceKind: "github",
+      githubSources: [
+        {
+          repoUrl: "https://github.com/acme/ui",
+          ref: "main",
+          include: ["src/styles"],
+        },
+      ],
+      syncedAt: "2026-08-13T12:00:00.000Z",
+    });
+
+    expect(parseBuilderDesignSystemProxyReference(fields.data)).toMatchObject({
+      sourceKind: "github",
+      githubSources: [
+        {
+          repoUrl: "https://github.com/acme/ui",
+          ref: "main",
+          include: ["src/styles"],
+        },
+      ],
+      syncedAt: "2026-08-13T12:00:00.000Z",
+    });
+  });
+
+  it("rejects malformed persisted GitHub source metadata instead of dropping it", () => {
+    expect(
+      parseBuilderDesignSystemProxyReference({
+        source: "builder",
+        builderDesignSystemId: "ds-1",
+        builderJobId: "job-1",
+        githubSources: [{ repoUrl: "not a GitHub reference" }],
+      }),
+    ).toBeNull();
+  });
+
+  it("reads a private scoped GitHub source with the server-side token", async () => {
+    process.env.GITHUB_TOKEN = "github-secret";
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toContain("ref=feature%2Fbrand");
+      expect(init?.headers).toMatchObject({
+        Authorization: "Bearer github-secret",
+      });
+      if (url.includes("/contents/src/styles/tokens.css")) {
+        return new Response(":root { --brand: #123456; }", { status: 200 });
+      }
+      if (url.includes("/contents/src/styles?")) {
+        return new Response(
+          JSON.stringify([
+            { path: "src/styles/tokens.css", type: "file", size: 24 },
+          ]),
+          { status: 200 },
+        );
+      }
+      return new Response(JSON.stringify({ message: "Not Found" }), {
+        status: 404,
+      });
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      collectBuilderDesignSystemGitHubFiles({
+        repoUrl: "https://github.com/acme/ui",
+        ref: "feature/brand",
+        include: ["src/styles"],
+      }),
+    ).resolves.toMatchObject({
+      owner: "acme",
+      repo: "ui",
+      ref: "feature/brand",
+      files: [
+        {
+          path: "src/styles/tokens.css",
+          content: ":root { --brand: #123456; }",
+        },
+      ],
+    });
+  });
+
+  it("runs a scoped GitHub source through upload and Builder indexing", async () => {
+    process.env.GITHUB_TOKEN = "github-secret";
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+
+    const fetchSpy = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://api.github.com/")) {
+        if (url.includes("/contents/src/styles/tokens.css")) {
+          return new Response(":root { --brand: #123456; }", { status: 200 });
+        }
+        return new Response(
+          JSON.stringify([
+            { path: "src/styles/tokens.css", type: "file", size: 24 },
+          ]),
+          { status: 200 },
+        );
+      }
+      if (url.endsWith("/upload/start?apiKey=builder-public")) {
+        expect(init?.method).toBe("POST");
+        return new Response(
+          JSON.stringify({
+            uploads: [
+              {
+                idx: 0,
+                uploadUrl: "https://upload.example.test/session",
+                uploadToken: "upload-token",
+              },
+            ],
+          }),
+          { status: 200 },
+        );
+      }
+      if (url === "https://upload.example.test/session") {
+        return new Response(null, {
+          status: 200,
+          headers: { Location: "https://upload.example.test/chunk" },
+        });
+      }
+      if (url === "https://upload.example.test/chunk") {
+        expect(init?.method).toBe("PUT");
+        return new Response(null, { status: 200 });
+      }
+      if (url.endsWith("/index?apiKey=builder-public")) {
+        const body = JSON.parse(String(init?.body)) as {
+          sources?: Array<{ kind?: string; uploadToken?: string }>;
+        };
+        expect(body.sources).toEqual([
+          { kind: "file", uploadToken: "upload-token" },
+        ]);
+        return new Response(
+          JSON.stringify({
+            designSystemId: "ds-1",
+            jobId: "job-1",
+            projectId: "project-1",
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected mocked request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      startBuilderDesignSystemIndex({
+        projectName: "Acme",
+        githubRepos: [
+          {
+            repoUrl: "https://github.com/acme/ui",
+            ref: "main",
+            include: ["src/styles"],
+          },
+        ],
+      }),
+    ).resolves.toMatchObject({
+      designSystemId: "ds-1",
+      jobId: "job-1",
+      status: "in-progress",
+    });
+  });
+
+  it("keeps an unscoped public repository as a native Builder source", async () => {
+    delete process.env.GITHUB_TOKEN;
+    process.env.BUILDER_PRIVATE_KEY = "builder-private";
+    process.env.BUILDER_PUBLIC_KEY = "builder-public";
+    process.env.BUILDER_DESIGN_SYSTEMS_BASE_URL =
+      "https://builder.example.test/design-systems/v1";
+
+    const fetchSpy = vi.fn(async (input: string | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("https://api.github.com/")) {
+        return new Response(JSON.stringify([]), { status: 200 });
+      }
+      if (url.endsWith("/index?apiKey=builder-public")) {
+        const body = JSON.parse(String(init?.body)) as {
+          sources?: Array<{ kind?: string; repoUrl?: string }>;
+        };
+        expect(body.sources).toEqual([
+          { kind: "public-repo", repoUrl: "https://github.com/acme/ui" },
+        ]);
+        return new Response(
+          JSON.stringify({
+            designSystemId: "ds-public",
+            jobId: "job-public",
+            projectId: "project-public",
+          }),
+          { status: 200 },
+        );
+      }
+      throw new Error(`Unexpected mocked request: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await expect(
+      startBuilderDesignSystemIndex({
+        githubRepos: [{ repoUrl: "https://github.com/acme/ui" }],
+      }),
+    ).resolves.toMatchObject({
+      designSystemId: "ds-public",
+      jobId: "job-public",
     });
   });
 

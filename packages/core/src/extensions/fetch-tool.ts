@@ -11,6 +11,7 @@
  */
 
 import type { ActionEntry } from "../agent/production-agent.js";
+import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import {
   collectSecretValues,
   MAX_EXTENSION_PROXY_RESPONSE_SIZE,
@@ -77,9 +78,23 @@ export interface FetchToolOptions {
     resolved: string;
     usedKeys: string[];
     secretValues?: string[];
+    /**
+     * Optional: which scope (user/org/workspace) each used key actually
+     * resolved at. Populated by resolvers like
+     * `resolveKeyReferencesWithRequestScopes` so `validateUrl` can look up
+     * the allowlist at the scope the value came from rather than assuming
+     * user scope. Backwards compatible — callers that omit this (or a
+     * resolver that doesn't report it) are unaffected.
+     */
+    resolvedKeys?: ResolvedKeyReference[];
   }>;
   /** Validate URL against per-key allowlists. */
-  validateUrl?: (url: string, usedKeys: string[]) => Promise<boolean>;
+  validateUrl?: (
+    url: string,
+    usedKeys: string[],
+    /** Accumulated `resolvedKeys` from every `resolveKeys` call this request made, when the resolver reported them. */
+    resolvedKeys?: ResolvedKeyReference[],
+  ) => Promise<boolean>;
 }
 
 /**
@@ -174,6 +189,17 @@ export function createFetchToolEntry(
           required: ["url"],
         },
       },
+      planMode: {
+        effect: (args) => {
+          const method = String(args.method ?? "GET").toUpperCase();
+          if (method !== "GET" && method !== "HEAD") return "write";
+          return args.saveToFile == null ? "read" : "write";
+        },
+        allowedValues: { method: ["GET", "HEAD"] },
+        omittedProperties: ["saveToFile"],
+        description:
+          "Plan mode allows GET and HEAD requests that return their response without saving it.",
+      },
       run: async (args: Record<string, unknown>) => {
         const startTime = Date.now();
         const rawUrl = String(args.url ?? "");
@@ -207,6 +233,7 @@ export function createFetchToolEntry(
         let resolvedBody = rawBody;
         const allUsedKeys: string[] = [];
         const allSecretValues: string[] = [];
+        const allResolvedKeys: ResolvedKeyReference[] = [];
 
         if (opts.resolveKeys) {
           try {
@@ -214,23 +241,29 @@ export function createFetchToolEntry(
             resolvedUrl = urlResult.resolved;
             allUsedKeys.push(...urlResult.usedKeys);
             allSecretValues.push(...(urlResult.secretValues ?? []));
+            allResolvedKeys.push(...(urlResult.resolvedKeys ?? []));
 
             const headerResult = await opts.resolveKeys(rawHeaders);
             resolvedHeaders = headerResult.resolved;
             allUsedKeys.push(...headerResult.usedKeys);
             allSecretValues.push(...(headerResult.secretValues ?? []));
+            allResolvedKeys.push(...(headerResult.resolvedKeys ?? []));
 
             if (rawBody) {
               const bodyResult = await opts.resolveKeys(rawBody);
               resolvedBody = bodyResult.resolved;
               allUsedKeys.push(...bodyResult.usedKeys);
               allSecretValues.push(...(bodyResult.secretValues ?? []));
+              allResolvedKeys.push(...(bodyResult.resolvedKeys ?? []));
             }
           } catch (err: any) {
             return `Error resolving key references: ${err?.message ?? err}`;
           }
         }
         const secretValues = collectSecretValues(allSecretValues);
+        const resolvedKeys = allResolvedKeys.length
+          ? allResolvedKeys
+          : undefined;
 
         // Block SSRF targets regardless of key usage
         if (await isBlockedExtensionUrlWithDns(resolvedUrl)) {
@@ -240,7 +273,11 @@ export function createFetchToolEntry(
         // Validate URL against per-key allowlists
         if (opts.validateUrl && allUsedKeys.length > 0) {
           try {
-            const allowed = await opts.validateUrl(resolvedUrl, allUsedKeys);
+            const allowed = await opts.validateUrl(
+              resolvedUrl,
+              allUsedKeys,
+              resolvedKeys,
+            );
             if (!allowed) {
               return `URL "${rawUrl}" is not in the allowlist for the referenced keys. Check your key settings.`;
             }
@@ -298,7 +335,11 @@ export function createFetchToolEntry(
               return "Redirect to private/internal address blocked.";
             }
             if (redirectUrl && opts.validateUrl && allUsedKeys.length > 0) {
-              const allowed = await opts.validateUrl(redirectUrl, allUsedKeys);
+              const allowed = await opts.validateUrl(
+                redirectUrl,
+                allUsedKeys,
+                resolvedKeys,
+              );
               if (!allowed) {
                 return "Redirect URL is not in the allowlist for the referenced keys.";
               }

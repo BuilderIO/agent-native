@@ -1,4 +1,9 @@
-import { useActionMutation, useT } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useAvatarUrl,
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { InlineMarkdown } from "@agent-native/core/client/markdown";
 import {
   IconSend,
   IconCheck,
@@ -11,7 +16,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { type Ref, useEffect, useMemo, useRef, useState } from "react";
 
-import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -27,6 +32,7 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
+import { REACTION_EMOJIS } from "./reaction-emojis";
 import { msToClock } from "./scrubber";
 
 function makeTempId() {
@@ -56,8 +62,6 @@ const defaultLens: CommentsLens = {
     data ? { ...(data as object), comments: next } : data,
 };
 
-const COMMENT_EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂"];
-
 export interface Comment {
   id: string;
   threadId: string;
@@ -78,6 +82,7 @@ export interface CommentsPanelProps {
   currentMs: number;
   currentUserEmail?: string;
   enableComments: boolean;
+  canComment: boolean;
   onSeek: (ms: number) => void;
   /**
    * The React Query key whose cached value contains this panel's `comments`.
@@ -114,6 +119,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
     currentMs,
     currentUserEmail,
     enableComments,
+    canComment,
     onSeek,
     onUnauthenticated,
     queryKey,
@@ -126,6 +132,8 @@ export function CommentsPanel(props: CommentsPanelProps) {
   const [draft, setDraft] = useState("");
   const [replyDraft, setReplyDraft] = useState("");
   const [replyTo, setReplyTo] = useState<Comment | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
   const replyComposerRef = useRef<HTMLTextAreaElement>(null);
 
   const queryClient = useQueryClient();
@@ -274,6 +282,41 @@ export function CommentsPanel(props: CommentsPanelProps) {
     },
   });
 
+  const updateComment = useActionMutation("update-comment", {
+    onMutate: async (vars: any) => {
+      await queryClient.cancelQueries({ queryKey });
+      const prev = queryClient.getQueryData(queryKey);
+      const updatedAt = new Date().toISOString();
+      patchComments((list) =>
+        list.map((comment) =>
+          comment.id === vars.id
+            ? { ...comment, content: vars.content, updatedAt }
+            : comment,
+        ),
+      );
+      return { prev };
+    },
+    onError: (_err, vars: any, ctx: any) => {
+      if (ctx?.prev) queryClient.setQueryData(queryKey, ctx.prev);
+      setEditingId(vars.id);
+      setEditDraft(vars.content);
+    },
+    onSuccess: (data: any) => {
+      if (!data?.id || !data?.content || !data?.updatedAt) return;
+      patchComments((list) =>
+        list.map((comment) =>
+          comment.id === data.id
+            ? {
+                ...comment,
+                content: data.content,
+                updatedAt: data.updatedAt,
+              }
+            : comment,
+        ),
+      );
+    },
+  });
+
   // Group by thread
   const threads = useMemo(() => {
     const map = new Map<string, Comment[]>();
@@ -298,6 +341,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
   );
 
   function submitDraft(value: string, target: Comment | null) {
+    if (!canComment) return;
     const text = value.trim();
     if (!text) return;
     if (!isSignedIn && onUnauthenticated) {
@@ -325,12 +369,36 @@ export function CommentsPanel(props: CommentsPanelProps) {
   }
 
   function openReply(root: Comment) {
+    if (!canComment) return;
     if (!isSignedIn && onUnauthenticated) {
       onUnauthenticated("comment");
       return;
     }
     setReplyTo(root);
     setTimeout(() => replyComposerRef.current?.focus(), 0);
+  }
+
+  function startEditing(comment: Comment) {
+    if (!canComment) return;
+    setEditingId(comment.id);
+    setEditDraft(comment.content);
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setEditDraft("");
+  }
+
+  function submitEdit(comment: Comment) {
+    if (!canComment) return;
+    const content = editDraft.trim();
+    if (!content) return;
+    if (content === comment.content) {
+      cancelEditing();
+      return;
+    }
+    cancelEditing();
+    updateComment.mutate({ id: comment.id, content });
   }
 
   const composer = (
@@ -341,6 +409,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
       isSignedIn={isSignedIn}
       isSharePresentation={isSharePresentation}
       enableComments={enableComments}
+      canComment={canComment}
       onDraftChange={setDraft}
       onSubmit={() => submitDraft(draft, null)}
       onUnauthenticated={onUnauthenticated}
@@ -358,6 +427,7 @@ export function CommentsPanel(props: CommentsPanelProps) {
         {sortedThreads.length === 0 ? (
           <EmptyCommentsState
             enableComments={enableComments}
+            canComment={canComment}
             isSharePresentation={isSharePresentation}
           />
         ) : (
@@ -370,12 +440,19 @@ export function CommentsPanel(props: CommentsPanelProps) {
                   <CommentCard
                     comment={root}
                     currentUserEmail={currentUserEmail}
+                    canComment={canComment}
                     onSeek={onSeek}
                     onReply={() => openReply(root)}
                     onResolve={(id, resolved) =>
                       resolve.mutate({ id, resolved })
                     }
                     onDelete={(id) => remove.mutate({ id })}
+                    isEditing={editingId === root.id}
+                    editDraft={editDraft}
+                    onEditDraftChange={setEditDraft}
+                    onStartEdit={() => startEditing(root)}
+                    onCancelEdit={cancelEditing}
+                    onSaveEdit={() => submitEdit(root)}
                     onReact={(commentId, emoji) =>
                       reactToComment.mutate({ commentId, emoji })
                     }
@@ -388,12 +465,19 @@ export function CommentsPanel(props: CommentsPanelProps) {
                           <CommentCard
                             comment={r}
                             currentUserEmail={currentUserEmail}
+                            canComment={canComment}
                             onSeek={onSeek}
                             onReply={() => openReply(root)}
                             onResolve={(id, resolved) =>
                               resolve.mutate({ id, resolved })
                             }
                             onDelete={(id) => remove.mutate({ id })}
+                            isEditing={editingId === r.id}
+                            editDraft={editDraft}
+                            onEditDraftChange={setEditDraft}
+                            onStartEdit={() => startEditing(r)}
+                            onCancelEdit={cancelEditing}
+                            onSaveEdit={() => submitEdit(r)}
                             onReact={(commentId, emoji) =>
                               reactToComment.mutate({ commentId, emoji })
                             }
@@ -434,9 +518,11 @@ export function CommentsPanel(props: CommentsPanelProps) {
 
 function EmptyCommentsState({
   enableComments,
+  canComment,
   isSharePresentation,
 }: {
   enableComments: boolean;
+  canComment: boolean;
   isSharePresentation: boolean;
 }) {
   const t = useT();
@@ -451,6 +537,22 @@ function EmptyCommentsState({
         )}
       >
         {t("commentsPanel.disabled")}
+      </div>
+    );
+  }
+
+  if (!canComment) {
+    return (
+      <div
+        className={cn(
+          "flex flex-col items-center justify-center px-8 py-12 text-center",
+          isSharePresentation ? "flex-1" : "min-h-full",
+        )}
+      >
+        <IconMessageCircle className="mb-5 size-16 stroke-[1.35] text-muted-foreground/40" />
+        <p className="text-base font-semibold text-foreground">
+          {t("commentsPanel.beFirst")}
+        </p>
       </div>
     );
   }
@@ -487,6 +589,7 @@ function CommentComposer({
   isSignedIn,
   isSharePresentation,
   enableComments,
+  canComment,
   onDraftChange,
   onSubmit,
   onUnauthenticated,
@@ -497,6 +600,7 @@ function CommentComposer({
   isSignedIn: boolean;
   isSharePresentation: boolean;
   enableComments: boolean;
+  canComment: boolean;
   onDraftChange: (value: string) => void;
   onSubmit: () => void;
   onUnauthenticated?: (intent: "comment" | "react") => void;
@@ -509,6 +613,8 @@ function CommentComposer({
       </div>
     );
   }
+
+  if (!canComment && isSignedIn) return null;
 
   if (!isSignedIn && onUnauthenticated) {
     if (isSharePresentation) {
@@ -664,27 +770,97 @@ function InlineReplyComposer({
   );
 }
 
+function InlineEditComposer({
+  draft,
+  originalContent,
+  onDraftChange,
+  onCancel,
+  onSubmit,
+}: {
+  draft: string;
+  originalContent: string;
+  onDraftChange: (value: string) => void;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  const t = useT();
+  const normalizedDraft = draft.trim();
+
+  return (
+    <div className="mt-2 rounded-lg border border-border bg-muted/20 p-2">
+      <Textarea
+        autoFocus
+        value={draft}
+        onChange={(event) => onDraftChange(event.target.value)}
+        aria-label={t("commentsPanel.editComment")}
+        className="min-h-16 resize-none bg-background text-sm"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onCancel();
+          } else if (
+            event.key === "Enter" &&
+            (event.metaKey || event.ctrlKey)
+          ) {
+            event.preventDefault();
+            onSubmit();
+          }
+        }}
+      />
+      <div className="mt-2 flex justify-end gap-2">
+        <Button variant="ghost" size="sm" onClick={onCancel}>
+          {t("common.cancel")}
+        </Button>
+        <Button
+          size="sm"
+          onClick={onSubmit}
+          disabled={
+            !normalizedDraft || normalizedDraft === originalContent.trim()
+          }
+        >
+          {t("common.save")}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function CommentCard({
   comment,
   currentUserEmail,
+  canComment,
+  editDraft,
+  isEditing,
   onSeek,
   onReply,
   onResolve,
   onDelete,
+  onEditDraftChange,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
   onReact,
   onUnauthenticated,
   isReply,
 }: {
   comment: Comment;
   currentUserEmail?: string;
+  canComment: boolean;
+  editDraft: string;
+  isEditing: boolean;
   onSeek: (ms: number) => void;
   onReply: () => void;
   onResolve: (id: string, resolved: boolean) => void;
   onDelete: (id: string) => void;
+  onEditDraftChange: (value: string) => void;
+  onStartEdit: () => void;
+  onCancelEdit: () => void;
+  onSaveEdit: () => void;
   onReact: (commentId: string, emoji: string) => void;
   onUnauthenticated?: (intent: "comment" | "react") => void;
   isReply?: boolean;
 }) {
+  const t = useT();
   // Local override forces a synchronous re-render the instant the user clicks
   // an emoji — independent of React Query cache propagation. It's cleared as
   // soon as the prop (server-confirmed) catches up to whatever we showed.
@@ -694,7 +870,10 @@ function CommentCard({
   }, [comment.emojiReactionsJson]);
 
   const reactions = parseReactions(localJson ?? comment.emojiReactionsJson);
-  const isOwner = currentUserEmail && comment.authorEmail === currentUserEmail;
+  const isOwner =
+    !!currentUserEmail &&
+    comment.authorEmail.trim().toLowerCase() ===
+      currentUserEmail.trim().toLowerCase();
 
   function toggleEmoji(emoji: string) {
     if (!currentUserEmail) return reactions;
@@ -717,11 +896,14 @@ function CommentCard({
     return updatedReactions;
   }
 
-  const commentContent = linkifyCommentContent(comment.content);
+  const avatarUrl = useAvatarUrl(comment.authorEmail);
 
   return (
     <div className={cn("flex gap-2", comment.resolved && "opacity-60")}>
       <Avatar className="h-7 w-7 shrink-0">
+        {avatarUrl ? (
+          <AvatarImage src={avatarUrl} alt={displayName(comment)} />
+        ) : null}
         <AvatarFallback className="text-[10px] bg-primary text-primary-foreground">
           {initials(displayName(comment))}
         </AvatarFallback>
@@ -748,81 +930,105 @@ function CommentCard({
             </span>
           ) : null}
         </div>
-        <p className="text-sm text-foreground whitespace-pre-wrap break-words mt-0.5">
-          {commentContent}
-        </p>
+        {isEditing ? (
+          <InlineEditComposer
+            draft={editDraft}
+            originalContent={comment.content}
+            onDraftChange={onEditDraftChange}
+            onCancel={onCancelEdit}
+            onSubmit={onSaveEdit}
+          />
+        ) : (
+          <>
+            <InlineMarkdown
+              content={comment.content}
+              className="mt-0.5 text-sm text-foreground"
+            />
 
-        <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
-          <button
-            onClick={onReply}
-            className="hover:text-foreground flex items-center gap-1"
-          >
-            <IconCornerDownRight className="h-3 w-3" />
-            Reply
-          </button>
-
-          <Popover>
-            <PopoverTrigger asChild>
-              <button className="hover:text-foreground flex items-center gap-1">
-                <IconMoodSmile className="h-3 w-3" /> React
-              </button>
-            </PopoverTrigger>
-            <PopoverContent side="top" align="start" className="p-1 w-auto">
-              <div className="flex gap-0.5">
-                {COMMENT_EMOJIS.map((e) => (
-                  <button
-                    key={e}
-                    onClick={() => {
-                      if (!currentUserEmail) {
-                        onUnauthenticated?.("react");
-                        return;
-                      }
-                      setLocalJson(JSON.stringify(toggleEmoji(e)));
-                      onReact(comment.id, e);
-                    }}
-                    className="text-lg h-8 w-8 rounded hover:bg-accent flex items-center justify-center"
-                  >
-                    {e}
-                  </button>
-                ))}
-              </div>
-            </PopoverContent>
-          </Popover>
-
-          {currentUserEmail ? (
-            <button
-              onClick={() => onResolve(comment.id, !comment.resolved)}
-              className="hover:text-foreground"
-            >
-              {comment.resolved ? "Unresolve" : "Resolve"}
-            </button>
-          ) : null}
-
-          {isOwner ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <button className="ml-auto hover:text-foreground">
-                  <IconDots className="h-3 w-3" />
-                </button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
-                <DropdownMenuItem
-                  className="text-red-600"
-                  onSelect={() => onDelete(comment.id)}
+            <div className="flex items-center gap-2 mt-1.5 text-xs text-muted-foreground">
+              {canComment ? (
+                <button
+                  onClick={onReply}
+                  className="hover:text-foreground flex items-center gap-1"
                 >
-                  Delete
-                </DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-        </div>
+                  <IconCornerDownRight className="h-3 w-3" />
+                  Reply
+                </button>
+              ) : null}
+
+              {canComment ? (
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <button className="hover:text-foreground flex items-center gap-1">
+                      <IconMoodSmile className="h-3 w-3" /> React
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="top"
+                    align="start"
+                    className="p-1 w-auto"
+                  >
+                    <div className="flex gap-0.5">
+                      {REACTION_EMOJIS.map((e) => (
+                        <button
+                          key={e}
+                          onClick={() => {
+                            if (!currentUserEmail) {
+                              onUnauthenticated?.("react");
+                              return;
+                            }
+                            setLocalJson(JSON.stringify(toggleEmoji(e)));
+                            onReact(comment.id, e);
+                          }}
+                          className="text-lg h-8 w-8 rounded hover:bg-accent flex items-center justify-center"
+                        >
+                          {e}
+                        </button>
+                      ))}
+                    </div>
+                  </PopoverContent>
+                </Popover>
+              ) : null}
+
+              {currentUserEmail && canComment ? (
+                <button
+                  onClick={() => onResolve(comment.id, !comment.resolved)}
+                  className="hover:text-foreground"
+                >
+                  {comment.resolved ? "Unresolve" : "Resolve"}
+                </button>
+              ) : null}
+
+              {isOwner && canComment ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="ml-auto hover:text-foreground">
+                      <IconDots className="h-3 w-3" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={onStartEdit}>
+                      {t("commentsPanel.editComment")}
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      className="text-red-600"
+                      onSelect={() => onDelete(comment.id)}
+                    >
+                      Delete
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : null}
+            </div>
+          </>
+        )}
 
         {Object.keys(reactions).length > 0 ? (
           <div className="flex flex-wrap gap-1 mt-1.5">
             {Object.entries(reactions).map(([emoji, users]) => {
               const mine =
                 !!currentUserEmail && users.includes(currentUserEmail);
-              return (
+              return canComment ? (
                 <button
                   key={emoji}
                   type="button"
@@ -849,6 +1055,13 @@ function CommentCard({
                 >
                   {emoji} {users.length}
                 </button>
+              ) : (
+                <span
+                  key={emoji}
+                  className="text-[11px] rounded-full px-1.5 py-0.5 flex items-center gap-1 bg-accent border border-transparent"
+                >
+                  {emoji} {users.length}
+                </span>
               );
             })}
           </div>
@@ -856,101 +1069,6 @@ function CommentCard({
       </div>
     </div>
   );
-}
-
-const COMMENT_URL_PATTERN = /\b(?:https?:\/\/|www\.)[^\s<]+/gi;
-const ALWAYS_TRAILING_PUNCTUATION = new Set([
-  ".",
-  ",",
-  "!",
-  "?",
-  ";",
-  ":",
-  "'",
-  '"',
-]);
-const PAIRED_TRAILING_PUNCTUATION: Record<string, string> = {
-  ")": "(",
-  "]": "[",
-  "}": "{",
-};
-
-function trimTrailingUrlPunctuation(value: string): {
-  url: string;
-  trailing: string;
-} {
-  let end = value.length;
-
-  while (end > 0) {
-    const lastCharacter = value[end - 1];
-    if (ALWAYS_TRAILING_PUNCTUATION.has(lastCharacter)) {
-      end -= 1;
-      continue;
-    }
-
-    const openingCharacter = PAIRED_TRAILING_PUNCTUATION[lastCharacter];
-    if (openingCharacter) {
-      const candidate = value.slice(0, end);
-      const openingCount = candidate.split(openingCharacter).length - 1;
-      const closingCount = candidate.split(lastCharacter).length - 1;
-      if (closingCount > openingCount) {
-        end -= 1;
-        continue;
-      }
-    }
-
-    break;
-  }
-
-  return {
-    url: value.slice(0, end),
-    trailing: value.slice(end),
-  };
-}
-
-function linkifyCommentContent(content: string): React.ReactNode[] {
-  const result: React.ReactNode[] = [];
-  let lastIndex = 0;
-
-  for (const match of content.matchAll(COMMENT_URL_PATTERN)) {
-    const matchIndex = match.index;
-    const matchedText = match[0];
-    const { url, trailing } = trimTrailingUrlPunctuation(matchedText);
-    const href = url.toLowerCase().startsWith("www.") ? `https://${url}` : url;
-
-    let isValidUrl = false;
-    try {
-      isValidUrl = Boolean(new URL(href).hostname);
-    } catch {
-      // Leave malformed URL-like text unlinked.
-    }
-
-    if (!isValidUrl) continue;
-
-    if (matchIndex > lastIndex) {
-      result.push(content.slice(lastIndex, matchIndex));
-    }
-    result.push(
-      <a
-        key={`${matchIndex}-${url}`}
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-primary hover:underline"
-      >
-        {url}
-      </a>,
-    );
-    if (trailing) result.push(trailing);
-
-    lastIndex = matchIndex + matchedText.length;
-  }
-
-  if (lastIndex < content.length) {
-    result.push(content.slice(lastIndex));
-  }
-
-  return result;
 }
 
 function parseReactions(raw: string): Record<string, string[]> {

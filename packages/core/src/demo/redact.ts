@@ -1,19 +1,25 @@
 /**
  * Pure, dependency-free, deterministic demo-mode redactor.
  *
- * Replaces sensitive values (emails and free numbers) with stable fake
- * substitutes so a demo looks coherent — the same input always maps to the
- * same fake. Crucially, it NEVER rewrites identifiers, structural tokens, or
- * timestamps. Names and other free text are deliberately left alone because
- * guessing whether arbitrary text is a person's name is too inaccurate. The
- * string redactor uses a protect-first strategy (mask IDs with opaque
- * placeholders before any transform runs, restore them byte-identical
+ * Replaces every email with one canonical anonymous address and free numbers
+ * with stable fake substitutes. Crucially, it NEVER rewrites identifiers,
+ * structural tokens, or timestamps. Names and other free text are deliberately
+ * left alone because guessing whether arbitrary text is a person's name is too
+ * inaccurate. The string redactor uses a protect-first strategy (mask IDs with
+ * opaque placeholders before any transform runs, restore them byte-identical
  * afterwards), and the structure-aware walker additionally protects leaf
  * values by key name.
  */
 
 export interface RedactOptions {
   salt?: string;
+  /** Redact numeric values. Defaults to true for backward compatibility. */
+  redactNumbers?: boolean;
+  /**
+   * Redact emails stored in otherwise protected structural fields such as
+   * `userId` and `userKey`. Intended for display-only frontend responses.
+   */
+  redactProtectedEmails?: boolean;
 }
 
 /* ------------------------------------------------------------------ *
@@ -49,10 +55,6 @@ function mulberry32(seed: number): () => number {
 function seededRng(value: string, salt: string): () => number {
   const seedFn = xmur3(`${value}${salt}`);
   return mulberry32(seedFn());
-}
-
-function pick<T>(rng: () => number, pool: readonly T[]): T {
-  return pool[Math.floor(rng() * pool.length) % pool.length];
 }
 
 /* ------------------------------------------------------------------ *
@@ -151,149 +153,18 @@ function memoFake(
 }
 
 /* ------------------------------------------------------------------ *
- * Curated name pools
- * ------------------------------------------------------------------ */
-
-const FIRST_NAMES: readonly string[] = [
-  "Jane",
-  "John",
-  "Alex",
-  "Maria",
-  "Sam",
-  "Olivia",
-  "Liam",
-  "Emma",
-  "Noah",
-  "Ava",
-  "Lucas",
-  "Mia",
-  "Ethan",
-  "Sofia",
-  "Mason",
-  "Isla",
-  "Leo",
-  "Aria",
-  "Henry",
-  "Zoe",
-  "Owen",
-  "Nora",
-  "Caleb",
-  "Lily",
-  "Ryan",
-  "Ruby",
-  "Adam",
-  "Chloe",
-  "Eli",
-  "Hazel",
-  "Max",
-  "Iris",
-  "Ben",
-  "Clara",
-  "Theo",
-  "Maya",
-  "Felix",
-  "Elena",
-  "Jonah",
-  "Greta",
-];
-
-const LAST_NAMES: readonly string[] = [
-  "Doe",
-  "Smith",
-  "Johnson",
-  "Lee",
-  "Brown",
-  "Garcia",
-  "Miller",
-  "Davis",
-  "Wilson",
-  "Moore",
-  "Taylor",
-  "Anderson",
-  "Thomas",
-  "Jackson",
-  "White",
-  "Harris",
-  "Martin",
-  "Clark",
-  "Lewis",
-  "Walker",
-  "Hall",
-  "Young",
-  "King",
-  "Wright",
-  "Hill",
-  "Green",
-  "Adams",
-  "Baker",
-  "Nelson",
-  "Carter",
-  "Mitchell",
-  "Perez",
-  "Roberts",
-  "Turner",
-  "Phillips",
-  "Campbell",
-  "Parker",
-  "Evans",
-  "Edwards",
-  "Collins",
-];
-
-/* ------------------------------------------------------------------ *
  * Fake value generators (deterministic in value + salt)
  * ------------------------------------------------------------------ */
 
-// Realistic-looking but safe stand-in domains: real consumer providers (the
-// local part is fake, so no real mailbox is implied) plus the canonical
-// reserved fictional-company domains (Contoso/Fabrikam/Northwind), which read
-// as real businesses but are intentional placeholders. No example.com.
-const FAKE_EMAIL_DOMAINS: readonly string[] = [
-  "gmail.com",
-  "outlook.com",
-  "icloud.com",
-  "yahoo.com",
-  "proton.me",
-  "hey.com",
-  "fastmail.com",
-  "contoso.com",
-  "fabrikam.com",
-  "northwind.com",
-  "acme.io",
-  "globex.net",
-];
+export const DEMO_ANONYMOUS_EMAIL = "anonymous@builder.io";
 
 function fakeEmail(original: string, salt: string): string {
-  return memoFake("email", original.toLowerCase(), salt, () => {
-    const rng = seededRng(`email:${original.toLowerCase()}`, salt);
-    const first = pick(rng, FIRST_NAMES).toLowerCase();
-    const last = pick(rng, LAST_NAMES).toLowerCase();
-    const domain = pick(rng, FAKE_EMAIL_DOMAINS);
-    // Vary the local part so addresses don't all look templated.
-    const shape = Math.floor(rng() * 6);
-    let local: string;
-    switch (shape) {
-      case 0:
-        local = `${first}.${last}`;
-        break;
-      case 1:
-        local = `${first}${last}`;
-        break;
-      case 2:
-        local = `${first[0]}${last}`;
-        break;
-      case 3:
-        local = `${first}.${last}${1 + Math.floor(rng() * 89)}`;
-        break;
-      case 4:
-        local = `${first}_${last}`;
-        break;
-      default:
-        local = `${last}.${first}`;
-        break;
-    }
-    return `${local}@${domain}`;
-  });
+  return memoFake(
+    "email",
+    original.toLowerCase(),
+    salt,
+    () => DEMO_ANONYMOUS_EMAIL,
+  );
 }
 
 /**
@@ -532,18 +403,29 @@ function transformNumbers(text: string, salt: string): string {
  * Public: string redactor
  * ------------------------------------------------------------------ */
 
-function redactDemoStringInternal(text: string, salt: string): string {
+function redactDemoStringInternal(
+  text: string,
+  salt: string,
+  redactNumbers: boolean,
+): string {
   if (typeof text !== "string" || text.length === 0) return text;
+  if (!text.includes("@") && (!redactNumbers || !/[\d$€£¥]/.test(text))) {
+    return text;
+  }
 
   const { text: masked, restore } = protect(text);
   let out = masked;
   out = transformEmails(out, salt);
-  out = transformNumbers(out, salt);
+  if (redactNumbers) out = transformNumbers(out, salt);
   return unprotect(out, restore);
 }
 
 export function redactDemoString(text: string, opts?: RedactOptions): string {
-  return redactDemoStringInternal(text, opts?.salt ?? "");
+  return redactDemoStringInternal(
+    text,
+    opts?.salt ?? "",
+    opts?.redactNumbers !== false,
+  );
 }
 
 /* ------------------------------------------------------------------ *
@@ -586,6 +468,8 @@ function walk(
   salt: string,
   depth: number,
   seen: WeakSet<object>,
+  redactNumbers: boolean,
+  redactProtectedEmails: boolean,
 ): unknown {
   if (depth > MAX_DEPTH) return value;
 
@@ -594,11 +478,11 @@ function walk(
   const t = typeof value;
 
   if (t === "string") {
-    return redactDemoStringInternal(value as string, salt);
+    return redactDemoStringInternal(value as string, salt, redactNumbers);
   }
 
   if (t === "number") {
-    return redactNumberLeaf(value as number, salt);
+    return redactNumbers ? redactNumberLeaf(value as number, salt) : value;
   }
 
   if (t === "boolean" || t === "bigint" || t === "function" || t === "symbol") {
@@ -610,7 +494,9 @@ function walk(
   if (Array.isArray(value)) {
     if (seen.has(value)) return value;
     seen.add(value);
-    const out = value.map((item) => walk(item, salt, depth + 1, seen));
+    const out = value.map((item) =>
+      walk(item, salt, depth + 1, seen, redactNumbers, redactProtectedEmails),
+    );
     seen.delete(value);
     return out;
   }
@@ -629,14 +515,34 @@ function walk(
         ) {
           // Still recurse into nested structures, but the protected key does
           // not transform its own leaf value.
-          out[key] = walk(entry, salt, depth + 1, seen);
+          out[key] = walk(
+            entry,
+            salt,
+            depth + 1,
+            seen,
+            redactNumbers,
+            redactProtectedEmails,
+          );
+        } else if (
+          redactProtectedEmails &&
+          typeof entry === "string" &&
+          entry.includes("@")
+        ) {
+          out[key] = redactDemoStringInternal(entry, salt, false);
         } else {
           // Leaf under a protected key: pass through completely untouched.
           out[key] = entry;
         }
         continue;
       }
-      out[key] = walk(entry, salt, depth + 1, seen);
+      out[key] = walk(
+        entry,
+        salt,
+        depth + 1,
+        seen,
+        redactNumbers,
+        redactProtectedEmails,
+      );
     }
     seen.delete(value);
     return out;
@@ -648,7 +554,14 @@ function walk(
 
 export function redactDemoData<T>(value: T, opts?: RedactOptions): T {
   const salt = opts?.salt ?? "";
-  return walk(value, salt, 0, new WeakSet<object>()) as T;
+  return walk(
+    value,
+    salt,
+    0,
+    new WeakSet<object>(),
+    opts?.redactNumbers !== false,
+    opts?.redactProtectedEmails === true,
+  ) as T;
 }
 
 /**

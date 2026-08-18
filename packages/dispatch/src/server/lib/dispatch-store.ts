@@ -588,6 +588,14 @@ async function applyApprovedRequest(request: DispatchApprovalRequest) {
       requestCtx,
     );
   }
+  if (request.changeType === "workspace-agent-pack.create") {
+    const { applyAgentPackCreate } = await import("./agent-pack-store.js");
+    return applyAgentPackCreate(
+      payload.inputs,
+      request.reviewedBy || currentOwnerEmail(),
+      requestCtx,
+    );
+  }
   if (request.changeType === "workspace-resource.update") {
     const { applyWorkspaceResourceUpdate } =
       await import("./workspace-resources-store.js");

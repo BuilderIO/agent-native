@@ -1,7 +1,7 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconClock, IconSearch, IconX } from "@tabler/icons-react";
-import React, { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 
 import { msToClock } from "@/components/player/scrubber";
 import {
@@ -10,6 +10,10 @@ import {
   PopoverContent,
 } from "@/components/ui/popover";
 import { useRecordingSearch, type SearchHit } from "@/hooks/use-library";
+import {
+  clearSearchFocusRequest,
+  hasSearchFocusRequest,
+} from "@/lib/search-focus";
 import { cn, shortcutLabel } from "@/lib/utils";
 
 function highlight(
@@ -31,7 +35,7 @@ function highlight(
     parts.push(
       <mark
         key={`${idx}-${parts.length}`}
-        className="bg-yellow-200 text-foreground rounded-sm px-0.5"
+        className="bg-highlight/30 text-foreground rounded-sm px-0.5"
       >
         {text.slice(idx, idx + q.length)}
       </mark>,
@@ -64,22 +68,33 @@ function matchLabel(hit: SearchHit, t: ReturnType<typeof useT>): string {
 export function SearchBar({ className, side = "right" }: SearchBarProps) {
   const t = useT();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const routeRequestsFocus = hasSearchFocusRequest(searchParams);
 
   const { data, isFetching } = useRecordingSearch(query);
   const results: SearchHit[] = data?.results ?? [];
 
-  // Cmd+K / Ctrl+K and "/" global shortcuts to focus search
+  const focusSearchInput = useCallback(() => {
+    inputRef.current?.focus();
+    inputRef.current?.select();
+    setOpen(true);
+  }, []);
+
+  useEffect(() => {
+    if (!routeRequestsFocus) return;
+    const frame = requestAnimationFrame(() => {
+      focusSearchInput();
+      setSearchParams(clearSearchFocusRequest, { replace: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [focusSearchInput, routeRequestsFocus, setSearchParams]);
+
+  // "/" is the inline search shortcut. Cmd+K belongs to the app command menu.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
-        e.preventDefault();
-        inputRef.current?.focus();
-        inputRef.current?.select();
-        setOpen(true);
-      }
       if (
         e.key === "/" &&
         !e.metaKey &&
@@ -90,9 +105,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
         !(e.target as HTMLElement)?.isContentEditable
       ) {
         e.preventDefault();
-        inputRef.current?.focus();
-        inputRef.current?.select();
-        setOpen(true);
+        focusSearchInput();
       }
       if (e.key === "Escape") {
         setOpen(false);
@@ -101,7 +114,7 @@ export function SearchBar({ className, side = "right" }: SearchBarProps) {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [focusSearchInput]);
 
   function pickResult(hit: SearchHit) {
     setOpen(false);

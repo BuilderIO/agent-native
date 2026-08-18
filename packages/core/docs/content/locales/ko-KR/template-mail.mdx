@@ -96,8 +96,6 @@ description: "에이전트 기반 이메일 클라이언트입니다. Gmail를 �
 
 라이브 데모: [mail.agent-native.com](https://mail.agent-native.com).
 
-> **Google에서 경고를 표시할 수 있습니다.** 호스팅된 데모는 Gmail 액세스를 위해 Agent-Native의 공유 Google 앱을 사용하므로 Google에서 계속하기 전에 확인을 요청할 수 있습니다. 자신의 Google OAuth 클라이언트를 사용하려면 로컬에서 실행하세요.
-
 처음 앱을 열 때:
 
 1. 사이드바에서 **설정**을 클릭하세요.
@@ -349,7 +347,7 @@ UI의 경로:
 
 메일은 귀하가 변경할 수 있습니다. 중요한 모든 것은 소수의 장소에 있습니다. 그곳에서 시작하세요.
 
-**에이전트 기능 추가.** `defineAction`를 사용하여 `templates/mail/actions/` 아래에 새 파일을 추가합니다. 귀하의 작업은 에이전트 도구, CLI 명령(`pnpm action <name>`) 및 `useActionQuery`/`useActionMutation`를 통해 입력된 프런트엔드 후크 표면이 됩니다. 간단한 예를 보려면 `templates/mail/actions/star-email.ts`를 보거나 여러 개의 하위 actions가 있는 경우에는 `templates/mail/actions/manage-automations.ts`를 살펴보세요. 전체 패턴은 [actions](/docs/actions) 문서를 참조하세요.
+**에이전트 기능 추가.** `defineAction`를 사용하여 `templates/mail/actions/` 아래에 새 파일을 추가합니다. 귀하의 작업은 에이전트 도구, CLI 명령(`pnpm action <name>`) 및 `useActionQuery`/`useActionMutation`를 통해 입력된 프런트엔드 후크 표면이 됩니다. 간단한 예를 보려면 `templates/mail/actions/star-email.ts`를 보거나 여러 개의 하위 actions가 있는 경우에는 `templates/mail/actions/manage-automations.ts`를 살펴보세요. 전체 패턴은 [actions](/docs/actions-overview) 문서를 참조하세요.
 
 **UI 변경.** 경로는 `templates/mail/app/routes/`에 있고 구성 요소는 `templates/mail/app/components/email/` 및 `templates/mail/app/components/layout/`에 있습니다. 이 앱은 `app/components/ui/` 및 Tabler Icons의 shadcn/ui 기본 요소를 사용합니다. 이를 준수하세요.
 
@@ -361,7 +359,7 @@ UI의 경로:
 
 **키보드 단축키 변경.** 키 바인딩 핸들러는 `templates/mail/app/components/email/`에 있습니다. `useHotkeys` 또는 `addEventListener("keydown"`를 검색하여 각 키가 연결된 위치를 찾으세요.
 
-상담원에게 이러한 변경을 요청하세요. 에이전트는 자체 소스를 편집할 수 있습니다. [Self-Modifying Code](/docs/key-concepts#agent-modifies-code)를 참조하세요.
+이러한 변경은 자체 저장소와 개발 워크플로에서 수행합니다. 임베디드 에이전트는 호스트가 repository/workspace 쓰기 도구를 의도적으로 부여한 경우에만 소스 편집을 도울 수 있습니다. 그 외에는 actions와 데이터를 통해 작업합니다. [Key Concepts](/docs/key-concepts#agent-modifies-code)를 참조하세요.
 
 ## 다음 단계
 
@@ -369,4 +367,4 @@ UI의 경로:
 - [**시작하기**](/docs/getting-started) — actions, application state, 실시간 동기화 등 프레임워크의 기본 사항
 - [**캘린더**](/docs/template-calendar) — 일정 관리와 예약을 다루는 관련 도메인 템플릿
 - [**자동화**](/docs/automations) — Mail의 자동 분류 규칙이 기반으로 삼는 이벤트 트리거 엔진
-- [**Actions**](/docs/actions) — 채팅, 단축키, 자동화가 호출하는 action 시스템
+- [**Actions**](/docs/actions-overview) — 채팅, 단축키, 자동화가 호출하는 action 시스템

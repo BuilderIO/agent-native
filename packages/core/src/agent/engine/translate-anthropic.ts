@@ -425,6 +425,11 @@ function enginePartToAnthropic(
     }
 
     case "thinking":
+      // A redacted block has no readable thinking or signature — only its
+      // encrypted payload, which Anthropic requires back unmodified.
+      if (part.redactedData) {
+        return { type: "redacted_thinking", data: part.redactedData } as any;
+      }
       // Anthropic thinking blocks — pass through with signature for context window continuity
       return {
         type: "thinking",
@@ -496,7 +501,22 @@ export function anthropicContentToEngine(
           signature: b.signature,
         };
       }
-      // Unknown block type — skip
+      if ((block as any).type === "redacted_thinking") {
+        // Dropping this looked like "skip an unreadable block", but Anthropic
+        // requires the whole thinking sequence back verbatim within a tool-use
+        // turn: losing it makes the very next loop iteration send an assistant
+        // turn the API refuses, from a turn that streamed perfectly.
+        return {
+          type: "thinking" as const,
+          text: "",
+          redactedData: (block as any).data ?? "",
+        };
+      }
+      // Unknown block type. Skipping is the only safe replay, but a silent skip
+      // is how redacted_thinking went missing — say which type was dropped.
+      console.warn(
+        `[anthropic-engine] dropping unrecognized content block type "${(block as any).type}" from the assistant turn; it will not be replayed`,
+      );
       return { type: "text" as const, text: "" };
     })
     .filter((p) => !(p.type === "text" && p.text === ""));
@@ -587,6 +607,122 @@ export function anthropicChunkToEngineEvents(
   }
 
   return events;
+}
+
+// ---------------------------------------------------------------------------
+// Streamed tool-input reconciliation (shared by every engine adapter)
+// ---------------------------------------------------------------------------
+
+/**
+ * Tool arguments arrive split across an arbitrary number of deltas. Every
+ * engine announces a tool call the moment the first delta lands, so a stream
+ * that dies mid-arguments leaves the turn advertising a call it never
+ * delivered. Accumulating the delta text is the only way to tell "assembled
+ * fine" from "cut off", instead of dropping the call and reporting success.
+ */
+export interface StreamedToolInputState {
+  byId: Map<string, { name: string; text: string; delivered: boolean }>;
+}
+
+export function createStreamedToolInputState(): StreamedToolInputState {
+  return { byId: new Map() };
+}
+
+/**
+ * Feed an engine's own outgoing event into the accumulator. Works for every
+ * adapter because they all emit the same normalized progress events.
+ */
+export function observeStreamedToolInput(
+  state: StreamedToolInputState,
+  event: EngineEvent,
+): void {
+  if (event.type === "tool-input-start" || event.type === "tool-input-delta") {
+    const id = event.id;
+    if (!id) return;
+    const existing = state.byId.get(id);
+    const text = (event.type === "tool-input-delta" && event.text) || "";
+    if (existing) {
+      if (!existing.name && event.name) existing.name = event.name;
+      existing.text += text;
+      return;
+    }
+    state.byId.set(id, { name: event.name ?? "", text, delivered: false });
+    return;
+  }
+  if (event.type === "tool-call") {
+    // Non-empty terminal input remains authoritative. Some gateways emit the
+    // complete argument JSON as deltas but follow it with an empty terminal
+    // input, so recover the already-complete stream in that case.
+    if (isEmptyToolInput(event.input)) {
+      const streamedInput = parseStreamedToolInput(
+        state.byId.get(event.id)?.text ?? "",
+      );
+      if (streamedInput !== undefined) event.input = streamedInput;
+    }
+    markStreamedToolInputDelivered(state, event.id);
+    return;
+  }
+  if (event.type === "tool-call-error") {
+    markStreamedToolInputDelivered(state, event.id);
+  }
+}
+
+export function markStreamedToolInputDelivered(
+  state: StreamedToolInputState,
+  id: string,
+): void {
+  const existing = state.byId.get(id);
+  if (existing) existing.delivered = true;
+  else state.byId.set(id, { name: "", text: "", delivered: true });
+}
+
+const TRUNCATED_TOOL_INPUT_ERROR =
+  "The arguments never finished streaming, so this call was not executed and nothing changed. Call the tool again with complete arguments.";
+
+/**
+ * Reconcile what the stream announced against what it actually delivered.
+ * Announced calls whose accumulated arguments parse are handed back as real
+ * tool calls; the rest become in-band tool-call errors the model can read and
+ * retry from. Nothing is dropped.
+ */
+export function finalizeStreamedToolInputs(
+  state: StreamedToolInputState,
+  deliveredIds: Iterable<string> = [],
+): EngineEvent[] {
+  for (const id of deliveredIds) markStreamedToolInputDelivered(state, id);
+  const events: EngineEvent[] = [];
+  for (const [id, entry] of state.byId) {
+    if (entry.delivered) continue;
+    const input = parseStreamedToolInput(entry.text);
+    if (input !== undefined) {
+      events.push({ type: "tool-call", id, name: entry.name, input });
+    } else {
+      events.push({
+        type: "tool-call-error",
+        id,
+        name: entry.name || "unknown-tool",
+        input: entry.text,
+        error: TRUNCATED_TOOL_INPUT_ERROR,
+      });
+    }
+  }
+  return events;
+}
+
+function parseStreamedToolInput(
+  text: string,
+): Record<string, unknown> | undefined {
+  if (!text.trim()) return undefined;
+  try {
+    const parsed = JSON.parse(text);
+    return isRecord(parsed) ? parsed : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isEmptyToolInput(input: unknown): boolean {
+  return input == null || (isRecord(input) && Object.keys(input).length === 0);
 }
 
 // ---------------------------------------------------------------------------

@@ -29,6 +29,8 @@ export default defineAction({
   description: "List all documentation pages with their titles",
   schema: z.object({}),
   http: false,
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true },
   run: async () => {
     const docs = await loadDocsIndex();
     return docs

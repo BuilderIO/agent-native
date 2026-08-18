@@ -4,6 +4,20 @@
  * progressively discloses its controls.
  */
 
+import { Picker, TextField } from "@agent-native/toolkit/design-system";
+import {
+  Button as ToolkitButton,
+  ButtonBase as ToolkitButtonBase,
+} from "@agent-native/toolkit/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandSeparator,
+} from "@agent-native/toolkit/ui/command";
 import {
   IconCheck,
   IconChevronRight,
@@ -18,18 +32,34 @@ import React, { useEffect, useMemo, useState, useCallback } from "react";
 
 import { agentNativePath } from "../api-path.js";
 import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "../components/ui/dropdown-menu.js";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "../components/ui/popover.js";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
+import { cn } from "../utils.js";
+import { SettingsSkeleton } from "./SettingsSkeleton.js";
+
+const Button = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<typeof ToolkitButton>
+>(({ className, ...props }, ref) => (
+  <ToolkitButton
+    ref={ref}
+    variant="ghost"
+    className={cn(
+      "h-auto p-0 hover:bg-transparent hover:text-inherit active:scale-100 [&_svg]:!size-auto",
+      className,
+    )}
+    {...props}
+  />
+));
+Button.displayName = "SecretsPrimitiveButton";
 
 interface SecretStatus {
   key: string;
@@ -109,12 +139,7 @@ export function SecretsSection({ focusKey }: SecretsSectionProps) {
     );
   }
   if (secrets === null) {
-    return (
-      <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-        <IconLoader2 size={10} className="animate-spin" />
-        Loading…
-      </div>
-    );
+    return <SettingsSkeleton lines={2} />;
   }
   if (secrets.length === 0) {
     return (
@@ -184,46 +209,76 @@ function KeysHeader({
   onSecret?: (key: string) => void;
   onCustomKey: () => void;
 }) {
+  const [open, setOpen] = useState(false);
+
   return (
     <div className="flex items-center justify-between gap-3">
       <p className="text-[11px] font-medium text-foreground">Keys</p>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger asChild>
+          <ToolkitButtonBase
             type="button"
+            variant="outline"
             className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
           >
             <IconPlus size={11} />
             New
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-60">
-          {availableSecrets.length > 0 && (
-            <>
-              <DropdownMenuLabel>Choose a key</DropdownMenuLabel>
-              {availableSecrets.map((secret) => (
-                <DropdownMenuItem
-                  key={secret.key}
-                  onSelect={() => onSecret?.(secret.key)}
-                  className="flex items-center justify-between gap-3"
+          </ToolkitButtonBase>
+        </PopoverTrigger>
+        <PopoverContent align="end" className="w-60 p-0">
+          <Command
+            // cmdk's default scorer matches loose subsequences, so "logo"
+            // also surfaces every "G-o-o-g-l-e ... " key.
+            filter={(value, search) =>
+              value.toLowerCase().includes(search.toLowerCase()) ? 1 : 0
+            }
+          >
+            {availableSecrets.length > 0 && (
+              <CommandInput placeholder="Search keys..." />
+            )}
+            <CommandList>
+              <CommandEmpty>No keys found.</CommandEmpty>
+              {availableSecrets.length > 0 && (
+                <>
+                  <CommandGroup heading="Choose a key">
+                    {availableSecrets.map((secret) => (
+                      <CommandItem
+                        key={secret.key}
+                        value={`${secret.label} ${secret.key}`}
+                        onSelect={() => {
+                          setOpen(false);
+                          onSecret?.(secret.key);
+                        }}
+                        className="flex items-center justify-between gap-3"
+                      >
+                        <span className="truncate">{secret.label}</span>
+                        {secret.required && (
+                          <span className="shrink-0 text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
+                            Required
+                          </span>
+                        )}
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                  <CommandSeparator />
+                </>
+              )}
+              <CommandGroup>
+                <CommandItem
+                  value="custom key"
+                  onSelect={() => {
+                    setOpen(false);
+                    onCustomKey();
+                  }}
                 >
-                  <span className="truncate">{secret.label}</span>
-                  {secret.required && (
-                    <span className="text-[9px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">
-                      Required
-                    </span>
-                  )}
-                </DropdownMenuItem>
-              ))}
-              <DropdownMenuSeparator />
-            </>
-          )}
-          <DropdownMenuItem onSelect={onCustomKey}>
-            <IconPlus size={14} />
-            Custom
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+                  <IconPlus size={14} />
+                  Custom
+                </CommandItem>
+              </CommandGroup>
+            </CommandList>
+          </Command>
+        </PopoverContent>
+      </Popover>
     </div>
   );
 }
@@ -243,8 +298,12 @@ function SecretCard({
   onOpenChange,
   focusInput,
 }: SecretCardProps) {
+  const t = useT();
   const [value, setValue] = useState("");
-  const [busy, setBusy] = useState<null | "save" | "delete" | "test">(null);
+  const [isRotating, setIsRotating] = useState(false);
+  const [busy, setBusy] = useState<
+    null | "save" | "delete" | "test" | "test-candidate"
+  >(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [toast, setToast] = useState<{
     kind: "ok" | "err";
@@ -253,10 +312,15 @@ function SecretCard({
   const inputRef = React.useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (open && focusInput && inputRef.current) {
+    if (!open) {
+      setValue("");
+      setIsRotating(false);
+      return;
+    }
+    if ((focusInput || isRotating) && inputRef.current) {
       inputRef.current.focus();
     }
-  }, [focusInput, open]);
+  }, [focusInput, isRotating, open]);
 
   const setToastAndClear = (kind: "ok" | "err", text: string, ms = 2500) => {
     setToast({ kind, text });
@@ -281,6 +345,7 @@ function SecretCard({
         return;
       }
       setValue("");
+      setIsRotating(false);
       setConfirmDelete(false);
       setToastAndClear("ok", "Saved");
       notifySecretsChanged();
@@ -315,14 +380,21 @@ function SecretCard({
     }
   };
 
-  const handleTest = async () => {
+  const handleTest = async (candidateValue?: string) => {
     if (busy) return;
-    setBusy("test");
+    const isCandidate = candidateValue !== undefined;
+    setBusy(isCandidate ? "test-candidate" : "test");
     try {
       const res = await fetch(
         `${ENDPOINT}/${encodeURIComponent(secret.key)}/test`,
         {
           method: "POST",
+          ...(isCandidate
+            ? {
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ value: candidateValue }),
+              }
+            : {}),
         },
       );
       const body = (await res.json().catch(() => ({}))) as {
@@ -330,11 +402,19 @@ function SecretCard({
         error?: string;
       };
       if (res.ok && body.ok) {
-        setToastAndClear("ok", "Working");
+        setToastAndClear(
+          "ok",
+          isCandidate
+            ? t("secrets.candidateValueWorking")
+            : t("secrets.storedValueWorking"),
+        );
       } else {
         setToastAndClear(
           "err",
-          body.error ?? (body.ok === false ? "Invalid" : `Test failed`),
+          body.error ??
+            (body.ok === false
+              ? t("secrets.invalid")
+              : t("secrets.testFailed")),
         );
       }
     } finally {
@@ -366,11 +446,14 @@ function SecretCard({
   }, [secret.status, secret.required]);
 
   const isOAuth = secret.kind === "oauth";
+  const showRotationForm = secret.status !== "set" || isRotating;
 
   return (
     <div className="border-b border-border last:border-b-0">
-      <button
+      <Button
         type="button"
+        intent="neutral"
+        emphasis="ghost"
         aria-expanded={open}
         onClick={() => onOpenChange(!open)}
         className="flex w-full items-center gap-2 px-2.5 py-2 text-start transition-colors hover:bg-accent/30"
@@ -388,7 +471,7 @@ function SecretCard({
           </code>
         )}
         <span className="shrink-0">{pill}</span>
-      </button>
+      </Button>
 
       {open && (
         <div className="border-t border-border/60 bg-accent/20 px-3 pb-3 pt-2.5">
@@ -422,96 +505,144 @@ function SecretCard({
               )}
             </div>
           ) : (
-            <div className="mt-2 space-y-1.5">
+            <div className="mt-2 space-y-2">
               {secret.status === "set" && (
-                <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
-                  <span>Stored value ending in</span>
-                  <code className="rounded bg-background px-1 py-0.5 text-foreground">
-                    {secret.last4}
-                  </code>
-                </div>
-              )}
-              <div className="flex gap-1.5">
-                <input
-                  ref={inputRef}
-                  type="password"
-                  aria-label={secret.label}
-                  value={value}
-                  onChange={(e) => setValue(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleSave();
-                  }}
-                  placeholder={
-                    secret.status === "set"
-                      ? "Enter new value to rotate"
-                      : "Paste key"
-                  }
-                  className="flex-1 rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
-                />
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={!value.trim() || busy !== null}
-                  className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
-                  style={{ backgroundColor: "#00B5FF", color: "white" }}
-                >
-                  {busy === "save" ? (
-                    <IconLoader2 size={10} className="animate-spin" />
-                  ) : secret.status === "set" ? (
-                    <>
-                      <IconRefresh size={10} />
-                      Rotate
-                    </>
-                  ) : (
-                    "Save"
-                  )}
-                </button>
-              </div>
-              <div className="flex items-center gap-1.5">
-                {secret.status === "set" && (
-                  <>
-                    <button
+                <>
+                  <div className="flex items-center gap-2 text-[10px] text-muted-foreground">
+                    <span>Stored value ending in</span>
+                    <code className="mt-1 block w-fit rounded bg-background px-1 py-0.5 text-foreground">
+                      {secret.last4}
+                    </code>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button
                       type="button"
-                      onClick={handleTest}
+                      intent="neutral"
+                      emphasis="outline"
+                      onClick={() => handleTest()}
                       disabled={busy !== null}
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
                     >
                       {busy === "test" ? (
                         <IconLoader2 size={10} className="animate-spin" />
                       ) : (
-                        "Test"
+                        t("secrets.testStoredValue")
                       )}
-                    </button>
-                    <button
+                    </Button>
+                    <Button
                       type="button"
+                      intent="primary"
+                      emphasis="solid"
+                      onClick={() => setIsRotating(true)}
+                      disabled={busy !== null}
+                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
+                      style={{ backgroundColor: "#00B5FF", color: "white" }}
+                    >
+                      <IconRefresh size={10} />
+                      Rotate
+                    </Button>
+
+                    <Button
+                      type="button"
+                      intent="danger"
+                      emphasis="outline"
                       onClick={() => setConfirmDelete(true)}
                       disabled={busy !== null}
                       className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-red-500 disabled:opacity-40"
                     >
                       <IconTrash size={10} />
-                      Remove
-                    </button>
-                  </>
-                )}
-                {secret.docsUrl && (
-                  <a
-                    href={secret.docsUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground ms-auto"
-                  >
-                    Get key
-                    <IconExternalLink size={10} />
-                  </a>
-                )}
-              </div>
+                      Delete
+                    </Button>
+                  </div>
+                </>
+              )}
+              {showRotationForm && (
+                <div className="space-y-1.5">
+                  <hr className="my-4" />
+                  <TextField
+                    inputRef={inputRef}
+                    type="password"
+                    aria-label={secret.label}
+                    value={value}
+                    onChange={setValue}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") handleSave();
+                    }}
+                    placeholder={
+                      secret.status === "set"
+                        ? "Enter new value to rotate"
+                        : "Paste key"
+                    }
+                    className="w-full text-[11px]"
+                  />
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Button
+                      type="button"
+                      intent="neutral"
+                      emphasis="outline"
+                      onClick={() => handleTest(value.trim())}
+                      disabled={!value.trim() || busy !== null}
+                      className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
+                    >
+                      {busy === "test-candidate" ? (
+                        <IconLoader2 size={10} className="animate-spin" />
+                      ) : (
+                        t("secrets.testStoredValue")
+                      )}
+                    </Button>
+                    {secret.docsUrl && (
+                      <a
+                        href={secret.docsUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 rounded border border-border px-2 py-1 text-[10px] no-underline text-muted-foreground hover:text-foreground"
+                      >
+                        Get key
+                        <IconExternalLink size={10} />
+                      </a>
+                    )}
+                    {secret.status === "set" && (
+                      <Button
+                        type="button"
+                        intent="neutral"
+                        emphasis="outline"
+                        onClick={() => {
+                          setValue("");
+                          setIsRotating(false);
+                        }}
+                        disabled={busy !== null}
+                        className="rounded border border-border px-2 py-1 text-[10px] text-muted-foreground hover:text-foreground disabled:opacity-40"
+                      >
+                        Discard
+                      </Button>
+                    )}
+                    <Button
+                      type="button"
+                      intent="primary"
+                      emphasis="solid"
+                      onClick={handleSave}
+                      disabled={!value.trim() || busy !== null}
+                      className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
+                      style={{ backgroundColor: "#00B5FF", color: "white" }}
+                    >
+                      {busy === "save" ? (
+                        <IconLoader2 size={10} className="animate-spin" />
+                      ) : (
+                        "Save"
+                      )}
+                    </Button>
+                  </div>
+                </div>
+              )}
               {confirmDelete && (
                 <div className="flex items-center gap-1.5 rounded border border-red-500/30 bg-red-500/10 px-2 py-1.5 text-[10px] text-red-500">
                   <span className="min-w-0 flex-1">
                     Remove this saved value?
                   </span>
-                  <button
+                  <Button
                     type="button"
+                    intent="danger"
+                    emphasis="solid"
                     onClick={handleDelete}
                     disabled={busy !== null}
                     className="inline-flex items-center gap-1 rounded border border-red-500/40 px-1.5 py-0.5 font-medium disabled:opacity-40"
@@ -521,15 +652,17 @@ function SecretCard({
                     ) : (
                       "Confirm"
                     )}
-                  </button>
-                  <button
+                  </Button>
+                  <Button
                     type="button"
+                    intent="neutral"
+                    emphasis="outline"
                     onClick={() => setConfirmDelete(false)}
                     disabled={busy !== null}
                     className="rounded border border-border px-1.5 py-0.5 text-muted-foreground hover:text-foreground disabled:opacity-40"
                   >
                     Cancel
-                  </button>
+                  </Button>
                 </div>
               )}
             </div>
@@ -573,6 +706,7 @@ function AdHocKeysSection({
   onShowFormChange: (show: boolean) => void;
   showEmptyState: boolean;
 }) {
+  const t = useT();
   const [keys, setKeys] = useState<AdHocKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [reloadToken, setReloadToken] = useState(0);
@@ -710,76 +844,82 @@ function AdHocKeysSection({
     <div className="space-y-2">
       {showForm && (
         <div className="rounded-md border border-border px-2.5 py-2 bg-accent/30 space-y-1.5">
-          <input
+          <TextField
             value={formName}
-            onChange={(e) =>
-              setFormName(
-                e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""),
-              )
+            onChange={(value) =>
+              setFormName(value.toUpperCase().replace(/[^A-Z0-9_-]/g, ""))
             }
-            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            className="w-full text-[11px]"
             aria-label="Key name"
             placeholder="KEY_NAME"
           />
-          <input
+          <TextField
             type="password"
             aria-label="Secret value"
             value={formValue}
-            onChange={(e) => setFormValue(e.target.value)}
-            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            onChange={setFormValue}
+            className="w-full text-[11px]"
             placeholder="Secret value"
           />
-          <input
+          <TextField
             value={formDescription}
             aria-label="Description"
-            onChange={(e) => setFormDescription(e.target.value)}
-            className="w-full rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-accent"
+            onChange={setFormDescription}
+            className="w-full text-[11px]"
             placeholder="Description (optional)"
           />
-          <div className="flex items-center gap-2">
-            <select
-              aria-label="Scope"
-              value={formScope}
-              onChange={(e) =>
-                setFormScope(e.target.value as "user" | "workspace")
+          <Picker
+            mode="select"
+            options={[
+              { value: "user", label: t("secrets.scopePersonal") },
+              { value: "workspace", label: t("secrets.scopeWorkspace") },
+            ]}
+            value={formScope}
+            onChange={(value) => {
+              if (value === "user" || value === "workspace") {
+                setFormScope(value);
               }
-              className="rounded border border-border bg-background px-2 py-1 text-[11px] text-foreground outline-none focus:ring-1 focus:ring-accent"
+            }}
+            aria-label={t("secrets.scopeLabel")}
+            description={t(
+              formScope === "user"
+                ? "secrets.scopePersonalDescription"
+                : "secrets.scopeWorkspaceDescription",
+            )}
+            className="text-[11px]"
+          />
+          <div className="flex items-center justify-end gap-1.5">
+            <Button
+              type="button"
+              intent="neutral"
+              emphasis="outline"
+              onClick={resetForm}
+              className="rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
             >
-              <option value="user">Personal</option>
-              <option value="workspace">Workspace</option>
-            </select>
-            <div className="ms-auto flex items-center gap-1.5">
-              <button
-                type="button"
-                onClick={resetForm}
-                className="rounded border border-border px-2 py-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleAdd}
-                disabled={!formName.trim() || !formValue.trim() || formBusy}
-                className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
-                style={{ backgroundColor: "#00B5FF", color: "white" }}
-              >
-                {formBusy ? (
-                  <IconLoader2 size={10} className="animate-spin" />
-                ) : (
-                  "Save"
-                )}
-              </button>
-            </div>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              intent="primary"
+              emphasis="solid"
+              onClick={handleAdd}
+              disabled={!formName.trim() || !formValue.trim() || formBusy}
+              className="inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium disabled:opacity-40"
+              style={{ backgroundColor: "#00B5FF", color: "white" }}
+            >
+              {formBusy ? (
+                <IconLoader2 size={10} className="animate-spin" />
+              ) : (
+                "Save"
+              )}
+            </Button>
           </div>
           {formError && <p className="text-[10px] text-red-500">{formError}</p>}
         </div>
       )}
 
       {loading ? (
-        <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-          <IconLoader2 size={10} className="animate-spin" />
-          Loading...
-        </div>
+        <SettingsSkeleton lines={2} />
       ) : keys.length === 0 && !showForm && showEmptyState ? (
         <p className="text-[10px] text-muted-foreground">No keys added yet.</p>
       ) : keys.length > 0 ? (
@@ -822,8 +962,10 @@ function AdHocKeysSection({
                 <div className="shrink-0">
                   {confirmDeleteName === key.name ? (
                     <div className="flex items-center gap-1">
-                      <button
+                      <Button
                         type="button"
+                        intent="danger"
+                        emphasis="solid"
                         onClick={() => handleDelete(key.name)}
                         disabled={deletingName === key.name}
                         className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-red-500/15 text-red-500 hover:bg-red-500/25 disabled:opacity-40"
@@ -833,25 +975,29 @@ function AdHocKeysSection({
                         ) : (
                           "Confirm"
                         )}
-                      </button>
-                      <button
+                      </Button>
+                      <Button
                         type="button"
+                        intent="neutral"
+                        emphasis="solid"
                         onClick={() => setConfirmDeleteName(null)}
                         className="rounded px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide bg-accent/60 text-muted-foreground hover:text-foreground"
                       >
                         Cancel
-                      </button>
+                      </Button>
                     </div>
                   ) : (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <button
+                        <Button
                           type="button"
+                          intent="danger"
+                          emphasis="ghost"
                           onClick={() => setConfirmDeleteName(key.name)}
                           className="text-muted-foreground hover:text-red-500"
                         >
                           <IconTrash size={12} />
-                        </button>
+                        </Button>
                       </TooltipTrigger>
                       <TooltipContent>Delete</TooltipContent>
                     </Tooltip>

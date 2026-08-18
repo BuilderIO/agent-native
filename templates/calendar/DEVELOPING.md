@@ -99,10 +99,10 @@ Structured data lives in SQL. Use `@agent-native/core/db/schema` helpers for sch
 
 Configuration lives in the SQL `settings` table, accessed via the settings API:
 
-| Key                     | Contents                                     |
-| ----------------------- | -------------------------------------------- |
-| `calendar-settings`     | App settings (timezone, booking page config) |
-| `calendar-availability` | Availability schedule configuration          |
+| Key                     | Contents                                                 |
+| ----------------------- | -------------------------------------------------------- |
+| `calendar-settings`     | App settings (timezone, week start, booking page config) |
+| `calendar-availability` | Availability schedule configuration                      |
 
 ### OAuth Tokens (via `@agent-native/core/oauth-tokens`)
 

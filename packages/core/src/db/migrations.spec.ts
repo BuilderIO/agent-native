@@ -12,6 +12,7 @@ vi.mock("./client.js", async (importOriginal) => {
     ...actual,
     isPostgres: vi.fn(() => false),
     getDialect: vi.fn(() => "sqlite" as const),
+    getCloudflareD1Binding: vi.fn(() => undefined),
     getMigrationDatabaseUrl: vi.fn(() => ""),
     retrySqliteBusy: vi.fn(async (fn: () => Promise<unknown>) => fn()),
     getDbExec: vi.fn(),
@@ -21,11 +22,17 @@ vi.mock("./client.js", async (importOriginal) => {
 
 import {
   isPostgres,
+  getDialect,
   getDbExec,
   createDbExec,
+  getCloudflareD1Binding,
   getMigrationDatabaseUrl,
 } from "./client.js";
-import { runMigrations } from "./migrations.js";
+import {
+  deferMigration,
+  runMigrations,
+  withMigrationRuntime,
+} from "./migrations.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -91,6 +98,11 @@ function makeNamedExec(options: {
 // Tests
 // ---------------------------------------------------------------------------
 
+beforeEach(() => {
+  vi.mocked(getDialect).mockReturnValue("sqlite");
+  vi.mocked(getCloudflareD1Binding).mockReturnValue(undefined);
+});
+
 describe("runMigrations – SQLite steady-state (no pending migrations)", () => {
   afterEach(() => {
     vi.clearAllMocks();
@@ -112,6 +124,296 @@ describe("runMigrations – SQLite steady-state (no pending migrations)", () => 
 
     // createDbExec must NOT be called for SQLite
     expect(createDbExec).not.toHaveBeenCalled();
+  });
+});
+
+describe("runMigrations – serverless request runtime", () => {
+  // Analytics guarded its OWN migration runner in #2708, but org,
+  // context-xray, and observational-memory kept calling runMigrations
+  // unguarded — so the cold-start probe storm survived the fix meant to end
+  // it and took production down again. The guard belongs here, once, where
+  // every caller passes through.
+  const ENV_KEYS = [
+    "NETLIFY",
+    "NETLIFY_FUNCTION_NAME",
+    "AWS_LAMBDA_FUNCTION_NAME",
+    "LAMBDA_TASK_ROOT",
+    "VERCEL",
+  ];
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    delete (globalThis as Record<string, unknown>)
+      .__AGENT_NATIVE_MIGRATION_RUNTIME__;
+    // These tests assert on call COUNTS elsewhere in the file; leaving our own
+    // invocations on the shared mocks makes a later "was never called" fail.
+    vi.clearAllMocks();
+  });
+
+  const migrations = [
+    { version: 1, sql: "CREATE TABLE t1 (id INTEGER PRIMARY KEY)" },
+  ];
+
+  for (const key of ENV_KEYS) {
+    it(`does not touch the database when ${key} marks a serverless request`, async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
+      vi.stubEnv(key, key === "NETLIFY" ? "true" : "1");
+
+      const plugin = runMigrations(migrations, { table: "guard_migrations" });
+      await plugin(null);
+
+      expect(getDbExec).not.toHaveBeenCalled();
+      expect(createDbExec).not.toHaveBeenCalled();
+    });
+  }
+
+  it("keeps request-time migrations when no release runner is configured", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    const exec = makeExec([{ v: 5 }]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await plugin(null);
+
+    expect(getDbExec).toHaveBeenCalled();
+  });
+
+  it("still migrates through withMigrationRuntime, which is how release builds run", async () => {
+    // The Netlify BUILD environment sets NETLIFY=true, so the release
+    // migration step looks exactly like a serverless request to the guard
+    // above — it succeeds only because the entrypoint claims migration duty.
+    // Exercise the real API, not the global: an entrypoint that forgets the
+    // wrapper silently no-ops at build time and the tables never appear, which
+    // is invisible until the first read fails in production.
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    const exec = makeExec([{ v: 5 }]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await withMigrationRuntime(async () => {
+      await plugin(null);
+    });
+
+    expect(getDbExec).toHaveBeenCalled();
+  });
+
+  it("fails the release run when a migration fails", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    const exec = makeExec([{ v: 0 }]);
+    exec.execute.mockRejectedValueOnce(new Error("release DDL failed"));
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, { table: "release_migrations" });
+
+    await expect(
+      withMigrationRuntime(async () => {
+        await plugin(null);
+      }),
+    ).rejects.toThrow("release DDL failed");
+  });
+
+  it("still migrates when a caller explicitly opts in", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    const exec = makeExec([{ v: 5 }]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, {
+      table: "guard_migrations",
+      runInServerlessRequest: true,
+    });
+    await plugin(null);
+
+    expect(getDbExec).toHaveBeenCalled();
+  });
+
+  it("migrates normally outside production", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("NETLIFY", "true");
+    const exec = makeExec([{ v: 5 }]);
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(migrations, { table: "guard_migrations" });
+    await plugin(null);
+
+    expect(getDbExec).toHaveBeenCalled();
+  });
+});
+
+describe("runMigrations – empty migration list", () => {
+  it("does not touch the database when a plugin has no migrations", async () => {
+    const plugin = runMigrations([], { table: "empty_migrations" });
+
+    await plugin(null);
+
+    expect(getDbExec).not.toHaveBeenCalled();
+    expect(createDbExec).not.toHaveBeenCalled();
+    expect(getCloudflareD1Binding).not.toHaveBeenCalled();
+  });
+});
+
+describe("withMigrationRuntime", () => {
+  it("restores the authorization marker after success and failure", async () => {
+    const runtime = globalThis as Record<string, unknown>;
+
+    await withMigrationRuntime(async () => {
+      expect(runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__).toBe(true);
+    });
+    expect(runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__).toBeUndefined();
+
+    await expect(
+      withMigrationRuntime(async () => {
+        expect(runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__).toBe(true);
+        throw new Error("migration failed");
+      }),
+    ).rejects.toThrow("migration failed");
+    expect(runtime.__AGENT_NATIVE_MIGRATION_RUNTIME__).toBeUndefined();
+  });
+});
+
+describe("runMigrations – run-only entries", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("runs the callback before recording a named SQLite migration", async () => {
+    vi.mocked(isPostgres).mockReturnValue(false);
+    const events: string[] = [];
+    const exec = makeNamedExec({ version: 0, appliedNames: [] });
+    exec.execute.mockImplementation(
+      async (sql: string | { sql: string; args?: unknown[] }) => {
+        const statement = typeof sql === "string" ? sql : sql.sql;
+        const args = typeof sql === "string" ? [] : (sql.args ?? []);
+        if (/SELECT MAX/i.test(statement)) {
+          return { rows: [{ v: 0 }], rowsAffected: 0 };
+        }
+        if (/SELECT name FROM/i.test(statement)) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        if (/INSERT.*INTO \S*_named/is.test(statement)) {
+          events.push(`record:${String(args[0])}`);
+        }
+        return { rows: [], rowsAffected: 1 };
+      },
+    );
+    vi.mocked(getDbExec).mockReturnValue(exec);
+
+    const plugin = runMigrations(
+      [
+        {
+          version: 1,
+          name: "repair-counts",
+          sql: {},
+          run: async () => {
+            events.push("run");
+          },
+        },
+      ],
+      { table: "run_only_migrations" },
+    );
+    await plugin(null);
+
+    expect(events).toEqual(["run", "record:repair-counts"]);
+  });
+
+  it("runs and records a named Postgres run-only migration", async () => {
+    vi.mocked(isPostgres).mockReturnValue(true);
+    const pooledExec = makeNamedExec({ version: 0, appliedNames: [] });
+    const directExec = makeNamedExec({ version: 0, appliedNames: [] });
+    pooledExec.execute.mockImplementation(
+      async (sql: string | { sql: string; args?: unknown[] }) => {
+        const statement = typeof sql === "string" ? sql : sql.sql;
+        if (/SELECT name FROM/i.test(statement)) {
+          throw new Error(
+            'relation "pg_run_only_migrations_named" does not exist',
+          );
+        }
+        return { rows: [{ v: 0 }], rowsAffected: 0 };
+      },
+    );
+    vi.mocked(getDbExec).mockReturnValue(pooledExec);
+    vi.mocked(createDbExec).mockResolvedValue(directExec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
+    const run = vi.fn(async () => {});
+
+    const plugin = runMigrations(
+      [{ version: 1, name: "repair-counts", sql: {}, run }],
+      { table: "pg_run_only_migrations" },
+    );
+    await plugin(null);
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(directExec.insertedNames).toEqual(["repair-counts"]);
+    expect(directExec.insertedVersions).toEqual([1]);
+    expect(directExec.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("leaves a deferred run-only migration unrecorded", async () => {
+    vi.mocked(isPostgres).mockReturnValue(false);
+    const exec = makeNamedExec({ version: 0, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+    const run = vi.fn(async () => deferMigration());
+
+    const plugin = runMigrations(
+      [{ version: 1, name: "serialized-backfill", sql: {}, run }],
+      { table: "deferred_run_only_migrations" },
+    );
+    await plugin(null);
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(exec.insertedNames).toEqual([]);
+    expect(exec.insertedVersions).toEqual([]);
+  });
+
+  it("records D1 run-only bookkeeping in one atomic batch", async () => {
+    const batch = vi.fn(async () => []);
+    const prepared: Array<{ sql: string; values: unknown[] }> = [];
+    const d1 = {
+      prepare: vi.fn((sql: string) => {
+        const entry = { sql, values: [] as unknown[] };
+        prepared.push(entry);
+        return {
+          bind: (...values: unknown[]) => {
+            entry.values = values;
+            return {
+              bind: vi.fn(),
+              all: vi.fn(async () => ({ results: [] })),
+              first: vi.fn(async () => null),
+              run: vi.fn(async () => ({})),
+            };
+          },
+          all: vi.fn(async () => ({ results: [] })),
+          first: vi.fn(async () => null),
+          run: vi.fn(async () => ({})),
+        };
+      }),
+      batch,
+    };
+    vi.mocked(getDialect).mockReturnValue("d1");
+    vi.mocked(getCloudflareD1Binding).mockReturnValue(d1);
+    const run = vi.fn(async () => {});
+
+    const plugin = runMigrations(
+      [{ version: 1, name: "repair-counts", sql: {}, run }],
+      { table: "d1_run_only_migrations" },
+    );
+    await plugin(null);
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(batch).toHaveBeenCalledTimes(1);
+    expect(batch.mock.calls[0]?.[0]).toHaveLength(2);
+    expect(
+      prepared.some(
+        (entry) =>
+          /_named/.test(entry.sql) &&
+          entry.values[0] === "repair-counts" &&
+          entry.values[1] === 1,
+      ),
+    ).toBe(true);
   });
 });
 
@@ -205,6 +507,31 @@ describe("runMigrations – Postgres steady-state (no pending migrations)", () =
     expect(calls.some((s) => /ALTER TABLE t1/i.test(s))).toBe(true);
     // Version 1 and 2 must NOT be applied (already at v2)
     expect(calls.some((s) => /CREATE TABLE t1/i.test(s))).toBe(false);
+  });
+
+  it("uses the pooled exec for a pending run-only migration", async () => {
+    vi.mocked(isPostgres).mockReturnValue(true);
+    const pooledExec = makeNamedExec({ version: 131, appliedNames: [] });
+    vi.mocked(getDbExec).mockReturnValue(pooledExec);
+
+    const run = vi.fn(async () => {});
+    const migrations = [
+      {
+        version: 132,
+        name: "run-only-backfill",
+        sql: {},
+        run,
+      },
+    ];
+
+    const plugin = runMigrations(migrations, {
+      table: "run_only_migrations",
+    });
+    await plugin(null);
+
+    expect(createDbExec).not.toHaveBeenCalled();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(pooledExec.insertedNames).toContain("run-only-backfill");
   });
 
   it("closes the direct exec after migrations complete", async () => {

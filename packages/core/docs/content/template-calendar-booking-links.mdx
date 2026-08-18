@@ -1,0 +1,73 @@
+---
+title: "Calendar: Booking Links"
+description: "Create Calendly-style public booking pages, connect Zoom or Google Meet, and manage bookings people make with you."
+---
+
+# Booking Links
+
+Booking links are public pages where anyone can pick a time and book it directly onto your calendar — the Calendly-style part of Calendar. This page covers creating, sharing, and managing them. See [Calendar](/docs/template-calendar) for the overview and [Events, Availability & Finding Time](/docs/template-calendar-scheduling) for the availability rules booking links use.
+
+## Creating a booking link
+
+A booking link needs a title and a duration (like "15 min intro" at 15 minutes). From there you can add:
+
+- **Alternate durations** so a visitor can choose 15, 30, or 60 minutes on the same link
+- **Custom fields** to collect a company name, a topic, or anything else before the meeting
+- **A conferencing choice** — Google Meet, Zoom (once connected — see below), or a custom link
+- **A color** so the link's bookings stand out on your calendar
+- **Required co-hosts** — other people who must also be free before a slot is offered. When someone books, everyone (you and your co-hosts) gets invited to the resulting Google Calendar event.
+
+Ask the agent to create one ("Create a 15-minute intro link with a name and company field") or use **New booking link** in the sidebar.
+
+## Connecting Zoom or Google Meet
+
+Booking links can generate a real video meeting automatically when someone books:
+
+- **Google Meet** needs no setup — it's added the same way any Google Calendar invite gets a Meet link.
+- **Zoom** needs your Zoom account connected first. Connect it once from Settings; after that, any booking link set to Zoom creates a real Zoom meeting for each new booking and attaches the join link to the confirmation.
+
+If Zoom isn't connected yet and a link is set to use it, ask the agent to help you connect it, or do it from Settings directly.
+
+## Sharing a booking link with teammates
+
+Sharing controls who can _manage_ the link — edit its duration, pause it, or see its bookings — through the standard viewer/editor/admin roles. It's separate from public access: anyone with the URL can still book as long as the link is active, whether or not they have management access.
+
+## The public booking page
+
+Every booking link has a public URL at `/book/{your-booking-name}/{slug}` — for example `/book/steve/30min`. Your booking name is generated automatically from your email the first time you create a link, and you can change it later from Settings (up to three times every 30 days, since it's part of every public link you've shared).
+
+A visitor picks an available time from your real availability, fills in their name, email, and any custom fields you added, then confirms. They get a confirmation with a link to manage their own booking.
+
+<WireframeBlock id="doc-block-calendar4">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:480px;box-sizing:border-box;padding:36px 60px;gap:16px'><h2 style='margin:0'>30 min with Steve</h2><p class='wf-muted' style='margin:0'>Quick intro call — tell me a bit about what you're working on.</p><div style='display:flex;gap:20px;flex:1'><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>May 2026</strong><div style='display:grid;grid-template-columns:repeat(7,1fr);gap:6px'><span class='wf-muted'>Su</span><span class='wf-muted'>Mo</span><span class='wf-muted'>Tu</span><span class='wf-muted'>We</span><span class='wf-muted'>Th</span><span class='wf-muted'>Fr</span><span class='wf-muted'>Sa</span><span></span><span></span><span></span><span></span><span></span><span class='wf-pill accent'>1</span><span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div></div><div class='wf-card' style='flex:1;display:flex;flex-direction:column;gap:8px'><strong>Friday, May 1</strong><button>9:00 AM</button><button>9:30 AM</button><button class='primary'>10:00 AM</button><button>10:30 AM</button><button>2:00 PM</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+## Managing, rescheduling, or cancelling a booking
+
+Every confirmation includes a private manage link. Visitors use it to reschedule to a different open slot or cancel outright, without needing an account — no sign-in, since the link itself is the credential. You (the host) see all bookings, past and upcoming, in the **Bookings** list.
+
+## Renaming a link
+
+You can change a booking link's URL slug at any time — for example from `/book/steve/into-call` to `/book/steve/intro`. The old URL keeps working: visitors who still have the old link are automatically forwarded to the new one, so nothing you've already shared (an email signature, a website) breaks.
+
+### Useful prompts
+
+- "Create a 15-minute intro booking link with a name and company field."
+- "Add Brent as a required co-host on my 'Steve + Brent' link."
+- "Switch my '30 min demo' link to Zoom."
+- "Pause my '30 min demo' booking link."
+- "Rename my intro link's URL to '/intro'."
+- "Show me this week's bookings."
+
+## What's next
+
+- [**Calendar**](/docs/template-calendar) — the overview and getting-started steps
+- [**Events, Availability & Finding Time**](/docs/template-calendar-scheduling) — the availability rules booking links draw from
+- [**Talking to the Agent**](/docs/template-calendar-agent) — group/co-host links and more prompts
+- [**Developer Guide**](/docs/template-calendar-developers) — the booking data model and actions
+- [**Sharing**](/docs/sharing) — the share-grant model booking links build on

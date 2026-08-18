@@ -213,7 +213,7 @@ export default defineAction({
         ctaRequired: isRealApp && !canResolveToFile,
         ctaMessage:
           isRealApp && !canResolveToFile
-            ? "Jump to external source file requires the resolveNodeToFile bridge capability. Connect Builder and run index-components to enable full jump-to-source."
+            ? "Jump to external source file requires the resolveNodeToFile bridge capability. Connect Builder (free tier available) and run index-components to enable full jump-to-source."
             : isRealApp && !externalFilePath
               ? "Component source file not yet indexed. Run index-components to populate file paths."
               : undefined,

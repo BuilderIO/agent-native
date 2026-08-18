@@ -1,9 +1,14 @@
 import crypto from "crypto";
 
 import { readBody } from "@agent-native/core/server";
-import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import {
+  assertAccess,
+  ForbiddenError,
+  resolveAccess,
+} from "@agent-native/core/sharing";
 import { toSharedDeckSlide } from "@shared/api";
 import type {
+  DesignSystemData,
   ShareDeckRequest,
   ShareDeckResponse,
   SharedDeckResponse,
@@ -13,11 +18,17 @@ import { defineEventHandler, getRouterParam, setResponseStatus } from "h3";
 
 import { getDb, schema } from "../db";
 import {
-  resolveSlidesRequestAuthContext,
+  resolveSlidesRequestAuth,
   withSlidesRequestContext,
 } from "./request-auth-context.js";
 
 const THIRTY_DAYS_MS = 30 * 24 * 60 * 60 * 1000;
+
+interface DeckShareResource {
+  title?: string | null;
+  data: string;
+  designSystemId?: string | null;
+}
 
 /**
  * POST /api/share
@@ -36,7 +47,12 @@ export const shareDeck = defineEventHandler(async (event) => {
   // and pass the resolved context into `withSlidesRequestContext` so it
   // doesn't re-resolve session + org on the same request (which would
   // double the session/getOrgContext I/O per share).
-  const session = await resolveSlidesRequestAuthContext(event);
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const session = auth.context;
   if (!session.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
@@ -53,11 +69,13 @@ async function createShareLink(event: any, deckId: string) {
   const db = getDb();
   let storedDeck: any;
   let title = "Untitled";
+  let deckResource: DeckShareResource;
 
   try {
     const access = await assertAccess("deck", deckId, "admin");
-    title = access.resource.title ?? "Untitled";
-    storedDeck = JSON.parse(access.resource.data);
+    deckResource = access.resource as DeckShareResource;
+    title = deckResource.title ?? "Untitled";
+    storedDeck = JSON.parse(deckResource.data);
   } catch (err) {
     if (err instanceof ForbiddenError) {
       setResponseStatus(event, err.statusCode);
@@ -73,6 +91,29 @@ async function createShareLink(event: any, deckId: string) {
 
   const token = crypto.randomBytes(12).toString("base64url");
   const now = new Date().toISOString();
+  const designSystemId =
+    deckResource.designSystemId ?? storedDeck.designSystemId;
+  let designSystemData: string | null = null;
+
+  if (typeof designSystemId === "string" && designSystemId.trim()) {
+    const designSystemAccess = await resolveAccess(
+      "design-system",
+      designSystemId,
+    );
+    const rawData = designSystemAccess?.resource?.data;
+    if (typeof rawData === "string") {
+      try {
+        const parsed = JSON.parse(rawData);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+          designSystemData = JSON.stringify(parsed as DesignSystemData);
+        }
+        // coercion-ok: malformed optional style data keeps a valid deck shareable.
+      } catch {
+        // A malformed style record should not make an otherwise valid deck
+        // impossible to share; the presentation will use its default tokens.
+      }
+    }
+  }
 
   const slides = storedDeck.slides.map((slide: unknown, index: number) =>
     toSharedDeckSlide(slide, index),
@@ -83,6 +124,7 @@ async function createShareLink(event: any, deckId: string) {
     title: title || storedDeck.title || "Untitled",
     slides: JSON.stringify(slides),
     aspectRatio: storedDeck.aspectRatio ?? null,
+    designSystemData,
     createdAt: now,
   });
 
@@ -136,5 +178,16 @@ export const getSharedDeck = defineEventHandler(async (event) => {
     slides: JSON.parse(shared.slides),
     aspectRatio: shared.aspectRatio as SharedDeckResponse["aspectRatio"],
   };
+  if (shared.designSystemData) {
+    try {
+      const parsed = JSON.parse(shared.designSystemData);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        response.designSystem = parsed as DesignSystemData;
+      }
+      // coercion-ok: malformed optional snapshots remain viewable with default tokens.
+    } catch {
+      // Keep legacy or malformed snapshots viewable with default tokens.
+    }
+  }
   return response;
 });

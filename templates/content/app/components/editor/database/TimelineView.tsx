@@ -1,14 +1,6 @@
-import { Button } from "@agent-native/toolkit/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuTrigger,
-} from "@agent-native/toolkit/ui/dropdown-menu";
-import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import type {
   ContentDatabaseItem,
+  ContentDatabaseSource,
   ContentDatabaseView,
   DocumentProperty,
 } from "@shared/api";
@@ -23,6 +15,15 @@ import {
 } from "@tabler/icons-react";
 import { useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 
 import { AddProperty, TYPE_ICONS, displayValue } from "../DocumentProperties";
@@ -46,17 +47,24 @@ import {
 } from "./DatabaseView";
 
 export function DatabaseTimelineView({
+  databaseId,
   activeView,
   properties,
   items,
   databaseDocumentId,
   canEdit,
+  canCreateItems,
   isLoading,
   isCreating,
   activeFilters,
   hasSearch,
   dateProperty,
   month,
+  source,
+  sources,
+  addPropertyOpenRequestId,
+  onAddPropertyOpenRequestHandled,
+  onConnectSource,
   onClearResultConstraints,
   onMonthChange,
   onDatePropertyChange,
@@ -66,17 +74,24 @@ export function DatabaseTimelineView({
   onDeletedPreviewItem,
   onOpenPage,
 }: {
+  databaseId: string;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
   databaseDocumentId: string;
   canEdit: boolean;
+  canCreateItems: boolean;
   isLoading: boolean;
   isCreating: boolean;
   activeFilters: DatabaseFilter[];
   hasSearch: boolean;
   dateProperty: DocumentProperty | null;
   month: Date;
+  source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
+  addPropertyOpenRequestId: number;
+  onAddPropertyOpenRequestHandled: (requestId: number) => void;
+  onConnectSource: () => void;
   onClearResultConstraints: () => void;
   onMonthChange: (month: Date) => void;
   onDatePropertyChange: (propertyId: string | null) => void;
@@ -119,6 +134,7 @@ export function DatabaseTimelineView({
     );
   const canCreateOnDay =
     canEdit &&
+    canCreateItems &&
     dateProperty?.editable &&
     dateProperty.definition.type === "date";
   const rangeLabel = databaseTimelineRangeLabel(timelineDays);
@@ -284,7 +300,17 @@ export function DatabaseTimelineView({
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
           <span>{dbText("addADatePropertyToUseTimelineView")}</span>
-          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
+          {canEdit ? (
+            <AddProperty
+              documentId={databaseDocumentId}
+              databaseId={databaseId}
+              source={source}
+              sources={sources}
+              onConnectSource={onConnectSource}
+              openRequestId={addPropertyOpenRequestId}
+              onOpenRequestHandled={onAddPropertyOpenRequestHandled}
+            />
+          ) : null}
         </div>
       ) : (
         <>

@@ -3,11 +3,16 @@ import path from "path";
 import { uploadFile } from "@agent-native/core/file-upload";
 import { getSession } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { and, desc, eq } from "drizzle-orm";
 import {
   defineEventHandler,
+  getRouterParam,
   setResponseStatus,
   readMultipartFormData,
 } from "h3";
+import { nanoid } from "nanoid";
+
+import { getDb, schema } from "../db/index.js";
 
 export const MAX_ASSET_FILE_SIZE = 10 * 1024 * 1024; // 10 MB
 
@@ -17,6 +22,14 @@ export interface UploadedAsset {
   type: string;
   size: number;
   provider?: string;
+}
+
+export interface ListedUploadedAsset {
+  id: string;
+  url: string;
+  filename: string;
+  size: number;
+  createdAt: string;
 }
 
 async function requireSession(event: Parameters<typeof getSession>[0]) {
@@ -131,19 +144,35 @@ export async function uploadImageAsset(args: {
 
   if (!result) {
     const err: Error & { statusCode?: number } = new Error(
-      "No file upload provider is configured. Connect Builder.io from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
+      "No file upload provider is configured. Connect Builder.io (free tier available) from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
     );
     err.statusCode = 503;
     throw err;
   }
 
-  return {
+  const asset: UploadedAsset = {
     url: result.url,
     filename: args.originalName,
     type: args.type || "application/octet-stream",
     size: args.data.length,
     provider: result.provider,
   };
+
+  // Record the upload so it shows up in GET /api/assets — only the URL and
+  // metadata are stored, never the file bytes (those live with the provider).
+  const db = getDb();
+  await db.insert(schema.uploadedAssets).values({
+    id: nanoid(),
+    filename: asset.filename,
+    url: asset.url,
+    type: asset.type,
+    size: asset.size,
+    provider: asset.provider ?? null,
+    ownerEmail: args.email,
+    createdAt: new Date().toISOString(),
+  });
+
+  return asset;
 }
 
 /**
@@ -185,37 +214,53 @@ export const uploadAsset = defineEventHandler(async (event) => {
 });
 
 /**
- * GET /api/assets — list previously-uploaded assets.
- *
- * Asset history used to come from scanning `public/uploads/<tenant>/` on disk.
- * That source is gone now (see `uploadImageAsset` for the reasoning). Until
- * we plumb a SQL-backed asset index that records each upload (so we can list
- * across providers), this endpoint returns an empty list. The AssetLibraryPanel
- * still works for uploading new images and selecting them for the current
- * editing session.
+ * GET /api/assets — list assets this user has uploaded, most recent first.
  */
 export const listAssets = defineEventHandler(async (event) => {
   const session = await requireSession(event);
   if (!session) {
     return { error: "Unauthorized" };
   }
-  return [];
+  const db = getDb();
+  const rows: ListedUploadedAsset[] = await db
+    .select({
+      id: schema.uploadedAssets.id,
+      url: schema.uploadedAssets.url,
+      filename: schema.uploadedAssets.filename,
+      size: schema.uploadedAssets.size,
+      createdAt: schema.uploadedAssets.createdAt,
+    })
+    .from(schema.uploadedAssets)
+    .where(eq(schema.uploadedAssets.ownerEmail, session.email))
+    .orderBy(desc(schema.uploadedAssets.createdAt));
+  return rows;
 });
 
 /**
- * DELETE /api/assets/:filename — used to delete from `public/uploads/`. With
- * uploads routed through Builder.io / S3 / etc., deletion has to happen via
- * the active provider's API. Returning 501 keeps the endpoint reachable so
- * the frontend doesn't error, and signals that this isn't wired yet.
+ * DELETE /api/assets/:id — removes the upload from this user's asset library
+ * index. Keyed by the row's unique id (not filename) since two uploads can
+ * share the same original filename. The underlying file may still exist with
+ * the storage provider (Builder.io, S3, etc.) — deleting it there requires
+ * that provider's own API — but it no longer appears in this app's library.
  */
 export const deleteAsset = defineEventHandler(async (event) => {
   const session = await requireSession(event);
   if (!session) {
     return { error: "Unauthorized" };
   }
-  setResponseStatus(event, 501);
-  return {
-    error:
-      "Asset deletion via this endpoint is not implemented — uploads now live in the configured file-upload provider (Builder.io, S3, etc.). Delete them through the provider's dashboard.",
-  };
+  const id = getRouterParam(event, "id");
+  if (!id) {
+    setResponseStatus(event, 400);
+    return { error: "Asset id is required" };
+  }
+  const db = getDb();
+  await db
+    .delete(schema.uploadedAssets)
+    .where(
+      and(
+        eq(schema.uploadedAssets.id, decodeURIComponent(id)),
+        eq(schema.uploadedAssets.ownerEmail, session.email),
+      ),
+    );
+  return { success: true };
 });

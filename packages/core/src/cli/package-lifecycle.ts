@@ -139,6 +139,8 @@ function flagValue(args: string[], name: string): string | undefined {
 
 export function packageLifecycleUsage(): string {
   return [
+    "Install-on-demand Toolkit capability module lifecycle:",
+    "",
     "Usage:",
     "  agent-native package inspect <package> [--root <dir>] [--app <name>] [--json]",
     "  agent-native package add <package> [--root <dir>] [--app <name>] [--apply] [--json]",

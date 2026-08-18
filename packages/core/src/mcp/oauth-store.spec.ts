@@ -91,16 +91,56 @@ describe("oauth-store hashing & token generation", () => {
 });
 
 describe("client registration", () => {
+  it("infers native application type for a pre-migration loopback client", async () => {
+    sqlite.exec(`
+      CREATE TABLE mcp_oauth_clients (
+        client_id TEXT PRIMARY KEY,
+        client_name TEXT,
+        redirect_uris TEXT NOT NULL,
+        grant_types TEXT,
+        response_types TEXT,
+        token_endpoint_auth_method TEXT,
+        created_at INTEGER
+      );
+      INSERT INTO mcp_oauth_clients (
+        client_id,
+        client_name,
+        redirect_uris,
+        grant_types,
+        response_types,
+        token_endpoint_auth_method,
+        created_at
+      ) VALUES (
+        'legacy-native',
+        'Legacy native client',
+        '["http://localhost/callback"]',
+        '["authorization_code"]',
+        '["code"]',
+        'none',
+        1700000000000
+      );
+    `);
+    const s = await freshStore();
+
+    await expect(s.getOAuthClient("legacy-native")).resolves.toMatchObject({
+      clientId: "legacy-native",
+      applicationType: "native",
+      redirectUris: ["http://localhost/callback"],
+    });
+  });
+
   it("round-trips a registered client and applies grant/response defaults", async () => {
     const s = await freshStore();
     const reg = await s.registerOAuthClient({
       clientName: "Claude",
       redirectUris: ["https://claude.ai/cb"],
+      applicationType: "native",
     });
     expect(reg.clientId).toMatch(/^agent-native-oauth-client-/);
     expect(reg.grantTypes).toEqual(["authorization_code", "refresh_token"]);
     expect(reg.responseTypes).toEqual(["code"]);
     expect(reg.tokenEndpointAuthMethod).toBe("none");
+    expect(reg.applicationType).toBe("native");
 
     const fetched = await s.getOAuthClient(reg.clientId);
     expect(fetched).toMatchObject({
@@ -110,6 +150,7 @@ describe("client registration", () => {
       grantTypes: ["authorization_code", "refresh_token"],
       responseTypes: ["code"],
       tokenEndpointAuthMethod: "none",
+      applicationType: "native",
     });
   });
 

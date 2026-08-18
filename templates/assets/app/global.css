@@ -22,7 +22,7 @@
   --muted-foreground: 0 0% 45%;
   --accent: 0 0% 95%;
   --accent-foreground: 0 0% 15%;
-  --destructive: 0 84% 60%;
+  --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 90%;
   --input: 0 0% 90%;
@@ -53,7 +53,7 @@
   --muted-foreground: 0 0% 60%;
   --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
-  --destructive: 0 63% 51%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 24%;
   --input: 0 0% 24%;
@@ -92,11 +92,6 @@
   background: hsl(var(--muted-foreground) / 0.4);
 }
 
-.assets-create-chat-panel [data-agent-empty-state="centered"] {
-  justify-content: center;
-  padding-bottom: clamp(4rem, 12vh, 8rem);
-}
-
 .assets-create-chat-intro {
   display: none;
 }
@@ -110,6 +105,10 @@
   margin: 0 auto 1rem;
   padding-bottom: 1rem;
   text-align: center;
+}
+
+.assets-create-chat-panel [data-agent-empty-state="centered"] {
+  justify-content: safe center;
 }
 
 .assets-create-chat-intro h1 {
@@ -212,10 +211,6 @@
     grid-template-columns: minmax(0, 1fr) 284px;
   }
 
-  .assets-live-candidates-grid {
-    grid-template-columns: minmax(0, 1fr) minmax(18rem, 22rem);
-  }
-
   .assets-brand-kit-settings-grid {
     grid-template-columns: minmax(0, 1fr) 320px;
   }
@@ -257,7 +252,7 @@
   [data-agent-empty-state="centered"]
   .agent-composer-area {
   width: 100%;
-  max-width: min(570px, 90%);
+  max-width: min(750px, 100%);
   padding: 0;
 }
 

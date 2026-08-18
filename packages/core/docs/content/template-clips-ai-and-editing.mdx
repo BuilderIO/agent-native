@@ -1,0 +1,114 @@
+---
+title: "AI Pipeline, Editing, and Insights"
+description: "How Clips transcribes and titles a recording, edits it non-destructively, exports transcripts to Brain, and reports who's actually watching a clip."
+search: "Clips transcription cleanup titles summaries chapters non-destructive editing trim filler words Brain export insights views"
+---
+
+# AI pipeline, editing, and insights
+
+This page covers what happens to a recording after it's captured: transcription and AI metadata, non-destructive editing, exporting transcripts to Brain, and the view/engagement numbers an owner can see.
+
+## Transcription, cleanup, and AI metadata
+
+Transcription tries the fastest, free option first and only falls back to a paid one when it has to:
+
+| Order | Provider                        | Notes                                                                                                                                         |
+| ----- | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1     | Native (on-device)              | Browser Web Speech API or desktop local Whisper/macOS speech — instant, no API key                                                            |
+| 2     | Builder.io managed (Gemini)     | Cloud fallback when native text is missing; no extra key needed once Builder is connected; Builder.io's free tier includes managed AI credits |
+| 3     | Groq (`whisper-large-v3-turbo`) | Optional backup if you'd rather bring your own key                                                                                            |
+
+Once a transcript is ready, the agent fills in a title, summary, and chapter markers automatically, and keeps them current as you edit. You can also ask directly:
+
+- "Regenerate the title and summary."
+- "Add chapters — this one's long."
+- "Pull three quotes for a blog post."
+- "Fix the mis-transcribed word at 1:42."
+
+For a silent screen recording where the audio alone would be misleading, turn on **Include full video** in the AI tools menu so the agent watches the recording itself (this requires Gemini) instead of relying on the transcript alone.
+
+## Non-destructive editing
+
+Trim, split, blur, speed changes, filler-word removal, and silence removal are all recorded as instructions layered on top of your original recording — never baked into the video file itself. That means every edit is undoable, and the original media is never touched until you explicitly export.
+
+<Diagram id="doc-block-clips4" title="Non-destructive edits" summary={"Edits accumulate as instructions on top of the original media. Undo removes the most recent one; Export is the only step that renders a new file."}>
+
+```html
+<div class="diagram-flow">
+  <div class="diagram-box" data-rough>
+    Original recording<br /><small class="diagram-muted">never modified</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center">
+    <span class="diagram-pill accent">Trim · cut · blur · speed</span
+    ><small class="diagram-muted">appended, not overwritten</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-pill">Player</div>
+    <div class="diagram-pill">Export</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-flow .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-flow .center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.diagram-flow .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Ask the agent to make the edits for you:
+
+- "Remove the ums and uhs and re-stitch."
+- "Trim the first 10 seconds."
+- "Blur my email address in the top-right corner for the first minute."
+- "Combine these three clips into one, in this order."
+
+## Exporting transcripts to Brain
+
+Once your workspace has connected Brain (Agent Native's institutional-memory app), Clips can send ready transcripts over automatically after each recording finishes, so meeting notes and screen-recording context become searchable company memory alongside everything else Brain ingests.
+
+You can also ask the agent to backfill a bounded window of past recordings — for example, everything from the last 28 days — rather than waiting for new ones to trickle in. A backfill reports how many transcripts were exported, quarantined (flagged sensitive by Brain), skipped, or failed, and returns a cursor so a large backlog can be worked through in pages without re-processing anything already sent.
+
+## Recording and organization insights
+
+Every clip owner can see who's actually watching:
+
+| What                      | Shows you                                                                                                                                                                    |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Recording insights**    | Views (counted separately for humans and for outside agents reading the clip's agent-context APIs), unique viewers, completion rate, a drop-off curve, and CTA click-through |
+| **Organization insights** | Org-wide totals for the period, top clips by views/reactions/comments, top creators, and a day-by-day engagement trend — the Insights Hub                                    |
+| **CSV export**            | Every recording in the organization with its view and engagement counts, as a downloadable CSV                                                                               |
+
+Human views and agent views are tracked in separate counters on purpose, so an agent polling a shared clip's transcript never inflates the "people who watched this" number.
+
+## Builder credit status
+
+Backup transcription, transcript cleanup, and AI titles/summaries run on Builder.io-managed AI credits by default, including the free tier's credits. If one of those stops working, ask the agent — it checks the current credit status and explains whether credits are paused rather than treating it as a bug. The fix is either adding Builder.io credits/upgrading, or connecting a personal Groq key as a fallback for transcription.
+
+## What's next
+
+- [**Clips**](/docs/template-clips) — the overview
+- [**Capturing Everywhere**](/docs/template-clips-capture-everywhere) — how a recording gets into your library in the first place
+- [**Sharing, Teams, and Agent-Readable Clips**](/docs/template-clips-sharing-and-teams) — who can see a clip once it's edited
+- [**Extending Clips**](/docs/template-clips-developers) — the `edits_json` shape, transcript schema, and full action reference

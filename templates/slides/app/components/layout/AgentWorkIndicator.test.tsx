@@ -1,4 +1,4 @@
-import { focusAgentChat } from "@agent-native/core/client";
+import { focusAgentChat } from "@agent-native/core/client/agent-chat";
 import {
   act,
   cleanup,
@@ -10,8 +10,13 @@ import {
 // @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@agent-native/core/client", () => ({
+import { CHAT_STOP_DEBOUNCE_MS } from "@/hooks/use-agent-generating";
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
   focusAgentChat: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) =>
     (
       ({
@@ -52,6 +57,7 @@ function dispatchRunning(isRunning: boolean) {
 }
 
 afterEach(() => {
+  vi.useRealTimers();
   cleanup();
   document.body.innerHTML = "";
   vi.clearAllMocks();
@@ -97,6 +103,28 @@ describe("AgentWorkIndicator", () => {
     });
   });
 
+  it("hides when the portal wrapper becomes inaccessible", async () => {
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+
+    const wrapper = document.createElement("div");
+    const panel = document.createElement("div");
+    panel.className = "agent-sidebar-panel";
+    panel.style.display = "flex";
+    setVisibleRect(panel);
+    wrapper.append(panel);
+    document.body.append(wrapper);
+
+    await waitFor(() => {
+      expect(screen.queryByText("Agent is working")).toBeNull();
+    });
+
+    wrapper.setAttribute("aria-hidden", "true");
+    await waitFor(() => {
+      expect(screen.getByText("Agent is working")).toBeTruthy();
+    });
+  });
+
   it("keeps Open chat behavior when the banner is shown", () => {
     const modeListener = vi.fn();
     window.addEventListener("agent-panel:set-mode", modeListener);
@@ -111,5 +139,29 @@ describe("AgentWorkIndicator", () => {
     });
     expect(focusAgentChat).toHaveBeenCalledTimes(1);
     window.removeEventListener("agent-panel:set-mode", modeListener);
+  });
+
+  it("stays visible across brief continuation gaps", () => {
+    vi.useFakeTimers();
+    render(<AgentWorkIndicator />);
+    dispatchRunning(true);
+    dispatchRunning(false);
+
+    act(() => {
+      vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS - 1);
+    });
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    dispatchRunning(true);
+    act(() => {
+      vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
+    });
+    expect(screen.getByText("Agent is working")).toBeTruthy();
+
+    dispatchRunning(false);
+    act(() => {
+      vi.advanceTimersByTime(CHAT_STOP_DEBOUNCE_MS);
+    });
+    expect(screen.queryByText("Agent is working")).toBeNull();
   });
 });

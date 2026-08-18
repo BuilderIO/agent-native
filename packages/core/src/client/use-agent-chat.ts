@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 
-import { sendToAgentChat, type AgentChatMessage } from "./agent-chat.js";
+import {
+  AGENT_CHAT_SUBMIT_TARGET_EVENT,
+  generateAgentChatSubmitMessageId,
+  sendToAgentChat,
+  type AgentChatMessage,
+  type AgentChatSubmitTarget,
+} from "./agent-chat.js";
 
 /**
  * Hook that wraps sendToAgentChat with a loading state.
@@ -16,8 +22,20 @@ export function useAgentChatGenerating(): [
 ] {
   const [isGenerating, setIsGenerating] = useState(false);
   const activeTabRef = useRef<string | null>(null);
+  const activeSubmitRef = useRef<string | null>(null);
 
   useEffect(() => {
+    const targetHandler = (e: Event) => {
+      const detail = (e as CustomEvent<AgentChatSubmitTarget>).detail;
+      if (
+        !detail ||
+        detail.submitMessageId !== activeSubmitRef.current ||
+        !detail.tabId
+      ) {
+        return;
+      }
+      activeTabRef.current = detail.tabId;
+    };
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (typeof detail?.isRunning !== "boolean") return;
@@ -35,15 +53,29 @@ export function useAgentChatGenerating(): [
       }
       if (!detail.isRunning && eventTabId === activeTabRef.current) {
         activeTabRef.current = null;
+        activeSubmitRef.current = null;
       }
       setIsGenerating(detail.isRunning);
     };
+    window.addEventListener(
+      AGENT_CHAT_SUBMIT_TARGET_EVENT,
+      targetHandler as EventListener,
+    );
     window.addEventListener("agentNative.chatRunning", handler);
-    return () => window.removeEventListener("agentNative.chatRunning", handler);
+    return () => {
+      window.removeEventListener(
+        AGENT_CHAT_SUBMIT_TARGET_EVENT,
+        targetHandler as EventListener,
+      );
+      window.removeEventListener("agentNative.chatRunning", handler);
+    };
   }, []);
 
   const send = useCallback((opts: AgentChatMessage): string => {
-    const tabId = sendToAgentChat(opts);
+    const submitMessageId =
+      opts.submitMessageId ?? generateAgentChatSubmitMessageId();
+    activeSubmitRef.current = submitMessageId;
+    const tabId = sendToAgentChat({ ...opts, submitMessageId });
     activeTabRef.current = tabId;
     setIsGenerating(true);
     return tabId;

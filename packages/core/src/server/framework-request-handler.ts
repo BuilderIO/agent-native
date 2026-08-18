@@ -15,9 +15,19 @@ import type { EventHandler, H3Event } from "h3";
 import { setResponseHeader, setResponseStatus } from "h3";
 
 import { getMissingDefaultPlugins } from "../deploy/route-discovery.js";
+import { MCP_PUBLIC_ROUTE_PREFIX } from "../mcp/route-paths.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
+import {
+  installHttpResponseTelemetryHooks,
+  recordFrameworkReadyWait,
+} from "./http-response-telemetry.js";
+import {
+  hasRequestContext,
+  markRequestBoundaryInstalled,
+  runWithRequestContext,
+} from "./request-context.js";
 
 const BOOTSTRAPPED = new WeakSet<object>();
 const IN_BOOTSTRAP = new WeakSet<object>();
@@ -31,6 +41,7 @@ const PLUGIN_FAILED_KEY = "_agentNativePluginInitFailures";
 const PROVIDED_PLUGIN_STEMS_KEY = "_agentNativeProvidedPluginStems";
 const MIDDLEWARE_DISPATCHER_PATCHED_KEY =
   "_agentNativeMiddlewareDispatcherPatched";
+const REQUEST_CONTEXT_BOUNDARY_KEY = "_agentNativeRequestContextBoundary";
 
 interface PluginReadyEntry {
   promise: Promise<void>;
@@ -48,7 +59,8 @@ function pathMatchesPrefix(reqPath: string, prefix: string): boolean {
 function supportsAppBasePathMount(path: string): boolean {
   return (
     pathMatchesPrefix(path, FRAMEWORK_PREFIX) ||
-    pathMatchesPrefix(path, WELL_KNOWN_PREFIX)
+    pathMatchesPrefix(path, WELL_KNOWN_PREFIX) ||
+    pathMatchesPrefix(path, MCP_PUBLIC_ROUTE_PREFIX)
   );
 }
 
@@ -112,6 +124,7 @@ export function markDefaultPluginProvided(nitroApp: any, stem: string): void {
 export function getH3App(nitroApp: any): H3AppShim {
   if (!nitroApp) throw new Error("getH3App: nitroApp is required");
   ensureGlobalMiddlewareDispatch(nitroApp);
+  installHttpResponseTelemetryHooks(nitroApp);
 
   // Reuse the cached shim if we've wrapped this nitroApp before
   const cached = nitroApp[APP_SHIM_KEY] as H3AppShim | undefined;
@@ -164,6 +177,9 @@ export function getH3App(nitroApp: any): H3AppShim {
     registerMiddleware(nitroApp, WELL_KNOWN_PREFIX, readinessGate, {
       prepend: true,
     });
+    registerMiddleware(nitroApp, MCP_PUBLIC_ROUTE_PREFIX, readinessGate, {
+      prepend: true,
+    });
 
     // CSRF (see csrf.ts): registered here — synchronously, on the very
     // first `getH3App()` call for this nitroApp — rather than inside
@@ -186,6 +202,10 @@ export function getH3App(nitroApp: any): H3AppShim {
     // first.
     registerMiddleware(nitroApp, "", createCsrfMiddleware());
 
+    // Registered last so it lands at index 0 — ahead of the readiness gates
+    // and CSRF, both of which were unshifted/pushed above.
+    registerRequestContextBoundary(nitroApp);
+
     // Primary gate: Nitro bridges this `request` hook to h3's `config.onRequest`,
     // which h3 awaits BEFORE `handler()` snapshots middleware and resolves the
     // route. The middleware gate above runs too late on production dispatchers —
@@ -196,14 +216,53 @@ export function getH3App(nitroApp: any): H3AppShim {
       const reqPath = event.url?.pathname ?? "";
       if (
         resolveMountMatch(reqPath, FRAMEWORK_PREFIX) ||
-        resolveMountMatch(reqPath, WELL_KNOWN_PREFIX)
+        resolveMountMatch(reqPath, WELL_KNOWN_PREFIX) ||
+        resolveMountMatch(reqPath, MCP_PUBLIC_ROUTE_PREFIX)
       ) {
-        await awaitFrameworkRoutesReadyForRequest(nitroApp, reqPath);
+        const startedAt = Date.now();
+        try {
+          await awaitFrameworkRoutesReadyForRequest(nitroApp, reqPath);
+        } finally {
+          recordFrameworkReadyWait(event, Date.now() - startedAt);
+        }
       }
     });
   }
 
   return shim;
+}
+
+/**
+ * Establish a `RequestContext` for every inbound request, so no HTTP handler
+ * ever asks a request-scoped question with no request in scope.
+ *
+ * Hand-written `/api/*` routes have no ALS store of their own, and
+ * `getRequestUserEmail()` used to answer those with `AGENT_USER_EMAIL` — a
+ * process-wide ambient identity standing in for the caller, which fails open
+ * toward more privilege (an admin gate reading it admits whoever the deploy env
+ * names). This store is deliberately identity-free: resolving the session here
+ * would mean reading cookies on the SSR path, which must stay one impersonal
+ * cached shell. Handlers that do know the caller still nest their own
+ * `runWithRequestContext`, which shadows this one.
+ *
+ * h3 v2 hands middleware a `next()` that returns the result of the rest of the
+ * chain (route handler included), so wrapping `next()` puts the whole request
+ * inside the ALS scope. It must be `~middleware[0]`; going through
+ * `registerMiddleware` is not an option because that adapter hides `next`.
+ */
+function registerRequestContextBoundary(nitroApp: any): void {
+  const h3 = nitroApp?.h3;
+  if (!h3 || !Array.isArray(h3["~middleware"])) return;
+  if (h3[REQUEST_CONTEXT_BOUNDARY_KEY]) return;
+
+  const middleware = (_event: H3Event, next: () => unknown) => {
+    if (hasRequestContext()) return next();
+    return runWithRequestContext({}, () => next());
+  };
+
+  h3[REQUEST_CONTEXT_BOUNDARY_KEY] = middleware;
+  h3["~middleware"].unshift(middleware);
+  markRequestBoundaryInstalled();
 }
 
 /**
@@ -276,11 +335,47 @@ export async function awaitBootstrap(nitroApp: any): Promise<void> {
 async function awaitFrameworkRoutesReadyForRequest(
   nitroApp: any,
   reqPath: string,
-): Promise<void> {
-  if (!nitroApp) return;
-  const bootstrapPromise = nitroApp[BOOTSTRAP_PROMISE_KEY];
-  if (bootstrapPromise) await bootstrapPromise;
-  await awaitPluginsReady(nitroApp, reqPath);
+): Promise<boolean> {
+  if (!nitroApp) return true;
+  // This route is mounted synchronously by core-routes before bootstrap. It
+  // must not wait on optional plugins or a database just because the browser
+  // asks for the SSR shell's empty speculation rules during a cold start.
+  if (
+    resolveMountMatch(reqPath, `${FRAMEWORK_PREFIX}/speculation-rules.json`)
+  ) {
+    return true;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      (async () => {
+        const bootstrapPromise = nitroApp[BOOTSTRAP_PROMISE_KEY];
+        if (bootstrapPromise) await bootstrapPromise;
+        await awaitPluginsReady(nitroApp, reqPath);
+        return true;
+      })(),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), frameworkReadyDeadlineMs());
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Cap on how long a request may be held waiting for framework routes.
+ *
+ * Holding past the platform's own request wall is pure loss: the serverless
+ * gateway kills the invocation and the client gets a bare 502/504 it cannot
+ * act on. Releasing first lets the placeholder answer with a retryable 503.
+ * Keep this BELOW the shortest deployment target's request wall (Netlify
+ * synchronous functions cut off around 40s regardless of a higher configured
+ * `timeout`).
+ */
+function frameworkReadyDeadlineMs(): number {
+  const raw = Number(process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 25_000;
 }
 
 /**
@@ -358,7 +453,17 @@ function installPluginReadyPlaceholders(
         const eventAny = event as any;
         const reqPath =
           eventAny.context?._mountedPathname ?? event.url?.pathname ?? path;
-        await awaitFrameworkRoutesReadyForRequest(nitroApp, reqPath);
+        const ready = await awaitFrameworkRoutesReadyForRequest(
+          nitroApp,
+          reqPath,
+        );
+        if (!ready) {
+          // Boot is still running and we are out of budget. Answer now, while
+          // the gateway is still listening, rather than being killed mid-wait.
+          setResponseStatus(event, 503);
+          setResponseHeader(event, "retry-after", "5");
+          return { error: "agent-native routes are still initializing" };
+        }
         // If this plugin's async init failed, its real route was never
         // registered. Return a retryable 503 instead of releasing into a bare
         // 404 (external MCP clients can't recover from a 404; a 503 is at least
@@ -586,33 +691,24 @@ function registerMiddleware(
         status,
         error: err,
       });
-      // Forward 5xx to server-side Sentry — Nitro's own `error` hook may not
-      // fire here because we convert the throw into a normal JSON response,
-      // and a console.error alone is invisible in deployed environments.
-      // 4xx are user-input errors (validation, auth) and aren't worth
-      // alerting on. Lazy-loaded so the framework-request-handler module
-      // doesn't pull @sentry/node into bundles that don't need it.
+      // Forward 5xx to the configured server error providers — Nitro's own
+      // `error` hook may not fire here because we convert the throw into a
+      // normal JSON response, and a console.error alone is invisible in
+      // deployed environments. 4xx are user-input errors (validation, auth)
+      // and aren't worth alerting on.
       if (status >= 500) {
-        // Static `import` would create a cycle (sentry.ts imports auth.ts
-        // which imports… eventually, framework-request-handler.ts).
-        import("./sentry.js")
-          .then(({ captureRouteError, isServerSentryEnabled }) => {
-            if (!isServerSentryEnabled()) return;
-            captureRouteError(err, {
-              route: reqPath,
-              method: event.method,
-              userAgent: (() => {
-                try {
-                  return event.headers?.get("user-agent") ?? undefined;
-                } catch {
-                  return undefined;
-                }
-              })(),
-            });
-          })
-          .catch(() => {
-            // Sentry is observability — never let it break a response path.
-          });
+        captureError(err, {
+          route: reqPath,
+          method: event.method,
+          tags: { status_code: String(status) },
+          userAgent: (() => {
+            try {
+              return event.headers?.get("user-agent") ?? undefined;
+            } catch {
+              return undefined;
+            }
+          })(),
+        });
       }
       try {
         setResponseStatus(event, status);

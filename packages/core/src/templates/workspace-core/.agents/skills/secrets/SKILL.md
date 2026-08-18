@@ -175,6 +175,60 @@ Rules:
 - **Scope matches the registration.** `scope: "user"` → pass the user email.
   `scope: "workspace"` → pass the active `orgId` from
   `getOrgContext(event).orgId`.
+- **One resolver per key, and every runtime path goes through it.** Before
+  reading a credential, grep the app for the key name. If a resolver already
+  exists (`resolveXConfig`, a connector, a client factory), call it — do not
+  read `process.env` for that key a second time somewhere else.
+- **Identity comes from the caller, not the module.** A shared helper under
+  `server/lib/` takes the email as a parameter; only an entrypoint (action,
+  route, cron) decides whose identity it is. A library that resolves its own
+  identity from `process.env.AGENT_USER_EMAIL` authorizes the deployment rather
+  than the caller.
+
+The failure this prevents is not a leak — it is a split brain. When the config
+check reads the vault and the feature reads `process.env`, the settings UI and
+onboarding checklist report the integration as **configured** while every actual
+call fails with "env var is required". The credential is right there in the
+vault, so the error names the wrong cause and sends everyone hunting for a sync
+or redeploy problem that does not exist. This has now shipped four times in one
+app (BigQuery, Jira, Pylon, Academy).
+
+Before finishing any change that touches a credential, run the guard from the
+app directory — it finds this whether the app lives in `templates/` or in a
+workspace repo:
+
+```bash
+npx agent-native doctor --only no-env-credentials
+```
+
+## `resolveCredential` sees exactly one organization
+
+`resolveCredential(key, { userEmail, orgId })` checks the user scope, then the
+one `orgId` you pass, then the solo workspace. That is the whole search. It is
+correct for a signed-in request, and wrong for two common cases:
+
+- **The caller has no organization.** A cron, a scheduled job, or any CLI run
+  without a real member identity resolves no `orgId`, so only the user and solo
+  scopes are ever consulted — and a shared key is in neither.
+- **The key was synced under a different organization.** `app_secrets` has no
+  scope visible to every org (`readAppSecret` is strict equality on
+  `(scope, scope_id, key)`), so a key the vault UI advertises as available to
+  every app is unreadable from any org except the one that ran the sync.
+
+Both produce the same misleading "not set" that the split brain above produces,
+which is why swapping `process.env` for `resolveCredential` can look like a fix
+and change nothing. A workspace app should read shared keys through a resolver
+that also sweeps the caller's other memberships and a designated vault org —
+see `resolveConnectorSecret` and `AGENT_VAULT_ORG_ID` in the builder-workspace
+repo for the shape, including the boot-time assertion that the deployment really
+is single-tenant before a non-membership-gated fallback is safe.
+
+**The doctor guard does not catch this second form** — it looks for
+`process.env` reads, and `resolveCredential` is not one. Grep for
+`resolveCredential` yourself and confirm each call sits somewhere a single-org
+lookup is genuinely the right question. Findings that pair it with a
+`?? process.env.KEY` fallback are the sanctioned deploy-level escape hatch; the
+bugs are calls whose value can only live in another org's vault.
 
 ## HTTP routes
 
@@ -193,14 +247,26 @@ Core routes plugin mounts these under `/_agent-native/secrets/` automatically:
 
 - Values are stored in `app_secrets` (created on-demand; no migration
   needed).
-- Encrypted at rest with AES-256-GCM. Key material is derived from
-  `<APP_NAME>_SECRETS_ENCRYPTION_KEY` when set (for example,
+- Values are encrypted at rest with AES-256-GCM. Generic app-local secrets
+  prefer `<APP_NAME>_SECRETS_ENCRYPTION_KEY` (for example,
   `ANALYTICS_SECRETS_ENCRYPTION_KEY`), then `SECRETS_ENCRYPTION_KEY`, then
-  `BETTER_AUTH_SECRET`. App-scoped keys are useful when a local multi-app
-  workspace connects one app to its production database without replacing the
-  shared local authentication secret. If none is set, the framework uses a
-  machine-local fallback and logs a one-time warning — set stable key material
-  in production and in every runtime that reads the same encrypted data.
+  `BETTER_AUTH_SECRET`.
+- Workspace-shared `app_secrets` prefer
+  `WORKSPACE_SECRETS_ENCRYPTION_KEY`, then the legacy shared
+  `SECRETS_ENCRYPTION_KEY`, then a purpose-derived key from `A2A_SECRET`.
+  Better Auth and app-scoped keys remain legacy read candidates; a successful
+  legacy decrypt is compare-and-swap migrated to the preferred shared key
+  without changing the row timestamp.
+- Set the same stable `WORKSPACE_SECRETS_ENCRYPTION_KEY` in every app that
+  reads a shared vault. It is intentionally separate from app-local OAuth
+  encryption. If the vault still relies on `A2A_SECRET`, rotating A2A material
+  also rotates its encryption key. Add the stable vault key everywhere and
+  read/migrate existing rows before rotating A2A.
+- To rotate the dedicated workspace key itself, deploy the new value together
+  with `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS=<old value>`, let reads
+  migrate ciphertext, then remove the previous key after the migration window.
+- If no configured key material exists, development uses a machine-local
+  fallback and logs a one-time warning. Production fails closed.
 
 ## Ad-hoc Keys
 

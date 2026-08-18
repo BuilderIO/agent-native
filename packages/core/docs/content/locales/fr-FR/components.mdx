@@ -13,7 +13,7 @@ composants lorsque vous le pouvez, et déposez un calque lorsque vous avez besoi
 Importer le navigateur UI à partir des sous-chemins client ciblés :
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -179,8 +179,10 @@ pour l'utilisation du connecteur, le flux d'événements normalisé et quand l'a
 
 ## Champ de discussion et compositeur {#composer}
 
-Utilisez `@agent-native/core/client/composer` lorsque vous devez lancer la même discussion
-champ utilisé par la barre latérale à l'intérieur du UI personnalisé.
+Utilisez `@agent-native/core/client/composer` lorsque vous avez besoin du même champ de discussion
+que la barre latérale dans une UI personnalisée. `@agent-native/toolkit/composer` fournit
+l’implémentation portable et autonome de Tiptap et de l’UI ; pour les services du framework, enveloppez-la dans
+`ComposerRuntimeAdaptersProvider` et fournissez les services. Core fournit la couche préconfigurée pour les pièces jointes, les mentions, les compétences, la voix et le choix du modèle.
 
 | API                               | Utiliser quand                                                                                                                                                                                                                                |
 | --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -216,7 +218,6 @@ en dehors de l'exécution complète de l'agent.
 | `<AgentConversation>`                           | Afficher une liste de messages d'agent normalisés.                                           |
 | `<AgentConversationMessageView>`                | Afficher un message normalisé.                                                               |
 | `normalizeCodeAgentTranscriptForConversation()` | Convertissez les événements de transcription de l'agent de code en messages de conversation. |
-| `useNearBottomAutoscroll()`                     | Conservez une transcription personnalisée épinglée en bas pendant la diffusion.              |
 
 Cette couche est intentionnellement axée sur les données : vous êtes propriétaire de la provenance des messages, et
 le moteur de rendu possède des démarques, des pièces jointes, des avis, des artefacts et
@@ -501,6 +502,6 @@ raisonnement.
 
 - [**Drop-in Agent**](/docs/drop-in-agent) — montez `<AgentSidebar>` et `<AgentPanel>` avec un parcours guidé axé sur le tutoriel
 - [**Native Chat UI**](/docs/native-chat-ui) — le contrat de résultat des actions derrière les widgets de données et les moteurs de rendu personnalisés
-- [**Actions**](/docs/actions) — `defineAction()`, les schémas et la surface d'actions appelée par ces composants
+- [**Actions**](/docs/actions-overview) — `defineAction()`, les schémas et la surface d'actions appelée par ces composants
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — les hooks de collaboration et les composants de présence en détail
 - [**Sharing**](/docs/sharing) — câblage de `<ShareButton>` et `<ShareDialog>` pour les ressources possédables

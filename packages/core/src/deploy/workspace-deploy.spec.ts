@@ -6,8 +6,12 @@ import { pathToFileURL } from "url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { isAgentChatDurableBackgroundEnabled } from "../agent/durable-background.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
-import { runWorkspaceDeploy } from "./workspace-deploy.js";
+import {
+  isDurableBackgroundWorkspaceDeployEnabled,
+  runWorkspaceDeploy,
+} from "./workspace-deploy.js";
 
 let tmpDir: string;
 let previousAppBasePath: string | undefined;
@@ -19,6 +23,8 @@ let previousDatabaseUrl: string | undefined;
 let previousUnpooledDatabaseUrl: string | undefined;
 let previousNetlify: string | undefined;
 let previousNetlifyLocal: string | undefined;
+let previousIntegrationDurableDispatch: string | undefined;
+let previousDisableRecurringJobs: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
@@ -34,6 +40,7 @@ let previousWorkspaceAppPublicPaths: string | undefined;
 let previousWorkspaceGatewayUrl: string | undefined;
 let previousWorkspaceOAuthOrigin: string | undefined;
 let previousWorkspaceAppsJson: string | undefined;
+let previousOrgDirectoryUrl: string | undefined;
 let execFile: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
@@ -59,6 +66,10 @@ beforeEach(() => {
   previousUnpooledDatabaseUrl = process.env.NETLIFY_DATABASE_URL_UNPOOLED;
   previousNetlify = process.env.NETLIFY;
   previousNetlifyLocal = process.env.NETLIFY_LOCAL;
+  previousIntegrationDurableDispatch =
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+  previousDisableRecurringJobs =
+    process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousVercel = process.env.VERCEL;
   previousViteWorkspaceAppsJson =
@@ -81,6 +92,7 @@ beforeEach(() => {
   previousWorkspaceGatewayUrl = process.env.WORKSPACE_GATEWAY_URL;
   previousWorkspaceOAuthOrigin = process.env.WORKSPACE_OAUTH_ORIGIN;
   previousWorkspaceAppsJson = process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  previousOrgDirectoryUrl = process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
   delete process.env.APP_BASE_PATH;
   delete process.env.APP_URL;
   delete process.env.A2A_SECRET;
@@ -90,6 +102,8 @@ beforeEach(() => {
   delete process.env.NETLIFY_DATABASE_URL_UNPOOLED;
   delete process.env.NETLIFY;
   delete process.env.NETLIFY_LOCAL;
+  delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
+  delete process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -105,6 +119,7 @@ beforeEach(() => {
   delete process.env.WORKSPACE_GATEWAY_URL;
   delete process.env.WORKSPACE_OAUTH_ORIGIN;
   delete process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  delete process.env.AGENT_NATIVE_ORG_DIRECTORY_URL;
 });
 
 afterEach(() => {
@@ -117,6 +132,14 @@ afterEach(() => {
   restoreEnv("NETLIFY_DATABASE_URL_UNPOOLED", previousUnpooledDatabaseUrl);
   restoreEnv("NETLIFY", previousNetlify);
   restoreEnv("NETLIFY_LOCAL", previousNetlifyLocal);
+  restoreEnv(
+    "AGENT_INTEGRATION_DURABLE_DISPATCH",
+    previousIntegrationDurableDispatch,
+  );
+  restoreEnv(
+    "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
+    previousDisableRecurringJobs,
+  );
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VERCEL", previousVercel);
   restoreEnv(
@@ -153,6 +176,7 @@ afterEach(() => {
   restoreEnv("WORKSPACE_GATEWAY_URL", previousWorkspaceGatewayUrl);
   restoreEnv("WORKSPACE_OAUTH_ORIGIN", previousWorkspaceOAuthOrigin);
   restoreEnv("AGENT_NATIVE_WORKSPACE_APPS_JSON", previousWorkspaceAppsJson);
+  restoreEnv("AGENT_NATIVE_ORG_DIRECTORY_URL", previousOrgDirectoryUrl);
   fs.rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -361,8 +385,11 @@ describe("workspace deploy", () => {
     );
     expect(dispatchServer).toContain('const basePath = "/dispatch";');
     expect(dispatchServer).toContain("Object.assign(processRef.env");
+    expect(dispatchServer).toContain('AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchServer).toContain("APP_BASE_PATH: basePath");
+    expect(dispatchServer).toContain('VITE_AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchServer).toContain("AGENT_NATIVE_WORKSPACE_APPS_JSON");
+    expect(dispatchServer).toContain("AGENT_NATIVE_ORG_DIRECTORY_URL");
     expect(dispatchServer).toContain('\\"path\\":\\"/starter\\"');
     expect(dispatchServer).toContain('await import("./main.mjs")');
     expect(dispatchServer).toContain(
@@ -389,7 +416,9 @@ describe("workspace deploy", () => {
       ),
       "utf-8",
     );
-    expect(starterServer).toContain('path: ["/starter","/starter/*"]');
+    expect(starterServer).toContain(
+      'path: ["/starter","/starter.data","/starter/*"]',
+    );
     expect(starterServer).toContain("normalizeBasePathArgs");
     expect(starterServer).toContain('"/starter/assets/*"');
     expect(starterServer).toContain('"/starter/feed.xml"');
@@ -699,8 +728,11 @@ describe("workspace deploy", () => {
     );
     expect(dispatchWrapper).toContain('const basePath = "/dispatch";');
     expect(dispatchWrapper).toContain("Object.assign(processRef.env");
+    expect(dispatchWrapper).toContain('AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchWrapper).toContain("APP_BASE_PATH: basePath");
+    expect(dispatchWrapper).toContain('VITE_AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchWrapper).toContain("AGENT_NATIVE_WORKSPACE_APPS_JSON");
+    expect(dispatchWrapper).toContain("AGENT_NATIVE_ORG_DIRECTORY_URL");
     expect(dispatchWrapper).toContain('\\"path\\":\\"/starter\\"');
     expect(dispatchWrapper).toContain('await import("./main.mjs")');
 
@@ -718,8 +750,10 @@ describe("workspace deploy", () => {
     const starterModule = await import(
       `${pathToFileURL(path.join(starterFunc, "index.mjs")).href}?t=${Date.now()}-vercel-starter`
     );
-    const req = { url: "/starter" };
-    await expect(starterModule.default(req, {})).resolves.toBe("/starter//");
+    const req = new Request("https://example.test/starter");
+    await expect(starterModule.default.fetch(req, {})).resolves.toBe(
+      "/starter//",
+    );
 
     const config = JSON.parse(
       fs.readFileSync(
@@ -886,6 +920,8 @@ describe("workspace deploy", () => {
 
   it("writes workspace app URLs and preserves explicit manifest URLs", async () => {
     process.env.APP_URL = "https://workspace.example.test/dispatch";
+    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
+      "https://directory.example.test";
     process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
       version: 1,
       apps: [
@@ -907,6 +943,9 @@ describe("workspace deploy", () => {
     });
 
     const dispatchCall = buildCallForApp("dispatch");
+    expect(dispatchCall?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
+      "https://directory.example.test",
+    );
     expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
       "https://workspace.example.test",
     );
@@ -982,6 +1021,9 @@ describe("workspace deploy", () => {
       "https://workspace.example.test",
     );
     expect(dispatchCall?.env?.VITE_WORKSPACE_OAUTH_ORIGIN).toBe(
+      "https://workspace.example.test",
+    );
+    expect(dispatchCall?.env?.AGENT_NATIVE_ORG_DIRECTORY_URL).toBe(
       "https://workspace.example.test",
     );
     expect(
@@ -1085,10 +1127,10 @@ describe("workspace deploy", () => {
       'if (pathname === "/dispatch" || pathname === "/dispatch/") return Response.redirect(new URL("/dispatch/overview" + search, request.url).toString(), 302);',
     );
     expect(worker).toContain(
-      'if (pathname === "/dispatch" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(requestForMountedApp(request, "/dispatch"), env, ctx);',
+      'if (pathname === "/dispatch" || pathname === "/dispatch.data" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(requestForMountedApp(request, "/dispatch"), env, ctx);',
     );
     expect(worker).toContain(
-      'if (pathname === "/starter" || pathname.startsWith("/starter/")) return app_starter.fetch(requestForMountedApp(request, "/starter"), env, ctx);',
+      'if (pathname === "/starter" || pathname === "/starter.data" || pathname.startsWith("/starter/")) return app_starter.fetch(requestForMountedApp(request, "/starter"), env, ctx);',
     );
     expect(worker).toContain(
       "function requestForMountedApp(request, basePath)",
@@ -1127,11 +1169,10 @@ describe("workspace deploy", () => {
 });
 
 // The deploy-time half of durable-background: a SECOND Netlify function whose
-// name ends in `-background` must be emitted ONLY when the flag is set, and the
-// single-function deploy must be byte-for-byte unchanged when it is not. These
-// drive the REAL workspace deploy path (not a private helper) so the gate is
-// proven where it actually fires. The env flag is captured/restored locally so
-// it never leaks into the surrounding suite.
+// name ends in `-background` plus a per-app recurring-job handoff. These drive
+// the REAL workspace deploy path (not private helpers) so the gates are proven
+// where they actually fire. The env flags are captured/restored locally so they
+// never leak into the surrounding suite.
 describe("durable-background Netlify function emit (workspace, flag-gated)", () => {
   let previousFlag: string | undefined;
 
@@ -1155,8 +1196,40 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     );
   }
 
+  function recurringFuncDir(app: string): string {
+    return path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      `${app}-agent-recurring-jobs`,
+    );
+  }
+
+  it("emits for exactly the env inputs the workspace runtime gate enables", async () => {
+    // A workspace app opts in through its agent-chat plugin, so the deploy gate
+    // must stay as wide as the runtime's app-opt-in path. A local copy of this
+    // parse previously claimed to match a default-off gate while implementing a
+    // default-on one — drift that silently drops the function fleet-wide.
+    vi.stubEnv("SITE_ID", "site-123");
+    vi.stubEnv("A2A_SECRET", "shhh");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "starter");
+    try {
+      for (const value of [undefined, "", "true", "1", "false", "off", "?"]) {
+        if (value === undefined)
+          delete process.env.AGENT_CHAT_DURABLE_BACKGROUND;
+        else process.env.AGENT_CHAT_DURABLE_BACKGROUND = value;
+        expect(isDurableBackgroundWorkspaceDeployEnabled()).toBe(
+          isAgentChatDurableBackgroundEnabled({ appOptIn: true }),
+        );
+      }
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("emits NO -background function when the flag is EXPLICITLY opted out (false)", async () => {
     process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
+    process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
 
@@ -1181,6 +1254,74 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     // ...and NO -background sibling exists for any app.
     expect(fs.existsSync(backgroundFuncDir("dispatch"))).toBe(false);
     expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
+  });
+
+  it("emits scoped integration background and scheduled recovery functions when opted in", async () => {
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "false";
+    process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "true";
+    process.env.AGENT_INTEGRATION_DURABLE_DISPATCH = "true";
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    const backgroundEntry = fs.readFileSync(
+      path.join(backgroundFuncDir("dispatch"), "dispatch-agent-background.mjs"),
+      "utf8",
+    );
+    expect(backgroundEntry).toContain(
+      'const BACKGROUND_PROCESSOR_INTEGRATION = "integration"',
+    );
+    expect(backgroundEntry).toContain(
+      'const INTEGRATION_PROCESS_TASK_PATH = "/dispatch/_agent-native/integrations/process-task"',
+    );
+
+    const recoveryDir = path.join(
+      tmpDir,
+      ".netlify",
+      "functions-internal",
+      "dispatch-integration-recovery",
+    );
+    const recoveryEntry = fs.readFileSync(
+      path.join(recoveryDir, "dispatch-integration-recovery.mjs"),
+      "utf8",
+    );
+    expect(recoveryEntry).toContain('schedule: "* * * * *"');
+    expect(recoveryEntry).toContain(
+      'const SWEEP_PATH = "/dispatch/_agent-native/integrations/retry-stuck-tasks"',
+    );
+    expect(recoveryEntry).toContain(
+      "globalThis.__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__ = true",
+    );
+    const generated = await import(
+      `${pathToFileURL(path.join(recoveryDir, "dispatch-integration-recovery.mjs")).href}?t=${Date.now()}`
+    );
+    expect(generated.config.schedule).toBe("* * * * *");
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const response = await generated.default(
+      new Request("https://app.test/.netlify/functions/recovery"),
+      {},
+    );
+    expect(response.status).toBe(204);
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "[integration-recovery] A2A_SECRET is required; sweep skipped",
+    );
+    consoleSpy.mockRestore();
+    expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(false);
+    expect(
+      fs.existsSync(
+        path.join(
+          tmpDir,
+          ".netlify",
+          "functions-internal",
+          "starter-integration-recovery",
+        ),
+      ),
+    ).toBe(false);
   });
 
   it("emits a per-app -background function BY DEFAULT (flag unset) at its DEFAULT url (no custom path)", async () => {
@@ -1253,6 +1394,30 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         "globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true",
       );
       expect(entry).toContain('includedFiles: ["**"]');
+
+      const recurringDir = recurringFuncDir(app);
+      const recurringEntry = fs.readFileSync(
+        path.join(recurringDir, `${app}-agent-recurring-jobs.mjs`),
+        "utf8",
+      );
+      expect(recurringEntry).toContain('schedule: "* * * * *"');
+      expect(recurringEntry).toContain(
+        `const BACKGROUND_PATH = ${JSON.stringify(`/.netlify/functions/${app}-agent-background`)}`,
+      );
+      expect(recurringEntry).toContain(
+        `const SWEEP_PATH = ${JSON.stringify(`/${app}/_agent-native/jobs/_process-sweep`)}`,
+      );
+      expect(recurringEntry).toContain("return new URL(request.url).origin");
+      // The entry imports node:crypto, so the deploy packager rejects it
+      // unless includedFiles is declared.
+      expect(recurringEntry).toContain(
+        'import { createHmac } from "node:crypto"',
+      );
+      expect(recurringEntry).toContain('includedFiles: ["**"]');
+      const recurringModule = await import(
+        `${pathToFileURL(path.join(recurringDir, `${app}-agent-recurring-jobs.mjs`)).href}?t=${Date.now()}-${app}`
+      );
+      expect(recurringModule.config.schedule).toBe("* * * * *");
     }
 
     // The synchronous per-app function is still present and unchanged.
@@ -1386,7 +1551,7 @@ function writeVercelAppBuildOutput(workspaceRoot: string, app: string): void {
   );
   fs.writeFileSync(
     path.join(functionDir, "index.mjs"),
-    "export default async function handler(req) { return req?.url ?? 'ok'; }\n",
+    "export default { async fetch(request) { return new URL(request.url).pathname; } };\n",
   );
   fs.writeFileSync(
     path.join(functionDir, ".vc-config.json"),

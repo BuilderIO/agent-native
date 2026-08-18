@@ -69,6 +69,30 @@ Before creating or rewriting a draft, read the user's drafting settings with `pn
 - Follow `writingStyle` when present.
 - Keep generated copy natural and specific. Avoid generic AI email tropes, headings, and over-formal filler unless the user asks for that style.
 
+## Updating Durable Drafting Settings
+
+Treat requests to permanently change, add to, or remove a writing-style rule as
+settings changes, not drafting requests. Route them to `update-mail-settings`.
+Do not call `manage-draft`, open the compose UI, or create a draft unless the user separately asks
+to create or edit an email draft.
+
+For a durable settings request:
+
+1. Read the current settings with `get-mail-settings`.
+2. Merge the requested rule into the existing `writingStyle`, preserving
+   unrelated instructions. For a removal, remove only the requested rule.
+3. If the requested change is ambiguous, conflicts with existing guidance, or
+   would materially rewrite the style, show the proposed merged wording and
+   ask the user to confirm before changing it.
+4. Call `update-mail-settings` with the complete merged `writingStyle` value.
+5. Re-read the settings with `get-mail-settings` and confirm the persisted result. Do not
+   report success based only on the update call response.
+
+If the user asks both to change the durable style and to draft an email, update
+the settings first, then create the separately requested draft using the
+confirmed settings. A style-setting request alone must leave compose state
+unchanged.
+
 ## How It Works
 
 1. **Write** `writeAppState("compose-{id}", draft)` — the shared application state row changes
@@ -121,6 +145,23 @@ const drafts = await listAppState("compose-");
 
 The `send-email` action accepts an optional `attachments` array. Each entry must reference a file that was previously uploaded via the media-upload endpoint (`/api/media/upload`). Pass the server-side `filename` (the key returned by the upload endpoint, e.g. `abc123.pdf`), and optionally `originalName` (display name for the recipient) and `mimeType`. The attachment plumbing resolves the file from `data/uploads/` or from the configured file-storage URL recorded by the upload endpoint, then includes it as a MIME multipart attachment in the outgoing Gmail message. Do not store or paste attachment bytes, base64, or `data:` URLs in draft state/settings; files are never sent speculatively — only attach what the user has explicitly provided and confirmed.
 
+### Local files from an MCP host
+
+A hosted Mail app cannot read a path on the MCP host's local filesystem. Use
+`create-attachment-upload` with the file's display name. It returns a
+five-minute, owner-bound `uploadUrl`, a `PUT` method, and the attachment handle
+Mail expects. From the local host, upload the raw bytes directly:
+
+```bash
+curl --fail-with-body --request PUT --header '<Authorization header>' --data-binary @/absolute/path/to/report.pdf '<uploadUrl>'
+```
+
+Use the response's `attachment` object in the draft/send request. The upload
+Authorization header is a short-lived bearer credential: do not log, persist,
+reuse, or share it. Creating or consuming it does not send mail. Keep `send-email` behind its
+normal explicit-intent and human-approval gate; for drafting, pass the handle
+through `ask_app` or open the returned compose deep link.
+
 Example:
 ```json
 {
@@ -141,8 +182,13 @@ via the media endpoint, not retrying the same `filename`.
 ## What Actually Happens on Send
 
 `send-email` requires explicit user intent to send — it is `needsApproval:
-true` and pauses for human approval before the real Gmail call happens. It
-branches on whether the user has a connected Google account:
+true` and pauses for human approval before the real Gmail call happens. This is
+the canonical, intentionally rare use of the human-in-the-loop gate in this
+framework. An authenticated A2A caller may carry the user's exact chat
+authorization for one matching send; otherwise the loop pauses for approval.
+Drafting and queueing are unaffected by the gate.
+
+It branches on whether the user has a connected Google account:
 
 - **Connected:** resolves an access token (refreshing if the account's
   `expiry_date` is within 60s), resolves reply threading (`inReplyTo` /
@@ -165,6 +211,25 @@ branches on whether the user has a connected Google account:
   picks the sender; when replying, it also tries each connected account until
   one can fetch the original message, and uses that account as the sender if
   `account` wasn't explicit.
+
+## Scheduled Sends
+
+Scheduled sends use job ids prefixed `scheduled-`; `send-scheduled-email-now`
+and `cancel-scheduled-email` both strip that prefix internally before looking
+up the job — pass the id as shown to the user either way.
+
+## Snippets
+
+`manage-snippets` lists, creates, updates, and deletes saved reply snippets.
+Users insert them from the compose slash menu, so a snippet the agent saves
+becomes available there immediately.
+
+## Aliases Are Settings-UI Only
+
+Aliases (Settings → Aliases) are managed only through raw `/api/*` routes from
+the Settings UI — there is no `manage-aliases` action, so the agent cannot add,
+edit, or remove an alias on the user's behalf. Point the user at Settings →
+Aliases instead.
 
 ## Important Notes
 

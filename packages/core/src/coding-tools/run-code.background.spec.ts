@@ -50,6 +50,7 @@ const { getSandboxExecutionInternal, resetSandboxExecutionsStoreForTests } =
 const { resetSandboxBackgroundForTests } =
   await import("./sandbox/background.js");
 const { resetSandboxAdapterForTests } = await import("./sandbox/index.js");
+const { runWithRequestContext } = await import("../server/request-context.js");
 
 const OWNER = "alice@example.com";
 const ctx: ActionRunContext = {
@@ -94,6 +95,7 @@ afterEach(() => {
 describe("run-code background param", () => {
   it("advertises background + executionId in the tool schema", () => {
     const entry = createRunCodeEntry(makeActions);
+    expect(entry.dedupe).toBeUndefined();
     expect(entry.tool.description).toContain("background: true");
     const props = (
       entry.tool.parameters as { properties: Record<string, unknown> }
@@ -156,6 +158,31 @@ describe("run-code background param", () => {
     expect(pollResult).toContain('"status": "succeeded"');
     expect(pollResult).toContain("bg says 42");
   }, 40_000);
+
+  it("persists the request action surface when enqueueing background code", async () => {
+    serverless = true;
+    const entry = createRunCodeEntry(makeActions);
+
+    const enqueueResult = (await runWithRequestContext(
+      {
+        userEmail: OWNER,
+        orgId: "org-1",
+        run: { allowedActionNames: ["run-code"] },
+      },
+      () =>
+        entry.run(
+          {
+            code: 'console.log(await appAction("omitted-reader", {}))',
+            background: true as never,
+          },
+          ctx,
+        ),
+    )) as string;
+    const enqueued = JSON.parse(enqueueResult);
+
+    const updated = await getSandboxExecutionInternal(enqueued.executionId);
+    expect(updated!.allowedActionNames).toEqual(["run-code"]);
+  });
 
   it("dispatches to the processor route instead of running inline on serverless", async () => {
     serverless = true;
@@ -255,6 +282,7 @@ describe("get-code-execution entry", () => {
     const runCode = createRunCodeEntry(makeActions);
     const getExec = createGetCodeExecutionEntry();
     expect(getExec.readOnly).toBe(true);
+    expect(getExec.dedupe).toBe(false);
 
     const enqueued = JSON.parse(
       (await runCode.run(

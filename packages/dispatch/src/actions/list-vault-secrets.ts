@@ -5,7 +5,7 @@ import { listSecrets } from "../server/lib/vault-store.js";
 
 export default defineAction({
   description:
-    "List all secrets stored in the workspace vault. Includes raw values so the UI mask/unmask toggle works — masking is a UI concern, not a data concern. Agent responses should still mask values when echoing them to users.",
+    "List all secrets stored in the workspace vault. Admin only. Includes raw values so the UI mask/unmask toggle works — masking is a UI concern, not a data concern. Agent responses should still mask values when echoing them to users.",
   schema: z.object({}),
   http: { method: "GET" },
   run: async () => {

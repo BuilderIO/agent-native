@@ -1,0 +1,226 @@
+---
+title: "Zugriff & Autorisierung"
+description: "Wer eine Action aufrufen darf: Expositions-Flags (agentTool, toolCallable), ctx-basiertes Scoping, accessFilter/assertAccess und der authorize-Guard."
+---
+
+# Zugriff & Autorisierung
+
+Fünf Einstellungen entscheiden, wer eine Action aufrufen darf: der Agent, das Frontend, eine Extension, ein externer API-Aufrufer oder niemand ohne vorherige Genehmigung durch einen Menschen. Die meisten Actions müssen keine davon je anfassen, da die Standardwerte bereits zum normalen UI-und-Agent-Gebrauch passen.
+
+### Expositions-Flags {#exposure-flags}
+
+Alle fünf Flags sind standardmäßig auf den freizügigsten Wert gesetzt, sodass Sie nur eines setzen, wenn Sie eine bestimmte Oberfläche einschränken müssen. Die Tabelle unten ist eine kurze Zusammenfassung. Die Abschnitte danach fügen das eine Detail hinzu, das jedes Flag braucht.
+
+| Flag            | Standard     | Restriktiver Wert → wer noch aufrufen kann                                                   | Typische Verwendung                                                            |
+| --------------- | ------------ | -------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `agentTool`     | `true`       | `false` → nur UI, HTTP und CLI (vor dem Modell, MCP und A2A verborgen)                       | Reine UI- oder programmatische Actions, die keinen Tool-Platz belegen sollen   |
+| `toolCallable`  | `true`       | `false` → alles **außer** der sandboxed Extension-Iframe-Bridge (403)                        | Sensible Konto- oder Org-Änderungen (Konto löschen, Mitgliedschaft ändern)     |
+| `publicAgent`   | aus (privat) | `{ expose: true }` → fügt die Action zu **öffentlichen** MCP-/A2A-/OpenAPI-Oberflächen hinzu | Sichere Lese- oder Ingest-Tools, die keine Authentifizierung erfordern         |
+| `needsApproval` | `false`      | `true` → der Agent **pausiert**, und ein Mensch muss den konkreten Aufruf genehmigen         | Folgenreiche Nebenwirkungen (E-Mail senden, Karte belasten, löschen)           |
+| `authorize`     | keine        | eine Guard-Funktion → nur Aufrufer, die sie akzeptiert, auf **jeder** Oberfläche             | Auf eine Rolle beschränkte Operationen (App-eigenes RBAC, Admin-only-Vorgänge) |
+
+Diese Flags sind unabhängig voneinander, sodass das Setzen eines Flags die anderen nicht ändert. `agentTool` steuert, was das Modell sieht, siehe [Vor dem Modell verbergen](#agent-tool) unten. `toolCallable` steuert nur das Extension-Iframe, siehe [Extension-Iframes blockieren](#tool-callable) unten. `publicAgent` fügt eine Opt-in-öffentliche Oberfläche hinzu, und eine öffentliche Web-Route impliziert nie eine öffentliche Tool-Exposition, siehe [Für öffentliche Agenten freigeben](#public-agent) unten. `needsApproval` steuert die Ausführung, nachdem der Aufruf bereits erfolgt ist, siehe [Menschliche Genehmigung erfordern](#needs-approval) unten. `authorize` entscheidet, ob dieser Aufrufer die Action überhaupt ausführen darf, auf jedem Dispatch-Pfad, bevor `run()` betreten wird, siehe [Aufrufer nach Rolle einschränken](#authorize) unten.
+
+## Vor dem Modell verbergen {#agent-tool}
+
+Standardmäßig ist jede Action ein aufrufbares Agent-Tool. Setzen Sie `agentTool: false`, um sie aus jeder Agent-Tool-Liste zu entfernen, während sie hinter der Auth und der Action-Oberfläche des Frameworks bleibt. Sie bleibt aufrufbar von der UI (`useActionMutation()` oder `callAction()`), der CLI und `/_agent-native/actions/<name>`:
+
+```ts
+export default defineAction({
+  description: "Persist the user's sidebar width.",
+  agentTool: false, // UI-only, not a tool in the model's context window
+  schema: z.object({ widthPx: z.number() }),
+  http: { method: "PUT" },
+  run: async ({ widthPx }) => {
+    /* ... */
+  },
+});
+```
+
+Verwenden Sie dies, wenn Sie eine reine UI- oder rein programmatische Action hinzufügen, oder wenn die UI aufhört, eine Action zu verwenden, die andernfalls dem Modell ausgesetzt bliebe.
+
+## Extension-Iframes blockieren {#tool-callable}
+
+Extensions ([Alpine.js-Mini-Apps in sandboxed Iframes](/docs/extensions)) rufen Actions über `appAction(name, params)` auf und laufen dabei mit den eigenen Berechtigungen, Secrets und dem SQL-Scope des Betrachters. Für sensible Operationen ist das standardmäßig zu viel Vertrauen. Setzen Sie `toolCallable: false`, damit die Extension-Bridge einen 403 zurückgibt, während die Action von UI, Agent, CLI, MCP und A2A weiterhin aufrufbar bleibt:
+
+```ts
+export default defineAction({
+  description: "Delete the current user's account.",
+  toolCallable: false, // never callable from an extension iframe
+  schema: z.object({ confirm: z.literal("yes") }),
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+Verwenden Sie es für Actions, die ein Konto oder eine Org löschen oder übertragen, den Auth-Status ändern, die Org-Mitgliedschaft ändern oder Freigabezugriff gewähren. Die eingebauten Actions `share-resource`, `unshare-resource` und `set-resource-visibility` des Frameworks nutzen dies bereits. Das Framework erzwingt dies mit einem Header, den der Host bei Iframe-Aufrufen setzt, einem, das ein Iframe nicht fälschen kann. Reguläre UI-, Agent-, CLI-, MCP- und A2A-Aufrufe sind davon nicht betroffen. Siehe [Sicherheit](/docs/security) für Details.
+
+## Für öffentliche Agenten freigeben {#public-agent}
+
+Jede Action bleibt standardmäßig von jeder öffentlichen Protokolloberfläche fern, selbst eine, deren Web-Route öffentlich ist. Eine Seite crawlbar zu machen, exponiert nie ein Tool. Setzen Sie `publicAgent: { expose: true, readOnly: true, ... }`, um eine sichere Action in die öffentlichen MCP-, A2A- und OpenAPI-Oberflächen aufzunehmen:
+
+```ts
+export default defineAction({
+  description: "Search published docs.",
+  schema: z.object({ query: z.string() }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: {
+    expose: true,
+    readOnly: true,
+    requiresAuth: false,
+  },
+  run: async ({ query }) => {
+    /* ... */
+  },
+});
+```
+
+Verwenden Sie es nur für sichere, schreibgeschützte oder reine Ingest-Actions, die Art, die Sie einen Fremden ohne Anmeldung aufrufen lassen würden. `requiresAuth: false` teilt der öffentlichen Oberfläche mit, dass diese Action vor der Authentifizierung sicher aufgelistet werden kann. Lassen Sie es `true` für eine Action, die weiterhin die Identität eines verbundenen Aufrufers benötigt, wie ein Pro-Konto-Ingest-Tool. Siehe [Externe Agenten](/docs/external-agents) und [MCP-Protokoll](/docs/mcp-protocol) für den vollständigen Katalog und das Auth-Modell, in das dies einsteigt.
+
+## Menschliche Genehmigung erfordern {#needs-approval}
+
+Eine Handvoll Actions sind zu folgenreich, um den Agenten sie allein ausführen zu lassen, etwa eine E-Mail senden, eine Karte belasten oder ein Konto löschen. Setzen Sie `needsApproval: true` (oder ein Prädikat `(args, ctx) => boolean | Promise<boolean>`) auf `defineAction()`, und die Schleife pausiert vor `run()` und verlangt, dass ein Mensch genau diesen Aufruf genehmigt. Der Standard ist **aus**, und fast jede Action sollte das bleiben.
+
+Siehe [Human-in-the-Loop-Genehmigungen](/docs/human-approval) für die Prädikat-API, das `approval_required`-Ereignis und den vollständigen End-to-End-Ablauf.
+
+## Aufrufer nach Rolle einschränken {#authorize}
+
+`authorize` beantwortet eine ganz konkrete Frage: **darf dieser Aufrufer diese Operation überhaupt ausführen?** Geben Sie ihm eine Guard-Funktion, und sie läuft vor `run()` bei jedem Aufrufer: Agent-Tool, HTTP, Frontend, MCP, A2A und CLI.
+
+Deklarieren Sie das Rollenvokabular einmal mit `defineAppRoles()`:
+
+```ts
+// server/lib/access.ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member", // display only, never satisfies a guard
+});
+```
+
+Schützen Sie die Action dann mit einer expliziten Liste akzeptierter Rollen:
+
+```ts
+// actions/archive-plan.ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+Der Guard umschließt `run()` selbst, statt an einem anderen Teil der Action anzusetzen. Das liegt daran, dass `run()` das eine ist, das alle sechs Dispatch-Stellen durchlaufen, sodass es für einen Aufrufer keinen Weg gibt, den Rumpf zu erreichen, ohne die Prüfung zu passieren. Ein Guard, der wirft, verweigert den Aufruf mit seiner eigenen Fehlermeldung. Ein Guard, der `false` zurückgibt, verweigert den Aufruf mit einem generischen 403. Alles andere, einschließlich `undefined`, erlaubt den Aufruf. Da die Prüfung eine Aufruferidentität benötigt, wird ein unbeaufsichtigter CLI- oder Cron-Aufruf ohne Benutzer-E-Mail abgelehnt, statt durchgelassen zu werden.
+
+Die Wrapper setzen sich in dieser Reihenfolge zusammen:
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+Die Autorisierung sitzt _innerhalb_ der Eingabevalidierung, sodass ein Guard, der `args` prüft, denselben geparsten, typgeprüften Wert erhält, den auch `run()` erhält, nicht die rohe Form, die der Aufrufer gesendet hat. Das Auditing liegt außen, sodass eine Ablehnung dennoch aufgezeichnet wird.
+
+`requireAny()` schlägt zur Definitionszeit fehl, nicht zur Anfragezeit. Es ohne Rollen oder mit einer Rolle außerhalb der deklarierten Liste aufzurufen, wirft sofort beim Laden des Moduls. So bricht ein Fehler, wie `authorize: coachAccess.requireAny()` mit einem vergessenen Argument, genau dort, wo er passiert ist, statt später als unerklärter 403 aufzutauchen.
+
+### Zugriffskontrolle in Actions {#access-control}
+
+`authorize` beantwortet nur, ob der Aufrufer die Operation überhaupt ausführen darf. Es sagt nichts darüber, welche Zeilen er berühren darf, das ist eine separate Prüfung auf Zeilenebene. Eine mit `ownableColumns()` gebaute und mit `registerShareableResource()` registrierte Tabelle (siehe [Freigabe und Datenschutz](/docs/sharing#building)) bekommt dafür zwei Helfer: `accessFilter()` scopt eine Listen- oder Leseabfrage auf die Zeilen, die der Aufrufer sehen darf, und `assertAccess()` wirft vor einem Schreibvorgang, wenn der Aufrufer nicht die erforderliche Rolle auf dieser Zeile hält.
+
+Verwenden Sie `accessFilter()` innerhalb der Abfrage einer Listen- oder Lese-Action:
+
+```ts
+// actions/list-decks.ts
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the decks the current user can see.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const db = getDb();
+    return await db
+      .select()
+      .from(schema.decks)
+      .where(accessFilter(schema.decks, schema.deckShares));
+  },
+});
+```
+
+Verwenden Sie `assertAccess()` vor einem Update oder Delete, da eine `WHERE`-Klausel allein einen Schreibvorgang auf eine ausgeschlossene Zeile nicht verhindern kann:
+
+```ts
+// actions/rename-deck.ts
+import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Rename a deck.",
+  schema: z.object({ id: z.string(), title: z.string() }),
+  run: async ({ id, title }) => {
+    await assertAccess("deck", id, "editor");
+    const db = getDb();
+    await db.update(schema.decks).set({ title }).where(eq(schema.decks.id, id));
+    return { ok: true };
+  },
+});
+```
+
+Eine Create-Action ruft keinen der beiden Helfer auf. Sie muss beim Einfügen der neuen Zeile lediglich `ownerEmail` (und `orgId`) aus dem Anfragekontext übernehmen, da es noch keine bestehende Zeile gibt, gegen die der Zugriff geprüft werden könnte. Siehe [Freigabe und Datenschutz](/docs/sharing#building) für das vollständige Registrierungs- und Create-Muster, und [Ausführungskontext](/docs/actions-run-context) für die vollständige Form des oben verwendeten zweiten Arguments `ctx`.
+
+Die drei Mechanismen sind nicht austauschbar:
+
+| Mechanismus                       | Frage, die er beantwortet                                         | Gilt für                                      |
+| --------------------------------- | ----------------------------------------------------------------- | --------------------------------------------- |
+| `authorize`                       | Darf dieser Aufrufer die Operation überhaupt ausführen?           | Alle sechs Dispatch-Stellen                   |
+| `needsApproval`                   | Soll ein Mensch diesen konkreten erlaubten Aufruf genehmigen?     | Nur die Agentenschleife                       |
+| `accessFilter()`/`assertAccess()` | Welche Zeilen darf dieser erlaubte Aufrufer sehen oder schreiben? | Innerhalb von `run()`, pro Abfrage oder Zeile |
+
+Eine eingeschränkte Write-Action braucht typischerweise sowohl `authorize` als auch `assertAccess()`. Das eine hält Nicht-Coaches aus der Operation heraus. Das andere hält einen Coach aus dem Plan einer anderen Org heraus. `needsApproval` ist eine separate Achse. Es schränkt nie ein, wer aufrufen darf, sondern nur, ob der Agent unbeaufsichtigt fortfahren darf.
+
+`coachAccess` oben stammt von `defineAppRoles()`, dem App-eigenen Rollen-Overlay auf der Org-Mitgliedschaft. Siehe [Organisationen, Teams & Berechtigungen → App-Rollen](/docs/organizations-teams-permissions#app-roles-per-app-rbac) für das Rollenmodell und seine Garantien.
+
+## Audit-Protokollierung {#audit}
+
+Jede mutierende Action wird automatisch auditiert. Das Framework zeichnet auf, wer sie wann von welcher Oberfläche ausgeführt hat, und, wenn es der Agent war, welcher Thread und welche Runde, mit credential-redigierten Eingaben. Schreibgeschützte (`GET`-)Actions werden übersprungen. Sie schreiben dafür keinen Code. Es passiert automatisch innerhalb von `defineAction()`.
+
+Fügen Sie einen `audit`-Block nur hinzu, um die Erfassung feinabzustimmen. Der häufigste Grund ist, die Ressource zu deklarieren, die die Action geändert hat, sodass die Änderung im Trail des Ressourceneigentümers erscheint:
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({ type: "recording", id: args.id }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+Ein paar weitere Optionen. `audit: { onRead: true }` auditiert einen sensiblen Lesevorgang, wie einen Secret-Zugriff oder einen Bulk-Export. `audit: { enabled: false }` meldet einen lauten Write ab. `audit: { recordInputs: false }` überspringt das Erfassen von Argumenten. Lesen Sie den Trail mit den eingebauten Actions `list-audit-events` und `get-audit-event` zurück. Siehe [Audit-Protokoll](/docs/audit-log) für alle Details.
+
+## Was kommt als nächstes?
+
+- [**Überblick**](/docs/actions-overview) — was eine Action ist und der Hello-World-Durchlauf
+- [**Actions definieren**](/docs/actions-defining) — `defineAction()`-Aufbau, Schema und HTTP-Konfiguration
+- [**Ausführungskontext**](/docs/actions-run-context) — das `ctx`-Argument, das diese Prüfungen lesen
+- [**Human-in-the-Loop-Genehmigungen**](/docs/human-approval) — das `needsApproval`-Gate im Detail
+- [**Audit-Protokoll**](/docs/audit-log) — der automatische Wer-hat-was-geändert-Trail
+- [**Sicherheit**](/docs/security) — `accessFilter`/`assertAccess` und die Vertrauensgrenze des Extension-Iframes
+- [**Freigabe und Datenschutz**](/docs/sharing) — das Framework-Freigabesystem, auf dem diese Helfer aufbauen

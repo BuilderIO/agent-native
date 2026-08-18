@@ -1,4 +1,8 @@
-import type { ContentDatabaseFormQuestion, ContentDatabaseView } from "./api";
+import type {
+  ContentDatabaseFormQuestion,
+  ContentDatabaseView,
+  DocumentPropertySystemRole,
+} from "./api";
 import {
   isComputedPropertyType,
   type DocumentPropertyType,
@@ -8,6 +12,7 @@ export interface ContentDatabaseFormPropertyLike {
   definition: {
     id: string;
     type: DocumentPropertyType;
+    systemRole?: DocumentPropertySystemRole | null;
   };
 }
 
@@ -18,7 +23,11 @@ export function contentDatabaseFormQuestions(
   const availableKeys = [
     "name",
     ...properties
-      .filter((property) => !isComputedPropertyType(property.definition.type))
+      .filter(
+        (property) =>
+          !property.definition.systemRole &&
+          !isComputedPropertyType(property.definition.type),
+      )
       .map((property) => property.definition.id),
   ];
   const available = new Set(availableKeys);

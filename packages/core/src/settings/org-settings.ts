@@ -10,8 +10,10 @@
 
 import {
   getSetting,
+  mutateSetting,
   putSetting,
   deleteSetting,
+  deleteSettingsByPrefix,
   getAllSettings,
   type StoreWriteOptions,
 } from "./store.js";
@@ -40,6 +42,18 @@ export async function putOrgSetting(
   return putSetting(orgKey(orgId, key), value, options);
 }
 
+/** Atomically derive and persist an org-scoped setting. */
+export async function mutateOrgSetting(
+  orgId: string,
+  key: string,
+  updater: (
+    current: Record<string, unknown> | null,
+  ) => Record<string, unknown> | Promise<Record<string, unknown>>,
+  options?: StoreWriteOptions,
+): Promise<Record<string, unknown>> {
+  return mutateSetting(orgKey(orgId, key), updater, options);
+}
+
 /** Delete an org-scoped setting. */
 export async function deleteOrgSetting(
   orgId: string,
@@ -47,6 +61,14 @@ export async function deleteOrgSetting(
   options?: StoreWriteOptions,
 ): Promise<boolean> {
   return deleteSetting(orgKey(orgId, key), options);
+}
+
+/** Delete every setting belonging to an org. For org deletion. */
+export async function deleteAllOrgSettings(
+  orgId: string,
+  options?: StoreWriteOptions,
+): Promise<number> {
+  return deleteSettingsByPrefix(`o:${orgId}:`, options);
 }
 
 /**

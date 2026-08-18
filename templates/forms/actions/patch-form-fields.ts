@@ -23,6 +23,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { applyFieldOps } from "../server/lib/merge-fields.js";
+import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import { assertValidFields } from "../server/lib/validate-fields.js";
 import type { FormField } from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
@@ -138,6 +139,8 @@ export default defineAction({
         .update(schema.forms)
         .set({ fields: JSON.stringify(nextFields), updatedAt: now })
         .where(eq(schema.forms.id, args.id));
+
+      invalidatePublicFormCache(existing);
 
       return { id: args.id, fields: nextFields, updatedAt: now };
     });
