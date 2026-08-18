@@ -20,6 +20,7 @@ import {
   _nitroStartupRecovery,
   agentNative,
   defineConfig,
+  isFrameworkDynamicDevPath,
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
@@ -283,6 +284,55 @@ describe("dev server mounted path helpers", () => {
     expect(isFrameworkDevPath("/docs-extra/_agent-native/ping", "/docs/")).toBe(
       false,
     );
+  });
+
+  it("treats framework and well-known paths as dynamic for the dev forwarder", () => {
+    expect(
+      isFrameworkDynamicDevPath("/_agent-native/speculation-rules.json", "/"),
+    ).toBe(true);
+    expect(
+      isFrameworkDynamicDevPath(
+        "/docs/_agent-native/speculation-rules.json",
+        "/docs/",
+      ),
+    ).toBe(true);
+    expect(
+      isFrameworkDynamicDevPath("/docs/.well-known/agent-card.json", "/docs/"),
+    ).toBe(true);
+    expect(isFrameworkDynamicDevPath("/assets/logo.png", "/")).toBe(false);
+    expect(isFrameworkDynamicDevPath("/favicon.ico", "/")).toBe(false);
+  });
+
+  it("forces Nitro's dev classifier to treat framework assets as dynamic", () => {
+    const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+    plugin.configureServer(server as any);
+    expect(typeof middleware).toBe("function");
+
+    const request: any = {
+      url: "/_agent-native/speculation-rules.json",
+      headers: { accept: "application/json", "sec-fetch-dest": "empty" },
+    };
+    const next = vi.fn();
+    middleware?.(request, {}, next);
+    expect(request.headers.accept).toContain("text/html");
+    expect(request.headers["sec-fetch-dest"]).toBe("empty");
+    expect(next).toHaveBeenCalledOnce();
+
+    const assetRequest: any = {
+      url: "/assets/logo.png",
+      headers: { accept: "image/png" },
+    };
+    middleware?.(assetRequest, {}, vi.fn());
+    expect(assetRequest.headers.accept).toBe("image/png");
   });
 
   it("serves base-prefixed Vite module requests for embed sessions", async () => {
