@@ -1959,6 +1959,54 @@ const EMBED_DEV_STATIC_ASSET_PATHS = new Set([
   "/manifest.json",
 ]);
 
+const VITE_RUNTIME_MODULE_QUERY_KEYS = new Set([
+  "commonjs-proxy",
+  "direct",
+  "html-proxy",
+  "import",
+  "inline",
+  "inline-css",
+  "no-inline",
+  "raw",
+  "sharedworker",
+  "style-attr",
+  "transform-only",
+  "url",
+  "worker",
+]);
+
+const VITE_STATIC_ASSET_EXTENSIONS = new Set([
+  ".avif",
+  ".bmp",
+  ".css",
+  ".eot",
+  ".gif",
+  ".ico",
+  ".jpeg",
+  ".jpg",
+  ".less",
+  ".mp3",
+  ".mp4",
+  ".ogg",
+  ".otf",
+  ".pcss",
+  ".pdf",
+  ".png",
+  ".postcss",
+  ".sass",
+  ".scss",
+  ".svg",
+  ".styl",
+  ".stylus",
+  ".ttf",
+  ".wasm",
+  ".wav",
+  ".webm",
+  ".webp",
+  ".woff",
+  ".woff2",
+]);
+
 function mountedPathCandidates(
   reqUrl: string | undefined,
   base: string | undefined,
@@ -2045,9 +2093,58 @@ function mountedEmbedRuntimeModuleUrl(
   ) {
     return null;
   }
-  url.searchParams.delete(EMBED_TOKEN_QUERY_PARAM);
-  url.searchParams.delete(MCP_APP_CHAT_BRIDGE_QUERY_PARAM);
-  return `${url.pathname}${url.search}${url.hash}`;
+
+  // Vite distinguishes valueless module flags such as `?url` from `?url=`.
+  // Strip only the embed controls so those flags reach Vite byte-for-byte.
+  const hashStart = runtimeUrl.indexOf("#");
+  const searchStart = runtimeUrl.indexOf("?");
+  const search =
+    searchStart >= 0 && (hashStart < 0 || searchStart < hashStart)
+      ? runtimeUrl.slice(searchStart, hashStart < 0 ? undefined : hashStart)
+      : "";
+  return `${url.pathname}${stripMountedEmbedRuntimeQueryParams(search)}${url.hash}`;
+}
+
+function stripMountedEmbedRuntimeQueryParams(search: string): string {
+  if (!search) return "";
+  const kept = search
+    .slice(1)
+    .split("&")
+    .filter((pair) => {
+      const key = pair.split("=", 1)[0];
+      return (
+        key !== EMBED_TOKEN_QUERY_PARAM &&
+        key !== MCP_APP_CHAT_BRIDGE_QUERY_PARAM
+      );
+    });
+  return kept.length > 0 ? `?${kept.join("&")}` : "";
+}
+
+function isMountedEmbedStaticAssetRequest(
+  req: IncomingMessage,
+  runtimeUrl: string,
+): boolean {
+  const url = new URL(runtimeUrl, "http://agent-native.local");
+
+  const isViteModuleQuery = [...url.searchParams.keys()].some((key) =>
+    VITE_RUNTIME_MODULE_QUERY_KEYS.has(key),
+  );
+  if (isViteModuleQuery) return false;
+
+  const fetchDestination = String(
+    req.headers["sec-fetch-dest"] ?? "",
+  ).toLowerCase();
+  if (
+    ["audio", "font", "image", "style", "track", "video"].includes(
+      fetchDestination,
+    )
+  ) {
+    return true;
+  }
+
+  return VITE_STATIC_ASSET_EXTENSIONS.has(
+    path.extname(url.pathname).toLowerCase(),
+  );
 }
 
 function virtualModuleIdFromRuntimeUrl(runtimeUrl: string): string | null {
@@ -2085,6 +2182,7 @@ function serveMountedEmbedRuntimeModule(
   if (!hasValidEmbedRuntimeToken(req)) return false;
   const runtimeUrl = mountedEmbedRuntimeModuleUrl(req.url, base);
   if (!runtimeUrl) return false;
+  if (isMountedEmbedStaticAssetRequest(req, runtimeUrl)) return false;
 
   void loadMountedEmbedRuntimeModule(server, runtimeUrl)
     .then((code: string | null) => {

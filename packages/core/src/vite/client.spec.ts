@@ -346,6 +346,93 @@ describe("dev server mounted path helpers", () => {
     );
   });
 
+  it("lets direct mounted static assets reach Vite's normal handler", () => {
+    process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      transformRequest: vi.fn(),
+    };
+
+    plugin.configureServer(server);
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/picker?mediaType=image",
+      ttlSeconds: 60,
+    });
+    const next = vi.fn();
+
+    middleware!(
+      {
+        method: "GET",
+        url: `/assets/app/global.css?__an_embed_token=${token}`,
+        headers: {},
+      },
+      { setHeader: vi.fn() },
+      next,
+    );
+
+    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Vite module queries for mounted static files", async () => {
+    process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      transformRequest: vi.fn(async (url: string) => ({
+        code: `export default ${JSON.stringify(url)};`,
+      })),
+    };
+
+    plugin.configureServer(server);
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/picker?mediaType=image",
+      ttlSeconds: 60,
+    });
+    const res = {
+      headersSent: false,
+      statusCode: 0,
+      setHeader: vi.fn(),
+      end: vi.fn(() => {
+        res.headersSent = true;
+      }),
+    };
+    const next = vi.fn();
+
+    middleware!(
+      {
+        method: "GET",
+        url: `/assets/app/global.css?url&__an_embed_token=${token}`,
+        headers: {},
+      },
+      res,
+      next,
+    );
+    await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
+
+    expect(next).not.toHaveBeenCalled();
+    expect(server.transformRequest).toHaveBeenCalledWith("/app/global.css?url");
+    expect(res.setHeader).toHaveBeenCalledWith(
+      "content-type",
+      "text/javascript",
+    );
+  });
+
   it("serves absolute React Router browser manifests to external MCP embeds", async () => {
     const plugin = findPlugin("agent-native-base-redirect-guard");
     let middleware: Function | null = null;

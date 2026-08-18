@@ -63,6 +63,32 @@ describe("MCP embed headers", () => {
     }
   });
 
+  it("allows Builder preview origins for embed CORS", () => {
+    for (const origin of [
+      "https://builder.io",
+      "https://workspace.builder.io",
+      "https://builder.my",
+      "https://workspace.builder.my",
+      "https://preview.builderio.xyz",
+      "https://preview.builderio.dev",
+      "https://preview.builder.codes",
+    ]) {
+      expect(isMcpEmbedCorsOrigin(origin)).toBe(true);
+    }
+  });
+
+  it("rejects spoofed or insecure Builder preview origins", () => {
+    for (const origin of [
+      "https://builderio.xyz.evil.example",
+      "https://evilbuilderio.xyz",
+      "https://preview.builder.codes.evil.example",
+      "http://preview.builderio.dev",
+      "https://user:pass@preview.builderio.xyz",
+    ]) {
+      expect(isMcpEmbedCorsOrigin(origin)).toBe(false);
+    }
+  });
+
   it("only allows explicitly configured or exact native origins to read credentialed responses", () => {
     vi.stubEnv("CORS_ALLOWED_ORIGINS", "https://preview.example.com");
     expect(shouldAllowMcpEmbedCredentials("https://preview.example.com")).toBe(
