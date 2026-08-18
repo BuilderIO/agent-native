@@ -524,6 +524,11 @@ const messages = {
     newSlide: "New slide",
     closeAddSlides: "Close",
     describeThisSlide: "Describe this slide",
+    cut: "Cut",
+    copy: "Copy",
+    paste: "Paste",
+    skipSlide: "Skip slide",
+    unskipSlide: "Unskip slide",
   },
   presentation: {
     loadFailed: "Could not load this presentation.",
