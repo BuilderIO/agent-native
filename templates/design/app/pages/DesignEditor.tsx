@@ -3308,8 +3308,7 @@ function DesignEditor() {
               clearPendingLiveEditStateRef.current();
             }
             return nextShellInput;
-          }
-          );
+          });
         }
       }
 
