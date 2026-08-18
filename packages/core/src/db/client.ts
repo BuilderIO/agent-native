@@ -1777,7 +1777,13 @@ async function createDbExecInternal(
               },
             };
             try {
-              await queryNeonClient(client, "BEGIN");
+              // Send the transaction start and idle reaper together. Neon
+              // transaction pooling can ignore startup parameters, and a
+              // worker can die between separate BEGIN and SET LOCAL calls.
+              await queryNeonClient(
+                client,
+                "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
+              );
               const result = await fn(tx);
               await queryNeonClient(client, "COMMIT");
               releaseClient();
