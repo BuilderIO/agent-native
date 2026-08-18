@@ -107,7 +107,9 @@ every thread it previously asked in and act on the replies first.
    clarification. Omit what changed, verification details, implementation
    details, run IDs, session IDs, tool names, database/history details, and
    internal ownership boundaries from the posted reply. Those belong in the
-   investigation, not in the reporter's thread.
+   investigation, not in the reporter's thread. If the fix is complete but
+   internal verification is unavailable, post nothing yet; keep the thread
+   pending internally and resume after verification is available.
 6. When the user explicitly asks to reply, post directly in each requested
    thread with `slack_send_message` and `thread_ts`. Do not silently turn an
    authorized write into a draft. Re-read each thread afterward to confirm the

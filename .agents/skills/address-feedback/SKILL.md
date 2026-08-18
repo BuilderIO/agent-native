@@ -203,8 +203,9 @@ plain-language clarification question only when reporter or product input is
 missing. **Clarification needed** is the one timing exception: do not give a
 live estimate until the question is answered and the fix is complete. If only
 internal test, deployment, or tooling verification is unavailable, keep that
-blocker internal and do not turn it into a reporter question. Keep the
-no-technical-details rule in all cases.
+blocker internal, do not post an external Slack status yet, and resume the
+thread after verification is available. Do not turn it into a reporter
+question. Keep the no-technical-details rule in all cases.
 
 Use this format:
 

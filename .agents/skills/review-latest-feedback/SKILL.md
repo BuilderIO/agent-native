@@ -160,6 +160,8 @@ failure modes, surfaces, or owners.
    fixed and when it should be live; a clarification reply asks one concrete
    question about missing reporter or product input. Keep implementation and
    verification evidence in the internal recap, not the reporter-facing reply.
+   If the fix is complete but internal verification is unavailable, do not post
+   yet; leave it pending for the next verification pass.
    Do not post vague progress, technical internals, or a diagnosis that leaves
    a safely fixable bug undone. Re-read every thread after posting. A fix reply
    authored by this skill's own identity is a handled marker on the next run;
