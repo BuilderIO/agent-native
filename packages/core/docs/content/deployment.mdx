@@ -14,7 +14,7 @@ There are two good starting points, depending on your role:
 - **Building an app?** Start with [Getting Started](/docs/getting-started), then return here when you are ready to put the result somewhere permanent.
 - **Operating an app?** Use the local Docker path below first. It exercises the same Node.js, Postgres, authentication, and environment-variable shape you will use on a small server.
 
-The local stack intentionally uses a fake auth secret and a local Postgres volume. It is for `localhost`, not an internet-facing deployment.
+The local stack intentionally uses a fake auth secret, trust authentication, and a local Postgres volume. It is for `localhost`, not an internet-facing deployment. Do not reuse the trust-authentication setting in production.
 
 ### 1. Create the app
 
@@ -39,7 +39,7 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: postgres://agent_native:local-development-only@postgres:5432/agent_native
+      DATABASE_URL: postgres://agent_native@postgres:5432/agent_native
       BETTER_AUTH_URL: http://localhost:3000
       BETTER_AUTH_SECRET: local-development-secret-change-me-1234567890
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
@@ -48,11 +48,11 @@ services:
         condition: service_healthy
 
   postgres:
-      image: postgres:18
+    image: postgres:18
     environment:
       POSTGRES_DB: agent_native
       POSTGRES_USER: agent_native
-      POSTGRES_PASSWORD: local-development-only
+      POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:

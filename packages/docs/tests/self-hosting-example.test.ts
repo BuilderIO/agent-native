@@ -19,7 +19,12 @@ describe("self-hosted Chat fixture", () => {
     expect(dockerfile).toContain("COPY package.json pnpm-lock.yaml ./");
     expect(dockerfile).toContain("RUN pnpm build");
     expect(dockerfile).toContain('CMD ["node", ".output/server/index.mjs"]');
+    expect(compose).toContain(
+      "DATABASE_URL: postgres://agent_native@postgres:5432/agent_native",
+    );
     expect(compose).toContain("image: postgres:18");
+    expect(compose).toContain("POSTGRES_HOST_AUTH_METHOD: trust");
+    expect(compose).not.toContain("POSTGRES_PASSWORD:");
     expect(compose).toContain("condition: service_healthy");
     expect(compose).toContain("postgres-data:/var/lib/postgresql");
     expect(readFixture("README.md")).toContain("docker compose up --build");
