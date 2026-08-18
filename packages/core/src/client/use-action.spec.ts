@@ -431,12 +431,14 @@ describe("callAction", () => {
     // explicit `{ method: "DELETE" }`. The client has no way to look up the
     // declared method, so it silently sends its POST default — mirroring
     // mountActionRoutes' real 405 body for a non-frontend-tolerated mismatch.
-    const fetchMock = vi.fn().mockResolvedValue(
-      jsonResponse(
-        { error: "Method not allowed. Use DELETE." },
-        { status: 405 },
-      ),
-    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          { error: "Method not allowed. Use DELETE." },
+          { status: 405 },
+        ),
+      );
     vi.stubGlobal("fetch", fetchMock);
 
     const error = await callAction("delete-todo", { id: "1" }).catch(

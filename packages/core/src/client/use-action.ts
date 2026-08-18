@@ -472,9 +472,7 @@ async function performActionFetch<T>(
     // blind. Name the action and the required method instead of leaving a
     // bare 405 for the caller to reverse-engineer from a "Use X" string.
     if (res.status === 405) {
-      const requiredMethod = /\bUse (GET|POST|PUT|DELETE)\b/.exec(
-        message,
-      )?.[1];
+      const requiredMethod = /\bUse (GET|POST|PUT|DELETE)\b/.exec(message)?.[1];
       const error = new Error(
         `Action ${name} was called with ${method}, but it declares ` +
           `http: { method: "${requiredMethod ?? "?"}" }. Pass { method: "${requiredMethod ?? "..."}" } ` +
