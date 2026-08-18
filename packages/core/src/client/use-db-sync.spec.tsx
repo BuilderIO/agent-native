@@ -440,11 +440,21 @@ describe("useDbSync", () => {
     containers.push(result.container);
 
     expect(result.fetchMock).toHaveBeenCalled();
+    const appStateCall = result.queryClient.calls.find(
+      (call) => call?.predicate,
+    );
+    // Only app-state queries for the changed key (plus the aggregate query)
+    // should refresh - unrelated keyed app-state reads stay untouched.
+    expect(
+      appStateCall?.predicate?.({ queryKey: ["app-state", "selection"] }),
+    ).toBe(true);
+    expect(
+      appStateCall?.predicate?.({ queryKey: ["app-state", "navigate"] }),
+    ).toBe(false);
+    expect(appStateCall?.predicate?.({ queryKey: ["app-state"] })).toBe(true);
     const keys = invalidatedQueryKeys(result.queryClient.calls);
-    // The one query app-state writes legitimately refresh.
-    expect(keys).toContainEqual(["app-state"]);
+    expect(keys).toHaveLength(1);
     // But never the broad data-query prefixes.
-    expect(keys).not.toContainEqual(undefined);
     expect(keys).not.toContainEqual(["action"]);
     expect(keys).not.toContainEqual(["extension"]);
     expect(keys).not.toContainEqual(["tool"]);
@@ -776,6 +786,53 @@ describe("useDbSync", () => {
       await vi.advanceTimersByTimeAsync(58_000);
     });
     expect(pollCallCount()).toBe(5);
+  });
+
+  it("does not let a paged response high-water mark skip its durable cursor", async () => {
+    vi.useFakeTimers();
+    const queryClient = new QueryClientProbe();
+    const fetchMock = vi.fn(async () => {
+      if (fetchMock.mock.calls.length === 1) {
+        return new Response(
+          JSON.stringify({
+            version: 10_000,
+            events: [{ version: 2_000, cursorId: "a", source: "action" }],
+            cursor: "2000.a",
+          }),
+        );
+      }
+      return new Response(JSON.stringify({ version: 10_000, events: [] }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    function CursorProbe() {
+      useDbSync({
+        queryClient,
+        sseUrl: false,
+        interval: 50,
+        pauseWhenHidden: false,
+      });
+      return null;
+    }
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    roots.push(root);
+    containers.push(container);
+
+    await act(async () => {
+      root.render(<CursorProbe />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(50);
+    });
+
+    expect(String(fetchMock.mock.calls[0]?.[0])).not.toContain("cursor=");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("since=2000");
+    expect(String(fetchMock.mock.calls[1]?.[0])).toContain("cursor=2000.a");
   });
 
   it("keeps active sync alive at a slower cadence while hidden", async () => {

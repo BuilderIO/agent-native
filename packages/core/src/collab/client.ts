@@ -206,6 +206,26 @@ const _awarenessThrottleTimers = new Map<
   ReturnType<typeof setTimeout>
 >();
 
+function awarenessThrottleKey(
+  baseUrl: string,
+  docId: string,
+  clientId: number,
+): string {
+  return `${baseUrl}::${docId}::${clientId}`;
+}
+
+function cancelAwarenessPush(
+  baseUrl: string,
+  docId: string,
+  clientId: number,
+): void {
+  const key = awarenessThrottleKey(baseUrl, docId, clientId);
+  const timer = _awarenessThrottleTimers.get(key);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  _awarenessThrottleTimers.delete(key);
+}
+
 function scheduleAwarenessPush(
   baseUrl: string,
   docId: string,
@@ -213,7 +233,7 @@ function scheduleAwarenessPush(
   getState: () => Record<string, unknown> | null,
 ): void {
   if (typeof window === "undefined") return;
-  const key = `${docId}::${clientId}`;
+  const key = awarenessThrottleKey(baseUrl, docId, clientId);
   if (_awarenessThrottleTimers.has(key)) return; // already scheduled
 
   const timer = setTimeout(() => {
@@ -403,6 +423,10 @@ class CollabDocConnection {
   remove(id: symbol): void {
     this.subscribers.delete(id);
     if (this.subscribers.size === 0) {
+      // A lingered connection may be remounted for StrictMode, but it has no
+      // live consumer while empty. Do not let a queued presence push escape
+      // after the last subscriber has gone away.
+      cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
       this.scheduleDispose();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
@@ -443,6 +467,7 @@ class CollabDocConnection {
     // `setLocalState(null)` does not schedule a push (matches the previous
     // per-hook effect cleanup ordering).
     this.awareness.off("change", this.handleAwarenessChange);
+    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
     this.awareness.destroy();
     this.ydoc.destroy();
     if (collabConnectionRegistry.get(this.registryKey) === this) {
