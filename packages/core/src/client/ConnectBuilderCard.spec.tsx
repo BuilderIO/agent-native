@@ -81,7 +81,7 @@ describe("ConnectBuilderCard", () => {
         <ConnectBuilderCard
           configured
           builderEnabled={false}
-          connectUrl="https://builder.io/cli-auth"
+          connectUrl="/_agent-native/builder/connect?_an_connect=signed"
           prompt="Update the dashboard layout"
         />,
       );
@@ -121,7 +121,7 @@ describe("ConnectBuilderCard", () => {
         <ConnectBuilderCard
           configured
           builderEnabled={false}
-          connectUrl="https://builder.io/cli-auth"
+          connectUrl="/_agent-native/builder/connect?_an_connect=signed"
           prompt="Update the dashboard layout"
         />,
       );
@@ -185,7 +185,7 @@ describe("ConnectBuilderCard", () => {
         <ConnectBuilderCard
           configured
           builderEnabled={false}
-          connectUrl="https://builder.io/cli-auth"
+          connectUrl="/_agent-native/builder/connect?_an_connect=signed"
           orgName="Builder space"
           prompt="Update the dashboard layout"
         />,

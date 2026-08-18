@@ -558,6 +558,8 @@ export default createAgentChatPlugin({
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) 是一个独立的托管代码工作流，代理可在其中修改生产应用的 UI。将仓库连接到 Builder.io（提供免费套餐）后即可直接请求 UI 更改，无需重新部署。
 
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
 **工作原理：**
 
 1. 将您的代理本机存储库连接到 Builder.io（提供免费套餐）

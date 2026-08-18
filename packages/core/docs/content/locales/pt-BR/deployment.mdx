@@ -567,6 +567,8 @@ Em uma implantação de produção padrão com [production code execution](#prod
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) é um fluxo gerenciado separado com capacidade de código, no qual um agente pode modificar a UI do app em produção. Conecte o repositório ao Builder.io (nível gratuito disponível) e solicite alterações de UI diretamente, sem reimplantação.
 
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
 **Como funciona:**
 
 1. Conecte seu repositório nativo do agente ao Builder.io (nível gratuito disponível)

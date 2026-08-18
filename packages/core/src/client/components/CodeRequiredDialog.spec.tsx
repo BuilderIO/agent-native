@@ -20,7 +20,7 @@ describe("CodeRequiredDialog", () => {
             JSON.stringify({
               configured: true,
               builderEnabled: false,
-              connectUrl: "https://builder.io/cli-auth",
+              connectUrl: "/_agent-native/builder/connect?_an_connect=signed",
             }),
             { headers: { "Content-Type": "application/json" } },
           ),

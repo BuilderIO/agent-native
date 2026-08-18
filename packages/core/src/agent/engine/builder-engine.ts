@@ -8,11 +8,16 @@
  * concurrency) into structured stop events that carry an upgrade URL when
  * the chat UI needs to prompt the user to upgrade.
  *
- * Credentials come from BUILDER_PRIVATE_KEY + BUILDER_PUBLIC_KEY (set via the
- * Builder CLI-auth onboarding flow). Base URL is overridable via
- * BUILDER_GATEWAY_BASE_URL.
+ * Interactive users authenticate with Builder OAuth. Existing deployments may
+ * keep using BUILDER_PRIVATE_KEY + BUILDER_PUBLIC_KEY until they reconnect.
+ * Base URL is overridable via BUILDER_GATEWAY_BASE_URL.
  */
 
+import {
+  BUILDER_OAUTH_SCOPE,
+  hasBuilderOAuthSession,
+  resolveBuilderOAuthRequestAccess,
+} from "../../server/builder-oauth.js";
 import { captureError } from "../../server/capture-error.js";
 import {
   clearBuilderCredentialAuthFailure,
@@ -20,6 +25,7 @@ import {
   getBuilderGatewayBaseUrl,
   recordBuilderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import {
   isGPTReasoningModel,
@@ -168,10 +174,35 @@ class BuilderEngine implements AgentEngine {
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
     const creds =
       this.configuredCredentials ?? (await resolveBuilderCredentials());
-    const authHeader = creds.privateKey ? `Bearer ${creds.privateKey}` : null;
+    const ownerEmail = getRequestUserEmail();
+    let oauthAccess: Awaited<
+      ReturnType<typeof resolveBuilderOAuthRequestAccess>
+    > = null;
+    let hasStoredOAuth = false;
+    if (ownerEmail) {
+      hasStoredOAuth = await hasBuilderOAuthSession(ownerEmail);
+      if (hasStoredOAuth) {
+        try {
+          oauthAccess = await resolveBuilderOAuthRequestAccess({
+            ownerEmail,
+            requiredScope: BUILDER_OAUTH_SCOPE,
+          });
+        } catch {
+          // coercion-ok: unusable OAuth custody must not fall back to legacy keys.
+          oauthAccess = null;
+        }
+      }
+    }
+    // Prefer OAuth when present. If OAuth custody exists but is unusable,
+    // do not silently fall back to a legacy private key for the same user.
+    const authHeader = oauthAccess
+      ? `Bearer ${oauthAccess.accessToken}`
+      : !hasStoredOAuth && creds.privateKey
+        ? `Bearer ${creds.privateKey}`
+        : null;
     const spaceId = creds.publicKey;
-    const builderUserId = creds.userId;
-    if (!authHeader || !spaceId) {
+    const builderUserId = oauthAccess ? undefined : creds.userId;
+    if (!authHeader || (!oauthAccess && !spaceId)) {
       yield {
         type: "stop",
         reason: "error",
@@ -292,7 +323,9 @@ class BuilderEngine implements AgentEngine {
       "messages",
       gatewayBaseUrl.endsWith("/") ? gatewayBaseUrl : `${gatewayBaseUrl}/`,
     );
-    gatewayUrl.searchParams.set("apiKey", spaceId);
+    // OAuth tokens carry Space identity in the JWT `org` claim. Sending a
+    // client-supplied apiKey/public key is legacy private-key behavior only.
+    if (spaceId && !oauthAccess) gatewayUrl.searchParams.set("apiKey", spaceId);
     const orgLabel = creds.orgName || "unknown-org";
     const tStart = Date.now();
     console.log(
@@ -312,7 +345,9 @@ class BuilderEngine implements AgentEngine {
           headers: {
             "Content-Type": "application/json",
             Authorization: authHeader,
-            "x-builder-api-key": spaceId,
+            ...(spaceId && !oauthAccess
+              ? { "x-builder-api-key": spaceId }
+              : {}),
             ...getBuilderGatewayRequestHeaders(),
             ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
           },
@@ -349,7 +384,7 @@ class BuilderEngine implements AgentEngine {
       );
 
       if (!response.ok) {
-        yield* emitHttpError(response);
+        yield* emitHttpError(response, !oauthAccess);
         return;
       }
 
@@ -357,17 +392,20 @@ class BuilderEngine implements AgentEngine {
       // again. Clear any prior auth-failure marker so status / chat-card
       // surfaces stop flagging the connection as broken. This is the only
       // self-healing path for workspace/env-managed credentials, which never
-      // flow through writeBuilderCredentials.
-      try {
-        const creds =
-          this.configuredCredentials ?? (await resolveBuilderCredentials());
-        await clearBuilderCredentialAuthFailure({
-          privateKey: creds.privateKey,
-          publicKey: creds.publicKey,
-        });
-      } catch {
-        // Marker clearing is best-effort; a stale marker just means the user
-        // sees "reconnect Builder" until the next successful call clears it.
+      // flow through writeBuilderCredentials. OAuth failures are not tracked
+      // with the legacy private-key fingerprint marker.
+      if (!oauthAccess) {
+        try {
+          const legacyCreds =
+            this.configuredCredentials ?? (await resolveBuilderCredentials());
+          await clearBuilderCredentialAuthFailure({
+            privateKey: legacyCreds.privateKey,
+            publicKey: legacyCreds.publicKey,
+          });
+        } catch {
+          // coercion-ok: clearing the legacy auth-failure marker is best-effort;
+          // a stale marker only keeps the reconnect CTA until the next success.
+        }
       }
 
       const contentType = response.headers.get("content-type") ?? "";
@@ -399,6 +437,7 @@ class BuilderEngine implements AgentEngine {
         onFirstEvent: gatewayAbort.markFirstEvent,
         gatewayUrl,
         requestStartedAt: tStart,
+        recordLegacyCredentialFailure: !oauthAccess,
       });
     } finally {
       gatewayAbort.cleanup();
@@ -406,7 +445,10 @@ class BuilderEngine implements AgentEngine {
   }
 }
 
-async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
+async function* emitHttpError(
+  response: Response,
+  recordLegacyCredentialFailure: boolean,
+): AsyncIterable<EngineEvent> {
   const status = response.status;
   // Read the body once as text and then try to parse — calling `.json()`
   // and then `.text()` as a fallback fails because the body stream is
@@ -446,7 +488,9 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     return;
   }
   if (status === 401 || code === "unauthorized") {
-    await recordBuilderCredentialAuthFailure({ status, code, message });
+    if (recordLegacyCredentialFailure) {
+      await recordBuilderCredentialAuthFailure({ status, code, message });
+    }
     yield {
       type: "stop",
       reason: "error",
@@ -457,7 +501,9 @@ async function* emitHttpError(response: Response): AsyncIterable<EngineEvent> {
     return;
   }
   if (status === 403 && isBuilderCredentialAuthError(message)) {
-    await recordBuilderCredentialAuthFailure({ status, code, message });
+    if (recordLegacyCredentialFailure) {
+      await recordBuilderCredentialAuthFailure({ status, code, message });
+    }
     yield {
       type: "stop",
       reason: "error",
@@ -546,6 +592,7 @@ async function* parseJsonlStream(
     onFirstEvent?: () => void;
     gatewayUrl?: URL;
     requestStartedAt?: number;
+    recordLegacyCredentialFailure?: boolean;
   } = {},
 ): AsyncIterable<EngineEvent> {
   const parts: EngineContentPart[] = [];
@@ -776,7 +823,10 @@ async function* parseJsonlStream(
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
             );
-            if (isCredentialAuthError) {
+            if (
+              isCredentialAuthError &&
+              captureContext.recordLegacyCredentialFailure !== false
+            ) {
               await recordBuilderCredentialAuthFailure({
                 code:
                   typeof gatewayErrCode === "string" ? gatewayErrCode : errCode,

@@ -562,6 +562,8 @@ export default createAgentChatPlugin({
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) هو سير عمل منفصل مُدار وقادر على تعديل التعليمات البرمجية، ويمكن للوكيل فيه تعديل UI لتطبيقك في الإنتاج. صِل مستودعك بـ Builder.io (free tier available) واطلب تغييرات UI مباشرة - لا حاجة لإعادة النشر.
 
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
 **كيفية العمل:**
 
 1. قم بتوصيل الريبو الأصلي للوكيل الخاص بك إلى Builder.io (free tier available)

@@ -34,7 +34,7 @@ function useBuilderConnected() {
         if (data) {
           setConnected(!!data.configured);
           setCloudAgentsAvailable(!!data.builderEnabled);
-          setConnectUrl(data.cliAuthUrl || data.connectUrl || null);
+          setConnectUrl(data.connectUrl || null);
         }
       })
       .catch(() => {});

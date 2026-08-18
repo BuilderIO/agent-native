@@ -564,6 +564,8 @@ export default createAgentChatPlugin({
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment)는 별도의 관리형 코드 지원 워크플로이며 에이전트가 프로덕션 앱 UI를 변경할 수 있습니다. 저장소를 Builder.io(무료 요금제 제공)에 연결하고 UI 변경을 직접 요청할 수 있으며 재배포가 필요하지 않습니다.
 
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
 **작동 방식:**
 
 1. 에이전트 기본 저장소를 Builder.io(무료 요금제 제공)에 연결

@@ -1460,7 +1460,7 @@ describe("server/auth", () => {
       ).resolves.toEqual({ error: "Unauthorized" });
     });
 
-    it("lets Builder connect callbacks with owner cookies bypass the global auth guard", async () => {
+    it("does not let Builder connect callbacks with owner cookies bypass the global auth guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
@@ -1488,10 +1488,10 @@ describe("server/auth", () => {
             },
           }),
         ),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ error: "Unauthorized" });
     });
 
-    it("lets Builder connect callbacks with signed callback state bypass the global auth guard", async () => {
+    it("does not let Builder connect callbacks with legacy CLI state bypass the global auth guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
@@ -1517,10 +1517,10 @@ describe("server/auth", () => {
             query: { [BUILDER_STATE_PARAM]: state },
           }),
         ),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ error: "Unauthorized" });
     });
 
-    it("lets Builder connect callbacks with signed callback state bypass stale session cookies", async () => {
+    it("does not let legacy CLI callback state bypass when a stale session cookie is present", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
@@ -1549,7 +1549,7 @@ describe("server/auth", () => {
             },
           }),
         ),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ error: "Unauthorized" });
     });
 
     it("lets signed integration processor routes bypass the global auth guard", async () => {

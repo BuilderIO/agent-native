@@ -31,7 +31,6 @@ export function BuilderTranscriptionCta() {
           ? (r.json() as Promise<{
               configured: boolean;
               envManaged?: boolean;
-              cliAuthUrl?: string;
               connectUrl?: string;
             }>)
           : null,
@@ -41,7 +40,7 @@ export function BuilderTranscriptionCta() {
         // Env-managed mode counts as configured for the CTA — the deploy
         // already routes transcription through Builder, no per-user prompt.
         setConfigured(!!(s?.configured || s?.envManaged));
-        setConnectUrl(s?.cliAuthUrl || s?.connectUrl || null);
+        setConnectUrl(s?.connectUrl || null);
       })
       .catch(() => {
         if (mountedRef.current) setConfigured(false);

@@ -9,13 +9,14 @@ import {
 import type { FileUploadProvider } from "../file-upload/types.js";
 import {
   BUILDER_CONNECT_PARAM,
-  BUILDER_STATE_PARAM,
-  signBuilderCallbackState,
+  createBuilderConnectState,
   signBuilderConnectToken,
 } from "./builder-browser.js";
 import {
   buildBuilderWaitlistFormPayload,
   checkBuilderWaitlistRateLimit,
+  consumeBuilderConnectPendingState,
+  isBuilderConnectCallbackOwner,
   resolveBuilderOwnerContextForRequest,
   resolveBuilderWaitlistFormTargetForRequest,
   resolveWaitlistEmail,
@@ -265,7 +266,7 @@ describe("resolveLegacyToolsRedirect", () => {
 describe("getFrameworkRouteRequestUrl", () => {
   it("preserves the raw query when a mounted event URL was normalized", () => {
     const event = createMockEvent(
-      `https://www.agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=signed-state&api-key=public-key`,
+      "https://www.agent-native.com/_agent-native/builder/callback?state=signed-state&code=authorization-code",
     );
     event.url = new URL(
       "https://www.agent-native.com/_agent-native/builder/callback",
@@ -273,21 +274,19 @@ describe("getFrameworkRouteRequestUrl", () => {
 
     const requestUrl = getFrameworkRouteRequestUrl(event);
 
-    expect(requestUrl.searchParams.get(BUILDER_STATE_PARAM)).toBe(
-      "signed-state",
-    );
-    expect(requestUrl.searchParams.get("api-key")).toBe("public-key");
+    expect(requestUrl.searchParams.get("state")).toBe("signed-state");
+    expect(requestUrl.searchParams.get("code")).toBe("authorization-code");
   });
 
   it("keeps the canonical event URL when it already has a query", () => {
     const event = createMockEvent(
-      `https://www.agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=from-event`,
+      "https://www.agent-native.com/_agent-native/builder/callback?state=from-event",
     );
-    event.node.req.url = "/_agent-native/builder/callback?_an_state=from-raw";
+    event.node.req.url = "/_agent-native/builder/callback?state=from-raw";
 
     const requestUrl = getFrameworkRouteRequestUrl(event);
 
-    expect(requestUrl.searchParams.get(BUILDER_STATE_PARAM)).toBe("from-event");
+    expect(requestUrl.searchParams.get("state")).toBe("from-event");
   });
 });
 
@@ -303,51 +302,6 @@ describe("resolveBuilderOwnerContextForRequest", () => {
       if (!(key in originalEnv)) delete process.env[key];
     }
     Object.assign(process.env, originalEnv);
-  });
-
-  it("uses signed callback state when docs auth minted a fresh anonymous session", async () => {
-    const originalOwner = "anon-original@agent-native.com";
-    const freshOwner = "anon-fresh@agent-native.com";
-    const state = signBuilderCallbackState(originalOwner);
-    const event = createMockEvent(
-      `https://agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=${encodeURIComponent(state)}`,
-    );
-
-    const context = await resolveBuilderOwnerContextForRequest(
-      event,
-      {
-        getSessionForEvent: async () => ({ email: freshOwner }),
-      },
-      "callback",
-    );
-
-    expect(context.email).toBe(originalOwner);
-    expect(context.session).toBeNull();
-    expect(context.anonymous).toBe(true);
-  });
-
-  it("recovers signed callback state when a mounted event loses its query", async () => {
-    const originalOwner = "anon-original@agent-native.com";
-    const freshOwner = "anon-fresh@agent-native.com";
-    const state = signBuilderCallbackState(originalOwner);
-    const event = createMockEvent(
-      `https://agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=${encodeURIComponent(state)}`,
-    );
-    event.url = new URL(
-      "https://agent-native.com/_agent-native/builder/callback",
-    );
-
-    const context = await resolveBuilderOwnerContextForRequest(
-      event,
-      {
-        getSessionForEvent: async () => ({ email: freshOwner }),
-      },
-      "callback",
-    );
-
-    expect(context.email).toBe(originalOwner);
-    expect(context.session).toBeNull();
-    expect(context.anonymous).toBe(true);
   });
 
   it("uses signed connect owner when docs auth minted a fresh anonymous session", async () => {
@@ -371,10 +325,9 @@ describe("resolveBuilderOwnerContextForRequest", () => {
     expect(context.anonymous).toBe(true);
   });
 
-  it("does not let signed Builder state override a different real user session", async () => {
-    const state = signBuilderCallbackState("mallory@example.com");
+  it("uses the authenticated callback session owner", async () => {
     const event = createMockEvent(
-      `https://assets.agent-native.com/_agent-native/builder/callback?${BUILDER_STATE_PARAM}=${encodeURIComponent(state)}`,
+      "https://assets.agent-native.com/_agent-native/builder/callback?state=oauth-state",
     );
 
     const context = await resolveBuilderOwnerContextForRequest(
@@ -388,6 +341,57 @@ describe("resolveBuilderOwnerContextForRequest", () => {
     expect(context.email).toBe("steve@builder.io");
     expect(context.session).toEqual({ email: "steve@builder.io" });
     expect(context.anonymous).toBe(false);
+  });
+});
+
+describe("Builder OAuth callback state", () => {
+  beforeEach(() => {
+    process.env.BETTER_AUTH_SECRET = "builder-oauth-state-test-secret";
+  });
+
+  it("requires the same signed-in owner that initiated the flow", () => {
+    expect(
+      isBuilderConnectCallbackOwner("alice@example.com", "alice@example.com"),
+    ).toBe(true);
+    expect(
+      isBuilderConnectCallbackOwner("alice@example.com", "mallory@example.com"),
+    ).toBe(false);
+    expect(isBuilderConnectCallbackOwner("alice@example.com", undefined)).toBe(
+      false,
+    );
+  });
+
+  it("consumes a signed pending state once", async () => {
+    const state = createBuilderConnectState();
+    let value: Record<string, unknown> | null = {
+      ownerEmail: "alice@example.com",
+      expiresAt: Date.now() + 60_000,
+    };
+    const dependencies = {
+      mutate: async (
+        _key: string,
+        update: (
+          current: Record<string, unknown> | null,
+        ) => Record<string, unknown>,
+      ) => {
+        value = update(value);
+        return value;
+      },
+      remove: async () => {
+        value = null;
+        return true;
+      },
+    };
+
+    await expect(
+      consumeBuilderConnectPendingState(state, dependencies as never),
+    ).resolves.toMatchObject({
+      ownerEmail: "alice@example.com",
+      consumed: true,
+    });
+    await expect(
+      consumeBuilderConnectPendingState(state, dependencies as never),
+    ).resolves.toBeNull();
   });
 });
 
