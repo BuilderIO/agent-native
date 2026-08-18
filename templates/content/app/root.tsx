@@ -1,4 +1,3 @@
-import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { configureTracking } from "@agent-native/core/client/analytics";
 import { appPath } from "@agent-native/core/client/api-path";
 import {
@@ -19,6 +18,7 @@ import {
 } from "@agent-native/core/client/navigation";
 import {
   ErrorReportActions,
+  RouteTransitionIndicator,
   getThemeInitScript,
 } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
@@ -34,7 +34,14 @@ import {
   IconSun,
 } from "@tabler/icons-react";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
   Links,
   Meta,
@@ -45,7 +52,6 @@ import {
   useLoaderData,
   useLocation,
   useNavigate,
-  useNavigation,
   useRouteLoaderData,
   useRouteError,
 } from "react-router";
@@ -119,6 +125,11 @@ export function shouldRevalidate({
 // Pass args to match content's 3-way theme-cycle UX (no disableTransitionOnChange).
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
 
+const LazyAgentSidebar = lazy(async () => {
+  const { AgentSidebar } = await import("@agent-native/core/client/agent-chat");
+  return { default: AgentSidebar };
+});
+
 const DEFAULT_LOADER_DATA: RootLoaderData = {
   locale: "en-US",
   preference: { locale: "system" },
@@ -177,7 +188,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const localeInitScript = getLocaleInitScript({
     locale: loaderData.locale,
     preference: loaderData.preference,
-    messages: loaderData.messages,
   });
 
   return (
@@ -202,7 +212,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#10B981" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -228,26 +237,6 @@ function AppSetup() {
   useDbSync();
   useNavigationState();
   return null;
-}
-
-function RouteTransitionIndicator() {
-  const navigation = useNavigation();
-  const pending = navigation.state !== "idle";
-
-  return (
-    <div
-      className="pointer-events-none fixed inset-x-0 top-0 z-[100] h-0.5 overflow-hidden"
-      aria-hidden={!pending}
-      role="progressbar"
-      data-pending={pending ? "true" : undefined}
-    >
-      <div
-        className={`h-full w-2/3 origin-left bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-[transform,opacity] duration-200 ${
-          pending ? "scale-x-100 opacity-100" : "scale-x-0 opacity-0"
-        }`}
-      />
-    </div>
-  );
 }
 
 function ThemeToggleItem() {
@@ -509,19 +498,29 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <AgentSidebar
-      position="right"
-      defaultOpen={false}
-      defaultSidebarWidth={420}
-      emptyStateText={t("chat.publicEmptyState")}
-      suggestions={[
-        t("chat.publicSuggestionSummary"),
-        t("chat.publicSuggestionTakeaways"),
-        t("chat.publicSuggestionActionPlan"),
-      ]}
+    <Suspense
+      fallback={
+        <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
+          <div className="flex min-w-0 flex-1 flex-col overflow-auto">
+            {content}
+          </div>
+        </div>
+      }
     >
-      {content}
-    </AgentSidebar>
+      <LazyAgentSidebar
+        position="right"
+        defaultOpen={false}
+        defaultSidebarWidth={420}
+        emptyStateText={t("chat.publicEmptyState")}
+        suggestions={[
+          t("chat.publicSuggestionSummary"),
+          t("chat.publicSuggestionTakeaways"),
+          t("chat.publicSuggestionActionPlan"),
+        ]}
+      >
+        {content}
+      </LazyAgentSidebar>
+    </Suspense>
   );
 }
 
@@ -549,7 +548,7 @@ function ContentCommandMenu({
       )}
     >
       <CommandMenu.Group heading={t("root.commandContent")}>
-        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+        <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
           <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>

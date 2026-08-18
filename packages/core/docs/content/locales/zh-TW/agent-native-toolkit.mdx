@@ -20,12 +20,12 @@ Toolkit 是面向高品質智慧代理應用程式、可重複使用且經過實
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="套件如何融入" summary={"框架執行階段提供持久保證。Toolkit 將這些保證轉化為可重複使用的產品系統。應用程式再加入領域特定的資料、路由和視覺識別。"}>
+<Diagram id="doc-block-toolkits-boundary" title="三個層次如何配合" summary={"Core 是框架基礎。Toolkit 是可選的可重複使用基礎設施與 UI。Templates 是建構在 Core 上、通常使用 Toolkit 的可選應用程式。"}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">執行階段</span><br />
+    <span class="diagram-pill accent">Core</span><br />
     動作、SQL、驗證、應用程式狀態、存取檢查、即時傳輸
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -35,7 +35,7 @@ Toolkit 是面向高品質智慧代理應用程式、可重複使用且經過實
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">應用程式</span><br />
+    <span class="diagram-pill accent">Templates</span><br />
     領域結構描述、路由、動作、品牌、專門工作流程
   </div>
 </div>
@@ -60,6 +60,8 @@ Toolkit 是面向高品質智慧代理應用程式、可重複使用且經過實
 
 </Diagram>
 
+Core 就是框架。Toolkit 是框架可選的可重複使用部件集合。Templates 是建構在 Core 上的可選應用程式；它們可以使用 Toolkit，也可以分叉作為完整起點。應用程式也可以不採用 Toolkit 或範本而直接使用 Core。
+
 ## 目錄 {#catalog}
 
 | 領域               | 從這裡開始                                     | 涵蓋內容                                                     |
@@ -74,19 +76,19 @@ Toolkit 是面向高品質智慧代理應用程式、可重複使用且經過實
 
 ## 產品套件 {#product-kits}
 
-| 套件                                              | 用途                                                                           |
-| ------------------------------------------------- | ------------------------------------------------------------------------------ |
-| [分享](/docs/toolkit-sharing)                     | 可擁有資源、分享對話方塊、可見性徽章、分享動作、公開／私人／組織存取。         |
-| [協作](/docs/toolkit-collaboration)               | 即時編輯、在線狀態、即時游標、最近編輯醒目提示、協作復原。                     |
-| [設定](/docs/toolkit-settings)                    | 標準設定頁面和分頁，讓應用程式設定與智慧代理／提供者設定位於一個可預期的位置。 |
-| [組織與團隊](/docs/toolkit-org-team)              | 團隊頁面、組織切換、邀請、組織網域、角色和應用程式切換。                       |
-| [設定流程與連線](/docs/toolkit-setup-connections) | 上手引導、密鑰、工作區連線、OAuth／提供者就緒狀態和 Builder 連線。             |
-| [命令與導覽](/docs/toolkit-command-navigation)    | 命令選單、深層連結、標準應用程式路由、側欄和 Shell 模式。                      |
-| [資源](/docs/toolkit-resources)                   | 資源樹、編輯器、檔案選擇／搜尋、附件和本機檔案模式。                           |
-| [智慧代理 UX](/docs/toolkit-agent-ux)             | Composer、模型選擇器、脈絡籤、核准、執行復原和執行托盤。                       |
-| [歷程](/docs/toolkit-history)                     | 版本歷程、稽核日誌、復原／重做、還原和「有何變更」介面。                       |
-| [評論與審閱](/docs/toolkit-comments-review)       | 內嵌評論、註解、提及、已解決討論串和審閱狀態。                                 |
-| [可觀測性](/docs/toolkit-observability)           | 使用量、支出、意見回饋、重播、錯誤和執行診斷。                                 |
+| 套件                                              | 用途                                                                               |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| [分享](/docs/toolkit-sharing)                     | 可擁有資源、分享對話方塊、可見性徽章、分享動作、公開／私人／組織存取。             |
+| [協作](/docs/toolkit-collaboration)               | 即時編輯、在線狀態、即時游標、最近編輯醒目提示、協作復原。                         |
+| [設定](/docs/toolkit-settings)                    | 標準設定頁面和分頁，讓應用程式設定與智慧代理／提供者設定位於一個可預期的位置。     |
+| [組織與團隊](/docs/toolkit-org-team)              | 團隊頁面、組織切換、邀請、組織網域、角色和應用程式切換。                           |
+| [設定流程與連線](/docs/toolkit-setup-connections) | 上手引導、密鑰、工作區連線、OAuth／提供者就緒狀態和 Builder 連線（提供免費方案）。 |
+| [命令與導覽](/docs/toolkit-command-navigation)    | 命令選單、深層連結、標準應用程式路由、側欄和 Shell 模式。                          |
+| [資源](/docs/toolkit-resources)                   | 資源樹、編輯器、檔案選擇／搜尋、附件和本機檔案模式。                               |
+| [智慧代理 UX](/docs/toolkit-agent-ux)             | Composer、模型選擇器、脈絡籤、核准、執行復原和執行托盤。                           |
+| [歷程](/docs/toolkit-history)                     | 版本歷程、稽核日誌、復原／重做、還原和「有何變更」介面。                           |
+| [評論與審閱](/docs/toolkit-comments-review)       | 內嵌評論、註解、提及、已解決討論串和審閱狀態。                                     |
+| [可觀測性](/docs/toolkit-observability)           | 使用量、支出、意見回饋、重播、錯誤和執行診斷。                                     |
 
 ## 套件成熟度與所有權 {#package-maturity-and-ownership}
 

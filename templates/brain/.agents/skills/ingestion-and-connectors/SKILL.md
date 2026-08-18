@@ -35,6 +35,44 @@ retrieved again later. Surface it to the user immediately (e.g. for wiring
 into an external system's webhook config) rather than assuming you can read
 it back with `get-source`.
 
+Manual sources are push/import-driven and private by default. Use
+`import-markdown-files` for a bounded folder or batch of `.md` / `.markdown`
+files; it preserves relative paths for deduplication, stores searchable text as
+document captures, and reports each file's import or privacy outcome. Use the
+standard sharing actions to change a source to organization visibility or grant
+specific access. Do not use `sync-source` for a manual source.
+
+## Blessed FAQ And Docs Publishers
+
+Approved FAQs, docs, handbooks, and similar owned resources use the same
+`generic` signed source contract. They are not a new provider and do not require
+Brain to crawl the entire upstream system. The source owner publishes only the
+records Brain is allowed to use:
+
+```bash
+pnpm --filter brain action create-source \
+  --title "Blessed Agent Native docs" \
+  --provider generic \
+  --sourceKey agent-native-docs \
+  --policy '{"trustTier":"blessed","answerEligible":true,"authority":100,"freshnessWindowDays":null,"reviewRequired":false,"conflictBehavior":"prefer-higher-authority"}' \
+  --visibility org
+```
+
+The source answer policy is code-enforced:
+
+| Field                 | Effect                                                                              |
+| --------------------- | ----------------------------------------------------------------------------------- |
+| `trustTier`           | `blessed`, `standard`, or `untrusted`; cited answers rank higher trust first.       |
+| `answerEligible`      | Excludes the source from `ask-brain` answers when false.                            |
+| `authority`           | Ranks otherwise eligible sources from 0 to 100.                                     |
+| `freshnessWindowDays` | Excludes source-backed results after the configured window; `null` disables expiry. |
+| `reviewRequired`      | Raw captures cannot support answers, and company knowledge enters review.           |
+| `conflictBehavior`    | Prefer higher authority, surface conflicts, or require review before raw support.   |
+
+Legacy sources remain `standard`, answer-eligible, authority 50, with no
+freshness expiry. Use `update-source --policy ...` to tighten an existing
+source without recreating it.
+
 ## Source Health States
 
 `get-brain-health` (`readBrainHealth` in `server/lib/brain-health.ts`) is the
@@ -105,7 +143,8 @@ connection, not creating a new one.
 
 ## Editing And Removing Sources
 
-- `update-source` edits title, config, or visibility on an existing source.
+- `update-source` edits title, config, cursor, status, or answer policy on an
+  existing source.
 - `delete-source` is a hard delete — there's no soft-archive alternative
   exposed as an action; setting `status: "paused"` via `update-source` is the
   reversible way to stop a source without losing its captures.

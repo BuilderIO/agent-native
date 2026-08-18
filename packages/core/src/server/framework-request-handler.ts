@@ -335,11 +335,47 @@ export async function awaitBootstrap(nitroApp: any): Promise<void> {
 async function awaitFrameworkRoutesReadyForRequest(
   nitroApp: any,
   reqPath: string,
-): Promise<void> {
-  if (!nitroApp) return;
-  const bootstrapPromise = nitroApp[BOOTSTRAP_PROMISE_KEY];
-  if (bootstrapPromise) await bootstrapPromise;
-  await awaitPluginsReady(nitroApp, reqPath);
+): Promise<boolean> {
+  if (!nitroApp) return true;
+  // This route is mounted synchronously by core-routes before bootstrap. It
+  // must not wait on optional plugins or a database just because the browser
+  // asks for the SSR shell's empty speculation rules during a cold start.
+  if (
+    resolveMountMatch(reqPath, `${FRAMEWORK_PREFIX}/speculation-rules.json`)
+  ) {
+    return true;
+  }
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      (async () => {
+        const bootstrapPromise = nitroApp[BOOTSTRAP_PROMISE_KEY];
+        if (bootstrapPromise) await bootstrapPromise;
+        await awaitPluginsReady(nitroApp, reqPath);
+        return true;
+      })(),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(false), frameworkReadyDeadlineMs());
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
+ * Cap on how long a request may be held waiting for framework routes.
+ *
+ * Holding past the platform's own request wall is pure loss: the serverless
+ * gateway kills the invocation and the client gets a bare 502/504 it cannot
+ * act on. Releasing first lets the placeholder answer with a retryable 503.
+ * Keep this BELOW the shortest deployment target's request wall (Netlify
+ * synchronous functions cut off around 40s regardless of a higher configured
+ * `timeout`).
+ */
+function frameworkReadyDeadlineMs(): number {
+  const raw = Number(process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS);
+  return Number.isFinite(raw) && raw > 0 ? raw : 25_000;
 }
 
 /**
@@ -417,7 +453,17 @@ function installPluginReadyPlaceholders(
         const eventAny = event as any;
         const reqPath =
           eventAny.context?._mountedPathname ?? event.url?.pathname ?? path;
-        await awaitFrameworkRoutesReadyForRequest(nitroApp, reqPath);
+        const ready = await awaitFrameworkRoutesReadyForRequest(
+          nitroApp,
+          reqPath,
+        );
+        if (!ready) {
+          // Boot is still running and we are out of budget. Answer now, while
+          // the gateway is still listening, rather than being killed mid-wait.
+          setResponseStatus(event, 503);
+          setResponseHeader(event, "retry-after", "5");
+          return { error: "agent-native routes are still initializing" };
+        }
         // If this plugin's async init failed, its real route was never
         // registered. Return a retryable 503 instead of releasing into a bare
         // 404 (external MCP clients can't recover from a 404; a 503 is at least

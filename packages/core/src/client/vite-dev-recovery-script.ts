@@ -92,7 +92,7 @@ export function getViteDevRecoveryScript(): string {
       console.warn("[agent-native] Dev server keeps re-bundling. Manual refresh needed.", reason);
       showOverlay(
         "Dev server out of sync",
-        "Auto-reload gave up after " + MAX_RELOADS + " tries. Refresh the page (\\u2318R / Ctrl+R)."
+        "Auto-reload gave up after " + MAX_RELOADS + " tries. Refresh the page (\\u2318R / Ctrl R)."
       );
       return;
     }

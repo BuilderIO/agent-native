@@ -119,13 +119,13 @@ jobs:
             pnpm tsx scripts/trusted-acceptance.ts "${rollback_plan_args[@]}" > "$RUNNER_TEMP/rollback-plan.json"
             expected_assertions="$(node -e 'const p=require(process.env.RUNNER_TEMP + "/rollback-plan.json"); if (!p.ok) process.exit(1); process.stdout.write(JSON.stringify(p.plan.assertions.filter(id => id !== "A14")))')"
             gh api "repos/$TRUSTED_REPOSITORY/actions/runs/$ROLLBACK_RUN_ID" > "$RUNNER_TEMP/prior-run.json"
-            node - <<'NODE'
-            const fs = require("node:fs");
-            const run = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/prior-run.json", "utf8"));
-            if (run.path !== ".github/workflows/trusted-acceptance.yml" || run.event !== "workflow_dispatch" || run.conclusion !== "success" || run.head_branch !== "main") {
-              throw new Error("rollback_run_id must be a successful main dispatch of the trusted acceptance workflow");
-            }
-            NODE
+            node -e '
+              const fs = require("node:fs");
+              const run = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/prior-run.json", "utf8"));
+              if (run.path !== ".github/workflows/trusted-acceptance.yml" || run.event !== "workflow_dispatch" || run.conclusion !== "success" || run.head_branch !== "main") {
+                throw new Error("rollback_run_id must be a successful main dispatch of the trusted acceptance workflow");
+              }
+            '
             artifact_id="$(gh api "repos/$TRUSTED_REPOSITORY/actions/runs/$ROLLBACK_RUN_ID/artifacts" --jq ".artifacts[] | select(.name == \"trusted-acceptance-receipt-$ROLLBACK_RUN_ID\") | .id" | head -n 1)"
             if [[ -z "$artifact_id" ]]; then
               echo "No trusted acceptance receipt artifact found for rollback_run_id." >&2
@@ -136,15 +136,15 @@ jobs:
             unzip -p "$RUNNER_TEMP/prior-receipt.zip" trusted-acceptance-receipt.json > "$prior_receipt"
             test -s "$prior_receipt"
             pnpm tsx scripts/trusted-acceptance.ts receipt --file "$prior_receipt" --expected-assertions "$expected_assertions"
-            node - "$prior_receipt" <<'NODE'
-            const fs = require("node:fs");
-            const receipt = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
-            const run = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/prior-run.json", "utf8"));
-            const expectedRunUrl = `https://github.com/${process.env.TRUSTED_REPOSITORY}/actions/runs/${process.env.ROLLBACK_RUN_ID}`;
-            if (receipt.result !== "pass" || receipt.runUrl !== expectedRunUrl || receipt.controllerSha !== run.head_sha || receipt.workspace !== process.env.WORKSPACE || receipt.currentKnownGoodSha !== process.env.ROLLBACK_SHA) {
-              throw new Error("Rollback SHA is not the known-good SHA from the selected passing workspace receipt");
-            }
-            NODE
+            node -e '
+              const fs = require("node:fs");
+              const receipt = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+              const run = JSON.parse(fs.readFileSync(process.env.RUNNER_TEMP + "/prior-run.json", "utf8"));
+              const expectedRunUrl = `https://github.com/${process.env.TRUSTED_REPOSITORY}/actions/runs/${process.env.ROLLBACK_RUN_ID}`;
+              if (receipt.result !== "pass" || receipt.runUrl !== expectedRunUrl || receipt.controllerSha !== run.head_sha || receipt.workspace !== process.env.WORKSPACE || receipt.currentKnownGoodSha !== process.env.ROLLBACK_SHA) {
+                throw new Error("Rollback SHA is not the known-good SHA from the selected passing workspace receipt");
+              }
+            ' "$prior_receipt"
             operation="rollback"
             receipt_pr=""
           else
@@ -226,6 +226,8 @@ jobs:
           persist-credentials: false
 
       - uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+        with:
+          package_json_file: candidate/package.json
 
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:

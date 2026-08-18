@@ -1,13 +1,79 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildEventTitleUpdate,
   buildRecurrenceRules,
+  dateTimeInTimezoneToIso,
   formatRecurrenceText,
+  getEditableEventTitle,
   getEventEndValidationMessage,
+  getLocalTimezone,
   getRecurrencePreset,
   normalizeAllDayEditEndDate,
+  resolveEventTimezone,
   resolveTimeEditScope,
 } from "./event-form-utils";
+
+describe("getEditableEventTitle", () => {
+  it("keeps the display-only unnamed label out of editable state", () => {
+    expect(
+      getEditableEventTitle({
+        title: "(No title)",
+        titleIsGenerated: true,
+      }),
+    ).toBe("");
+  });
+
+  it("preserves a real event title even when it matches a display label", () => {
+    expect(getEditableEventTitle({ title: "(No title)" })).toBe("(No title)");
+  });
+});
+
+describe("buildEventTitleUpdate", () => {
+  it("clears generated provenance when a real title is saved", () => {
+    expect(buildEventTitleUpdate("  Team offsite  ")).toEqual({
+      title: "Team offsite",
+      titleIsGenerated: false,
+    });
+  });
+});
+
+describe("dateTimeInTimezoneToIso", () => {
+  it("uses the first valid instant when a timezone skips local midnight", () => {
+    expect(
+      dateTimeInTimezoneToIso("2026-09-06", "00:00", "America/Santiago"),
+    ).toBe("2026-09-06T04:00:00.000Z");
+  });
+
+  it("keeps an event's elapsed duration when its end lands in a spring-forward gap", () => {
+    const timezone = "America/New_York";
+    const start = dateTimeInTimezoneToIso("2026-03-08", "01:30", timezone);
+    const end = dateTimeInTimezoneToIso("2026-03-08", "02:30", timezone);
+
+    expect(start).toBe("2026-03-08T06:30:00.000Z");
+    expect(new Date(end).getTime() - new Date(start).getTime()).toBe(
+      60 * 60_000,
+    );
+  });
+});
+
+describe("resolveEventTimezone", () => {
+  it("uses the browser timezone when a new event has no explicit zone", () => {
+    expect(resolveEventTimezone()).toBe(getLocalTimezone());
+  });
+
+  it("preserves an explicit event timezone", () => {
+    expect(resolveEventTimezone("Europe/London")).toBe("Europe/London");
+  });
+
+  it("keeps a configured calendar timezone for a displayed wall-clock slot", () => {
+    const calendarTimezone = resolveEventTimezone("America/Los_Angeles");
+
+    expect(
+      dateTimeInTimezoneToIso("2026-01-15", "09:00", calendarTimezone),
+    ).toBe("2026-01-15T17:00:00.000Z");
+  });
+});
 
 describe("getEventEndValidationMessage", () => {
   it("clarifies equal timed start and end values", () => {
@@ -79,6 +145,12 @@ describe("recurrence helpers", () => {
   it("builds weekly rules using the event start day", () => {
     expect(buildRecurrenceRules("weekly", "2026-05-20T16:00:00.000Z")).toEqual([
       "RRULE:FREQ=WEEKLY;BYDAY=WE",
+    ]);
+  });
+
+  it("builds a daily recurrence rule for event creation", () => {
+    expect(buildRecurrenceRules("daily", "2026-05-20T16:00:00.000Z")).toEqual([
+      "RRULE:FREQ=DAILY",
     ]);
   });
 

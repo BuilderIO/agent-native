@@ -32,8 +32,11 @@ let unclaimedBackgroundRunRows: Array<{ id: string }> = [];
 let unclaimedBackgroundRunRowsWithStartedAt: Array<{
   id: string;
   started_at: number;
+  has_dispatch_payload?: boolean | number;
 }> = [];
 let runCountRows: Array<{ run_count: number }> = [];
+let prunedRunRows: Array<Record<string, unknown>> = [];
+let postgres = false;
 // claimBackgroundRun CAS simulation: the real DB row only has `dispatch_mode
 // = 'background'` ONCE, so only the FIRST `claimBackgroundRun` UPDATE for a
 // given runId can match the WHERE clause; every subsequent attempt (a
@@ -47,6 +50,10 @@ const mockDb = {
     const rawSql = typeof sql === "string" ? sql : sql.sql;
     const args = typeof sql === "string" ? [] : (sql.args ?? []);
     execCalls.push({ sql: rawSql, args });
+
+    if (/pg_try_advisory_xact_lock/i.test(rawSql)) {
+      return { rows: [{ acquired: true }], rowsAffected: 0 };
+    }
 
     if (
       /SELECT seq,\s*event_data(?:,\s*event_at)?\s+FROM agent_run_events/i.test(
@@ -71,7 +78,7 @@ const mockDb = {
     // come before the narrower id-only variant below (both match
     // "dispatch_mode = 'background'").
     if (
-      /SELECT id, started_at FROM agent_runs\s*WHERE status = 'running'/i.test(
+      /SELECT id, started_at.*FROM agent_runs\s*WHERE status = 'running'/is.test(
         rawSql,
       ) &&
       /dispatch_mode = 'background'/i.test(rawSql)
@@ -86,6 +93,20 @@ const mockDb = {
       /dispatch_mode = 'background'/i.test(rawSql)
     ) {
       return { rows: unclaimedBackgroundRunRows, rowsAffected: 0 };
+    }
+    // hasRunningRuns probe. `status = 'running'` is a superset of every sweep
+    // fixture below, so the double must report a row whenever ANY of them is
+    // populated — a probe that disagrees with the fixture it guards would
+    // short-circuit the very sweep the test is exercising.
+    if (
+      /SELECT id FROM agent_runs WHERE status = 'running' LIMIT 1/i.test(rawSql)
+    ) {
+      const anyRunning = [
+        ...staleSelectRows,
+        ...unclaimedBackgroundRunRows,
+        ...unclaimedBackgroundRunRowsWithStartedAt,
+      ];
+      return { rows: anyRunning.slice(0, 1), rowsAffected: 0 };
     }
     if (/SELECT id FROM agent_runs[\s\S]*status = 'running'/i.test(rawSql)) {
       return { rows: staleSelectRows, rowsAffected: 0 };
@@ -135,6 +156,9 @@ const mockDb = {
     if (/SELECT dispatch_payload FROM agent_runs WHERE id/i.test(rawSql)) {
       return { rows: dispatchPayloadRows, rowsAffected: 0 };
     }
+    if (/DELETE FROM agent_runs[\s\S]*RETURNING/i.test(rawSql)) {
+      return { rows: prunedRunRows, rowsAffected: prunedRunRows.length };
+    }
     // countRunsForTurn: SELECT COUNT(*) AS run_count FROM agent_runs WHERE thread_id = ? AND turn_id = ?
     if (/SELECT COUNT\(\*\) AS run_count FROM agent_runs/i.test(rawSql)) {
       return { rows: runCountRows, rowsAffected: 0 };
@@ -168,7 +192,7 @@ const mockCaptureError = vi.fn();
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
   intType: () => "INTEGER",
-  isPostgres: () => false,
+  isPostgres: () => postgres,
 }));
 
 vi.mock("../server/capture-error.js", () => ({
@@ -177,6 +201,7 @@ vi.mock("../server/capture-error.js", () => ({
 
 const {
   STALE_RUN_ERROR_EVENT,
+  STALE_RUN_TERMINAL_REASON,
   markRunAborted,
   reapAllStaleRuns,
   reapIfStale,
@@ -211,6 +236,7 @@ const {
   getRunEventsSince,
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnEventsForThread,
+  __resetNoRunningRunsProbeForTests,
 } = await import("./run-store.js");
 
 // Mock storage for ledger SELECT responses, keyed by toolKey
@@ -234,8 +260,11 @@ describe("run store", () => {
     unclaimedBackgroundRunRows = [];
     unclaimedBackgroundRunRowsWithStartedAt = [];
     runCountRows = [];
+    prunedRunRows = [];
+    postgres = false;
     insertEventBehavior = () => {};
     abortRowsAffected = 1;
+    __resetNoRunningRunsProbeForTests();
     vi.clearAllMocks();
   });
 
@@ -306,7 +335,7 @@ describe("run store", () => {
     expect(insert?.args[0]).toBe("run-abort");
     expect(insert?.args[1]).toBe(0);
     expect(typeof insert?.args[2]).toBe("number");
-    expect(insert?.args[3]).toBe('{"type":"done"}');
+    expect(insert?.args[3]).toBe('{"type":"done","reason":"user"}');
   });
 
   it("persists a reason-shaped terminal event for a recovery abort", async () => {
@@ -328,10 +357,17 @@ describe("run store", () => {
       type: "auto_continue",
       reason: "run_timeout",
     });
-    expect(terminalEventForAbortReason(undefined)).toEqual({ type: "done" });
-    expect(terminalEventForAbortReason("user")).toEqual({ type: "done" });
+    expect(terminalEventForAbortReason(undefined)).toEqual({
+      type: "done",
+      reason: "user",
+    });
+    expect(terminalEventForAbortReason("user")).toEqual({
+      type: "done",
+      reason: "user",
+    });
     expect(terminalEventForAbortReason("user_stuck_retry")).toEqual({
       type: "done",
+      reason: "user",
     });
     // The displacing writer already recorded the row's real terminal state.
     expect(terminalEventForAbortReason("displaced")).toEqual({ type: "done" });
@@ -498,10 +534,12 @@ describe("run store", () => {
     expect(update?.sql).toContain("error_code = ?");
     expect(update?.sql).toContain("error_detail = ?");
     expect(update?.sql).toContain("terminal_reason = ?");
-    expect(update?.args[1]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
-    expect(update?.args[2]).toBe(STALE_RUN_ERROR_EVENT.details);
-    expect(update?.args[3]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
-    expect(update?.args[4]).toBe("run-stale");
+    // `completed_at` is no longer bound — it comes from the row's liveness
+    // basis, so the SET list binds exactly these three.
+    expect(update?.args[0]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
+    expect(update?.args[1]).toBe(STALE_RUN_ERROR_EVENT.details);
+    expect(update?.args[2]).toBe(STALE_RUN_TERMINAL_REASON);
+    expect(update?.args[3]).toBe("run-stale");
 
     const insert = execCalls.find((call) =>
       /INSERT INTO agent_run_events/i.test(call.sql),
@@ -871,25 +909,33 @@ describe("run store", () => {
     );
     expect(staleUpdates.length).toBeGreaterThanOrEqual(3);
     for (const update of staleUpdates) {
-      expect(update.args[1]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
-      expect(update.args[2]).toBe(STALE_RUN_ERROR_EVENT.details);
-      expect(update.args[3]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
+      expect(update.args[0]).toBe(STALE_RUN_ERROR_EVENT.errorCode);
+      expect(update.args[1]).toBe(STALE_RUN_ERROR_EVENT.details);
+      expect(update.args[2]).toBe(STALE_RUN_TERMINAL_REASON);
     }
   });
 
   it("keeps errored runs longer than completed runs during cleanup", async () => {
+    prunedRunRows = [
+      {
+        id: "run-completed",
+        status: "completed",
+        completed_at: Date.now() - 2 * 24 * 60 * 60 * 1000,
+        terminal_reason: "done",
+      },
+      {
+        id: "run-errored",
+        status: "errored",
+        completed_at: Date.now() - 8 * 24 * 60 * 60 * 1000,
+        terminal_reason: "error:provider",
+      },
+    ];
     await cleanupOldRuns(24 * 60 * 60 * 1000, 7 * 24 * 60 * 60 * 1000);
 
     const deleteEvents = execCalls.find((call) =>
       /DELETE FROM agent_run_events/i.test(call.sql),
     );
-    expect(deleteEvents?.sql).toContain("status = 'completed'");
-    expect(deleteEvents?.sql).toContain(
-      "status IN ('errored', 'aborted', 'truncated')",
-    );
-    expect(Number(deleteEvents?.args[1])).toBeLessThan(
-      Number(deleteEvents?.args[0]),
-    );
+    expect(deleteEvents?.args).toEqual(["run-completed", "run-errored"]);
 
     const deleteRuns = execCalls.find((call) =>
       /DELETE FROM agent_runs/i.test(call.sql),
@@ -901,6 +947,18 @@ describe("run store", () => {
     expect(Number(deleteRuns?.args[1])).toBeLessThan(
       Number(deleteRuns?.args[0]),
     );
+    expect(deleteRuns?.sql).toContain("LIMIT 200");
+  });
+
+  it("uses a transaction-scoped lease for Postgres cleanup", async () => {
+    postgres = true;
+
+    await cleanupOldRuns(24 * 60 * 60 * 1000);
+
+    const lock = execCalls.find((call) =>
+      /pg_try_advisory_xact_lock/i.test(call.sql),
+    );
+    expect(lock?.args).toEqual(["agent-native:run-outcome-prune"]);
   });
 
   // Fix 2: atomic run lease
@@ -1258,12 +1316,12 @@ describe("run store", () => {
     ];
     const rows = await listUnclaimedBackgroundRunRows();
     expect(rows).toEqual([
-      { id: "run-lost-1", startedAt: 111 },
-      { id: "run-lost-2", startedAt: 222 },
+      { id: "run-lost-1", startedAt: 111, hasDispatchPayload: false },
+      { id: "run-lost-2", startedAt: 222, hasDispatchPayload: false },
     ]);
 
     const select = execCalls.find((call) =>
-      /SELECT id, started_at FROM agent_runs\s*WHERE status = 'running'/i.test(
+      /SELECT id, started_at.*FROM agent_runs\s*WHERE status = 'running'/is.test(
         call.sql,
       ),
     );
@@ -1278,7 +1336,70 @@ describe("run store", () => {
       { id: null, started_at: 200 },
     ];
     const rows = await listUnclaimedBackgroundRunRows();
-    expect(rows).toEqual([{ id: "run-ok", startedAt: 100 }]);
+    expect(rows).toEqual([
+      { id: "run-ok", startedAt: 100, hasDispatchPayload: false },
+    ]);
+  });
+
+  // Sweep eligibility does not imply the row can be redispatched. A row with no
+  // `dispatch_payload` sent to a worker under `payloadRef: true` dies as
+  // `dispatch_payload_missing` — 98 production runs did exactly that — so the
+  // sweep has to be able to tell the two apart.
+  it("listUnclaimedBackgroundRunRows reports whether the row can still be rehydrated", async () => {
+    unclaimedBackgroundRunRowsWithStartedAt = [
+      { id: "run-with-payload", started_at: 1, has_dispatch_payload: true },
+      { id: "run-no-payload", started_at: 2, has_dispatch_payload: false },
+      // SQLite reports booleans as 1/0.
+      { id: "run-sqlite", started_at: 3, has_dispatch_payload: 1 },
+    ];
+
+    const rows = await listUnclaimedBackgroundRunRows();
+
+    expect(rows).toEqual([
+      { id: "run-with-payload", startedAt: 1, hasDispatchPayload: true },
+      { id: "run-no-payload", startedAt: 2, hasDispatchPayload: false },
+      { id: "run-sqlite", startedAt: 3, hasDispatchPayload: true },
+    ]);
+  });
+
+  // ─── Idle sweep cost ──────────────────────────────────────────────────────
+
+  it("an idle fast-sweep tick costs one query, not one per sweep", async () => {
+    // agent-chat-plugin's 20s fast sweep runs these two back to back. On an
+    // idle app both scan for rows that do not exist, which on a remote database
+    // is a round trip each, per app, forever. One shared `status='running'`
+    // probe must answer both.
+    await reapAllStaleRuns();
+    await listUnclaimedBackgroundRunRows();
+
+    const runTableReads = execCalls.filter((call) =>
+      /FROM agent_runs/i.test(call.sql),
+    );
+    expect(runTableReads).toHaveLength(1);
+    expect(runTableReads[0]?.sql).toContain("LIMIT 1");
+  });
+
+  it("a running row makes both sweeps run their own scan again", async () => {
+    staleSelectRows = [{ id: "run-stale" }];
+    unclaimedBackgroundRunRowsWithStartedAt = [
+      { id: "run-unclaimed", started_at: 1 },
+    ];
+
+    await reapAllStaleRuns();
+    await listUnclaimedBackgroundRunRows();
+
+    expect(
+      execCalls.some((call) =>
+        /SELECT id FROM agent_runs\s*WHERE status = 'running'\s*AND/i.test(
+          call.sql,
+        ),
+      ),
+    ).toBe(true);
+    expect(
+      execCalls.some((call) =>
+        /SELECT id, started_at.*FROM agent_runs/is.test(call.sql),
+      ),
+    ).toBe(true);
   });
 
   it("UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS is a real bound wider than the grace window — never zero, never infinite", () => {
@@ -1486,7 +1607,27 @@ describe("terminal status is `completed` iff the terminal reason is `done`", () 
       const update = execCalls.find((call) =>
         /UPDATE agent_runs/i.test(call.sql),
       );
-      expect(update?.sql).not.toContain("status");
+      // The SET clause is what must leave status alone — the WHERE clause reads
+      // it deliberately, to keep the write once-only (see the guard below).
+      const setClause = update?.sql.split(/\bWHERE\b/i)[0] ?? "";
+      expect(setClause).not.toContain("status");
+    }
+  });
+
+  // Three writers in three isolates race on terminal_reason with no ordering.
+  // Last-writer-wins let a late mid-run checkpoint relabel a row another
+  // isolate had already finalized, producing rows whose reason names a failure
+  // the run never hit.
+  it("setRunTerminalReason will not relabel a row that already recorded one", async () => {
+    for (const reason of ["done", "no_progress", "dispatch_payload_missing"]) {
+      execCalls.length = 0;
+      await setRunTerminalReason("run-final", reason);
+      const update = execCalls.find((call) =>
+        /UPDATE agent_runs/i.test(call.sql),
+      );
+      expect(update?.sql).toContain(
+        "(status = 'running' OR terminal_reason IS NULL OR terminal_reason = '')",
+      );
     }
   });
 });

@@ -2,7 +2,6 @@ import {
   IconComponents,
   IconFrame,
   IconPhoto,
-  IconTypography,
   IconVector,
 } from "@tabler/icons-react";
 import {
@@ -29,6 +28,7 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 
+import { IconText } from "./inspector/design-icons";
 import type { CanvasLayerHitCandidate } from "./types";
 
 // LIVE-VERIFIED (real Figma, UI3) canvas context menus:
@@ -52,7 +52,7 @@ import type { CanvasLayerHitCandidate } from "./types";
 // EMPTY canvas (no selection):
 //   Paste here
 //   [sep]
-//   Show/Hide UI ⌘\ · Show/Hide comments ⇧C
+//   Show/Hide UI ⇧\ · Show/Hide comments ⇧C
 //
 // Real Figma has no Duplicate/Delete/Select-all/Zoom items on either canvas
 // menu (all keyboard-only there) — those are intentionally NOT rendered here
@@ -461,7 +461,7 @@ const DEFAULT_SHORTCUTS: CanvasContextMenuShortcuts = {
   rotateClockwise: "",
   flipHorizontal: "⇧H",
   flipVertical: "⇧V",
-  toggleUi: "⌘\\",
+  toggleUi: "⇧\\",
   toggleComments: "⇧C",
 };
 
@@ -1177,7 +1177,7 @@ function CanvasLayerCandidateItem({
   const Icon = candidate.info.componentName
     ? IconComponents
     : /^(h[1-6]|p|span|label|input|textarea)$/.test(tag)
-      ? IconTypography
+      ? IconText
       : /^(img|picture|video)$/.test(tag)
         ? IconPhoto
         : /^(svg|path|circle|ellipse|polygon|line)$/.test(tag)

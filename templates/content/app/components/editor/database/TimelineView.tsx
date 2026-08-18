@@ -1,5 +1,6 @@
 import type {
   ContentDatabaseItem,
+  ContentDatabaseSource,
   ContentDatabaseView,
   DocumentProperty,
 } from "@shared/api";
@@ -46,6 +47,7 @@ import {
 } from "./DatabaseView";
 
 export function DatabaseTimelineView({
+  databaseId,
   activeView,
   properties,
   items,
@@ -58,6 +60,11 @@ export function DatabaseTimelineView({
   hasSearch,
   dateProperty,
   month,
+  source,
+  sources,
+  addPropertyOpenRequestId,
+  onAddPropertyOpenRequestHandled,
+  onConnectSource,
   onClearResultConstraints,
   onMonthChange,
   onDatePropertyChange,
@@ -67,6 +74,7 @@ export function DatabaseTimelineView({
   onDeletedPreviewItem,
   onOpenPage,
 }: {
+  databaseId: string;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -79,6 +87,11 @@ export function DatabaseTimelineView({
   hasSearch: boolean;
   dateProperty: DocumentProperty | null;
   month: Date;
+  source: ContentDatabaseSource | null;
+  sources: ContentDatabaseSource[];
+  addPropertyOpenRequestId: number;
+  onAddPropertyOpenRequestHandled: (requestId: number) => void;
+  onConnectSource: () => void;
   onClearResultConstraints: () => void;
   onMonthChange: (month: Date) => void;
   onDatePropertyChange: (propertyId: string | null) => void;
@@ -287,7 +300,17 @@ export function DatabaseTimelineView({
       ) : dateProperties.length === 0 ? (
         <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
           <span>{dbText("addADatePropertyToUseTimelineView")}</span>
-          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
+          {canEdit ? (
+            <AddProperty
+              documentId={databaseDocumentId}
+              databaseId={databaseId}
+              source={source}
+              sources={sources}
+              onConnectSource={onConnectSource}
+              openRequestId={addPropertyOpenRequestId}
+              onOpenRequestHandled={onAddPropertyOpenRequestHandled}
+            />
+          ) : null}
         </div>
       ) : (
         <>

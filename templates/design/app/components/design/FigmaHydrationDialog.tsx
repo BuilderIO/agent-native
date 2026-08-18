@@ -29,6 +29,7 @@ import {
   getFigmaConnectionStatus,
   saveFigmaAccessToken,
 } from "@/lib/figma-connection";
+import { MAX_UPLOAD_MB } from "@/lib/upload-limits";
 
 interface FigmaHydrationDialogProps {
   open: boolean;
@@ -70,8 +71,16 @@ export function FigmaHydrationDialog({
     const file = e.target.files?.[0];
     e.target.value = "";
     if (!file) return;
-    if (validateFigUploadFile(file)) {
-      setError(t("designEditor.import.figmaHydrationInvalidFig"));
+    const validationError = validateFigUploadFile(file);
+    if (validationError) {
+      setError(
+        t(
+          validationError === "too-large"
+            ? "designEditor.import.errors.figFileTooLarge"
+            : "designEditor.import.figmaHydrationInvalidFig",
+          { max: MAX_UPLOAD_MB },
+        ),
+      );
       return;
     }
     setBusy(true);

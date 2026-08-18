@@ -19,7 +19,10 @@ import {
   startTranscriptionEngine,
   stopTranscriptionEngine,
   TranscriptionEngine,
+  transcriptFullText,
+  transcriptSegments,
   type SourcedTranscriptSegment,
+  type TranscriptLine,
 } from "./transcription-engine";
 
 /** Grace period after stop for whisper to emit any flushed trailing finals. */
@@ -33,7 +36,9 @@ function wait(ms: number): Promise<void> {
 export interface CapturedTranscript {
   /** Speaker-labelled text, lines joined by blank lines. */
   text: string;
-  /** Real whisper segments with verbatim timestamps. */
+  /** Whisper's verbatim timestamps where the engine reported them, else one
+   *  synthesized segment per line — the mic-only engines report no timings,
+   *  and a dropped line would lose its speaker along with its text. */
   segments: SourcedTranscriptSegment[];
   /** Source stored with `save-browser-transcript`. */
   source?: "web-speech" | "macos-native" | "whisper";
@@ -286,6 +291,17 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
 
 export const __test = { createWebSpeechTranscriptBuffer };
 
+/**
+ * Local transcription opens a microphone capture of its own. System-only
+ * recordings must wait for post-upload transcription instead of sampling the
+ * Mac's default microphone.
+ */
+export function shouldStartLocalRecordingTranscription(
+  microphoneEnabled: boolean,
+): boolean {
+  return microphoneEnabled;
+}
+
 export async function startTranscriptionCapture(
   mic?: {
     deviceId?: string | null;
@@ -296,8 +312,7 @@ export async function startTranscriptionCapture(
     voiceProcessing?: boolean;
   },
 ): Promise<TranscriptionCapture | null> {
-  const lines: string[] = [];
-  const segments: SourcedTranscriptSegment[] = [];
+  const lines: TranscriptLine[] = [];
   let disposed = false;
   let paused = false;
   let desiredPaused = false;
@@ -319,9 +334,14 @@ export async function startTranscriptionCapture(
     });
   };
 
+  // `source` reports the engine that actually produced this transcript, not
+  // the one we asked for: `startTranscriptionEngine` may have fallen back to
+  // mic-only macos-native. Omitting it made the server default to "whisper"
+  // and treat a mic-only capture as mixed mic + system audio.
   const captured = (): CapturedTranscript => ({
-    text: lines.join("\n\n").trim(),
-    segments,
+    text: transcriptFullText(lines),
+    segments: transcriptSegments(lines),
+    source: engine,
   });
 
   let engine: TranscriptionEngine;
@@ -329,7 +349,7 @@ export async function startTranscriptionCapture(
     unlistens.push(
       await onFinalTranscript((event) => {
         if (disposed) return;
-        appendFinalTranscript(event, lines, segments);
+        appendFinalTranscript(event, lines);
       }),
     );
 

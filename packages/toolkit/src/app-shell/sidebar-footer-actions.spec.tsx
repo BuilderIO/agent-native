@@ -22,12 +22,11 @@ describe("SidebarFooterActions", () => {
     container.remove();
   });
 
-  it("keeps the footer controls in feedback, translate, search, collapse order", () => {
+  it("keeps the footer controls in feedback, search, collapse order", () => {
     act(() => {
       root.render(
         <SidebarFooterActions
           feedback={<span>feedback</span>}
-          translate={<span>translate</span>}
           search={<span>search</span>}
           collapse={<span>collapse</span>}
         />,
@@ -37,10 +36,10 @@ describe("SidebarFooterActions", () => {
     expect(
       Array.from(
         container.querySelectorAll(
-          "[data-sidebar-footer-feedback], [data-sidebar-footer-translate], [data-sidebar-footer-search], [data-sidebar-footer-collapse]",
+          "[data-sidebar-footer-feedback], [data-sidebar-footer-search], [data-sidebar-footer-collapse]",
         ),
       ).map((element) => element.textContent),
-    ).toEqual(["feedback", "translate", "search", "collapse"]);
+    ).toEqual(["feedback", "search", "collapse"]);
   });
 
   it("stacks the same controls when the sidebar is collapsed", () => {
@@ -49,7 +48,6 @@ describe("SidebarFooterActions", () => {
         <SidebarFooterActions
           collapsed
           feedback={<span>feedback</span>}
-          translate={<span>translate</span>}
           search={<span>search</span>}
           collapse={<span>collapse</span>}
         />,
@@ -61,5 +59,23 @@ describe("SidebarFooterActions", () => {
         .querySelector("[data-sidebar-footer-actions]")
         ?.className.includes("flex-col"),
     ).toBe(true);
+  });
+
+  it("uses the same inset as expanded sidebar navigation rows", () => {
+    act(() => {
+      root.render(
+        <SidebarFooterActions
+          feedback={<span>feedback</span>}
+          search={<span>search</span>}
+          collapse={<span>collapse</span>}
+        />,
+      );
+    });
+
+    const className = container.querySelector(
+      "[data-sidebar-footer-actions]",
+    )?.className;
+    expect(className).toContain("px-2");
+    expect(className).toContain("py-1");
   });
 });

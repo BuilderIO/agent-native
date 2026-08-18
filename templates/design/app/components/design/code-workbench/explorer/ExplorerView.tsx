@@ -1,5 +1,6 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useT } from "@agent-native/core/client/i18n";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { prettyScreenName } from "@/lib/screen-names";
 
@@ -17,6 +18,12 @@ export interface ExplorerViewProps {
   ) => void;
 }
 
+interface LocalhostFileListState {
+  files: WorkspaceFileEntry[];
+  loading: boolean;
+  error?: string;
+}
+
 /**
  * Multi-root explorer: one collapsible section per workspace provider.
  * "Design files" (inline) is fetched via `list-source-files` so useDbSync
@@ -28,6 +35,7 @@ export function ExplorerView({
   explorerFocusToken,
   onRequestLocalWriteConsent,
 }: ExplorerViewProps) {
+  const t = useT();
   const { state, api, providers } = useWorkbench();
 
   const inlineProviderKey = `inline:${designId}`;
@@ -55,48 +63,95 @@ export function ExplorerView({
   const localhostProviders = providers.filter(
     (provider) => provider.kind === "localhost",
   );
-  const [localhostFiles, setLocalhostFiles] = useState<
-    Record<string, WorkspaceFileEntry[]>
+  const localhostProviderKeys = localhostProviders
+    .map((provider) => provider.key)
+    .join(",");
+  const providersRef = useRef(providers);
+  providersRef.current = providers;
+  const translateRef = useRef(t);
+  translateRef.current = t;
+  const refetchSourceFilesRef = useRef(sourceFilesQuery.refetch);
+  refetchSourceFilesRef.current = sourceFilesQuery.refetch;
+  const [localhostFileLists, setLocalhostFileLists] = useState<
+    Record<string, LocalhostFileListState>
   >({});
-
-  const loadLocalhostFiles = useCallback(
-    async (providerKey: string) => {
-      const provider = providers.find((entry) => entry.key === providerKey);
-      if (!provider) return;
-      try {
-        const files = await provider.listFiles();
-        setLocalhostFiles((current) => ({ ...current, [providerKey]: files }));
-      } catch {
-        // Best-effort: leave the previous listing (or empty) on failure.
-      }
-    },
-    [providers],
-  );
+  const requestIdsRef = useRef<Record<string, number>>({});
+  const mountedRef = useRef(false);
 
   useEffect(() => {
-    for (const provider of localhostProviders) {
-      void loadLocalhostFiles(provider.key);
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      requestIdsRef.current = {};
+    };
+  }, []);
+
+  const loadLocalhostFiles = useCallback(async (providerKey: string) => {
+    const provider = providersRef.current.find(
+      (entry) => entry.key === providerKey,
+    );
+    if (!provider || !mountedRef.current) return;
+    const requestId = (requestIdsRef.current[providerKey] ?? 0) + 1;
+    requestIdsRef.current[providerKey] = requestId;
+    setLocalhostFileLists((current) => ({
+      ...current,
+      [providerKey]: {
+        files: current[providerKey]?.files ?? [],
+        loading: true,
+      },
+    }));
+    try {
+      const files = await provider.listFiles();
+      if (
+        !mountedRef.current ||
+        requestIdsRef.current[providerKey] !== requestId
+      ) {
+        return;
+      }
+      setLocalhostFileLists((current) => ({
+        ...current,
+        [providerKey]: { files, loading: false },
+      }));
+    } catch (error) {
+      if (
+        !mountedRef.current ||
+        requestIdsRef.current[providerKey] !== requestId
+      ) {
+        return;
+      }
+      setLocalhostFileLists((current) => ({
+        ...current,
+        [providerKey]: {
+          files: current[providerKey]?.files ?? [],
+          loading: false,
+          error:
+            error instanceof Error
+              ? error.message
+              : translateRef.current("common.genericError"),
+        },
+      }));
+    }
+  }, []);
+
+  useEffect(() => {
+    for (const providerKey of localhostProviderKeys
+      .split(",")
+      .filter(Boolean)) {
+      void loadLocalhostFiles(providerKey);
     }
     // Re-run when the set of localhost providers changes (connections added).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    localhostProviders.map((provider) => provider.key).join(","),
-    loadLocalhostFiles,
-  ]);
+  }, [localhostProviderKeys, loadLocalhostFiles]);
 
   useEffect(() => {
     return api.onFilesChanged(() => {
-      sourceFilesQuery.refetch();
-      for (const provider of localhostProviders) {
-        void loadLocalhostFiles(provider.key);
+      refetchSourceFilesRef.current();
+      for (const providerKey of localhostProviderKeys
+        .split(",")
+        .filter(Boolean)) {
+        void loadLocalhostFiles(providerKey);
       }
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    api,
-    loadLocalhostFiles,
-    localhostProviders.map((provider) => provider.key).join(","),
-  ]);
+  }, [api, loadLocalhostFiles, localhostProviderKeys]);
 
   const activeUri = state.activeUri;
   const dirtyUris = useMemo(() => {
@@ -126,6 +181,14 @@ export function ExplorerView({
           nodes={buildFileTree(inlineFiles)}
           activeUri={activeUri}
           dirtyUris={dirtyUris}
+          loading={sourceFilesQuery.isLoading}
+          error={
+            sourceFilesQuery.error instanceof Error
+              ? sourceFilesQuery.error.message
+              : sourceFilesQuery.error
+                ? "Could not load design files" /* i18n-ignore */
+                : undefined
+          }
           focusToken={
             focusOwnerKey === inlineProviderKey ? explorerFocusToken : 0
           }
@@ -134,22 +197,27 @@ export function ExplorerView({
           onRequestLocalWriteConsent={onRequestLocalWriteConsent}
         />
       ) : null}
-      {localhostProviders.map((provider) => (
-        <FileTree
-          key={provider.key}
-          providerKey={provider.key}
-          providerLabel={`LOCAL FILES — ${provider.label}` /* i18n-ignore */}
-          providerTitle={provider.rootPath}
-          capabilities={provider.capabilities}
-          nodes={buildFileTree(localhostFiles[provider.key] ?? [])}
-          activeUri={activeUri}
-          dirtyUris={dirtyUris}
-          focusToken={focusOwnerKey === provider.key ? explorerFocusToken : 0}
-          registerRef={() => {}}
-          onRefresh={() => void loadLocalhostFiles(provider.key)}
-          onRequestLocalWriteConsent={onRequestLocalWriteConsent}
-        />
-      ))}
+      {localhostProviders.map((provider) => {
+        const fileList = localhostFileLists[provider.key];
+        return (
+          <FileTree
+            key={provider.key}
+            providerKey={provider.key}
+            providerLabel={`LOCAL FILES — ${provider.label}` /* i18n-ignore */}
+            providerTitle={provider.rootPath}
+            capabilities={provider.capabilities}
+            nodes={buildFileTree(fileList?.files ?? [])}
+            activeUri={activeUri}
+            dirtyUris={dirtyUris}
+            loading={fileList?.loading ?? true}
+            error={fileList?.error}
+            focusToken={focusOwnerKey === provider.key ? explorerFocusToken : 0}
+            registerRef={() => {}}
+            onRefresh={() => void loadLocalhostFiles(provider.key)}
+            onRequestLocalWriteConsent={onRequestLocalWriteConsent}
+          />
+        );
+      })}
       {!inlineFiles.length &&
       localhostProviders.length === 0 &&
       !sourceFilesQuery.isLoading ? (

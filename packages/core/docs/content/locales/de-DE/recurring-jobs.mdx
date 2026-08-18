@@ -7,6 +7,12 @@ description: "Cron-geplante Eingabeaufforderungen, die der Agent selbstständig 
 
 Ein **wiederkehrender Job** ist eine Eingabeaufforderung, die nach einem Cron-Zeitplan ausgeführt wird. So erledigt der Agent die Dinge selbst: „Jeden Morgen um 7 Uhr fasse ich meine Nacht-E-Mails zusammen“, „postet jeden Montag die Anmeldenummern der letzten Woche an Slack“, „sucht jede Stunde nach veralteten Entwürfen und löscht sie.“
 
+<Callout tone="info">
+
+**Recurring Jobs** ist der ältere Name für Automatisierungen vom Typ **Scheduled**. **Automations** ist der Oberbegriff für **Scheduled** und **Event**. `jobs/`-Dateien und `manage-jobs` bleiben für ältere schedule-only Integrationen erhalten. Verwenden Sie `manage-automations` und **Automations** unter `/agent#jobs` für neue persönliche oder Organisationsarbeit, einschließlich Modell und MCP-Zulassungslisten.
+
+</Callout>
+
 Wiederkehrende Aufträge werden nach dem Takt der Uhr ausgelöst. Um auf _Ereignisse_ (eine erstellte Buchung, eine empfangene E-Mail) zu reagieren – dasselbe `jobs/`-Dateiformat plus Bedingungen – siehe [Automations](/docs/automations).
 
 Jobs leben im [Agent-Ressourcen](/docs/agent-resources) bei `jobs/<name>.md` – nur eine Markdown-Datei mit YAML-Frontmatter. Keine Registrierung, keine Verkabelung. Legen Sie die Datei ab und das Framework übernimmt sie.
@@ -154,8 +160,8 @@ Der Scheduler ist ein Framework-Plugin (die interne `processRecurringJobs()`-Rou
   <div class="diagram-card accent">
     <span class="diagram-pill accent">3 &middot; run</span
     ><small class="diagram-muted"
-      >fresh agent thread, job body as the user message &mdash; actions, SQL,
-      A2A, email</small
+      >der gemeinsame Runner prüft Identität und löst Modell, MCP-Zulassung,
+      Fortsetzung, Zustellung und Nutzung auf</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -216,7 +222,7 @@ In jeder Vorlage ist ein einzelnes `manage-jobs`-Tool registriert. Der Parameter
 | `update` | `name` (erforderlich); `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | Bestehenden Job bearbeiten                                                     |
 | `delete` | `name` (erforderlich)                                                             | Einen Auftrag löschen – immer zuerst mit dem Benutzer bestätigen               |
 
-**Persönlicher vs. gemeinsamer Bereich.** Jeder Job befindet sich entweder im persönlichen Bereich (läuft als und ist nur für den Ersteller sichtbar) oder im freigegebenen/organisatorischen Bereich (wird im Namen des Erstellers ausgeführt, ist aber für Organisationsmitglieder sichtbar). Die Parameter `scope` und `runAs` steuern dies zum Zeitpunkt der Erstellung. Organisationsadministratoren können alle freigegebenen Jobs aktualisieren oder löschen. Nicht-Administrator-Mitglieder können nur ihre eigenen verwalten.
+**Persönlicher vs. gemeinsamer Bereich.** Jeder Job befindet sich entweder im persönlichen Bereich (läuft als und ist nur für den Ersteller sichtbar) oder im freigegebenen/organisatorischen Bereich (wird im Namen des Erstellers ausgeführt, ist aber für Organisationsmitglieder sichtbar). Organisationsadministratoren können freigegebene Definitionen verwalten, aber die Erstelleridentität nicht ändern. Vor jedem Organisationslauf prüft das Framework, ob der Ersteller noch existiert und Mitglied ist.
 
 ## Unterscheidet sich vom Planungspaket {#vs-scheduling-package}
 
@@ -231,5 +237,5 @@ Wiederkehrende Aufträge lauten: „Wie bringe ich den Agent dazu, eigenständig
 
 - [**Automations**](/docs/automations) – Ereignisauslöser und Bedingungen zum gleichen `jobs/`-Format hinzufügen
 - [**Agent-Ressourcen**](/docs/agent-resources) – wo Jobs neben skills, Speicher und benutzerdefinierten Agents leben
-- [**Actions**](/docs/actions) – die Werkzeuge, die ein Job erfordert
+- [**Actions**](/docs/actions-overview) – die Werkzeuge, die ein Job erfordert
 - [**Agent Teams**](/docs/agent-teams) – Jobs erzeugen oft Subagenten, um parallele Arbeit zu erledigen

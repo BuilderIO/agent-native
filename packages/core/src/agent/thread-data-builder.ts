@@ -1,5 +1,9 @@
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
+  formatChatErrorText,
+  normalizeChatError,
+} from "../client/error-format.js";
+import {
   isCredentialGapCodeAgentEvent,
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
@@ -9,6 +13,7 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import type { EngineMessage } from "./engine/types.js";
 import type { AgentChatAttachment, RunEvent } from "./types.js";
 
@@ -21,9 +26,13 @@ interface ContentPart {
   args?: Record<string, string>;
   result?: string;
   isError?: boolean;
+  /** Mirrors the client ContentPart marker in client/sse-event-processor.ts. */
+  outcome?: "unknown";
   completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
+  activity?: boolean;
+  approval?: { approvalKey: string; dismissed?: boolean };
 }
 
 interface BuildAssistantMessageOptions {
@@ -47,13 +56,6 @@ const INTERRUPTED_TOOL_RESULT =
 export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
 
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
-/**
- * When no file-upload provider is configured we fall back to storing base64
- * directly in the SQL thread_data column. Cap the raw base64 per attachment to
- * avoid unbounded row growth. Attachments larger than this get a '[truncated]'
- * marker so the transcript still renders but the column stays sane.
- */
-const MAX_STORED_BASE64_BYTES = 2 * 1024 * 1024; // 2 MB per attachment
 
 function isInternalContinuationError(event: {
   error: string;
@@ -63,15 +65,29 @@ function isInternalContinuationError(event: {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
   if (code === "builder_gateway_error") return false;
+  // An explicit `recoverable: false` outranks the code and message inference
+  // below, matching `isRecoverableContinuationError`. The background
+  // no-progress breaker stops a turn while PRESERVING the underlying transient
+  // code, so reading the code instead of the flag drops the one error the user
+  // was supposed to see out of the persisted turn.
+  if (event.recoverable === false) return false;
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
+    // Carries what `msg.includes("stream ended")` below used to: a
+    // Builder-credits deployment replaces that sentence with one visitor line,
+    // and the code is the only thing left that says the turn was truncated.
+    code === "builder_gateway_stream_ended" ||
     code === "stale_run" ||
     code === "timeout" ||
     code === "timeout_error" ||
     code === "http_408" ||
     code === "http_429" ||
     code === "http_500" ||
+    // The gateway's unhandled-500 envelope arriving in-stream. Without this the
+    // turn stored Builder's internal correlation id as the assistant's visible
+    // answer instead of a continuation.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
@@ -138,12 +154,29 @@ export function buildAssistantMessage(
     }
   };
 
+  // Index of the last event that is not a `clear`. Everything after it is a
+  // trailing run of clears with no successor chunk to re-emit what they wipe.
+  let lastNonClearIndex = events.length - 1;
+  while (
+    lastNonClearIndex >= 0 &&
+    events[lastNonClearIndex]?.event.type === "clear"
+  ) {
+    lastNonClearIndex -= 1;
+  }
+
   for (const [index, { event }] of events.entries()) {
     if (event.type === "clear") {
       // A live stream always follows `clear` with the chunk that re-emits the
       // wiped content. A rebuild has no successor, so applying a TRAILING
       // clear can only destroy the transcript permanently.
-      if (index === events.length - 1) continue;
+      //
+      // The whole trailing RUN has to be skipped, not just the final element:
+      // each failed engine attempt emits one `clear`, so three failed attempts
+      // in a row is the common shape, and skipping only the last still applied
+      // the other two. When the run made no tool calls that emptied `content`
+      // entirely and this builder returned null — the user's message was left
+      // with no assistant reply at all.
+      if (index > lastNonClearIndex) continue;
       clearAssistantDraftContent(content);
       continue;
     }
@@ -159,9 +192,27 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "tool_start") {
+      const explicitToolCallId = event.id?.trim();
+      // A tool_start whose id is already in this turn is a REPLAY, not a new
+      // call: the tool-call journal and zombie-ledger recovery paths re-emit
+      // tool_start/tool_done for calls that already ran in an interrupted
+      // chunk. The live client coalesces those onto the original card, so a
+      // blind push here persisted a second copy of a call the user had only
+      // ever seen once — the duplicate that appears only after a reload.
+      // Matching the tool name too, so an id reused across different tools
+      // stays two cards rather than being silently merged into one.
+      if (explicitToolCallId) {
+        const replayed = content.some(
+          (part) =>
+            part.type === "tool-call" &&
+            part.toolCallId === explicitToolCallId &&
+            part.toolName === (event.tool ?? "unknown"),
+        );
+        if (replayed) continue;
+      }
       toolCallCounter += 1;
       const toolCallId =
-        event.id?.trim() ||
+        explicitToolCallId ||
         (runId ? `${runId}:tc_${toolCallCounter}` : `tc_${toolCallCounter}`);
       const args = (event.input ?? {}) as Record<string, string>;
       content.push({
@@ -171,6 +222,20 @@ export function buildAssistantMessage(
         argsText: JSON.stringify(args),
         args,
       });
+      continue;
+    }
+
+    if (event.type === "approval_required") {
+      const matchingIndex = findApprovalToolCallIndex(
+        content,
+        event.tool ?? "unknown",
+        event.toolCallId,
+      );
+
+      const part = content[matchingIndex];
+      if (part?.type === "tool-call") {
+        part.approval = { approvalKey: event.approvalKey };
+      }
       continue;
     }
 
@@ -246,13 +311,24 @@ export function buildAssistantMessage(
       if (event.errorCode === "run_timeout" && event.recoverable) {
         continue;
       }
+      // Mirror the live client (client/sse-event-processor.ts): route the raw
+      // provider/engine string through the same friendly-copy layer before it
+      // ever becomes persisted chat text, and keep the raw text only in
+      // `details`. Without this, a rebuild (background run, reconnect, poller,
+      // webhook turn) dumps whatever the provider sent — a JSON error body, an
+      // SSL handshake failure — straight into the user-visible transcript.
+      const normalized = normalizeChatError(event.error, event.errorCode);
       runError = {
-        message: event.error,
+        message: normalized.message,
         ...(event.errorCode ? { errorCode: event.errorCode } : {}),
-        ...(event.details ? { details: event.details } : {}),
+        ...((event.details ?? normalized.details)
+          ? { details: event.details ?? normalized.details }
+          : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
-      appendText(`${content.length > 0 ? "\n\n" : ""}Error: ${event.error}`);
+      appendText(
+        `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+      );
       continue;
     }
 
@@ -305,19 +381,34 @@ export function buildAssistantMessage(
   };
 }
 
+/**
+ * The rebuild half of the live client's `clearAssistantDraftContent`
+ * (client/sse-event-processor.ts). The two bodies are asserted identical by
+ * `keeps clearAssistantDraftContent identical to the live client copy` in
+ * thread-data-builder.spec.ts — a rebuild that clears more than the live stream
+ * did makes narration vanish on reload, which is worse than clearing nothing.
+ */
 function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined
+    ) {
+      return;
+    }
     if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
       continue;
     }
     if (part.type === "tool-call" && part.result === undefined) {
-      // Keep materialized in-flight tool cards across retry clears so persisted
-      // thread rebuilds match the live SSE processor and avoid hide→show flicker.
+      // Only drop ephemeral placeholders. Materialized in-flight tool cards
+      // (real args from tool_start) stay mounted so a retry/auto-continue clear
+      // does not hide→show the same call when the next chunk re-emits it.
       const isEphemeral =
-        (part as { activity?: boolean }).activity === true ||
+        part.activity === true ||
         part.argsText === "" ||
         Object.keys(part.args ?? {}).length === 0;
       if (isEphemeral) content.splice(index, 1);
@@ -385,6 +476,9 @@ function settleInterruptedToolCalls(content: ContentPart[]): void {
   for (const part of content) {
     if (part.type === "tool-call" && part.result === undefined) {
       part.result = INTERRUPTED_TOOL_RESULT;
+      // Interrupted is not failed — never set `isError` here. The persisted
+      // turn must agree with the live client (client/sse-event-processor.ts).
+      part.outcome = "unknown";
     }
   }
 }
@@ -401,6 +495,55 @@ function normalizeAttachmentIdentity(attachments: unknown): unknown {
     name: att?.name,
     contentType: att?.contentType,
   }));
+}
+
+function findApprovalToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+  toolCallId?: string,
+): number {
+  if (toolCallId) {
+    for (let i = content.length - 1; i >= 0; i--) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolCallId === toolCallId &&
+        part.result === undefined
+      ) {
+        return i;
+      }
+    }
+
+    // Older tool_start events without an id use one reader-local tc_N id.
+    // Only accept that fallback when it is unambiguous, so a replayed approval
+    // cannot attach its key to another same-name call.
+    const readerLocalCandidates: number[] = [];
+    for (let i = 0; i < content.length; i += 1) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolName === toolName &&
+        part.result === undefined &&
+        typeof part.toolCallId === "string" &&
+        /^tc_\d+$/.test(part.toolCallId)
+      ) {
+        readerLocalCandidates.push(i);
+      }
+    }
+    return readerLocalCandidates.length === 1 ? readerLocalCandidates[0]! : -1;
+  }
+
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.result === undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 // Strip the render-only `toolCallId` before fingerprinting. The id is generated
@@ -700,6 +843,42 @@ export function threadDataToEngineMessages(
   return messages;
 }
 
+const MAX_RECOVERED_HISTORY_MESSAGES = 12;
+const MAX_RECOVERED_HISTORY_CHARS = 32_000;
+
+function engineMessageTextLength(message: EngineMessage): number {
+  return message.content.reduce(
+    (total, part) =>
+      total + (part.type === "text" ? (part.text?.length ?? 0) : 0),
+    0,
+  );
+}
+
+/**
+ * The trailing window of what was actually said in a thread, for a request that
+ * arrived carrying no history of its own. The client trims history against a
+ * size budget, so one tool-heavy turn can zero it out; without this floor the
+ * model re-derives answers it already gave and re-asks questions the user
+ * already answered. Contiguous and bounded on purpose — this restores the
+ * conversation, not the tool transcript.
+ */
+export function recoverThreadHistoryForRequest(
+  threadData: string | Record<string, unknown> | null | undefined,
+  limits?: { maxMessages?: number; maxChars?: number },
+): EngineMessage[] {
+  const maxMessages = limits?.maxMessages ?? MAX_RECOVERED_HISTORY_MESSAGES;
+  const maxChars = limits?.maxChars ?? MAX_RECOVERED_HISTORY_CHARS;
+  const window = threadDataToEngineMessages(threadData).slice(-maxMessages);
+  let total = window.reduce(
+    (sum, message) => sum + engineMessageTextLength(message),
+    0,
+  );
+  while (window.length > 1 && total > maxChars) {
+    total -= engineMessageTextLength(window.shift()!);
+  }
+  return window;
+}
+
 const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;
 const MAX_INTEGRATION_ARTIFACT_FIELD_CHARS = 500;
 
@@ -939,6 +1118,45 @@ export interface MergeThreadDataOptions {
   preserveExistingTopLevelKeys?: boolean;
 }
 
+const CLAIMED_QUEUED_MESSAGE_IDS_KEY = "_claimedQueuedMessageIds";
+const MAX_CLAIMED_QUEUED_MESSAGE_IDS = 200;
+
+function claimedQueuedMessageIds(repo: any): string[] {
+  const value = repo?.[CLAIMED_QUEUED_MESSAGE_IDS_KEY];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+}
+
+export function hasClaimedQueuedMessage(repo: any, messageId: string): boolean {
+  return claimedQueuedMessageIds(repo).includes(messageId);
+}
+
+export function claimQueuedMessage(repo: any, messageId: string): any {
+  const normalized = repo && typeof repo === "object" ? { ...repo } : {};
+  const claimed = claimedQueuedMessageIds(normalized).filter(
+    (id) => id !== messageId,
+  );
+  normalized[CLAIMED_QUEUED_MESSAGE_IDS_KEY] = [...claimed, messageId].slice(
+    -MAX_CLAIMED_QUEUED_MESSAGE_IDS,
+  );
+  return pruneClaimedQueuedMessages(normalized);
+}
+
+function pruneClaimedQueuedMessages(repo: any): any {
+  if (!Array.isArray(repo?.queuedMessages)) return repo;
+  const claimed = new Set(claimedQueuedMessageIds(repo));
+  if (claimed.size === 0) return repo;
+  return {
+    ...repo,
+    queuedMessages: repo.queuedMessages.filter(
+      (message: any) =>
+        typeof message?.id !== "string" || !claimed.has(message.id),
+    ),
+  };
+}
+
 export function mergeThreadDataForClientSave(
   existingRepo: any,
   incomingRepo: any,
@@ -984,7 +1202,9 @@ export function mergeThreadDataForClientSave(
   const incomingMessages = Array.isArray(merged.messages)
     ? merged.messages
     : null;
-  if (!existingMessages || !incomingMessages) return merged;
+  if (!existingMessages || !incomingMessages) {
+    return pruneClaimedQueuedMessages(merged);
+  }
 
   const incomingKeySets: Set<string>[] = incomingMessages.map(
     (entry: unknown) => new Set(messageIdentityKeys(getStoredMessage(entry))),
@@ -1039,7 +1259,7 @@ export function mergeThreadDataForClientSave(
   merged.messages = nextMessages.map((entry) =>
     rewriteEntryParentId(entry, idRewrites),
   );
-  return normalizeThreadRepository(merged);
+  return normalizeThreadRepository(pruneClaimedQueuedMessages(merged));
 }
 
 function escapeAttachmentAttribute(value: string): string {
@@ -1072,22 +1292,6 @@ function textAttachmentEnvelope(
     att.type ? `type="${escapeAttachmentAttribute(att.type)}"` : null,
   ].filter(Boolean);
   return `<attachment ${attrs.join(" ")}>\n${truncateStoredAttachment(text)}\n</attachment>`;
-}
-
-/**
- * Cap a base64 data-URL string for storage. When the encoded string is over
- * the limit we replace the base64 payload with a truncation marker so the
- * transcript still renders the attachment chip but doesn't bloat SQL.
- */
-function capBase64DataUrl(dataUrl: string): string {
-  const commaIdx = dataUrl.indexOf(",");
-  if (commaIdx === -1) return dataUrl;
-  const header = dataUrl.slice(0, commaIdx + 1);
-  const b64 = dataUrl.slice(commaIdx + 1);
-  // Each base64 char encodes 6 bits; 4 chars = 3 bytes.
-  const approxBytes = Math.floor((b64.length * 3) / 4);
-  if (approxBytes <= MAX_STORED_BASE64_BYTES) return dataUrl;
-  return `${header}[base64 truncated — ${approxBytes.toLocaleString()} bytes exceeds storage limit]`;
 }
 
 function buildStoredAttachments(
@@ -1136,33 +1340,6 @@ function buildStoredAttachments(
         };
       }
 
-      if (att.type === "image" && att.data) {
-        return {
-          id,
-          type: "image",
-          name: att.name,
-          contentType: att.contentType,
-          status: { type: "complete" },
-          content: [{ type: "image", image: capBase64DataUrl(att.data) }],
-        };
-      }
-      if (att.data) {
-        return {
-          id,
-          type: "file",
-          name: att.name,
-          contentType: att.contentType,
-          status: { type: "complete" },
-          content: [
-            {
-              type: "file",
-              data: capBase64DataUrl(att.data),
-              mimeType: att.contentType,
-              filename: att.name,
-            },
-          ],
-        };
-      }
       if (typeof att.text === "string" && att.text.length > 0) {
         return {
           id,
@@ -1175,6 +1352,33 @@ function buildStoredAttachments(
           ],
         };
       }
+
+      // Binary attachment data is request-scoped input, not thread state. If
+      // the provider was unavailable or failed, retain only a visible marker
+      // so the transcript can explain why the attachment needs storage setup
+      // without putting base64 bytes in SQL.
+      if (att.storageRequired === true || typeof att.data === "string") {
+        const uploadFailed = att.storageUploadFailed === true;
+        return {
+          id,
+          type: att.type === "image" ? "image" : "file",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          content: [
+            {
+              type: "text",
+              text: uploadFailed
+                ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
+                : "Attachment not retained: connect object storage to keep files available throughout this thread.",
+            },
+          ],
+          metadata: {
+            storageRequired: true,
+            ...(uploadFailed ? { storageUploadFailed: true } : {}),
+          },
+        };
+      }
       return null;
     })
     .filter(Boolean);
@@ -1184,6 +1388,7 @@ export function buildUserMessage(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
   runId?: string;
+  queuedMessageId?: string;
   createdAt?: Date;
 }): {
   id: string;
@@ -1203,6 +1408,9 @@ export function buildUserMessage(opts: {
     metadata: {
       custom: {
         submittedRunId: opts.runId,
+        ...(opts.queuedMessageId
+          ? { agentNativeQueuedMessageId: opts.queuedMessageId }
+          : {}),
       },
     },
   };

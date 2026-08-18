@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ track(
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 触发分析事件。扇出到所有注册的提供商。
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+`source` 可以是直接透传的操作 `ctx`，也可以是没有 `ctx` 的调用方使用的 `{ userId, anonymousId, sessionId }` 元数据对象。
+
+浏览器会话不需要调用方自行提供：它来自环境请求上下文（`RequestContext.browserSessionId`，由操作客户端、聊天和浏览器端 `track()` 都会发送的 `X-Agent-Native-Session-Id` 请求头设置），因此无论事件由界面还是由智能体触发，都会关联到同一次访问。每个提供方都会把它映射到自己的会话字段：PostHog 使用 `$session_id`，从而把事件与会话回放关联起来；Mixpanel 和 Amplitude 使用 `session_id` 属性；Webhook 和 Agent Native Analytics 使用顶层的 `sessionId`。对于没有浏览器的调用方（cron、CLI、MCP、A2A）该值不存在，而元数据对象中的 `sessionId` 会覆盖它。
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 需要自定义后端、提供程序注册表 API 或批处理/单例内部组件？见最后的[Advanced: custom providers & internals](#advanced)。
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // 直接透传 ctx：事件归属于 ctx.userEmail，并关联到发起调用的
+    // 浏览器会话。
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -351,6 +357,6 @@ interface TrackingEvent {
 
 ## 下一步是什么
 
-- [**Actions**](/docs/actions) — 大多数跟踪调用的发起位置
-- [**Server Plugins**](/docs/server#server-plugins) - `registerBuiltinProviders()` 在启动时在 core-routes 插件中运行
+- [**Actions**](/docs/actions-overview) — 大多数跟踪调用的发起位置
+- [**Server Plugins**](/docs/server-plugins) - `registerBuiltinProviders()` 在启动时在 core-routes 插件中运行
 - [**安全 — 密钥管理**](/docs/security#secrets) — 管理用于跟踪提供商的 API 密钥

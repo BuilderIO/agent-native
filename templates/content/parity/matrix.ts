@@ -96,6 +96,28 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
   },
   {
+    id: "workspace.root-landing-resolver",
+    surface: "workspace",
+    label:
+      "Resolve the app root to the caller's last authorized page or a private welcome page",
+    uiEntrypoints: ["app/routes/_app._index.tsx", "app/lib/content-landing.ts"],
+    durableEffect:
+      "The root route restores the most recent authorized page when possible and otherwise converges on one private personal welcome page while preserving last-location state.",
+    uiImplementation:
+      "The index route invokes the shared landing resolver on first load, then navigates to the resolved page and records the landing document in application state.",
+    status: "action-backed",
+    actions: ["resolve-content-landing"],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/resolve-content-landing.db.test.ts",
+      "app/lib/content-landing.test.ts",
+    ],
+  },
+  {
     id: "sidebar.chrome-state",
     surface: "sidebar",
     label: "Collapse sections and resize the sidebar",
@@ -253,6 +275,7 @@ export const parityMatrix: ParityRow[] = [
       "create-content-database",
       "create-inline-content-database",
       "delete-content-database",
+      "describe-content-database",
       "get-content-database",
       "list-content-databases",
       "list-trashed-content-databases",
@@ -263,8 +286,37 @@ export const parityMatrix: ParityRow[] = [
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/content-database-lifecycle.db.test.ts"],
+    coverageRefs: [
+      "actions/content-database-lifecycle.db.test.ts",
+      "actions/list-content-databases.db.test.ts",
+      "server/plugins/agent-chat.spec.ts",
+      "../../packages/core/src/server/agent-chat/content-a2a-capabilities.spec.ts",
+    ],
     evalScenarioIds: ["database-source-scope"],
+  },
+  {
+    id: "database.table-query-page",
+    surface: "database",
+    label: "Query one constrained page while retaining database metadata",
+    uiEntrypoints: [
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/hooks/use-content-database.ts",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "The table view loads changed search, filter, and sort results through a page-only action while the base database response remains visible.",
+    status: "action-backed",
+    actions: ["query-content-database-items"],
+    exception:
+      "This UI-only bounded projection is intentionally hidden with agentTool: false; agents use get-content-database for the complete database contract.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-database-lifecycle.db.test.ts",
+      "app/hooks/use-content-database.test.ts",
+    ],
   },
   {
     id: "database.form-submissions",
@@ -287,22 +339,26 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "database.rows",
     surface: "database",
-    label: "Add, duplicate, move, open, and delete database rows",
+    label: "Add, duplicate, move, open, edit, and remove database rows",
     uiEntrypoints: [
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/database/DatabaseView.tsx",
     ],
     durableEffect:
-      "Database row backing documents and row ordering are created, duplicated, moved, edited, and deleted.",
+      "Database row memberships and ordering are created, duplicated, moved, edited, and removed without deleting the backing page; bounded migrations atomically update row bodies and properties through the same canonical data model.",
     uiImplementation:
-      "Row controls call row actions; selected-row duplicate/delete call bounded batch actions, while bulk property edits remain a later reliability slice.",
+      "Row controls call row actions; the editor and agent share stable Blocks identities for one-block edits; selected-row duplicate/removal call bounded batch actions, while bounded whole-database schema-and-body migrations use one validated, receipt-backed action instead of many partial writes.",
     status: "action-backed",
     actions: [
       "add-database-item",
-      "delete-database-items",
-      "delete-document",
+      "update-database-item",
+      "upsert-database-item-by-key",
+      "list-content-database-blocks",
+      "mutate-content-database-block",
+      "remove-database-items",
       "duplicate-database-items",
       "duplicate-database-item",
+      "migrate-content-database-rows",
       "move-database-item",
       "set-document-property",
     ],
@@ -313,6 +369,9 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/database-row-batch-actions.db.test.ts",
+      "actions/upsert-database-item-by-key.db.test.ts",
+      "actions/migrate-content-database-rows.db.test.ts",
+      "actions/content-database-block-actions.db.test.ts",
       "parity/__tests__/database-row-batch-reliability.test.ts",
     ],
     evalScenarioIds: ["database-bulk-row-reliability"],
@@ -402,6 +461,7 @@ export const parityMatrix: ParityRow[] = [
       "get-content-database-source",
       "list-builder-cms-models",
       "list-notion-database-sources",
+      "preview-content-database-source-attach",
       "refresh-content-database-source",
       "suggest-source-join-key",
     ],

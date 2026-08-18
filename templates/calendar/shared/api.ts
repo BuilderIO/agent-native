@@ -1,6 +1,8 @@
 export interface CalendarEvent {
   id: string;
   title: string;
+  /** Client-facing provenance for a display label synthesized from an absent title. */
+  titleIsGenerated?: boolean;
   description: string;
   start: string; // ISO 8601
   end: string; // ISO 8601
@@ -138,13 +140,15 @@ export interface CalendarEventDraft {
   endTimeZone?: string;
   location?: string;
   allDay?: boolean;
+  fullDay?: boolean;
   eventType?: "default" | "outOfOffice" | "focusTime" | "workingLocation";
+  outOfOfficeProperties?: CalendarEvent["outOfOfficeProperties"];
   transparency?: "opaque" | "transparent";
   visibility?: "default" | "public" | "private" | "confidential";
   colorId?: string;
-  recurrence?: string[];
   reminders?: CalendarEvent["reminders"];
   remindersUseDefault?: boolean;
+  recurrence?: CalendarEvent["recurrence"];
   attachments?: CalendarEvent["attachments"];
   attendees?: CalendarEvent["attendees"];
   addGoogleMeet?: boolean;
@@ -327,6 +331,7 @@ export interface Settings {
   bookingPageTitle: string;
   bookingPageDescription: string;
   defaultEventDuration: number; // minutes
+  weekStart: import("./calendar-week.js").CalendarWeekStart;
 }
 
 export type ApolloPersonResult = {

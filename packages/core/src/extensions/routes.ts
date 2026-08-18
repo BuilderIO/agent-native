@@ -63,7 +63,14 @@ import {
   isBlockedExtensionUrlWithDns,
 } from "./url-safety.js";
 
-export function createExtensionsHandler() {
+export interface ExtensionsHandlerOptions {
+  /** Allow authenticated callers to create extensions through the collection route. */
+  extensionTools?: boolean;
+}
+
+export function createExtensionsHandler(
+  options: ExtensionsHandlerOptions = {},
+) {
   return defineEventHandler(async (event: H3Event) => {
     const method = getMethod(event);
     const pathname = (event.url?.pathname || "")
@@ -95,6 +102,14 @@ export function createExtensionsHandler() {
 
     try {
       return await runWithRequestContext({ userEmail, orgId }, async () => {
+        if (
+          method === "POST" &&
+          parts.length === 0 &&
+          options.extensionTools !== true
+        ) {
+          setResponseStatus(event, 403);
+          return { error: "Extension creation is disabled for this app" };
+        }
         await ensureExtensionsTables();
         return dispatch(event, method, parts, userEmail);
       });
@@ -239,6 +254,9 @@ async function dispatch(
     // viewer is NOT the author. The role is plumbed through to gate
     // dangerous bridge helpers in iframe-bridge.ts (audit H4).
     const isAuthor = extension.ownerEmail === userEmail;
+    // Commenters can read shared extensions, but the iframe bridge has no
+    // comment-specific capability; map them to its read-only viewer role.
+    const renderRole = access.role === "commenter" ? "viewer" : access.role;
 
     const html = buildExtensionHtml(
       extension.content,
@@ -249,7 +267,7 @@ async function dispatch(
         authorEmail: extension.ownerEmail,
         viewerEmail: userEmail,
         isAuthor,
-        role: access.role,
+        role: renderRole,
       },
     );
     // Security headers per render. `frame-ancestors` in the CSP must be set as

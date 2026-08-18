@@ -19,7 +19,7 @@ type BuilderWaitlistProps = {
 };
 
 const primaryButtonClassName =
-  "inline-flex w-full items-center justify-center gap-2 rounded-lg bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200";
+  "inline-flex w-full items-center justify-center gap-2 rounded-md bg-black px-4 py-2 text-sm font-medium text-white transition hover:bg-gray-800 dark:bg-white dark:text-black dark:hover:bg-gray-200";
 
 export function BuilderWaitlistContent({
   location,

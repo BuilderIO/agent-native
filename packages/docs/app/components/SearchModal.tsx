@@ -1,5 +1,7 @@
+import { focusAgentChat } from "@agent-native/core/client/agent-chat";
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { IconMoon, IconSun } from "@tabler/icons-react";
+import { submitToAgent } from "@agent-native/core/client/navigation";
+import { IconMessage, IconMoon, IconSun } from "@tabler/icons-react";
 import { useState, useEffect, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { useNavigate, Link } from "react-router";
@@ -24,11 +26,19 @@ function loadSearchIndex(locale: string): Promise<SearchEntry[]> {
   const pending = pendingIndexes.get(locale);
   if (pending) return pending;
 
-  const promise = buildSearchIndexAsync(locale).then((index) => {
-    cachedIndexes.set(locale, index);
-    pendingIndexes.delete(locale);
-    return index;
-  });
+  const promise = Promise.resolve()
+    .then(() => buildSearchIndexAsync(locale))
+    .then((index) => {
+      cachedIndexes.set(locale, index);
+      pendingIndexes.delete(locale);
+      return index;
+    })
+    .catch((error) => {
+      // A stale or unavailable document chunk must not poison retries for the
+      // rest of the session with the same rejected promise.
+      pendingIndexes.delete(locale);
+      throw error;
+    });
   pendingIndexes.set(locale, promise);
   return promise;
 }
@@ -116,6 +126,8 @@ export function SearchModal({
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
   const [index, setIndex] = useState<SearchEntry[]>([]);
+  const [indexError, setIndexError] = useState<unknown>(null);
+  const [retryCount, setRetryCount] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const modalRef = useRef<HTMLDivElement>(null);
   const activeItemRef = useRef<HTMLButtonElement>(null);
@@ -141,6 +153,17 @@ export function SearchModal({
     queryWords.length === 0 ||
     queryWords.every((word) => themeSearchTerms.includes(word));
   const resultIndexOffset = showThemeAction ? 1 : 0;
+  const askAiIndex = resultIndexOffset + results.length;
+
+  const submitAskAi = useCallback(() => {
+    onClose();
+    const message = query.trim();
+    if (!message) {
+      focusAgentChat();
+      return;
+    }
+    submitToAgent(message);
+  }, [onClose, query]);
 
   useEffect(() => {
     if (!open) return;
@@ -148,16 +171,26 @@ export function SearchModal({
     const cached = getCachedSearchIndex(locale);
     if (cached) {
       setIndex(cached);
+      setIndexError(null);
       return;
     }
     setIndex([]);
-    void loadSearchIndex(locale).then((loaded) => {
-      if (!cancelled) setIndex(loaded);
-    });
+    setIndexError(null);
+    void loadSearchIndex(locale)
+      .then((loaded) => {
+        if (cancelled) return;
+        setIndex(loaded);
+        setIndexError(null);
+      })
+      .catch((error: unknown) => {
+        if (cancelled) return;
+        console.error("Docs search index failed to load", error);
+        setIndexError(error);
+      });
     return () => {
       cancelled = true;
     };
-  }, [locale, open]);
+  }, [locale, open, retryCount]);
 
   // Focus management: save focus before open, restore on close
   useEffect(() => {
@@ -198,15 +231,20 @@ export function SearchModal({
         onClose();
       } else if (e.key === "ArrowDown") {
         e.preventDefault();
-        const maxIndex = Math.max(results.length + resultIndexOffset - 1, 0);
+        const maxIndex = askAiIndex;
         setActiveIdx((i) => Math.min(i + 1, maxIndex));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
         setActiveIdx((i) => Math.max(i - 1, 0));
       } else if (e.key === "Enter") {
+        e.preventDefault();
         if (showThemeAction && activeIdx === 0) {
           toggleTheme();
           onClose();
+          return;
+        }
+        if (activeIdx === askAiIndex) {
+          submitAskAi();
           return;
         }
         const result = results[activeIdx - resultIndexOffset];
@@ -242,10 +280,12 @@ export function SearchModal({
     open,
     results,
     activeIdx,
+    askAiIndex,
     go,
     onClose,
     resultIndexOffset,
     showThemeAction,
+    submitAskAi,
     toggleTheme,
   ]);
 
@@ -338,7 +378,18 @@ export function SearchModal({
               </button>
             </div>
           )}
-          {query.trim() === "" ? (
+          {indexError ? (
+            <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
+              <p className="mb-3">{t("search.loadError")}</p>
+              <button
+                type="button"
+                onClick={() => setRetryCount((count) => count + 1)}
+                className="inline-flex items-center rounded-md border border-[var(--docs-border)] px-3 py-1.5 text-xs text-[var(--fg)] transition hover:border-[var(--fg-secondary)]"
+              >
+                {t("search.retry")}
+              </button>
+            </div>
+          ) : query.trim() === "" ? (
             <div className="px-4 py-8 text-center text-sm text-[var(--fg-secondary)]">
               {t("search.empty")}
             </div>
@@ -431,6 +482,40 @@ export function SearchModal({
               ))}
             </div>
           )}
+        </div>
+
+        <div className="border-t border-[var(--docs-border)] py-2">
+          <button
+            ref={activeIdx === askAiIndex ? activeItemRef : undefined}
+            type="button"
+            onClick={submitAskAi}
+            onMouseEnter={() => setActiveIdx(askAiIndex)}
+            className={`flex w-full items-center gap-3 px-4 py-3 text-start text-sm transition ${
+              activeIdx === askAiIndex
+                ? "bg-[var(--docs-accent)]/10"
+                : "hover:bg-[var(--bg-secondary)]"
+            }`}
+          >
+            <IconMessage
+              size={16}
+              stroke={1.5}
+              className="shrink-0 text-[var(--docs-accent)]"
+              aria-hidden="true"
+            />
+            <span className="min-w-0 truncate font-medium text-[var(--fg)]">
+              {t("header.askAssistant")}
+              {query.trim() ? (
+                <span className="font-normal text-[var(--fg-secondary)]">
+                  : "{query}"
+                </span>
+              ) : null}
+            </span>
+            {query.trim() ? (
+              <kbd className="ms-auto shrink-0 text-[10px] text-[var(--fg-secondary)]">
+                ↵
+              </kbd>
+            ) : null}
+          </button>
         </div>
       </div>
     </div>,

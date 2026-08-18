@@ -30,6 +30,7 @@ import {
   applyFaststart,
   hasPlayableMp4Metadata,
 } from "../server/lib/faststart.js";
+import { allowsLegacyS3ObjectForPersistedMedia } from "../server/lib/media-storage-provenance.js";
 import {
   mediaVerificationStateKey,
   parseMediaVerificationMarker,
@@ -47,7 +48,13 @@ import {
   deleteResumableSession,
   getResumableSession,
 } from "../server/lib/resumable-session.js";
+import { abortResumableUploadSession } from "../server/lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../server/lib/resumable-upload-provider.js";
+import { fetchS3ObjectByUrl } from "../server/lib/s3-upload-provider.js";
+import {
+  clearSeekableRepairPending,
+  markSeekableRepairPending,
+} from "../server/lib/seekable-media-state.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
 import {
   probeHasAudioStream,
@@ -57,7 +64,10 @@ import {
   requiresConfiguredVideoStorage,
   STORAGE_SETUP_REQUIRED_REASON,
 } from "../server/lib/video-storage.js";
-import { markRecordingSeekable } from "./lib/ensure-seekable-video.js";
+import {
+  isRemoteProviderUrl,
+  markRecordingSeekable,
+} from "./lib/ensure-seekable-video.js";
 
 // Recordings up to this size get their seekable rewrite applied inline during
 // finalize (we already hold the assembled bytes). Larger recordings are handed
@@ -181,7 +191,11 @@ function servedMediaSizeBytes(response: Response): number | null {
   return null;
 }
 
-async function verifyServedMediaUrl(videoUrl: string): Promise<number | null> {
+async function verifyServedMediaUrl(
+  recordingId: string,
+  videoUrl: string,
+  allowLegacyObjectKey = false,
+): Promise<number | null> {
   if (!shouldVerifyServedMediaUrl(videoUrl)) return null;
 
   let lastFailure = "media URL did not serve readable bytes";
@@ -196,11 +210,21 @@ async function verifyServedMediaUrl(videoUrl: string): Promise<number | null> {
       MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
     );
     try {
-      const response = await fetch(videoUrl, {
-        method: "GET",
-        headers: { Range: "bytes=0-1023" },
-        signal: controller.signal,
+      const signedS3Response = await fetchS3ObjectByUrl(videoUrl, {
+        range: "bytes=0-1023",
+        timeoutMs: MEDIA_SERVE_VERIFICATION_TIMEOUT_MS,
+        recordingId,
+        ...(allowLegacyObjectKey ? { allowLegacyObjectKey } : {}),
       });
+      let response = signedS3Response;
+      if (response?.status !== 200 && response?.status !== 206) {
+        await response?.body?.cancel().catch(() => undefined);
+        response = await fetch(videoUrl, {
+          method: "GET",
+          headers: { Range: "bytes=0-1023" },
+          signal: controller.signal,
+        });
+      }
       const statusOk = response.status === 200 || response.status === 206;
       if (statusOk) {
         const servedBytes = servedMediaSizeBytes(response);
@@ -382,6 +406,7 @@ async function persistPendingMediaVerification(params: {
       videoUrl: media.videoUrl,
       videoFormat: media.videoFormat,
       videoSizeBytes: media.videoSizeBytes,
+      mediaUpdatedAt: now,
       durationMs: media.finalDurationMs,
       width: media.finalWidth,
       height: media.finalHeight,
@@ -560,6 +585,7 @@ async function markRecordingReady(params: {
       videoUrl,
       videoFormat,
       videoSizeBytes,
+      mediaUpdatedAt: now,
       durationMs: finalDurationMs,
       width: finalWidth,
       height: finalHeight,
@@ -651,6 +677,12 @@ async function markRecordingReady(params: {
   if (seekableApplied) {
     // Uploaded bytes are already start-playable and seekable — remember it so
     // later reprocess sweeps skip this clip.
+    await clearSeekableRepairPending(id).catch((err) => {
+      console.warn("[finalize] failed to clear seekable repair marker", {
+        id,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
     await markRecordingSeekable(id, videoUrl).catch((err) => {
       console.warn("[finalize] failed to write seekable marker", {
         id,
@@ -663,6 +695,17 @@ async function markRecordingReady(params: {
     // without a Cues index buffers on load and re-buffers on every seek. A
     // fresh self-dispatched request owns the repair so serverless runtimes do
     // not freeze it when this finalize request returns.
+    if (isRemoteProviderUrl(videoUrl)) {
+      await markSeekableRepairPending({
+        recordingId: id,
+        videoUrl,
+      }).catch((err) => {
+        console.warn("[finalize] failed to mark seekable repair pending", {
+          id,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    }
     await dispatchPostFinalizeJob({
       recordingId: id,
       kind: "seekable",
@@ -727,6 +770,7 @@ async function retryPendingMediaVerification(params: {
     .select({
       status: schema.recordings.status,
       videoUrl: schema.recordings.videoUrl,
+      editsJson: schema.recordings.editsJson,
     })
     .from(schema.recordings)
     .where(
@@ -754,7 +798,15 @@ async function retryPendingMediaVerification(params: {
     videoUrl: recording.videoUrl || media.videoUrl,
   };
   try {
-    const servedBytes = await verifyServedMediaUrl(candidate.videoUrl);
+    const servedBytes = await verifyServedMediaUrl(
+      id,
+      candidate.videoUrl,
+      allowsLegacyS3ObjectForPersistedMedia({
+        requestedUrl: candidate.videoUrl,
+        persistedUrl: recording.videoUrl,
+        editsJson: recording.editsJson,
+      }),
+    );
     const result = await markRecordingReady({
       id,
       ownerEmail,
@@ -902,6 +954,12 @@ export default defineAction({
         "Whether the uploaded video bytes were already locally transcoded/compressed before upload",
       ),
     mediaVerificationRetryAttempt: z.number().int().min(1).max(10).optional(),
+    uploadGenerationId: z
+      .string()
+      .min(1)
+      .max(128)
+      .optional()
+      .describe("Upload generation that owns the scratch data being finalized"),
   }),
   run: async (args) => {
     const db = getDb();
@@ -921,7 +979,7 @@ export default defineAction({
     // never retain scratch video blobs.
     let chunkKeysToPurge: string[] = [];
     try {
-      const [existing] = await db
+      let [existing] = await db
         .select()
         .from(schema.recordings)
         .where(
@@ -938,6 +996,32 @@ export default defineAction({
         throw new Error(`Recording not found: ${id}`);
       }
 
+      const generationId = args.uploadGenerationId ?? null;
+      if ((existing.uploadGenerationId ?? null) !== generationId) {
+        throw new Error("Upload generation changed before finalization");
+      }
+      // Claim finalization before touching provider/scratch state. Reset only
+      // admits uploading/failed rows, so once this CAS succeeds it cannot
+      // replace the generation underneath a delayed final chunk.
+      if (generationId !== null && existing.status === "uploading") {
+        const claimed = await db
+          .update(schema.recordings)
+          .set({ status: "processing", updatedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(schema.recordings.id, id),
+              ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+              eq(schema.recordings.status, "uploading"),
+              eq(schema.recordings.uploadGenerationId, generationId),
+            ),
+          )
+          .returning();
+        if (claimed.length !== 1) {
+          throw new Error("Upload changed before finalization could claim it");
+        }
+        existing = claimed[0]!;
+      }
+
       // Idempotency guard: finalize can be re-invoked when a client retries the
       // final chunk after a lost response. If already 'ready' return the existing
       // result instead of re-running the complete/assembly path (session and
@@ -947,7 +1031,7 @@ export default defineAction({
         // A prior attempt may have persisted the ready row and then failed
         // before deleting its resumable-session handle. The provider upload is
         // complete at this point, so retire only the local retry state.
-        await deleteResumableSession(id).catch((err) =>
+        await deleteResumableSession(id, generationId).catch((err) =>
           console.warn("[finalize] failed to delete resumable session:", err),
         );
         await deleteAppState(mediaVerificationStateKey(id)).catch(() => {});
@@ -1038,7 +1122,7 @@ export default defineAction({
 
       // Resumable path: create-recording initialized a session and chunk.post.ts
       // forwarded all chunks to the provider. Complete the session to get the CDN URL.
-      const resumableSession = await getResumableSession(id);
+      const resumableSession = await getResumableSession(id, generationId);
       if (resumableSession && isStreamingUploadDisabled()) {
         console.warn(
           `[finalize] streaming uploads are disabled, but completing existing resumable session for in-flight recording: ${id}`,
@@ -1100,17 +1184,35 @@ export default defineAction({
               ),
             );
         }
-        try {
-          const uploadProvider = await resolveResumableUploadProvider(
-            resumableSession.providerId,
+        const uploadProvider = await resolveResumableUploadProvider(
+          resumableSession.providerId,
+        );
+        if (!uploadProvider?.resumable) {
+          throw new Error(
+            "Upload completion failed: No resumable upload provider configured",
           );
-          if (!uploadProvider?.resumable) {
-            throw new Error("No resumable upload provider configured");
+        }
+        if (resumableSession.bytesUploaded <= 0) {
+          const cleaned = await abortResumableUploadSession(resumableSession, {
+            provider: uploadProvider,
+            label: `finalize-${id}`,
+          });
+          if (cleaned) {
+            await deleteResumableSession(id, generationId).catch((deleteErr) =>
+              console.warn(
+                "[finalize] failed to retire empty resumable session:",
+                deleteErr,
+              ),
+            );
           }
-          if (resumableSession.bytesUploaded <= 0) {
-            throw new Error("Recording upload contained no video bytes");
-          }
-          const videoUrl = await uploadProvider.resumable.completeSession(
+          throw new Error(
+            "Upload completion failed: Recording upload contained no video bytes",
+          );
+        }
+
+        let videoUrl: string;
+        try {
+          videoUrl = await uploadProvider.resumable.completeSession(
             {
               sessionId: resumableSession.sessionId,
               meta: resumableSession.meta,
@@ -1120,74 +1222,87 @@ export default defineAction({
               : "",
             { stableUrl: true, recordAsset: false },
           );
-          debugLog("[finalize] resumable upload completed", { id, videoUrl });
-          let servedBytes: number | null;
-          try {
-            servedBytes = await verifyServedMediaUrl(videoUrl);
-          } catch (err) {
-            const failureReason =
-              err instanceof Error ? err.message : String(err);
-            const pending = await leaveRecordingProcessingForMediaVerification({
-              id,
-              ownerEmail,
-              failureReason,
-              media: {
-                videoUrl,
-                videoSizeBytes: resumableSession.bytesUploaded,
-                sourceSizeBytes: resumableSession.bytesUploaded,
-                videoFormat,
-                finalDurationMs,
-                finalWidth,
-                finalHeight,
-                finalHasAudio,
-                finalHasCamera,
-                seekableApplied: false,
-                mimeType,
-                providerId: resumableSession.providerId,
-                locallyTranscoded: args.locallyTranscoded === true,
-              },
-            });
-            await deleteResumableSession(id).catch((deleteErr) =>
+        } catch (err) {
+          const cleaned = await abortResumableUploadSession(resumableSession, {
+            provider: uploadProvider,
+            label: `finalize-${id}`,
+          });
+          if (cleaned) {
+            await deleteResumableSession(id, generationId).catch((deleteErr) =>
               console.warn(
-                "[finalize] failed to retire pending resumable session:",
+                "[finalize] failed to retire aborted resumable session:",
                 deleteErr,
               ),
             );
-            return pending;
           }
-          const result = await markRecordingReady({
-            ...readyParams,
-            videoUrl,
-            videoSizeBytes: servedBytes ?? resumableSession.bytesUploaded,
-            sourceSizeBytes: resumableSession.bytesUploaded,
-            // Streaming path forwards raw MediaRecorder bytes straight to the
-            // provider — no faststart/Cues rewrite happened. Repair in the
-            // background.
-            seekableApplied: false,
-          });
-          if (result.status === "ready" && result.transitionedToReady) {
-            queueBackgroundBuilderCompression({
-              recordingId: id,
-              ownerEmail,
-              videoUrl,
-              mimeType,
-              providerId: resumableSession.providerId,
-              sourceSizeBytes: resumableSession.bytesUploaded,
-              locallyTranscoded: args.locallyTranscoded === true,
-            });
-          }
-          // Delete only after durable state is written — so a retry before
-          // this point can still find the session and re-enter this path.
-          deleteResumableSession(id).catch((err) =>
-            console.warn("[finalize] failed to delete resumable session:", err),
-          );
-          return result;
-        } catch (err) {
           console.error("[finalize] resumable complete failed:", err);
           throw new Error(
             `Upload completion failed: ${err instanceof Error ? err.message : String(err)}`,
           );
         }
+
+        debugLog("[finalize] resumable upload completed", { id, videoUrl });
+        let servedBytes: number | null;
+        try {
+          servedBytes = await verifyServedMediaUrl(id, videoUrl, true);
+        } catch (err) {
+          const failureReason =
+            err instanceof Error ? err.message : String(err);
+          const pending = await leaveRecordingProcessingForMediaVerification({
+            id,
+            ownerEmail,
+            failureReason,
+            media: {
+              videoUrl,
+              videoSizeBytes: resumableSession.bytesUploaded,
+              sourceSizeBytes: resumableSession.bytesUploaded,
+              videoFormat,
+              finalDurationMs,
+              finalWidth,
+              finalHeight,
+              finalHasAudio,
+              finalHasCamera,
+              seekableApplied: false,
+              mimeType,
+              providerId: resumableSession.providerId,
+              locallyTranscoded: args.locallyTranscoded === true,
+            },
+          });
+          await deleteResumableSession(id, generationId).catch((deleteErr) =>
+            console.warn(
+              "[finalize] failed to retire pending resumable session:",
+              deleteErr,
+            ),
+          );
+          return pending;
+        }
+        const result = await markRecordingReady({
+          ...readyParams,
+          videoUrl,
+          videoSizeBytes: servedBytes ?? resumableSession.bytesUploaded,
+          sourceSizeBytes: resumableSession.bytesUploaded,
+          // Streaming path forwards raw MediaRecorder bytes straight to the
+          // provider — no faststart/Cues rewrite happened. Repair in the
+          // background.
+          seekableApplied: false,
+        });
+        if (result.status === "ready" && result.transitionedToReady) {
+          queueBackgroundBuilderCompression({
+            recordingId: id,
+            ownerEmail,
+            videoUrl,
+            mimeType,
+            providerId: resumableSession.providerId,
+            sourceSizeBytes: resumableSession.bytesUploaded,
+            locallyTranscoded: args.locallyTranscoded === true,
+          });
+        }
+        // Delete only after durable state is written — so a retry before
+        // this point can still find the session and re-enter this path.
+        deleteResumableSession(id, generationId).catch((err) =>
+          console.warn("[finalize] failed to delete resumable session:", err),
+        );
+        return result;
       }
 
       // Buffered path — assemble chunks from application_state, then upload.
@@ -1226,6 +1341,7 @@ export default defineAction({
         .set({
           status: "processing",
           uploadProgress: 100,
+          mediaUpdatedAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         })
         .where(eq(schema.recordings.id, id));
@@ -1246,6 +1362,7 @@ export default defineAction({
           .set({
             status: "failed",
             failureReason,
+            mediaUpdatedAt: now,
             updatedAt: now,
           })
           .where(eq(schema.recordings.id, id));
@@ -1262,7 +1379,11 @@ export default defineAction({
       // Pull chunk keys first, then fetch values one at a time. A single
       // SELECT key,value over many base64 chunks can exceed Neon's 8s op
       // timeout before we even start assembling the recording.
-      const chunkKeys = await listRecordingChunkKeys(ownerEmail, id);
+      const chunkKeys = await listRecordingChunkKeys(
+        ownerEmail,
+        id,
+        generationId,
+      );
       const expectedDataChunks = stateNumber(uploadState, "expectedDataChunks");
       debugLog("[finalize] chunks found", {
         id,
@@ -1562,6 +1683,7 @@ export default defineAction({
               hasAudio: finalHasAudio,
               hasCamera: finalHasCamera,
               uploadProgress: 0,
+              mediaUpdatedAt: now,
               updatedAt: now,
             })
             .where(eq(schema.recordings.id, id));
@@ -1596,6 +1718,7 @@ export default defineAction({
             hasAudio: finalHasAudio,
             hasCamera: finalHasCamera,
             uploadProgress: 100,
+            mediaUpdatedAt: now,
             updatedAt: now,
           })
           .where(eq(schema.recordings.id, id));
@@ -1667,7 +1790,7 @@ export default defineAction({
       });
       let servedBytes: number | null;
       try {
-        servedBytes = await verifyServedMediaUrl(upload.url);
+        servedBytes = await verifyServedMediaUrl(id, upload.url, true);
       } catch (err) {
         const failureReason = err instanceof Error ? err.message : String(err);
         return await leaveRecordingProcessingForMediaVerification({

@@ -11,6 +11,7 @@ import {
 } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
 
+import { dateTimeInTimezoneToIso } from "@/lib/event-form-utils";
 import {
   buildWorkingLocationProperties,
   getWorkingLocationEditableLabel,
@@ -26,9 +27,16 @@ import {
 
 type CreateEventInput = Omit<
   CalendarEvent,
-  "id" | "createdAt" | "updatedAt" | "source"
+  "id" | "createdAt" | "updatedAt" | "source" | "title"
 > & {
+  title?: string;
   _tempId?: string;
+  fullDay?: boolean;
+  autoDeclineMode?:
+    | "declineNone"
+    | "declineAllConflictingInvitations"
+    | "declineOnlyNewConflictingInvitations";
+  declineMessage?: string;
   addGoogleMeet?: boolean;
   addZoom?: boolean;
   workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
@@ -37,6 +45,7 @@ type CreateEventInput = Omit<
 
 type UpdateEventInput = Partial<CalendarEvent> & {
   id: string;
+  targetAccountEmail?: string;
   addGoogleMeet?: boolean;
   addZoom?: boolean;
   addAttendees?: CalendarEvent["attendees"];
@@ -95,19 +104,45 @@ function getEventQueryKey(id: string) {
   return ["action", "get-event", { id }] as const;
 }
 
+export function getOptimisticTitleIsGenerated(
+  input: Pick<CreateEventInput, "title" | "titleIsGenerated">,
+): boolean {
+  return input.titleIsGenerated ?? !input.title?.trim();
+}
+
 function buildOptimisticCalendarEvent(
   newData: CreateEventInput,
   optimisticId: string,
 ): CalendarEvent {
   const now = new Date().toISOString();
+  const timezone = newData.startTimeZone ?? newData.endTimeZone;
+  const dateOnlyPattern = /^\d{4}-\d{2}-\d{2}$/;
+  const nextDate = (date: string) => {
+    const [year, month, day] = date.split("-").map(Number);
+    const next = new Date(Date.UTC(year, month - 1, day + 1));
+    return next.toISOString().slice(0, 10);
+  };
+  const fullDayOutOfOffice =
+    newData.eventType === "outOfOffice" && newData.fullDay && timezone;
+  const start =
+    fullDayOutOfOffice && dateOnlyPattern.test(newData.start)
+      ? dateTimeInTimezoneToIso(newData.start, "00:00", timezone!)
+      : newData.start;
+  const end =
+    fullDayOutOfOffice && dateOnlyPattern.test(newData.end)
+      ? dateTimeInTimezoneToIso(nextDate(newData.end), "00:00", timezone!)
+      : newData.end;
   return {
     id: optimisticId,
-    title: newData.title,
-    start: newData.start,
-    end: newData.end,
+    title:
+      newData.title?.trim() ||
+      (newData.eventType === "outOfOffice" ? "Out of office" : ""),
+    titleIsGenerated: getOptimisticTitleIsGenerated(newData),
+    start,
+    end,
     startTimeZone: newData.startTimeZone,
     endTimeZone: newData.endTimeZone,
-    allDay: newData.allDay ?? false,
+    allDay: fullDayOutOfOffice ? false : (newData.allDay ?? false),
     description: newData.description || "",
     location: newData.location || "",
     eventType: newData.eventType,
@@ -116,8 +151,21 @@ function buildOptimisticCalendarEvent(
     attachments: newData.attachments,
     transparency: newData.transparency,
     visibility: newData.visibility,
+    outOfOfficeProperties:
+      newData.eventType === "outOfOffice"
+        ? {
+            autoDeclineMode:
+              newData.autoDeclineMode ?? "declineAllConflictingInvitations",
+            declineMessage:
+              newData.autoDeclineMode === "declineNone"
+                ? undefined
+                : (newData.declineMessage ??
+                  "Declined because I am out of office"),
+          }
+        : undefined,
     reminders: newData.reminders,
     remindersUseDefault: newData.remindersUseDefault,
+    recurrence: newData.recurrence,
     attendees: newData.attendees,
     accountEmail: newData.accountEmail,
     source: "local",
@@ -333,6 +381,7 @@ export function useUpdateEvent() {
           addGoogleMeet,
           addZoom,
           addAttendees,
+          targetAccountEmail,
           sendUpdates,
           notificationMessage,
           scope,
@@ -340,6 +389,7 @@ export function useUpdateEvent() {
           workingLocationLabel,
           ...optimisticData
         } = newData;
+        const optimisticPatch = targetAccountEmail ? {} : optimisticData;
         const hasWorkingLocationUpdate =
           workingLocationType !== undefined ||
           workingLocationLabel !== undefined;
@@ -367,7 +417,7 @@ export function useUpdateEvent() {
                 workingLocationLabel ?? getWorkingLocationEditableLabel(e);
               return {
                 ...e,
-                ...optimisticData,
+                ...optimisticPatch,
                 ...(hasWorkingLocationUpdate
                   ? {
                       workingLocationProperties: buildWorkingLocationProperties(

@@ -556,6 +556,37 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     // an added branch, not a replacement.
     expect(handler).toContain("removeCodeLayerNodeFromHtml");
     expect(handler).toContain("removeElementFromHtml");
+
+    const singleElementStart = handler.indexOf(
+      "// Item 7b — same breakpoint-scoped display:none routing",
+    );
+    const multiElementBranch = handler.slice(0, singleElementStart);
+    expect(multiElementBranch).toContain(
+      "file.id === activeFile?.id && !useBreakpointScopedDelete",
+    );
+    expect(multiElementBranch).toContain(
+      "if (updated && useBreakpointScopedDelete)",
+    );
+    expect(multiElementBranch).toContain(
+      "syncLiveScreenSnapshotPreview(file.id, content)",
+    );
+    expect(multiElementBranch).toContain(
+      "if (shouldDeleteActiveLiveDom) {\n        deleteFromLiveDom(activeRuntimeSelectors);",
+    );
+    const singleElementEnd = handler.indexOf(
+      "const nextContent = removeElementFromHtml",
+      singleElementStart,
+    );
+    const singleElementBranch = handler.slice(
+      singleElementStart,
+      singleElementEnd,
+    );
+    expect(singleElementStart).toBeGreaterThanOrEqual(0);
+    expect(singleElementEnd).toBeGreaterThan(singleElementStart);
+    expect(singleElementBranch).not.toContain("deleteFromLiveDom(");
+    expect(singleElementBranch).toContain(
+      "syncLiveScreenSnapshotPreview(activeFile!.id, patch.content)",
+    );
   });
 
   it("item 8b: overview breakpoint frame '…' menu and full-view callbacks are wired to MultiScreenCanvas", () => {
@@ -581,15 +612,25 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(editor).toContain("handleOverviewFrameAction(screenId)");
   });
 
-  it("keeps overview visible when entering Interact and uses the frame action for Full view", () => {
+  it("enters responsive Interact immediately from overview", () => {
     const modeHandler = source.slice(
       source.indexOf("const handleModeChange = useCallback"),
       source.indexOf("const handleOverviewFrameAction = useCallback"),
     );
-    expect(modeHandler).not.toContain('setViewMode("single")');
+    expect(modeHandler).toContain("resolveModeChangeView({");
+    expect(modeHandler).toContain('if (routing === "enter-single-interact")');
+    expect(modeHandler).toContain("enterSingleScreen(nextActiveFile?.id)");
+    // The other direction: Edit/Annotate picked from a focused screen must
+    // route back to the canvas, never fall through to a bare setMode that
+    // leaves viewMode "single" (the forbidden single-screen editing state).
+    expect(modeHandler).toContain('if (routing === "enter-overview")');
+    expect(modeHandler).toContain("enterOverviewFromZoom(next)");
     expect(source).toContain('interactMode={mode === "interact"}');
+    // Two-view model: the infinite canvas is the editing view, so returning
+    // to overview always drops Interact. Annotate is a tool overlay on that
+    // same canvas, not a third view, so it survives the trip.
     expect(source).toContain(
-      'currentMode === "interact" ? "interact" : "edit"',
+      'currentMode === "annotate" ? "annotate" : "edit"',
     );
 
     const frameActionStart = source.indexOf(
@@ -607,22 +648,27 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {
-    // previewWidthPx is passed straight from activeBreakpointWidthState, and
+    // previewWidthPx resolves to activeBreakpointWidthState, and
     // BreakpointPreviewRow's activateThisFrame (MultiScreenCanvas.tsx) sets
     // that state BEFORE onEditBreakpoint/enterSingleScreen fires — so no
-    // separate wiring is needed here for full view to land at the right
-    // width; this just guards against a future refactor silently dropping
-    // the prop.
-    expect(source).toContain("previewWidthPx={activeBreakpointWidthState}");
+    // separate wiring is needed here for responsive Interact to land at the
+    // right width; this just guards against a future refactor silently dropping
+    // the prop. Responsive Interact overrides it with its own device width,
+    // so this asserts the breakpoint width is still the non-interact answer
+    // rather than pinning one exact expression.
+    const propStart = source.indexOf("previewWidthPx={");
+    expect(propStart).toBeGreaterThan(-1);
+    const propExpression = source.slice(propStart, propStart + 240);
+    expect(propExpression).toContain("activeBreakpointWidthState");
   });
 });
 
-describe("shouldPopToOverviewOnZoomOut (BP-DEEP v2 item 2 — full-view flicker)", () => {
+describe("shouldPopToOverviewOnZoomOut (BP-DEEP v2 item 2 — focused-view flicker)", () => {
   const threshold = 60;
 
   it("never pops on entry (no previously observed single-view zoom)", () => {
     // enterSingleScreen restoring a remembered sub-threshold zoom was the
-    // "Full view flashes then bounces back to overview" bug: the old
+    // "Focused view flashes then bounces back to overview" bug: the old
     // level-triggered check fired on the entry-restored value itself.
     expect(
       shouldPopToOverviewOnZoomOut({ previousZoom: null, zoom: 16, threshold }),

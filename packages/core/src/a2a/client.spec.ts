@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   A2AClient,
+  A2ATaskTerminalError,
   A2ATaskTimeoutError,
   callAction,
   callAgent,
@@ -33,6 +34,13 @@ vi.mock("../extensions/url-safety.js", async (importOriginal) => {
 
 describe("A2AClient", () => {
   const originalEnv = { ...process.env };
+  const authenticatedJwt = [
+    "eyJhbGciOiJIUzI1NiJ9",
+    Buffer.from(JSON.stringify({ sub: "user@example.test" })).toString(
+      "base64url",
+    ),
+    "signature",
+  ].join(".");
 
   beforeEach(() => {
     process.env = { ...originalEnv };
@@ -104,6 +112,104 @@ describe("A2AClient", () => {
     ]);
   });
 
+  it("retries an idempotent initial submission after a transient connection failure", async () => {
+    const submissions: Array<Record<string, unknown>> = [];
+    let postAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        postAttempts += 1;
+        const body = JSON.parse(String(init.body));
+        submissions.push(body.params);
+        if (postAttempts === 1) throw new Error("socket hang up");
+        return completedResponse(body, "recovered once");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test/_agent-native/a2a", "hello", {
+        async: true,
+        apiKey: authenticatedJwt,
+      }),
+    ).resolves.toBe("recovered once");
+    expect(postAttempts).toBe(2);
+    expect(submissions[0]?.idempotencyKey).toMatch(/^auto:/);
+    expect(submissions[1]?.idempotencyKey).toBe(submissions[0]?.idempotencyKey);
+  });
+
+  it("does not retry synchronous message submissions even with an idempotency key", async () => {
+    let postAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        postAttempts += 1;
+        throw new Error("socket hang up");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test/_agent-native/a2a", "hello", {
+        async: false,
+        apiKey: authenticatedJwt,
+        idempotencyKey: "sync-key",
+      }),
+    ).rejects.toThrow("socket hang up");
+    expect(postAttempts).toBe(1);
+  });
+
+  it("does not retry ownerless async message submissions", async () => {
+    let postAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        postAttempts += 1;
+        throw new Error("socket hang up");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test/_agent-native/a2a", "hello", {
+        async: true,
+      }),
+    ).rejects.toThrow("socket hang up");
+    expect(postAttempts).toBe(1);
+  });
+
+  it("retries an idempotent submission after a transient 429", async () => {
+    let postAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        postAttempts += 1;
+        const body = JSON.parse(String(init.body));
+        if (postAttempts === 1) {
+          return new Response("busy", { status: 429 });
+        }
+        return completedResponse(body, "recovered after rate limit");
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        async: true,
+        apiKey: authenticatedJwt,
+      }),
+    ).resolves.toBe("recovered after rate limit");
+    expect(postAttempts).toBe(2);
+  });
+
   it("throws structured timeout errors with the remote task id", async () => {
     vi.stubGlobal(
       "fetch",
@@ -146,21 +252,164 @@ describe("A2AClient", () => {
     await expect(
       client.sendAndWait(
         { role: "user", parts: [{ type: "text", text: "hello" }] },
-        { timeoutMs: 1, pollIntervalMs: 1 },
+        { timeoutMs: 30, pollIntervalMs: 1 },
       ),
     ).rejects.toMatchObject({
       name: "A2ATaskTimeoutError",
       taskId: "task-qa",
       lastState: "working",
-      timeoutMs: 1,
+      timeoutMs: 30,
     });
 
     await expect(
       client.sendAndWait(
         { role: "user", parts: [{ type: "text", text: "hello" }] },
-        { timeoutMs: 1, pollIntervalMs: 1 },
+        { timeoutMs: 30, pollIntervalMs: 1 },
       ),
     ).rejects.toBeInstanceOf(A2ATaskTimeoutError);
+  });
+
+  it("includes initial submission in the end-to-end timeout budget", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          const rejectAborted = () =>
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          if (init.signal?.aborted) {
+            rejectAborted();
+            return;
+          }
+          init.signal?.addEventListener("abort", rejectAborted, { once: true });
+        });
+      }),
+    );
+
+    const startedAt = Date.now();
+    await expect(
+      new A2AClient("https://agent.test").sendAndWait(
+        { role: "user", parts: [{ type: "text", text: "hello" }] },
+        { timeoutMs: 30, pollIntervalMs: 1 },
+      ),
+    ).rejects.toThrow(/aborted|deadline/i);
+    expect(Date.now() - startedAt).toBeLessThan(500);
+  });
+
+  it("reserves a bounded deadline for submission when agent-card discovery hangs", async () => {
+    let postAttempted = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method === "POST") {
+          postAttempted = true;
+          return completedResponse(
+            JSON.parse(String(init.body)),
+            "submitted after discovery timeout",
+          );
+        }
+        return new Promise<Response>((_resolve, reject) => {
+          const rejectAborted = () =>
+            reject(new DOMException("The operation was aborted", "AbortError"));
+          if (init?.signal?.aborted) {
+            rejectAborted();
+            return;
+          }
+          init?.signal?.addEventListener("abort", rejectAborted, {
+            once: true,
+          });
+        });
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        timeoutMs: 200,
+        pollIntervalMs: 1,
+      }),
+    ).resolves.toBe("submitted after discovery timeout");
+    expect(postAttempted).toBe(true);
+  });
+
+  it("surfaces permanent task-status errors without waiting for the deadline", async () => {
+    let taskReads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-gone");
+        }
+        taskReads += 1;
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32004, message: "Task not found" },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      new A2AClient("https://agent.test").sendAndWait(
+        { role: "user", parts: [{ type: "text", text: "hello" }] },
+        { timeoutMs: 5_000, pollIntervalMs: 1 },
+      ),
+    ).rejects.toThrow(/Task not found/);
+    expect(taskReads).toBe(1);
+  });
+
+  it("isolates progress callback errors from terminal task handling", async () => {
+    let taskReads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          return workingResponse(body, "task-callback");
+        }
+        taskReads += 1;
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-callback",
+              status: {
+                state: "completed",
+                message: {
+                  role: "agent",
+                  parts: [{ type: "text", text: "finished despite callback" }],
+                },
+              },
+              artifacts: [],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", {
+        timeoutMs: 1_000,
+        pollIntervalMs: 1,
+        onUpdate: () => {
+          throw new Error("presentation failed");
+        },
+      }),
+    ).resolves.toBe("finished despite callback");
+    expect(taskReads).toBe(1);
   });
 
   it("bounds a hung task-status request by the overall poll deadline", async () => {
@@ -332,6 +581,200 @@ describe("A2AClient", () => {
     expect(
       fetchMock.mock.calls.filter(([, init]) => init?.method === "POST"),
     ).toHaveLength(1);
+  });
+
+  it.each(["failed", "canceled", "input-required"] as const)(
+    "preserves a %s task as a typed terminal error",
+    async (state) => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async (_url: string, init?: RequestInit) => {
+          const body = JSON.parse(String(init?.body));
+          return new Response(
+            JSON.stringify({
+              jsonrpc: "2.0",
+              id: body.id,
+              result: {
+                id: `task-${state}`,
+                status: {
+                  state,
+                  message: {
+                    role: "agent",
+                    parts: [{ type: "text", text: `${state} details` }],
+                  },
+                },
+                history: [],
+                artifacts: [],
+              },
+            }),
+            { status: 200 },
+          );
+        }),
+      );
+
+      await expect(
+        callAgent("https://agent.test", "hello"),
+      ).rejects.toMatchObject({
+        name: "A2ATaskTerminalError",
+        taskId: `task-${state}`,
+        state,
+        responseText: `${state} details`,
+      });
+      await expect(
+        callAgent("https://agent.test", "hello"),
+      ).rejects.toBeInstanceOf(A2ATaskTerminalError);
+    },
+  );
+
+  it("rejects completed tasks with neither text nor a verified artifact", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-empty",
+              status: { state: "completed" },
+              history: [],
+              artifacts: [],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", { async: false }),
+    ).rejects.toMatchObject({
+      name: "A2ATaskTerminalError",
+      state: "completed",
+      errorCode: "empty_agent_response",
+    });
+  });
+
+  it("accepts a verified artifact as completion evidence when text is empty", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-artifact",
+              status: { state: "completed" },
+              history: [],
+              artifacts: [
+                {
+                  name: "customer-deck.pptx",
+                  parts: [
+                    {
+                      type: "file",
+                      file: {
+                        name: "customer-deck.pptx",
+                        uri: "https://slides.agent.test/deck/customer-deck",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", { async: false }),
+    ).resolves.toContain("customer-deck.pptx");
+  });
+
+  it("rejects a named artifact with no usable parts", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-empty-artifact",
+              status: { state: "completed" },
+              artifacts: [{ name: "empty.pptx", parts: [] }],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", { async: false }),
+    ).rejects.toMatchObject({ errorCode: "empty_agent_response" });
+  });
+
+  it("accepts an unnamed artifact with a usable data reference", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-data-artifact",
+              status: { state: "completed" },
+              artifacts: [
+                {
+                  parts: [
+                    {
+                      type: "data",
+                      data: {
+                        artifactId: "deck-123",
+                        url: "https://slides.agent.test/deck/deck-123",
+                      },
+                    },
+                  ],
+                },
+              ],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", { async: false }),
+    ).resolves.toContain("https://slides.agent.test/deck/deck-123");
+  });
+
+  it("rejects oversized completed text instead of treating a partial truncation as success", async () => {
+    const sentinelTail = "https://analytics.agent.test/artifact/result";
+    const oversized = "A".repeat(80_000) + sentinelTail;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        const body = JSON.parse(String(init?.body));
+        return completedResponse(body, oversized);
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "hello", { async: false }),
+    ).rejects.toMatchObject({
+      name: "A2ATaskTerminalError",
+      state: "completed",
+      errorCode: "a2a_response_too_large",
+    });
   });
 
   it("continues an existing task without submitting duplicate work", async () => {
@@ -563,6 +1006,229 @@ describe("A2AClient", () => {
     ).resolves.toMatchObject({ status: "completed", output: '{"total":2}' });
   });
 
+  it("preserves a receiver base path in direct action audiences", async () => {
+    process.env.A2A_SECRET = "shared-direct-secret";
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return new Response("not found", { status: 404 });
+      }
+      const authorization = new Headers(init.headers).get("authorization");
+      const token = authorization?.replace(/^Bearer\s+/i, "") ?? "";
+      expect(jose.decodeJwt(token).aud).toBe(
+        "https://workspace.example/slides",
+      );
+      const body = JSON.parse(String(init.body));
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            action: "list-decks",
+            status: "completed",
+            output: "[]",
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction(
+        "https://workspace.example/slides",
+        "list-decks",
+        {},
+        { userEmail: "alice@example.test" },
+      ),
+    ).resolves.toMatchObject({ status: "completed", output: "[]" });
+  });
+
+  it("binds direct action identity to a custom advertised A2A endpoint", async () => {
+    process.env.A2A_SECRET = "shared-direct-secret";
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      expect(url).toBe("https://agent.example/workspace/rpc/a2a");
+      const authorization = new Headers(init?.headers).get("authorization");
+      const token = authorization?.replace(/^Bearer\s+/i, "") ?? "";
+      expect(jose.decodeJwt(token).aud).toBe(
+        "https://agent.example/workspace/rpc",
+      );
+      const body = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            action: "list-records",
+            status: "completed",
+            output: "[]",
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction(
+        "https://agent.example/workspace/rpc/a2a",
+        "list-records",
+        {},
+        { userEmail: "alice@example.test" },
+      ),
+    ).resolves.toMatchObject({ status: "completed", output: "[]" });
+  });
+
+  it("re-signs a direct action for a custom endpoint discovered from an app URL", async () => {
+    process.env.A2A_SECRET = "shared-direct-secret";
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      const authorization = new Headers(init?.headers).get("authorization");
+      const token = authorization?.replace(/^Bearer\s+/i, "") ?? "";
+
+      if (init?.method !== "POST") {
+        expect(url).toBe(
+          "https://agent.example/workspace/.well-known/agent-card.json",
+        );
+        expect(authorization).toBeNull();
+        return new Response(
+          JSON.stringify({
+            name: "Custom Agent",
+            description: "Uses a custom A2A endpoint",
+            url: "https://agent.example/workspace/rpc/a2a",
+            version: "1.0.0",
+            protocolVersion: "0.3",
+            capabilities: {},
+            skills: [],
+          }),
+          { status: 200 },
+        );
+      }
+
+      expect(url).toBe("https://agent.example/workspace/rpc/a2a");
+      expect(jose.decodeJwt(token).aud).toBe(
+        "https://agent.example/workspace/rpc",
+      );
+      const body = JSON.parse(String(init.body));
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            action: "list-records",
+            status: "completed",
+            output: "[]",
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction(
+        "https://agent.example/workspace",
+        "list-records",
+        {},
+        { userEmail: "alice@example.test" },
+      ),
+    ).resolves.toMatchObject({ status: "completed", output: "[]" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("applies the request timeout while discovering a direct action endpoint", async () => {
+    process.env.A2A_SECRET = "shared-direct-secret";
+    const timeoutSpy = vi.spyOn(AbortSignal, "timeout");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              action: "list-records",
+              status: "completed",
+              output: "[]",
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await callAction(
+      "https://agent.example/workspace",
+      "list-records",
+      {},
+      { userEmail: "alice@example.test", requestTimeoutMs: 123 },
+    );
+
+    expect(timeoutSpy).toHaveBeenCalledWith(123);
+    timeoutSpy.mockRestore();
+  });
+
+  it("retains conventional fallbacks after custom endpoint discovery", async () => {
+    process.env.A2A_SECRET = "shared-direct-secret";
+    const postUrls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response(
+            JSON.stringify({
+              name: "Custom Agent",
+              description: "Uses a custom A2A endpoint",
+              url: "https://agent.example/workspace/rpc/a2a",
+              version: "1.0.0",
+              protocolVersion: "0.3",
+              capabilities: {},
+              skills: [],
+            }),
+            { status: 200 },
+          );
+        }
+
+        postUrls.push(url);
+        if (url.endsWith("/rpc/a2a")) {
+          return new Response("stale endpoint", { status: 404 });
+        }
+        const authorization = new Headers(init.headers).get("authorization");
+        const token = authorization?.replace(/^Bearer\s+/i, "") ?? "";
+        if (jose.decodeJwt(token).aud !== "https://agent.example/workspace") {
+          return new Response("invalid audience", { status: 401 });
+        }
+        const body = JSON.parse(String(init.body));
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              action: "list-records",
+              status: "completed",
+              output: "[]",
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAction(
+        "https://agent.example/workspace",
+        "list-records",
+        {},
+        { userEmail: "alice@example.test" },
+      ),
+    ).resolves.toMatchObject({ status: "completed", output: "[]" });
+    expect(postUrls).toContain(
+      "https://agent.example/workspace/_agent-native/a2a",
+    );
+  });
+
   it("retries direct action with the audience-bound token after receiver rejection", async () => {
     process.env.A2A_SECRET = "shared-direct-secret";
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
@@ -691,6 +1357,46 @@ describe("A2AClient", () => {
     });
   });
 
+  it("reserves a separate submission budget before the bounded poll handoff", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        if (body.method === "message/send") {
+          await new Promise<void>((resolve, reject) => {
+            const timer = setTimeout(resolve, 20);
+            init.signal?.addEventListener(
+              "abort",
+              () => {
+                clearTimeout(timer);
+                reject(new DOMException("aborted", "AbortError"));
+              },
+              { once: true },
+            );
+          });
+          return workingResponse(body, "task-slow-submission");
+        }
+        return workingResponse(body, "task-slow-submission");
+      }),
+    );
+
+    await expect(
+      callAgent("https://slides.agent.test", "make a deck", {
+        timeoutMs: 5,
+        submissionTimeoutMs: 50,
+        pollIntervalMs: 1,
+        returnRecoverableArtifactsOnTimeout: false,
+      }),
+    ).rejects.toMatchObject({
+      name: "A2ATaskTimeoutError",
+      taskId: "task-slow-submission",
+      timeoutMs: 5,
+    });
+  });
+
   it("does not treat unmarked timeout text as a recoverable artifact", async () => {
     vi.stubGlobal(
       "fetch",
@@ -716,7 +1422,7 @@ describe("A2AClient", () => {
     );
 
     const result = callAgent("https://slides.agent.test", "make a deck", {
-      timeoutMs: 3,
+      timeoutMs: 50,
       pollIntervalMs: 1,
     });
     const assertion = expect(result).rejects.toMatchObject({

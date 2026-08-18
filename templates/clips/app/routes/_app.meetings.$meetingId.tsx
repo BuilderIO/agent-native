@@ -5,6 +5,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import {
   IconArrowLeft,
   IconCheck,
@@ -18,7 +19,6 @@ import {
   IconNotes,
   IconPlayerStop,
   IconRefresh,
-  IconShare3,
   IconTrash,
   IconUsers,
 } from "@tabler/icons-react";
@@ -92,6 +92,7 @@ interface Bullet {
 interface Meeting {
   id: string;
   title: string;
+  ownerEmail?: string | null;
   scheduledStart: string;
   scheduledEnd?: string | null;
   actualStart?: string | null;
@@ -265,7 +266,7 @@ function ActionItemsByPerson({
                   key={
                     it.id ?? `${it.assigneeEmail ?? "?"}:${it.text}:${index}`
                   }
-                  className="flex items-start gap-2 text-xs leading-relaxed"
+                  className="flex items-start gap-2 text-sm leading-relaxed"
                 >
                   <button
                     type="button"
@@ -322,7 +323,7 @@ export default function MeetingDetailRoute() {
       segmentsJson?: TranscriptSegment[] | null;
     } | null;
     recording?: { id: string; durationMs?: number | null } | null;
-    role?: "owner" | "admin" | "editor" | "viewer";
+    role?: "owner" | "admin" | "editor" | "commenter" | "viewer";
   };
 
   const { data, isLoading, isError } = useActionQuery<GetMeetingResp>(
@@ -493,14 +494,6 @@ export default function MeetingDetailRoute() {
       id: meeting.id,
       actionItemsJson: JSON.stringify(next),
     });
-  };
-
-  const handleSeek = (ms: number) => {
-    if (!meeting?.recordingId) return;
-    // /r/:recordingId's `t` param is seconds (see parseTimeParam in
-    // r.$recordingId.tsx), while transcript segments use ms timestamps.
-    const seconds = Math.max(0, Math.floor(ms / 1000));
-    navigate(`/r/${meeting.recordingId}?t=${seconds}`);
   };
 
   const handleJumpToSegment = (segmentIndex: number) => {
@@ -712,7 +705,6 @@ export default function MeetingDetailRoute() {
           ) : null}
           <ShareMeetingPopover
             meetingId={meeting.id}
-            meetingTitle={meeting.title}
             shareTranscript={meeting.shareTranscript === true}
             transcriptReady={
               meeting.transcriptStatus === "ready" &&
@@ -720,10 +712,10 @@ export default function MeetingDetailRoute() {
                 Boolean(data?.transcript?.fullText?.trim()))
             }
           >
-            <Button size="sm" className="shrink-0 gap-1.5">
-              <IconShare3 className="h-4 w-4" />
-              {t("meetingDetail.share")}
-            </Button>
+            <ShareTrigger
+              label={t("meetingDetail.share")}
+              className="shrink-0"
+            />
           </ShareMeetingPopover>
           {canEdit && (
             <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
@@ -739,12 +731,6 @@ export default function MeetingDetailRoute() {
                   </Button>
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end" className="w-44">
-                  {hasSummary && !finalize.isPending && (
-                    <DropdownMenuItem onSelect={handleFinalize}>
-                      <IconRefresh className="mr-2 h-4 w-4" />
-                      {t("meetingDetail.regenerateNotes")}
-                    </DropdownMenuItem>
-                  )}
                   {isLive && (
                     <DropdownMenuItem
                       onSelect={(event) => {
@@ -889,16 +875,37 @@ export default function MeetingDetailRoute() {
             notesJustArrived && "animate-in fade-in duration-500",
           )}
         >
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5">
+          <div className="flex h-11 shrink-0 items-center justify-between gap-2 border-b border-border px-4">
             <div className="text-xs font-medium">
               {t("meetingDetail.summary")}
             </div>
-            {finalize.isPending && (
-              <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                <IconLoader2 className="h-3 w-3 animate-spin" />
-                {t("meetingDetail.working")}
-              </span>
-            )}
+            <div className="flex items-center gap-2">
+              {finalize.isPending && (
+                <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                  <IconLoader2 className="h-3 w-3 animate-spin" />
+                  {t("meetingDetail.working")}
+                </span>
+              )}
+              {canEdit && hasSummary && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      className="h-7 w-7 cursor-pointer"
+                      aria-label={t("meetingDetail.regenerateNotes")}
+                      disabled={finalize.isPending}
+                      onClick={handleFinalize}
+                    >
+                      <IconRefresh className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("meetingDetail.regenerateNotes")}
+                  </TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
@@ -914,7 +921,7 @@ export default function MeetingDetailRoute() {
                   segments={segments}
                   onJumpTo={handleJumpToSegment}
                 >
-                  <div className="flex gap-2 text-sm leading-relaxed text-muted-foreground">
+                  <div className="flex gap-2 text-sm leading-relaxed text-foreground">
                     <span>•</span>
                     <span className="flex-1">{b}</span>
                   </div>
@@ -943,13 +950,22 @@ export default function MeetingDetailRoute() {
 
         {/* Transcript pane — plain agent-chat-style text layout */}
         <div className="rounded-lg border border-border bg-background min-h-[480px] lg:min-h-0 overflow-hidden flex flex-col">
-          <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-4 py-2.5 bg-background">
-            <div className="flex items-center gap-1.5 text-xs font-medium">
-              <IconNotes className="h-3.5 w-3.5" />
-              {t("meetingDetail.transcript")}
-            </div>
-            <div className="flex items-center gap-2">
-              {segments.length > 0 && (
+          <TranscriptBubbles
+            segments={segments}
+            isLive={isLive}
+            participants={meeting.participants ?? []}
+            ownerEmail={meeting.ownerEmail}
+            registerScrollTo={(fn) => {
+              transcriptScrollToRef.current = fn;
+            }}
+            title={
+              <>
+                <IconNotes className="h-3.5 w-3.5" />
+                {t("meetingDetail.transcript")}
+              </>
+            }
+            headerActions={
+              segments.length > 0 && (
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Button
@@ -970,17 +986,8 @@ export default function MeetingDetailRoute() {
                     {t("meetingDetail.copyFullTranscript")}
                   </TooltipContent>
                 </Tooltip>
-              )}
-            </div>
-          </div>
-          <TranscriptBubbles
-            segments={segments}
-            isLive={isLive}
-            recordingId={meeting.recordingId}
-            onSeek={handleSeek}
-            registerScrollTo={(fn) => {
-              transcriptScrollToRef.current = fn;
-            }}
+              )
+            }
           />
         </div>
       </div>

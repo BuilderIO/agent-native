@@ -14,6 +14,7 @@ Ease Out
 401 · WWW-Authenticate
 A2A
 adapter.sendResponse
+Agent Native
 Agent-native
 Agent-Native App
 Agent-Native sidecar
@@ -38,6 +39,7 @@ create-form · update-form
 createSession.resumeState
 CRUD
 Cursor · Codex
+dashboard_.$ticketId.tsx
 dbQuery / dbExec
 Dispatch hub
 GET /api/auth/user
@@ -124,3 +126,4 @@ X-Request-Source: TAB_ID
 Y.Doc
 Y.Doc update
 Yjs CRDT
+Docs Components

@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ track(
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 分析イベントを発生させます。すべての登録プロバイダーにファンアウトします。
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+`source` には、アクションの `ctx` をそのまま渡すか、`ctx` を持たない呼び出し元向けに `{ userId, anonymousId, sessionId }` のメタオブジェクトを渡します。
+
+ブラウザーセッションは呼び出し元が渡す必要はありません。アンビエントなリクエストコンテキスト（`RequestContext.browserSessionId`。アクションクライアント、チャット、ブラウザーの `track()` がいずれも送信する `X-Agent-Native-Session-Id` ヘッダーから設定されます）から取得されるため、UI がイベントを発生させた場合でもエージェントが発生させた場合でも、同じ訪問として相関付けられます。各プロバイダーは自身のセッションフィールドにマッピングします。PostHog では `$session_id`（イベントとセッションリプレイが結び付きます）、Mixpanel と Amplitude では `session_id` プロパティ、Webhook と Agent Native Analytics ではトップレベルの `sessionId` です。ブラウザーを持たない呼び出し元（cron、CLI、MCP、A2A）では値がなく、メタオブジェクトの `sessionId` が指定されていればそちらが優先されます。
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 カスタム バックエンド、プロバイダー レジストリ API、またはバッチ処理/シングルトン内部が必要ですか?末尾の [Advanced: custom providers & internals](#advanced) を参照してください。
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // ctx をそのまま渡す: イベントは ctx.userEmail に紐付き、呼び出し元の
+    // ブラウザーセッションに結び付けられます。
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -351,6 +357,6 @@ interface TrackingEvent {
 
 ## 次は何ですか
 
-- [**Actions**](/docs/actions) — ほとんどの追跡通話が発信される場所
-- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` は起動時にコアルートプラグインで実行されます
+- [**Actions**](/docs/actions-overview) — ほとんどの追跡通話が発信される場所
+- [**Server Plugins**](/docs/server-plugins) — `registerBuiltinProviders()` は起動時にコアルートプラグインで実行されます
 - [**セキュリティ — シークレット管理**](/docs/security#secrets) — 追跡プロバイダーの API キーを管理

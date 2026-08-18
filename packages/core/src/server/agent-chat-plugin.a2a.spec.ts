@@ -11,9 +11,14 @@ vi.mock("../observability/traces.js", () => ({
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   assembleA2AFinalResponse,
+  buildSelectedA2AReceiverContext,
   buildPublicAgentA2ASkills,
   createA2AEngineToolSurface,
+  isSelectedA2AReceiver,
   createSerializedA2ATaskStatusWriter,
+  DEFAULT_DELEGATED_MAX_ITERATIONS,
+  DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+  DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
   resolveA2ARecoverableArtifactSecret,
   runMCPAgentLoop,
   runA2AAgentLoop,
@@ -181,9 +186,41 @@ describe("delegated A2A final response guards", () => {
 
     expect(analyticsGuard).toHaveBeenCalledOnce();
     expect(delegatedRunner).toHaveBeenCalledWith(
-      expect.objectContaining({ finalResponseGuard: analyticsGuard }),
+      expect.objectContaining({
+        finalResponseGuard: analyticsGuard,
+        maxIterations: DEFAULT_DELEGATED_MAX_ITERATIONS,
+        maxRunInputTokens: DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+        systemPrompt: expect.stringContaining(
+          "Choose providers, schemas, queries, and joins here",
+        ),
+        toolLimits: expect.objectContaining({
+          hardMaxResultChars: DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
+        }),
+      }),
       12_345,
       { backgroundFunction: true },
+    );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "best grounded partial answer",
+    );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "Do not bounce the work back",
+    );
+    // Callees were exploring instead of routing to an action they already had,
+    // which is what made cross-app calls take minutes. Two sentences carry it:
+    // prefer your own registered actions, and stop rather than keep searching.
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "Reach for your own registered actions first",
+    );
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "never use a shell, filesystem, or code-execution tool",
+    );
+    // The callee must be told the wall clock it actually gets. Production
+    // iterations average ~34s against a 40s foreground wall, so a callee that
+    // does not know the budget plans work it cannot finish — "I ran out of
+    // time before finishing this step" was 39% of failed inbound A2A tasks.
+    expect(delegatedRunner.mock.calls[0]?.[0]?.systemPrompt).toContain(
+      "This step is cut off after about 12 seconds",
     );
   });
 
@@ -220,10 +257,61 @@ describe("delegated A2A final response guards", () => {
       expect.objectContaining({
         finalResponseGuard: guard,
         maxOutputTokens: 32_000,
-        reasoningEffort: "medium",
+        reasoningEffort: "high",
+        maxIterations: DEFAULT_DELEGATED_MAX_ITERATIONS,
+        maxRunInputTokens: DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
+        toolLimits: expect.objectContaining({
+          hardMaxResultChars: DEFAULT_DELEGATED_MAX_TOOL_RESULT_CHARS,
+        }),
       }),
       1_000,
       { backgroundFunction: false },
+    );
+  });
+
+  it("lets apps deliberately tighten delegated budgets", async () => {
+    const runner = vi.fn(async () => ({
+      inputTokens: 1,
+      outputTokens: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 0,
+      model: "test-model",
+    }));
+
+    await runA2AAgentLoop(
+      {
+        engine: {} as any,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [],
+        actions: {},
+        toolLimits: { maxResultChars: 40_000 },
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      {
+        delegatedRunPolicy: {
+          maxIterations: 25,
+          maxRunInputTokens: 250_000,
+          maxToolResultChars: 8_000,
+        },
+      },
+      {},
+      { runner: runner as any },
+    );
+
+    expect(runner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxIterations: 25,
+        maxRunInputTokens: 250_000,
+        toolLimits: {
+          maxResultChars: 40_000,
+          hardMaxResultChars: 8_000,
+        },
+      }),
+      undefined,
+      {},
     );
   });
 
@@ -364,6 +452,44 @@ describe("delegated A2A tool surface", () => {
     ]);
   });
 
+  it("prioritizes a selected receiver's bounded local catalog before cross-app tools", () => {
+    const availableTools = [
+      tool("starter"),
+      tool("list-content-databases"),
+      tool("describe-content-database"),
+      tool("describe-workspace-apps"),
+      tool("call-agent"),
+      tool("tool-search"),
+      tool("rare-action"),
+    ];
+
+    const surface = createA2AEngineToolSurface(availableTools, ["starter"], {
+      receiverOwnsObjective: true,
+      localCapabilityNames: [
+        "list-content-databases",
+        "describe-content-database",
+      ],
+    });
+
+    expect(surface.tools.map((entry) => entry.name)).toEqual([
+      "starter",
+      "list-content-databases",
+      "describe-content-database",
+      "tool-search",
+    ]);
+    expect(surface.availableTools).toBe(availableTools);
+  });
+
+  it("matches only the receiver app selected by bounded A2A metadata", () => {
+    expect(isSelectedA2AReceiver("content", "content")).toBe(true);
+    expect(isSelectedA2AReceiver("agent-native-content", "CONTENT")).toBe(true);
+    expect(isSelectedA2AReceiver("design", "content")).toBe(false);
+    expect(isSelectedA2AReceiver(undefined, "content")).toBe(false);
+    expect(buildSelectedA2AReceiverContext("content")).toContain(
+      "The caller already selected this app",
+    );
+  });
+
   it("keeps the existing full A2A tool surface without an initial allow-list", () => {
     const availableTools = [tool("starter"), tool("tool-search"), tool("rare")];
 
@@ -494,41 +620,131 @@ describe("assembleA2AFinalResponse", () => {
     ).toThrow(/run_budget_exhausted/);
   });
 
-  it("still returns recoverable artifact links from a terminal error run", () => {
-    const result = assembleA2AFinalResponse(
-      [
-        { type: "tool_start", tool: "update-dashboard", input: {} },
-        {
-          type: "tool_done",
-          tool: "update-dashboard",
-          result: JSON.stringify({
-            id: "growth-funnel",
-            name: "Growth Funnel",
-            urlPath: "/adhoc/growth-funnel",
-          }),
-        },
-        {
-          type: "error",
-          error: "The follow-up summary was interrupted.",
-          errorCode: "stream_ended",
-          recoverable: true,
-        },
-      ],
-      [
-        {
-          tool: "update-dashboard",
-          result: JSON.stringify({
-            id: "growth-funnel",
-            name: "Growth Funnel",
-            urlPath: "/adhoc/growth-funnel",
-          }),
-        },
-      ],
-      { baseUrl: "https://analytics.agent.test" },
-    );
-
-    expect(result.finalText).toContain(
-      'Dashboard "Growth Funnel": https://analytics.agent.test/adhoc/growth-funnel',
+  it("fails terminal runs while preserving verified artifact links in the error", () => {
+    expect(() =>
+      assembleA2AFinalResponse(
+        [
+          { type: "tool_start", tool: "update-dashboard", input: {} },
+          {
+            type: "tool_done",
+            tool: "update-dashboard",
+            result: JSON.stringify({
+              id: "growth-funnel",
+              name: "Growth Funnel",
+              urlPath: "/adhoc/growth-funnel",
+            }),
+          },
+          {
+            type: "error",
+            error: "The follow-up summary was interrupted.",
+            errorCode: "stream_ended",
+            recoverable: true,
+          },
+        ],
+        [
+          {
+            tool: "update-dashboard",
+            result: JSON.stringify({
+              id: "growth-funnel",
+              name: "Growth Funnel",
+              urlPath: "/adhoc/growth-funnel",
+            }),
+          },
+        ],
+        { baseUrl: "https://analytics.agent.test" },
+      ),
+    ).toThrow(
+      /stream_ended[\s\S]*https:\/\/analytics\.agent\.test\/adhoc\/growth-funnel/,
     );
   });
+
+  it.each([
+    {
+      label: "tripwire",
+      event: {
+        type: "tripwire" as const,
+        reason: "Delegated token budget exhausted",
+        processor: "run-input-token-budget",
+      },
+      code: "tripwire:run-input-token-budget",
+    },
+    {
+      label: "loop limit",
+      event: { type: "loop_limit" as const, maxIterations: 80 },
+      code: "loop_limit",
+    },
+  ])(
+    "fails a terminal $label instead of reporting completion",
+    ({ event, code }) => {
+      expect(() => assembleA2AFinalResponse([event], [])).toThrow(code);
+    },
+  );
+
+  it("rejects an empty completed response", () => {
+    expect(() => assembleA2AFinalResponse([{ type: "done" }], [])).toThrow(
+      "empty_agent_response",
+    );
+  });
+
+  it("treats the typed outcome as authoritative over a stale trailing done", () => {
+    expect(() =>
+      assembleA2AFinalResponse(
+        [{ type: "text", text: "partial" }, { type: "done" }],
+        [],
+        {
+          outcome: {
+            state: "failed",
+            code: "provider_network_error",
+            retryable: true,
+            message: "The specialist connection was interrupted.",
+          },
+        },
+      ),
+    ).toThrow(/provider_network_error/);
+  });
+
+  it("accepts a typed completion after stale recovered events", () => {
+    expect(
+      assembleA2AFinalResponse(
+        [
+          {
+            type: "error",
+            error: "An earlier attempt was interrupted.",
+            errorCode: "provider_network_error",
+            recoverable: true,
+          },
+          { type: "clear" },
+          { type: "text", text: "Recovered answer" },
+          { type: "done" },
+        ],
+        [],
+        { outcome: { state: "completed" } },
+      ).finalText,
+    ).toBe("Recovered answer");
+  });
+
+  it.each([
+    {
+      outcome: {
+        state: "input_required" as const,
+        code: "needs_approval",
+        message: "Approval is required.",
+      },
+      code: "needs_approval",
+    },
+    {
+      outcome: {
+        state: "canceled" as const,
+        message: "The delegated run was canceled.",
+      },
+      code: "canceled",
+    },
+  ])(
+    "does not collapse typed $code outcomes into success",
+    ({ outcome, code }) => {
+      expect(() =>
+        assembleA2AFinalResponse([{ type: "done" }], [], { outcome }),
+      ).toThrow(code);
+    },
+  );
 });

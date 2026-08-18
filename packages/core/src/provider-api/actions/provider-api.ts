@@ -341,6 +341,19 @@ export function createProviderApiRequestAction<
                 ctx?: ActionRunContext,
               ) => boolean | Promise<boolean>),
         }),
+    planMode: {
+      effect: (args) => {
+        const request = args as ProviderRequestActionArgs;
+        const method = String(request.method ?? "GET").toUpperCase();
+        if (method !== "GET" && method !== "HEAD") return "write";
+        if (request.stageAs || request.saveToFile) return "write";
+        return "read";
+      },
+      allowedValues: { method: ["GET", "HEAD"] },
+      omittedProperties: ["stageAs", "saveToFile"],
+      description:
+        "Plan mode allows GET and HEAD provider reads that do not stage data or save files.",
+    },
     audit: {
       recordInputs: false,
       target: (args) => ({
@@ -351,6 +364,7 @@ export function createProviderApiRequestAction<
       summary: (args) =>
         buildProviderApiAuditSummary(args as ProviderRequestActionArgs),
     },
+    grounding: true,
     run: async (rawArgs) => {
       const args = rawArgs as ProviderRequestActionArgs;
       if (args.stageAs) {

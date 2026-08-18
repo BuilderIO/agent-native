@@ -1,0 +1,154 @@
+---
+title: "プラグイン"
+description: "server/plugins/ にある起動プラグイン — それが何か、すべてのアプリが備える 2 つのプラグイン、オプションのデータベース プラグイン、そして自作の方法。"
+---
+
+# プラグイン
+
+プラグインは起動フックです。Nitro は `server/plugins/` 内の各ファイルをサーバー初期化時に一度だけ読み込みます。認証の構成、エージェント ループのマウント、データベース マイグレーションの実行など、一度限りのセットアップに適した場所です。フレームワークのヘルパーは非同期の初期化を調整しますが、カスタム プラグインの処理は最初のリクエスト時にも実行中の可能性があります。
+
+Nitro はファイルシステムからプラグインを自動的に検出します。登録やインポートは一切不要です。ファイルはアルファベット順に実行されるため、実行順序はファイル名のプレフィックスで制御します。
+
+すべてのエージェント ネイティブ アプリは、デフォルトで 2 つのプラグインを備えています。
+
+```text
+server/plugins/
+  auth.ts        -> configure auth provider and public paths
+  agent-chat.ts  -> mount the agent loop with your actions and system prompt
+```
+
+カスタムのデータベース テーブルを必要とするアプリは、3 つ目を追加します。
+
+```text
+server/plugins/
+  db.ts          -> ローカル起動用のアプリ固有マイグレーションを登録
+```
+
+## 認証プラグイン {#auth-plugin}
+
+`server/plugins/auth.ts` は、ユーザーがどのようにサインインするかを構成します。`@agent-native/core/server` の `createAuthPlugin` が認証プロバイダーを結線し、サインイン ページのブランディングを設定します。
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  marketing: {
+    appName: "My App",
+    tagline: "A short description shown on the sign-in page.",
+    features: ["Feature one", "Feature two", "Feature three"],
+  },
+});
+```
+
+特定のルートを未認証ユーザーに開放するには、`publicPaths` を渡します。
+
+```ts
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhook"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+認証プラグインはガードを構成します。`server/middleware/auth.ts` にあるミドルウェアが、すべてのリクエストでそれを強制します。[ミドルウェア](/docs/server-middleware) を参照してください。
+
+## Agent-Chat プラグイン {#agent-chat-plugin}
+
+`server/plugins/agent-chat.ts` は、アプリの actions、システム プロンプト、初期ツール セットを使ってエージェント ループをマウントします。これが、あなたのアプリをエージェント ネイティブ アプリたらしめるプラグインです。
+
+```ts filename="server/plugins/agent-chat.ts"
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  createAgentChatPlugin,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+
+export default createAgentChatPlugin({
+  appId: "my-app",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: ["view-screen", "navigate"],
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  systemPrompt: `You are the My App agent.
+
+Use actions as the source of truth. Start by inspecting the current
+screen when context matters.`,
+});
+```
+
+`loadActionsFromStaticRegistry` は、生成されたレジストリを通じて `actions/` からエクスポートされたすべての action を取得します。`initialToolNames` は、会話の開始時点でエージェントがどの actions にアクセスできるかを制御します。エージェントは必要に応じて、それ以外の action も引き続き呼び出せます。
+
+## データベース プラグイン {#database-plugin}
+
+アプリがカスタムのデータベース テーブルを定義している場合は、`server/plugins/db.ts` を追加して起動時にスキーマ マイグレーションを実行します。`@agent-native/core/db` の `runMigrations` を使用します。
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+各エントリには `version` 番号と `sql` 文字列が必要です。`table` オプションは、マイグレーションを追跡するテーブルの名前を指定します。フレームワークのマイグレーションと衝突しないよう、アプリ固有の名前を使用してください。完全なスキーマ作成ガイドについては [データベース](/docs/server-database) を参照してください。
+
+<Callout tone="warning">
+  マイグレーションは追加的でなければなりません。破壊的な SQL (`DROP TABLE`、
+  `ALTER TABLE ... DROP COLUMN`、`DELETE FROM`)
+  を起動プラグインに書かないでください。
+</Callout>
+
+## カスタム プラグインを書く {#custom-plugins}
+
+フレームワークのヘルパー (`createAuthPlugin`、`createAgentChatPlugin`、`runMigrations`) は、それぞれ Nitro プラグイン関数を返します。これらのヘルパーの範囲外のことを行うには、`defineNitroPlugin` を使ってプラグインを書いてください。
+
+```ts filename="server/plugins/my-plugin.ts"
+import { defineNitroPlugin } from "nitropack/runtime";
+
+export default defineNitroPlugin((nitro) => {
+  nitro.hooks.hook("request", (event) => {
+    // runs on every request
+  });
+
+  nitro.hooks.hookOnce("close", async () => {
+    // runs when the server shuts down
+  });
+});
+```
+
+プラグインは、`request`、`beforeResponse`、`close` など、Nitro のあらゆるライフサイクル フックを使用できます。[Nitro プラグインのドキュメント](https://nitro.build/guide/plugins) が、フック API の全体とプラグインの契約を詳しく解説しています。
+
+## 起動順序 {#startup-order}
+
+Nitro はプラグインをファイル名のアルファベット順で開始します。ファイルの順序が決めるのは各プラグインの開始時点であり、非同期処理の完了時点ではありません。そのため、次のプラグインが開始する前に前のプラグインが完了すると想定しないでください。典型的な順序は次のとおりです。
+
+1. `db.ts` — ローカル起動時のアプリ固有マイグレーション。本番ではリリース手順で実行します
+2. `auth.ts` — リクエストが到着する前に、認証の構成が整います
+3. `agent-chat.ts` — 認証が構成された後に、エージェント ルートがマウントされます
+
+<Callout tone="warning">
+  本番またはサーバーレス環境では、最初のリクエストではなく、リリースまたはデプロイ手順でマイグレーションを実行してください。Chatテンプレートには
+  `pnpm migrate:production` が用意されています。
+</Callout>
+
+カスタム プラグインを追加する場合は、シーケンス内の位置を制御するためにファイル名にプレフィックスを付けてください。
+
+## 次は何ですか {#whats-next}
+
+- [**データベース**](/docs/server-database): プラグインの内部で使われるスキーマ ヘルパーと `getDb` パターン
+- [**ミドルウェア**](/docs/server-middleware): 認証プラグインが構成した内容を強制する認証ガード
+- [**ルート**](/docs/server-routes): カスタム ファイル ルートと使いどころ
+- [**エージェント指示の書き方**](/docs/writing-agent-instructions): agent-chat プラグインで `systemPrompt` を作成する方法
+- [**Nitro プラグインのドキュメント**](https://nitro.build/guide/plugins): プラグイン API とライフサイクル フックの全体

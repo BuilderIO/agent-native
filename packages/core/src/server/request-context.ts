@@ -98,16 +98,28 @@ export interface RequestRunContext {
   } | null;
   /** Resolved owner email (set by prepareRun). */
   owner?: string;
-  /** Owner's active Anthropic API key (set by prepareRun). */
+  /** Owner's API key for this run's engine (set by prepareRun). */
   userApiKey?: string;
+  /**
+   * Env var `userApiKey` was issued for. Anything that hands the key to a
+   * fixed provider must check this first — the owner's active engine is not
+   * always Anthropic, and an unchecked key reaches the wrong endpoint.
+   */
+  userApiKeyEnvVar?: string;
   /** Thread ID for the current run (set by onRunStart). */
   threadId?: string;
+  /** Run ID for the current run (set by onRunStart). */
+  runId?: string;
   /** System prompt actually sent to the model for this run. */
   systemPrompt?: string;
   /** Engine instance for this run (set by onEngineResolved). */
   engine?: import("../agent/engine/types.js").AgentEngine;
   /** Model name for this run (set by onEngineResolved). */
   model?: string;
+  /** Request-authorized action names exposed to this agent run. */
+  allowedActionNames?: readonly string[];
+  /** Hosted tools-only harness selected for this agent run. */
+  hostedHarnessRuntime?: "claude-code" | "codex" | "pi" | "opencode";
   /**
    * True when this run is executing inside the durable background-function
    * worker (the `_process-run` self-dispatch), not the synchronous foreground
@@ -122,6 +134,8 @@ export interface RequestRunContext {
   toolResults?: Array<{ name: string; content: string; isError: boolean }>;
   /** Per-run fingerprints for large extension bodies already sent to the LLM. */
   extensionContentReads?: Record<string, string>;
+  /** Per-run keys for extension excerpt reads already sent to the LLM. */
+  extensionExcerptReads?: Record<string, true>;
   /** Per-run fingerprints for repeated tool-search calls already sent to the LLM. */
   toolSearchReads?: Record<
     string,
@@ -133,7 +147,21 @@ export interface RequestContext {
   userEmail?: string;
   userName?: string;
   orgId?: string;
+  /**
+   * Narrow authorization capability verified from an embed session. This is
+   * deliberately separate from user identity: capability-only sessions must
+   * not satisfy account-backed auth or inherit the ticket owner's privileges.
+   */
+  authCapability?: string;
   timezone?: string;
+  /**
+   * The caller's browser analytics session id, when the request came from a
+   * page. Emitted as PostHog's `$session_id` so agent traces join to session
+   * replay; never used for authorization.
+   */
+  browserSessionId?: string;
+  /** Canonical client surface for analytics attribution. */
+  clientPlatform?: import("../shared/analytics-platform.js").AnalyticsClientPlatform;
   /**
    * Set when code reads authenticated request context. Public SSR shell/data
    * should not depend on this value; user/org-specific reads belong behind
@@ -148,6 +176,18 @@ export interface RequestContext {
    * fallback. Optional — absent on paths that don't populate it.
    */
   requestOrigin?: string;
+  /**
+   * True when the request's real socket peer is loopback, captured by the
+   * action-route handler while the h3 event is still in scope (nothing below
+   * that layer can see the event). Derived from `getRequestIP()` WITHOUT
+   * `x-forwarded-for`, so a remote client cannot set it via headers.
+   *
+   * A local-dev gate only. A tunnel or reverse proxy that reaches the dev
+   * server over loopback also presents as loopback, so this is necessary but
+   * not sufficient on its own — pair it with something that scopes the blast
+   * radius (a resource that is itself local-only, NODE_ENV, etc.).
+   */
+  isLoopbackRequest?: boolean;
   /**
    * True when this request is being processed by an integration-platform
    * webhook (Slack, Telegram, etc.) where the function timeout is the
@@ -197,14 +237,18 @@ export interface RequestContext {
 const GLOBAL_KEY = "__agentNativeRequestContextAls" as const;
 const OBSERVERS_KEY = "__agentNativeRequestContextObservers" as const;
 const BOUNDARY_KEY = "__agentNativeRequestBoundaryInstalled" as const;
+const CONTINUATION_LOCAL_KEY =
+  "__agentNativeRequestContextContinuationLocal" as const;
 type RequestContextObserver = (ctx: RequestContext) => void;
 type GlobalWithRequestContext = typeof globalThis & {
   [GLOBAL_KEY]?: AsyncLocalStorageLike<RequestContext>;
   [OBSERVERS_KEY]?: RequestContextObserver[];
   [BOUNDARY_KEY]?: boolean;
+  [CONTINUATION_LOCAL_KEY]?: boolean;
 };
 const globalRef = globalThis as GlobalWithRequestContext;
 if (!globalRef[GLOBAL_KEY]) {
+  globalRef[CONTINUATION_LOCAL_KEY] = Boolean(AsyncLocalStorageCtor);
   globalRef[GLOBAL_KEY] = AsyncLocalStorageCtor
     ? new AsyncLocalStorageCtor<RequestContext>()
     : new StackAsyncLocalStorage<RequestContext>();
@@ -214,6 +258,18 @@ if (!globalRef[OBSERVERS_KEY]) {
 }
 const als = globalRef[GLOBAL_KEY]!;
 const observers = globalRef[OBSERVERS_KEY]!;
+
+/**
+ * Authorization state must never use the shared-stack compatibility fallback:
+ * overlapping async requests are only isolated by native AsyncLocalStorage.
+ */
+export function assertRequestActionSurfaceIsolation(): void {
+  if (globalRef[CONTINUATION_LOCAL_KEY] === true) return;
+  throw new Error(
+    "Request-scoped action surfaces require continuation-local request context storage; " +
+      "this runtime only provides the non-isolated fallback.",
+  );
+}
 
 /**
  * Register a callback fired every time `runWithRequestContext` enters a new
@@ -247,6 +303,9 @@ export function runWithRequestContext<T>(
   ctx: RequestContext,
   fn: () => T | Promise<T>,
 ): T | Promise<T> {
+  if (ctx.run?.allowedActionNames !== undefined) {
+    assertRequestActionSurfaceIsolation();
+  }
   return als.run(ctx, () => {
     if (observers.length > 0) {
       for (const obs of observers) {
@@ -388,9 +447,26 @@ export function getRequestOrgId(): string | undefined {
   return processEnv("AGENT_ORG_ID");
 }
 
+/** Return the verified capability for this request, without implying identity. */
+export function getRequestAuthCapability(): string | undefined {
+  const store = als.getStore();
+  if (!store) return undefined;
+  if (store.authCapability) markAuthContextAccess(store);
+  return store.authCapability;
+}
+
+/**
+ * Whether the current request came from a loopback socket peer. Fails closed:
+ * outside a request store (CLI, background job, agent run) there is no peer to
+ * vouch for, so this is `false` rather than inheriting an ambient default.
+ */
+export function getRequestIsLoopback(): boolean {
+  return als.getStore()?.isLoopbackRequest === true;
+}
+
 function markAuthContextAccess(ctx: RequestContext | undefined) {
   if (!ctx) return;
-  if (ctx.userEmail || ctx.userName || ctx.orgId) {
+  if (ctx.userEmail || ctx.userName || ctx.orgId || ctx.authCapability) {
     ctx.authContextAccessed = true;
   }
 }

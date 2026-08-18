@@ -21,6 +21,14 @@ describe("db/client dialect detection", () => {
       globalThis as Record<string, unknown>,
       "__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__",
     );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__",
+    );
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_MIGRATION_RUNTIME__",
+    );
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
     vi.resetModules();
   });
@@ -102,20 +110,84 @@ describe("db/client dialect detection", () => {
 
   it("keeps the Neon foreground pool small on serverless", async () => {
     vi.stubEnv("NETLIFY", "true");
-    const { neonPoolMax, pgPoolOptions, isBackgroundFunctionPoolContext } =
-      await import("./client.js");
+    const {
+      neonPoolMax,
+      neonPoolOptions,
+      pgPoolOptions,
+      isBackgroundFunctionPoolContext,
+    } = await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(1);
-    expect(pgPoolOptions("postgres://example.test/db").max).toBe(1);
+    // Small enough that many warm instances stay under the provider's cap, but
+    // above 1 so a request's concurrent reads don't serialize behind one slot.
+    expect(neonPoolMax()).toBe(2);
+    expect(neonPoolMax()).toBeLessThan(4);
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(2);
+    expect(neonPoolOptions()).toMatchObject({
+      max: 2,
+      idle_in_transaction_session_timeout: 30_000,
+    });
+    expect(pgPoolOptions("postgres://example.test/db").connection).toEqual({
+      // Without this every backend reports `pgbouncer` in pg_stat_activity, and
+      // a runaway query cannot be attributed to the app that issued it.
+      application_name: "agent-native:app",
+      idle_in_transaction_session_timeout: 30_000,
+    });
+  });
+
+  it("keeps the pool bounded when Netlify exposes only the function marker", async () => {
+    vi.stubEnv("NETLIFY", "");
+    vi.stubEnv("NETLIFY_FUNCTION_NAME", "slides");
+    const { neonPoolOptions, pgPoolOptions, isServerlessRuntime } =
+      await import("./client.js");
+
+    expect(isServerlessRuntime()).toBe(true);
+    expect(neonPoolOptions()).toMatchObject({
+      idle_in_transaction_session_timeout: 30_000,
+    });
+    expect(pgPoolOptions("postgres://example.test/db").connection).toEqual({
+      application_name: "agent-native:app",
+      idle_in_transaction_session_timeout: 30_000,
+    });
+  });
+
+  it("recognizes production serverless execution and honors local emulation", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("NETLIFY", "true");
+    const { isProductionServerlessFunctionRuntime } =
+      await import("./client.js");
+
+    expect(isProductionServerlessFunctionRuntime()).toBe(true);
+    vi.stubEnv("NETLIFY_LOCAL", "true");
+    expect(isProductionServerlessFunctionRuntime()).toBe(false);
+  });
+
+  it("rejects request-time schema mutations but permits release migrations", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("AWS_LAMBDA_FUNCTION_NAME", "analytics");
+    const { assertSchemaMutationAllowed } = await import("./client.js");
+
+    expect(() => assertSchemaMutationAllowed("SELECT 1")).not.toThrow();
+    expect(() =>
+      assertSchemaMutationAllowed(
+        "CREATE TABLE IF NOT EXISTS app_state (id TEXT)",
+      ),
+    ).toThrow(/release job/);
+
+    (globalThis as Record<string, unknown>).__AGENT_NATIVE_MIGRATION_RUNTIME__ =
+      true;
+    expect(() =>
+      assertSchemaMutationAllowed(
+        "CREATE TABLE IF NOT EXISTS app_state (id TEXT)",
+      ),
+    ).not.toThrow();
   });
 
   it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
     // The marker records which URL the foreground TARGETED, not where the
-    // request landed. A misrouted worker on the ~60s sync function must NOT
-    // take the 8-connection background pool (it runs as one of many warm
-    // instances and would exhaust the Neon pooler → connection terminated →
-    // failed heartbeat → stale_run). Only proof-of-landing unlocks the big pool.
+    // request landed. A misrouted worker on the ~60s sync function must not
+    // change its pool policy before the runtime proves that it landed on the
+    // dedicated worker.
     vi.stubEnv("NETLIFY", "true");
     (
       globalThis as Record<string, unknown>
@@ -125,10 +197,10 @@ describe("db/client dialect detection", () => {
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(false);
-    expect(neonPoolMax()).toBe(1);
+    expect(neonPoolMax()).toBe(2);
   });
 
-  it("uses the background Neon pool when the -background function marked the runtime at cold start", async () => {
+  it("keeps the background Neon pool bounded when the worker proves its runtime", async () => {
     vi.stubEnv("NETLIFY", "true");
     (
       globalThis as Record<string, unknown>
@@ -138,7 +210,19 @@ describe("db/client dialect detection", () => {
       await import("./client.js");
 
     expect(isBackgroundFunctionPoolContext()).toBe(true);
-    expect(neonPoolMax()).toBe(8);
+    expect(neonPoolMax()).toBe(4);
+  });
+
+  it("uses one connection for scheduled background workers", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const runtime = globalThis as Record<string, unknown>;
+    runtime.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+    runtime.__AGENT_NATIVE_LOW_CONNECTION_BACKGROUND_RUNTIME__ = true;
+
+    const { neonPoolMax, pgPoolOptions } = await import("./client.js");
+
+    expect(neonPoolMax()).toBe(1);
+    expect(pgPoolOptions("postgres://example.test/db").max).toBe(1);
   });
 });
 
@@ -185,6 +269,87 @@ describe("db/client D1 execution", () => {
       },
       { sql: "DELETE FROM state WHERE key = ?", args: ["proposal"] },
     ]);
+  });
+});
+
+describe("db/client local SQLite initialization", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.doUnmock("better-sqlite3");
+    vi.resetModules();
+  });
+
+  it("retries a stale-runtime lock while enabling WAL", async () => {
+    vi.useFakeTimers();
+    const locked = Object.assign(new Error("database is locked"), {
+      code: "SQLITE_BUSY",
+    });
+    const pragma = vi
+      .fn()
+      .mockReturnValueOnce(undefined)
+      .mockImplementationOnce(() => {
+        throw locked;
+      })
+      .mockReturnValueOnce([{ journal_mode: "wal" }]);
+    const close = vi.fn();
+
+    vi.doMock("better-sqlite3", () => ({
+      default: class MockDatabase {
+        pragma = pragma;
+        close = close;
+      },
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const pending = createDbExec({ url: "file:./data/app.db" });
+
+    await vi.advanceTimersByTimeAsync(500);
+    const exec = await pending;
+
+    expect(pragma.mock.calls).toEqual([
+      ["busy_timeout = 10000"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+    ]);
+
+    await exec.close?.();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it("closes the handle and surfaces a lock that outlasts every retry", async () => {
+    vi.useFakeTimers();
+    const locked = Object.assign(new Error("database is locked"), {
+      code: "SQLITE_BUSY",
+    });
+    const pragma = vi.fn((statement: string) => {
+      if (statement === "journal_mode = WAL") throw locked;
+    });
+    const close = vi.fn();
+
+    vi.doMock("better-sqlite3", () => ({
+      default: class MockDatabase {
+        pragma = pragma;
+        close = close;
+      },
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const pending = expect(
+      createDbExec({ url: "file:./data/app.db" }),
+    ).rejects.toBe(locked);
+
+    await vi.advanceTimersByTimeAsync(5_000);
+    await pending;
+
+    expect(pragma.mock.calls).toEqual([
+      ["busy_timeout = 10000"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+      ["journal_mode = WAL"],
+    ]);
+    expect(close).toHaveBeenCalledOnce();
   });
 });
 
@@ -477,10 +642,10 @@ describe("describeDbError", () => {
   it("keeps the per-client logger from printing [object ErrorEvent]", async () => {
     const { EventEmitter } = await import("node:events");
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const { attachNeonPoolErrorLogger } = await import("./client.js");
+    const { guardNeonPool } = await import("./client.js");
 
     const pool = new EventEmitter();
-    attachNeonPoolErrorLogger(pool, "db/neon");
+    guardNeonPool(pool, "postgres://spec.neon.tech/db", "db/neon");
     const client = new EventEmitter();
     pool.emit("connect", client);
     client.emit("error", { type: "error", message: "Connection terminated" });
@@ -492,7 +657,70 @@ describe("describeDbError", () => {
   });
 });
 
-describe("attachNeonPoolErrorLogger", () => {
+describe("guardNeonPool", () => {
+  it("does not let a refused connect immediately produce another attempt", async () => {
+    // Production sat in this loop for hours: Neon refuses the ATTEMPT ("Failed
+    // to acquire permit... Too many database connection attempts are currently
+    // ongoing"), the failed acquire leaves zero idle clients, so the next
+    // execute() connects again — and retryOnConnectionError backs off only
+    // 100ms. The process answers a refusal by manufacturing the next attempt,
+    // which is what keeps the refusal true.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { EventEmitter } = await import("node:events");
+    const { guardNeonPool, isConnectionError } = await import("./client.js");
+
+    // Verbatim Neon refusal tagged 53300 — the worst case, where the existing
+    // retry loop WOULD classify it as retryable.
+    const refusal = Object.assign(
+      new Error(
+        "Failed to acquire permit to connect to the database. Too many database connection attempts are currently ongoing.",
+      ),
+      { code: "53300" },
+    );
+    let attempts = 0;
+    const pool: any = Object.assign(new EventEmitter(), {
+      idleCount: 0,
+      connect: async () => {
+        attempts++;
+        throw refusal;
+      },
+    });
+    guardNeonPool(pool, "postgres://gate-refuse.neon.tech/db");
+
+    await expect(pool.connect()).rejects.toBe(refusal);
+    expect(attempts).toBe(1);
+
+    const second = await pool.connect().catch((e: unknown) => e);
+    expect(attempts).toBe(1); // 2 without the gate
+    // Must NOT look retryable, or retryOnConnectionError drives the storm back.
+    expect(isConnectionError(second)).toBe(false);
+    // ...but must still say what actually happened.
+    expect((second as Error).message).toContain("Failed to acquire permit");
+  });
+
+  it("still serves a checkout from an idle client during cooldown", async () => {
+    // A cooldown must degrade throughput, not black out a warm instance.
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    const { EventEmitter } = await import("node:events");
+    const { guardNeonPool } = await import("./client.js");
+
+    let attempts = 0;
+    const pool: any = Object.assign(new EventEmitter(), {
+      idleCount: 0,
+      connect: async () => {
+        attempts++;
+        if (attempts === 1) throw new Error("refused");
+        return { released: true };
+      },
+    });
+    guardNeonPool(pool, "postgres://gate-idle.neon.tech/db");
+
+    await expect(pool.connect()).rejects.toThrow("refused");
+    pool.idleCount = 1; // a warm client is now available
+    await expect(pool.connect()).resolves.toEqual({ released: true });
+    expect(attempts).toBe(2);
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.resetModules();
@@ -502,10 +730,10 @@ describe("attachNeonPoolErrorLogger", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     const on = vi.fn();
     const pool = { on };
-    const { attachNeonPoolErrorLogger } = await import("./client.js");
+    const { guardNeonPool } = await import("./client.js");
 
-    attachNeonPoolErrorLogger(pool, "db/neon-auth");
-    attachNeonPoolErrorLogger(pool, "db/neon-auth");
+    guardNeonPool(pool, "postgres://spec.neon.tech/db", "db/neon-auth");
+    guardNeonPool(pool, "postgres://spec.neon.tech/db", "db/neon-auth");
 
     // Deduped per pool: a pool-level "error" listener + a "connect" listener,
     // wired exactly once despite the second attach call.
@@ -530,12 +758,12 @@ describe("attachNeonPoolErrorLogger", () => {
     // synchronously on emit — so this test fails (throws) without the fix.
     const { EventEmitter } = await import("node:events");
     vi.spyOn(console, "warn").mockImplementation(() => {});
-    const { attachNeonPoolErrorLogger } = await import("./client.js");
+    const { guardNeonPool } = await import("./client.js");
 
     const pool = new EventEmitter();
     // Pools may exceed the default 10-listener warning under load; mirror prod.
     pool.setMaxListeners(0);
-    attachNeonPoolErrorLogger(pool, "db/neon");
+    guardNeonPool(pool, "postgres://spec.neon.tech/db", "db/neon");
 
     // Control: a client the pool never announced has no listener and WOULD crash.
     const orphan = new EventEmitter();
@@ -697,6 +925,7 @@ describe("Neon foreground statement budgets", () => {
     });
     vi.doMock("@neondatabase/serverless", () => ({
       Pool,
+      neon: vi.fn(),
       neonConfig: {},
     }));
 
@@ -715,6 +944,455 @@ describe("Neon foreground statement budgets", () => {
     await vi.advanceTimersByTimeAsync(25);
     await pending;
     expect(pool.connect).toHaveBeenCalledOnce();
+  });
+
+  it("sets and resets a server-side timeout for an explicitly budgeted query", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NETLIFY", "true");
+    const query = vi.fn(async (sql: string) =>
+      sql === "SELECT 1"
+        ? { rows: [{ value: 1 }], rowCount: 1 }
+        : { rows: [], rowCount: 0 },
+    );
+    const client = {
+      query,
+      release: vi.fn(),
+    };
+    const pool = {
+      connect: vi.fn(async () => client),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon: vi.fn(),
+      neonConfig: {},
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const exec = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+
+    await expect(
+      exec.execute({
+        sql: "SELECT 1",
+        timeoutMs: 4_000,
+        maxAttempts: 3,
+      }),
+    ).resolves.toEqual({ rows: [{ value: 1 }], rowsAffected: 1 });
+
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+      "SET statement_timeout = 3750",
+      "SELECT 1",
+      "RESET statement_timeout",
+    ]);
+    expect(client.release).toHaveBeenCalledOnce();
+    expect(client.release).toHaveBeenCalledWith(undefined);
+  });
+
+  it("does not retry a PostgreSQL statement timeout", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const statementTimeout = Object.assign(
+      new Error("canceling statement due to statement timeout"),
+      { code: "57014" },
+    );
+    const query = vi.fn(async (sql: string) => {
+      if (sql === "SELECT slow") throw statementTimeout;
+      return { rows: [], rowCount: 0 };
+    });
+    const client = {
+      query,
+      release: vi.fn(),
+    };
+    const pool = {
+      connect: vi.fn(async () => client),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon: vi.fn(),
+      neonConfig: {},
+    }));
+
+    const { createDbExec, isConnectionError } = await import("./client.js");
+    const exec = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+
+    await expect(
+      exec.execute({
+        sql: "SELECT slow",
+        timeoutMs: 4_000,
+        maxAttempts: 3,
+      }),
+    ).rejects.toBe(statementTimeout);
+
+    expect(isConnectionError(statementTimeout)).toBe(false);
+    expect(pool.connect).toHaveBeenCalledOnce();
+    expect(
+      query.mock.calls.filter(([sql]) => sql === "SELECT slow"),
+    ).toHaveLength(1);
+    expect(query.mock.calls.at(-1)?.[0]).toBe("RESET statement_timeout");
+    expect(client.release).toHaveBeenCalledWith(undefined);
+  });
+
+  it("resets a session timeout with a fresh cleanup budget after the query budget is spent", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NETLIFY", "true");
+    const statementTimeout = Object.assign(
+      new Error("canceling statement due to statement timeout"),
+      { code: "57014" },
+    );
+    const query = vi.fn(async (sql: string) => {
+      if (sql === "SELECT slow") {
+        await new Promise((resolve) => setTimeout(resolve, 3_750));
+        throw statementTimeout;
+      }
+      if (sql === "RESET statement_timeout") {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+      return { rows: [], rowCount: 0 };
+    });
+    const client = {
+      query,
+      release: vi.fn(),
+    };
+    const pool = {
+      connect: vi.fn(async () => client),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon: vi.fn(),
+      neonConfig: {},
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const exec = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+    const pending = expect(
+      exec.execute({
+        sql: "SELECT slow",
+        timeoutMs: 4_000,
+        maxAttempts: 1,
+      }),
+    ).rejects.toBe(statementTimeout);
+
+    await vi.advanceTimersByTimeAsync(3_750);
+    await vi.advanceTimersByTimeAsync(500);
+    await pending;
+
+    expect(query.mock.calls.at(-1)?.[0]).toBe("RESET statement_timeout");
+    expect(client.release).toHaveBeenCalledWith(undefined);
+  });
+
+  it("discards a connection when its statement timeout cannot be reset", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const resetError = Object.assign(new Error("connection closed"), {
+      code: "ECONNRESET",
+    });
+    const query = vi.fn(async (sql: string) => {
+      if (sql === "RESET statement_timeout") throw resetError;
+      return sql === "SELECT 1"
+        ? { rows: [{ value: 1 }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    });
+    const client = {
+      query,
+      release: vi.fn(),
+    };
+    const pool = {
+      connect: vi.fn(async () => client),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon: vi.fn(),
+      neonConfig: {},
+    }));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    try {
+      const { createDbExec } = await import("./client.js");
+      const exec = await createDbExec({
+        url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+      });
+
+      await expect(
+        exec.execute({
+          sql: "SELECT 1",
+          timeoutMs: 4_000,
+          maxAttempts: 1,
+        }),
+      ).resolves.toEqual({ rows: [{ value: 1 }], rowsAffected: 1 });
+
+      expect(client.release).toHaveBeenCalledWith(true);
+      expect(warn).toHaveBeenCalledWith(
+        "[db/neon] statement timeout reset failed; discarding connection:",
+        "connection closed",
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("uses a transaction-local timeout for explicitly budgeted transaction work", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const query = vi.fn(async (sql: string, args?: unknown[]) => {
+      if (sql.includes(";") && args !== undefined) {
+        throw new Error("multi-command queries require the simple protocol");
+      }
+      return sql === "SELECT 1"
+        ? { rows: [{ value: 1 }], rowCount: 1 }
+        : { rows: [], rowCount: 0 };
+    });
+    const client = {
+      query,
+      release: vi.fn(),
+    };
+    const pool = {
+      connect: vi.fn(async () => client),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon: vi.fn(),
+      neonConfig: {},
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const exec = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+
+    await expect(
+      exec.transaction?.((tx) =>
+        tx.execute({
+          sql: "SELECT 1",
+          timeoutMs: 1_000,
+          maxAttempts: 3,
+        }),
+      ),
+    ).resolves.toEqual({ rows: [{ value: 1 }], rowsAffected: 1 });
+
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+      "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
+      "SET LOCAL statement_timeout = 900",
+      "SELECT 1",
+      "COMMIT",
+    ]);
+    expect(client.release).toHaveBeenCalledWith(undefined);
+  });
+
+  it("discards a connection when transaction rollback fails", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const transactionError = Object.assign(new Error("lock timeout"), {
+      code: "55P03",
+    });
+    const rollbackError = new Error("connection closed");
+    const query = vi.fn(async (sql: string) => {
+      if (sql === "ROLLBACK") throw rollbackError;
+      return { rows: [], rowCount: 0 };
+    });
+    const client = {
+      query,
+      release: vi.fn(),
+    };
+    const pool = {
+      connect: vi.fn(async () => client),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon: vi.fn(),
+      neonConfig: {},
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const exec = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+
+    await expect(
+      exec.transaction?.(async () => {
+        throw transactionError;
+      }),
+    ).rejects.toBe(transactionError);
+
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+      "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
+      "ROLLBACK",
+    ]);
+    expect(client.release).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("Neon background HTTP statement budgets", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
+    Reflect.deleteProperty(
+      globalThis as Record<string, unknown>,
+      "__AGENT_NATIVE_BACKGROUND_RUNTIME__",
+    );
+    vi.doUnmock("@neondatabase/serverless");
+    vi.resetModules();
+  });
+
+  it("derives the transaction-local timeout from the server-side remaining deadline", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-07-30T18:00:00Z"));
+    vi.stubEnv("NETLIFY", "true");
+    (
+      globalThis as Record<string, unknown>
+    ).__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+    const httpQuery = vi.fn((text: string, values?: unknown[]) => ({
+      text,
+      values,
+    }));
+    const transaction = vi.fn(async () => [
+      { rows: [], rowCount: 0 },
+      { rows: [{ value: 1 }], rowCount: 1 },
+    ]);
+    const neon = vi.fn(() => ({
+      query: httpQuery,
+      transaction,
+    }));
+    const pool = {
+      connect: vi.fn(),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon,
+      neonConfig: {},
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const exec = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+
+    await expect(
+      exec.execute({
+        sql: "SELECT ? AS value",
+        args: [1],
+        timeoutMs: 4_000,
+        maxAttempts: 1,
+      }),
+    ).resolves.toEqual({ rows: [{ value: 1 }], rowsAffected: 1 });
+
+    expect(pool.connect).not.toHaveBeenCalled();
+    const statementDeadlineMs =
+      new Date("2026-07-30T18:00:00Z").getTime() + 3_750;
+    expect(httpQuery).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining(
+        "FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)",
+      ),
+      [statementDeadlineMs],
+    );
+    expect(httpQuery).toHaveBeenNthCalledWith(2, "SELECT $1 AS value", [1]);
+    expect(transaction).toHaveBeenCalledWith(
+      [
+        {
+          text: expect.stringContaining(
+            "FLOOR(EXTRACT(EPOCH FROM clock_timestamp()) * 1000)",
+          ),
+          values: [statementDeadlineMs],
+        },
+        { text: "SELECT $1 AS value", values: [1] },
+      ],
+      {
+        fetchOptions: { signal: expect.any(AbortSignal) },
+      },
+    );
+  });
+
+  it("aborts the Neon HTTP fetch when the client deadline expires", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NETLIFY", "true");
+    (
+      globalThis as Record<string, unknown>
+    ).__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
+    let fetchSignal: AbortSignal | undefined;
+    const httpQuery = vi.fn((text: string, values?: unknown[]) => ({
+      text,
+      values,
+    }));
+    const transaction = vi.fn(
+      async (
+        _queries: unknown[],
+        options: { fetchOptions: { signal: AbortSignal } },
+      ) => {
+        fetchSignal = options.fetchOptions.signal;
+        return new Promise(() => {});
+      },
+    );
+    const neon = vi.fn(() => ({
+      query: httpQuery,
+      transaction,
+    }));
+    const pool = {
+      connect: vi.fn(),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon,
+      neonConfig: {},
+    }));
+
+    const { createDbExec } = await import("./client.js");
+    const exec = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+    const pending = expect(
+      exec.execute({
+        sql: "SELECT pg_sleep(10)",
+        timeoutMs: 25,
+        maxAttempts: 1,
+      }),
+    ).rejects.toThrow("DB query timed out after 25ms");
+
+    await vi.advanceTimersByTimeAsync(25);
+    await pending;
+
+    expect(fetchSignal?.aborted).toBe(true);
+    expect(pool.connect).not.toHaveBeenCalled();
   });
 });
 
@@ -780,5 +1458,123 @@ describe("isTransientDatabaseError", () => {
   });
 });
 
+describe("annotateMissingTable", () => {
+  it("points SQLite and Postgres missing-table errors at the db plugin", async () => {
+    const { annotateMissingTable } = await import("./client.js");
+
+    for (const message of [
+      "no such table: text_analyses",
+      'relation "text_analyses" does not exist',
+    ]) {
+      const annotated = annotateMissingTable(
+        new Error(message),
+        "SELECT * FROM text_analyses",
+      ) as Error;
+      expect(annotated.message).toContain(message);
+      expect(annotated.message).toContain("text_analyses");
+      expect(annotated.message).toContain("server/plugins/db.ts");
+    }
+  });
+
+  it("leaves unrelated errors and non-Errors untouched", async () => {
+    const { annotateMissingTable } = await import("./client.js");
+
+    const unrelated = new Error("duplicate column name: title");
+    expect((annotateMissingTable(unrelated, "") as Error).message).toBe(
+      "duplicate column name: title",
+    );
+    expect(annotateMissingTable("not an error", "")).toBe("not an error");
+  });
+
+  it("does not stack the hint when the same error passes through twice", async () => {
+    const { annotateMissingTable } = await import("./client.js");
+
+    const err = new Error("no such table: forms");
+    const once = annotateMissingTable(err, "SELECT 1") as Error;
+    const twice = annotateMissingTable(once, "SELECT 1") as Error;
+    expect(twice.message.match(/server\/plugins\/db\.ts/g)).toHaveLength(1);
+  });
+});
+
 // Tests for `widenIntColumnsToBigInt` live in `./widen-columns.spec.ts`
 // (the helper moved to `./widen-columns.js`).
+
+describe("db/client shared connection pools", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("hands every consumer of one URL the same pool, and keeps distinct URLs apart", async () => {
+    const { sharedDbPool } = await import("./client.js");
+    const make = () => ({ id: Symbol(), end: async () => {} });
+
+    const first = sharedDbPool("neon", "postgres://a.test/db", make);
+    const second = sharedDbPool("neon", "postgres://a.test/db", make);
+    const other = sharedDbPool("neon", "postgres://b.test/db", make);
+    const otherDriver = sharedDbPool(
+      "postgres-js",
+      "postgres://a.test/db",
+      make,
+    );
+
+    expect(second).toBe(first);
+    expect(other).not.toBe(first);
+    expect(otherDriver).not.toBe(first);
+  });
+
+  it("ends every shared pool on close and tells consumers to drop their handles", async () => {
+    const { sharedDbPool, onSharedDbPoolsClosed, closeSharedDbPools } =
+      await import("./client.js");
+    const ended: string[] = [];
+    let notified = 0;
+
+    sharedDbPool("neon", "postgres://close.test/db", () => ({
+      end: async () => {
+        ended.push("neon");
+      },
+    }));
+    sharedDbPool("postgres-js", "postgres://close.test/db", () => ({
+      end: async () => {
+        ended.push("postgres-js");
+      },
+    }));
+    onSharedDbPoolsClosed(() => {
+      notified += 1;
+    });
+
+    await closeSharedDbPools();
+
+    expect(ended.sort()).toEqual(["neon", "postgres-js"]);
+    expect(notified).toBe(1);
+
+    // A pool created after the close is a genuinely new one.
+    const rebuilt = sharedDbPool("neon", "postgres://close.test/db", () => ({
+      end: async () => {},
+    }));
+    expect(rebuilt).toBeTruthy();
+  });
+
+  it("swaps in the replacement pool when a timed-out pool is recycled", async () => {
+    const { sharedDbPool, replaceSharedDbPool, onSharedDbPoolReplaced } =
+      await import("./client.js");
+    const original = { name: "original", end: async () => {} };
+    const replacement = { name: "replacement", end: async () => {} };
+    const url = "postgres://recycle.test/db";
+    let notified = 0;
+
+    sharedDbPool("postgres-js", url, () => original);
+    onSharedDbPoolReplaced("postgres-js", url, () => {
+      notified += 1;
+    });
+    replaceSharedDbPool("postgres-js", url, original, replacement);
+    expect(sharedDbPool("postgres-js", url, () => original)).toBe(replacement);
+    expect(notified).toBe(1);
+
+    // A stale caller holding the already-replaced pool must not clobber it.
+    replaceSharedDbPool("postgres-js", url, original, {
+      name: "stale",
+      end: async () => {},
+    });
+    expect(sharedDbPool("postgres-js", url, () => original)).toBe(replacement);
+  });
+});

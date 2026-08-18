@@ -63,6 +63,10 @@ const messages = {
     title: "Paramètres du CRM",
     description:
       "Le SQL natif garde les enregistrements du CRM locaux et portables. HubSpot et Salesforce passent par les connexions de l’espace de travail ; leurs miroirs ne stockent que les champs autorisés, des métadonnées limitées et des références de preuve bornées.",
+    languageTitle: "Langue",
+    languageDescription:
+      "Choisissez la langue de l’interface. Cette préférence est enregistrée dans votre compte.",
+    languageLabel: "Langue de l’interface",
   },
   connection: {
     tab: "Connexion",

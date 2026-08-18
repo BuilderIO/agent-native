@@ -28,8 +28,20 @@ export {
   type ParseOfficeDocumentInput,
 } from "./office.js";
 export {
+  detectSpreadsheetDocumentType,
+  isSpreadsheetDocument,
+  parseSpreadsheetDocument,
+  type ParsedSpreadsheetDocument,
+  type ParsedSpreadsheetSheet,
+  type ParseSpreadsheetDocumentInput,
+  type SpreadsheetDocumentType,
+} from "./spreadsheet.js";
+export {
   parsePptxPresentation,
   type ParsedPptxImage,
+  type ParsedPptxElement,
+  type ParsedPptxGrid,
+  type ParsedPptxParagraph,
   type ParsedPptxPresentation,
   type ParsedPptxSlide,
   type ParsedPptxTextRun,

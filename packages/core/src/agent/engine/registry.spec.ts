@@ -35,6 +35,7 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../server/request-context.js");
     vi.doUnmock("../../secrets/storage.js");
     vi.doUnmock("../../db/client.js");
+    vi.doUnmock("../../org/context.js");
     vi.unstubAllEnvs();
     // Clear env vars that influence resolveEngine
     delete process.env.AGENT_ENGINE;
@@ -45,6 +46,8 @@ describe("AgentEngine registry", () => {
     delete process.env.GOOGLE_GENERATIVE_AI_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
     delete process.env.BUILDER_PRIVATE_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
     delete process.env.BUILDER_PUBLIC_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.BUILDER_GATEWAY_TOKEN; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.BUILDER_GATEWAY_SPACE_ID; // guard:allow-env-credential — test setup clears env to assert credential precedence
   });
 
   it("registers and retrieves an engine", async () => {
@@ -269,6 +272,84 @@ describe("AgentEngine registry", () => {
     ).resolves.toBe(true);
   });
 
+  it("captures scoped Builder credentials for engine construction and preflight", async () => {
+    const identity = {
+      userEmail: "owner@example.com",
+      orgId: "org-builder",
+    };
+    const resolveBuilderGatewayCredentialsDetailed = vi.fn(
+      async (receivedIdentity?: typeof identity) =>
+        receivedIdentity?.userEmail === identity.userEmail &&
+        receivedIdentity.orgId === identity.orgId
+          ? {
+              privateKey: "bpk-scoped",
+              publicKey: "space-scoped",
+              userId: "builder-user",
+              orgName: "Builder Space",
+              source: "org" as const,
+              lookupFailed: false,
+              lane: "identity" as const,
+            }
+          : {
+              privateKey: null,
+              publicKey: null,
+              lookupFailed: false,
+              lane: null,
+            },
+    );
+    vi.doMock(
+      "../../server/credential-provider.js",
+      async (importOriginal) => ({
+        ...(await importOriginal()),
+        resolveBuilderGatewayCredentialsDetailed,
+      }),
+    );
+
+    const {
+      registerAgentEngine,
+      resolveEngine,
+      isResolvedEngineUsableForRequest,
+    } = await import("./registry.js");
+    const builderEngine = { name: "builder", stream: vi.fn() } as any;
+    const create = vi.fn().mockReturnValue(builderEngine);
+    registerAgentEngine({
+      name: "builder",
+      label: "Builder",
+      description: "",
+      capabilities: {} as any,
+      defaultModel: "builder-model",
+      supportedModels: ["builder-model"],
+      requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+      create,
+    });
+
+    const resolved = await resolveEngine({
+      engineOption: "builder",
+      credentialIdentity: identity,
+    });
+
+    expect(resolved).toBe(builderEngine);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        credentials: {
+          privateKey: "bpk-scoped",
+          publicKey: "space-scoped",
+          userId: "builder-user",
+          orgName: "Builder Space",
+          lane: "identity",
+        },
+      }),
+    );
+    expect(resolveBuilderGatewayCredentialsDetailed).toHaveBeenCalledWith(
+      identity,
+    );
+    await expect(
+      isResolvedEngineUsableForRequest(resolved, {
+        credentialIdentity: identity,
+      }),
+    ).resolves.toBe(true);
+  });
+
   describe("getStoredModelForEngine", () => {
     beforeEach(() => {
       vi.resetModules();
@@ -473,6 +554,15 @@ describe("AgentEngine registry", () => {
       );
     });
 
+    it("preserves arbitrary Ollama model ids", async () => {
+      const { resolveEnginePreservesCustomModels } =
+        await import("./registry.js");
+
+      await expect(
+        resolveEnginePreservesCustomModels({ name: "ai-sdk:ollama" }),
+      ).resolves.toBe(true);
+    });
+
     it("falls back an unrecognized first-party OpenAI model to the default without a gateway", async () => {
       const { normalizeModelForEngine } = await import("./registry.js");
       const engine = {
@@ -523,6 +613,116 @@ describe("AgentEngine registry", () => {
           preserveCustomModels: true,
         }),
       ).toBe("gpt-5.4");
+    });
+  });
+
+  describe("resolveDelegatedRunModel", () => {
+    const engine = {
+      name: "builder",
+      defaultModel: "claude-sonnet-5",
+      supportedModels: [
+        "auto",
+        "claude-opus-4-8",
+        "claude-sonnet-5",
+        "claude-haiku-4-5",
+        "gpt-5-5",
+      ],
+    } as any;
+
+    it("keeps the receiver's explicit configuration over a caller hint", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+
+      expect(
+        resolveDelegatedRunModel(engine, {
+          explicitModel: "claude-opus-4-8",
+          storedModel: "claude-haiku-4-5",
+          callerModelHint: "gpt-5-5",
+        }),
+      ).toBe("claude-opus-4-8");
+    });
+
+    it("keeps the receiver's stored setting over a caller hint", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+
+      expect(
+        resolveDelegatedRunModel(engine, {
+          storedModel: "claude-haiku-4-5",
+          callerModelHint: "claude-opus-4-8",
+        }),
+      ).toBe("claude-haiku-4-5");
+    });
+
+    it("uses the caller hint only when the receiver chose nothing", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+
+      expect(
+        resolveDelegatedRunModel(engine, {
+          callerModelHint: "claude-opus-4-8",
+        }),
+      ).toBe("claude-opus-4-8");
+      expect(resolveDelegatedRunModel(engine, {})).toBe("claude-sonnet-5");
+    });
+
+    it("falls back to the default for unknown or malformed hints", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+
+      for (const callerModelHint of [
+        "totally-removed-model",
+        "",
+        "   ",
+        "auto",
+        null,
+        undefined,
+        // Untrusted input shapes that must not throw or reach a provider.
+        "../../etc/passwd",
+        "a".repeat(500),
+      ]) {
+        expect(resolveDelegatedRunModel(engine, { callerModelHint })).toBe(
+          "claude-sonnet-5",
+        );
+      }
+    });
+
+    it("rejects a hint naming a model from a different engine", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+      const anthropic = {
+        name: "anthropic",
+        defaultModel: "claude-sonnet-5",
+        supportedModels: ["claude-sonnet-5", "claude-opus-4-8"],
+      } as any;
+
+      expect(
+        resolveDelegatedRunModel(anthropic, { callerModelHint: "gpt-5-5" }),
+      ).toBe("claude-sonnet-5");
+      expect(
+        resolveDelegatedRunModel(anthropic, {
+          callerModelHint: "gemini-3-1-pro",
+        }),
+      ).toBe("claude-sonnet-5");
+    });
+
+    it("ignores hints for engines that cannot prove catalog membership", async () => {
+      const { resolveDelegatedRunModel } = await import("./registry.js");
+      const gateway = {
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.6-sol",
+        supportedModels: ["gpt-5.5", "gpt-5.6-sol"],
+        preserveCustomModels: true,
+      } as any;
+      const catalogless = {
+        name: "custom",
+        defaultModel: "default-model",
+        supportedModels: [],
+      } as any;
+
+      expect(
+        resolveDelegatedRunModel(gateway, { callerModelHint: "gpt-5.5" }),
+      ).toBe("gpt-5.6-sol");
+      expect(
+        resolveDelegatedRunModel(catalogless, {
+          callerModelHint: "anything-goes",
+        }),
+      ).toBe("default-model");
     });
   });
 
@@ -792,7 +992,386 @@ describe("AgentEngine registry", () => {
     expect(detectEngineFromEnv()).toBeNull();
   });
 
-  describe("detectEngineFromUserSecrets", () => {
+  it("registers the builder engine with both credential shapes", async () => {
+    const { registerBuiltinEngines } = await import("./builtin.js");
+    const { getAgentEngineEntry } = await import("./registry.js");
+    const { BUILDER_GATEWAY_SPACE_ID_ENV_VAR, BUILDER_GATEWAY_TOKEN_ENV_VAR } =
+      await import("../../server/credential-provider.js");
+
+    registerBuiltinEngines();
+
+    // The literal names in builtin.ts must stay the ones the resolver reads;
+    // nothing else pairs them at compile time. `deployInjected` is what makes
+    // this set — and only this set — step aside for a BYO provider key.
+    expect(getAgentEngineEntry("builder")?.alternateRequiredEnvVars).toEqual([
+      {
+        envVars: [
+          BUILDER_GATEWAY_TOKEN_ENV_VAR,
+          BUILDER_GATEWAY_SPACE_ID_ENV_VAR,
+        ],
+        deployInjected: true,
+      },
+    ]);
+  });
+
+  describe("Builder-credits env pair", () => {
+    const registerBuilderAndAnthropic = (
+      registerAgentEngine: (entry: any) => void,
+    ) => {
+      const builderEngine = { name: "builder", stream: vi.fn() } as any;
+      const anthropicEngine = { name: "anthropic", stream: vi.fn() } as any;
+      const builderCreate = vi.fn().mockReturnValue(builderEngine);
+      const anthropicCreate = vi.fn().mockReturnValue(anthropicEngine);
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        alternateRequiredEnvVars: [
+          {
+            envVars: ["BUILDER_GATEWAY_TOKEN", "BUILDER_GATEWAY_SPACE_ID"],
+            deployInjected: true,
+          },
+        ],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: anthropicCreate,
+      });
+      return { builderEngine, anthropicEngine, builderCreate, anthropicCreate };
+    };
+
+    beforeEach(() => {
+      vi.resetModules();
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue(null),
+        deleteSetting: vi.fn(),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "visitor@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => {
+        const readAppSecret = vi.fn().mockResolvedValue(null);
+        return {
+          readAppSecret,
+          readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+        };
+      });
+      vi.doMock("../../db/client.js", () => ({
+        isLocalDatabase: () => false,
+      }));
+      // A hosted visitor has no org, and the membership read must answer
+      // cleanly — an unreadable one is a different case with its own tests.
+      vi.doMock("../../org/context.js", () => ({
+        resolveOrgIdForEmail: vi.fn().mockResolvedValue(null),
+      }));
+    });
+
+    it("selects builder from the Builder-credits pair alone on a hosted app", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()?.name).toBe("builder");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe("builder");
+    });
+
+    it("does not select builder from a gateway token without its space id", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()).toBeNull();
+      expect(await detectEngineFromEnvForRequest()).toBeNull();
+    });
+
+    // Alternates must be honoured by BOTH detectors for ANY engine, not just
+    // whichever one the Builder engine happens to go through. A sync detector
+    // that reports "configured" while the async one falls through elsewhere is
+    // how status pages end up contradicting the turn.
+    it("honours alternate credential sets for an engine that is not builder", async () => {
+      vi.stubEnv("CUSTOM_ALT_TOKEN", "alt-token");
+      vi.stubEnv("CUSTOM_ALT_REGION", "eu");
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerAgentEngine({
+        name: "custom-multi-shape",
+        label: "Custom",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["CUSTOM_PRIMARY_KEY"],
+        alternateRequiredEnvVars: [
+          { envVars: ["CUSTOM_ALT_TOKEN", "CUSTOM_ALT_REGION"] },
+        ],
+        create: vi.fn() as any,
+      });
+
+      expect(detectEngineFromEnv()?.name).toBe("custom-multi-shape");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe(
+        "custom-multi-shape",
+      );
+    });
+
+    // `envVars` means every var must resolve. The paired legacy check answers
+    // for two of them, so a set carrying the pair plus anything else still owes
+    // the per-var check on the rest — otherwise the async detector qualifies a
+    // set the sync one rejects, which is the disagreement the paired check was
+    // added to remove.
+    it("requires every var in a set that also carries the legacy Builder pair", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: the legacy pair is the credential under test
+      process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: the legacy pair is the credential under test
+      // CUSTOM_LEGACY_REGION is deliberately left unset.
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerAgentEngine({
+        name: "legacy-pair-plus-region",
+        label: "Legacy pair plus region",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: [
+          "BUILDER_PRIVATE_KEY",
+          "BUILDER_PUBLIC_KEY",
+          "CUSTOM_LEGACY_REGION",
+        ],
+        create: vi.fn() as any,
+      });
+
+      expect(detectEngineFromEnv()).toBeNull();
+      expect(await detectEngineFromEnvForRequest()).toBeNull();
+    });
+
+    it("defers to a BYO provider key present alongside the Builder-credits pair", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.ANTHROPIC_API_KEY = "sk-ant-customer"; // guard:allow-env-credential — fixture: a customer's own key must keep its own spend
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()?.name).toBe("anthropic");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe("anthropic");
+    });
+
+    // The defer rule is about the *injected* gateway token. A customer who set
+    // the legacy Builder pair themselves chose Builder deliberately and must
+    // keep getting it — deferring here would silently move an existing app's
+    // provider and billing on a `pnpm up`, and would make
+    // AGENT_ENGINE_PREFER_BYO_KEY (asserted below) a no-op.
+    it("keeps builder when the explicitly configured legacy pair sits alongside a BYO key", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.ANTHROPIC_API_KEY = "sk-ant-customer"; // guard:allow-env-credential — fixture: a second key must not silently switch provider
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()?.name).toBe("builder");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe("builder");
+    });
+
+    it("still honours AGENT_ENGINE_PREFER_BYO_KEY over the legacy Builder pair", async () => {
+      process.env.AGENT_ENGINE_PREFER_BYO_KEY = "true";
+      process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.ANTHROPIC_API_KEY = "sk-ant-customer"; // guard:allow-env-credential — fixture: the opt-out must still reach the BYO key
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()?.name).toBe("anthropic");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe("anthropic");
+    });
+
+    // Both shapes present: the customer-configured one decides, so builder wins
+    // and the injected token never gets a chance to matter. Not under
+    // NODE_ENV=production — there the legacy deploy pair is deliberately
+    // unreadable for a request that carries a user email, so only the injected
+    // set would qualify and the assertion would be about a different rule.
+    it("keeps builder when the legacy pair and the injected pair are both set", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.ANTHROPIC_API_KEY = "sk-ant-customer"; // guard:allow-env-credential — fixture: a second key must not silently switch provider
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()?.name).toBe("builder");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe("builder");
+    });
+
+    it("skips a Builder-credits token the gateway already rejected", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const rejectedToken = "btk-site-token-rejected";
+      process.env.BUILDER_GATEWAY_TOKEN = rejectedToken; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      const fingerprint = providerFailureFingerprint(
+        "BUILDER_GATEWAY_TOKEN",
+        rejectedToken,
+      );
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn(async (key: string) =>
+          key === `provider-auth-failure:${fingerprint}`
+            ? {
+                fingerprint,
+                key: "BUILDER_GATEWAY_TOKEN",
+                message: "401 status code (no body)",
+                status: 401,
+                at: Date.now(),
+              }
+            : null,
+        ),
+        deleteSetting: vi.fn(),
+      }));
+
+      const { registerAgentEngine, detectEngineFromEnvForRequest } =
+        await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(await detectEngineFromEnvForRequest()).toBeNull();
+    });
+
+    it("captures the Builder-credits pair as the engine's credentials", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const { builderEngine, builderCreate, anthropicCreate } =
+        registerBuilderAndAnthropic(registerAgentEngine);
+
+      const resolved = await resolveEngine({});
+
+      expect(anthropicCreate).not.toHaveBeenCalled();
+      expect(resolved).toBe(builderEngine);
+      expect(builderCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          credentials: {
+            privateKey: "btk-site-token",
+            publicKey: "space-abc",
+            userId: null,
+            orgName: null,
+            lane: "gateway-deploy",
+          },
+        }),
+      );
+    });
+
+    it("reports the builder engine as runnable on the Builder-credits pair alone", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+
+      const {
+        registerAgentEngine,
+        getAgentEngineEntry,
+        isResolvedEngineUsableForRequest,
+        isStoredEngineUsableForRequest,
+      } = await import("./registry.js");
+      const { builderEngine } =
+        registerBuilderAndAnthropic(registerAgentEngine);
+      const entry = getAgentEngineEntry("builder")!;
+
+      await expect(
+        isResolvedEngineUsableForRequest(builderEngine),
+      ).resolves.toBe(true);
+      await expect(
+        isStoredEngineUsableForRequest({ engine: "builder" }, entry),
+      ).resolves.toBe(true);
+    });
+
+    // The SYNCHRONOUS twin is what the engine-status endpoint calls, and the
+    // composer gates on its answer. Reading only `requiredEnvVars` reports a
+    // Builder engine running on the injected pair as unconfigured, so an explicit
+    // `AGENT_ENGINE=builder` deployment refuses to start a chat the request path
+    // would have run.
+    it("reports the builder engine as usable on the gateway pair in the sync check", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+
+      const { registerAgentEngine, getAgentEngineEntry, isStoredEngineUsable } =
+        await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+      const entry = getAgentEngineEntry("builder")!;
+
+      expect(isStoredEngineUsable({ engine: "builder" }, entry)).toBe(true);
+    });
+
+    it("does not report the builder engine usable on half a gateway pair", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      delete process.env.BUILDER_GATEWAY_SPACE_ID; // guard:allow-env-credential — fixture: half a pair is the condition under test
+
+      const { registerAgentEngine, getAgentEngineEntry, isStoredEngineUsable } =
+        await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+      const entry = getAgentEngineEntry("builder")!;
+
+      expect(isStoredEngineUsable({ engine: "builder" }, entry)).toBe(false);
+    });
+  });
+
+  // These request-resolution tests reload the credential and settings module
+  // graph. Full workspace prep transforms that graph alongside many package
+  // suites, so keep a bounded allowance for scheduler contention while
+  // preserving a useful failure limit for genuine hangs.
+  describe("detectEngineFromUserSecrets", { timeout: 15_000 }, () => {
     beforeEach(() => {
       vi.resetModules();
       vi.doUnmock("../../settings/store.js");
@@ -1178,7 +1757,7 @@ describe("AgentEngine registry", () => {
       }));
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "steve@example.com",
-        getRequestOrgId: () => undefined,
+        getRequestOrgId: () => "builder_org",
       }));
       vi.doMock("../../secrets/storage.js", () => {
         const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
@@ -1242,6 +1821,351 @@ describe("AgentEngine registry", () => {
       });
       expect(builderCreate).not.toHaveBeenCalled();
       expect(resolved).toBe(openAiEngine);
+    });
+
+    it("pairs an automatically selected provider with that provider's key", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue({
+          engine: "ai-sdk:openai",
+          model: "gpt-5.4",
+        }),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => "builder_org",
+      }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+        if (key === "OPENAI_API_KEY") {
+          return { key, value: "sk-openai-matching" };
+        }
+        if (key === "ANTHROPIC_API_KEY") {
+          return { key, value: "sk-anthropic-unrelated" };
+        }
+        return null;
+      });
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const resolved = await resolveEngine({
+        // Regression: delegated callers used to resolve the global/default
+        // Anthropic key before the registry selected the app-default engine.
+        apiKey: "sk-anthropic-unrelated",
+      });
+
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: "sk-openai-matching",
+        allowEnvFallback: true,
+      });
+      expect(resolved).toBe(openAiEngine);
+    });
+
+    it("pairs an explicitly selected provider with its saved key when the caller has none", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => "builder_org",
+      }));
+      const readAppSecret = vi.fn(
+        async ({ key, scope }: { key: string; scope: string }) =>
+          key === "OPENAI_API_KEY" && scope === "org"
+            ? { key, value: "sk-openai-saved" }
+            : null,
+      );
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({
+        // The hosted chat path can miss the owner-key lookup when a shared
+        // vault row is reached through the generic credential resolver.
+        engineOption: "ai-sdk:openai",
+      });
+
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: "sk-openai-saved",
+        allowEnvFallback: true,
+      });
+      expect(resolved).toBe(openAiEngine);
+    });
+
+    it("preserves an opaque explicit key when no different provider owns it", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue({
+          engine: "ai-sdk:openai",
+          model: "gpt-5.4",
+        }),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => "builder_org",
+      }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) =>
+        key === "OPENAI_API_KEY" ? { key, value: "sk-openai-stored" } : null,
+      );
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({
+        apiKey: "opaque-caller-supplied-key",
+      });
+
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: "opaque-caller-supplied-key",
+        allowEnvFallback: true,
+      });
+      expect(resolved).toBe(openAiEngine);
+    });
+
+    it("does not pass an unrelated active key to an env-selected provider", async () => {
+      vi.stubEnv("AGENT_ENGINE", "ai-sdk:openai");
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => "builder_org",
+      }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) =>
+        key === "ANTHROPIC_API_KEY"
+          ? { key, value: "sk-anthropic-unrelated" }
+          : null,
+      );
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: vi.fn() as any,
+      });
+
+      const resolved = await resolveEngine({
+        apiKey: "sk-anthropic-unrelated",
+      });
+
+      expect(openAiCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+      });
+      expect(resolved).toBe(openAiEngine);
+    });
+
+    it("drops a declared Anthropic key on an explicitly selected OpenAI engine", async () => {
+      // The composer's per-request engine override reaches resolveEngine as an
+      // explicit string, which skips the value-comparison path — and the host
+      // key it carries (plugin `options.apiKey`) matches no stored secret, so
+      // only the declared env var can prove it belongs to Anthropic.
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => "builder_org",
+      }));
+      const readAppSecret = vi.fn(async () => null);
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({
+        engineOption: "ai-sdk:openai",
+        apiKey: "sk-ant-host-key",
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
+      });
+
+      expect(openAiCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: undefined }),
+      );
+      expect(resolved).toBe(openAiEngine);
+    });
+
+    it("keeps a declared key on the provider it was issued for", async () => {
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => "builder_org",
+      }));
+      const readAppSecret = vi.fn(async () => null);
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const openAiEngine = { name: "ai-sdk:openai", stream: vi.fn() } as any;
+      const openAiCreate = vi.fn().mockReturnValue(openAiEngine);
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      const resolved = await resolveEngine({
+        engineOption: "ai-sdk:openai",
+        apiKey: "sk-openai-scoped",
+        apiKeyEnvVar: "OPENAI_API_KEY",
+      });
+
+      expect(openAiCreate).toHaveBeenCalledWith(
+        expect.objectContaining({ apiKey: "sk-openai-scoped" }),
+      );
+      expect(resolved).toBe(openAiEngine);
+    });
+
+    it("does not pass a known different-provider key to the final Anthropic fallback", async () => {
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue(null),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "steve@example.com",
+        getRequestOrgId: () => "builder_org",
+      }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) =>
+        key === "OTHER_API_KEY"
+          ? { key, value: "known-other-provider-key" }
+          : null,
+      );
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+
+      const anthropicEngine = { name: "anthropic", stream: vi.fn() } as any;
+      const anthropicCreate = vi.fn().mockReturnValue(anthropicEngine);
+      registerAgentEngine({
+        name: "unavailable-provider",
+        label: "Unavailable",
+        description: "",
+        installPackage: "definitely-not-installed-for-this-test",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["OTHER_API_KEY"],
+        create: vi.fn() as any,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: anthropicCreate,
+      });
+
+      const resolved = await resolveEngine({
+        apiKey: "known-other-provider-key",
+      });
+
+      expect(anthropicCreate).toHaveBeenCalledWith({
+        apiKey: undefined,
+        allowEnvFallback: true,
+      });
+      expect(resolved).toBe(anthropicEngine);
     });
 
     it("resolveEngine skips a stored provider whose saved key has an auth-failure marker", async () => {
@@ -1520,6 +2444,47 @@ describe("AgentEngine registry", () => {
       expect(resolved).toBe(openAiEngine);
     });
 
+    it("does not replace an unreadable endpoint with deploy configuration", async () => {
+      vi.doMock("../../server/credential-provider.js", () => ({
+        assertCredentialStoreReadable: vi.fn(),
+        canUseDeployCredentialFallbackForRequest: vi.fn(() => true),
+        getBuilderCredentialAuthFailure: vi.fn(async () => null),
+        getProviderCredentialAuthFailure: vi.fn(async () => null),
+        readDeployCredentialEnv: vi.fn(() => "https://deploy.example/v1"),
+        resolveBuilderCredentialsDetailed: vi.fn(async () => ({
+          privateKey: null,
+          publicKey: null,
+          lookupFailed: false,
+        })),
+        resolveSecret: vi.fn(async (key: string) => {
+          if (key === "OPENAI_BASE_URL") {
+            throw new Error("credential store unavailable");
+          }
+          return null;
+        }),
+      }));
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const openAiCreate = vi.fn();
+
+      registerAgentEngine({
+        name: "ai-sdk:openai",
+        label: "OpenAI",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "gpt-5.4",
+        supportedModels: [],
+        requiredEnvVars: ["OPENAI_API_KEY"],
+        create: openAiCreate,
+      });
+
+      await expect(
+        resolveEngine({ engineOption: "ai-sdk:openai" }),
+      ).rejects.toThrow("credential store unavailable");
+      expect(openAiCreate).not.toHaveBeenCalled();
+    });
+
     it("does not pass the scoped OpenAI endpoint into non-OpenAI engines", async () => {
       vi.doMock("../../server/request-context.js", () => ({
         getRequestUserEmail: () => "steve@example.com",
@@ -1634,6 +2599,13 @@ describe("AgentEngine registry", () => {
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",
       }));
+      vi.doMock("../../secrets/storage.js", () => {
+        const readAppSecret = vi.fn().mockResolvedValue(null);
+        return {
+          readAppSecret,
+          readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+        };
+      });
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,
       }));

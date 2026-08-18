@@ -5,6 +5,7 @@ import {
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
 import { readAppSecret, type SecretRef } from "../secrets/storage.js";
+import { assertCredentialStoreReadable } from "../server/credential-provider.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
 
 const SETTING_PREFIX = "credential:";
@@ -77,6 +78,33 @@ export async function resolveCredentialForScope(
 }
 
 /**
+ * `ctx.orgId` when the caller supplied one, otherwise the org resolved from
+ * `ctx.userEmail`'s membership. Interactive requests always supply `orgId`
+ * (session/`getOrgContext` backfill it); CLI runs, cron jobs, and any other
+ * caller built straight from `getCredentialContext()` outside a request event
+ * do not, and previously fell through as "no active org" — invisibly skipping
+ * every org-scoped credential a signed-in session could see. Mirrors the
+ * fallback already proven in `resolveSecretDetailed`
+ * (server/credential-provider.ts).
+ */
+async function resolveEffectiveOrgId(
+  ctx: CredentialContext,
+): Promise<{ orgId: string | null; lookupFailed: boolean; cause?: unknown }> {
+  if (ctx.orgId) return { orgId: ctx.orgId, lookupFailed: false };
+  try {
+    const { resolveOrgIdForEmail } = await import("../org/context.js");
+    return {
+      orgId: await resolveOrgIdForEmail(ctx.userEmail),
+      lookupFailed: false,
+    };
+  } catch (cause) {
+    // Membership was unreadable, not merely absent — must not collapse to
+    // "caller has no org", which would silently hide every org-scoped row.
+    return { orgId: null, lookupFailed: true, cause };
+  }
+}
+
+/**
  * Resolve a credential across the encrypted app_secrets store and the legacy
  * settings-backed credential store. User overrides win, followed by the
  * active org/workspace shared value.
@@ -92,7 +120,12 @@ export async function resolveCredentialForScope(
  *   5. org-scoped legacy settings credential
  *   6. solo workspace-scoped app_secrets (`solo:<email>`)
  *
- * Steps 3-5 are skipped without an active org.
+ * Steps 3-5 use `ctx.orgId` when given, else the org resolved from
+ * `ctx.userEmail` (see `resolveEffectiveOrgId`), and are skipped only when the
+ * caller truly has no org. A membership lookup that could not be read throws
+ * `CredentialStoreUnavailableError` instead of silently reporting the
+ * credential as unset — "the store didn't answer" and "nothing is saved" are
+ * different outcomes callers must not conflate.
  */
 export async function resolveCredential(
   key: string,
@@ -109,19 +142,20 @@ export async function resolveCredential(
   });
   if (userSetting) return userSetting;
 
-  if (ctx.orgId) {
-    const orgSecret = await readScopedAppSecret(key, "org", ctx.orgId);
+  const orgLookup = await resolveEffectiveOrgId(ctx);
+  assertCredentialStoreReadable(orgLookup);
+  const { orgId } = orgLookup;
+
+  if (orgId) {
+    const orgSecret = await readScopedAppSecret(key, "org", orgId);
     if (orgSecret) return orgSecret;
 
-    const workspaceSecret = await readScopedAppSecret(
-      key,
-      "workspace",
-      ctx.orgId,
-    );
+    const workspaceSecret = await readScopedAppSecret(key, "workspace", orgId);
     if (workspaceSecret) return workspaceSecret;
 
     const orgSetting = await resolveCredentialForScope(key, {
       ...ctx,
+      orgId,
       scope: "org",
     });
     if (orgSetting) return orgSetting;
@@ -156,7 +190,9 @@ export async function resolveCredential(
  * org the caller already belongs to), and never return the owning account, how
  * many rows matched, or any part of the value. Without an active org there is
  * no boundary to bound the probe to, so it declines to answer rather than
- * revealing that some other tenant holds a key of the same name.
+ * revealing that some other tenant holds a key of the same name — this
+ * includes callers whose `ctx.orgId` is unset AND whose org could not be
+ * resolved from `ctx.userEmail` (see `resolveEffectiveOrgId`).
  *
  * Returns null when nothing safe and useful can be said.
  */
@@ -164,10 +200,13 @@ export async function describeCredentialScopeGap(
   keys: readonly string[],
   ctx: CredentialContext,
 ): Promise<string | null> {
-  if (!ctx?.userEmail || !ctx.orgId) return null;
+  if (!ctx?.userEmail) return null;
+  const orgLookup = await resolveEffectiveOrgId(ctx);
+  if (orgLookup.lookupFailed || !orgLookup.orgId) return null;
+  const scopedCtx: CredentialContext = { ...ctx, orgId: orgLookup.orgId };
 
   for (const key of keys) {
-    if (await hasForeignPersonalCredentialInOrg(key, ctx)) {
+    if (await hasForeignPersonalCredentialInOrg(key, scopedCtx)) {
       return (
         `A "${key}" key is saved in this workspace with Personal scope. ` +
         `Personal keys are readable only by their own owner's signed-in sessions, ` +
@@ -177,7 +216,7 @@ export async function describeCredentialScopeGap(
       );
     }
 
-    const holder = await findMemberOrgHoldingCredential(key, ctx);
+    const holder = await findMemberOrgHoldingCredential(key, scopedCtx);
     if (holder) {
       return (
         `A "${key}" key is saved in the ${holder} organization, but this ` +

@@ -7,11 +7,15 @@ import {
   resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
-import { agentNativePath } from "./api-path.js";
 import {
   buildChatModelGroups,
+  type ChatModelEngineEntry,
   type EngineModelGroup,
 } from "./chat-model-groups.js";
+import {
+  fetchBuilderStatus,
+  fetchEnvironmentStatus,
+} from "./client-status-requests.js";
 import { callAction } from "./use-action.js";
 
 export type { EngineModelGroup } from "./chat-model-groups.js";
@@ -44,11 +48,41 @@ interface Options {
 const DEFAULT_STORAGE_KEY = "agent-native:chat-models:selection";
 export const CHAT_MODEL_SELECTION_CHANGED_EVENT =
   "agent-native:chat-model-selection-changed";
+const MODEL_DISCOVERY_RETRY_DELAYS_MS = [250, 1_000] as const;
 
 interface PersistedSelection {
   model?: string;
   engine?: string;
   effort?: ReasoningEffort;
+}
+
+interface EngineCatalog {
+  engines: readonly ChatModelEngineEntry[];
+  current?: { engine?: string; model?: string };
+}
+
+type EngineCatalogResult =
+  | { state: "available"; value: EngineCatalog }
+  | { state: "unavailable" };
+
+async function fetchEngineCatalog(): Promise<EngineCatalogResult> {
+  try {
+    const result = (await callAction(
+      "manage-agent-engine" as any,
+      { action: "list" } as any,
+    )) as unknown;
+    if (
+      !result ||
+      typeof result !== "object" ||
+      !("engines" in result) ||
+      !Array.isArray(result.engines)
+    ) {
+      return { state: "unavailable" };
+    }
+    return { state: "available", value: result as EngineCatalog };
+  } catch {
+    return { state: "unavailable" };
+  }
 }
 
 function readPersisted(key: string | null): PersistedSelection {
@@ -110,6 +144,9 @@ export function useChatModels({
     selectedEngine,
     selectedEffort,
   });
+  const mountedRef = useRef(true);
+  const refreshGenerationRef = useRef(0);
+  const retryTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     selectionRef.current = {
@@ -187,100 +224,180 @@ export function useChatModels({
 
   const refreshEngines = useCallback(() => {
     if (!enabled) return;
+
+    refreshGenerationRef.current += 1;
+    const refreshGeneration = refreshGenerationRef.current;
+    if (retryTimerRef.current !== null) {
+      clearTimeout(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
     setIsLoading(true);
-    Promise.all([
-      callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
-        () => null,
-      ),
-      fetch(agentNativePath("/_agent-native/env-status"))
-        .then((r) => (r.ok ? r.json() : []))
-        .catch(() => []),
-      fetch(agentNativePath("/_agent-native/builder/status"))
-        .then((r) => (r.ok ? r.json() : null))
-        .catch(() => null),
-    ])
-      .then(([enginesData, envKeys, builderStatus]) => {
-        if (!enginesData?.engines) return;
-        const configuredKeys = new Set(
-          (envKeys as Array<{ key: string; configured: boolean }>)
-            .filter((k) => k.configured)
-            .map((k) => k.key),
-        );
-        const builderConnected = builderStatus?.configured === true;
-        const currentEngineName: string | undefined =
-          enginesData.current?.engine;
-        const currentModel: string | undefined = enginesData.current?.model;
 
-        const groups = buildChatModelGroups({
-          engines: enginesData.engines,
-          configuredKeys,
-          builderConnected,
-          currentEngineName,
-          currentModel,
-        });
-        const nextDefaultModel = currentModel ?? DEFAULT_MODEL;
-        setAvailableModels(groups);
-        setDefaultModel(nextDefaultModel);
+    const isCurrentRefresh = () =>
+      mountedRef.current && refreshGenerationRef.current === refreshGeneration;
+    const finish = () => {
+      if (isCurrentRefresh()) setIsLoading(false);
+    };
 
-        const selection = selectionRef.current;
-        if (!hasExplicitSelectionRef.current) {
-          const defaultGroup =
-            groups.find((group) => group.models.includes(nextDefaultModel)) ??
-            groups[0];
-          const nextModel =
-            defaultGroup?.models.find((model) => model === nextDefaultModel) ??
-            defaultGroup?.models[0] ??
-            nextDefaultModel;
-          const nextEngine = defaultGroup?.engine ?? "";
-          const nextEffort = resolveReasoningEffortSelection(
-            nextModel,
-            selection.selectedEffort,
+    function scheduleRetry(attempt: number): boolean {
+      const delay = MODEL_DISCOVERY_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined || !isCurrentRefresh()) return false;
+      retryTimerRef.current = setTimeout(() => {
+        retryTimerRef.current = null;
+        load(attempt + 1);
+      }, delay);
+      return true;
+    }
+
+    function load(attempt: number): void {
+      if (!isCurrentRefresh()) return;
+      Promise.all([
+        fetchEngineCatalog(),
+        fetchEnvironmentStatus<Array<{ key: string; configured: boolean }>>(),
+        fetchBuilderStatus<{ configured?: boolean }>(),
+      ])
+        .then(([engineResult, envResult, builderResult]) => {
+          if (!isCurrentRefresh()) return;
+          if (
+            engineResult.state !== "available" ||
+            envResult.state !== "available" ||
+            builderResult.state !== "available"
+          ) {
+            if (scheduleRetry(attempt)) return;
+            if (engineResult.state !== "available") {
+              // Without a catalog the picker keeps an unvalidated DEFAULT_MODEL,
+              // which is indistinguishable from a real selection unless we say so.
+              console.warn(
+                "[agent-chat] engine list unavailable; model picker is showing an unvalidated default",
+              );
+            }
+            finish();
+            return;
+          }
+          const enginesData = engineResult.value;
+          const envKeys = envResult.value;
+          const builderStatus = builderResult.value;
+          const configuredKeys = new Set(
+            envKeys.filter((k) => k.configured).map((k) => k.key),
           );
-          setSelectedModel(nextModel);
-          setSelectedEngine(nextEngine);
-          setSelectedEffort(nextEffort);
-          return;
-        }
+          const builderConnected = builderStatus?.configured === true;
+          const currentEngineName: string | undefined =
+            enginesData.current?.engine;
+          const currentModel: string | undefined = enginesData.current?.model;
 
-        const selectedGroup = groups.find(
-          (group) =>
-            group.models.includes(selection.selectedModel) &&
-            (!selection.selectedEngine ||
-              group.engine === selection.selectedEngine),
-        );
-        if (!selectedGroup) {
-          const defaultGroup =
-            groups.find((group) => group.models.includes(nextDefaultModel)) ??
-            groups[0];
-          const nextModel =
-            defaultGroup?.models.find((model) => model === nextDefaultModel) ??
-            defaultGroup?.models[0] ??
-            nextDefaultModel;
-          const nextEngine = defaultGroup?.engine ?? "";
-          const nextEffort = resolveReasoningEffortSelection(
-            nextModel,
-            selection.selectedEffort,
-          );
-          setSelectedModel(nextModel);
-          setSelectedEngine(nextEngine);
-          setSelectedEffort(nextEffort);
-          writePersisted(storageKey, {
-            model: nextModel,
-            engine: nextEngine,
-            effort: nextEffort,
+          const groups = buildChatModelGroups({
+            engines: enginesData.engines,
+            configuredKeys,
+            builderConnected,
+            currentEngineName,
+            currentModel,
           });
-        }
-      })
-      .catch(() => {})
-      .finally(() => setIsLoading(false));
+          const nextDefaultModel = currentModel ?? DEFAULT_MODEL;
+          setAvailableModels(groups);
+          setDefaultModel(nextDefaultModel);
+
+          const selection = selectionRef.current;
+
+          // Default only to a CONFIGURED group, and to nothing when there is
+          // none. `DEFAULT_MODEL` is a builder-gateway id that no group carries
+          // unless Builder is connected, and unconfigured groups are kept in the
+          // list for their connect affordance — so both `?? DEFAULT_MODEL` and
+          // `?? groups[0]` yield a selection the app cannot route, which the
+          // server silently replaces with its own default. An empty selection
+          // hides the picker instead of showing a model that will not be used.
+          const configuredGroups = groups.filter((g) => g.configured);
+          const resolveRoutableSelection = () => {
+            const group =
+              configuredGroups.find((g) =>
+                g.models.includes(nextDefaultModel),
+              ) ?? configuredGroups[0];
+            if (!group) return null;
+            const model =
+              group.models.find((m) => m === nextDefaultModel) ??
+              group.models[0];
+            if (!model) return null;
+            return {
+              model,
+              engine: group.engine,
+              effort: resolveReasoningEffortSelection(
+                model,
+                selection.selectedEffort,
+              ),
+            };
+          };
+
+          const applyFallback = (persist: boolean) => {
+            const next = resolveRoutableSelection();
+            setSelectedModel(next?.model ?? "");
+            setSelectedEngine(next?.engine ?? "");
+            if (next) {
+              setSelectedEffort(next.effort);
+              if (persist) writePersisted(storageKey, next);
+            }
+          };
+
+          if (!hasExplicitSelectionRef.current) {
+            applyFallback(false);
+            finish();
+            return;
+          }
+
+          const selectedGroup = groups.find(
+            (group) =>
+              group.models.includes(selection.selectedModel) &&
+              (!selection.selectedEngine ||
+                group.engine === selection.selectedEngine),
+          );
+          if (selectedGroup) {
+            // Heal a selection stored without an engine (or with a stale one) so
+            // later submits carry the pair the catalog resolved.
+            if (selection.selectedEngine !== selectedGroup.engine) {
+              setSelectedEngine(selectedGroup.engine);
+            }
+            finish();
+            return;
+          }
+          applyFallback(true);
+          finish();
+        })
+        .catch(() => {
+          if (!isCurrentRefresh()) return;
+          if (!scheduleRetry(attempt)) finish();
+        });
+    }
+
+    load(0);
   }, [enabled, storageKey]);
 
   useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      refreshGenerationRef.current += 1;
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  useEffect(() => {
     if (!enabled) {
+      refreshGenerationRef.current += 1;
+      if (retryTimerRef.current !== null) {
+        clearTimeout(retryTimerRef.current);
+        retryTimerRef.current = null;
+      }
       setIsLoading(false);
       return;
     }
     refreshEngines();
+    window.addEventListener("agent-engine:configured-changed", refreshEngines);
+    return () =>
+      window.removeEventListener(
+        "agent-engine:configured-changed",
+        refreshEngines,
+      );
   }, [enabled, refreshEngines]);
 
   return {

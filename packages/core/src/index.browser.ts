@@ -1,5 +1,9 @@
 // Browser-safe entry — only client & shared exports (no Node/Express/chokidar).
 
+// Public app configuration is serializable and safe to expose to browser
+// consumers alongside the resolved config injected by the Vite preset.
+export * from "./config.js";
+
 // Client
 export {
   addContextToAgentChat,
@@ -85,6 +89,9 @@ export { parseArgs, camelCaseArgs } from "./scripts/parse-args.js";
 // defineAction — used by template actions, no Node.js deps
 export {
   defineAction,
+  ActionContractError,
+  isActionContractError,
+  type ActionContractErrorOptions,
   AgentActionStopError,
   isAgentActionStopError,
   type ActionHttpConfig,
@@ -111,6 +118,7 @@ export {
   ACTION_CHAT_UI_DATA_TABLE_RENDERER,
   ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
   ACTION_CHAT_UI_INLINE_EXTENSION_RENDERER,
+  ACTION_CHAT_UI_WORKSPACE_FILE_RENDERER,
   type ActionChatUIConfig,
 } from "./action-ui.js";
 export {

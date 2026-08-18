@@ -34,7 +34,7 @@ const AMBIGUOUS_GUIDANCE =
   'Couldn\'t confidently match this paste to specific Figma nodes, so nothing was imported from the API. Paste a frame LINK instead (copy the frame in Figma, then "Copy link to selection") for an exact node import — or continue with the clipboard preview below.';
 
 const KEY_MISSING_GUIDANCE =
-  "Connect your Figma access token (Settings > Connections > Figma access token) to import this paste as exact, editable Figma nodes.";
+  "Connect your Figma access token (Settings > Integrations > API keys) to import this paste as exact, editable Figma nodes.";
 const SELECTION_TRUNCATED_GUIDANCE =
   "Figma copied more than 100 selected nodes. Imported the first 100; split larger selections into smaller pastes so every layer is included.";
 

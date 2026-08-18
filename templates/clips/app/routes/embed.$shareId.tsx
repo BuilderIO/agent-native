@@ -20,6 +20,8 @@ export function meta() {
 }
 
 const STORAGE_KEY_PREFIX = "clips-share-pw-";
+const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
+const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
 
 /**
  * Parse `t` URL param into ms (supports plain seconds or `1m20s` / `1h2m3s`).
@@ -78,6 +80,7 @@ export default function EmbedRoute() {
     }
   });
   const [pwError, setPwError] = useState<string | null>(null);
+  const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
 
   useEffect(() => {
     if (typeof document === "undefined") return;
@@ -121,6 +124,37 @@ export default function EmbedRoute() {
       return { ok: res.ok, status: res.status, data };
     },
     enabled: !!shareId,
+    refetchInterval: (q) => {
+      const payload = (q.state.data as { data?: any } | undefined)?.data;
+      const rec = payload?.recording;
+      if (!rec) return false;
+      if (rec.status !== "ready" || !rec.videoUrl) {
+        readyMediaPollRef.current = null;
+        return 2000;
+      }
+      if (rec.seekableRepairPending === true) {
+        readyMediaPollRef.current = null;
+        return READY_MEDIA_SETTLE_POLL_INTERVAL_MS;
+      }
+      const mediaKey = [
+        rec.id,
+        rec.durationMs ?? "",
+        rec.videoSizeBytes ?? "",
+        rec.videoFormat ?? "",
+        rec.updatedAt ?? "",
+      ].join(":");
+      const now = Date.now();
+      if (readyMediaPollRef.current?.key !== mediaKey) {
+        readyMediaPollRef.current = {
+          key: mediaKey,
+          until: now + READY_MEDIA_SETTLE_POLL_MS,
+        };
+      }
+      return now < readyMediaPollRef.current.until
+        ? READY_MEDIA_SETTLE_POLL_INTERVAL_MS
+        : false;
+    },
+    refetchIntervalInBackground: false,
   });
 
   const recording = dataQ.data?.data?.recording;
@@ -196,6 +230,9 @@ export default function EmbedRoute() {
         onVideoElementChange={setTrackedVideoEl}
         recordingId={recording.id}
         videoUrl={recording.videoUrl}
+        mediaVersion={
+          recording.mediaUpdatedAt ?? recording.videoSizeBytes ?? null
+        }
         videoFormat={recording.videoFormat}
         embedProvider={isLoomEmbedBacked ? "loom" : null}
         durationMs={recording.durationMs}

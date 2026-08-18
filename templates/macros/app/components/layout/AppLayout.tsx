@@ -1,7 +1,7 @@
 import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -62,7 +62,9 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
 
   const isAnalytics = location.pathname === "/analytics";
   const isSettings = location.pathname.startsWith("/settings");
-  const isAgent = location.pathname.startsWith("/agent");
+  const isAgent =
+    location.pathname.startsWith("/settings/agent") ||
+    location.pathname.startsWith("/agent");
 
   // Auto-close sidebar on route change (mobile)
   useEffect(() => {
@@ -120,7 +122,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
       } else if (cmd.view === "settings") {
         navigate("/settings");
       } else if (cmd.view === "agent") {
-        navigate("/agent");
+        navigate("/settings/agent");
       } else if (cmd.view === "entry") {
         navigate("/");
       }
@@ -144,7 +146,7 @@ export function AppLayout({ children }: { children: React.ReactNode }) {
           t("agent.suggestionMacros"),
           t("agent.suggestionRun"),
         ]}
-        agentPageHref="/agent"
+        agentPageHref="/settings/agent"
       >
         <div className="agent-layout-shell flex flex-1 overflow-hidden">
           {/* Desktop sidebar */}
@@ -232,9 +234,6 @@ function SidebarContent({
       <TooltipContent side="right">{t("root.search")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
@@ -257,13 +256,17 @@ function SidebarContent({
               src={appPath("/agent-native-icon-light.svg")}
               alt=""
               aria-hidden="true"
-              className="block h-4 w-auto shrink-0 dark:hidden"
+              width={28}
+              height={16}
+              className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
             />
             <img
               src={appPath("/agent-native-icon-dark.svg")}
               alt=""
               aria-hidden="true"
-              className="hidden h-4 w-auto shrink-0 dark:block"
+              width={28}
+              height={16}
+              className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
             />
             <span className="font-logo truncate text-sm font-bold tracking-tight text-foreground">
               {t("navigation.brand")}
@@ -352,7 +355,6 @@ function SidebarContent({
       <SidebarFooterActions
         collapsed={collapsed}
         feedback={feedbackButton}
-        translate={translateButton}
         search={searchButton}
         collapse={collapseButton}
       />

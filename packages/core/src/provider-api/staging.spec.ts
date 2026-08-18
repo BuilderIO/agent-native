@@ -21,6 +21,7 @@ let _isPostgres = false;
 
 vi.mock("../db/client.js", () => ({
   getDialect: () => (_isPostgres ? "postgres" : "sqlite"),
+  isProductionServerlessFunctionRuntime: () => false,
   isPostgres: () => _isPostgres,
   intType: () => (_isPostgres ? "BIGINT" : "INTEGER"),
   getDbExec: () => ({

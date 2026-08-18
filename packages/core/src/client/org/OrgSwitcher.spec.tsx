@@ -8,8 +8,10 @@ import type { OrgSwitcherAppLink } from "./workspace-app-links.js";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
+  notifySessionInvalidated: vi.fn(),
   useOrg: vi.fn(),
   useSession: vi.fn(),
+  useDemoModeStatus: vi.fn(),
   appLinks: vi.fn(),
 }));
 
@@ -35,7 +37,12 @@ vi.mock("./hooks.js", () => {
 });
 
 vi.mock("../use-session.js", () => ({
+  notifySessionInvalidated: mocks.notifySessionInvalidated,
   useSession: mocks.useSession,
+}));
+
+vi.mock("../use-demo-mode-status.js", () => ({
+  useDemoModeStatus: mocks.useDemoModeStatus,
 }));
 
 vi.mock("../i18n.js", () => ({
@@ -61,10 +68,17 @@ describe("OrgSwitcher", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.useOrg.mockReset();
+    mocks.notifySessionInvalidated.mockReset();
     mocks.useSession.mockReset();
+    mocks.useDemoModeStatus.mockReset();
     mocks.navigate.mockReset();
     mocks.appLinks.mockReset();
     mocks.useSession.mockReturnValue({ session: null, isLoading: false });
+    mocks.useDemoModeStatus.mockReturnValue({
+      enabled: false,
+      forced: false,
+      isLoading: false,
+    });
     mocks.appLinks.mockReturnValue({
       apps: [],
       dispatchAllAppsHref: "/dispatch/apps",
@@ -136,6 +150,42 @@ describe("OrgSwitcher", () => {
     expect(button?.textContent).toBe("");
   });
 
+  it("makes demo mode visible and removes the redacted email from sign out", () => {
+    mocks.useDemoModeStatus.mockReturnValue({
+      enabled: true,
+      forced: false,
+      isLoading: false,
+    });
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "anonymous@builder.io",
+        orgId: "org-1",
+        orgName: "Acme",
+        role: "owner",
+        orgs: [{ orgId: "org-1", orgName: "Acme" }],
+        pendingInvitations: [],
+        domainMatches: [],
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher />);
+
+    const trigger = container.querySelector<HTMLButtonElement>("button");
+    expect(trigger?.getAttribute("aria-label")).toBe("Acme, Demo mode");
+    expect(trigger?.textContent).toContain("Demo mode");
+
+    act(() => {
+      trigger!.click();
+    });
+
+    expect(document.body.textContent).toContain("Demo mode is on");
+    expect(document.body.textContent).toContain(
+      "Your account and permissions are unchanged.",
+    );
+    expect(document.body.textContent).not.toContain("anonymous@builder.io");
+  });
+
   it("opens organization settings in the settings page tab", () => {
     const openPanel = vi.fn();
     const openSettings = vi.fn();
@@ -172,7 +222,7 @@ describe("OrgSwitcher", () => {
       settingsButton!.click();
     });
 
-    expect(mocks.navigate).toHaveBeenCalledWith("/settings#organization");
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/organization");
     expect(openPanel).not.toHaveBeenCalled();
     expect(openSettings).not.toHaveBeenCalled();
 
@@ -208,7 +258,66 @@ describe("OrgSwitcher", () => {
       profileButton!.click();
     });
 
-    expect(mocks.navigate).toHaveBeenCalledWith("/settings#account");
+    expect(mocks.navigate).toHaveBeenCalledWith("/settings/account");
+  });
+
+  it("invalidates mounted sessions before reloading after sign out", async () => {
+    const originalLocation = window.location;
+    const reload = vi.fn();
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        pathname: "/library",
+        search: "",
+        hash: "",
+        origin: "https://clips.example.com",
+        href: "https://clips.example.com/library",
+        host: "clips.example.com",
+        reload,
+      },
+    });
+    const fetchMock = vi.fn(async () => new Response(null, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        role: "owner",
+        orgs: [{ orgId: "org-1", orgName: "Acme" }],
+        pendingInvitations: [],
+        domainMatches: [],
+      },
+      isLoading: false,
+    });
+
+    try {
+      render(<OrgSwitcher />);
+      act(() => {
+        container.querySelector<HTMLButtonElement>("button")!.click();
+      });
+      const signOut = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>("button"),
+      ).find((button) => button.textContent?.includes("Sign out"));
+      expect(signOut).not.toBeNull();
+
+      await act(async () => {
+        signOut!.click();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(fetchMock).toHaveBeenCalledWith("/_agent-native/auth/logout", {
+        method: "POST",
+        credentials: "include",
+      });
+      expect(mocks.notifySessionInvalidated).toHaveBeenCalledOnce();
+      expect(reload).toHaveBeenCalledOnce();
+    } finally {
+      Object.defineProperty(window, "location", {
+        configurable: true,
+        value: originalLocation,
+      });
+    }
   });
 
   it("keeps Dispatch flat and shows descriptions in the apps submenu", () => {
@@ -289,5 +398,65 @@ describe("OrgSwitcher", () => {
       "bg-primary",
     );
     expect(document.body.textContent).toContain("View 1 more in Dispatch");
+  });
+
+  it("omits the current Dispatch app from its app submenu", () => {
+    const apps: OrgSwitcherAppLink[] = [
+      {
+        id: "dispatch",
+        name: "Dispatch",
+        href: "/dispatch/overview",
+        isDispatch: true,
+        status: "ready",
+      },
+      {
+        id: "analytics",
+        name: "Analytics",
+        href: "/analytics",
+        isDispatch: false,
+        status: "ready",
+      },
+    ];
+    mocks.appLinks.mockReturnValue({
+      apps,
+      dispatchAllAppsHref: "/dispatch/apps",
+      dispatchHref: "/dispatch/overview",
+      isLoading: false,
+      isWorkspace: false,
+    });
+    mocks.useOrg.mockReturnValue({
+      data: {
+        email: "owner@example.com",
+        orgId: "org-1",
+        orgName: "Acme",
+        role: "owner",
+        orgs: [{ orgId: "org-1", orgName: "Acme" }],
+        pendingInvitations: [],
+        domainMatches: [],
+      },
+      isLoading: false,
+    });
+
+    render(<OrgSwitcher currentAppId="dispatch" />);
+    act(() => {
+      container.querySelector<HTMLButtonElement>("button")!.click();
+    });
+    const appsButton = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.trim().startsWith("Apps"));
+    expect(appsButton).not.toBeNull();
+
+    act(() => {
+      appsButton!.click();
+    });
+
+    expect(
+      document.body.querySelector<HTMLAnchorElement>(
+        'a[href="/dispatch/overview"]',
+      ),
+    ).toBeNull();
+    expect(
+      document.body.querySelector<HTMLAnchorElement>('a[href="/analytics"]'),
+    ).not.toBeNull();
   });
 });

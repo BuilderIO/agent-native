@@ -112,7 +112,7 @@ function CliCopy({
   return (
     <button
       onClick={handleCopy}
-      className={`group flex w-full min-w-0 items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:px-5 ${className}`}
+      className={`group flex w-full min-w-0 items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:px-5 ${className}`}
     >
       <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
       <span className="min-w-0 truncate text-left text-[var(--fg)]">
@@ -234,7 +234,7 @@ function SkillCard({ skill }: { skill: Skill }) {
 
       <div className="mt-auto flex flex-wrap items-center gap-4 pt-1">
         <Link
-          data-an-prefetch="render"
+          data-an-prefetch="viewport"
           to={sitePathForLocale(skill.docsTo, locale)}
           onClick={() =>
             trackEvent("skill read docs", {
@@ -305,7 +305,7 @@ export default function SkillsPage() {
         </div>
         <div className="mt-6 flex flex-wrap items-center justify-center gap-4">
           <Link
-            data-an-prefetch="render"
+            data-an-prefetch="viewport"
             to={localizedPath("/docs/template-plan")}
             className="inline-flex items-center gap-1 text-sm font-medium text-[var(--fg)] no-underline hover:text-[var(--docs-accent)]"
           >
@@ -313,7 +313,7 @@ export default function SkillsPage() {
             <span aria-hidden>→</span>
           </Link>
           <Link
-            data-an-prefetch="render"
+            data-an-prefetch="viewport"
             to={localizedPath("/apps")}
             className="inline-flex items-center gap-1 text-sm text-[var(--fg-secondary)] no-underline hover:text-[var(--fg)]"
           >

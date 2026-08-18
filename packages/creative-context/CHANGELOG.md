@@ -1,5 +1,85 @@
 # @agent-native/creative-context
 
+## 0.6.6
+
+### Patch Changes
+
+- 4c7c289: Keep browser-rendered website style extraction working when the shared evaluator
+  is bundled before it is serialized into Chromium.
+
+## 0.6.5
+
+### Patch Changes
+
+- b3b4580: Normalize commenter access to the read-only creative-context role contract.
+
+## 0.6.4
+
+### Patch Changes
+
+- 9204f85: Fix the Context tab's dropdown in the Share dialog rendering invisibly behind the host popover and dismissing the whole dialog on interaction. The select now matches the popover's nested-overlay z-index and is marked so `ShareButton` doesn't treat clicks inside it as outside clicks.
+
+## 0.6.3
+
+### Patch Changes
+
+- 25f588e: Redirect legacy `/agent` management URLs to the canonical settings routes and preserve app-owned settings tabs.
+
+## 0.6.2
+
+### Patch Changes
+
+- e177059: Restore the serverless Playwright fallback so production URL extraction can use packaged Chromium.
+
+## 0.6.1
+
+### Patch Changes
+
+- aa24c7e: Use the declared optional Playwright runtime through a literal import so Cloudflare deployments can apply their fail-closed browser stub.
+- 9d8ae68: Run website brand extraction in an isolated real browser through the SSRF-safe network proxy, with serverless Chromium support and an explicit static fallback.
+
+## 0.6.0
+
+### Minor Changes
+
+- abb0cf5: Add a shared browser-rendered website design-system extraction surface with computed visual tokens, component evidence, and bounded design.md summaries.
+
+## 0.5.12
+
+### Patch Changes
+
+- 2765110: Avoid database migrations and recurring sweeps during durable background cold starts.
+
+## 0.5.11
+
+### Patch Changes
+
+- c71d383: Include the shared creative-context and toolkit updates in the next package release.
+
+## 0.5.10
+
+### Patch Changes
+
+- d6e7c5c: Stop a second Chromium from being downloaded alongside the one already on disk.
+
+  First-party workspace packages now take Playwright from an exact catalog pin, so
+  a caret cannot resolve forward to a release tied to a different Chromium
+  revision. The two packages that declare Playwright as a published optional
+  dependency — `@agent-native/creative-context` and `@agent-native/recap-cli` —
+  deliberately keep a caret range instead: an exact range in a library stops a
+  consumer who already has a different Playwright from deduping, which forces a
+  nested copy and downloads exactly the second browser this change exists to
+  avoid.
+
+## 0.5.9
+
+### Patch Changes
+
+- f499dff: Add `@agent-native/core/vitest-config`, a base vitest config that caps a suite's
+  worker pool so concurrent test runs no longer oversubscribe the CPU. Defaults to
+  25% of cores; override with `VITEST_CONCURRENCY`. Every template and package
+  config merges it in.
+
 ## 0.5.8
 
 ### Patch Changes

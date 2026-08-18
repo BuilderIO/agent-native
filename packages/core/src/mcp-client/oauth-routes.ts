@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-import type { OAuthClientInformationMixed } from "@modelcontextprotocol/sdk/shared/auth.js";
+import type { StoredOAuthClientInformation } from "@modelcontextprotocol/client";
 import {
   deleteCookie,
   defineEventHandler,
@@ -16,6 +16,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import { getSession, safeReturnPath } from "../server/auth.js";
+import { resolveSecret } from "../server/credential-provider.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { getAppUrl, resolveOAuthRedirectUri } from "../server/google-oauth.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -23,6 +24,7 @@ import {
   finishMcpOAuthAuthorization,
   startMcpOAuthAuthorization,
   type McpOAuthDiscoveryState,
+  validateMcpOAuthCallbackIssuer,
 } from "./oauth-client.js";
 import {
   addOAuthRemoteServer,
@@ -37,6 +39,22 @@ const FLOW_COOKIE_CHUNK_SIZE = 2_800;
 const FLOW_COOKIE_MAX_CHUNKS = 8;
 const CHUNKED_COOKIE_PREFIX = "__chunked__";
 
+const MANAGED_MCP_OAUTH_CLIENTS = [
+  {
+    serverOrigin: "https://mcp.hubspot.com",
+    clientIdKeys: [
+      "HUBSPOT_MCP_CLIENT_ID",
+      "HUBSPOT_INTEGRATION_CLIENT_ID",
+      "HUBSPOT_CLIENT_ID",
+    ],
+    clientSecretKeys: [
+      "HUBSPOT_MCP_CLIENT_SECRET",
+      "HUBSPOT_INTEGRATION_CLIENT_SECRET",
+      "HUBSPOT_CLIENT_SECRET",
+    ],
+  },
+] as const;
+
 export interface McpOAuthFlow {
   name: string;
   url: string;
@@ -48,7 +66,7 @@ export interface McpOAuthFlow {
   redirectUri: string;
   state: string;
   codeVerifier: string;
-  clientInformation: OAuthClientInformationMixed;
+  clientInformation: StoredOAuthClientInformation;
   discoveryState?: McpOAuthDiscoveryState;
   returnUrl?: string;
   expiresAt: number;
@@ -131,7 +149,13 @@ async function handleMcpOAuthStart(
     return { error: "MCP server name is invalid." };
   }
 
-  const requestedScope = query.scope === "org" ? "org" : "user";
+  const requestedScope = resolveMcpOAuthScope(urlCheck.url!, query.scope);
+  if (!requestedScope) {
+    setResponseStatus(event, 400);
+    return {
+      error: "Managed MCP OAuth connections must use personal scope.",
+    };
+  }
   const requestedOrgId = text(query.orgId);
   const org =
     requestedScope === "org"
@@ -165,16 +189,32 @@ async function handleMcpOAuthStart(
 
   const state = crypto.randomUUID();
   const safeReturnUrl = returnUrl ? safeReturnPath(returnUrl) : undefined;
+  const requestContext = {
+    userEmail: session.email,
+    orgId: org?.orgId ?? undefined,
+  };
   try {
-    const started = await runWithRequestContext(
-      { userEmail: session.email, orgId: org?.orgId ?? undefined },
-      () =>
-        startMcpOAuthAuthorization({
-          serverUrl: urlCheck.url!.toString(),
-          redirectUrl: redirectUri,
-          state,
-        }),
-    );
+    const started = await runWithRequestContext(requestContext, async () => {
+      const clientInformation = await resolveManagedMcpOAuthClient(
+        urlCheck.url!,
+      );
+      if (isManagedMcpOAuthServer(urlCheck.url!) && !clientInformation) {
+        return null;
+      }
+      return startMcpOAuthAuthorization({
+        serverUrl: urlCheck.url!.toString(),
+        redirectUrl: redirectUri,
+        state,
+        ...(clientInformation ? { clientInformation } : {}),
+      });
+    });
+    if (!started) {
+      setResponseStatus(event, 400);
+      return {
+        error:
+          "HubSpot personal MCP connect is not configured for this workspace. A workspace owner must register the HubSpot MCP Auth App once; after that, any workspace member can connect a personal account.",
+      };
+    }
     const flow: McpOAuthFlow = {
       name,
       url: urlCheck.url!.toString(),
@@ -204,6 +244,46 @@ async function handleMcpOAuthStart(
   }
 }
 
+function isManagedMcpOAuthServer(serverUrl: URL): boolean {
+  return MANAGED_MCP_OAUTH_CLIENTS.some(
+    (client) => client.serverOrigin === serverUrl.origin,
+  );
+}
+
+export function resolveMcpOAuthScope(
+  serverUrl: URL,
+  requestedScope: unknown,
+): RemoteMcpScope | null {
+  if (isManagedMcpOAuthServer(serverUrl) && requestedScope === "org") {
+    return null;
+  }
+  return requestedScope === "org" ? "org" : "user";
+}
+
+export async function resolveManagedMcpOAuthClient(
+  serverUrl: URL,
+): Promise<StoredOAuthClientInformation | undefined> {
+  const client = MANAGED_MCP_OAUTH_CLIENTS.find(
+    (candidate) => candidate.serverOrigin === serverUrl.origin,
+  );
+  if (!client) return undefined;
+
+  for (let index = 0; index < client.clientIdKeys.length; index += 1) {
+    const [clientId, clientSecret] = await Promise.all([
+      resolveSecret(client.clientIdKeys[index]),
+      resolveSecret(client.clientSecretKeys[index]),
+    ]);
+    if (clientId && clientSecret) {
+      return {
+        client_id: clientId,
+        client_secret: clientSecret,
+        token_endpoint_auth_method: "client_secret_post",
+      } as StoredOAuthClientInformation;
+    }
+  }
+  return undefined;
+}
+
 async function handleMcpOAuthCallback(
   event: H3Event,
   options: McpOAuthRoutesOptions,
@@ -214,21 +294,29 @@ async function handleMcpOAuthCallback(
   const query = getQuery(event);
   const code = text(query.code);
   const state = text(query.state);
+  const iss = text(query.iss);
   const providerError = text(query.error);
   const flow = readMcpOAuthFlowCookie(event);
   clearMcpOAuthFlowCookies(event);
-  if (providerError || !code || !state) {
-    setResponseStatus(event, 400);
-    return { error: "MCP OAuth authorization was not completed." };
-  }
   const org =
     flow?.scope === "org" ? await getOrgContext(event).catch(() => null) : null;
   if (
+    !state ||
     !flow ||
     !isValidMcpOAuthFlow(flow, session.email, org?.orgId ?? undefined, state)
   ) {
     setResponseStatus(event, 400);
     return { error: "MCP OAuth state is invalid or expired." };
+  }
+  try {
+    validateMcpOAuthCallbackIssuer(flow.discoveryState, iss);
+  } catch {
+    setResponseStatus(event, 400);
+    return { error: "MCP OAuth authorization response issuer is invalid." };
+  }
+  if (providerError || !code) {
+    setResponseStatus(event, 400);
+    return { error: "MCP OAuth authorization was not completed." };
   }
   if (flow.scope === "org" && !isOrgAdmin(org?.role)) {
     setResponseStatus(event, 403);
@@ -250,6 +338,7 @@ async function handleMcpOAuthCallback(
           codeVerifier: flow.codeVerifier,
           discoveryState: flow.discoveryState,
           authorizationCode: code,
+          iss,
         }),
     );
     const result = await addOAuthRemoteServer(flow.scope, flow.scopeId, {
@@ -265,7 +354,7 @@ async function handleMcpOAuthCallback(
     await options.reconfigure();
     const returnPath =
       flow.returnUrl ??
-      `/settings/connections?connected=mcp-${encodeURIComponent(flow.name)}`;
+      `/settings/integrations?connected=mcp-${encodeURIComponent(flow.name)}`;
     return redirectWithStagedCookies(event, getAppUrl(event, returnPath));
   } catch {
     setResponseStatus(event, 400);

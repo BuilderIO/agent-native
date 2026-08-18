@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/skills",
-  "version": "0.2.423",
+  "version": "0.2.609",
   "description": "Install BuilderIO skills for coding agents.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "@agent-native/core": "workspace:*",
-    "@clack/prompts": "^1.5.1"
+    "@clack/prompts": "^1.7.0"
   },
   "devDependencies": {
     "@types/node": "^25.9.2",

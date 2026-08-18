@@ -8,6 +8,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ExtensionViewer } from "./ExtensionViewer.js";
 
 const embedState = vi.hoisted(() => ({ active: false }));
+const chatMocks = vi.hoisted(() => ({
+  sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("../agent-chat.js", () => ({
+  sendToAgentChat: chatMocks.sendToAgentChat,
+}));
 
 vi.mock("../embed-auth.js", () => ({
   ensureEmbedAuthFetchInterceptor: vi.fn(),
@@ -88,6 +95,7 @@ describe("ExtensionViewer MCP embeds", () => {
       vi.fn(async () => Response.json(extensionResponse)),
     );
     embedState.active = false;
+    chatMocks.sendToAgentChat.mockReset();
     queryClient = new QueryClient({
       defaultOptions: {
         queries: { retry: false },
@@ -267,6 +275,76 @@ describe("ExtensionViewer MCP embeds", () => {
     expect(moreIndex).toBeLessThan(shareIndex);
     expect(container.textContent).not.toContain("Notifications");
     expect(container.textContent).not.toContain("View / edit source");
+  });
+
+  it("labels database extensions as sandboxed custom blocks and promotes by id", async () => {
+    await renderViewer();
+
+    expect(container.textContent).toContain("Custom block · sandboxed");
+    expect(container.textContent).toContain(
+      "Created by owner@example.test · History shows source versions",
+    );
+    const promoteButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Promote to app code",
+    );
+    expect(promoteButton).toBeTruthy();
+
+    await act(async () => {
+      promoteButton?.click();
+    });
+
+    expect(chatMocks.sendToAgentChat).toHaveBeenCalledOnce();
+    const request = chatMocks.sendToAgentChat.mock.calls[0][0];
+    expect(request.message).toContain(
+      'Promote "GitHub Stars Over Time" from a sandboxed custom block',
+    );
+    expect(request.context).toContain("id: ext-1");
+    expect(request.context).toContain(
+      "Do not copy extension HTML from the browser",
+    );
+    expect(request.context).not.toContain(extensionResponse.content);
+    expect(request).toMatchObject({
+      submit: true,
+      openSidebar: true,
+      newTab: true,
+    });
+  });
+
+  it("does not offer promotion for read-only or repo-backed extensions", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        ...extensionResponse,
+        canEdit: false,
+      }),
+    );
+    await renderViewer();
+
+    expect(container.textContent).toContain("Custom block · sandboxed");
+    expect(container.textContent).not.toContain("Promote to app code");
+
+    act(() => root.unmount());
+    queryClient.clear();
+    queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    });
+    root = createRoot(container);
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json({
+        ...extensionResponse,
+        source: {
+          mode: "local-files",
+          entryPath: "extensions/revenue/index.html",
+        },
+      }),
+    );
+    await renderViewer();
+
+    expect(container.textContent).not.toContain("Custom block · sandboxed");
+    expect(container.textContent).not.toContain("Promote to app code");
+    expect(container.textContent).toContain("Repo-backed extension");
   });
 
   it("lets toolbar popovers take outside clicks over the extension iframe", async () => {

@@ -20,12 +20,12 @@ Toolkit は、高品質なエージェント型アプリケーションのため
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="キットの位置づけ" summary={"フレームワークランタイムは永続的な保証を提供します。Toolkit はその保証を再利用可能なプロダクトシステムへ変換します。アプリはドメイン固有のデータ、ルート、視覚的アイデンティティを加えます。"}>
+<Diagram id="doc-block-toolkits-boundary" title="3 つのレイヤーの関係" summary={"Core はフレームワークの基盤です。Toolkit はオプションの再利用可能なインフラと UI です。Templates は Core 上のオプションのアプリで、多くは Toolkit を利用します。"}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">ランタイム</span><br />
+    <span class="diagram-pill accent">Core</span><br />
     アクション、SQL、認証、アプリ状態、アクセスチェック、リアルタイム転送
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -35,7 +35,7 @@ Toolkit は、高品質なエージェント型アプリケーションのため
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">アプリ</span><br />
+    <span class="diagram-pill accent">Templates</span><br />
     ドメインスキーマ、ルート、アクション、ブランディング、専門ワークフロー
   </div>
 </div>
@@ -60,6 +60,8 @@ Toolkit は、高品質なエージェント型アプリケーションのため
 
 </Diagram>
 
+Core がフレームワークです。Toolkit はフレームワーク向けの再利用可能な部品を集めたオプションの棚です。Templates は Core 上のオプションのアプリで、Toolkit を利用でき、完全な出発点としてフォークできます。Toolkit や template を使わず Core を直接利用するアプリも作れます。
+
 ## カタログ {#catalog}
 
 | 領域                           | 開始地点                                                  | 内容                                                                                    |
@@ -74,19 +76,19 @@ Toolkit は、高品質なエージェント型アプリケーションのため
 
 ## プロダクトキット {#product-kits}
 
-| キット                                                       | 用途                                                                                             |
-| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------ |
-| [共有](/docs/toolkit-sharing)                                | 所有可能なリソース、共有ダイアログ、可視性バッジ、共有アクション、公開／非公開／組織アクセス。   |
-| [コラボレーション](/docs/toolkit-collaboration)              | リアルタイム編集、プレゼンス、ライブカーソル、最近の編集の強調、共同 undo。                      |
-| [設定](/docs/toolkit-settings)                               | アプリ設定とエージェント／プロバイダー設定を一つの予測可能な場所にまとめる標準設定ページとタブ。 |
-| [組織とチーム](/docs/toolkit-org-team)                       | チームページ、組織切り替え、招待、組織ドメイン、ロール、アプリ切り替え。                         |
-| [セットアップと接続](/docs/toolkit-setup-connections)        | オンボーディング、シークレット、ワークスペース接続、OAuth／プロバイダーの準備、Builder 接続。    |
-| [コマンドとナビゲーション](/docs/toolkit-command-navigation) | コマンドメニュー、ディープリンク、標準アプリルート、サイドバーとシェルのパターン。               |
-| [リソース](/docs/toolkit-resources)                          | リソースツリー、エディタ、ファイルピッカー／検索、添付、ローカルファイルモード。                 |
-| [エージェント UX](/docs/toolkit-agent-ux)                    | コンポーザー、モデルピッカー、コンテキストチップ、承認、実行復旧、実行トレイ。                   |
-| [履歴](/docs/toolkit-history)                                | バージョン履歴、監査ログ、undo／redo、復元、「何が変わったか」の画面。                           |
-| [コメントとレビュー](/docs/toolkit-comments-review)          | インラインコメント、注釈、メンション、解決済みスレッド、レビュー状態。                           |
-| [オブザーバビリティ](/docs/toolkit-observability)            | 利用状況、支出、フィードバック、リプレイ、エラー、実行診断。                                     |
+| キット                                                       | 用途                                                                                                            |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| [共有](/docs/toolkit-sharing)                                | 所有可能なリソース、共有ダイアログ、可視性バッジ、共有アクション、公開／非公開／組織アクセス。                  |
+| [コラボレーション](/docs/toolkit-collaboration)              | リアルタイム編集、プレゼンス、ライブカーソル、最近の編集の強調、共同 undo。                                     |
+| [設定](/docs/toolkit-settings)                               | アプリ設定とエージェント／プロバイダー設定を一つの予測可能な場所にまとめる標準設定ページとタブ。                |
+| [組織とチーム](/docs/toolkit-org-team)                       | チームページ、組織切り替え、招待、組織ドメイン、ロール、アプリ切り替え。                                        |
+| [セットアップと接続](/docs/toolkit-setup-connections)        | オンボーディング、シークレット、ワークスペース接続、OAuth／プロバイダーの準備、Builder 接続（無料プランあり）。 |
+| [コマンドとナビゲーション](/docs/toolkit-command-navigation) | コマンドメニュー、ディープリンク、標準アプリルート、サイドバーとシェルのパターン。                              |
+| [リソース](/docs/toolkit-resources)                          | リソースツリー、エディタ、ファイルピッカー／検索、添付、ローカルファイルモード。                                |
+| [エージェント UX](/docs/toolkit-agent-ux)                    | コンポーザー、モデルピッカー、コンテキストチップ、承認、実行復旧、実行トレイ。                                  |
+| [履歴](/docs/toolkit-history)                                | バージョン履歴、監査ログ、undo／redo、復元、「何が変わったか」の画面。                                          |
+| [コメントとレビュー](/docs/toolkit-comments-review)          | インラインコメント、注釈、メンション、解決済みスレッド、レビュー状態。                                          |
+| [オブザーバビリティ](/docs/toolkit-observability)            | 利用状況、支出、フィードバック、リプレイ、エラー、実行診断。                                                    |
 
 ## パッケージの成熟度と所有権 {#package-maturity-and-ownership}
 

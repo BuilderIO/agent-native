@@ -74,6 +74,19 @@ export function normalizeDesignTool(value: unknown): DesignTool | null {
     : null;
 }
 
+const DESIGN_EDITOR_MODES = new Set<EditorMode>([
+  "annotate",
+  "edit",
+  "interact",
+]);
+
+export function normalizeDesignMode(value: unknown): EditorMode | null {
+  return typeof value === "string" &&
+    DESIGN_EDITOR_MODES.has(value as EditorMode)
+    ? (value as EditorMode)
+    : null;
+}
+
 export function isSingleScreenAnnotationTool(tool: DesignTool): boolean {
   return tool === "draw" || tool === "comment";
 }
@@ -102,14 +115,34 @@ export function shouldAutoEnableDrawOverlay(args: {
   );
 }
 
+/**
+ * There are only two views: the infinite canvas (where Edit and Annotate
+ * live) and the focused responsive screen (where Interact lives). A mode
+ * choice that disagrees with the current view is therefore a view change —
+ * picking Edit or Annotate from a focused screen must return to the canvas,
+ * not strand the screen in the forbidden single-screen editing state.
+ */
+export function resolveModeChangeView(args: {
+  next: EditorMode;
+  viewMode: "single" | "overview";
+}): "enter-single-interact" | "enter-overview" | "stay" {
+  if (args.next === "interact") {
+    return args.viewMode === "overview" ? "enter-single-interact" : "stay";
+  }
+  return args.viewMode === "single" ? "enter-overview" : "stay";
+}
+
 export type DesignBottomToolbarMode = "editor" | "commenter" | "hidden";
 
 export function getDesignBottomToolbarMode(args: {
   isSignedIn: boolean;
   canEditDesign: boolean;
+  canCommentDesign: boolean;
   hasActiveFile: boolean;
 }): DesignBottomToolbarMode {
-  if (!args.isSignedIn || !args.hasActiveFile) return "hidden";
+  if (!args.isSignedIn || !args.hasActiveFile || !args.canCommentDesign) {
+    return "hidden";
+  }
   return args.canEditDesign ? "editor" : "commenter";
 }
 

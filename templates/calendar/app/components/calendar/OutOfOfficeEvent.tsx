@@ -8,6 +8,7 @@ import { EventDetailPopover } from "./EventDetailPopover";
 interface OutOfOfficeEventProps {
   event: CalendarEvent;
   day: Date;
+  timezone?: string;
   hourHeight: number;
   color: string;
   label: string;
@@ -51,6 +52,7 @@ interface OutOfOfficeEventProps {
 export function OutOfOfficeEvent({
   event,
   day,
+  timezone,
   hourHeight,
   color,
   label,
@@ -76,7 +78,7 @@ export function OutOfOfficeEvent({
   onDraftDiscard,
   onOpenChange,
 }: OutOfOfficeEventProps) {
-  const segment = getOutOfOfficeSegment(event, day);
+  const segment = getOutOfOfficeSegment(event, day, timezone);
   const hasDragOverride =
     isBeingDragged &&
     isDragTargetDay &&
@@ -112,48 +114,49 @@ export function OutOfOfficeEvent({
           }}
         />
       </div>
-      <div
-        data-out-of-office-trigger={event.id}
-        className={`pointer-events-auto absolute ${
-          isBeingDragged && isDragging ? "z-[100]" : "z-40"
-        }`}
-        style={{
-          top: `${top + 4}px`,
-          right: `${4 + (compactMarker ? markerIndex * 24 : 0)}px`,
-          left: compactMarker ? undefined : `${4 + markerIndex * 12}px`,
-        }}
+      <EventDetailPopover
+        event={event}
+        timezone={timezone}
+        onDelete={onDelete}
+        isDraft={isDraft}
+        defaultOpen={defaultOpen}
+        onTitleSave={onTitleSave}
+        onDismissNew={onDismissNew}
+        onDraftUpdate={onDraftUpdate}
+        onDraftCreate={onDraftCreate}
+        onDraftDiscard={onDraftDiscard}
+        onOpenChange={onOpenChange}
       >
-        <EventDetailPopover
-          event={event}
-          onDelete={onDelete}
-          isDraft={isDraft}
-          defaultOpen={defaultOpen}
-          onTitleSave={onTitleSave}
-          onDismissNew={onDismissNew}
-          onDraftUpdate={onDraftUpdate}
-          onDraftCreate={onDraftCreate}
-          onDraftDiscard={onDraftDiscard}
-          onOpenChange={onOpenChange}
-        >
-          <button
-            onPointerDown={(pointerEvent) =>
-              onMovePointerDown?.(pointerEvent, startsOnDay)
+        <button
+          type="button"
+          data-out-of-office-trigger={event.id}
+          onPointerDown={(pointerEvent) =>
+            onMovePointerDown?.(pointerEvent, startsOnDay)
+          }
+          onClick={(clickEvent) => {
+            if (shouldSuppressClick?.()) {
+              clickEvent.preventDefault();
+              clickEvent.stopPropagation();
             }
-            onClick={(clickEvent) => {
-              if (shouldSuppressClick?.()) {
-                clickEvent.preventDefault();
-                clickEvent.stopPropagation();
-              }
-            }}
-            className={`flex h-5 max-w-full items-center truncate rounded-sm text-[10px] font-medium text-foreground outline-none transition-[filter,box-shadow] hover:brightness-110 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 ${
+          }}
+          className={`pointer-events-auto absolute inset-x-0 block border-0 bg-transparent p-0 text-left outline-none ${
+            canManipulate ? "cursor-grab" : ""
+          } ${isBeingDragged && isDragging ? "cursor-grabbing" : ""}`}
+          aria-label={`${label}: ${title}`}
+          style={{ top: `${top}px`, height: `${height}px` }}
+        >
+          <span
+            className={`pointer-events-auto absolute top-1 z-40 flex h-5 max-w-full items-center truncate rounded-sm text-[10px] font-medium text-foreground outline-none transition-[filter,box-shadow] hover:brightness-110 focus-within:ring-1 focus-within:ring-ring focus-within:ring-offset-1 ${
+              isBeingDragged && isDragging ? "z-[100] shadow-lg" : ""
+            } ${
               compactMarker
                 ? "w-5 justify-center px-0"
                 : "gap-1 px-1.5 text-left"
-            } ${canManipulate ? "cursor-grab" : ""} ${
-              isBeingDragged && isDragging ? "cursor-grabbing shadow-lg" : ""
             }`}
-            aria-label={`${label}: ${title}`}
+            aria-hidden="true"
             style={{
+              right: compactMarker ? `${4 + markerIndex * 24}px` : undefined,
+              left: compactMarker ? undefined : `${4 + markerIndex * 12}px`,
               backgroundColor: `color-mix(in srgb, ${color} 20%, hsl(var(--background)))`,
               boxShadow: `0 0 0 1px color-mix(in srgb, ${color} 34%, transparent)`,
             }}
@@ -164,9 +167,9 @@ export function OutOfOfficeEvent({
               style={{ color }}
             />
             {!compactMarker && <span className="truncate">{title}</span>}
-          </button>
-        </EventDetailPopover>
-      </div>
+          </span>
+        </button>
+      </EventDetailPopover>
       {canManipulate && (
         <div
           data-resize-handle="true"

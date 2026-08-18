@@ -21,7 +21,7 @@ interface DocMeta {
   description: string;
 }
 
-interface DocFull extends DocMeta {
+export interface DocFull extends DocMeta {
   body: string;
 }
 
@@ -37,6 +37,21 @@ function getDocsRoot(): string {
 
 function getDocsDir(): string {
   return path.join(getDocsRoot(), "content");
+}
+
+/**
+ * Bundled serverless deploys carry the runtime agent bundle but not the
+ * framework doc pages, so a miss there means "not deployed", not "no such
+ * doc". Say which, or the agent concludes a documented API does not exist.
+ */
+function logMissingFrameworkDocsNote(): void {
+  if (fs.existsSync(getDocsDir())) return;
+  console.log(
+    "\nNote: bundled framework doc pages are not deployed here (only this " +
+      "app's AGENTS.md and skills are). A miss above does not mean the page " +
+      "does not exist — check the framework docs another way before concluding " +
+      "an API is missing.",
+  );
 }
 
 function parseFrontmatter(raw: string): {
@@ -155,12 +170,13 @@ async function loadAgentBundleDocs(): Promise<DocFull[]> {
         body: bundle.workspaceAgentsMd,
       });
     }
-    if (bundle.agentsMd?.trim()) {
+    const runtimeAgentsMd = bundle.runtimeAgentsMd ?? bundle.agentsMd;
+    if (runtimeAgentsMd?.trim()) {
       docs.push({
         slug: "agents-template",
         title: "Template AGENTS.md",
         description: "Full bundled template/app agent instructions.",
-        body: bundle.agentsMd,
+        body: runtimeAgentsMd,
       });
     }
     // Only runtime-visible skills are searchable/readable here — `scope: dev`
@@ -192,7 +208,7 @@ async function loadAgentBundleDocs(): Promise<DocFull[]> {
   }
 }
 
-async function loadAllDocs(): Promise<DocFull[]> {
+export async function loadAllDocs(): Promise<DocFull[]> {
   return [...loadFilesystemDocs(), ...(await loadAgentBundleDocs())];
 }
 
@@ -256,6 +272,7 @@ Options:
     if (!doc) {
       console.log(`Doc not found: ${parsed.slug}`);
       console.log(`Available: ${docs.map((d) => d.slug).join(", ")}`);
+      logMissingFrameworkDocsNote();
       return;
     }
     console.log(`# ${doc.title}\n`);
@@ -268,6 +285,7 @@ Options:
     const results = await searchDocs(parsed.query);
     if (results.length === 0) {
       console.log(`No docs found matching "${parsed.query}".`);
+      logMissingFrameworkDocsNote();
       return;
     }
     console.log(`Found ${results.length} doc(s) matching "${parsed.query}":\n`);

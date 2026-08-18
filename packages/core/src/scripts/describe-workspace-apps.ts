@@ -10,7 +10,7 @@ import { discoverAgents, findAgent } from "../server/agent-discovery.js";
 
 export const tool: ActionTool = {
   description:
-    "Describe what the OTHER apps in this workspace can do for this app, read live from each peer's published A2A agent card. Use this before building a capability locally, before telling the user what is or is not possible across apps, and whenever the user asks which app they should use for something. Returns each peer's purpose plus the exact read-only action names callable through call-agent. Pass `app` for one peer's full capability list. This is generated from live deployments — never hand-maintain or cache a list of workspace apps in code, docs, or markdown.",
+    "Describe what the OTHER apps in this workspace can do for this app, read live from each peer's published A2A agent card. Use this before building a capability locally, before telling the user what is or is not possible across apps, and whenever the user asks which app they should use for something. Ask the owning app's agent with a natural-language call-agent message by default; published action contracts are optional details for exact bounded reads, not a substitute for the specialist agent. Pass `app` for one peer's full capability list. This is generated from live deployments - never hand-maintain or cache a list of workspace apps in code, docs, or markdown.",
   parameters: {
     type: "object",
     properties: {
@@ -41,7 +41,7 @@ export async function run(
     return formatCapabilityDetail(
       await loadCapabilities(agent),
       (appId) =>
-        `Call one with call-agent: agent="${appId}", action="<id above>", input={...}.`,
+        `Ask this specialist with call-agent: agent="${appId}", message="<objective>". Use action + input only for an exact bounded read with a fully known schema; use message for creates, updates, deletes, sends, saves, publishes, or any other side effect.`,
     );
   }
 

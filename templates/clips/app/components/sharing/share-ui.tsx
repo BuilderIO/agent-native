@@ -4,9 +4,8 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import {
-  IconCheck,
-  IconCopy,
   IconLock,
   IconSend2,
   IconTrash,
@@ -14,8 +13,13 @@ import {
   IconWorld,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
+import {
+  Avatar as UserAvatar,
+  AvatarFallback as UserAvatarFallback,
+  AvatarImage as UserAvatarImage,
+} from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
@@ -26,6 +30,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useVisibleAvatarUrl } from "@/lib/use-visible-avatar-url";
 import { cn } from "@/lib/utils";
 
 // ---------------------------------------------------------------------------
@@ -33,7 +38,12 @@ import { cn } from "@/lib/utils";
 // ---------------------------------------------------------------------------
 
 export type Visibility = "private" | "org" | "public";
-export type Role = "viewer" | "editor" | "admin";
+export type Role = "viewer" | "commenter" | "editor" | "admin";
+
+export interface RoleCopy {
+  label: string;
+  description: string;
+}
 
 export interface Share {
   id: string;
@@ -66,12 +76,13 @@ export const VIS_META: Record<Visibility, { Icon: typeof IconLock }> = {
 
 export const ROLE_OPTIONS: Array<{ value: Role; label: string }> = [
   { value: "viewer", label: "Viewer" },
+  { value: "commenter", label: "Commenter" },
   { value: "editor", label: "Editor" },
   { value: "admin", label: "Admin" },
 ];
 
-export function copyToClipboard(value: string): void {
-  void writeClipboardText(value);
+export function copyToClipboard(value: string): Promise<boolean> {
+  return writeClipboardText(value);
 }
 
 // ---------------------------------------------------------------------------
@@ -124,34 +135,19 @@ export function useResourceVisibilityMutation(
 }
 
 // ---------------------------------------------------------------------------
-// Header (title + owner)
+// Compact section labels
 // ---------------------------------------------------------------------------
 
-export function ShareCardHeader({
-  title,
-  ownerEmail,
-  reserveCloseButton = false,
+export function ShareSectionLabel({
+  children,
+  className,
 }: {
-  title: string;
-  ownerEmail?: string | null;
-  reserveCloseButton?: boolean;
+  children: ReactNode;
+  className?: string;
 }) {
-  const t = useT();
   return (
-    <div
-      className={cn(
-        "min-w-0 border-b border-border px-4 pb-3 pt-3",
-        reserveCloseButton && "pe-12",
-      )}
-    >
-      <div className="min-w-0 truncate text-sm font-semibold" title={title}>
-        {title}
-      </div>
-      {ownerEmail ? (
-        <div className="mt-0.5 truncate text-xs text-muted-foreground">
-          {t("shareUi.owner", { email: ownerEmail })}
-        </div>
-      ) : null}
+    <div className={cn("text-xs font-medium text-muted-foreground", className)}>
+      {children}
     </div>
   );
 }
@@ -166,6 +162,7 @@ export function GeneralAccessSelect({
   isPending,
   onChange,
   publicDescription,
+  showDescription = true,
 }: {
   visibility: Visibility;
   canManage: boolean;
@@ -173,6 +170,7 @@ export function GeneralAccessSelect({
   onChange: (next: Visibility) => void;
   /** Override for the "public" visibility description (e.g. Clips comment hint). */
   publicDescription?: string;
+  showDescription?: boolean;
 }) {
   const t = useT();
   const meta = VIS_META[visibility];
@@ -183,9 +181,9 @@ export function GeneralAccessSelect({
 
   return (
     <div>
-      <div className="mb-2 text-xs font-semibold">
+      <ShareSectionLabel className="mb-2">
         {t("shareUi.generalAccess")}
-      </div>
+      </ShareSectionLabel>
       <div className="flex items-center gap-3">
         <span
           aria-hidden
@@ -210,7 +208,12 @@ export function GeneralAccessSelect({
               ))}
             </SelectContent>
           </Select>
-          <div className="mt-0.5 text-xs text-muted-foreground">
+          <div
+            className={cn(
+              "mt-0.5 text-xs text-muted-foreground",
+              !showDescription && "sr-only",
+            )}
+          >
             {description}
           </div>
         </div>
@@ -226,25 +229,37 @@ export function GeneralAccessSelect({
 export function MakePublicCard({
   isPending,
   onMakePublic,
+  secondaryAction,
 }: {
   isPending: boolean;
   onMakePublic: () => void;
+  secondaryAction?: ReactNode;
 }) {
   const t = useT();
   return (
-    <div className="rounded-md border border-border bg-muted/40 px-3 py-2.5">
-      <p className="text-xs text-muted-foreground">
-        {t("shareUi.restrictedLinkDescription")}
-      </p>
-      <Button
-        type="button"
-        size="sm"
-        className="mt-2 h-7"
-        onClick={onMakePublic}
-        disabled={isPending}
-      >
-        {isPending ? t("shareUi.makingPublic") : t("shareUi.makePublicAndCopy")}
-      </Button>
+    <div className="flex items-center justify-between gap-2 rounded-md bg-muted/40 px-3 py-2">
+      <p className="sr-only">{t("shareUi.restrictedLinkDescription")}</p>
+      <IconLock
+        aria-hidden
+        size={14}
+        strokeWidth={1.8}
+        className="text-muted-foreground"
+      />
+      <div className="flex items-center gap-2">
+        {secondaryAction}
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-7"
+          onClick={onMakePublic}
+          disabled={isPending}
+        >
+          {isPending
+            ? t("shareUi.makingPublic")
+            : t("shareUi.makePublicAndCopy")}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -257,45 +272,24 @@ export function CopyField({
   label,
   value,
   disabled,
+  description,
 }: {
   label: string;
   value: string;
   disabled?: boolean;
+  description?: string;
 }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
-  const copy = () => {
-    if (disabled) return;
-    copyToClipboard(value);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1400);
-  };
   return (
-    <div>
-      {label ? (
-        <div className="mb-1 text-xs font-medium text-muted-foreground">
-          {label}
-        </div>
-      ) : null}
-      <div className="flex items-stretch gap-2">
-        <Input
-          readOnly
-          value={value}
-          className="flex-1 h-9 font-mono text-xs"
-        />
-        <Button
-          type="button"
-          variant="outline"
-          size="icon"
-          onClick={copy}
-          aria-label={t("shareUi.copy")}
-          disabled={disabled}
-          className="h-9 w-9"
-        >
-          {copied ? <IconCheck size={14} /> : <IconCopy size={14} />}
-        </Button>
-      </div>
-    </div>
+    <ShareCopyRow
+      label={label}
+      value={value}
+      description={description}
+      disabled={disabled}
+      copyLabel={t("shareUi.copy")}
+      copiedLabel={t("recordRoute.linkCopied")}
+      onCopy={copyToClipboard}
+    />
   );
 }
 
@@ -304,17 +298,26 @@ export function CopyField({
 // ---------------------------------------------------------------------------
 
 export function Avatar({ label, org }: { label: string; org?: boolean }) {
-  return (
-    <span
-      aria-hidden
-      className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
-    >
-      {org ? (
+  const { avatarRef, avatarUrl } = useVisibleAvatarUrl(org ? null : label);
+
+  if (org) {
+    return (
+      <span
+        aria-hidden
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
+      >
         <IconUsersGroup size={14} strokeWidth={1.75} />
-      ) : (
-        (label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()
-      )}
-    </span>
+      </span>
+    );
+  }
+
+  return (
+    <UserAvatar ref={avatarRef} className="h-7 w-7 shrink-0">
+      {avatarUrl ? <UserAvatarImage src={avatarUrl} alt={label} /> : null}
+      <UserAvatarFallback className="bg-muted text-[11px] font-semibold text-muted-foreground">
+        {(label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()}
+      </UserAvatarFallback>
+    </UserAvatar>
   );
 }
 
@@ -328,6 +331,7 @@ export function SharePeopleTab({
   resourceUrl,
   sharesQuery,
   canManage,
+  roleCopy,
   onError,
 }: {
   resourceType: string;
@@ -336,6 +340,7 @@ export function SharePeopleTab({
   resourceUrl?: string;
   sharesQuery: SharesQuery;
   canManage: boolean;
+  roleCopy?: Partial<Record<Role, RoleCopy>>;
   onError?: (err: unknown, action: "invite" | "remove") => void;
 }) {
   const t = useT();
@@ -349,6 +354,9 @@ export function SharePeopleTab({
 
   const data = sharesQuery.data;
   const shares = data?.shares ?? [];
+  const getRoleCopy = (value: Role): RoleCopy | undefined => roleCopy?.[value];
+  const getRoleLabel = (value: Role) =>
+    getRoleCopy(value)?.label ?? t(`shareUi.roles.${value}`);
 
   const handleAdd = () => {
     const trimmed = email.trim().toLowerCase();
@@ -406,12 +414,19 @@ export function SharePeopleTab({
             />
             <Select value={role} onValueChange={(v) => setRole(v as Role)}>
               <SelectTrigger className="h-9 w-[110px]">
-                <SelectValue />
+                <SelectValue>{getRoleLabel(role)}</SelectValue>
               </SelectTrigger>
               <SelectContent>
                 {ROLE_OPTIONS.map((opt) => (
                   <SelectItem key={opt.value} value={opt.value}>
-                    {t(`shareUi.roles.${opt.value}`)}
+                    <div className="flex flex-col">
+                      <span>{getRoleLabel(opt.value)}</span>
+                      {getRoleCopy(opt.value)?.description ? (
+                        <span className="text-xs text-muted-foreground">
+                          {getRoleCopy(opt.value)?.description}
+                        </span>
+                      ) : null}
+                    </div>
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -462,7 +477,7 @@ export function SharePeopleTab({
               <Avatar label={s.principalId} org={s.principalType === "org"} />
               <span className="flex-1 min-w-0 truncate">{s.principalId}</span>
               <span className="text-xs text-muted-foreground">
-                {t(`shareUi.roles.${s.role}`)}
+                {getRoleLabel(s.role)}
               </span>
               {canManage ? (
                 <Button

@@ -35,9 +35,22 @@ export { getClientSurface, type ClientSurface } from "../client-surface.js";
 export { ErrorBoundary } from "../ErrorBoundary.js";
 export { ClientOnly } from "../ClientOnly.js";
 export { DefaultSpinner } from "../DefaultSpinner.js";
+export { RuntimeConfigNotice } from "../RuntimeConfigNotice.js";
 export {
+  RouteTransitionIndicator,
+  ROUTE_TRANSITION_INDICATOR_DELAY_MS,
+} from "../RouteTransitionIndicator.js";
+export {
+  applyEmbeddedThemeUpdate,
+  buildEmbeddedThemeUpdate,
+  EMBEDDED_THEME_CHANGE_EVENT,
+  EMBEDDED_THEME_UPDATE_MESSAGE,
   getThemeInitScript,
+  parseEmbeddedThemeUpdate,
   themeInitScript,
+  type EmbeddedThemeUpdate,
+  type NormalizedEmbeddedThemeUpdate,
+  type ResolvedTheme,
   type ThemePreference,
 } from "../theme.js";
 export {

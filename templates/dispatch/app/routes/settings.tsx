@@ -1,27 +1,29 @@
+import {
+  CHAT_FIRST_MODE_CHANGED_EVENT,
+  readChatFirstModeState,
+  writeChatFirstMode,
+} from "@agent-native/core/client/agent-chat";
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
 import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
 } from "@agent-native/core/client/settings";
 import { Button } from "@agent-native/dispatch/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@agent-native/dispatch/components/ui/card";
-import { Label } from "@agent-native/dispatch/components/ui/label";
-import { useMemo } from "react";
+import { Switch } from "@agent-native/dispatch/components/ui/switch";
+import { IconShield } from "@tabler/icons-react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router";
 
 import { messagesByLocale } from "@/i18n-data";
 
 import changelog from "../../CHANGELOG.md?raw";
+import { dispatchAccessDescriptor } from "../../shared/app-roles";
 
 export function meta() {
   return [{ title: messagesByLocale["en-US"].routeTitles.settings }];
@@ -29,7 +31,56 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
-  const agentSettingsTabs = useAgentSettingsTabs();
+  const agentSettingsTabs = useAgentSettingsTabs({
+    usageAppId: "dispatch",
+    usageViewAllHref: "/admin/metrics",
+    organizationContent: (
+      <div className="mx-auto w-full max-w-3xl">
+        <TeamPage
+          showTitle={false}
+          appRoles={dispatchAccessDescriptor}
+          createOrgDescription="Set up a team to share dispatch destinations and approvals with your colleagues."
+        />
+      </div>
+    ),
+  });
+  const settingsTabs = [
+    ...agentSettingsTabs,
+    {
+      id: "admin",
+      label: t("dispatch.nav.admin", { defaultValue: "Admin" }),
+      icon: IconShield,
+      group: "Admin",
+      href: "/admin",
+      content: null,
+    },
+  ];
+  const [chatFirstModeState] = useState(() => readChatFirstModeState());
+  const [chatFirstMode, setChatFirstMode] = useState(
+    () => chatFirstModeState.enabled,
+  );
+  const [chatFirstStorageNotice, setChatFirstStorageNotice] = useState<
+    string | null
+  >(
+    chatFirstModeState.availability === "unavailable"
+      ? t("settings.chatFirstStorageUnavailable")
+      : null,
+  );
+
+  function updateChatFirstMode(enabled: boolean) {
+    const result = writeChatFirstMode(enabled);
+    if (!result.ok) {
+      setChatFirstStorageNotice(t("settings.chatFirstStorageBlocked"));
+      return;
+    }
+    setChatFirstStorageNotice(null);
+    setChatFirstMode(enabled);
+    window.dispatchEvent(
+      new CustomEvent(CHAT_FIRST_MODE_CHANGED_EVENT, {
+        detail: { enabled },
+      }),
+    );
+  }
 
   const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
     () => [
@@ -45,6 +96,12 @@ export default function SettingsRoute() {
         keywords: "workspace resources integrations vault destinations",
         hash: "workspace-resources",
       },
+      {
+        id: "dispatch-chat-first",
+        label: t("settings.chatFirstTitle"),
+        keywords: "chat first codex t3 apps pane navigation",
+        hash: "chat-first",
+      },
     ],
     [t],
   );
@@ -52,7 +109,7 @@ export default function SettingsRoute() {
   return (
     <SettingsTabsPage
       account={<AccountSettingsCard />}
-      extraTabs={agentSettingsTabs}
+      extraTabs={settingsTabs}
       generalSearchEntries={generalSearchEntries}
       general={
         <div className="mx-auto w-full max-w-2xl space-y-6">
@@ -60,46 +117,53 @@ export default function SettingsRoute() {
             {t("settings.description")}
           </p>
 
-          <Card id="language" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.languageTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.languageDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="max-w-xs space-y-1.5">
-              <Label>{t("settings.languageLabel")}</Label>
-              <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
+          <SettingsGroup>
+            <SettingsRow
+              id="language"
+              label={t("settings.languageTitle")}
+              description={t("settings.languageDescription")}
+              control={
+                <div className="w-56">
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </div>
+              }
+            />
+            <SettingsRow
+              id="workspace-resources"
+              label={t("settings.workspaceTitle")}
+              description={t("settings.workspaceDescription")}
+              control={
+                <Button variant="outline" asChild>
+                  <Link to="/workspace">
+                    {t("settings.openResourceSettings")}
+                  </Link>
+                </Button>
+              }
+            />
+          </SettingsGroup>
 
-          <Card id="workspace-resources" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.workspaceTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.workspaceDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" asChild>
-                <Link to="/workspace">
-                  {t("settings.openResourceSettings")}
-                </Link>
-              </Button>
-            </CardContent>
-          </Card>
-        </div>
-      }
-      team={
-        <div className="mx-auto w-full max-w-3xl">
-          <TeamPage
-            showTitle={false}
-            createOrgDescription="Set up a team to share dispatch destinations and approvals with your colleagues."
-          />
+          <SettingsGroup id="chat-first">
+            <SettingsRow
+              label={t("settings.chatFirstTitle")}
+              description={t("settings.chatFirstDescription")}
+              control={
+                <Switch
+                  aria-label={t("settings.chatFirstAriaLabel")}
+                  checked={chatFirstMode}
+                  onCheckedChange={updateChatFirstMode}
+                />
+              }
+            >
+              <p className="text-sm leading-6 text-muted-foreground">
+                {t("settings.chatFirstSessionWatchDescription")}
+              </p>
+              {chatFirstStorageNotice ? (
+                <p className="text-sm text-destructive" role="alert">
+                  {chatFirstStorageNotice}
+                </p>
+              ) : null}
+            </SettingsRow>
+          </SettingsGroup>
         </div>
       }
       whatsNew={

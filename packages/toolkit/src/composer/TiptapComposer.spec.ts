@@ -8,23 +8,52 @@ import {
   canRemoveVoicePreview,
   compactComposerModelName,
   compactComposerReasoningEffortLabel,
+  composerModelCostTier,
   createTiptapComposerExtensions,
   displayableComposerModeMessage,
+  getComposerSendTooltipKey,
   getComposerSubmitIntentForEnterKey,
   getComposerPopoverPosition,
   getComposerReasoningEffortOptions,
   getOversizedDocumentAttachmentError,
   handleComposerFileDrop,
   insertComposerHardBreakAndScrollIntoView,
+  isOpenAiModelProviderGroup,
   isComposerEditorUsable,
   formatVoiceTranscriptForComposer,
   MODEL_SELECTOR_POPOVER_STYLE,
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
   shouldShowModelSelectorSkeleton,
+  shouldShowOnlyConnectPath,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
+  it("refreshes the rendered placeholder after a locale change", () => {
+    let placeholder = "Ask the agent...";
+    const element = document.createElement("div");
+    const editor = new Editor({
+      element,
+      extensions: createTiptapComposerExtensions(() => placeholder),
+    });
+
+    expect(
+      element
+        .querySelector(".is-editor-empty")
+        ?.getAttribute("data-placeholder"),
+    ).toBe("Ask the agent...");
+
+    placeholder = "Frag den Agenten...";
+    editor.view.dispatch(editor.state.tr.setSelection(editor.state.selection));
+
+    expect(
+      element
+        .querySelector(".is-editor-empty")
+        ?.getAttribute("data-placeholder"),
+    ).toBe("Frag den Agenten...");
+    editor.destroy();
+  });
+
   it("rejects a truthy editor after BFCache/remount destruction", () => {
     const editor = new Editor({
       element: document.createElement("div"),
@@ -41,7 +70,7 @@ describe("createTiptapComposerExtensions", () => {
     }).not.toThrow();
   });
 
-  it("offers explicit reasoning levels without legacy Auto", () => {
+  it("offers explicit effort levels without legacy Auto", () => {
     expect(getComposerReasoningEffortOptions("auto")).toEqual([
       "low",
       "medium",
@@ -55,13 +84,72 @@ describe("createTiptapComposerExtensions", () => {
   });
 
   it("uses compact GPT-5.6 model and effort names in the collapsed trigger", () => {
-    expect(compactComposerModelName("gpt-5.6-sol")).toBe("Sol");
-    expect(compactComposerModelName("gpt-5-6-terra")).toBe("Terra");
-    expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe("Luna");
+    expect(compactComposerModelName("gpt-5.6-sol")).toBe("GPT-5.6 Sol");
+    expect(compactComposerModelName("gpt-5-6-terra")).toBe("GPT-5.6 Terra");
+    expect(compactComposerModelName("openai/gpt-5.6-luna")).toBe(
+      "GPT-5.6 Luna",
+    );
     expect(compactComposerModelName("claude-sonnet-5")).toBe("Sonnet 5");
+    expect(compactComposerModelName("codex-cli")).toBe("Codex");
     expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");
     expect(compactComposerReasoningEffortLabel("minimal")).toBe("Min");
     expect(compactComposerReasoningEffortLabel("xhigh")).toBe("XHigh");
+
+    const translate = (key: string, options?: Record<string, unknown>) =>
+      key === "agentChat.composer.defaultModel"
+        ? "Standardmodell"
+        : key === "agentChat.composer.reasoningMediumShort"
+          ? "Mittel"
+          : String(options?.defaultValue ?? key);
+    expect(compactComposerModelName("auto", translate)).toBe("Standardmodell");
+    expect(compactComposerReasoningEffortLabel("medium", translate)).toBe(
+      "Mittel",
+    );
+  });
+
+  it("limits Codex to OpenAI model providers", () => {
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "builder",
+        label: "OpenAI",
+        models: ["gpt-5.6-luna"],
+      }),
+    ).toBe(true);
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "ai-sdk:google",
+        label: "Gemini",
+        models: ["gemini-3.5-flash"],
+      }),
+    ).toBe(false);
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "custom-gateway",
+        label: "Custom",
+        models: ["gpt-5.6-luna"],
+      }),
+    ).toBe(true);
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "ai-sdk:openrouter",
+        label: "OpenRouter",
+        models: ["openai/gpt-5.6-luna"],
+      }),
+    ).toBe(true);
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "codex-cli",
+        label: "OpenAI",
+        models: ["gpt-5.6-luna"],
+      }),
+    ).toBe(true);
+    expect(
+      isOpenAiModelProviderGroup({
+        engine: "codex-cli",
+        label: "OpenAI",
+        models: ["codex-cli"],
+      }),
+    ).toBe(false);
   });
 
   it("keeps the prompt composer schema minimal and restores legacy draft HTML", () => {
@@ -135,6 +223,11 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe("send");
   });
 
+  it("uses the queue tooltip when the submit will wait", () => {
+    expect(getComposerSendTooltipKey(true)).toBe("composer.queueMessage");
+    expect(getComposerSendTooltipKey(false)).toBe("composer.sendMessage");
+  });
+
   it("selects and removes context chips one Backspace at a time", () => {
     let contextItemKeys = ["dashboard", "panel"];
     let selectedKey: string | null = null;
@@ -191,6 +284,14 @@ describe("createTiptapComposerExtensions", () => {
         attachmentCount: 1,
       }),
     ).toBe("Create an extension: Use the attached context.");
+    expect(
+      displayableComposerModeMessage({
+        messagePrefix: "Erstelle eine Erweiterung: ",
+        trimmedText: "",
+        attachmentCount: 1,
+        attachedContextFallback: "Verwende den angehängten Kontext.",
+      }),
+    ).toBe("Erstelle eine Erweiterung: Verwende den angehängten Kontext.");
   });
 
   it("detects oversized PDF attachments before submit", () => {
@@ -207,7 +308,7 @@ describe("createTiptapComposerExtensions", () => {
           file,
         },
       ]),
-    ).toContain('"large.pdf" is 4.0 MB — PDFs are capped at 4 MB');
+    ).toContain('"large.pdf" is 4.0 MB. PDFs are capped at 4 MB');
     expect(
       getOversizedDocumentAttachmentError([
         {
@@ -218,6 +319,72 @@ describe("createTiptapComposerExtensions", () => {
         },
       ]),
     ).toBeNull();
+  });
+
+  it("allows hosts to use a larger multipart document cap", () => {
+    const file = new File(
+      [new Uint8Array(4 * 1024 * 1024 + 1)],
+      "reference.pdf",
+      { type: "application/pdf" },
+    );
+
+    expect(
+      getOversizedDocumentAttachmentError(
+        [
+          {
+            type: "document",
+            name: "reference.pdf",
+            contentType: "application/pdf",
+            file,
+          },
+        ],
+        {
+          maxBytes: 50 * 1024 * 1024,
+          label: "Slides reference files",
+        },
+      ),
+    ).toBeNull();
+  });
+
+  it("localizes a custom multipart document cap", () => {
+    const file = new File(
+      [new Uint8Array(4 * 1024 * 1024 + 1)],
+      "reference.pdf",
+      { type: "application/pdf" },
+    );
+    let translatedOptions: Record<string, unknown> | undefined;
+
+    const error = getOversizedDocumentAttachmentError(
+      [
+        {
+          type: "document",
+          name: "reference.pdf",
+          contentType: "application/pdf",
+          file,
+        },
+      ],
+      {
+        maxBytes: 4 * 1024 * 1024,
+        label: "Präsentationsdateien",
+        translate: (key, options) => {
+          expect(key).toBe("agentChat.composer.documentTooLarge");
+          translatedOptions = options;
+          return `„${String(options?.name)}“ ist ${String(options?.size)} MB groß. ${String(options?.label)} sind auf ${String(options?.maxSize)} MB begrenzt.`;
+        },
+      },
+    );
+
+    expect(error).toBe(
+      "„reference.pdf“ ist 4.0 MB groß. Präsentationsdateien sind auf 4 MB begrenzt.",
+    );
+    expect(translatedOptions).toEqual(
+      expect.objectContaining({
+        name: "reference.pdf",
+        size: "4.0",
+        label: "Präsentationsdateien",
+        maxSize: "4",
+      }),
+    );
   });
 
   it("maps Enter keybindings to immediate and queued submit intents", () => {
@@ -347,6 +514,41 @@ describe("createTiptapComposerExtensions", () => {
     expect(shouldShowModelSelectorSkeleton(true, 0)).toBe(true);
     expect(shouldShowModelSelectorSkeleton(true, 2)).toBe(false);
     expect(shouldShowModelSelectorSkeleton(false, 0)).toBe(false);
+  });
+
+  it("replaces the model list with connect CTAs only when nothing is configured", () => {
+    const unconfigured = [{ configured: false }, { configured: false }];
+    expect(shouldShowOnlyConnectPath(true, unconfigured)).toBe(true);
+    expect(
+      shouldShowOnlyConnectPath(true, [
+        { configured: true },
+        { configured: false },
+      ]),
+    ).toBe(false);
+    // No CTA to fall back on — keep the list rather than empty the popover.
+    expect(shouldShowOnlyConnectPath(false, unconfigured)).toBe(false);
+  });
+});
+
+describe("composerModelCostTier", () => {
+  it("tiers each provider's entry, mid, and flagship models", () => {
+    expect(composerModelCostTier("gpt-5-6-luna")).toBe(1);
+    expect(composerModelCostTier("gpt-5.6-terra")).toBe(2);
+    expect(composerModelCostTier("openai/gpt-5.6-sol")).toBe(3);
+    expect(composerModelCostTier("claude-haiku-4-5")).toBe(1);
+    expect(composerModelCostTier("claude-sonnet-5")).toBe(2);
+    expect(composerModelCostTier("anthropic/claude-opus-4.8")).toBe(3);
+    expect(composerModelCostTier("claude-fable-5")).toBe(3);
+    expect(composerModelCostTier("gemini-3-1-flash-lite")).toBe(1);
+    expect(composerModelCostTier("gemini-3-1-pro")).toBe(3);
+  });
+
+  it("returns undefined for unmapped models so no cost label renders", () => {
+    // A guessed tier is worse than none — these render without a `$` label.
+    expect(composerModelCostTier("auto")).toBeUndefined();
+    expect(composerModelCostTier("z-ai/glm-5.2")).toBeUndefined();
+    expect(composerModelCostTier("kimi-k2-5")).toBeUndefined();
+    expect(composerModelCostTier("")).toBeUndefined();
   });
 });
 

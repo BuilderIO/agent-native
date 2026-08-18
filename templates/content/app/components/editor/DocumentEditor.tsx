@@ -62,8 +62,10 @@ import {
   type ContentSpaceSummary,
 } from "@/hooks/use-content-spaces";
 import {
+  mergeDocumentIntoDocumentCache,
   isDocumentUpdateConflict,
   patchDocumentCaches,
+  documentQueryFilter,
   useDocument,
   useDeleteDocument,
   useDocuments,
@@ -76,6 +78,7 @@ import {
   useDocumentSyncStatus,
   usePushDocumentToNotion,
 } from "@/hooks/use-notion";
+import { rememberContentLandingDocument } from "@/lib/content-landing";
 import {
   canWriteLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
@@ -109,6 +112,8 @@ const TAB_ID = generateTabId();
 
 interface DocumentEditorProps {
   documentId: string;
+  databaseId?: string | null;
+  databaseDocumentId?: string | null;
 }
 
 type FieldSaveWatermark = { title: string; updatedAt: string | null };
@@ -240,8 +245,15 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
  * only mount once we know the doc exists. Otherwise an invalid id triggers
  * an infinite spinner plus repeating 404/403 polls in the console.
  */
-export function DocumentEditor({ documentId }: DocumentEditorProps) {
-  const documentQuery = useDocument(documentId);
+export function DocumentEditor({
+  documentId,
+  databaseId,
+  databaseDocumentId,
+}: DocumentEditorProps) {
+  const documentQuery = useDocument(documentId, {
+    databaseId,
+    databaseDocumentId,
+  });
   const {
     data: queriedDocument,
     isError,
@@ -271,7 +283,14 @@ export function DocumentEditor({ documentId }: DocumentEditorProps) {
     return <DocumentEditorSkeleton />;
   }
 
-  return <DocumentEditorBody documentId={documentId} document={document} />;
+  return (
+    <DocumentEditorBody
+      documentId={documentId}
+      document={document}
+      databaseId={databaseId}
+      databaseDocumentId={databaseDocumentId}
+    />
+  );
 }
 
 export function shouldAwaitAuthoritativeDocument({
@@ -287,6 +306,8 @@ export function shouldAwaitAuthoritativeDocument({
 interface DocumentEditorBodyProps {
   documentId: string;
   document: Document;
+  databaseId?: string | null;
+  databaseDocumentId?: string | null;
 }
 
 type PendingDocumentSave = {
@@ -430,6 +451,7 @@ export function documentEditorBreadcrumbNavigationItems(
     | "title"
     | "icon"
     | "position"
+    | "database"
     | "databaseMembership"
     | "source"
   >[], // i18n-ignore type expression
@@ -442,6 +464,9 @@ export function documentEditorBreadcrumbNavigationItems(
     workspacesTitle: string;
   },
 ): ToolbarBreadcrumbItem[] {
+  const peerDocuments = documents.filter(
+    (item) => !item.database?.systemRole && item.source?.kind !== "folder",
+  );
   const documentById = new Map(documents.map((item) => [item.id, item]));
   const workspaceDocumentIds = new Set(
     spaces.map((space) => space.filesDocumentId),
@@ -465,9 +490,8 @@ export function documentEditorBreadcrumbNavigationItems(
     if (!current) return item;
     const membershipDocumentId =
       current.databaseMembership?.databaseDocumentId ?? null;
-    const siblings = documents
+    const siblings = peerDocuments
       .filter((candidate) => {
-        if (candidate.source?.kind === "folder") return false;
         if (candidate.parentId !== current.parentId) return false;
         if (current.parentId) return true;
         return (
@@ -508,15 +532,28 @@ export function documentEditorBreadcrumbNavigationItems(
   return navigationItems;
 }
 
-function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
+function DocumentEditorBody({
+  documentId,
+  document,
+  databaseId,
+  databaseDocumentId,
+}: DocumentEditorBodyProps) {
   const t = useT();
+  useEffect(() => {
+    void rememberContentLandingDocument(documentId).catch((error) => {
+      toast.error(t("landing.saveFailed"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+    });
+  }, [documentId, t]);
   const updateDocument = useUpdateDocument();
   const createDatabase = useCreateContentDatabase(documentId);
   const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
   const queryClient = useQueryClient();
   const processBuilderBodies = useProcessBuilderBodyHydration(
-    document.databaseMembership?.databaseDocumentId ?? documentId,
+    document.bodyHydration?.databaseDocumentId ?? documentId,
   );
   const canEdit = document.canEdit ?? true;
   const canEditRef = useRef(canEdit);
@@ -541,6 +578,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   // Shared with DocumentToolbar via the same localStorage key — both read it.
   const [autoSync] = useLocalStorage(`notion-auto-sync:${documentId}`, false);
   const isLocalFileDocument = document.source?.mode === "local-files";
+  const canComment =
+    !isLocalFileDocument &&
+    (document.canComment ??
+      (document.accessRole === "owner" ||
+        document.accessRole === "admin" ||
+        document.accessRole === "editor" ||
+        document.accessRole === "commenter"));
   const canDelete =
     !isLocalFileDocument &&
     !document.database?.systemRole &&
@@ -641,24 +685,30 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
 
   useEffect(() => {
-    const membership = document.databaseMembership;
-    const hydration = membership?.bodyHydration;
+    const hydrationContext = document.bodyHydration;
+    const hydration = hydrationContext?.hydration;
     if (
-      !membership?.sourceId ||
+      !canEdit ||
+      !hydrationContext?.sourceId ||
       !hydration ||
       (hydration.status !== "pending" && hydration.status !== "error")
     ) {
       return;
     }
-    const promotionKey = `${membership.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
+    const promotionKey = `${hydrationContext.sourceId}:${documentId}:${hydration.status}:${hydration.version ?? ""}`;
     if (promotedBuilderBodyRef.current === promotionKey) return;
     promotedBuilderBodyRef.current = promotionKey;
     processBuilderBodies.mutate({
-      sourceId: membership.sourceId,
+      sourceId: hydrationContext.sourceId,
       documentId,
       limit: 1,
     });
-  }, [document.databaseMembership, documentId, processBuilderBodies.mutate]);
+  }, [
+    canEdit,
+    document.bodyHydration,
+    documentId,
+    processBuilderBodies.mutate,
+  ]);
   const titleFocusedRef = useRef(false);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const titleInputRef = useRef<HTMLTextAreaElement>(null);
@@ -953,9 +1003,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           description:
             error instanceof Error ? error.message : t("empty.genericError"),
         });
-        queryClient.setQueryData(
-          ["action", "get-document", { id: documentId }],
-          fileFirstDocument,
+        queryClient.setQueriesData(documentQueryFilter(documentId), (old) =>
+          mergeDocumentIntoDocumentCache(old, fileFirstDocument),
         );
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
@@ -1424,7 +1473,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
   const activeThreadId = hoveredThreadId ?? selectedThreadId;
   const { data: threads, isLoading: commentsLoading } = useComments(
-    canEdit && !isLocalFileDocument ? documentId : null,
+    !isLocalFileDocument ? documentId : null,
   );
   const hasUtilityRailSpace = useMinViewportWidth(1024);
   const showDesktopUtilityPanel = utilityPanel !== null && hasUtilityRailSpace;
@@ -1613,6 +1662,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       onSelectedThreadChange={setSelectedThreadId}
       onHoveredThreadChange={setHoveredThreadId}
       currentUserEmail={session?.email}
+      canComment={canComment}
+      canResolve={canEdit}
       alignToAnchors={hasUtilityRailSpace}
       forceVisible
     />
@@ -1674,6 +1725,8 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       {utilityPanel === "info" ? (
         <DocumentInfoPanel
           document={document}
+          databaseId={databaseId}
+          databaseDocumentId={databaseDocumentId}
           canEdit={editorCanEdit}
           onSaveDescription={(description) =>
             persistDocumentUpdates({ description })
@@ -1726,7 +1779,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             onDelete={handleDeleteDocument}
             utilityPanel={utilityPanel}
             onUtilityPanelChange={handleUtilityPanelChange}
-            showCommentsControl={editorCanEdit && !isLocalFileDocument}
+            showCommentsControl={canComment && !isLocalFileDocument}
             onOpenBreadcrumbItem={handleOpenToolbarBreadcrumb}
           />
 
@@ -1865,9 +1918,15 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       if (bodyHydrationPending) {
                         return (
                           <BuilderBodySyncingNotice
-                            title={t("editor.builderBodySyncing")}
+                            title={t(
+                              document.bodyHydration?.provider === "builder"
+                                ? "editor.builderBodySyncing"
+                                : "editor.pageBodySyncing",
+                            )}
                             description={t(
-                              "editor.builderBodySyncingDescription",
+                              document.bodyHydration?.provider === "builder"
+                                ? "editor.builderBodySyncingDescription"
+                                : "editor.pageBodySyncingDescription",
                             )}
                           />
                         );
@@ -1944,16 +2003,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                           localFilePath={
                             isLocalFileDocument ? document.source?.path : null
                           }
-                          onComment={
-                            editorCanEdit && !isLocalFileDocument
-                              ? handleComment
-                              : undefined
-                          }
+                          onComment={canComment ? handleComment : undefined}
                           commentThreads={threads ?? []}
                           activeThreadId={activeThreadId}
                           pendingHighlight={pendingComment?.range ?? null}
                           onActivateThread={
-                            editorCanEdit && !isLocalFileDocument
+                            !isLocalFileDocument
                               ? activateCommentThread
                               : undefined
                           }
@@ -1970,7 +2025,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         return (
                           <DocumentBlockFields
                             documentId={documentId}
+                            databaseId={
+                              databaseId ??
+                              document.databaseMembership.databaseId
+                            }
                             databaseDocumentId={
+                              databaseDocumentId ??
                               document.databaseMembership.databaseDocumentId
                             }
                             canEdit={editorCanEdit}

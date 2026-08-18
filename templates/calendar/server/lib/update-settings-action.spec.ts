@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
+const getUserSettingMock = vi.hoisted(() => vi.fn());
 const putSettingMock = vi.hoisted(() => vi.fn());
 const putUserSettingMock = vi.hoisted(() => vi.fn());
 
@@ -11,6 +12,7 @@ vi.mock("@agent-native/core/server", () => ({
   getRequestUserEmail: getRequestUserEmailMock,
 }));
 vi.mock("@agent-native/core/settings", () => ({
+  getUserSetting: getUserSettingMock,
   putSetting: putSettingMock,
   putUserSetting: putUserSettingMock,
 }));
@@ -22,6 +24,7 @@ describe("update-settings timezone validation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getRequestUserEmailMock.mockReturnValue("owner@example.com");
+    getUserSettingMock.mockResolvedValue(null);
     putSettingMock.mockResolvedValue(undefined);
     putUserSettingMock.mockResolvedValue(undefined);
   });
@@ -38,11 +41,12 @@ describe("update-settings timezone validation", () => {
       defaultEventDuration: 30,
     };
 
-    await expect(action.run(settings)).resolves.toEqual(settings);
+    const saved = { ...settings, weekStart: "sunday" };
+    await expect(action.run(settings)).resolves.toEqual(saved);
     expect(putUserSettingMock).toHaveBeenCalledWith(
       "owner@example.com",
       "calendar-settings",
-      settings,
+      saved,
     );
   });
 });

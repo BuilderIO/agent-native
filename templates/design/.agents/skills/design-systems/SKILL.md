@@ -30,6 +30,7 @@ Design systems are stored in the `design_systems` SQL table. Each has:
 - `is_default` — boolean, whether this is the user's default design system
 - `owner_email` — auto-set from session
 - `org_id` — organization scope
+- `visibility` — defaults to `org` inside an organization, otherwise `private`
 
 ### DesignSystemData Schema
 
@@ -125,7 +126,9 @@ brand's actual extracted fonts) rather than defaulting to Space Grotesk/DM
 Sans every time; that pairing is this skill's own most common convergence
 fingerprint.
 
-If this is the user's first design system, it is automatically set as the default.
+If this is the user's first design system in the active organization, it is
+automatically set as the default. Organization-scoped systems are shared with
+that organization by default.
 
 ### Starting from an established public system
 
@@ -175,7 +178,8 @@ Only provided fields are updated. You can also update `--title`, `--description`
 pnpm action set-default-design-system --id <id>
 ```
 
-Unsets any previously-default design system for this user.
+Pass `--isDefault false` to clear the current default. Setting a system as the
+default unsets the previous default in the same user and organization scope.
 
 ## Multi-Source Import Flow
 
@@ -187,15 +191,32 @@ The design system setup page collects brand assets from multiple sources. When t
 pnpm action import-from-url --url "https://acme.com"
 ```
 
-Returns CSS custom properties, colors, fonts, Google Fonts links, theme-color, OG image, favicon.
+Renders the live page in a real browser first, then returns a bounded
+design.md-style visual system: computed semantic colors, typography, spacing,
+radii, shadows, representative component styles, CSS variables, logo
+references, screenshots evidence metadata, and reusable Brand Kit data. This
+works for React/CSS-in-JS/Tailwind pages because it reads the computed cascade;
+it reports an explicit static SSRF-safe fallback when no browser is available.
 
 ### Source: GitHub Repository
 
 ```bash
-pnpm action index-design-system-with-builder --githubRepoUrl "https://github.com/acme/ui"
+pnpm action index-design-system-with-builder --githubSources '[{"repoUrl":"https://github.com/acme/ui","ref":"main","include":["src/styles","design.md"]}]'
 ```
 
-Starts Builder design-system indexing for the repository. Builder is the source of truth for the indexed brand kit, generated docs, and usage guidance. If Builder is not connected, stop and ask the user to connect Builder.
+Starts one Builder design-system job with one or more GitHub sources. Each
+source can pin a branch, tag, or commit and include repository-relative files or
+folders. Unscoped public repositories stay native Builder sources so large
+codebases are not truncated; private repos and scoped refs stay server-side and
+use the saved `GITHUB_TOKEN` without exposing it to the browser or Builder.
+Builder is the source of truth for the indexed brand kit, generated docs, and
+usage guidance. If Builder is not connected, stop and ask the user to connect
+Builder.
+
+The legacy `githubRepoUrl` argument remains compatible for one unscoped repo.
+For a saved GitHub-backed system, use `sync-design-system-with-builder --id
+<localDesignSystemId>` to replay the stored repository/ref/scope after upstream
+changes. Do not create a second local copy.
 
 ### Source: Local Code Files
 

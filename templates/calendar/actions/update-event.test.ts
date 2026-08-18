@@ -5,6 +5,7 @@ const isConnectedMock = vi.hoisted(() => vi.fn());
 const getAuthStatusMock = vi.hoisted(() => vi.fn());
 const getEventMock = vi.hoisted(() => vi.fn());
 const updateEventMock = vi.hoisted(() => vi.fn());
+const moveEventMock = vi.hoisted(() => vi.fn());
 const createEventMock = vi.hoisted(() => vi.fn());
 const deleteEventMock = vi.hoisted(() => vi.fn());
 
@@ -13,6 +14,7 @@ vi.mock("../server/lib/google-calendar.js", () => ({
   getAuthStatus: getAuthStatusMock,
   getEvent: getEventMock,
   updateEvent: updateEventMock,
+  moveEvent: moveEventMock,
   createEvent: createEventMock,
   deleteEvent: deleteEventMock,
 }));
@@ -58,11 +60,111 @@ describe("update-event working locations", () => {
     updateEventMock.mockResolvedValue({
       htmlLink: "https://calendar.google.com/event",
     });
+    moveEventMock.mockResolvedValue({
+      id: "moved-event",
+      htmlLink: "https://calendar.google.com/moved-event",
+    });
     createEventMock.mockResolvedValue({
       id: "working-location-override",
       htmlLink: "https://calendar.google.com/override",
     });
     deleteEventMock.mockResolvedValue(undefined);
+  });
+
+  it("moves an event to another connected Google account", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "secondary@example.com" }],
+    });
+    getEventMock.mockResolvedValue({
+      id: "google-event-1",
+      title: "Team meeting",
+      description: "Agenda",
+      location: "Conference room",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      attendees: [{ email: "guest@example.com" }],
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: "owner@example.com" },
+      () =>
+        action.run({
+          id: "google-event-1",
+          accountEmail: "owner@example.com",
+          targetAccountEmail: "secondary@example.com",
+        }),
+    );
+
+    expect(moveEventMock).toHaveBeenCalledWith("event-1", {
+      sourceAccount: {
+        ownerEmail: "owner@example.com",
+        accountEmail: "owner@example.com",
+      },
+      destinationAccount: {
+        ownerEmail: "owner@example.com",
+        accountEmail: "secondary@example.com",
+      },
+      sendUpdates: "all",
+    });
+    expect(result).toMatchObject({
+      id: "google-moved-event",
+      replacedId: "google-event-1",
+      accountEmail: "secondary@example.com",
+      updated: ["accountEmail"],
+    });
+    expect(updateEventMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects moving to the same connected Google account", async () => {
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-event-1",
+          accountEmail: "owner@example.com",
+          targetAccountEmail: "owner@example.com",
+        }),
+      ),
+    ).rejects.toThrow("destination calendar must be different");
+
+    expect(moveEventMock).not.toHaveBeenCalled();
+  });
+
+  it("does not combine a calendar move with other event changes", async () => {
+    getAuthStatusMock.mockResolvedValue({
+      accounts: [{ email: "secondary@example.com" }],
+    });
+    getEventMock.mockResolvedValue({
+      id: "google-event-1",
+      title: "Team meeting",
+      description: "",
+      location: "",
+      start: "2026-07-07T15:00:00.000Z",
+      end: "2026-07-07T15:30:00.000Z",
+      allDay: false,
+      source: "google",
+      accountEmail: "owner@example.com",
+      createdAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+        action.run({
+          id: "google-event-1",
+          accountEmail: "owner@example.com",
+          targetAccountEmail: "secondary@example.com",
+          title: "Updated title",
+        }),
+      ),
+    ).rejects.toThrow("Move the event separately");
+
+    expect(moveEventMock).not.toHaveBeenCalled();
+    expect(updateEventMock).not.toHaveBeenCalled();
   });
 
   it("patches working-location metadata on existing Google working-location events", async () => {
@@ -410,7 +512,7 @@ describe("update-event working locations", () => {
     expect(updateEventMock).not.toHaveBeenCalled();
   });
 
-  it("rejects multi-day all-day updates for working-location events before patching Google", async () => {
+  it("allows multi-day all-day updates for working-location events", async () => {
     getEventMock.mockResolvedValue({
       id: "google-working-location-1",
       title: "Home",
@@ -430,14 +532,23 @@ describe("update-event working locations", () => {
       updatedAt: "2026-07-06T00:00:00.000Z",
     });
 
-    await expect(
-      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
-        action.run({
-          id: "google-working-location-1",
-          end: "2026-07-11",
-        }),
-      ),
-    ).rejects.toThrow("All-day working location events must be a single day.");
-    expect(updateEventMock).not.toHaveBeenCalled();
+    await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+      action.run({
+        id: "google-working-location-1",
+        end: "2026-07-11",
+      }),
+    );
+
+    expect(updateEventMock).toHaveBeenCalledWith(
+      "working-location-1",
+      expect.objectContaining({
+        allDay: true,
+        end: "2026-07-11",
+        eventType: "workingLocation",
+        transparency: "transparent",
+        visibility: "public",
+      }),
+      expect.any(Object),
+    );
   });
 });

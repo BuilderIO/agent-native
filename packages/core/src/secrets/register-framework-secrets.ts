@@ -116,6 +116,33 @@ export function registerFrameworkSecrets(): void {
     }
   }
 
+  if (!getRequiredSecret("ANTHROPIC_API_KEY")) {
+    registerRequiredSecret({
+      key: "ANTHROPIC_API_KEY",
+      label: "Anthropic API key",
+      description:
+        "Bring your own Claude key instead of routing model calls through Builder.io.",
+      docsUrl: "https://console.anthropic.com/settings/keys",
+      scope: "user",
+      kind: "api-key",
+      required: false,
+      validator: async (value) => {
+        const response = await fetch("https://api.anthropic.com/v1/models", {
+          headers: {
+            "x-api-key": value,
+            "anthropic-version": "2023-06-01",
+          },
+        });
+        return response.ok
+          ? { ok: true }
+          : {
+              ok: false,
+              error: `Anthropic rejected the key (HTTP ${response.status}).`,
+            };
+      },
+    });
+  }
+
   if (!getRequiredSecret("OPENAI_API_KEY")) {
     registerRequiredSecret({
       key: "OPENAI_API_KEY",
@@ -137,6 +164,22 @@ export function registerFrameworkSecrets(): void {
               error: `OpenAI rejected the key (HTTP ${response.status}).`,
             };
       },
+    });
+  }
+
+  // PostHog — product analytics, error tracking, and LLM analytics. One key
+  // arms all three; `POSTHOG_ERROR_TRACKING=false` opts out of exceptions
+  // while keeping analytics.
+  if (!getRequiredSecret("POSTHOG_API_KEY")) {
+    registerRequiredSecret({
+      key: "POSTHOG_API_KEY",
+      label: "PostHog project API key",
+      description:
+        "Sends product analytics, server exceptions, and LLM traces to PostHog. Set POSTHOG_HOST for self-hosted or EU projects.",
+      docsUrl: "https://posthog.com/docs/getting-started/install",
+      scope: "workspace",
+      kind: "api-key",
+      required: false,
     });
   }
 

@@ -9,6 +9,7 @@ import {
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
   IconPlayerStopFilled,
+  IconX,
 } from "@tabler/icons-react";
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
@@ -16,7 +17,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
-import { speakerFor } from "../lib/transcription-engine";
+import { speakerFor, type TranscriptLine } from "../lib/transcription-engine";
 import { LiveAudioBars } from "./live-audio-bars";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
@@ -46,8 +47,12 @@ export function RecordingPill() {
   const [ctx, setCtx] = useState<PillContext>({ mode: "clip" });
   const ctxRef = useRef<PillContext>({ mode: "clip" });
   const [stopping, setStopping] = useState(false);
+  const [finishedMeetingId, setFinishedMeetingId] = useState<string | null>(
+    null,
+  );
+  const finished = finishedMeetingId !== null;
   const [error, setError] = useState<string | null>(null);
-  const transcriptLinesRef = useRef<FinalLine[]>([]);
+  const transcriptLinesRef = useRef<TranscriptLine[]>([]);
   const [hasTranscriptLines, setHasTranscriptLines] = useState(false);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [preloadedLines, setPreloadedLines] = useState<FinalLine[]>([]);
@@ -113,6 +118,7 @@ export function RecordingPill() {
         // new recording session begins, otherwise the Stop button stays
         // disabled and a stale fallback timer can fire mid-session.
         setStopping(false);
+        setFinishedMeetingId(null);
         setError(null);
         setExpanded(false);
         // Reset transcript state for the new session.
@@ -145,6 +151,21 @@ export function RecordingPill() {
         const lines = ev.payload?.lines;
         if (lines?.length) setPreloadedLines(lines);
       }),
+    );
+    trackListen(
+      listen<{ meetingId?: string | null; reason?: string }>(
+        "meetings:transcription-stopped",
+        (ev) => {
+          const reason = ev.payload?.reason;
+          // "replaced" hands straight over to the next session and "app-quit"
+          // is tearing the window down — neither has a user left to read this.
+          if (reason === "replaced" || reason === "app-quit") return;
+          if (ctxRef.current.mode !== "meeting") return;
+          const meetingId = ev.payload?.meetingId ?? activeMeetingIdRef.current;
+          if (!meetingId) return;
+          showFinished(meetingId);
+        },
+      ),
     );
     trackListen(
       listen<{ error: string }>("pill:error", (ev) => {
@@ -187,7 +208,7 @@ export function RecordingPill() {
   useEffect(() => {
     // Clip recordings already broadcast their pause-aware elapsed time every
     // 500ms. Keep the local wall clock only for meeting mode.
-    if (paused || ctx.mode === "clip") return;
+    if (paused || finished || ctx.mode === "clip") return;
     tickRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000));
     }, 500);
@@ -195,7 +216,7 @@ export function RecordingPill() {
       if (tickRef.current) clearInterval(tickRef.current);
       tickRef.current = null;
     };
-  }, [ctx.mode, paused]);
+  }, [ctx.mode, finished, paused]);
 
   async function toggleExpanded() {
     const next = !expanded;
@@ -215,12 +236,32 @@ export function RecordingPill() {
     );
   }
 
+  function showFinished(meetingId: string) {
+    if (stopFallbackRef.current) {
+      clearTimeout(stopFallbackRef.current);
+      stopFallbackRef.current = null;
+    }
+    setStopping(false);
+    setFinishedMeetingId(meetingId);
+    setExpanded(true);
+    invoke("recording_pill_expand", { expanded: true }).catch(() => {});
+  }
+
   async function onStopClick() {
     if (stopping) return;
-    setStopping(true);
+    const meetingId = ctx.meetingId ?? activeMeetingIdRef.current;
     emit("clips:pill-stop", { meetingId: ctx.meetingId ?? null }).catch(
       () => {},
     );
+    // Meetings keep the pill up and switch it to the finished banner right
+    // away. Teardown (final flush, finalize) runs for seconds afterwards, so
+    // waiting on `meetings:transcription-stopped` would leave the pill looking
+    // stuck; the banner is what the user acts on, not the save.
+    if (ctxRef.current.mode === "meeting" && meetingId) {
+      showFinished(meetingId);
+      return;
+    }
+    setStopping(true);
     stopFallbackRef.current = setTimeout(() => {
       invoke("recording_pill_hide").catch(() => {});
     }, 3_000);
@@ -228,7 +269,7 @@ export function RecordingPill() {
 
   // Stable callback for LiveTranscript to push locked-in lines up. Stable
   // identity matters — it's a dep of an effect inside LiveTranscript.
-  const handleTranscriptLines = useCallback((lines: FinalLine[]) => {
+  const handleTranscriptLines = useCallback((lines: TranscriptLine[]) => {
     transcriptLinesRef.current = lines;
     setHasTranscriptLines(lines.length > 0);
   }, []);
@@ -288,6 +329,15 @@ export function RecordingPill() {
     });
   };
 
+  const closeFinished = (openMeeting: boolean) => {
+    if (openMeeting && finishedMeetingId) {
+      emit("clips:open-meeting", { meetingId: finishedMeetingId }).catch(
+        () => {},
+      );
+    }
+    invoke("recording_pill_hide").catch(() => {});
+  };
+
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const ss = String(elapsed % 60).padStart(2, "0");
   const stopLabel =
@@ -323,7 +373,7 @@ export function RecordingPill() {
             <span className="pill-timer">
               {mm}:{ss}
             </span>
-            {expanded ? (
+            {expanded && !finished ? (
               <button
                 type="button"
                 onClick={onPauseClick}
@@ -339,34 +389,49 @@ export function RecordingPill() {
                 )}
               </button>
             ) : null}
-            <button
-              type="button"
-              onClick={onStopClick}
-              disabled={stopping}
-              data-no-drag
-              className="pill-stop-btn"
-              aria-label={stopping ? "Stopping" : stopLabel}
-              title={stopping ? "Stopping..." : stopLabel}
-            >
-              {stopping ? (
-                <IconLoader2 className="pill-spinner" size={14} />
-              ) : (
-                <IconPlayerStopFilled size={14} />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={toggleExpanded}
-              data-no-drag
-              className="pill-expand-btn"
-              aria-label={expanded ? "Collapse" : "Expand"}
-            >
-              {expanded ? (
-                <IconChevronUp size={16} />
-              ) : (
-                <IconChevronDown size={16} />
-              )}
-            </button>
+            {!finished ? (
+              <button
+                type="button"
+                onClick={onStopClick}
+                disabled={stopping}
+                data-no-drag
+                className="pill-stop-btn"
+                aria-label={stopping ? "Stopping" : stopLabel}
+                title={stopping ? "Stopping..." : stopLabel}
+              >
+                {stopping ? (
+                  <IconLoader2 className="pill-spinner" size={14} />
+                ) : (
+                  <IconPlayerStopFilled size={14} />
+                )}
+              </button>
+            ) : null}
+            {finished ? (
+              <button
+                type="button"
+                onClick={() => closeFinished(false)}
+                data-no-drag
+                className="pill-close-btn"
+                aria-label="Dismiss"
+                title="Dismiss"
+              >
+                <IconX size={16} />
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={toggleExpanded}
+                data-no-drag
+                className="pill-expand-btn"
+                aria-label={expanded ? "Collapse" : "Expand"}
+              >
+                {expanded ? (
+                  <IconChevronUp size={16} />
+                ) : (
+                  <IconChevronDown size={16} />
+                )}
+              </button>
+            )}
           </div>
         </div>
 
@@ -389,6 +454,21 @@ export function RecordingPill() {
           }
         >
           <div className="pill-divider" />
+          {finished ? (
+            <div className="pill-finished-banner" role="status">
+              <span className="pill-finished-text">
+                Meeting finished — notes are ready
+              </span>
+              <button
+                type="button"
+                data-no-drag
+                className="pill-finished-open"
+                onClick={() => closeFinished(true)}
+              >
+                Open meeting
+              </button>
+            </div>
+          ) : null}
           <div className="pill-transcript-area">
             <div className="pill-pane-label pill-pane-label-row">
               <span>Transcript</span>

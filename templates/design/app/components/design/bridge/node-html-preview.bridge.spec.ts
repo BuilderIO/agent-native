@@ -49,11 +49,16 @@ describe("node-html-preview iframe bridge", () => {
               }
             ).__nodeHtmlPreviewAcks?.push(event.data);
           });
+          // Probes that `restore` put back the ORIGINAL node object with its
+          // original listeners rather than a re-parsed clone. Deliberately not
+          // a "click": edit mode's document-level capture net suppresses native
+          // interaction on the previewed app, so a click would prove nothing
+          // about node identity here — it never reaches any element listener.
           (window as Window & { __originalClicks?: number }).__originalClicks =
             0;
           document
             .querySelector('[data-agent-native-node-id="hero"]')
-            ?.addEventListener("click", () => {
+            ?.addEventListener("agent-native-node-identity-probe", () => {
               (
                 window as Window & { __originalClicks?: number }
               ).__originalClicks! += 1;
@@ -171,7 +176,11 @@ describe("node-html-preview iframe bridge", () => {
           originalOuterHtml,
         );
         await restored.evaluate((element) => {
-          element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+          element.dispatchEvent(
+            new CustomEvent("agent-native-node-identity-probe", {
+              bubbles: true,
+            }),
+          );
         });
         expect(
           await page.evaluate(
@@ -228,7 +237,11 @@ describe("node-html-preview iframe bridge", () => {
         await page
           .locator('[data-agent-native-node-id="hero"]')
           .evaluate((element) => {
-            element.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+            element.dispatchEvent(
+              new CustomEvent("agent-native-node-identity-probe", {
+                bubbles: true,
+              }),
+            );
           });
         expect(
           await page.evaluate(

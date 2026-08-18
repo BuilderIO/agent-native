@@ -25,6 +25,10 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import {
+  lockContentDatabaseMutation,
+  touchContentDatabase,
+} from "./_content-database-mutation-lock.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
 
@@ -46,6 +50,21 @@ const submitContentDatabaseFormSchema = z.object({
 
 type PropertyDefinitionRow =
   typeof schema.documentPropertyDefinitions.$inferSelect;
+
+function propertyDefinitionFingerprint(definitions: PropertyDefinitionRow[]) {
+  return JSON.stringify(
+    definitions
+      .map((definition) => ({
+        id: definition.id,
+        name: definition.name,
+        type: definition.type,
+        systemRole: definition.systemRole,
+        visibility: definition.visibility,
+        optionsJson: definition.optionsJson,
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+  );
+}
 
 function resolveFormView(
   views: ContentDatabaseView[],
@@ -176,6 +195,15 @@ function resolveSubmittedProperties(
 export default defineAction({
   description:
     "Submit one row through a Content database form. Validates that form's required questions, resolves option labels safely, writes the title, Blocks, and property values atomically, verifies the saved row, and returns its exact page link.",
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Submit Content Database Form",
+    description:
+      "Delegate a validated, atomic submission to an existing Content database form.",
+  },
   schema: submitContentDatabaseFormSchema,
   mcpApp: {
     compactCatalog: true,
@@ -231,6 +259,7 @@ export default defineAction({
           ),
         ),
       );
+    const definitionsFingerprint = propertyDefinitionFingerprint(definitions);
     const viewConfig = parseDatabaseViewConfig(database.viewConfigJson);
     const formView = resolveFormView(
       viewConfig.views,
@@ -310,6 +339,35 @@ export default defineAction({
     const createdBy = getRequestUserEmail() ?? database.ownerEmail;
 
     await db.transaction(async (tx) => {
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        databaseId,
+      );
+      await touchContentDatabase(
+        tx as unknown as ReturnType<typeof getDb>,
+        databaseId,
+        now,
+      );
+      const lockedDefinitions = await tx
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          and(
+            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
+            eq(
+              schema.documentPropertyDefinitions.ownerEmail,
+              database.ownerEmail,
+            ),
+          ),
+        );
+      if (
+        propertyDefinitionFingerprint(lockedDefinitions) !==
+        definitionsFingerprint
+      ) {
+        throw new Error(
+          "Database properties changed before form submission completed.",
+        );
+      }
       const [maxDocumentPosition] = await tx
         .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
         .from(schema.documents)

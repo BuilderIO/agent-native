@@ -62,6 +62,10 @@ const messages = {
     title: "CRM の設定",
     description:
       "ネイティブ SQL は CRM 所有のレコードをローカルかつ移植可能な状態に保ちます。HubSpot と Salesforce はワークスペース接続を使用し、そのミラーには許可された項目、範囲を限定したメタデータ、制限付きの証拠参照だけが保存されます。",
+    languageTitle: "言語",
+    languageDescription:
+      "インターフェース言語を選択します。この設定はアカウントに保存されます。",
+    languageLabel: "インターフェース言語",
   },
   connection: {
     tab: "接続",

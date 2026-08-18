@@ -327,6 +327,7 @@ export async function fetchICalEvents(
     .map((e) => ({
       id: `ical-${feedId}-${e.uid}`,
       title: e.summary || "(No title)",
+      titleIsGenerated: !e.summary,
       description: e.description || "",
       start: e.start,
       end: e.end,

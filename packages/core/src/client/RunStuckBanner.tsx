@@ -51,6 +51,16 @@ export interface RunStuckBannerProps {
    */
   hasInFlightWork?: () => boolean;
   /**
+   * Returns true when this chat is actually waiting on a reply - typically
+   * backed by `chatHandle.isRunning()`. "Stuck" is a claim about THIS client,
+   * but the run row is the server's; a turn that finished normally can leave a
+   * row in `running` (terminal marking is best-effort, and the stale-run reaper
+   * runs later). Without this gate an idle, completed chat shows the warning
+   * and auto-retry re-prompts a thread the user considers done. Checked fresh
+   * on every render; omit to keep the unconditional behavior.
+   */
+  isAwaitingResponse?: () => boolean;
+  /**
    * Called whenever the stuck state transitions. Useful for surfacing
    * observability events (Sentry, PostHog) at the call site.
    */
@@ -170,6 +180,7 @@ export function RunStuckBanner({
   autoRetry = false,
   autoRetryOwnerId,
   hasInFlightWork,
+  isAwaitingResponse,
   className,
 }: RunStuckBannerProps) {
   const state = useRunStuckDetection({
@@ -180,6 +191,11 @@ export function RunStuckBanner({
   });
   const abortRun = useAbortRun(apiUrl);
   const [busy, setBusy] = useState<BusyState>({ type: "none" });
+  // "An automatic attempt was made for this run" is a different fact from
+  // "the controls are locked while a request is in flight". Sharing one flag
+  // for both would force the buttons to stay disabled just to keep the
+  // message on screen.
+  const [autoRetriedRunId, setAutoRetriedRunId] = useState<string | null>(null);
   const autoRetriedRunIdsRef = useRef<Set<string>>(new Set());
   const generatedOwnerIdRef = useRef<string | null>(null);
   if (!generatedOwnerIdRef.current) {
@@ -204,6 +220,7 @@ export function RunStuckBanner({
   // either signal says so.
   const inFlightWork =
     state.hasInFlightWork === true || (hasInFlightWork?.() ?? false);
+  const awaitingResponse = isAwaitingResponse?.() ?? true;
   // Server-continued runs are recovered by the SERVER (chained continuation
   // chunks + lost-handoff sweep); an automatic client abort would kill a live
   // server-chained run. Auto-retry is therefore disabled unconditionally for
@@ -261,6 +278,9 @@ export function RunStuckBanner({
       // A live tool/A2A call in flight — never auto-abort real work (see
       // `inFlightWork` comment above).
       inFlightWork ||
+      // Nothing is waiting on this run here; re-prompting would restart a
+      // thread the user already considers finished.
+      !awaitingResponse ||
       !state.isStuck ||
       !state.runId ||
       busy.type !== "none" ||
@@ -274,21 +294,22 @@ export function RunStuckBanner({
       autoRetriedRunIdsRef.current.add(runId);
       if (!claimed) return;
       setBusy({ type: "retry", runId });
+      setAutoRetriedRunId(runId);
       trackEvent("agent_chat_stuck_auto_retry", {
         runId,
         threadId: threadId ?? null,
         stuckSinceMs: state.stuckSinceMs ?? null,
       });
       void abortRun(runId, "auto_stuck_retry").then((aborted) => {
-        if (aborted) {
-          onRetry?.(aborted);
-          return;
-        }
+        // Release the controls on both outcomes. If the abort does not move
+        // the row off `running`, polling may never observe a new run id. The
+        // automatic-attempt set still prevents re-entry.
         setBusy((current) =>
           current.type !== "none" && current.runId === runId
             ? { type: "none" }
             : current,
         );
+        if (aborted) onRetry?.(aborted);
       });
     });
   }, [
@@ -304,6 +325,7 @@ export function RunStuckBanner({
     state.runId,
     state.stuckSinceMs,
     threadId,
+    awaitingResponse,
   ]);
 
   // A stale progress timestamp is not actionable while the server is still
@@ -314,7 +336,8 @@ export function RunStuckBanner({
     !state.isStuck ||
     !state.runId ||
     backgroundWorkerStillAlive ||
-    inFlightWork
+    inFlightWork ||
+    !awaitingResponse
   ) {
     return null;
   }
@@ -380,7 +403,7 @@ export function RunStuckBanner({
             No progress
             {stuckSeconds != null ? ` for ${stuckSeconds}s` : ""}. The agent may
             have hit a server timeout or lost its connection.
-            {autoRetry && busyType === "retry"
+            {autoRetry && autoRetriedRunId === state.runId
               ? " Retrying automatically now."
               : ""}
           </span>

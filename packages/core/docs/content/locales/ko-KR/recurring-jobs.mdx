@@ -7,6 +7,12 @@ description: "Cron 예약 메시지는 에이전트가 일일 다이제스트, �
 
 **반복 작업**은 크론 일정에 따라 실행되는 프롬프트입니다. 에이전트가 자체적으로 작업을 수행하는 방식입니다. "매일 아침 7시에 밤샘 이메일 요약", "매주 월요일 지난 주의 가입 번호를 Slack에 게시", "매시간 오래된 초안을 검색하여 삭제합니다."
 
+<Callout tone="info">
+
+**Recurring Jobs**는 **Scheduled** 자동화의 기존 이름입니다. **Automations**는 **Scheduled**와 **Event**를 포괄합니다. `jobs/`와 `manage-jobs`는 기존 schedule-only 통합을 위해 유지됩니다. 모델과 MCP 허용 목록을 포함한 새로운 개인 또는 조직 작업에는 `manage-automations`와 `/agent#jobs`의 **Automations**를 사용하세요.
+
+</Callout>
+
 반복 작업은 정해진 시간에 실행됩니다. _이벤트_(예약 생성, 이메일 수신)에 반응하려면 — 동일한 `jobs/` 파일 형식과 조건 — [Automations](/docs/automations)를 참조하세요.
 
 작업은 `jobs/<name>.md`의 [에이전트 리소스](/docs/agent-resources)에 있습니다. YAML 머리말이 있는 Markdown 파일입니다. 등록도 없고 배선도 없습니다. 파일을 드롭하면 프레임워크가 이를 선택합니다.
@@ -154,8 +160,8 @@ Summarize overnight emails.`,
   <div class="diagram-card accent">
     <span class="diagram-pill accent">3 &middot; run</span
     ><small class="diagram-muted"
-      >fresh agent thread, job body as the user message &mdash; actions, SQL,
-      A2A, email</small
+      >공유 runner가 ID를 검증하고 모델, MCP 허용 목록, 연속 실행, 전달 및
+      사용량을 해결</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -216,7 +222,7 @@ Summarize overnight emails.`,
 | `update` | `name`(필수); `schedule`, `instructions`, `enabled`, `runAs`, `mcpTools` | 기존 작업 편집                                             |
 | `delete` | `name` (필수)                                                            | 작업 삭제 — 항상 먼저 사용자에게 확인                      |
 
-**개인 범위와 공유 범위.** 각 작업은 개인 범위(작성자에게만 실행되고 표시됨) 또는 공유/조직 범위(작성자를 대신하여 실행되지만 조직 구성원에게 표시됨)에 있습니다. `scope` 및 `runAs` 매개변수는 생성 시 이를 제어합니다. 조직 관리자는 공유 작업을 업데이트하거나 삭제할 수 있습니다. 관리자가 아닌 회원은 자신의 회원만 관리할 수 있습니다.
+**개인 범위와 공유 범위.** 각 자동화는 개인 또는 조직 범위에 있으며 생성자로 실행됩니다. 관리자는 공유 정의를 관리할 수 있지만 생성자 ID는 변경할 수 없습니다. 조직 실행 전마다 프레임워크는 생성자가 존재하고 여전히 구성원인지 확인합니다.
 
 ## 스케줄링 패키지와 다름 {#vs-scheduling-package}
 
@@ -231,5 +237,5 @@ Summarize overnight emails.`,
 
 - [**Automations**](/docs/automations) — 동일한 `jobs/` 형식에 이벤트 트리거 및 조건 추가
 - [**에이전트 리소스**](/docs/agent-resources) — 작업이 skills, 메모리 및 사용자 정의 에이전트와 함께 존재하는 곳
-- [**Actions**](/docs/actions) — 작업이 호출하는 도구
+- [**Actions**](/docs/actions-overview) — 작업이 호출하는 도구
 - [**Agent Teams**](/docs/agent-teams) — 작업은 종종 병렬 작업을 수행하기 위해 하위 에이전트를 생성합니다

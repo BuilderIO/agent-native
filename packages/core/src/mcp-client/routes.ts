@@ -6,9 +6,13 @@
  * hot-reload the configured server set.
  *
  *   GET    /_agent-native/mcp/servers           list user + org servers
+ *   GET    /_agent-native/mcp/servers/runtime-config
+ *                                                reserved; returns 410 until a
+ *                                                desktop capability broker exists
  *   POST   /_agent-native/mcp/servers           add a server
  *   DELETE /_agent-native/mcp/servers/:id       remove a server (scope via ?scope=)
  *   POST   /_agent-native/mcp/servers/:id/test  dry-run connect (no persist)
+ *   POST   /_agent-native/mcp/servers/:id/reconnect retry connect + refresh
  *   POST   /_agent-native/mcp/servers/test      dry-run a URL before persisting
  *   GET    /_agent-native/mcp/builtin           list built-in capability toggles
  *   POST   /_agent-native/mcp/builtin           update built-in capability toggles
@@ -32,7 +36,8 @@ import { getSession } from "../server/auth.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
-import { getAllSettings } from "../settings/store.js";
+import { shouldDisableInProcessSweeps } from "../server/sweep-runtime.js";
+import { getAllSettings, getSettingsEmitter } from "../settings/store.js";
 import {
   areBuiltinMcpCapabilitiesSupported,
   BUILTIN_MCP_CAPABILITIES,
@@ -76,6 +81,24 @@ import { loadWorkspaceMcpServers } from "./workspace-servers.js";
 
 export { formatMcpConnectError } from "./errors.js";
 
+/**
+ * The settings table backing remote/built-in MCP servers could not be read.
+ *
+ * Distinct from `buildMergedConfig()` returning `null`, which means the app is
+ * genuinely configured with zero MCP servers. Coercing an unreachable database
+ * into an empty settings map made every caller report "no MCP servers
+ * configured" while the real answer was "could not read the configuration".
+ */
+export class McpConfigUnreadableError extends Error {
+  constructor(cause: unknown) {
+    super(
+      `Could not read MCP configuration from settings: ${(cause as any)?.message ?? cause}`,
+    );
+    this.name = "McpConfigUnreadableError";
+    this.cause = cause;
+  }
+}
+
 /** Redact obvious auth header values before sending to the client. */
 function redactHeaders(
   headers?: Record<string, string>,
@@ -108,6 +131,18 @@ function projectForClient(
     createdAt: stored.createdAt,
     mergedId: mergedConfigKey(scope, stored, ownerId),
     status,
+  };
+}
+
+function reconnectStatusForClient(
+  manager: McpClientManager,
+  mergedId: string,
+): ServerStatus {
+  const status = statusFor(manager, mergedId);
+  if (status.state !== "error") return status;
+  return {
+    state: "error",
+    error: formatMcpConnectError(status.error),
   };
 }
 
@@ -198,7 +233,12 @@ export async function buildMergedConfig(): Promise<McpConfig | null> {
   const base = loadMcpConfig() ?? autoDetectMcpConfig();
   const servers: Record<string, McpServerConfig> = { ...(base?.servers ?? {}) };
 
-  const all = await getAllSettings().catch(() => ({}));
+  const all = await getAllSettings().catch((err: unknown) => {
+    console.warn(
+      `[mcp-client] settings read failed: ${(err as any)?.message ?? err}`,
+    );
+    throw new McpConfigUnreadableError(err);
+  });
   for (const [fullKey, value] of Object.entries(all)) {
     const userMatch = /^u:([^:]+):mcp-servers-remote$/.exec(fullKey);
     const orgMatch = /^o:([^:]+):mcp-servers-remote$/.exec(fullKey);
@@ -291,6 +331,13 @@ function sortedConfigSignature(config: McpConfig | null): string {
   return JSON.stringify(entries);
 }
 
+/**
+ * How long the refresh may skip the settings read on the strength of "no
+ * in-process settings write since the last one". Bounds how stale a remote MCP
+ * server list added by ANOTHER process can be.
+ */
+const MCP_CONFIG_REFRESH_BACKSTOP_MS = 5 * 60 * 1000;
+
 function mcpConfigRefreshIntervalMs(): number {
   const raw = process.env.AGENT_NATIVE_MCP_CONFIG_REFRESH_MS;
   if (raw?.trim() === "0") return 0;
@@ -304,11 +351,32 @@ export function startMcpConfigRefresh(
 ): (() => void) | null {
   const intervalMs = mcpConfigRefreshIntervalMs();
   if (intervalMs <= 0 || typeof setInterval !== "function") return null;
+  // Billed per warm container on serverless, and the first tick always runs a
+  // full settings scan because `settingsDirty` starts true. Request-driven
+  // reconfigures (`waitUntilReady` on the MCP routes, `refreshGlobalMcpManager`)
+  // already cover config changes there, and a fresh container re-reads config.
+  if (shouldDisableInProcessSweeps()) return null;
 
   let currentSignature = sortedConfigSignature(manager.getConfig());
   let refreshing = false;
+  // `buildMergedConfig` reads the entire settings table just to diff a
+  // signature, which on an idle app is a full-table round trip every minute
+  // forever. Only pay it when an in-process settings write says something might
+  // have changed, plus a periodic backstop for writes from another process.
+  let settingsDirty = true;
+  let lastFullRefresh = 0;
+  const markDirty = () => {
+    settingsDirty = true;
+  };
+  getSettingsEmitter().on("settings", markDirty);
   const refresh = async () => {
     if (refreshing) return;
+    if (
+      !settingsDirty &&
+      Date.now() - lastFullRefresh < MCP_CONFIG_REFRESH_BACKSTOP_MS
+    ) {
+      return;
+    }
     refreshing = true;
     try {
       const next = await buildMergedConfig();
@@ -317,7 +385,12 @@ export function startMcpConfigRefresh(
         await manager.reconfigure(next);
         currentSignature = nextSignature;
       }
+      settingsDirty = false;
+      lastFullRefresh = Date.now();
     } catch (err: any) {
+      // Keep this dirty so a transient database or manager failure is retried
+      // on the next interval instead of being hidden by the backstop window.
+      settingsDirty = true;
       console.warn(
         `[mcp-client] config refresh failed: ${err?.message ?? err}`,
       );
@@ -328,7 +401,10 @@ export function startMcpConfigRefresh(
 
   const timer = setInterval(refresh, intervalMs);
   (timer as { unref?: () => void }).unref?.();
-  return () => clearInterval(timer);
+  return () => {
+    clearInterval(timer);
+    getSettingsEmitter().off("settings", markDirty);
+  };
 }
 
 async function resolveContextForRequest(event: H3Event): Promise<{
@@ -367,6 +443,9 @@ async function reconfigureManager(manager: McpClientManager): Promise<void> {
 export function mountMcpServersRoutes(
   nitroApp: any,
   manager: McpClientManager,
+  options: {
+    waitUntilReady?: () => Promise<void>;
+  } = {},
 ): void {
   const mountedApps: WeakSet<object> = ((
     globalThis as any
@@ -375,13 +454,17 @@ export function mountMcpServersRoutes(
   mountedApps.add(nitroApp);
 
   mountMcpOAuthRoutes(nitroApp, {
-    reconfigure: () => reconfigureManager(manager),
+    reconfigure: async () => {
+      await options.waitUntilReady?.();
+      await reconfigureManager(manager);
+    },
   });
 
   try {
     getH3App(nitroApp).use(
       "/_agent-native/mcp/servers",
       defineEventHandler(async (event: H3Event) => {
+        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")
@@ -389,6 +472,14 @@ export function mountMcpServersRoutes(
         const parts = pathname ? pathname.split("/") : [];
 
         setResponseHeader(event, "Content-Type", "application/json");
+
+        if (
+          method === "GET" &&
+          parts.length === 1 &&
+          parts[0] === "runtime-config"
+        ) {
+          return handleRuntimeConfig(event);
+        }
 
         // POST /servers/test — dry-run a URL+headers before persisting
         if (method === "POST" && parts.length === 1 && parts[0] === "test") {
@@ -409,6 +500,13 @@ export function mountMcpServersRoutes(
           if (parts.length === 2 && parts[1] === "test" && method === "POST") {
             return handleTestExisting(event, manager, id);
           }
+          if (
+            parts.length === 2 &&
+            parts[1] === "reconnect" &&
+            method === "POST"
+          ) {
+            return handleReconnectExisting(event, manager, id);
+          }
           if (parts.length === 1 && method === "DELETE") {
             return handleDelete(event, manager, id);
           }
@@ -421,6 +519,7 @@ export function mountMcpServersRoutes(
     getH3App(nitroApp).use(
       "/_agent-native/mcp/builtin",
       defineEventHandler(async (event: H3Event) => {
+        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")
@@ -442,6 +541,7 @@ export function mountMcpServersRoutes(
     getH3App(nitroApp).use(
       "/_agent-native/mcp/apps",
       defineEventHandler(async (event: H3Event) => {
+        await options.waitUntilReady?.();
         const method = getMethod(event);
         const pathname = (event.url?.pathname || "")
           .replace(/^\/+/, "")
@@ -860,6 +960,14 @@ async function handleList(
   };
 }
 
+function handleRuntimeConfig(event: H3Event): { error: string } {
+  setResponseStatus(event, 410);
+  return {
+    error:
+      "Cleartext MCP runtime config requires a desktop capability broker and is not available over session-authenticated HTTP.",
+  };
+}
+
 async function handleAdd(event: H3Event, manager: McpClientManager) {
   const body = (await readBody(event).catch(() => ({}))) as {
     scope?: unknown;
@@ -1038,6 +1146,48 @@ async function handleTestExisting(
   return { ok: true, toolCount: result.toolCount, tools: result.tools };
 }
 
+async function handleReconnectExisting(
+  event: H3Event,
+  manager: McpClientManager,
+  id: string,
+) {
+  const scope = getQuery(event).scope;
+  const parsedScope =
+    scope === "org" ? "org" : scope === "user" ? "user" : null;
+  if (!parsedScope) {
+    setResponseStatus(event, 400);
+    return { error: 'scope query param must be "user" or "org"' };
+  }
+  const { email, orgId } = await resolveContextForRequest(event);
+
+  let scopeId: string | null = null;
+  if (parsedScope === "user") {
+    scopeId = email;
+  } else {
+    scopeId = orgId;
+  }
+  if (!scopeId) {
+    setResponseStatus(event, 401);
+    return { error: "Authentication required" };
+  }
+
+  const list = await listRemoteServers(parsedScope, scopeId);
+  const server = list.find((s) => s.id === id);
+  if (!server) {
+    setResponseStatus(event, 404);
+    return { error: "Server not found" };
+  }
+
+  await reconfigureManager(manager);
+  const mergedId = mergedConfigKey(parsedScope, server, scopeId);
+  const status = reconnectStatusForClient(manager, mergedId);
+  const projected = projectForClient(server, parsedScope, scopeId, status);
+  return {
+    ok: true,
+    server: projected,
+  };
+}
+
 async function tryConnect(
   url: string,
   headers?: Record<string, string>,
@@ -1046,10 +1196,8 @@ async function tryConnect(
   | { ok: false; error: string }
 > {
   try {
-    const [{ Client }, { StreamableHTTPClientTransport }] = await Promise.all([
-      import("@modelcontextprotocol/sdk/client/index.js"),
-      import("@modelcontextprotocol/sdk/client/streamableHttp.js"),
-    ]);
+    const { Client, StreamableHTTPClientTransport } =
+      await import("@modelcontextprotocol/client");
     const requestInit: Record<string, unknown> = {};
     if (headers && Object.keys(headers).length > 0) {
       requestInit.headers = headers;
@@ -1059,7 +1207,10 @@ async function tryConnect(
     });
     const client = new Client(
       { name: "agent-native-mcp-client-test", version: "1.0.0" },
-      { capabilities: {} },
+      {
+        capabilities: {},
+        versionNegotiation: { mode: "auto" },
+      },
     );
     try {
       await client.connect(transport);

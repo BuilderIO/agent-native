@@ -294,6 +294,13 @@ describe("reapIfStale — in-flight grace (in_flight_since)", () => {
 
     await setRunInFlightMarker(runId, false);
     expect(readInFlightSince(runId)).toBeNull();
+
+    // A delayed clear from an older tool must not erase a newer marker.
+    await setRunInFlightMarker(runId, true, 111);
+    await setRunInFlightMarker(runId, false, 999);
+    expect(readInFlightSince(runId)).toBe(111);
+    await setRunInFlightMarker(runId, false, 111);
+    expect(readInFlightSince(runId)).toBeNull();
   });
 
   it("does NOT reap a background run whose heartbeat lapsed past BACKGROUND_RUN_STALE_MS while in-flight work is within the bounded grace", async () => {

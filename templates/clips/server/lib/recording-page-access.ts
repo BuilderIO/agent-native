@@ -1,4 +1,9 @@
-export type RecordingPageAccessRole = "owner" | "admin" | "editor" | "viewer";
+export type RecordingPageAccessRole =
+  | "owner"
+  | "admin"
+  | "editor"
+  | "commenter"
+  | "viewer";
 
 /**
  * Match the public recording and video routes: only a finite expiry date can

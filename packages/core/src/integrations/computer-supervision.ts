@@ -10,6 +10,13 @@ const OPERATION_CLASSES = new Set<ComputerOperationClass>([
   "desktop.control",
 ]);
 const APPROVAL_SCOPES = new Set(["once", "run", "task"] as const);
+const OBSERVE_ACTIONS = new Map<ComputerOperationClass, Set<string>>([
+  [
+    "browser.observe",
+    new Set(["browser.read", "browser.observe", "browser.stop"]),
+  ],
+  ["desktop.observe", new Set(["desktop.observe", "desktop.stop"])],
+]);
 const MAX_ACTION_BYTES = 32_768;
 const MAX_LEASE_MS = 24 * 60 * 60_000;
 
@@ -85,7 +92,11 @@ export async function assertValidComputerCommandEnvelope(
   if (!isRecord(value.action)) {
     throw invalid("action must be an object");
   }
-  boundedString(value.action.type, "action.type", 120);
+  const actionType = boundedString(value.action.type, "action.type", 120);
+  assertActionMatchesOperationClass(
+    value.operationClass as ComputerOperationClass,
+    actionType,
+  );
   const actionJson = stableJson(value.action);
   if (new TextEncoder().encode(actionJson).byteLength > MAX_ACTION_BYTES) {
     throw invalid("Computer action exceeds the 32 KiB metadata limit");
@@ -195,6 +206,27 @@ function stableJson(value: unknown): string {
 
 function looksLikeLargeBase64(value: string): boolean {
   return value.length > 512 && /^[A-Za-z0-9+/]+={0,2}$/.test(value);
+}
+
+function assertActionMatchesOperationClass(
+  operationClass: ComputerOperationClass,
+  actionType: string,
+): void {
+  const [surface, mode] = operationClass.split(".");
+  if (!actionType.startsWith(`${surface}.`)) {
+    throw invalid(
+      `${actionType} cannot execute as a ${operationClass} operation`,
+    );
+  }
+  if (
+    mode === "observe" &&
+    !OBSERVE_ACTIONS.get(operationClass)?.has(actionType)
+  ) {
+    throw invalid(`${actionType} requires a ${surface}.control operation`);
+  }
+  if (mode === "control" && actionType.endsWith(".observe")) {
+    throw invalid(`${actionType} must use a ${surface}.observe operation`);
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

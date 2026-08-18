@@ -30,23 +30,25 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkit turns those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
+<Diagram id="doc-block-toolkits-boundary" title="How the three layers fit" summary={"Core is the framework foundation. Toolkit is optional reusable infrastructure and UI. Templates are optional apps built on Core, often using Toolkit."}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">Runtime</span><br />
-    actions, SQL, auth, app state, access checks, realtime transport
+    <span class="diagram-pill accent">Core</span><br />
+    framework runtime: actions, SQL, auth, app state, access checks, live sync
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
     <span class="diagram-pill accent">Toolkit</span><br />
-    collaboration, sharing, setup, review, history, observability
+    optional reusable pieces: collaboration, sharing, setup, review, history,
+    observability
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Apps</span><br />
-    domain schema, routes, actions, branding, specialized workflows
+    <span class="diagram-pill accent">Templates</span><br />
+    optional apps: domain schema, routes, actions, branding, specialized
+    workflows
   </div>
 </div>
 ```
@@ -70,6 +72,11 @@ being rebuilt in slightly different ways every time.
 
 </Diagram>
 
+Core is the framework. Toolkit is an optional shelf of reusable pieces for the
+framework. Templates are optional apps built on Core; they can use Toolkit and
+can be forked and used as complete starting points. An app can also use Core
+directly without adopting Toolkit or a template.
+
 ## Catalog {#catalog}
 
 | Area                       | Start here                                                      | What it covers                                                                  |
@@ -90,7 +97,7 @@ being rebuilt in slightly different ways every time.
 | [Collaboration](/docs/toolkit-collaboration)             | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                                            |
 | [Settings](/docs/toolkit-settings)                       | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place.                      |
 | [Org & Team](/docs/toolkit-org-team)                     | Team pages, org switching, invites, org domains, roles, and app switching.                                                       |
-| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect.                                       |
+| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect (free tier available).                 |
 | [Command & Navigation](/docs/toolkit-command-navigation) | Command menu, deep links, standard app routes, sidebar and shell patterns.                                                       |
 | [Resources](/docs/toolkit-resources)                     | Resource trees, editors, file picker/search, attachments, and local file mode.                                                   |
 | [Agent UX](/docs/toolkit-agent-ux)                       | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                                               |

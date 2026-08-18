@@ -20,12 +20,12 @@ Toolkit은 고품질 에이전트형 애플리케이션을 위한 재사용 가�
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="키트의 위치" summary={"프레임워크 런타임은 지속적인 보장을 제공합니다. Toolkit은 그 보장을 재사용 가능한 제품 시스템으로 바꿉니다. 앱은 도메인별 데이터, 라우트, 시각적 정체성을 더합니다."}>
+<Diagram id="doc-block-toolkits-boundary" title="세 계층의 관계" summary={"Core는 프레임워크 기반입니다. Toolkit은 선택적 재사용 인프라와 UI입니다. Templates는 Core 위에 구축되고 흔히 Toolkit을 사용하는 선택적 앱입니다."}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">런타임</span><br />
+    <span class="diagram-pill accent">Core</span><br />
     액션, SQL, 인증, 앱 상태, 접근 검사, 실시간 전송
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -35,7 +35,7 @@ Toolkit은 고품질 에이전트형 애플리케이션을 위한 재사용 가�
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">앱</span><br />
+    <span class="diagram-pill accent">Templates</span><br />
     도메인 스키마, 라우트, 액션, 브랜딩, 전문 워크플로
   </div>
 </div>
@@ -60,6 +60,8 @@ Toolkit은 고품질 에이전트형 애플리케이션을 위한 재사용 가�
 
 </Diagram>
 
+Core가 프레임워크입니다. Toolkit은 프레임워크를 위한 선택적 재사용 부품 모음입니다. Templates는 Core 위의 선택적 앱이며 Toolkit을 사용할 수 있고 완전한 시작점으로 포크할 수 있습니다. 앱은 Toolkit이나 template 없이 Core를 직접 사용할 수도 있습니다.
+
 ## 카탈로그 {#catalog}
 
 | 영역                     | 시작점                                             | 포함 내용                                                               |
@@ -74,19 +76,19 @@ Toolkit은 고품질 에이전트형 애플리케이션을 위한 재사용 가�
 
 ## 제품 키트 {#product-kits}
 
-| 키트                                             | 용도                                                                                  |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------- |
-| [공유](/docs/toolkit-sharing)                    | 소유 가능한 리소스, 공유 대화 상자, 공개 범위 배지, 공유 액션, 공개/비공개/조직 접근. |
-| [협업](/docs/toolkit-collaboration)              | 실시간 편집, 현재 상태, 라이브 커서, 최근 편집 강조, 협업 실행 취소.                  |
-| [설정](/docs/toolkit-settings)                   | 앱 설정과 에이전트/프로바이더 설정을 예측 가능한 한곳에 두는 표준 설정 페이지와 탭.   |
-| [조직 및 팀](/docs/toolkit-org-team)             | 팀 페이지, 조직 전환, 초대, 조직 도메인, 역할, 앱 전환.                               |
-| [설정 및 연결](/docs/toolkit-setup-connections)  | 온보딩, 시크릿, 워크스페이스 연결, OAuth/프로바이더 준비 상태, Builder 연결.          |
-| [명령 및 탐색](/docs/toolkit-command-navigation) | 명령 메뉴, 딥 링크, 표준 앱 라우트, 사이드바와 셸 패턴.                               |
-| [리소스](/docs/toolkit-resources)                | 리소스 트리, 편집기, 파일 선택/검색, 첨부 파일, 로컬 파일 모드.                       |
-| [에이전트 UX](/docs/toolkit-agent-ux)            | 컴포저, 모델 선택기, 컨텍스트 칩, 승인, 실행 복구, 실행 트레이.                       |
-| [기록](/docs/toolkit-history)                    | 버전 기록, 감사 로그, 실행 취소/다시 실행, 복원, 변경 사항 화면.                      |
-| [댓글 및 검토](/docs/toolkit-comments-review)    | 인라인 댓글, 주석, 멘션, 해결된 스레드, 검토 상태.                                    |
-| [관찰 가능성](/docs/toolkit-observability)       | 사용량, 비용, 피드백, 재생, 오류, 실행 진단.                                          |
+| 키트                                             | 용도                                                                                           |
+| ------------------------------------------------ | ---------------------------------------------------------------------------------------------- |
+| [공유](/docs/toolkit-sharing)                    | 소유 가능한 리소스, 공유 대화 상자, 공개 범위 배지, 공유 액션, 공개/비공개/조직 접근.          |
+| [협업](/docs/toolkit-collaboration)              | 실시간 편집, 현재 상태, 라이브 커서, 최근 편집 강조, 협업 실행 취소.                           |
+| [설정](/docs/toolkit-settings)                   | 앱 설정과 에이전트/프로바이더 설정을 예측 가능한 한곳에 두는 표준 설정 페이지와 탭.            |
+| [조직 및 팀](/docs/toolkit-org-team)             | 팀 페이지, 조직 전환, 초대, 조직 도메인, 역할, 앱 전환.                                        |
+| [설정 및 연결](/docs/toolkit-setup-connections)  | 온보딩, 시크릿, 워크스페이스 연결, OAuth/프로바이더 준비 상태, Builder 연결(무료 요금제 제공). |
+| [명령 및 탐색](/docs/toolkit-command-navigation) | 명령 메뉴, 딥 링크, 표준 앱 라우트, 사이드바와 셸 패턴.                                        |
+| [리소스](/docs/toolkit-resources)                | 리소스 트리, 편집기, 파일 선택/검색, 첨부 파일, 로컬 파일 모드.                                |
+| [에이전트 UX](/docs/toolkit-agent-ux)            | 컴포저, 모델 선택기, 컨텍스트 칩, 승인, 실행 복구, 실행 트레이.                                |
+| [기록](/docs/toolkit-history)                    | 버전 기록, 감사 로그, 실행 취소/다시 실행, 복원, 변경 사항 화면.                               |
+| [댓글 및 검토](/docs/toolkit-comments-review)    | 인라인 댓글, 주석, 멘션, 해결된 스레드, 검토 상태.                                             |
+| [관찰 가능성](/docs/toolkit-observability)       | 사용량, 비용, 피드백, 재생, 오류, 실행 진단.                                                   |
 
 ## 패키지 성숙도와 소유권 {#package-maturity-and-ownership}
 

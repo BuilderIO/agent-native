@@ -14,6 +14,7 @@ export type ContentSpaceSummary = {
   role: "owner" | "editor" | "viewer";
   catalogItemId: string;
   catalogDocumentId: string;
+  catalogPosition: number;
 };
 
 export type ListContentSpacesResponse = {

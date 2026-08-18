@@ -12,13 +12,8 @@ Detailed event, availability, booking, storage, and UI rules live in
 - `event-management` for create/update/delete event flows, `list-events` result
   formats and source coverage, and working locations.
 - `availability-booking` for free/busy, booking links, and scheduling.
-- `storing-data`, `real-time-sync`, `security`, `actions`, `frontend-design`,
-  and `shadcn-ui` for framework work.
-
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
+- `capture-learnings` — record a user preference or correction so it outlives
+  the thread.
 
 ## Core Rules
 
@@ -29,12 +24,13 @@ ladder.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for events, availability, booking links, settings, navigation,
   Google Calendar connection, and sharing. Do not bypass app access checks.
+- The `get-settings` and `update-settings` actions expose the General week-start
+  setting as `weekStart`: `sunday` or `monday`.
 - Use `connect-google-calendar` when the user asks to connect or reconnect
   Google Calendar. Return its link to the user; do not `fetch`
   `/_agent-native/google/auth-url` from the agent backend because that route
   requires the signed-in browser session.
-- In dev, call actions with `pnpm action <name>`; in production, use native
-  tools. The action schema is authoritative.
+- The action schema is authoritative when a parameter is unclear.
 - Use the current date from runtime context, not a visible calendar date, when
   the user says today/tomorrow/yesterday.
 - Use `view-screen` when the active date range, selected event, booking link, or
@@ -44,10 +40,8 @@ ladder.
   version matters, use `provider-api-catalog`, `provider-api-docs`, and
   `provider-api-request` against the real provider API instead of weakening the
   answer around a narrow action.
-- For relationship-history searches, prefer raw Google Calendar API calls via
-  `provider-api-request` so the agent controls `calendarId`, `timeMin`,
-  `timeMax`, `q`, `maxResults`, and pagination. For large scans, stage results
-  with `stageAs` and analyze them with `query-staged-dataset`.
+- For relationship-history searches, use `provider-api-request`; stage large
+  scans with `stageAs` and analyze them with `query-staged-dataset`.
 - For Google Calendar, distinguish an empty calendar from missing auth,
   reauth-needed, or fetch failures.
 - `list-events` returns the UI-compatible list by default and the compact
@@ -55,30 +49,14 @@ ladder.
   `sourceCoverage`, and `coverageComplete` fields — a partial source failure is
   not an empty calendar. See `event-management` for the formats and the
   `accountEmails` rules.
-- Treat Google Calendar working locations as native status events, never as
-  generic all-day events. See `event-management` for
-  `workingLocationProperties`, single-occurrence scope, and the working-hours
-  limitation.
-- Use framework sharing actions for calendars/events/booking resources when
-  applicable.
-- Booking-link sharing controls who can manage the link. Public booking access
-  is still controlled by the `/book/{username}/{slug}` URL and `isActive`.
-- `create-booking-link` and `update-booking-link` accept `hosts` for required
-  co-hosts besides the owner, e.g. `hosts: ["brent@example.com"]`. Group links
-  only offer times when the owner and all co-hosts are free, then invite
-  co-hosts to the created Google Calendar event.
+- Treat Google Calendar working locations and full-day out-of-office events as
+  native status events; see `event-management` for their action contracts.
+- Use framework sharing actions for calendar, event, and booking resources;
+  see `availability-booking` for booking-link controls and co-hosts.
 - Keep scheduling answers concrete: exact dates, time zones, conflicts, and
   assumptions.
-- Event detail (panel and popover) exposes `calendar.event-detail.bottom` as an
-  `ExtensionSlot`. Extensions render as widgets there with `slotContext`
-  (eventId, title, start/end, timezones, location, attendees, accountEmail).
-  For inline adornments next to each guest email (e.g. local times), prefer the
-  first-party attendee timezone UI / `set-attendee-timezone` settings, or a
-  source edit — do not claim the slot can inject per-row UI.
-- Use `rsvp-event` for invitation responses, and `update-event` with
-  `addAttendees` (not a replacement `attendees` list) when inviting more people.
-  See `event-management` for RSVP notes, optional guests, recurring guest scope,
-  and `get-attendee-timezones` / `set-attendee-timezone` overrides.
+- Event detail extensions, attendee adornments, RSVP scope, and multi-account
+  updates are documented in `event-management`; follow that skill before edits.
 
 ## Application State
 
@@ -90,4 +68,11 @@ ladder.
 - Preserve `accountEmail` on every Google event write. When more than one
   Google account is connected, pass the chosen account to `create-event`, and
   pass the event's returned `accountEmail` to `update-event`, `delete-event`,
-  and `rsvp-event`. These actions target that account's primary calendar.
+  and `rsvp-event`. These actions target that account's primary calendar. For a
+  move, pass the original account as `accountEmail` and the destination as
+  `targetAccountEmail` to `update-event`.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

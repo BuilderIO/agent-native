@@ -12,8 +12,10 @@ import { createRemoteJWKSet, jwtVerify } from "jose";
 import {
   AGENT_BACKGROUND_PROCESSOR_FIELD,
   AGENT_BACKGROUND_PROCESSOR_INTEGRATION,
+  isInBackgroundFunctionRuntime,
 } from "../agent/durable-background.js";
 import { abortRun } from "../agent/run-manager.js";
+import { isServerlessRuntime } from "../db/client.js";
 import { getOrgContext, resolveOrgIdForEmail } from "../org/context.js";
 import { loadResourcesForPrompt } from "../server/agent-chat-plugin.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -32,16 +34,19 @@ import {
   resolveOAuthRedirectUri,
 } from "../server/google-oauth.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  startIntervalJob,
+  type IntervalJobHandle,
+} from "../server/interval-job.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import {
   processA2AContinuationById,
   processDueA2AContinuations,
+  reconcileTerminalA2AParentIfDisabled,
+  recoverA2AContinuationAfterProcessorFailure,
   recoverDueA2AContinuations,
 } from "./a2a-continuation-processor.js";
-import {
-  failA2AContinuation,
-  hasActiveA2AContinuationsForIntegrationTask,
-} from "./a2a-continuations-store.js";
+import { getA2AContinuationTaskOutcome } from "./a2a-continuations-store.js";
 import { mergeIntegrationAdapters } from "./adapter-overrides.js";
 import { discordAdapter } from "./adapters/discord.js";
 import { emailAdapter } from "./adapters/email.js";
@@ -92,7 +97,7 @@ import {
   INTEGRATION_CAMPAIGN_PROCESSOR_FIELD,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   integrationDispatchScopeValue,
-  isIntegrationDurableDispatchConfigured,
+  isInIntegrationRecoveryRuntime,
   isIntegrationDurableDispatchEnabledForTask,
 } from "./integration-durable-dispatch.js";
 import {
@@ -133,6 +138,7 @@ import {
   authenticateRemoteDeviceToken,
   createRemoteDevice,
   getRemoteComputerCapabilities,
+  getRemoteExecutionCapabilities,
   getRemoteDeviceForOwner,
   listRemoteDevicesForOwner,
   revokeRemoteDeviceForOwner,
@@ -160,6 +166,7 @@ import type {
   RemoteCommand,
   RemoteCommandKind,
   RemoteDevice,
+  RemoteExecutionCapabilities,
 } from "./remote-types.js";
 import { listIntegrationScopes, saveIntegrationScope } from "./scope-store.js";
 import { buildSlackAgentManifest } from "./slack-manifest.js";
@@ -192,7 +199,12 @@ import {
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
-let a2aContinuationRetryInterval: ReturnType<typeof setInterval> | null = null;
+// Timer-driven sweep only — the atomic DB claim inside
+// processDueA2AContinuations already makes concurrent calls (this timer, the
+// opportunistic post-dispatch sweep, etc.) safe.
+let a2aContinuationJob: IntervalJobHandle | null = null;
+let a2aContinuationStartupTimer: ReturnType<typeof setTimeout> | null = null;
+const A2A_CONTINUATION_SWEEP_INTERVAL_MS = 60_000;
 const INTEGRATION_DELIVERY_LEASE_MS = 2 * 60_000;
 
 async function checkpointIntegrationDeliveryRetry(
@@ -327,23 +339,23 @@ async function containFailedDeliveryTransition(
 function startA2AContinuationRetryJob(
   adapters: Map<string, PlatformAdapter>,
 ): void {
-  if (a2aContinuationRetryInterval) return;
-  const initialTimer = setTimeout(() => {
-    processDueA2AContinuations({ adapters }).catch((err) => {
-      console.error("[integrations] A2A continuation retry job failed:", err);
-    });
+  if (a2aContinuationJob || a2aContinuationStartupTimer) return;
+  a2aContinuationStartupTimer = setTimeout(() => {
+    a2aContinuationStartupTimer = null;
+    a2aContinuationJob = startIntervalJob(
+      () => processDueA2AContinuations({ adapters }),
+      {
+        intervalMs: A2A_CONTINUATION_SWEEP_INTERVAL_MS,
+        onError: (err) => {
+          console.error(
+            "[integrations] A2A continuation retry job failed:",
+            err,
+          );
+        },
+      },
+    );
   }, 10_000);
-  unrefTimer(initialTimer);
-  a2aContinuationRetryInterval = setInterval(() => {
-    processDueA2AContinuations({ adapters }).catch((err) => {
-      console.error("[integrations] A2A continuation retry job failed:", err);
-    });
-  }, 60_000);
-  unrefTimer(a2aContinuationRetryInterval);
-}
-
-function unrefTimer(timer: ReturnType<typeof setInterval>): void {
-  (timer as unknown as { unref?: () => void }).unref?.();
+  a2aContinuationStartupTimer.unref?.();
 }
 
 // ─── Google Pub/Sub OIDC verifier (for Drive changes.watch push) ────────────
@@ -507,10 +519,17 @@ export async function enqueueRemoteCommand(
   });
   const requestedDeviceId =
     readString(command.hostId) ?? readString(command.deviceId);
-  const device =
-    (requestedDeviceId
-      ? devices.find((candidate) => candidate.id === requestedDeviceId)
-      : undefined) ?? devices[0];
+  const device = requestedDeviceId
+    ? devices.find((candidate) => candidate.id === requestedDeviceId)
+    : devices[0];
+  if (requestedDeviceId && !device) {
+    return {
+      ok: false,
+      hostOnline: false,
+      hostStatus: "offline",
+      error: "The requested execution host is not paired with this account.",
+    };
+  }
   if (!device) {
     return {
       ok: false,
@@ -578,6 +597,13 @@ function remoteCodeCommandParams(
       cwd: readString(command.cwd),
       goalId: readString(command.goalId) ?? "task",
       permissionMode: readString(command.permissionMode),
+      engine: readString(command.engine),
+      model: readString(command.model),
+      effort: readString(command.effort),
+      reasoningEffort: readString(command.reasoningEffort),
+      runId: readString(command.runId),
+      workload: readString(command.workload) ?? "code-agent",
+      metadata: readObject(command.metadata) ?? undefined,
     };
   }
   if (type === "continue") {
@@ -617,6 +643,13 @@ function enqueueBodyToRemoteCodeCommand(
       cwd: payload.cwd,
       goalId: payload.goalId,
       permissionMode: payload.permissionMode,
+      engine: payload.engine,
+      model: payload.model,
+      effort: payload.effort,
+      reasoningEffort: payload.reasoningEffort,
+      runId: payload.runId,
+      workload: payload.workload,
+      metadata: payload.metadata,
     };
   }
   if (operation === "code-agent.run.follow-up") {
@@ -712,6 +745,18 @@ async function hasOnlineRemoteDevice(
 
 function remoteDeviceToHost(device: RemoteDevice): Record<string, unknown> {
   const online = device.status === "active" && isRemoteDeviceOnline(device);
+  const executionCapabilities = getRemoteExecutionCapabilities(device);
+  const capabilities = [
+    ...(executionCapabilities?.workloads ?? []).map(
+      (workload) => `workload:${workload}`,
+    ),
+    ...(executionCapabilities?.engines ?? []).map(
+      (engine) => `engine:${engine}`,
+    ),
+    ...(executionCapabilities?.acceptsScheduledWork ? ["scheduled-task"] : []),
+    ...(executionCapabilities?.acceptsPortalHandoffs ? ["portal"] : []),
+    ...(device.metadata?.computerCapabilities ? ["computer"] : []),
+  ];
   return {
     id: device.id,
     name: device.label,
@@ -724,6 +769,8 @@ function remoteDeviceToHost(device: RemoteDevice): Record<string, unknown> {
     platform: device.platform ?? "desktop",
     appVersion: device.appVersion ?? undefined,
     hostName: device.hostName ?? undefined,
+    capabilities,
+    executionCapabilities: executionCapabilities ?? undefined,
     metadata: device.metadata ?? undefined,
     device: toPublicRemoteDevice(device),
   };
@@ -957,11 +1004,21 @@ export function createIntegrationsPlugin(
     }
 
     async function requireRemoteDevice(event: any) {
-      const token = extractBearerToken(
-        getRequestHeader(event, "authorization"),
+      // Some managed proxies omit Authorization before a serverless function
+      // sees the request. Keep the device secret in a dedicated TLS-only
+      // header as a transport fallback; the value is still hashed and looked
+      // up by authenticateRemoteDeviceToken, never persisted raw.
+      const candidates = [
+        getRequestHeader(event, "x-agent-native-device-token")?.trim() || null,
+        extractBearerToken(getRequestHeader(event, "authorization")),
+      ].filter(
+        (token, index, all): token is string =>
+          Boolean(token) && all.indexOf(token) === index,
       );
-      const device = await authenticateRemoteDeviceToken(token);
-      if (device) return device;
+      for (const token of candidates) {
+        const device = await authenticateRemoteDeviceToken(token);
+        if (device) return device;
+      }
       setResponseStatus(event, 401);
       return null;
     }
@@ -1085,11 +1142,17 @@ export function createIntegrationsPlugin(
           hostName?: unknown;
           hostname?: unknown;
           metadata?: unknown;
+          executionCapabilities?: unknown;
         };
         const label =
           typeof body.label === "string" && body.label.trim()
             ? body.label.trim().slice(0, 200)
             : "Remote device";
+        const metadata = readObject(body.metadata);
+        const hasExecutionCapabilities = Object.prototype.hasOwnProperty.call(
+          body,
+          "executionCapabilities",
+        );
         const { device, token } = await createRemoteDevice({
           ownerEmail: ctx.ownerEmail,
           orgId: ctx.orgId,
@@ -1097,7 +1160,19 @@ export function createIntegrationsPlugin(
           platform: readString(body.platform),
           appVersion: readString(body.appVersion) ?? readString(body.version),
           hostName: readString(body.hostName) ?? readString(body.hostname),
-          metadata: readObject(body.metadata),
+          metadata:
+            metadata || hasExecutionCapabilities
+              ? {
+                  ...(metadata ?? {}),
+                  ...(hasExecutionCapabilities
+                    ? {
+                        executionCapabilities: readRemoteExecutionCapabilities(
+                          body.executionCapabilities,
+                        ),
+                      }
+                    : {}),
+                }
+              : null,
         });
         return { device: toPublicRemoteDevice(device), token };
       }),
@@ -1589,21 +1664,44 @@ export function createIntegrationsPlugin(
             ? ((await readBody(event)) as {
                 waitMs?: unknown;
                 computerCapabilities?: unknown;
+                browserSession?: unknown;
+                executionCapabilities?: unknown;
               })
             : {};
         let pollingDevice = device;
         if (
           method === "POST" &&
-          Object.prototype.hasOwnProperty.call(body, "computerCapabilities")
+          (Object.prototype.hasOwnProperty.call(body, "computerCapabilities") ||
+            Object.prototype.hasOwnProperty.call(body, "browserSession") ||
+            Object.prototype.hasOwnProperty.call(body, "executionCapabilities"))
         ) {
-          const computerCapabilities = readComputerCapabilities(
-            body.computerCapabilities,
-          );
           const updated = await updateRemoteDeviceDetails({
             id: device.id,
             metadata: {
               ...(device.metadata ?? {}),
-              computerCapabilities,
+              ...(Object.prototype.hasOwnProperty.call(
+                body,
+                "computerCapabilities",
+              )
+                ? {
+                    computerCapabilities: readComputerCapabilities(
+                      body.computerCapabilities,
+                    ),
+                  }
+                : {}),
+              ...(Object.prototype.hasOwnProperty.call(
+                body,
+                "executionCapabilities",
+              )
+                ? {
+                    executionCapabilities: readRemoteExecutionCapabilities(
+                      body.executionCapabilities,
+                    ),
+                  }
+                : {}),
+              ...(Object.prototype.hasOwnProperty.call(body, "browserSession")
+                ? { browserSession: readBrowserSession(body.browserSession) }
+                : {}),
             },
           });
           if (updated) pollingDevice = updated;
@@ -1775,15 +1873,16 @@ export function createIntegrationsPlugin(
           setResponseStatus(event, 401);
           return { error: "Invalid or expired internal token" };
         }
-        if (!isIntegrationDurableDispatchConfigured()) {
-          return { ok: true, disabled: true };
-        }
         const webhookBaseUrl = getBaseUrl(event);
         const [pendingTasks, campaigns, a2aContinuations] = await Promise.all([
+          // Portable (fire-and-forget) dispatch loses tasks whenever the
+          // self-dispatch POST dies with the container, and the in-process
+          // retry interval does not survive a serverless freeze. Sweeping only
+          // durable scopes left those deployments with no recovery at all, so
+          // the queue is swept regardless of dispatch mode.
           retryStuckPendingTasks({
             webhookBaseUrl,
             limit: 20,
-            durableOnly: true,
           }).catch((error) => {
             console.error(
               "[integrations] Pending-task recovery failed:",
@@ -1908,13 +2007,18 @@ export function createIntegrationsPlugin(
               ? { channelId: task.dispatchScope }
               : undefined,
           });
+        const a2aOutcome = campaignContinuation
+          ? await getA2AContinuationTaskOutcome(task.id)
+          : null;
         const confirmedDeliveryReceipt =
           taskPayload.kind === "response-delivery" &&
           taskPayload.deliveryReceipt?.status === "delivered";
+        const confirmedDeliveryProof =
+          confirmedDeliveryReceipt || a2aOutcome === "terminal-delivered";
         if (
           campaignContinuation &&
           !durableCampaignEnabled &&
-          !confirmedDeliveryReceipt
+          !confirmedDeliveryProof
         ) {
           await failDisabledIntegrationCampaignTask(task.id);
           const nextTask = await getNextPendingTaskForThread(
@@ -1995,6 +2099,17 @@ export function createIntegrationsPlugin(
                 return;
               }
               if (taskPayload.kind === "response-delivery") {
+                if (
+                  campaignContinuation &&
+                  taskPayload.awaitingA2ACompletion &&
+                  a2aOutcome === "terminal-delivered"
+                ) {
+                  const completed =
+                    await completeIntegrationCampaignTaskAfterA2A(task.id);
+                  return completed
+                    ? ("completed" as const)
+                    : ("campaign-active" as const);
+                }
                 let receipt: void | PlatformDeliveryReceipt =
                   taskPayload.deliveryReceipt;
                 let deliveryLease:
@@ -2114,15 +2229,15 @@ export function createIntegrationsPlugin(
                     if (!waiting) return "campaign-active" as const;
                   }
                   if (
-                    !(await hasActiveA2AContinuationsForIntegrationTask(
-                      task.id,
-                    ))
+                    a2aOutcome === "terminal-without-delivery" &&
+                    (await reconcileTerminalA2AParentIfDisabled(task.id))
                   ) {
-                    const completed =
-                      await completeIntegrationCampaignTaskAfterA2A(task.id);
-                    return completed
-                      ? ("completed" as const)
-                      : ("campaign-active" as const);
+                    return "campaign-failed" as const;
+                  }
+                  if (a2aOutcome !== "active") {
+                    console.warn(
+                      `[integrations] Waiting campaign ${task.id} has A2A outcome ${a2aOutcome} without terminal delivery proof`,
+                    );
                   }
                   return "campaign-active" as const;
                 }
@@ -2387,15 +2502,18 @@ export function createIntegrationsPlugin(
             adapters: adapterMap,
           });
         } catch (err: any) {
-          // Mark the continuation failed so it isn't left dangling, and surface
-          // a 500 to the caller instead of leaking an unhandled rejection.
-          await failA2AContinuation(
-            continuationId,
-            err?.message?.slice(0, 500) || "continuation processing failed",
-          ).catch(() => {});
+          const reason =
+            err?.message?.slice(0, 500) || "continuation processing failed";
+          await recoverA2AContinuationAfterProcessorFailure(continuationId, {
+            adapters: adapterMap,
+            reason,
+          }).catch(() => {
+            console.error(
+              `[integrations] A2A continuation ${continuationId} recovery scheduling failed`,
+            );
+          });
           console.error(
-            "[integrations] process-a2a-continuation failure:",
-            err,
+            `[integrations] process-a2a-continuation failure for ${continuationId}; durable recovery requested`,
           );
           setResponseStatus(event, 500);
           return { error: "Failed to process A2A continuation" };
@@ -3385,42 +3503,53 @@ export function createIntegrationsPlugin(
       }),
     );
 
-    // ─── Start pending-tasks retry sweeper ────────────────────────
-    // Sweeps the integration_pending_tasks queue every 60s and re-fires the
-    // processor for any tasks that got stuck (initial dispatch lost or
-    // processor killed mid-flight). No-ops gracefully if the queue table
-    // hasn't been created yet on this deployment.
-    startPendingTasksRetryJob({
-      webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
-    });
-    startA2AContinuationRetryJob(adapterMap);
-    startRemoteCommandsRetryJob();
-    startRemotePushDeliveryJob();
+    // Serverless functions mount the same Nitro app as the durable workers,
+    // but they are not a stable host for recurring integration jobs. Starting
+    // these timers in every cold-started instance multiplies recovery sweeps
+    // and pollers against the shared database; scheduled/background workers
+    // own this work on hosted deployments.
+    if (
+      !isInBackgroundFunctionRuntime() &&
+      !isInIntegrationRecoveryRuntime() &&
+      !isServerlessRuntime()
+    ) {
+      // ─── Start pending-tasks retry sweeper ────────────────────────
+      // Sweeps the integration_pending_tasks queue every 60s and re-fires the
+      // processor for any tasks that got stuck (initial dispatch lost or
+      // processor killed mid-flight). No-ops gracefully if the queue table
+      // hasn't been created yet on this deployment.
+      startPendingTasksRetryJob({
+        webhookBaseUrl: process.env.WEBHOOK_BASE_URL,
+      });
+      startA2AContinuationRetryJob(adapterMap);
+      startRemoteCommandsRetryJob();
+      startRemotePushDeliveryJob();
 
-    // ─── Start Google Docs poller/push ────────────────────────────
-    if (adapterMap.has("google-docs")) {
-      // Defer startup slightly so the server is fully ready
-      setTimeout(() => {
-        // We don't know the base URL at plugin init time — it depends on
-        // the incoming request. For push mode, the webhook URL needs to be
-        // resolved. We pass it as a special option; the poller will attempt
-        // to register a watch when the first request reveals the base URL,
-        // or use the WEBHOOK_BASE_URL env var if set.
-        const baseUrl = process.env.WEBHOOK_BASE_URL;
-        const webhookUrl = baseUrl
-          ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
-          : undefined;
+      // ─── Start Google Docs poller/push ────────────────────────────
+      if (adapterMap.has("google-docs")) {
+        // Defer startup slightly so the server is fully ready
+        setTimeout(() => {
+          // We don't know the base URL at plugin init time — it depends on
+          // the incoming request. For push mode, the webhook URL needs to be
+          // resolved. We pass it as a special option; the poller will attempt
+          // to register a watch when the first request reveals the base URL,
+          // or use the WEBHOOK_BASE_URL env var if set.
+          const baseUrl = process.env.WEBHOOK_BASE_URL;
+          const webhookUrl = baseUrl
+            ? `${withConfiguredAppBasePath(baseUrl)}${P}/google-docs/webhook`
+            : undefined;
 
-        void startGoogleDocsPoller({
-          systemPrompt: baseSystemPrompt,
-          actions,
-          initialToolNames,
-          model: model ?? "",
-          apiKey: getApiKey(),
-          ownerEmail: "integration@google-docs",
-          webhookUrl,
-        });
-      }, 2000);
+          void startGoogleDocsPoller({
+            systemPrompt: baseSystemPrompt,
+            actions,
+            initialToolNames,
+            model: model ?? "",
+            apiKey: getApiKey(),
+            ownerEmail: "integration@google-docs",
+            webhookUrl,
+          });
+        }, 2000);
+      }
     }
 
     if (process.env.DEBUG)
@@ -3477,6 +3606,81 @@ function readComputerCapabilities(value: unknown) {
     browser: readSurface(input?.browser),
     desktop: readSurface(input?.desktop, true),
   };
+}
+
+function readRemoteExecutionCapabilities(
+  value: unknown,
+): RemoteExecutionCapabilities {
+  const input = readObject(value);
+  if (!input) return {};
+  const backend = readString(input.backend);
+  const persistence = readString(input.persistence);
+  const list = (candidate: unknown, max: number) =>
+    [
+      ...new Set(
+        Array.isArray(candidate)
+          ? candidate
+              .filter((entry): entry is string => typeof entry === "string")
+              .map((entry) => entry.trim().slice(0, 120))
+              .filter(Boolean)
+          : [],
+      ),
+    ].slice(0, max);
+  return {
+    ...(backend === "desktop" ||
+    backend === "container" ||
+    backend === "kubernetes" ||
+    backend === "external"
+      ? { backend }
+      : {}),
+    workloads: list(
+      input.workloads,
+      16,
+    ) as RemoteExecutionCapabilities["workloads"],
+    engines: list(input.engines, 32),
+    ...(typeof input.acceptsScheduledWork === "boolean"
+      ? { acceptsScheduledWork: input.acceptsScheduledWork }
+      : {}),
+    ...(persistence === "local-files" ||
+    persistence === "persistent-volume" ||
+    persistence === "ephemeral"
+      ? { persistence }
+      : {}),
+    adapters: list(input.adapters, 32),
+  };
+}
+
+function readBrowserSession(value: unknown) {
+  if (value === null) return null;
+  const input = readObject(value);
+  if (!input) return null;
+  const handle = readString(input.handle);
+  const origin = readString(input.origin);
+  const title = readString(input.title);
+  if (
+    input.version !== 1 ||
+    !handle ||
+    handle.length > 128 ||
+    !/^bsn_[0-9a-f-]+$/i.test(handle) ||
+    !origin ||
+    origin.length > 2_048 ||
+    !title ||
+    title.length > 512
+  ) {
+    return null;
+  }
+  try {
+    const url = new URL(origin);
+    if (
+      url.origin !== origin ||
+      (url.protocol !== "http:" && url.protocol !== "https:")
+    ) {
+      return null;
+    }
+  } catch {
+    return null;
+  }
+  return { version: 1, handle, origin, title };
 }
 
 function advertisedComputerOperationClasses(

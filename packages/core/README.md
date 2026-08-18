@@ -1,8 +1,9 @@
 # Agent-Native
 
+
 ## The framework for agentic apps
 
-Agent-Native is an open-source framework for rapidly building robust applications with agents at their core.
+Don't pick between apps or agents. Agent-Native apps are both.
 
 ```ts
 // One action powers every app surface: UI, agent, HTTP, MCP, A2A, and CLI.
@@ -22,20 +23,11 @@ export default defineAction({
 - **[Backend agnostic](https://agent-native.com/docs/database)**: Plug in any Drizzle-supported SQL database and Nitro-compatible host.
 - **[Toolkits](https://agent-native.com/docs/agent-native-toolkit)**: Reusable building blocks for collaboration, sharing, settings, teams, and observability.
 
-## Don't pick between apps or agents.
-
-Agent-native apps are both
-
-|                   | SaaS Tools         | Raw AI Agents           | Internal Tools             | Agent-Native App        |
-| ----------------- | ------------------ | ----------------------- | -------------------------- | ----------------------- |
-| **UI**            | Polished but rigid | None                    | Mixed quality              | Full UI, fork & go      |
-| **AI**            | Bolted on          | Powerful                | Shallowly connected        | Agent-first, integrated |
-| **Customization** | Can't              | Instructions and skills | Full, but high maintenance | Agent modifies the app  |
-| **Ownership**     | Rented             | Somewhat yours          | You own the code           | You own the code        |
+https://github.com/user-attachments/assets/ef51644b-6506-46d8-8083-0af7b7e5b65c
 
 ## Try an Agent-Native app
 
-Fork a working app and let the agent evolve it. **You can customize everything.**
+Start from a working app and let the agent evolve it. **You can customize everything.**
 
 <table>
 <tr>
@@ -47,8 +39,6 @@ Fork a working app and let the agent evolve it. **You can customize everything.*
 
 **Agent-Native Loom**
 
-Record your screen with auto-transcripts and captured browser debug logs, share a link, and let an agent read the transcript, see timestamped frames, and fix the bug.
-
 </td>
 <td width="33%" align="center" valign="top">
 
@@ -58,8 +48,6 @@ Record your screen with auto-transcripts and captured browser debug logs, share 
 
 **Visual plan mode for coding agents**
 
-Install `/visual-plan` and `/visual-recap` so your coding agent can plan before it builds and recap changes after they land. High-level code reviews with diagrams, wireframes, annotations, and review links.
-
 </td>
 <td width="33%" align="center" valign="top">
 
@@ -68,8 +56,6 @@ Install `/visual-plan` and `/visual-recap` so your coding agent can plan before 
 <a href="https://agent-native.com/templates/design"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe2c86908c2fa4f119ee4aa90b4823944?format=webp&width=800" alt="Design app" width="100%" /></a>
 
 **Agent-Native Figma**
-
-Generate interactive HTML prototypes, compare variants, refine controls, and export the result.
 
 </td>
 </tr>
@@ -82,8 +68,6 @@ Generate interactive HTML prototypes, compare variants, refine controls, and exp
 
 **Agent-Native Notion/Obsidian**
 
-Edit local Markdown/MDX files, generate rich interactive custom blocks, and draft, rewrite, or publish with an agent.
-
 </td>
 <td width="33%" align="center" valign="top">
 
@@ -92,8 +76,6 @@ Edit local Markdown/MDX files, generate rich interactive custom blocks, and draf
 <a href="https://agent-native.com/templates/analytics"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800" alt="Analytics app" width="100%" /></a>
 
 **Open-Source Alternative to Amplitude and FullStory**
-
-Connect analytics data sources, prompt for real charts, and build reusable dashboards.
 
 </td>
 <td width="33%" align="center" valign="top">
@@ -104,13 +86,11 @@ Connect analytics data sources, prompt for real charts, and build reusable dashb
 
 **A minimal ChatGPT-style app for your own agent**
 
-Chat-first app scaffold with durable threads, actions, auth, live sync, and a clean path to add screens or plug in your own agent backend.
-
 </td>
 </tr>
 </table>
 
-View the full app gallery at **[agent-native.com/apps](https://agent-native.com/apps)**, or build from scratch with the **[framework guide](https://agent-native.com/docs/getting-started)**.
+View the [full gallery](https://agent-native.com/apps), or build from scratch with the **[framework guide](https://agent-native.com/docs/getting-started)**.
 
 ## Quick Start
 
@@ -123,7 +103,7 @@ pnpm install
 pnpm dev
 ```
 
-Prefer flags? `create my-app --template mail`, `--headless`, or `--standalone` skip the prompt.
+Prefer flags? `create my-app --template chat`, `--headless`, or `--standalone` skip the prompt.
 
 See the full [getting started docs](https://agent-native.com/docs).
 

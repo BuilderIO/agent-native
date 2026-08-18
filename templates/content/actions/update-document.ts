@@ -19,6 +19,10 @@ import {
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
 import type { DocumentUpdateResponse } from "../shared/api.js";
+import {
+  lockPrimaryBlocksFields,
+  persistBlocksFieldIdentity,
+} from "./_blocks-field-identity.js";
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
@@ -175,6 +179,15 @@ function canEditRole(role: string) {
   return role === "owner" || role === "admin" || role === "editor";
 }
 
+function canCommentRole(role: string) {
+  return (
+    role === "owner" ||
+    role === "admin" ||
+    role === "editor" ||
+    role === "commenter"
+  );
+}
+
 function builderBodyWithoutImageSourceComponentMarkers(
   content: string | null | undefined,
 ) {
@@ -277,6 +290,15 @@ export function isStaleBuilderImageSourceComponentSave(args: {
 export default defineAction({
   description:
     "Update an existing document's title, content, icon, or favorite status.",
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Update Content Document",
+    description:
+      "Delegate a sparse update to an existing Content document while preserving omitted fields.",
+  },
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
     title: z.string().optional().describe("New title"),
@@ -501,6 +523,12 @@ export default defineAction({
       if (iconChanged) updates.icon = args.icon;
       let contentCasConflict = false;
       await db.transaction(async (tx) => {
+        const primaryBlocksFields = contentChanged
+          ? await lockPrimaryBlocksFields(
+              tx as unknown as ReturnType<typeof getDb>,
+              id,
+            )
+          : [];
         if (useContentCas) {
           const applied = await tx
             .update(schema.documents)
@@ -521,6 +549,20 @@ export default defineAction({
             .update(schema.documents)
             .set(updates)
             .where(eq(schema.documents.id, id));
+        }
+
+        if (contentChanged && content !== undefined) {
+          for (const field of primaryBlocksFields) {
+            await persistBlocksFieldIdentity({
+              db: tx as unknown as ReturnType<typeof getDb>,
+              ownerEmail: field.ownerEmail,
+              documentId: id,
+              propertyId: field.propertyId,
+              previousMarkdown: existing.content,
+              markdown: content,
+              now: updates.updatedAt as string,
+            });
+          }
         }
 
         if (titleChanged || contentChanged) {
@@ -645,6 +687,7 @@ export default defineAction({
               ),
               visibility: current.visibility,
               accessRole: access.role,
+              canComment: canCommentRole(access.role),
               canEdit: canEditRole(access.role),
               canManage: canManageRole(access.role),
               createdAt: current.createdAt,
@@ -730,6 +773,7 @@ export default defineAction({
         hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
         visibility: doc.visibility,
         accessRole: access.role,
+        canComment: canCommentRole(access.role),
         canEdit: canEditRole(access.role),
         canManage: canManageRole(access.role),
         createdAt: doc.createdAt,

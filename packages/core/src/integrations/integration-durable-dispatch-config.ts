@@ -8,6 +8,16 @@ export const INTEGRATION_RETRY_SWEEP_PATH =
   "/_agent-native/integrations/retry-stuck-tasks";
 export const INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT =
   "integration-pending-tasks-sweep";
+export const INTEGRATION_RECOVERY_RUNTIME_MARKER =
+  "__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__";
+
+export function isInIntegrationRecoveryRuntime(): boolean {
+  return (
+    (globalThis as Record<string, unknown>)[
+      INTEGRATION_RECOVERY_RUNTIME_MARKER
+    ] === true
+  );
+}
 
 export function isIntegrationDurableDispatchConfigured(): boolean {
   const value = process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;

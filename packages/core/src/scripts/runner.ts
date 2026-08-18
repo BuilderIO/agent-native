@@ -11,12 +11,16 @@
  */
 
 import fs from "fs";
+import { spawnSync } from "node:child_process";
 import path from "path";
 import { pathToFileURL } from "url";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { closeDbExec } from "../db/client.js";
-import { notifyActionChange } from "../server/action-change.js";
+import {
+  actionCallIsReadOnly,
+  notifyActionChange,
+} from "../server/action-change.js";
 import {
   runWithRequestContext,
   getRequestOrgId,
@@ -28,6 +32,174 @@ import { loadEnv } from "./utils.js";
 
 // Load .env from cwd so DATABASE_URL and other vars are available to all actions.
 loadEnv();
+
+const CLI_HANDOFF_KEYS = new Set(["embedStartUrl", "startUrl"]);
+const CLI_HANDOFF_URL_PATTERN =
+  /\/_agent-native\/embed\/start\?[^\s"'<>)}\]]+/g;
+
+function withoutCliHandoffText(value: unknown): string {
+  return String(value).replace(
+    CLI_HANDOFF_URL_PATTERN,
+    "[redacted embed handoff]",
+  );
+}
+
+function cliHandoffUrl(result: unknown): string | undefined {
+  if (!result || typeof result !== "object") return undefined;
+  for (const key of CLI_HANDOFF_KEYS) {
+    const value = (result as Record<string, unknown>)[key];
+    if (
+      typeof value === "string" &&
+      value.includes("/_agent-native/embed/start?")
+    ) {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+function withoutCliHandoffSecrets(
+  value: unknown,
+  ancestors = new WeakSet<object>(),
+): unknown {
+  if (
+    typeof value === "string" &&
+    value.includes("/_agent-native/embed/start?")
+  ) {
+    return withoutCliHandoffText(value);
+  }
+  if (!value || typeof value !== "object") return value;
+  if (ancestors.has(value)) return "[Circular]";
+  ancestors.add(value);
+  try {
+    if (Array.isArray(value)) {
+      return value.map((child) => withoutCliHandoffSecrets(child, ancestors));
+    }
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>)
+        .filter(([key]) => !CLI_HANDOFF_KEYS.has(key))
+        .map(([key, child]) => [
+          key,
+          withoutCliHandoffSecrets(child, ancestors),
+        ]),
+    );
+  } finally {
+    ancestors.delete(value);
+  }
+}
+
+type CliHandoffLaunchOutcome =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: "disabled" | "missing-base" | "invalid-url" | "open-failed";
+      message: string;
+    };
+
+interface CliHandoffLaunchDeps {
+  env?: NodeJS.ProcessEnv;
+  platform?: NodeJS.Platform;
+  spawn?: (
+    command: string,
+    args: string[],
+  ) => { status: number | null; error?: Error };
+}
+
+export function openCliHandoff(
+  urlOrPath: string,
+  deps: CliHandoffLaunchDeps = {},
+): CliHandoffLaunchOutcome {
+  const env = deps.env ?? process.env;
+  if (env.AGENT_NATIVE_NO_OPEN === "1") {
+    return {
+      ok: false,
+      reason: "disabled",
+      message:
+        "Secure browser handoff is disabled by AGENT_NATIVE_NO_OPEN. Remove it and rerun this action.",
+    };
+  }
+  let url = urlOrPath;
+  if (urlOrPath.startsWith("/")) {
+    const baseUrl =
+      env.APP_URL ||
+      env.WORKSPACE_GATEWAY_URL ||
+      env.VITE_WORKSPACE_GATEWAY_URL ||
+      env.BETTER_AUTH_URL;
+    if (!baseUrl) {
+      return {
+        ok: false,
+        reason: "missing-base",
+        message:
+          "Secure browser handoff needs APP_URL or WORKSPACE_GATEWAY_URL. Start the app locally or set its URL, then rerun this action.",
+      };
+    }
+    try {
+      url = new URL(urlOrPath, baseUrl).toString();
+    } catch {
+      return {
+        ok: false,
+        reason: "invalid-url",
+        message:
+          "Secure browser handoff found an invalid app URL. Fix APP_URL or WORKSPACE_GATEWAY_URL, then rerun this action.",
+      };
+    }
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+      throw new Error("unsupported protocol");
+    }
+  } catch {
+    return {
+      ok: false,
+      reason: "invalid-url",
+      message:
+        "Secure browser handoff found an invalid app URL. Fix APP_URL or WORKSPACE_GATEWAY_URL, then rerun this action.",
+    };
+  }
+
+  const platform = deps.platform ?? process.platform;
+  const command =
+    platform === "darwin" ? "open" : platform === "win32" ? "cmd" : "xdg-open";
+  const args = platform === "win32" ? ["/c", "start", "", url] : [url];
+  try {
+    const launch =
+      deps.spawn?.(command, args) ??
+      spawnSync(command, args, {
+        stdio: "ignore",
+        timeout: 10_000,
+      });
+    if (launch.error || launch.status !== 0) {
+      return {
+        ok: false,
+        reason: "open-failed",
+        message:
+          "Secure browser handoff could not invoke the system URL opener. Verify local URL handling, then rerun this action.",
+      };
+    }
+  } catch {
+    return {
+      ok: false,
+      reason: "open-failed",
+      message:
+        "Secure browser handoff could not invoke the system URL opener. Verify local URL handling, then rerun this action.",
+    };
+  }
+  return { ok: true };
+}
+
+function printActionResult(result: unknown): CliHandoffLaunchOutcome | null {
+  const handoffUrl = cliHandoffUrl(result);
+  const handoff = handoffUrl ? openCliHandoff(handoffUrl) : null;
+  console.log(withoutCliHandoffSecrets(result));
+  return handoff;
+}
+
+function assertCliHandoffLaunched(
+  outcome: CliHandoffLaunchOutcome | null,
+): void {
+  if (outcome && !outcome.ok) throw new Error(outcome.message);
+}
 
 export interface RunScriptOptions {
   /**
@@ -273,10 +445,10 @@ async function dispatchAction(
       ) {
         const parsed = parseActionArgs(args, { coerceBooleans: true });
         const result = await handler.run(parsed, cliActionCtx(actionName));
-        if (handler.readOnly !== true) {
+        if (!actionCallIsReadOnly(handler, parsed, false)) {
           await notifyActionChange({ actionName }).catch(() => {});
         }
-        if (result) console.log(result);
+        if (result) assertCliHandoffLaunched(printActionResult(result));
       } else if (typeof handler === "function") {
         await handler(args);
       } else {
@@ -289,7 +461,10 @@ async function dispatchAction(
       process.exit(0);
     } catch (err: any) {
       await closeDbExec().catch(() => {});
-      console.error(`Action "${actionName}" failed:`, err.message || err);
+      console.error(
+        `Action "${actionName}" failed:`,
+        withoutCliHandoffText(err.message || err),
+      );
       process.exit(1);
     }
   }
@@ -304,15 +479,18 @@ async function dispatchAction(
         parsed as Record<string, string>,
         cliActionCtx(actionName),
       );
-      if (packageAction.readOnly !== true) {
+      if (!actionCallIsReadOnly(packageAction, parsed, false)) {
         await notifyActionChange({ actionName }).catch(() => {});
       }
-      if (result) console.log(result);
+      if (result) assertCliHandoffLaunched(printActionResult(result));
       await closeDbExec().catch(() => {});
       process.exit(0);
     } catch (err: any) {
       await closeDbExec().catch(() => {});
-      console.error(`Action "${actionName}" failed:`, err.message || err);
+      console.error(
+        `Action "${actionName}" failed:`,
+        withoutCliHandoffText(err.message || err),
+      );
       process.exit(1);
     }
   }
@@ -326,7 +504,10 @@ async function dispatchAction(
       process.exit(0);
     } catch (err: any) {
       await closeDbExec().catch(() => {});
-      console.error(`Core action "${actionName}" failed:`, err.message || err);
+      console.error(
+        `Core action "${actionName}" failed:`,
+        withoutCliHandoffText(err.message || err),
+      );
       process.exit(1);
     }
   }

@@ -70,6 +70,21 @@ const messages = {
       suggestionGrantKey: "इस ऐप को मेरी OpenAI कुंजी प्रदान करें",
     },
     pages: {
+      browserChatUnavailableTitle: "ब्राउज़र चैट सत्र उपलब्ध नहीं है",
+      browserChatUnavailableDescription:
+        "Agent-Native ब्राउज़र एक्सटेंशन से फिर से कनेक्ट करें।",
+      browserChatPlaceholder: "इस पेज के बारे में पूछें…",
+      browserChatAttachedPlaceholder: "{{page}} के बारे में पूछें…",
+      browserConnectTitle: "ब्राउज़र चैट कनेक्ट करें",
+      browserConnectDescription:
+        "Agent-Native Chrome एक्सटेंशन को यह Dispatch चैट सत्र खोलने दें। कनेक्शन एक बार उपयोग होने वाला अल्पकालिक टिकट इस्तेमाल करता है।",
+      browserConnectInvalid: "यह कनेक्शन अनुरोध अमान्य है। एक्सटेंशन से फिर शुरू करें।",
+      browserConnectConnected: "ब्राउज़र चैट कनेक्ट हो गई है। आप यह टैब बंद कर सकते हैं।",
+      browserConnectConnecting: "कनेक्ट हो रहा है…",
+      browserConnectButton: "कनेक्ट करें",
+      browserConnectOpenFromExtension:
+        "यह पेज Agent-Native Chrome एक्सटेंशन से खोलें।",
+      browserConnectFailed: "ब्राउज़र एक्सटेंशन कनेक्ट नहीं हुआ।",
       appsDescription: "वर्कस्पेस ऐप्स खोलें और Dispatch से नए ऐप निर्माण शुरू करें।",
       appsDescriptionWithWorkspace:
         'Apps in the "{{workspace}}" workspace. Each app gets its own route under this workspace and shares its database, auth, and agent chat.',
@@ -206,6 +221,8 @@ const messages = {
     newTerminal: "नया टर्मिनल",
     panelOptions: "एजेंट पैनल विकल्प",
     collapseSidebar: "साइडबार समेटें",
+    widenChat: "चैट को चौड़ा करें",
+    returnChatToLayout: "चैट को लेआउट में वापस लाएँ",
     hideChats: "चैट छुपाएं",
     allChats: "सभी चैट",
     settings: "सेटिंग्स",
@@ -251,6 +268,8 @@ const messages = {
     publicDescription: "लिंक से साइन इन किया गया कोई भी व्यक्ति देख सकता है",
     viewer: "Viewer",
     viewerDescription: "देख सकते हैं",
+    commenter: "टिप्पणीकार",
+    commenterDescription: "देख और टिप्पणियां जोड़ सकते हैं",
     editor: "Editor",
     editorDescription: "संपादित कर सकते हैं",
     admin: "व्यवस्थापक",
@@ -309,7 +328,7 @@ const messages = {
     codeChangeBadge: "कोड परिवर्तन",
     connectBuilderTitle: "Builder.io कनेक्ट करें",
     connectBuilderDescription:
-      "इस ऐप से क्लाउड-आधारित कोड परिवर्तन सक्षम करने के लिए बिल्डर से कनेक्ट करें।",
+      "इस ऐप से क्लाउड-आधारित कोड परिवर्तन सक्षम करने के लिए बिल्डर से कनेक्ट करें (free tier उपलब्ध)।",
     setupRequired: "सेटअप आवश्यक है",
     branchCreated: "शाखा बनाई गई",
     close: "बंद करें",
@@ -351,6 +370,16 @@ const messages = {
     deleting: "संग्रहित किया जा रहा है...",
     openFullView: "पूरा दृश्य खोलें",
     removeFromWidgetArea: "इस विजेट क्षेत्र से हटाएँ",
+    customBlockSandboxed: "कस्टम ब्लॉक · सैंडबॉक्स",
+    sandboxedCustomBlock: "सैंडबॉक्स किया गया SQL कस्टम ब्लॉक",
+    sandboxedCustomBlockCreatedBy:
+      "{{email}} द्वारा बनाया गया सैंडबॉक्स SQL कस्टम ब्लॉक",
+    promoteToAppCode: "ऐप कोड में प्रमोट करें",
+    historyShowsSourceVersions: "इतिहास स्रोत संस्करण दिखाता है",
+    createdByHistoryShowsSourceVersions:
+      "{{email}} द्वारा बनाया गया। इतिहास स्रोत संस्करण दिखाता है।",
+    createdByHistoryShowsSourceVersionsCompact:
+      "{{email}} द्वारा बनाया गया · इतिहास स्रोत संस्करण दिखाता है",
     deleteExtensionEllipsis: "एक्सटेंशन संग्रहित करें...",
     removeFromMyListEllipsis: "मेरी सूची से हटाएं...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
@@ -434,6 +463,10 @@ const messages = {
     noMembers: "अभी कोई सदस्य नहीं है.",
     memberCount_one: "{{count}} member",
     memberCount_other: "{{count}} members",
+    memberPagination: "सदस्य सूची पृष्ठांकन",
+    previousMemberPage: "पिछले सदस्य पृष्ठ पर जाएं",
+    nextMemberPage: "अगले सदस्य पृष्ठ पर जाएं",
+    memberPageStatus: "पृष्ठ {{page}} / {{totalPages}}",
     youAreRole: "You are {{role}}",
     changeRole: "भूमिका बदलें",
     removeMember: "सदस्य हटाएँ",
@@ -462,7 +495,7 @@ const messages = {
     back: "वापस",
     agentEngineRequired: "एजेंट इंजन की आवश्यकता है",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (free tier उपलब्ध) or an LLM key before {{platform}} can answer.",
     openLlm: "LLM खोलें",
     setup: "Setup",
     shareDocumentsWith: "दस्तावेज़ साझा करें",

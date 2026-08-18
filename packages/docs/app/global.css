@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
+@import "@fontsource-variable/geist";
+@import "@fontsource-variable/geist-mono";
 
 /* shadcn CSS variables required by agent-native sidebar components */
 :root {
@@ -65,11 +67,11 @@
 
 @theme {
   --font-sans:
-    -apple-system, "system-ui", "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell,
-    "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
+    "Geist Variable", -apple-system, "system-ui", "Segoe UI", Roboto, Oxygen,
+    Ubuntu, Cantarell, "Fira Sans", "Droid Sans", "Helvetica Neue", sans-serif;
   --font-mono:
-    ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono",
-    monospace;
+    "Geist Mono Variable", ui-monospace, SFMono-Regular, "SF Mono", Menlo,
+    Consolas, "Liberation Mono", monospace;
 }
 
 :root {
@@ -89,6 +91,10 @@
   --approaches-good: #15803d;
   --approaches-warn: #b45309;
   --approaches-bad: #b91c1c;
+  /* Destructive badge red needs to be darker than the accent red on a near-
+     white chip to clear WCAG AA (4.5:1); the bright accent red is only
+     legible enough against the dark-theme near-black chip. */
+  --docs-badge-red-text: #bf3636;
 }
 
 :root[data-theme="dark"] {
@@ -108,6 +114,7 @@
   --approaches-good: #86efac;
   --approaches-warn: #fcd34d;
   --approaches-bad: #fca5a5;
+  --docs-badge-red-text: #ef4444;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -128,6 +135,7 @@
     --approaches-good: #86efac;
     --approaches-warn: #fcd34d;
     --approaches-bad: #fca5a5;
+    --docs-badge-red-text: #ef4444;
   }
 }
 
@@ -297,12 +305,6 @@ h4 {
   line-height: 1.2;
 }
 
-.docs-content h1 + p {
-  font-size: 16px;
-  color: var(--fg-secondary);
-  margin-bottom: 16px;
-}
-
 .docs-content h2 {
   font-size: 24px;
   margin-top: 32px;
@@ -432,6 +434,909 @@ h4 {
   color: var(--docs-accent);
   font-family: var(--font-mono);
   font-size: 13px;
+}
+
+/* ─── Docs components ──────────────────────────────────────────────────────── */
+
+/* kbd: inline keyboard shortcut
+   Usage in markdown: [[Ctrl+K]]  or  [[⌘K]]
+   Renders as: <kbd class="docs-kbd"> */
+.docs-kbd {
+  display: inline-block;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--fg);
+  background: var(--bg-secondary);
+  border: 1px solid var(--docs-border);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* Steps: numbered procedure with circled step numbers
+   Usage in MDX: <Steps> ### Step title\n\nBody </Steps> */
+.docs-steps {
+  list-style: none;
+  margin: 24px 0;
+  padding: 0;
+}
+
+.docs-step {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.docs-step + .docs-step {
+  margin-top: 0;
+}
+
+.docs-step-aside {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex-shrink: 0;
+  padding-top: 2px;
+}
+
+.docs-step-number {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid var(--docs-accent);
+  color: var(--docs-accent);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1;
+  flex-shrink: 0;
+  background: var(--bg);
+  z-index: 1;
+}
+
+.docs-step-connector {
+  display: block;
+  width: 1.5px;
+  flex: 1;
+  min-height: 24px;
+  background: var(--docs-border);
+  margin: 6px 0;
+}
+
+.docs-step-content {
+  flex: 1;
+  padding-bottom: 28px;
+  min-width: 0;
+}
+
+.docs-step:last-child .docs-step-content {
+  padding-bottom: 0;
+}
+
+.docs-step-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  margin: 2px 0 8px;
+  line-height: 1.5;
+}
+
+.docs-step-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg-secondary);
+}
+
+/* Forward docs-content styles into step bodies */
+.docs-step-content .docs-content p,
+.docs-step-content .docs-content ul,
+.docs-step-content .docs-content ol,
+.docs-step-content .docs-content li {
+  font-size: 14px;
+}
+
+/* Cards: responsive card grid for feature overviews
+   Usage in MDX: <Cards> ### [Title](/link)\n\nDescription </Cards> */
+.docs-cards {
+  display: grid;
+  grid-template-columns: repeat(var(--cards-cols, 3), 1fr);
+  gap: 12px;
+  list-style: none;
+  margin: 24px 0;
+  padding: 0;
+}
+
+@media (max-width: 640px) {
+  .docs-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
+.docs-card {
+  padding: 16px;
+  border: 1px solid var(--docs-border);
+  border-radius: 8px;
+  background: var(--bg);
+  transition: border-color 0.15s;
+}
+
+.docs-card:has(.docs-card-link) {
+  padding: 0;
+}
+
+.docs-card:has(.docs-card-link):hover {
+  border-color: var(--docs-accent);
+}
+
+/* Two-row grid so an icon centers on the title row specifically, not on the
+   title+body block as a whole — a flex row with align-items:center would
+   instead center the icon against the full (often multi-line) body height. */
+.docs-card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  row-gap: 6px;
+}
+
+.docs-card-grid--icon {
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+}
+
+.docs-card-grid--icon .docs-card-icon {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+}
+
+.docs-card-grid--icon .docs-card-title {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.docs-card-grid--icon .docs-card-body {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.docs-card-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--docs-accent);
+  flex-shrink: 0;
+}
+
+.docs-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  margin: 0;
+  line-height: 1.4;
+}
+
+.docs-card-link {
+  padding: 16px;
+  color: var(--fg);
+  text-decoration: none;
+}
+
+.docs-card-link:focus-visible {
+  outline: 2px solid var(--docs-accent);
+  outline-offset: -2px;
+}
+
+.docs-card-link:hover {
+  color: var(--docs-accent);
+}
+
+.docs-card-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+}
+
+.docs-card-arrow {
+  font-size: 14px;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
+.docs-card:has(.docs-card-link):hover .docs-card-arrow {
+  opacity: 1;
+  color: var(--docs-accent);
+}
+
+.docs-card-body {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+
+/* Comparison: side-by-side columns with labeled headers
+   Usage in MDX: <Comparison> ### Before\n\nOld way ### After\n\nNew way </Comparison> */
+.docs-comparison {
+  display: grid;
+  grid-template-columns: repeat(var(--comparison-cols, 2), 1fr);
+  gap: 0;
+  border: 1px solid var(--docs-border);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 24px 0;
+}
+
+@media (max-width: 640px) {
+  .docs-comparison {
+    grid-template-columns: 1fr;
+  }
+  .docs-comparison-col:not(:last-child) {
+    border-inline-end: none;
+    border-block-end: 1px solid var(--docs-border);
+  }
+}
+
+.docs-comparison-col {
+  padding: 20px;
+  border-inline-end: 1px solid var(--docs-border);
+}
+
+.docs-comparison-col:last-child {
+  border-inline-end: none;
+}
+
+.docs-comparison-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-secondary);
+  margin: 0 0 12px;
+}
+
+.docs-comparison-col--before .docs-comparison-label {
+  color: color-mix(in srgb, #ef4444 70%, var(--fg-secondary));
+}
+
+.docs-comparison-col--after .docs-comparison-label {
+  color: color-mix(in srgb, #22c55e 70%, var(--fg-secondary));
+}
+
+.docs-comparison-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg-secondary);
+}
+
+.docs-comparison-body p {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Signature: function/hook signature reference — call line + parameter/return
+   breakdown, collapsed to the call line until clicked.
+   Usage in MDX: <Signature name params={[...]} returns={{...}} /> */
+.docs-sig-wrap {
+  margin: 24px 0;
+}
+
+.docs-sig-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fg-secondary);
+  margin: 0 0 8px;
+}
+
+.docs-sig-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: none;
+  border-bottom: 1px solid var(--docs-border);
+  border-radius: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-x: auto;
+}
+
+.docs-sig-line:hover {
+  background: color-mix(in srgb, var(--bg-secondary) 85%, var(--fg) 6%);
+}
+
+.docs-sig-line:focus-visible {
+  outline: 2px solid var(--docs-accent);
+  outline-offset: -2px;
+}
+
+.docs-sig-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--fg-secondary);
+  transition: transform 0.15s;
+}
+
+.docs-sig-line[aria-expanded="true"] .docs-sig-chevron {
+  transform: rotate(90deg);
+}
+
+.docs-sig-code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+  white-space: pre;
+}
+
+.docs-sig-body {
+  border: 1px solid var(--docs-border);
+  border-top: none;
+  border-radius: 0;
+}
+
+.docs-sig-section {
+  padding: 16px;
+}
+
+.docs-sig-section + .docs-sig-section {
+  border-top: 1px solid var(--docs-border);
+}
+
+.docs-sig-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-secondary);
+  margin: 0 0 12px;
+}
+
+.docs-sig-params {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.docs-sig-param + .docs-sig-param {
+  padding-top: 14px;
+  border-top: 1px dashed var(--docs-border);
+}
+
+.docs-sig-field-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.docs-sig-field-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.docs-sig-field-type {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--docs-accent);
+}
+
+.docs-sig-field-tag {
+  font-size: 11px;
+  color: var(--fg-secondary);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+}
+
+.docs-sig-field-desc {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+}
+
+.docs-sig-field .docs-content {
+  margin-top: 6px;
+}
+
+.docs-sig-field .docs-content p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+
+.docs-sig-nested-fields {
+  margin: 10px 0 0 16px;
+  padding-left: 12px;
+  border-left: 1px solid var(--docs-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Image / Video: full width, or aligned left/right with paired markdown text.
+   Usage in MDX: <Image src alt align width caption>paired text</Image>
+   and the same shape for <Video>. Shared layout lives in media-layout.tsx. */
+.docs-media {
+  margin: 24px 0;
+}
+
+.docs-media-full {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.docs-media-full .docs-media-figure {
+  width: 100%;
+}
+
+.docs-media-left,
+.docs-media-right {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.docs-media-left .docs-media-figure,
+.docs-media-right .docs-media-figure {
+  flex: 0 0 40%;
+  max-width: 45%;
+}
+
+.docs-media-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg-secondary);
+}
+
+.docs-media-text p {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+.docs-media-text p:last-child {
+  margin-bottom: 0;
+}
+
+.docs-media img,
+.docs-media video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--docs-border);
+  background: var(--bg-secondary);
+}
+
+.docs-media-figure-inner {
+  position: relative;
+}
+
+.docs-media-expand {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--docs-border);
+  background: var(--bg);
+  color: var(--fg-secondary);
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
+}
+
+.docs-media-figure-inner:hover .docs-media-expand,
+.docs-media-expand:focus-visible {
+  opacity: 1;
+}
+
+.docs-media-expand:hover {
+  color: var(--fg);
+}
+
+.docs-media-expand-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.docs-media-lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 24px;
+  cursor: zoom-out;
+}
+
+.docs-media-lightbox-panel {
+  max-height: 100%;
+  width: 100%;
+  max-width: 960px;
+  cursor: default;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.docs-media-lightbox-panel img,
+.docs-media-lightbox-panel video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--docs-border);
+}
+
+.docs-media-lightbox-panel .docs-media-caption,
+.docs-media-lightbox-panel .docs-media-text {
+  margin-top: 12px;
+}
+
+.docs-media-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  cursor: pointer;
+}
+
+.docs-media-lightbox-close:hover {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.docs-media-lightbox-close-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.docs-media-caption {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+}
+
+.docs-media-caption p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.docs-media-full .docs-media-caption {
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .docs-media-left,
+  .docs-media-right {
+    flex-direction: column;
+  }
+  .docs-media-left .docs-media-figure,
+  .docs-media-right .docs-media-figure {
+    max-width: 100%;
+    flex-basis: auto !important;
+  }
+}
+
+/* Tone colors shared by Notice and Banner — same hues as the Callout block
+   library (packages/core/src/styles/blocks.css --an-callout-*), kept as plain
+   hex here since the docs site isn't on the shadcn/Tailwind token system. */
+.docs-notice,
+.docs-banner {
+  --tone-color: #3b82f6;
+}
+.docs-notice[data-tone="info"],
+.docs-banner[data-tone="info"] {
+  --tone-color: #3b82f6;
+}
+.docs-notice[data-tone="decision"],
+.docs-banner[data-tone="decision"] {
+  --tone-color: #8b5cf6;
+}
+.docs-notice[data-tone="risk"],
+.docs-banner[data-tone="risk"] {
+  --tone-color: #ef4444;
+}
+.docs-notice[data-tone="warning"],
+.docs-banner[data-tone="warning"] {
+  --tone-color: #f97316;
+}
+.docs-notice[data-tone="success"],
+.docs-banner[data-tone="success"] {
+  --tone-color: #22c55e;
+}
+
+/* Notice: bold, filled alert card — icon + optional title + markdown body
+   Usage in MDX: <Notice tone="risk" title="..."> body </Notice> */
+.docs-notice {
+  display: flex;
+  gap: 12px;
+  margin: 24px 0;
+  padding: 16px;
+  border: 1px solid
+    color-mix(in srgb, var(--tone-color) 35%, var(--docs-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tone-color) 10%, var(--bg));
+}
+
+.docs-notice-icon {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 1px;
+  color: var(--tone-color);
+}
+
+.docs-notice-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.docs-notice-title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.docs-notice-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg-secondary);
+}
+
+.docs-notice-body p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.docs-notice-body p + p {
+  margin-top: 8px;
+}
+
+/* Banner: compact, full-width, single-line announcement strip for the top of
+   a page or section
+   Usage in MDX: <Banner tone="warning" body="This page covers the v9 API." /> */
+.docs-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 24px;
+  padding: 10px 14px;
+  border: 1px solid
+    color-mix(in srgb, var(--tone-color) 35%, var(--docs-border));
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--tone-color) 8%, var(--bg));
+  font-size: 13px;
+}
+
+.docs-banner-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--tone-color);
+}
+
+.docs-banner-body {
+  min-width: 0;
+  color: var(--fg);
+}
+
+.docs-banner-body p {
+  margin: 0;
+  font-size: 13px;
+}
+
+/* Accordion: collapsed-by-default items for FAQ-style content
+   Usage in MDX: <Accordion> ### Question\n\nAnswer </Accordion> */
+.docs-accordion {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 24px 0;
+}
+
+.docs-accordion-item {
+  border: 1px solid var(--docs-border);
+  border-radius: 8px;
+  padding: 0;
+  background: var(--bg);
+}
+
+.docs-accordion-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--fg);
+  cursor: pointer;
+  list-style: none;
+}
+
+.docs-accordion-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.docs-accordion-chevron {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--fg-secondary);
+  transition: transform 0.15s;
+}
+
+.docs-accordion-item[open] .docs-accordion-chevron {
+  transform: rotate(180deg);
+}
+
+.docs-accordion-body {
+  padding: 0 16px 14px;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg-secondary);
+}
+
+.docs-accordion-body p {
+  margin: 0;
+  font-size: 14px;
+}
+
+/* Badge: small status chip for the top of a page or section
+   Usage in MDX: <Badge label="Beta" color="orange" icon="rocket" /> */
+.docs-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+
+.docs-badge-icon {
+  flex-shrink: 0;
+  width: 1em;
+  height: 1em;
+}
+
+.docs-badge[data-shape="rounded"] {
+  border-radius: 6px;
+}
+.docs-badge[data-shape="pill"] {
+  border-radius: 999px;
+}
+
+.docs-badge[data-size="xs"] {
+  padding: 1px 6px;
+  font-size: 11px;
+}
+.docs-badge[data-size="sm"] {
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.docs-badge[data-size="md"] {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+.docs-badge[data-size="lg"] {
+  padding: 6px 12px;
+  font-size: 14px;
+}
+
+.docs-badge[data-color="gray"] {
+  background: var(--bg-secondary);
+  color: var(--fg-secondary);
+}
+/* Text mix percentages below are each tuned per hue for >=4.5:1 contrast
+   against their own tinted background in both themes (WCAG AA for small
+   text) — a flat 85% color / 15% fg ratio cleared AA for none of them in the
+   light theme (measured 2.25-4.38:1). Lower % = more --fg mixed in = darker,
+   higher-contrast text. */
+.docs-badge[data-color="blue"] {
+  background: color-mix(in srgb, #3b82f6 15%, var(--bg));
+  color: color-mix(in srgb, #3b82f6 70%, var(--fg));
+}
+.docs-badge[data-color="green"] {
+  background: color-mix(in srgb, #22c55e 15%, var(--bg));
+  color: color-mix(in srgb, #22c55e 52%, var(--fg));
+}
+.docs-badge[data-color="yellow"] {
+  background: color-mix(in srgb, #eab308 18%, var(--bg));
+  color: color-mix(in srgb, #eab308 48%, var(--fg));
+}
+.docs-badge[data-color="orange"] {
+  background: color-mix(in srgb, #f97316 15%, var(--bg));
+  color: color-mix(in srgb, #f97316 60%, var(--fg));
+}
+.docs-badge[data-color="red"] {
+  background: color-mix(in srgb, #ef4444 15%, var(--bg));
+  color: color-mix(in srgb, #ef4444 72%, var(--fg));
+}
+.docs-badge[data-color="purple"] {
+  background: color-mix(in srgb, #8b5cf6 15%, var(--bg));
+  color: color-mix(in srgb, #8b5cf6 78%, var(--fg));
+}
+.docs-badge[data-color="white"] {
+  background: #fff;
+  color: #171717;
+  border-color: #ebebeb;
+}
+.docs-badge[data-color="surface"] {
+  background: var(--bg-secondary);
+  color: var(--fg);
+  border-color: var(--docs-border);
+}
+.docs-badge[data-color="white-destructive"] {
+  /* Background is always white regardless of theme, so the text needs the
+     always-dark red, not the theme-aware --docs-badge-red-text (which goes
+     bright for the dark-theme near-black background and would fail AA
+     against this fixed white chip). */
+  background: #fff;
+  color: #bf3636;
+  border-color: #ebebeb;
+}
+.docs-badge[data-color="surface-destructive"] {
+  background: var(--bg-secondary);
+  color: var(--docs-badge-red-text);
+  border-color: var(--docs-border);
+}
+
+.docs-badge[data-stroke="true"] {
+  background: transparent;
+  border-color: currentColor;
+}
+/* white and white-destructive pick their text color assuming the badge's own
+   fixed white fill. Stroking clears that fill, so the page background shows
+   through instead — fall back to the theme-aware text used elsewhere for the
+   same purpose, or dark-theme stroke leaves near-black-on-black/white-on-white
+   text with no fill to provide contrast. */
+.docs-badge[data-color="white"][data-stroke="true"] {
+  color: var(--fg);
+  border-color: var(--docs-border);
+}
+.docs-badge[data-color="white-destructive"][data-stroke="true"] {
+  color: var(--docs-badge-red-text);
+  border-color: currentColor;
+}
+
+.docs-badge[data-disabled="true"] {
+  opacity: 0.45;
 }
 
 /* Sidebar nav */
@@ -920,6 +1825,7 @@ html.dark .shiki span {
 .feature-cloud-word {
   z-index: 1;
   pointer-events: none;
+  font-family: var(--font-mono);
   letter-spacing: 0;
   text-shadow:
     0 1px 18px rgba(255, 255, 255, 0.9),
@@ -954,6 +1860,8 @@ html.dark .shiki span {
 
 .hero-gradient-text {
   display: inline-block;
+  padding-bottom: 0.12em;
+  line-height: 1.25;
   background: linear-gradient(90deg, #0987c4 0%, #0ea5e9 50%, #22d3ee 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -1129,6 +2037,7 @@ html.dark .shiki span {
   border-radius: 999px;
   background: color-mix(in srgb, var(--docs-accent) 12%, transparent);
   border: 1px solid color-mix(in srgb, var(--docs-accent) 30%, transparent);
+  font-family: var(--font-mono);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -1194,7 +2103,7 @@ html.dark .shiki span {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  border-radius: 9999px;
+  border-radius: 12px;
   padding: 12px 24px;
   font-size: 14px;
   font-weight: 500;
@@ -1310,18 +2219,31 @@ html.dark .shiki span {
   margin-top: 0;
 }
 
-/* Embedded blocks ship with the block library's own surface, which is a touch
- * lighter than the docs' code blocks (the plan `--muted`, ~#262626 in dark, vs.
- * our ~#111 code fences). Align inner code surfaces (annotated-code, API
- * examples) and code-like block containers to the docs code palette
- * (`--code-bg` / `--code-border`) so an embedded block reads as the same unified
- * surface as a plain ``` fence on the page. */
+/* Embedded plan blocks use Shiki's github-light/dark themes, which set
+ * --shiki-light-bg (#fff) and --shiki-dark-bg (#0d1117) via inline styles.
+ * Override the plan-code-surface and its pre/shiki wrapper to use the docs'
+ * own code palette so Tabs/Columns code blocks match plain ``` fences. */
+.docs-article .docs-block .plan-code-surface {
+  border-color: var(--code-border) !important;
+  background: var(--code-bg) !important;
+}
+.docs-article .docs-block .plan-code-surface .plan-shiki,
+.docs-article .docs-block .plan-code-surface pre,
+.docs-article .docs-block .plan-code-surface code {
+  background: var(--code-bg) !important;
+}
 .docs-article .docs-block .bg-plan-code,
 .docs-article .docs-block .bg-plan-block {
   background-color: var(--code-bg) !important;
 }
 .docs-article .docs-block .border-plan-line {
   border-color: var(--code-border) !important;
+}
+.docs-article .docs-block .text-plan-code-text {
+  color: var(--fg) !important;
+}
+.docs-article .docs-block .text-plan-muted {
+  color: var(--fg-secondary) !important;
 }
 .docs-article .docs-block .plan-diagram-frame[data-frame="hide"] {
   --wf-paper: transparent;

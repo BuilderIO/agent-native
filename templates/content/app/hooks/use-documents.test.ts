@@ -1,11 +1,17 @@
+// @vitest-environment happy-dom
+
 import type { ContentDatabaseItem, Document } from "@shared/api";
-import { QueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
 import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentTree,
   DOCUMENT_QUERY_FRESHNESS_OPTIONS,
   documentUpdateSuccessPatch,
+  fetchCompleteDocumentList,
+  LIST_DOCUMENTS_QUERY_KEY,
   documentPropertiesQueryKey,
   documentQueryKey,
   filterDocumentTreeDocuments,
@@ -20,7 +26,107 @@ import {
   setDocumentFavoriteInDatabaseCache,
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
+  useDocuments,
 } from "./use-documents";
+
+describe("complete document discovery", () => {
+  it("keeps object-shaped optimistic cache writes array-shaped for consumers", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, staleTime: Infinity } },
+    });
+    const optimisticDocument = doc("optimistic-document", null);
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [optimisticDocument],
+    });
+    let consumerData: unknown;
+    function Consumer() {
+      consumerData = useDocuments().data;
+      return null;
+    }
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+
+    try {
+      await act(async () => {
+        root.render(
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(Consumer),
+          ),
+        );
+      });
+
+      expect(Array.isArray(consumerData)).toBe(true);
+      expect(consumerData).toEqual([optimisticDocument]);
+    } finally {
+      await act(async () => root.unmount());
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+      queryClient.clear();
+    }
+  });
+
+  it("exhausts every bounded page before returning the document tree", async () => {
+    const documents = Array.from({ length: 401 }, (_, index) =>
+      doc(`document-${index}`, null, index),
+    );
+    const offsets: number[] = [];
+
+    const result = await fetchCompleteDocumentList(async (offset, limit) => {
+      offsets.push(offset);
+      const page = documents.slice(offset, offset + limit);
+      const nextOffset = offset + page.length;
+      return {
+        documents: page,
+        pagination: {
+          offset,
+          limit,
+          totalItems: documents.length,
+          returnedItems: page.length,
+          hasMore: nextOffset < documents.length,
+          nextOffset: nextOffset < documents.length ? nextOffset : null,
+        },
+      };
+    });
+
+    expect(offsets).toEqual([0, 200, 400]);
+    expect(result.map((document) => document.id)).toEqual(
+      documents.map((document) => document.id),
+    );
+  });
+
+  it("rejects a response whose missing boundary could hide clipping", async () => {
+    await expect(
+      fetchCompleteDocumentList(
+        async () =>
+          ({
+            documents: [doc("document-1", null)],
+          }) as never,
+      ),
+    ).rejects.toThrow("returned no pagination boundary");
+  });
+
+  it("rejects a non-advancing continuation", async () => {
+    await expect(
+      fetchCompleteDocumentList(async (_offset, limit) => ({
+        documents: [],
+        pagination: {
+          offset: 0,
+          limit,
+          totalItems: 1,
+          returnedItems: 0,
+          hasMore: true,
+          nextOffset: 0,
+        },
+      })),
+    ).rejects.toThrow("non-advancing continuation");
+  });
+});
 
 describe("document query freshness", () => {
   it("always replaces seeded row snapshots before the editor mounts", () => {
@@ -29,6 +135,39 @@ describe("document query freshness", () => {
       refetchOnMount: "always",
       retry: false,
     });
+  });
+
+  it("keeps membership contexts in separate Page query keys", () => {
+    expect(
+      documentQueryKey("shared-page", {
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+      }),
+    ).toEqual([
+      "action",
+      "get-document",
+      {
+        id: "shared-page",
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+      },
+    ]);
+    expect(
+      documentQueryKey("shared-page", {
+        databaseId: "builder-database",
+        databaseDocumentId: "builder-database-page",
+      }),
+    ).not.toEqual(
+      documentQueryKey("shared-page", {
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+      }),
+    );
+    expect(documentQueryKey("shared-page")).toEqual([
+      "action",
+      "get-document",
+      { id: "shared-page" },
+    ]);
   });
 });
 
@@ -397,6 +536,53 @@ describe("optimistic document titles", () => {
       queryClient.getQueryData<any>(databaseKey)?.items[0].document.content,
     ).toBe("Saved body");
   });
+
+  it("patches Page-owned fields across contexts without exchanging memberships", () => {
+    const queryClient = new QueryClient();
+    const localKey = documentQueryKey("shared-page", {
+      databaseId: "local-database",
+      databaseDocumentId: "local-database-page",
+    });
+    const builderKey = documentQueryKey("shared-page", {
+      databaseId: "builder-database",
+      databaseDocumentId: "builder-database-page",
+    });
+    queryClient.setQueryData(localKey, {
+      ...doc("shared-page", null),
+      databaseMembership: {
+        databaseId: "local-database",
+        databaseDocumentId: "local-database-page",
+        databaseTitle: "Local",
+        position: 0,
+      },
+    });
+    queryClient.setQueryData(builderKey, {
+      ...doc("shared-page", null),
+      databaseMembership: {
+        databaseId: "builder-database",
+        databaseDocumentId: "builder-database-page",
+        databaseTitle: "Builder",
+        position: 0,
+        sourceId: "builder-source",
+      },
+    });
+
+    patchDocumentCaches(queryClient, "shared-page", {
+      title: "Shared title",
+      content: "Shared body",
+    });
+
+    expect(queryClient.getQueryData<Document>(localKey)).toMatchObject({
+      title: "Shared title",
+      content: "Shared body",
+      databaseMembership: { databaseId: "local-database" },
+    });
+    expect(queryClient.getQueryData<Document>(builderKey)).toMatchObject({
+      title: "Shared title",
+      content: "Shared body",
+      databaseMembership: { databaseId: "builder-database" },
+    });
+  });
 });
 
 describe("mergeDocumentIntoDocumentCache", () => {
@@ -426,6 +612,46 @@ describe("mergeDocumentIntoDocumentCache", () => {
         updated,
       ),
     ).toEqual({ ...updated, database });
+  });
+
+  it("never copies membership or hydration context between query variants", () => {
+    const localMembership = {
+      databaseId: "local-database",
+      databaseDocumentId: "local-database-page",
+      databaseTitle: "Local",
+      position: 0,
+    };
+    const merged = mergeDocumentIntoDocumentCache(
+      {
+        ...doc("shared-page", null),
+        databaseMembership: localMembership,
+      },
+      {
+        ...doc("shared-page", null),
+        title: "Server title",
+        databaseMembership: {
+          databaseId: "builder-database",
+          databaseDocumentId: "builder-database-page",
+          databaseTitle: "Builder",
+          position: 0,
+        },
+        bodyHydration: {
+          provider: "builder",
+          hydration: {
+            status: "pending",
+            attemptedAt: null,
+            error: null,
+            version: null,
+          },
+        },
+      },
+    );
+
+    expect(merged).toMatchObject({
+      title: "Server title",
+      databaseMembership: localMembership,
+    });
+    expect(merged).not.toHaveProperty("bodyHydration");
   });
 });
 
@@ -544,11 +770,71 @@ describe("seedDatabaseItemDocumentCaches", () => {
       undefined,
     );
     expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
       properties: item.properties,
+    });
+  });
+
+  it("keeps property caches separate for one page in two databases", () => {
+    const queryClient = new QueryClient();
+    const item = (databaseId: string, propertyId: string, value: string) =>
+      ({
+        id: `item-${databaseId}`,
+        databaseId,
+        position: 0,
+        document: {
+          ...doc("shared-row", `page-${databaseId}`),
+          databaseMembership: {
+            databaseId,
+            databaseDocumentId: `page-${databaseId}`,
+            databaseTitle: databaseId,
+            position: 0,
+          },
+        },
+        properties: [
+          {
+            definition: {
+              id: propertyId,
+              databaseId,
+              name: propertyId,
+              type: "select",
+              visibility: "always_show",
+              options: { options: [] },
+              position: 0,
+              createdAt: "2026-07-24T00:00:00.000Z",
+              updatedAt: "2026-07-24T00:00:00.000Z",
+            },
+            value,
+            editable: true,
+          },
+        ],
+      }) as ContentDatabaseItem;
+
+    const filesItem = item("files-database", "Kind", "Page");
+    const projectItem = item("project-database", "Status", "In progress");
+    seedDatabaseItemDocumentCaches(queryClient, filesItem);
+    seedDatabaseItemDocumentCaches(queryClient, projectItem);
+
+    expect(
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("shared-row", "files-database"),
+      ),
+    ).toMatchObject({
+      databaseId: "files-database",
+      properties: filesItem.properties,
+    });
+    expect(
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("shared-row", "project-database"),
+      ),
+    ).toMatchObject({
+      databaseId: "project-database",
+      properties: projectItem.properties,
     });
   });
 
@@ -591,7 +877,9 @@ describe("seedDatabaseItemDocumentCaches", () => {
       undefined,
     );
     expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",
@@ -637,7 +925,9 @@ describe("seedDatabaseItemDocumentCaches", () => {
       undefined,
     );
     expect(
-      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+      queryClient.getQueryData(
+        documentPropertiesQueryKey("row-page", "database"),
+      ),
     ).toEqual({
       documentId: "row-page",
       databaseId: "database",

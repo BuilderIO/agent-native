@@ -485,6 +485,12 @@ const messages = {
     lastRun: "Última ejecución:",
     automationsDescription:
       "Reglas que procesan automáticamente nuevos correos de la bandeja usando IA.",
+    allowAutomationSends:
+      "Permitir que las automatizaciones envíen correos automáticamente",
+    allowAutomationSendsDescription:
+      "Está desactivado de forma predeterminada. Actívalo si quieres que las automatizaciones envíen correos sin pedir aprobación cada vez.",
+    automationSendSettingSaveFailed:
+      "No se pudo guardar el ajuste de envío automático de correos.",
     loadingModels: "Cargando modelos",
     newRule: "Nueva regla",
     noAutomationRules: "Aún no hay reglas de automatización.",
@@ -505,6 +511,8 @@ const messages = {
     importFromGmail: "Importar desde Gmail",
     signatureHelp:
       "Se añade a los borradores nuevos antes del historial citado. Admite enlaces e imágenes Markdown.",
+    addSignatureImage: "Añadir imagen",
+    signatureImageUploadFailed: "No se pudo subir la imagen de la firma",
     writingStyle: "Estilo de escritura",
     writingStylePlaceholder:
       "Breve, específico y cálido. Evita relleno formal.",

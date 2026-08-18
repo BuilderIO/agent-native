@@ -28,10 +28,15 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import {
+  INTEGRATION_RECOVERY_RUNTIME_MARKER,
   INTEGRATION_RETRY_SWEEP_PATH,
   INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT,
   isIntegrationDurableDispatchConfigured,
 } from "../integrations/integration-durable-dispatch-config.js";
+import {
+  RECURRING_JOBS_SWEEP_PATH,
+  RECURRING_JOBS_SWEEP_TOKEN_SUBJECT,
+} from "../jobs/scheduler-dispatch.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import {
   DEFAULT_WORKSPACE_APP_AUDIENCE,
@@ -43,7 +48,11 @@ import {
   type WorkspaceAppAudience,
 } from "../shared/workspace-app-audience.js";
 import { DISPATCH_WORKSPACE_ROOT_REDIRECTS } from "../shared/workspace-app-id.js";
-import { assertEmittedBackgroundFunctionOnDisk } from "./build.js";
+import {
+  assertEmittedBackgroundFunctionOnDisk,
+  isRecurringJobsDeployEnabled,
+} from "./build.js";
+import { cloneServerBundleForFunction } from "./function-bundle.js";
 import {
   collectImmutableAssetPaths,
   IMMUTABLE_ASSET_CACHE_HEADERS,
@@ -77,6 +86,19 @@ const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_DIR = ".agent-native";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const VERCEL_OUTPUT_DIR = ".vercel/output";
+
+const WORKSPACE_DIRECTORY_ENV_SNIPPET = `
+  const directoryOrigin =
+    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL ||
+    processRef.env.WORKSPACE_GATEWAY_URL ||
+    processRef.env.APP_URL ||
+    processRef.env.URL ||
+    processRef.env.DEPLOY_URL ||
+    processRef.env.BETTER_AUTH_URL;
+  if (directoryOrigin) {
+    processRef.env.AGENT_NATIVE_ORG_DIRECTORY_URL = directoryOrigin;
+  }
+`;
 
 interface WorkspaceAppManifestEntry {
   id: string;
@@ -261,6 +283,12 @@ function buildOneApp(
     VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON: JSON.stringify(workspaceApps),
     ...(workspaceGatewayUrl
       ? {
+          AGENT_NATIVE_ORG_DIRECTORY_URL:
+            process.env.AGENT_NATIVE_ORG_DIRECTORY_URL || workspaceGatewayUrl,
+        }
+      : {}),
+    ...(workspaceGatewayUrl
+      ? {
           WORKSPACE_GATEWAY_URL:
             process.env.WORKSPACE_GATEWAY_URL || workspaceGatewayUrl,
           VITE_WORKSPACE_GATEWAY_URL: workspaceGatewayUrl,
@@ -381,7 +409,7 @@ function copyVercelAppBuildIntoWorkspace(
     `${app}-server.func`,
   );
   fs.rmSync(functionDest, { recursive: true, force: true });
-  copyDir(functionSrc, functionDest);
+  cloneServerBundleForFunction(functionSrc, functionDest);
   patchVercelFunctionEntry(functionDest, app, workspaceApps);
 }
 
@@ -679,18 +707,23 @@ function copyNetlifyFunctionIntoWorkspace(
 
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), `${app}-server`);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(src, dest);
+  cloneServerBundleForFunction(src, dest);
   patchNetlifyFunctionEntry(dest, app, workspaceApps, staticDir);
 
   // Durable background agent runs. Additive ONLY: when explicitly opted out
   // this emits nothing and the single-function deploy is unchanged.
   const integrationDurableDispatch =
     app === "dispatch" && isIntegrationDurableDispatchConfigured();
+  const recurringJobs = isRecurringJobsDeployEnabled();
   if (
     isDurableBackgroundWorkspaceDeployEnabled() ||
-    integrationDurableDispatch
+    integrationDurableDispatch ||
+    recurringJobs
   ) {
     emitNetlifyBackgroundFunction(workspaceRoot, app, src, workspaceApps);
+  }
+  if (recurringJobs) {
+    emitNetlifyRecurringJobsFunction(workspaceRoot, app);
   }
   if (integrationDurableDispatch) {
     emitNetlifyIntegrationRecoveryFunction(
@@ -700,6 +733,90 @@ function copyNetlifyFunctionIntoWorkspace(
       workspaceApps,
     );
   }
+}
+
+/**
+ * Emit the per-app Netlify Scheduled Function that hands one recurring-job
+ * sweep to that app's durable background worker. The worker owns the actual
+ * scan so scheduled-function timeouts cannot strand the automation runner.
+ *
+ * The entry imports `node:crypto`, so `includedFiles: ["**"]` must stay: the
+ * deploy packager only accepts an omitted `includedFiles` for scheduled
+ * functions whose entry file has no import/require edge at all.
+ */
+function emitNetlifyRecurringJobsFunction(
+  workspaceRoot: string,
+  app: string,
+): void {
+  const functionName = `${app}-agent-recurring-jobs`;
+  const dest = path.join(netlifyFunctionsDir(workspaceRoot), functionName);
+  const backgroundName = `${app}-agent-background`;
+  const backgroundPath = `/.netlify/functions/${backgroundName}`;
+  const sweepPath = `/${app}${RECURRING_JOBS_SWEEP_PATH}`;
+  fs.rmSync(dest, { recursive: true, force: true });
+  fs.mkdirSync(dest, { recursive: true });
+
+  const entry = `import { createHmac } from "node:crypto";
+
+const BACKGROUND_PATH = ${JSON.stringify(backgroundPath)};
+const SWEEP_PATH = ${JSON.stringify(sweepPath)};
+const TOKEN_SUBJECT = ${JSON.stringify(RECURRING_JOBS_SWEEP_TOKEN_SUBJECT)};
+const PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
+const PROCESSOR_ROUTE = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE)};
+const PROCESSOR_ROUTE_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD)};
+
+function siteOrigin(request) {
+  return new URL(request.url).origin;
+}
+
+function token(secret) {
+  const timestamp = Date.now();
+  const signature = createHmac("sha256", secret)
+    .update(\`${RECURRING_JOBS_SWEEP_TOKEN_SUBJECT}:\${timestamp}\`)
+    .digest("hex");
+  return \`\${timestamp}.\${signature}\`;
+}
+
+export default async function handler(request) {
+  const secret = process.env.A2A_SECRET;
+  if (!secret) {
+    throw new Error("[recurring-jobs] A2A_SECRET is required for the scheduled sweep");
+  }
+  const url = new URL(BACKGROUND_PATH, siteOrigin(request));
+  const response = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: \`Bearer \${token(secret)}\`,
+      "Content-Type": "application/json",
+      "user-agent": "agent-native-recurring-jobs",
+    },
+    body: JSON.stringify({
+      [PROCESSOR_FIELD]: PROCESSOR_ROUTE,
+      [PROCESSOR_ROUTE_FIELD]: SWEEP_PATH,
+    }),
+  });
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      \`[recurring-jobs] Durable sweep handoff failed (\${response.status}): \${body.slice(0, 500)}\`,
+    );
+  }
+  console.log("[recurring-jobs] Durable sweep handed off", url.toString());
+  return new Response(null, { status: 204 });
+}
+
+export const config = {
+  name: ${JSON.stringify(`${app} agent-native recurring jobs`)},
+  generator: "agent-native workspace deploy",
+  schedule: "* * * * *",
+  nodeBundler: "none",
+  includedFiles: ["**"],
+};
+`;
+  fs.writeFileSync(path.join(dest, `${functionName}.mjs`), entry);
+  console.log(
+    `[workspace-deploy] Emitted Netlify scheduled recurring-job function "${functionName}" for app "${app}".`,
+  );
 }
 
 /**
@@ -760,7 +877,7 @@ function emitNetlifyBackgroundFunction(
   const backgroundName = `${app}-agent-background`;
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), backgroundName);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(srcServerDir, dest);
+  cloneServerBundleForFunction(srcServerDir, dest);
 
   const basePath = `/${app}`;
   const workspaceAppAudience = workspaceAppAudienceForApp(workspaceApps, app);
@@ -774,6 +891,7 @@ function emitNetlifyBackgroundFunction(
   const processRunPath = `${basePath}${AGENT_CHAT_PROCESS_RUN_PATH}`;
   const a2aProcessTaskPath = `${basePath}/_agent-native/a2a/_process-task`;
   const integrationProcessTaskPath = `${basePath}/_agent-native/integrations/process-task`;
+  const recurringJobsSweepPath = `${basePath}${RECURRING_JOBS_SWEEP_PATH}`;
   const server = `// Mark this isolate as the durable background runtime BEFORE the handler bundle
 // is imported, so isInBackgroundFunctionRuntime() reliably returns true in this
 // function (the deployed Lambda name is not guaranteed to end in -background). A
@@ -786,6 +904,7 @@ const basePath = ${JSON.stringify(basePath)};
 const PROCESS_RUN_PATH = ${JSON.stringify(processRunPath)};
 const A2A_PROCESS_TASK_PATH = ${JSON.stringify(a2aProcessTaskPath)};
 const INTEGRATION_PROCESS_TASK_PATH = ${JSON.stringify(integrationProcessTaskPath)};
+const RECURRING_JOBS_SWEEP_PATH = ${JSON.stringify(recurringJobsSweepPath)};
 const BACKGROUND_PROCESSOR_FIELD = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_FIELD)};
 const BACKGROUND_PROCESSOR_A2A = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A)};
 const BACKGROUND_PROCESSOR_INTEGRATION = ${JSON.stringify(AGENT_BACKGROUND_PROCESSOR_INTEGRATION)};
@@ -809,7 +928,8 @@ function processorPathFromBody(body) {
     if (
       parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_ROUTE &&
       typeof route === "string" &&
-      route.startsWith(basePath + "/api/_agent-native-background/") &&
+      (route === RECURRING_JOBS_SWEEP_PATH ||
+        route.startsWith(basePath + "/api/_agent-native-background/")) &&
       !route.includes("?") &&
       !route.includes("#")
     ) {
@@ -824,6 +944,7 @@ function processorPathFromBody(body) {
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
@@ -901,7 +1022,7 @@ function emitNetlifyIntegrationRecoveryFunction(
   const functionName = `${app}-integration-recovery`;
   const dest = path.join(netlifyFunctionsDir(workspaceRoot), functionName);
   fs.rmSync(dest, { recursive: true, force: true });
-  copyDir(srcServerDir, dest);
+  cloneServerBundleForFunction(srcServerDir, dest);
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const basePath = `/${app}`;
@@ -916,10 +1037,12 @@ function emitNetlifyIntegrationRecoveryFunction(
 const basePath = ${JSON.stringify(basePath)};
 const SWEEP_PATH = ${JSON.stringify(sweepPath)};
 const SWEEP_SUBJECT = ${JSON.stringify(INTEGRATION_RETRY_SWEEP_TOKEN_SUBJECT)};
+globalThis.${INTEGRATION_RECOVERY_RUNTIME_MARKER} = true;
 
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
@@ -1032,6 +1155,7 @@ function normalizeBasePathArgs(args) {
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},
@@ -1104,6 +1228,7 @@ function patchVercelFunctionEntry(
 function setBasePathEnv() {
   const processRef = globalThis.process ??= { env: {} };
   processRef.env ??= {};
+${WORKSPACE_DIRECTORY_ENV_SNIPPET}
   Object.assign(processRef.env, {
     AGENT_NATIVE_WORKSPACE: "1",
     AGENT_NATIVE_WORKSPACE_APP_ID: ${JSON.stringify(app)},

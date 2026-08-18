@@ -16,6 +16,7 @@ const messages = {
     navInbox: "Bandeja de entrada",
     navTasks: "Tareas",
     navFields: "Campos",
+    search: "Buscar",
     collapseSidebar: "Contraer barra lateral",
     expandSidebar: "Expandir barra lateral",
     navigationTitle: "Navegación",
@@ -28,6 +29,12 @@ const messages = {
     pageTeam: "Equipo",
     pageExtension: "Extensión",
     pageExtensions: "Extensiones",
+  },
+  settings: {
+    languageTitle: "Idioma",
+    languageDescription:
+      "Elige el idioma de la interfaz. Esta preferencia se guarda en tu cuenta.",
+    languageLabel: "Idioma de la interfaz",
   },
   agent: {
     emptyState: "Pide al agente que inspeccione o modifique esta aplicación.",

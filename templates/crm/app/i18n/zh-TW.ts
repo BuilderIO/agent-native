@@ -61,6 +61,9 @@ const messages = {
     title: "CRM 設定",
     description:
       "原生 SQL 讓 CRM 自有的記錄留在本機且可攜。HubSpot 與 Salesforce 使用工作區連線，其鏡像只會儲存允許清單內的欄位、受限的中繼資料與有界的證據參照。",
+    languageTitle: "語言",
+    languageDescription: "選取介面語言。此偏好會儲存到你的帳戶。",
+    languageLabel: "介面語言",
   },
   connection: {
     tab: "連線",

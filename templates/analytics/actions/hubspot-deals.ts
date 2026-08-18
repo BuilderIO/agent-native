@@ -493,6 +493,8 @@ export default defineAction({
       .describe("Optional HubSpot pagination cursor for query results."),
   }),
   http: { method: "GET" },
+  publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+  grounding: true,
   run: async ({
     properties,
     owner,

@@ -54,8 +54,8 @@ When the user asks to find a previous conversation, use \`chat-history\` with ac
 
   "agent-teams": `### Agent Teams — Orchestration
 
-You can delegate to background sub-agents with the \`agent-teams\` tool:
-- \`agent-teams\` (action: "spawn") — Launch a sub-agent on a task. It runs in its own thread with a clean context while you stay available; a live preview card appears in the chat. The spawn result confirms launch only, not completion. Optionally pass a custom agent profile from \`agents/*.md\` via the \`agent\` parameter.
+You can delegate to background tasks with the \`agent-teams\` tool. Call them background tasks or sub-agent tasks, never branches; reserve "branch" for source-control or Builder code handoffs:
+- \`agent-teams\` (action: "spawn") — Launch a background task on a self-contained job. It runs in its own task thread with a clean context while you stay available; a live preview card appears in the chat. The spawn result confirms launch only, not completion. Optionally pass a custom agent profile from \`agents/*.md\` via the \`agent\` parameter.
 - \`agent-teams\` (action: "status") — Check a running sub-agent's progress.
 - \`agent-teams\` (action: "read-result") — Read a finished sub-agent's output.
 - \`agent-teams\` (action: "send") — Message a running sub-agent.
@@ -151,6 +151,8 @@ Prefer \`web-request\` for simple API calls and static pages. Use browser automa
   "call-agent": `### call-agent — External Apps Only
 
 The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app's agent (A2A protocol). It is **not** for calling actions within the current app.
+
+Use a natural-language \`message\` by default. The receiving app owns interpretation and runs with its own instructions, skills, connected sources, data dictionary, and tools. Do not choose its provider, schema, query, joins, or SQL for it. A direct \`action\` + \`input\` call is only for an exact bounded read whose complete contract is already known; it is never for a create, update, delete, send, save, publish, or other side effect, and it is never a workaround for unreliable delegation.
 
 **NEVER use \`call-agent\` to:**
 - Call your own app by name
@@ -426,9 +428,13 @@ export function createUrlTools(): Record<string, ActionEntry> {
       },
     },
     "ask-question": {
+      // The turn is over once the question is on screen. Without this the loop
+      // asks the model for another step, and it keeps working (and re-asking)
+      // over an unanswered question no matter what the tool result says.
+      endsTurn: true,
       tool: {
         description:
-          "Ask the user a multiple-choice clarifying question and render it inline in the chat. Use this ONLY when you are genuinely blocked on a decision you cannot resolve from context and a wrong guess would be costly — an ambiguous metric, date range, or grain; a real fork in approach. Present 2-5 concrete options and mark the most likely one recommended. Do NOT use it for confirmations, for things the user already specified, or to dodge easy work you could just do. Ask at most once per turn. Calling this yields the turn: stop and wait for the user's answer.",
+          "Ask the user a multiple-choice clarifying question and render it inline in the chat. Use this ONLY when you are genuinely blocked on a decision you cannot resolve from context and a wrong guess would be costly — an ambiguous metric, date range, or grain; a real fork in approach. Present 2-5 concrete options and mark the most likely one recommended. Do NOT use it for confirmations, for things the user already specified, or to dodge easy work you could just do. Calling this ends the turn: one question per turn, and any other tool call you emit alongside it will not run.",
         parameters: {
           type: "object",
           properties: {
@@ -464,8 +470,11 @@ export function createUrlTools(): Record<string, ActionEntry> {
         },
       },
       run: async (args) => {
+        // These must throw, not return an error string: `endsTurn` yields the
+        // turn on any non-error result, so a returned string would leave the
+        // run waiting on a question card that was never written.
         const question = String(args?.question ?? "").trim();
-        if (!question) return "Error: 'question' is required.";
+        if (!question) throw new Error("'question' is required.");
         const header = String(args?.header ?? "").trim();
         const allowMultiple = String(args?.allowMultiple ?? "") === "true";
         const allowFreeText = String(args?.allowFreeText ?? "true") !== "false";
@@ -474,10 +483,14 @@ export function createUrlTools(): Record<string, ActionEntry> {
         try {
           parsedOptions = JSON.parse(String(args?.options ?? "[]"));
         } catch {
-          return "Error: 'options' must be a JSON array of { label, value?, description?, recommended? }.";
+          throw new Error(
+            "'options' must be a JSON array of { label, value?, description?, recommended? }.",
+          );
         }
         if (!Array.isArray(parsedOptions) || parsedOptions.length === 0) {
-          return "Error: 'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.";
+          throw new Error(
+            "'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.",
+          );
         }
 
         type AskOption = {
@@ -513,7 +526,9 @@ export function createUrlTools(): Record<string, ActionEntry> {
           })
           .filter((opt): opt is AskOption => opt !== null);
         if (options.length === 0) {
-          return "Error: 'options' must contain at least one option with a label.";
+          throw new Error(
+            "'options' must contain at least one option with a label.",
+          );
         }
 
         // Shape must match the GuidedQuestionFlow renderer in
@@ -521,7 +536,20 @@ export function createUrlTools(): Record<string, ActionEntry> {
         // carry `value`, with `multiSelect` for multi-pick and `allowOther` for
         // free text. The renderer otherwise injects "Explore"/"Decide" options,
         // which would be noise for a focused clarifying question, so disable them.
+        // The application-state key is scoped per browser tab, not per chat, so
+        // the payload has to name the thread that asked. The client hides a
+        // pending question in every other conversation instead of following the
+        // user from chat to chat.
+        // A request that carried no thread id falls back to the run id (see
+        // `onRunStart`), and a per-run value would never match the chat the user
+        // is looking at. Leave those surfaces unbound — they have one chat.
+        const askingRunCtx = getRequestRunContext();
+        const askingThreadId =
+          askingRunCtx?.threadId && askingRunCtx.threadId !== askingRunCtx.runId
+            ? askingRunCtx.threadId
+            : undefined;
         const payload = {
+          ...(askingThreadId ? { threadId: askingThreadId } : {}),
           questions: [
             {
               id: "q1",
@@ -547,7 +575,9 @@ export function createUrlTools(): Record<string, ActionEntry> {
           ),
           payload,
         );
-        return "Asked the user a clarifying question and rendered it in the chat. Stop here and wait for their answer — do not proceed or assume an answer.";
+        // The `startsWith` of this text is how integration surfaces recognize a
+        // delivered question (see `extractSlackInputRequest`). Keep the prefix.
+        return "Asked the user a clarifying question and rendered it in the chat. This turn is over — their answer arrives as a new message.";
       },
     },
   };

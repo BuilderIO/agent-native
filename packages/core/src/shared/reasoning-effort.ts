@@ -12,11 +12,11 @@ export const REASONING_EFFORTS = [
 export type ReasoningEffort = (typeof REASONING_EFFORTS)[number];
 
 /**
- * Shared chat always chooses an explicit reasoning tier. Keep `auto` in the
+ * Shared chat always chooses an explicit effort tier. Keep `auto` in the
  * accepted type only so older persisted selections and external callers can
- * migrate cleanly; new UI and engine defaults resolve it to Medium.
+ * migrate cleanly; new UI and engine defaults resolve it to High.
  */
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
 
 export const REASONING_EFFORT_LABELS: Record<ReasoningEffort, string> = {
   auto: "Auto",
@@ -116,10 +116,10 @@ export function reasoningEffortLabel(effort: ReasoningEffort | undefined) {
 
 /**
  * Resolve a user-facing selection for a model. Legacy `auto`, missing values,
- * and tiers unsupported by the newly selected model all become Medium.
- * Non-reasoning models still retain Medium in persisted chat state so moving
- * back to a reasoning model has a predictable default; their engines omit the
- * effort through `normalizeReasoningEffortForModel`.
+ * and tiers unsupported by the newly selected model all become High.
+ * Models without effort controls still retain High in persisted chat state so
+ * moving back to an effort-capable model has a predictable default; their
+ * engines omit the effort through `normalizeReasoningEffortForModel`.
  */
 export function resolveReasoningEffortSelection(
   model: string | undefined,
@@ -137,7 +137,7 @@ export function resolveReasoningEffortSelection(
  * One tier down from each effort, stopping at "minimal" — legacy `auto`,
  * "none", and "minimal" itself are left unchanged. Used by the
  * empty-final-response retry so a retried turn asks for meaningfully less
- * reasoning instead of repeating the exact request that came back empty.
+ * effort instead of repeating the exact request that came back empty.
  */
 const REASONING_EFFORT_STEP_DOWN: Partial<
   Record<ReasoningEffort, ReasoningEffort>
@@ -156,7 +156,7 @@ export function stepDownReasoningEffort(
   return REASONING_EFFORT_STEP_DOWN[effort] ?? effort;
 }
 
-function isGPTReasoningModel(model: string) {
+export function isGPTReasoningModel(model: string) {
   const id = model.toLowerCase().replace(/^openai\//, "");
   return /^gpt-5/.test(id) || /^o\d/.test(id);
 }
@@ -172,7 +172,7 @@ function isClaudeReasoningModel(model: string) {
 
 /**
  * Anthropic's adaptive-thinking API is only available on the newer Claude
- * model families. Claude Haiku 4.5 is reasoning-capable, but it still
+ * model families. Claude Haiku 4.5 supports effort, but it still
  * requires the legacy manual `budget_tokens` configuration.
  */
 export function supportsClaudeAdaptiveThinking(model: string | undefined) {
@@ -185,7 +185,7 @@ export function supportsClaudeAdaptiveThinking(model: string | undefined) {
 }
 
 /**
- * Map the shared reasoning ladder to Anthropic's manual thinking budgets for
+ * Map the shared effort ladder to Anthropic's manual thinking budgets for
  * models that do not support adaptive thinking (currently Claude Haiku 4.5).
  */
 export function anthropicManualThinkingBudget(effort: ReasoningEffort) {

@@ -80,6 +80,7 @@ A visibilidade grosseira reside no próprio recurso; subsídios detalhados ficam
 Ao compartilhar com um usuário ou organização específica, você escolhe uma função:
 
 - **Visualizador** — somente leitura.
+- **Comentarista** — pode ler e adicionar comentários, mas não pode editar o recurso nem gerenciar compartilhamentos.
 - **Editor** — ler + escrever.
 - **Admin** — ler + escrever + gerenciar compartilhamentos (pode adicionar/remover outras pessoas).
 
@@ -244,7 +245,7 @@ export const deckShares = createSharesTable("deck_shares");
         {
           name: "role",
           type: "enum",
-          note: "visualizador | editor | administrador",
+          note: "visualizador | comentarista | editor | administrador",
         },
         {
           name: "created_by",

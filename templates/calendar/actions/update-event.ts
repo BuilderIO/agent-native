@@ -79,7 +79,7 @@ function workingLocationTitle(
 
 export default defineAction({
   description:
-    "Update a Google Calendar event. Supports title, description, location, time, event color, attachments, reminders, and recurrence rules such as RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR.",
+    "Update a Google Calendar event. Supports moving an existing event between connected Google account calendars, as well as title, description, location, time, event color, attachments, reminders, and recurrence rules such as RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR.",
   schema: z.object({
     id: z
       .string()
@@ -89,6 +89,12 @@ export default defineAction({
       .optional()
       .describe(
         "Connected Google account email from list-events/search-events",
+      ),
+    targetAccountEmail: z
+      .string()
+      .optional()
+      .describe(
+        "Move this event to another connected Google account's primary calendar. Pass accountEmail as the current event account. Moving creates the event on the destination and removes it from the source.",
       ),
     title: z.string().optional().describe("New event title"),
     description: z.string().optional().describe("New event description"),
@@ -205,6 +211,11 @@ export default defineAction({
       args.accountEmail,
       ownerEmail,
     );
+    const targetAccountEmail =
+      args.targetAccountEmail !== undefined
+        ? await resolveOwnedAccountEmail(args.targetAccountEmail, ownerEmail)
+        : undefined;
+    const hasAccountMove = targetAccountEmail !== undefined;
     const recurrence = normalizeRecurrence(args.recurrence);
     const guestNotificationMessage = normalizeGuestNotificationMessage(
       args.notificationMessage,
@@ -227,6 +238,7 @@ export default defineAction({
     let attendees = normalizeAttendees(args.attendees);
 
     const hasPatch =
+      hasAccountMove ||
       args.title !== undefined ||
       args.description !== undefined ||
       args.location !== undefined ||
@@ -283,6 +295,100 @@ export default defineAction({
       return existingEvent;
     };
 
+    if (hasAccountMove) {
+      if (
+        targetAccountEmail!.trim().toLowerCase() ===
+        accountEmail.trim().toLowerCase()
+      ) {
+        throw new Error(
+          "The destination calendar must be different from the current calendar.",
+        );
+      }
+      if (args.scope === "all") {
+        throw new Error(
+          "Move a recurring event occurrence with scope single; moving an entire recurring series is not supported.",
+        );
+      }
+
+      const existingEvent = await loadExistingEvent();
+      const hasOtherEventPatch =
+        args.title !== undefined ||
+        args.description !== undefined ||
+        args.location !== undefined ||
+        args.start !== undefined ||
+        args.end !== undefined ||
+        args.startTimeZone !== undefined ||
+        args.endTimeZone !== undefined ||
+        args.allDay !== undefined ||
+        args.transparency !== undefined ||
+        args.visibility !== undefined ||
+        args.status !== undefined ||
+        args.remindersUseDefault !== undefined ||
+        args.reminders !== undefined ||
+        args.attachments !== undefined ||
+        args.colorId !== undefined ||
+        args.reminderMinutes !== undefined ||
+        args.reminderMethod !== undefined ||
+        args.addGoogleMeet !== undefined ||
+        args.addZoom !== undefined ||
+        args.recurrence !== undefined ||
+        args.attendees !== undefined ||
+        args.addAttendees !== undefined ||
+        args.workingLocationType !== undefined ||
+        args.workingLocationLabel !== undefined;
+      if (hasOtherEventPatch) {
+        throw new Error(
+          "Move the event separately from other event field changes.",
+        );
+      }
+
+      const sendUpdates =
+        args.sendUpdates ??
+        (existingEvent.attendees?.some((attendee) => !attendee.self)
+          ? "all"
+          : "none");
+      const result = await googleCalendar.moveEvent(googleEventId, {
+        sourceAccount: { ownerEmail, accountEmail },
+        destinationAccount: {
+          ownerEmail,
+          accountEmail: targetAccountEmail!,
+        },
+        sendUpdates,
+      });
+      if (!result.id) {
+        throw new Error("Google did not return an id for the moved event.");
+      }
+
+      const guestNotification = guestNotificationMessage
+        ? await sendEventGuestNotificationNote({
+            event: {
+              ...existingEvent,
+              id: `google-${result.id}`,
+              googleEventId: result.id,
+              accountEmail: targetAccountEmail,
+              htmlLink: result.htmlLink,
+              hangoutLink: result.meetLink,
+              conferenceData: result.conferenceData,
+            },
+            organizerEmail: ownerEmail,
+            message: guestNotificationMessage,
+            kind: "update",
+          })
+        : undefined;
+
+      return {
+        success: true,
+        id: `google-${result.id}`,
+        replacedId: `google-${googleEventId}`,
+        accountEmail: targetAccountEmail,
+        updated: ["accountEmail"],
+        htmlLink: result.htmlLink,
+        hangoutLink: result.meetLink,
+        conferenceData: result.conferenceData,
+        ...(guestNotification ? { guestNotification } : {}),
+      };
+    }
+
     if (args.location !== undefined && !hasWorkingLocationPatch) {
       const existingEvent = await loadExistingEvent();
       if (existingEvent.eventType === "workingLocation") {
@@ -306,6 +412,7 @@ export default defineAction({
         start: args.start ?? existingEvent.start,
         end: args.end ?? existingEvent.end,
       });
+      updates.allDay = args.allDay ?? existingEvent.allDay;
       if (
         existingEvent.eventType === "workingLocation" &&
         existingEvent.workingLocationProperties

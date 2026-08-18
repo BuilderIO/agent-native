@@ -52,6 +52,7 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -176,6 +177,7 @@ function NotionLogoMark({ className }: { className?: string }) {
 export function DatabaseSettingsPanelSheet({
   open,
   panel,
+  databaseId,
   documentId,
   canEdit,
   activeView,
@@ -208,6 +210,7 @@ export function DatabaseSettingsPanelSheet({
 }: {
   open: boolean;
   panel: DatabaseSettingsPanel;
+  databaseId: string;
   documentId: string;
   canEdit: boolean;
   activeView: ContentDatabaseView;
@@ -348,6 +351,7 @@ export function DatabaseSettingsPanelSheet({
         ) : panel === "property_visibility" ? (
           <DatabaseSettingsPropertyVisibilityPanel
             documentId={documentId}
+            databaseId={databaseId}
             properties={properties}
             activeView={activeView}
             items={items}
@@ -1473,19 +1477,28 @@ function CanonicalKeyConfirmView({
         type="button"
         size="sm"
         disabled={!canEdit || pending || matchedCount === 0}
-        onClick={() =>
-          onCommit({
-            canonicalKey: suggestion.canonicalKey,
-            primary: {
-              keyField: primaryKeyField,
-              normalizationFormula: primaryFormula,
-            },
-            secondary: {
-              keyField: secondaryKeyField,
-              normalizationFormula: secondaryFormula,
-            },
-          })
-        }
+        onClick={async () => {
+          try {
+            await onCommit({
+              canonicalKey: suggestion.canonicalKey,
+              primary: {
+                keyField: primaryKeyField,
+                normalizationFormula: primaryFormula,
+              },
+              secondary: {
+                keyField: secondaryKeyField,
+                normalizationFormula: secondaryFormula,
+              },
+            });
+          } catch (error) {
+            toast.error(dbText("failedToAttachSource"), {
+              description:
+                error instanceof Error
+                  ? error.message
+                  : dbText("somethingWentWrong"),
+            });
+          }
+        }}
       >
         {pending ? (
           <Spinner className="mr-1.5 size-3.5" />
@@ -1531,6 +1544,12 @@ function AddSourceView({
             <Spinner className="size-3.5" />
             {dbText("loadingTables")}
           </div>
+        ) : query.isError ? (
+          <QueryErrorState
+            compact
+            onRetry={() => void query.refetch()}
+            retrying={query.isFetching}
+          />
         ) : tables.length === 0 ? (
           <div className="min-w-0 break-words px-2 text-xs text-muted-foreground">
             {dbText("noOtherDatabasesAvailableToAdd")}
@@ -2796,6 +2815,7 @@ function DatabaseOpenPagesInSetting({
 
 function DatabaseSettingsPropertyVisibilityPanel({
   documentId,
+  databaseId,
   properties,
   activeView,
   items,
@@ -2806,6 +2826,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
   onPropertiesHiddenChange,
 }: {
   documentId: string;
+  databaseId: string;
   properties: DocumentProperty[];
   activeView: ContentDatabaseView;
   items: ContentDatabaseItem[];
@@ -2905,6 +2926,7 @@ function DatabaseSettingsPropertyVisibilityPanel({
       <div className="border-t border-border/70 pt-3">
         <AddProperty
           documentId={documentId}
+          databaseId={databaseId}
           label={dbText("newProperty")}
           source={source}
           sources={sources}

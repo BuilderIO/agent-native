@@ -1,11 +1,11 @@
 ---
 title: "Erweiterungen"
-description: "Mini-Apps, die Ihre Benutzer in Ihrer Vorlage erstellen – eine benutzerdefinierte KPI-Kachel in Analytics, eine Checkliste zur Besprechungsvorbereitung in Kalender, ein Kontakt-CRM-Widget in Mail. Keine Bereitstellungen, keine Codebearbeitungen, keine Schemaänderungen."
+description: "Eine optionale Toolkit-Funktion für einmalige, isolierte Custom Blocks. App-Code bleibt der Standard für dauerhaftes Produktverhalten."
 ---
 
 # Erweiterungen
 
-Erweiterungen sind **Mini-Apps, die Ihre Benutzer innerhalb Ihrer Vorlage erstellen**.
+Erweiterungen sind eine **optionale Toolkit-Funktion für isolierte Custom Blocks**. Sie sind standardmäßig deaktiviert und müssen von der Vorlage ausdrücklich aktiviert werden. Analytics nutzt sie für ausdrücklich angeforderte, einmalige Visualisierungen. Für dauerhaftes Verhalten bearbeiten Sie den App-Code.
 
 Wenn Sie QuickBooks Online verwendet haben, haben Sie das Modell gesehen: QBO liefert ein zentrales Buchhaltungsprodukt und Benutzer überlagern kleine benutzerdefinierte Widgets – einen benutzerdefinierten Bericht, einen Gehaltsabrechnungsrechner, einen Steuerregelprüfer –, die in derselben App gespeichert sind und dieselben Daten verwenden. Erweiterungen sind die agentennative Version dieser Idee, mit der Ausnahme, dass Ihre Benutzer keinen Code schreiben. Sie beschreiben, was sie wollen, und der Agent baut es auf.
 
@@ -16,10 +16,10 @@ Der Rahmen ist wichtig: Eine Erweiterung ist keine generische Sandbox „Machen 
 > Seite oder in einem benannten [Slot](#slots) dargestellt, den die Vorlage
 > bereitstellt. Sie kann keine Elemente in beliebige native Komponenten
 > einfügen – zum Beispiel neben jeden Teilnehmer im Kalender –, sofern dort
-> kein Slot vorhanden ist. Für tiefere Anpassungen bitten Sie den Agenten, den
-> Quellcode der Vorlage zu bearbeiten. Die vollständige Anpassbarkeit des Codes
-> ist eine Kernfunktion von Agent Native; Erweiterungen sind die schnelle Ebene
-> ohne Bereitstellung.
+> kein Slot vorhanden ist. Für tiefere Anpassungen ändern Sie die Vorlage in
+> Ihrem Repository und Entwicklungsablauf. Der eingebettete Agent kann nur
+> helfen, wenn der Host bewusst Repository-/Workspace-Schreibwerkzeuge
+> bereitstellt; Erweiterungen bleiben die schnelle Ebene ohne Bereitstellung.
 
 Drei Dinge sorgen dafür, dass Erweiterungen funktionieren:
 
@@ -27,10 +27,12 @@ Drei Dinge sorgen dafür, dass Erweiterungen funktionieren:
 - **Voller Zugriff auf die Daten der Vorlage.** Erweiterungen können denselben actions aufrufen, den der Agent aufruft – `list-emails` in Mail, `list-decks` in Folien, `list-recordings` in Clips – sodass sie über alles verfügen, was die Host-App hat.
 - **Integrierter Speicher.** Jede Erweiterung verfügt über einen eigenen Schlüsselwertspeicher pro Benutzer/pro Organisation, sodass der Status gespeichert werden kann, ohne dass Sie eine neue SQL-Tabelle hinzufügen müssen.
 
-Wenn eine Vorlage keine vom Benutzer erstellten Erweiterungen verfügbar machen soll, legen Sie fest
-`extensionTools: false` auf `createAgentChatPlugin()`. Dadurch wird das
-agentenseitige Erweiterung actions und schnelle Anleitung beim Verlassen des Rests
-App-Agent intakt.
+Erweiterungen sind standardmäßig deaktiviert. Aktivieren Sie sie mit
+`extensionTools: true` in `createAgentChatPlugin()` und
+`createCoreRoutesPlugin()`. Das erste ergänzt agentenseitige actions und
+Anweisungen; das zweite erlaubt authentifizierte Erstellung über
+`POST /_agent-native/extensions`. Sandbox-Laufzeit sowie bestehende Lese-,
+Bearbeitungs- und Deep-Link-Routen bleiben aus Kompatibilitätsgründen erhalten.
 
 <Diagram id="doc-block-1yn00sz" title={"Die Sandkastenbrücke"} summary={"Die Erweiterung HTML wird in einem isolierten Iframe ausgeführt und erreicht den Host nur über einen festen Satz von Bridge-Helfern – jeder Aufruf ist umfangreich und zugriffsüberprüft."}>
 
@@ -425,24 +427,24 @@ Erweiterungen sind standardmäßig privat für den Benutzer, der sie erstellt ha
 
 Freigegebene Erweiterungen haben ihre eigenen URLs und werden in denselben Freigabedialog eingebunden wie Dokumente, Decks und Dashboards. Slot-Installationen sind immer persönlich – das Teilen einer Erweiterung bedeutet, dass andere sie installieren können; Es wird nicht automatisch an UI angeheftet.
 
-## Sollte ich eine Erweiterung verwenden oder den App-Code bearbeiten? {#vs-app-code}
+## Sollte ich eine Erweiterung oder den App-Quellworkflow verwenden? {#vs-app-code}
 
-Mit dem Framework kann der Agent den Quellcode der App direkt bearbeiten – Komponenten, Routen, Stile und Geschäftslogik. Verwenden Sie diese Frage, wenn beide Wege die Anfrage lösen könnten:
+Der eingebettete Agent bearbeitet Quellcode nicht standardmäßig; das ist nur mit bewusst bereitgestellten Repository-/Workspace-Schreibwerkzeugen möglich. Nutzen Sie den Quellworkflow für dauerhaftes Produktverhalten und Erweiterungen für schnelle Laufzeitanpassungen.
 
-- **Beginnen Sie mit einer Erweiterung** für ein eigenständiges, relativ einmaliges Widget: eine benutzerdefinierte Visualisierung oder Interaktion, eine Dashboard-Kachel, ein eigenständiges Dienstprogramm oder ein Zusatz in einem vorhandenen Slot. Sie ist schnell, benötigt keine Quellcodeänderung, keinen Build und keine Bereitstellung und kann privat oder geteilt sein.
-- **Verwenden Sie App-Code** für eine Kernfunktion der Vorlage, Änderungen an nativer UI, Layout, Routen oder Geschäftslogik oder für etwas, das über viele Dashboards oder Benutzer hinweg breit wiederverwendet werden soll. Wenn kein geeigneter Slot vorhanden ist oder ein neuer Slot benötigt wird, verwenden Sie Code.
-- **Überführen Sie wiederholte Erweiterungen.** Wenn dieselbe Erweiterung immer wieder erstellt wird oder die Pflege vieler Kopien schlechter wäre als eine gemeinsame Implementierung, verschieben Sie sie als wiederverwendbare native Funktion in den App-Code.
+- **Beginnen Sie mit App-Code** für Produktverhalten, native UI, Layout, Routen, Geschäftslogik oder alles, was wiederverwendet werden soll.
+- **Verwenden Sie einen Custom Block nur, wenn die App ihn aktiviert** und der Benutzer ausdrücklich eine einmalige Visualisierung oder Interaktion in einer vorhandenen Oberfläche wünscht. Er ist schnell und ohne Bereitstellung verfügbar, bleibt aber ein isolierter, vom Agenten erstellter Patch.
+- **Überführen Sie dauerhafte Blocks.** Wenn ein Block über seinen ursprünglichen Kontext hinaus nützlich wird, verwenden Sie **In App-Code überführen** und behalten Sie ihn bis zur Prüfung und Bereitstellung der Codeänderung bei.
 
-|                                   | Erweiterung                                                                   | App-Code bearbeiten                                      |
-| --------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------- |
-| **Erstellt von**                  | Agent (oder Benutzer) zur Laufzeit                                            | Agent bearbeitet Quelldateien                            |
-| **Gespeichert in**                | Die Datenbank                                                                 | Das Git-Repository                                       |
-| **Erfordert einen Build**         | Nein                                                                          | Ja                                                       |
-| **Erfordert eine Bereitstellung** | Nein                                                                          | Ja                                                       |
-| **Umfang**                        | Ein Benutzer (oder mit der Organisation geteilt)                              | Das gesamte Produkt, jeder Benutzer                      |
-| **Am besten für**                 | Persönliche Widgets, benutzerdefinierte KPIs, teamspezifische Dienstprogramme | Kernfunktionen, die allen Benutzern zur Verfügung stehen |
+|                                   | Erweiterung                                      | App-Code bearbeiten                 |
+| --------------------------------- | ------------------------------------------------ | ----------------------------------- |
+| **Erstellt von**                  | Agent (oder Benutzer) zur Laufzeit               | Benutzer oder codefähiger Workflow  |
+| **Gespeichert in**                | Die Datenbank                                    | Das Git-Repository                  |
+| **Erfordert einen Build**         | Nein                                             | Ja                                  |
+| **Erfordert eine Bereitstellung** | Nein                                             | Ja                                  |
+| **Umfang**                        | Ein Benutzer (oder mit der Organisation geteilt) | Das gesamte Produkt, jeder Benutzer |
+| **Am besten für**                 | Ausdrückliche einmalige Custom Blocks            | Dauerhaftes Produktverhalten        |
 
-Faustregel: **Wenn eine Erweiterung das Problem lösen kann, beginnen Sie im Allgemeinen damit.** Verwenden Sie Code, wenn die Erweiterungsgrenze nicht passt oder breite Wiederverwendung und produktweite Verfügbarkeit eine native Implementierung rechtfertigen. Eine einmalige benutzerdefinierte Visualisierung in einem Dashboard ist beispielsweise eine gute Erweiterung; ein neuer Kreis-, Mehrfachbalken- oder Liniendiagrammtyp, der in allen Dashboards verfügbar sein soll, gehört in den Vorlagencode.
+Faustregel: **Verwenden Sie standardmäßig App-Code.** In einer App, die Erweiterungen aktiviert, kann eine einmalige Visualisierung ein Custom Block sein; ein neuer Diagrammtyp für alle Dashboards gehört in den Vorlagencode.
 
 Für benutzerdefinierten Datenabruf, der native Diagramme und Tabellen speisen soll statt einer eigens gebauten Widget-UI, siehe [Datenprogramme](/docs/data-programs) — ein gespeichertes, aktualisierbares `run-code`-Skript, an das sich Dashboard-Panels direkt binden, ganz ohne Extension-iframe.
 
@@ -476,7 +478,7 @@ Sie werden dies auch bei normaler Verwendung nicht sehen, aber der Agent verfüg
 ## Was kommt als nächstes?
 
 - [**Templates**](/docs/cloneable-saas) – die Host-App-Erweiterungen werden erweitert
-- [**Actions**](/docs/actions) – die Vorgänge, die eine Erweiterung über `appAction` aufruft
+- [**Actions**](/docs/actions-overview) – die Vorgänge, die eine Erweiterung über `appAction` aufruft
 - [**Sharing & Privacy**](/docs/sharing) – wie Erweiterungssichtbarkeit, Organisationsfreigabe und benutzerspezifische Gewährungen funktionieren
 - [**Onboarding & API Keys**](/docs/onboarding) – wie Geheimnisse in den Einstellungen ans Licht kommen UI
 - [**Security**](/docs/security) – das Datenbereichs- und Zugriffsmodell des Frameworks

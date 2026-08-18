@@ -72,6 +72,28 @@ function canReadOwner(
   );
 }
 
+function resourceDownloadDisposition(path: string): string {
+  const basename = path.replaceAll("\\", "/").split("/").pop()?.trim() || "";
+  const filename = Array.from(basename)
+    .slice(0, 180)
+    .map((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      return codePoint <= 31 || codePoint === 127 ? "_" : character;
+    })
+    .join("");
+  const safeFilename =
+    filename && filename !== "." && filename !== ".." ? filename : "download";
+  const asciiFilename = safeFilename
+    .replace(/[^\x20-\x7e]/g, "_")
+    .replace(/["\\]/g, "_");
+  const encodedFilename = encodeURIComponent(safeFilename).replace(
+    /['()*]/g,
+    (character) => `%${character.charCodeAt(0).toString(16).toUpperCase()}`,
+  );
+
+  return `attachment; filename="${asciiFilename}"; filename*=UTF-8''${encodedFilename}`;
+}
+
 function mergeScopedResources(
   primary: ResourceMeta[],
   inherited: ResourceMeta[],
@@ -398,9 +420,8 @@ async function enrichTreeNodes(nodes: TreeNode[]): Promise<void> {
 }
 
 /** GET /_agent-native/resources/:id — get single resource with content.
- *  If the request comes from an <img>/<video>/etc tag (Accept includes the
- *  resource's mime type, or query param `?raw` is set), return the raw binary
- *  with the correct Content-Type so the browser can render it inline. */
+ *  `?raw` returns the bytes inline; `?download=1` returns the same bytes as a
+ *  safe attachment. */
 export async function handleGetResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -421,11 +442,11 @@ export async function handleGetResource(event: any) {
     return { error: "Resource not found" };
   }
 
-  // Serve raw binary when ?raw query param is set (used by <img> tags etc.)
   const query = getQuery(event);
   const wantsRaw = query.raw !== undefined;
+  const wantsDownload = query.download === "1";
 
-  if (wantsRaw && resource.content) {
+  if ((wantsRaw || wantsDownload) && typeof resource.content === "string") {
     const isText =
       resource.mimeType.startsWith("text/") ||
       resource.mimeType === "application/json";
@@ -435,6 +456,15 @@ export async function handleGetResource(event: any) {
 
     setResponseHeader(event, "Content-Type", resource.mimeType);
     setResponseHeader(event, "Content-Length", String(buf.length));
+    setResponseHeader(event, "Cache-Control", "private, no-store");
+    setResponseHeader(event, "X-Content-Type-Options", "nosniff");
+    if (wantsDownload) {
+      setResponseHeader(
+        event,
+        "Content-Disposition",
+        resourceDownloadDisposition(resource.path),
+      );
+    }
     return new Response(buf);
   }
 
@@ -710,7 +740,7 @@ export async function handleUploadResource(event: any) {
     setResponseStatus(event, 503);
     return {
       error:
-        "File storage is not configured. Connect Builder.io or register an S3/R2/GCS file upload provider before uploading binary resources.",
+        "File storage is not configured. Connect Builder.io (free tier available) or register an S3/R2/GCS file upload provider before uploading binary resources.",
       storageSetupRequired: true,
     };
   }

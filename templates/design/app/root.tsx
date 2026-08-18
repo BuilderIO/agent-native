@@ -7,13 +7,19 @@ import {
   getBrowserTabId,
   useSession,
 } from "@agent-native/core/client/hooks";
+import { setAgentNativeApiDisabled } from "@agent-native/core/client/host";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import {
   CommandMenu,
   useCommandMenuShortcut,
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
-import { IconHierarchy2, IconSun, IconMoon } from "@tabler/icons-react";
+import {
+  IconArrowsMaximize,
+  IconHierarchy2,
+  IconSun,
+  IconMoon,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -31,12 +37,19 @@ import type { LinksFunction } from "react-router";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
+import { requestDesignUiToggle } from "@/lib/design-ui-events";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
+
+// Builder frames this canvas with no session of its own, so every
+// `/_agent-native/*` call it makes is an unauthorized one that buries real
+// failures in 401 noise.
+if (isBuilderHostEmbed()) setAgentNativeApiDisabled("builder shell canvas");
 
 configureTracking({
   llmConnectionStatus:
@@ -73,7 +86,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#71717A" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -128,7 +140,9 @@ function DesignCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const location = useLocation();
   const navigate = useNavigate();
+  const isDesignEditor = location.pathname.startsWith("/design/");
   return (
     <CommandMenu
       open={open}
@@ -137,7 +151,7 @@ function DesignCommandMenu({
       changelogKey="design"
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
-        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+        <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
           <IconHierarchy2 size={16} />
           {t("root.openAgent")}
         </CommandMenu.Item>
@@ -146,9 +160,33 @@ function DesignCommandMenu({
         </CommandMenu.Item>
       </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.commandAppearance")}>
+        {isDesignEditor ? (
+          <CommandMenu.Item
+            onSelect={requestDesignUiToggle}
+            keywords={["canvas", "focus", "panels", "hide ui", "show ui"]}
+          >
+            <IconArrowsMaximize size={16} />
+            {t("designEditor.keyboardShortcuts.commands.toggleUi")}
+          </CommandMenu.Item>
+        ) : null}
         <ThemeToggleItem />
       </CommandMenu.Group>
     </CommandMenu>
+  );
+}
+
+/**
+ * The one toaster: AppProviders renders its own by default, and a second copy
+ * here made every toast appear twice once the two positions stopped coinciding.
+ * Builder's chat covers the left column when it hosts the editor, which would
+ * hide any toast underneath it.
+ */
+function DesignToaster() {
+  return (
+    <Toaster
+      richColors
+      position={isBuilderHostEmbed() ? "bottom-right" : "bottom-left"}
+    />
   );
 }
 
@@ -175,7 +213,6 @@ function RootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
-      <Toaster richColors position="bottom-left" />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
@@ -194,6 +231,7 @@ export default function Root() {
         queryClient={queryClient}
         isPublicPath={isPublicPath}
         i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
+        toaster={<DesignToaster />}
       >
         <RootContent />
       </AppProviders>

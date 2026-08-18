@@ -2734,7 +2734,27 @@ test("rectangle drawn left of the first screen persists on the board", async ({
     page.locator(
       "[data-board-surface-layer] iframe[data-design-preview-iframe]",
     ),
-  ).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
+  ).toHaveCSS("background-color", "rgb(26, 26, 26)");
+  const boardFrame = page.frameLocator(
+    "[data-board-surface-layer] iframe[data-design-preview-iframe]",
+  );
+  await boardFrame.locator("body").evaluate((body) => {
+    const probe = body.ownerDocument.createElement("div");
+    probe.dataset.viewportHeightProbe = "";
+    probe.style.minHeight = "calc(100vh - 44px)";
+    body.append(probe);
+  });
+  await expect
+    .poll(
+      () =>
+        boardFrame
+          .locator("[data-viewport-height-probe]")
+          .evaluate((element) =>
+            Number.parseFloat(getComputedStyle(element).minHeight),
+          ),
+      { timeout: 5_000 },
+    )
+    .toBe(856);
   await expect
     .poll(async () => {
       const positions = await primitiveLeftPositions(

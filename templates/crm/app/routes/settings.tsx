@@ -1,6 +1,8 @@
 import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsTabItem,
@@ -28,7 +30,7 @@ export function meta() {
 }
 
 /**
- * `/settings/<section>` deep links. `connections` is the shared workspace tab
+ * `/settings/<section>` deep links. `integrations` is the shared workspace tab
  * and `connection` is the CRM one, so the segment is matched exactly rather
  * than by substring.
  */
@@ -43,7 +45,7 @@ const SETTINGS_SECTIONS: readonly string[] = [
 
 function sectionFromPath(pathname: string): string {
   const section = pathname.split("/settings/")[1]?.split("/")[0] ?? "";
-  return SETTINGS_SECTIONS.includes(section) ? section : "general";
+  return SETTINGS_SECTIONS.includes(section) ? section : "integrations";
 }
 
 export default function SettingsRoute() {
@@ -99,13 +101,28 @@ export default function SettingsRoute() {
       defaultTab={sectionFromPath(location.pathname)}
       extraTabs={tabs}
       general={
-        <div className="mx-auto w-full max-w-2xl space-y-3">
-          <h1 className="text-xl font-semibold tracking-tight">
-            {t("settings.title")}
-          </h1>
-          <p className="text-sm leading-6 text-muted-foreground">
-            {t("settings.description")}
-          </p>
+        <div className="mx-auto w-full max-w-2xl space-y-6">
+          <div className="space-y-3">
+            <h1 className="text-xl font-semibold tracking-tight">
+              {t("settings.title")}
+            </h1>
+            <p className="text-sm leading-6 text-muted-foreground">
+              {t("settings.description")}
+            </p>
+          </div>
+
+          <SettingsGroup>
+            <SettingsRow
+              id="language"
+              label={t("settings.languageTitle")}
+              description={t("settings.languageDescription")}
+              control={
+                <div className="w-56">
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </div>
+              }
+            />
+          </SettingsGroup>
         </div>
       }
       whatsNew={

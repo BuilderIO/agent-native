@@ -362,7 +362,7 @@ export type PlanAccessStatusResponse = {
   signedIn: boolean;
   viewerEmail: string | null;
   viewerName: string | null;
-  role: "owner" | "viewer" | "editor" | "admin" | null;
+  role: "owner" | "viewer" | "commenter" | "editor" | "admin" | null;
   orgId: string | null;
   orgName: string | null;
   visibility: "private" | "org" | "public" | null;

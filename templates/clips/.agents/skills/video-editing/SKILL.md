@@ -229,6 +229,37 @@ downsamples to a 2000-point peaks array. Peaks are cached in
 recompute. The editor reads the cache first and falls back to computing only
 when the key is missing or corrupted.
 
+### Timeline filmstrip
+
+The trim track shows video frames behind the waveform. Two paths, and the order
+matters:
+
+1. **Sprite (preferred).** `generate-filmstrip` runs one ffmpeg pass
+   (`fps` → `scale` → `pad` → `tile`) into a single JPEG grid, uploads it, and
+   stores the URL plus grid geometry on the recording. The editor renders cells
+   with CSS `background-position` — one cached image request, no video decoding
+   in the browser.
+2. **Browser extraction (fallback).** `extractFilmstripThumbnails()` seeks a
+   detached `<video>` once per frame. Only used when there is no sprite, which
+   means hosts without ffmpeg and local/dev media the server cannot fetch.
+
+Three traps this design exists to avoid:
+
+- **Pass the proxied URL.** Frame extraction must use `getWaveformMediaUrl()`,
+  never `recording.videoUrl` — reading pixels back out of a cross-origin video
+  taints the canvas and `toDataURL` throws, so provider media silently yields no
+  filmstrip at all.
+- **Both paths sample cell midpoints,** not `0 … duration` endpoints. The strip
+  renders N equal cells, so cell `i` must show the middle of the slot it
+  occupies or every thumbnail sits up to half a cell from the time beneath it.
+- **Cell count comes from the geometry,** `trackWidth / (height × aspect)`, not
+  from the sprite's frame count. Rendering all 40 frames across an unzoomed
+  track makes each cell portrait, and `object-cover` then shows a narrow centre
+  slice of each frame instead of a recognisable thumbnail.
+
+The filmstrip never replaces the waveform — peaks still draw on top of a scrim,
+because frames say nothing about the audio.
+
 ### Keyboard shortcuts (editor scope)
 
 - **Space** — play / pause (even while focused in the editor area)

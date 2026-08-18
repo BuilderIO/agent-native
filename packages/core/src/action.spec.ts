@@ -3,9 +3,26 @@ import { z } from "zod";
 
 import {
   defineAction,
+  ActionContractError,
+  isActionContractError,
   AgentActionStopError,
   isAgentActionStopError,
 } from "./action.js";
+
+describe("ActionContractError", () => {
+  it("carries only explicitly safe structured contract details", () => {
+    const error = new ActionContractError("Stale schema", {
+      errorCode: "SCHEMA_REVISION_CONFLICT",
+      details: { expected: "before", actual: "after" },
+    });
+    expect(isActionContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      statusCode: 409,
+      errorCode: "SCHEMA_REVISION_CONFLICT",
+      details: { expected: "before", actual: "after" },
+    });
+  });
+});
 
 // Uses the legacy `parameters` mode so we don't need to pull in zod as a test
 // dep — the readOnly inference logic is independent of the schema path.
@@ -18,6 +35,27 @@ describe("defineAction", () => {
       run: async () => ({ ok: true }),
     });
     expect(action.readOnly).toBe(true);
+  });
+
+  it("carries the grounding declaration through to the entry", () => {
+    const action = defineAction({
+      description: "query a provider",
+      parameters: { q: { type: "string" } },
+      http: false,
+      grounding: true,
+      run: async () => "ok",
+    });
+    expect(action.grounding).toBe(true);
+  });
+
+  it("leaves grounding undefined when the action does not declare it", () => {
+    const action = defineAction({
+      description: "list saved config",
+      parameters: { id: { type: "string" } },
+      http: { method: "GET" },
+      run: async () => "ok",
+    });
+    expect(action.grounding).toBeUndefined();
   });
 
   it("leaves readOnly undefined for default POST actions", () => {
@@ -92,6 +130,39 @@ describe("defineAction", () => {
       run: async () => "ok",
     });
     expect(action.dedupe).toBe(false);
+  });
+
+  it("preserves a typed Plan-mode effect policy", () => {
+    const classify = (args: { operation?: string }): "read" | "write" =>
+      args.operation === "list" ? "read" : "write";
+    const action = defineAction({
+      description: "Manage records",
+      parameters: {
+        operation: {
+          type: "string",
+          enum: ["list", "create"],
+        },
+        persist: { type: "string" },
+      },
+      planMode: {
+        effect: classify,
+        allowedValues: { operation: ["list"] },
+        allowedProperties: ["operation"],
+        requiredProperties: ["operation"],
+        omittedProperties: ["persist"],
+        description: "Only listing is available.",
+      },
+      run: async () => "ok",
+    });
+
+    expect(action.planMode).toEqual({
+      effect: classify,
+      allowedValues: { operation: ["list"] },
+      allowedProperties: ["operation"],
+      requiredProperties: ["operation"],
+      omittedProperties: ["persist"],
+      description: "Only listing is available.",
+    });
   });
 
   it("preserves per-tool timeout and result limits", () => {
@@ -658,6 +729,92 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     });
     const out = await action.run({ id: "x" });
     expect(out).toEqual({ count: 5 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// authorize — pre-run gate wrapped around `run`, so it covers every caller.
+// ---------------------------------------------------------------------------
+describe("defineAction — authorize", () => {
+  it("runs the gate before the body and passes args + ctx through", async () => {
+    const authorize = vi.fn();
+    const run = vi.fn(async () => ({ ok: true }));
+    const action = defineAction({
+      description: "guarded",
+      schema: z.object({ id: z.string() }),
+      authorize,
+      run,
+    });
+
+    await action.run({ id: "a1" }, { caller: "http", userEmail: "a@b.c" });
+
+    expect(authorize).toHaveBeenCalledWith(
+      { id: "a1" },
+      expect.objectContaining({ caller: "http", userEmail: "a@b.c" }),
+    );
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("denies with 403 when the gate returns false, without running the body", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const action = defineAction({
+      description: "guarded",
+      schema: z.object({ id: z.string() }),
+      authorize: () => false,
+      run,
+    });
+
+    await expect(action.run({ id: "a1" }, { caller: "tool" })).rejects.toThrow(
+      /Not authorized/,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("propagates the gate's own error so a specific denial keeps its message", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const denial = Object.assign(new Error("Requires coach role coach-admin"), {
+      statusCode: 403,
+    });
+    const action = defineAction({
+      description: "guarded",
+      schema: z.object({ id: z.string() }),
+      authorize: () => {
+        throw denial;
+      },
+      run,
+    });
+
+    await expect(action.run({ id: "a1" }, { caller: "mcp" })).rejects.toBe(
+      denial,
+    );
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("allows when the gate returns nothing — the permissive default is explicit", async () => {
+    const action = defineAction({
+      description: "guarded",
+      schema: z.object({ id: z.string() }),
+      authorize: () => undefined,
+      run: async () => ({ ok: true }),
+    });
+    expect(await action.run({ id: "a1" }, { caller: "cli" })).toEqual({
+      ok: true,
+    });
+  });
+
+  it("gates input-invalid calls too — validation still runs first", async () => {
+    const authorize = vi.fn();
+    const action = defineAction({
+      description: "guarded",
+      schema: z.object({ id: z.string() }),
+      authorize,
+      run: async () => ({ ok: true }),
+    });
+
+    await expect(
+      action.run({ id: 42 } as never, { caller: "http" }),
+    ).rejects.toThrow(/Invalid action parameters/);
+    expect(authorize).not.toHaveBeenCalled();
   });
 });
 

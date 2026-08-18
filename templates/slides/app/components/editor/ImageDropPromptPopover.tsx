@@ -159,12 +159,14 @@ export default function ImageDropPromptPopover({
       if (payload.kind === "hosted") {
         sendToAgentChat({
           message: payload.message,
+          context: payload.context,
           submit: true,
           referenceImagePaths: payload.referenceImagePaths,
         });
       } else {
         sendToAgentChat({
           message: payload.message,
+          context: payload.context,
           submit: true,
           images: payload.images,
         });

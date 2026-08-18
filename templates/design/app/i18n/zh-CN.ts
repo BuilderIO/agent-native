@@ -4,6 +4,13 @@ const messages = {
   ...messagesByLocale["zh-CN"],
   designEditor: {
     ...messagesByLocale["zh-CN"].designEditor,
+    commenterRoleLabel: "评论者",
+    commenterRoleDescription: "可以查看并添加审阅评论",
+    toasts: {
+      ...messagesByLocale["zh-CN"].designEditor.toasts,
+      pdfExportError: "无法导出 PDF",
+      pdfDownloaded: "PDF 已下载",
+    },
     nodeRewrite: {
       composerTitle: "询问或更改所选内容",
       send: "发送",
@@ -55,7 +62,7 @@ const messages = {
     commentMode: "评论",
     sendToAgent: "发送给智能体",
     sendingToAgent: "正在发送给智能体…",
-    enterToPost: "按 Enter 发布 · 按 Shift+Enter 换行",
+    enterToPost: "按 Enter 发布 · 按 Shift Enter 换行",
     post: "发布",
     posting: "正在发布…",
     postFailed: "无法发布此评论",

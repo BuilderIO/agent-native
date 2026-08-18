@@ -15,7 +15,10 @@ import {
   shouldAwaitAuthoritativeDocument,
   titleMatchConfirmsSave,
 } from "./DocumentEditor";
-import { compactToolbarBreadcrumbItems } from "./DocumentToolbar";
+import {
+  compactToolbarBreadcrumbItems,
+  firstSelectableBreadcrumbMenuItemId,
+} from "./DocumentToolbar";
 
 describe("document editor layout", () => {
   it("waits for the first authoritative document fetch, then stays mounted", () => {
@@ -232,7 +235,9 @@ describe("document editor layout", () => {
       },
     );
 
-    expect(source).toContain("const documentQuery = useDocument(documentId)");
+    expect(source).toContain("const documentQuery = useDocument(documentId, {");
+    expect(source).toContain("databaseId,");
+    expect(source).toContain("databaseDocumentId,");
     expect(source).toContain("isFetchedAfterMount");
     expect(source).toContain("isFetching");
     expect(source).toContain("queriedDocument?.id === documentId");
@@ -282,11 +287,14 @@ describe("document editor layout", () => {
     );
     expect(infoPanel).toContain("<DescriptionField");
     expect(infoPanel).toContain("<DocumentProperties");
+    expect(infoPanel).toContain(
+      "databaseId={databaseId ?? document.databaseMembership.databaseId}",
+    );
     expect(infoPanel).toMatch(
-      /databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+      /databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
     );
     expect(source).toMatch(
-      /<DocumentBlockFields[\s\S]*?databaseDocumentId=\{\s*document\.databaseMembership\.databaseDocumentId\s*\}/,
+      /<DocumentBlockFields[\s\S]*?databaseId=\{[\s\S]*?databaseId \?\?[\s\S]*?document\.databaseMembership\.databaseId[\s\S]*?databaseDocumentId=\{[\s\S]*?databaseDocumentId \?\?[\s\S]*?document\.databaseMembership\.databaseDocumentId[\s\S]*?\}/,
     );
     expect(source).not.toContain("<DescriptionField");
     expect(source).not.toContain("<DocumentProperties");
@@ -304,6 +312,7 @@ describe("document editor layout", () => {
       "relative z-10 flex h-12 shrink-0 items-center gap-3 bg-background px-4",
     );
     expect(source).toContain("ToolbarBreadcrumb");
+    expect(source).toContain("disabled={menuItem.id === currentDocumentId}");
     expect(source).toContain("formatEditedLabel");
     expect(source).toContain("editor.toolbar.copyPageLink");
     expect(source).toContain("editor.toolbar.info");
@@ -384,9 +393,10 @@ describe("document editor layout", () => {
       'awareness.setLocalStateField("canFlushDocument", false)',
     );
 
-    // Comments stay editor-only — viewers must not open the comment endpoints.
+    // Viewers can read comments; only comment-capable roles get composer
+    // affordances inside the shared sidebar.
     expect(documentEditorSource).toContain(
-      "canEdit && !isLocalFileDocument ? documentId : null",
+      "!isLocalFileDocument ? documentId : null",
     );
 
     expect(documentEditorSource).toContain(
@@ -395,8 +405,34 @@ describe("document editor layout", () => {
     expect(documentEditorSource).toContain(
       "(isLocalFileDocument || collabSynced)",
     );
+    expect(documentEditorSource).toContain(
+      "!canEdit ||\n      !hydrationContext?.sourceId",
+    );
     expect(documentEditorSource).not.toContain(
       "(isLocalFileDocument || !collabLoading)",
+    );
+  });
+
+  it("keeps database-local context when local-file history recovery updates caches", () => {
+    const source = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      "utf8",
+    );
+    const fallbackStart = source.indexOf(
+      'toast.warning(t("editor.localFileSavedHistoryNotUpdated")',
+    );
+    const fallbackEnd = source.indexOf(
+      "return fileFirstDocument;",
+      fallbackStart,
+    );
+    const fallback = source.slice(fallbackStart, fallbackEnd);
+
+    expect(fallbackStart).toBeGreaterThan(-1);
+    expect(fallback).toContain(
+      "mergeDocumentIntoDocumentCache(old, fileFirstDocument)",
+    );
+    expect(fallback).not.toContain(
+      "documentQueryFilter(documentId),\n          fileFirstDocument",
     );
   });
 
@@ -677,6 +713,19 @@ describe("document editor layout", () => {
     ).toEqual(["Personal", "…", "Page 2", "Draft"]);
   });
 
+  it("focuses the first real breadcrumb destination on keyboard open", () => {
+    expect(
+      firstSelectableBreadcrumbMenuItemId(
+        [
+          { id: "draft", title: "Draft" },
+          { id: "notes", title: "Notes" },
+        ],
+        "draft",
+      ),
+    ).toBe("notes");
+    expect(firstSelectableBreadcrumbMenuItemId([], "draft")).toBeNull();
+  });
+
   it("offers workspace and same-level page choices from breadcrumbs", () => {
     const items = documentEditorBreadcrumbNavigationItems(
       [
@@ -729,6 +778,110 @@ describe("document editor layout", () => {
     expect(items[1].menuItems?.map((item) => item.title)).toEqual([
       "Draft",
       "Notes",
+    ]);
+  });
+
+  it("excludes system documents from top-level breadcrumb peers", () => {
+    const items = documentEditorBreadcrumbNavigationItems(
+      [{ id: "draft", title: "Draft" }],
+      [
+        {
+          id: "draft",
+          parentId: null,
+          title: "Draft",
+          icon: null,
+          position: 0,
+          databaseMembership: {
+            databaseId: "personal",
+            databaseDocumentId: "personal-files",
+            databaseTitle: "Personal",
+            position: 0,
+          },
+        },
+        {
+          id: "notes",
+          parentId: null,
+          title: "Notes",
+          icon: null,
+          position: 1,
+          databaseMembership: {
+            databaseId: "personal",
+            databaseDocumentId: "personal-files",
+            databaseTitle: "Personal",
+            position: 1,
+          },
+        },
+        {
+          id: "trash",
+          parentId: null,
+          title: "Trash",
+          icon: null,
+          position: 2,
+          databaseMembership: {
+            databaseId: "personal",
+            databaseDocumentId: "personal-files",
+            databaseTitle: "Personal",
+            position: 2,
+          },
+          database: {
+            id: "trash-database",
+            documentId: "trash",
+            title: "Trash",
+            systemRole: "trash",
+            viewConfig: {
+              activeViewId: "default",
+              views: [],
+              sorts: [],
+              filters: [],
+              columnWidths: {},
+            },
+            createdAt: "2026-07-30T00:00:00.000Z",
+            updatedAt: "2026-07-30T00:00:00.000Z",
+          },
+        },
+      ],
+      [],
+    );
+
+    expect(items[0].menuItems?.map((item) => item.title)).toEqual([
+      "Draft",
+      "Notes",
+    ]);
+  });
+
+  it("keeps local-file folders as breadcrumb anchors but not peer destinations", () => {
+    const items = documentEditorBreadcrumbNavigationItems(
+      [{ id: "guides-folder", title: "Guides" }],
+      [
+        {
+          id: "guides-folder",
+          parentId: "docs-folder",
+          title: "Guides",
+          icon: null,
+          position: 0,
+          source: { mode: "local-files", kind: "folder", path: "docs/guides" },
+        },
+        {
+          id: "setup-page",
+          parentId: "docs-folder",
+          title: "Setup",
+          icon: null,
+          position: 1,
+        },
+        {
+          id: "reference-page",
+          parentId: "docs-folder",
+          title: "Reference",
+          icon: null,
+          position: 2,
+        },
+      ],
+      [],
+    );
+
+    expect(items[0].menuItems?.map((item) => item.title)).toEqual([
+      "Setup",
+      "Reference",
     ]);
   });
 

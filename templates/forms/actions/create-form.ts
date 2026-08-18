@@ -39,7 +39,7 @@ function formDeepLink(formId: string): string {
 
 export default defineAction({
   description:
-    "Create a draft or published form. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata, or settings.emailOnNewResponses=true to email the form owner when responses arrive. Published forms return a direct public response URL; drafts return an editor URL.",
+    "Create a draft or published form. Set settings.anonymous=true to suppress submitter IP, identity, and source metadata, or settings.emailOnNewResponses=true to email the form owner when responses arrive. Published results include a canonical publicUrl; copy it verbatim (it includes /f/<slug>) instead of deriving a URL from slug. Drafts return an editor URL.",
   schema: z.object({
     title: z.string().optional().describe("Form title"),
     description: z.string().optional().describe("Form description"),

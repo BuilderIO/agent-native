@@ -10,6 +10,8 @@ import {
   serializePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   propertyDefinitionsPositionScope,
   withPositionLock,
@@ -25,13 +27,23 @@ export default defineAction({
     "Duplicate a Notion-style property definition and copy its stored values.",
   schema: z.object({
     documentId: z.string().describe("Document ID used to scope access"),
+    databaseId: z
+      .string()
+      .optional()
+      .describe(
+        "Database ID that owns the property; omit only for context-free entry points",
+      ),
     propertyId: z.string().describe("Property definition ID to duplicate"),
   }),
-  run: async ({ documentId, propertyId }) => {
+  run: async ({ documentId, databaseId, propertyId }) => {
     const access = await assertAccess("document", documentId, "editor");
     const document = access.resource;
     const db = getDb();
-    const database = await resolvePropertyDatabaseForDocument(document);
+    const database = await resolvePropertyDatabaseForDocument(
+      document,
+      databaseId,
+      "editor",
+    );
     if (!database) throw new Error("Document is not part of a database.");
 
     const [definition] = await db
@@ -54,76 +66,110 @@ export default defineAction({
 
     const now = new Date().toISOString();
     const newPropertyId = nanoid();
-    const isBlocks = isBlocksPropertyType(
-      definition.type as DocumentPropertyType,
-    );
-    // A duplicated Blocks field is a brand-new, independent, EMPTY field — never
-    // primary (only one field backs the body) and with no copied content.
-    const optionsJson = isBlocks
-      ? serializePropertyOptions({ blocks: { primary: false } })
-      : definition.optionsJson;
-
     await withPositionLock(
       propertyDefinitionsPositionScope(database.id),
       async () => {
-        const [maxPos] = await db
-          .select({
-            max: sql<number>`COALESCE(MAX(position), -1)`,
-          })
-          .from(schema.documentPropertyDefinitions)
-          .where(
-            and(
-              eq(
-                schema.documentPropertyDefinitions.ownerEmail,
-                document.ownerEmail,
-              ),
-              eq(schema.documentPropertyDefinitions.databaseId, database.id),
-            ),
+        await db.transaction(async (tx) => {
+          await lockContentDatabaseMutation(
+            tx as unknown as ReturnType<typeof getDb>,
+            database.id,
           );
+          const memberships = await tx
+            .select({ id: schema.contentDatabaseItems.id })
+            .from(schema.contentDatabaseItems)
+            .where(eq(schema.contentDatabaseItems.databaseId, database.id));
+          await lockDatabaseMemberships(
+            tx,
+            memberships.map((membership) => membership.id),
+          );
+          const [lockedDefinition] = await tx
+            .select()
+            .from(schema.documentPropertyDefinitions)
+            .where(
+              and(
+                eq(schema.documentPropertyDefinitions.id, propertyId),
+                eq(
+                  schema.documentPropertyDefinitions.ownerEmail,
+                  document.ownerEmail,
+                ),
+                eq(schema.documentPropertyDefinitions.databaseId, database.id),
+              ),
+            );
+          if (!lockedDefinition) {
+            throw new Error(`Property "${propertyId}" not found`);
+          }
+          if (lockedDefinition.systemRole) {
+            throw new Error("System properties cannot be duplicated.");
+          }
+          const isBlocks = isBlocksPropertyType(
+            lockedDefinition.type as DocumentPropertyType,
+          );
+          // A duplicated Blocks field is a brand-new, independent, EMPTY field — never
+          // primary (only one field backs the body) and with no copied content.
+          const optionsJson = isBlocks
+            ? serializePropertyOptions({ blocks: { primary: false } })
+            : lockedDefinition.optionsJson;
 
-        await db.insert(schema.documentPropertyDefinitions).values({
-          id: newPropertyId,
-          ownerEmail: definition.ownerEmail,
-          orgId: definition.orgId,
-          databaseId: database.id,
-          name: `${definition.name} copy`,
-          type: definition.type,
-          visibility: definition.visibility,
-          optionsJson,
-          position: (maxPos?.max ?? -1) + 1,
-          createdAt: now,
-          updatedAt: now,
+          const [maxPos] = await tx
+            .select({
+              max: sql<number>`COALESCE(MAX(position), -1)`,
+            })
+            .from(schema.documentPropertyDefinitions)
+            .where(
+              and(
+                eq(
+                  schema.documentPropertyDefinitions.ownerEmail,
+                  document.ownerEmail,
+                ),
+                eq(schema.documentPropertyDefinitions.databaseId, database.id),
+              ),
+            );
+
+          await tx.insert(schema.documentPropertyDefinitions).values({
+            id: newPropertyId,
+            ownerEmail: lockedDefinition.ownerEmail,
+            orgId: lockedDefinition.orgId,
+            databaseId: database.id,
+            name: `${lockedDefinition.name} copy`,
+            type: lockedDefinition.type,
+            visibility: lockedDefinition.visibility,
+            optionsJson,
+            position: (maxPos?.max ?? -1) + 1,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          // Blocks fields don't use document_property_values; a duplicate
+          // starts empty.
+          if (!isBlocks) {
+            const values = await tx
+              .select()
+              .from(schema.documentPropertyValues)
+              .where(eq(schema.documentPropertyValues.propertyId, propertyId));
+            if (values.length > 0) {
+              await tx.insert(schema.documentPropertyValues).values(
+                values.map((value) => ({
+                  id: nanoid(),
+                  ownerEmail: value.ownerEmail,
+                  documentId: value.documentId,
+                  propertyId: newPropertyId,
+                  valueJson: value.valueJson,
+                  createdAt: now,
+                  updatedAt: now,
+                })),
+              );
+            }
+          }
         });
       },
     );
-
-    // Blocks fields don't use document_property_values; a duplicate starts empty.
-    if (!isBlocks) {
-      const values = await db
-        .select()
-        .from(schema.documentPropertyValues)
-        .where(eq(schema.documentPropertyValues.propertyId, propertyId));
-      if (values.length > 0) {
-        await db.insert(schema.documentPropertyValues).values(
-          values.map((value) => ({
-            id: nanoid(),
-            ownerEmail: value.ownerEmail,
-            documentId: value.documentId,
-            propertyId: newPropertyId,
-            valueJson: value.valueJson,
-            createdAt: now,
-            updatedAt: now,
-          })),
-        );
-      }
-    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return {
       documentId,
       databaseId: database.id,
-      properties: await listPropertiesForDocument(document),
+      properties: await listPropertiesForDocument(document, database.id),
     };
   },
 });

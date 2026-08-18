@@ -9,8 +9,10 @@ import {
   IconChevronRight,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { NavLink } from "react-router";
 import { toast } from "sonner";
 
+import { ImportMenu } from "@/components/import-menu";
 import { CreateFolderDialog } from "@/components/library/create-folder-dialog";
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
 import { Button } from "@/components/ui/button";
@@ -55,6 +57,52 @@ function Skeleton() {
         <div className="h-3.5 w-3/4 rounded bg-muted" />
         <div className="h-3 w-1/2 rounded bg-muted" />
       </div>
+    </div>
+  );
+}
+
+function NewRecordingTile({
+  spaceId,
+  folderId,
+}: {
+  spaceId?: string | null;
+  folderId?: string | null;
+}) {
+  const t = useT();
+  const recordHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (spaceId) params.set("spaceId", spaceId);
+    if (folderId) params.set("folderId", folderId);
+    const qs = params.toString();
+    return qs ? `/record?${qs}` : "/record";
+  }, [spaceId, folderId]);
+  const uploadHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (spaceId) params.set("spaceId", spaceId);
+    if (folderId) params.set("folderId", folderId);
+    params.set("autoUpload", "1");
+    return `/record?${params.toString()}`;
+  }, [spaceId, folderId]);
+  const importHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (spaceId) params.set("spaceId", spaceId);
+    if (folderId) params.set("folderId", folderId);
+    const qs = params.toString();
+    return qs ? `/import?${qs}` : "/import";
+  }, [spaceId, folderId]);
+
+  return (
+    <div className="flex flex-col items-center justify-center gap-3 rounded-lg border border-dashed border-border bg-muted/20 p-6 text-center transition-colors hover:border-primary/40 hover:bg-muted/40">
+      <Button className="w-full max-w-[180px]" size="sm" asChild>
+        <NavLink to={recordHref}>{t("navigation.newRecording")}</NavLink>
+      </Button>
+      <ImportMenu
+        uploadHref={uploadHref}
+        importLoomHref={importHref}
+        size="sm"
+        variant="ghost"
+        className="h-auto px-0 text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
+      />
     </div>
   );
 }
@@ -491,6 +539,9 @@ export function LibraryGrid({
                     readOnly={!canManageRecordings}
                   />
                 ))}
+                {view === "library" && page === totalPages && (
+                  <NewRecordingTile spaceId={spaceId} folderId={folderId} />
+                )}
               </div>
             )}
           </div>

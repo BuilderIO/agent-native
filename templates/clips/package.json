@@ -8,10 +8,11 @@
     "build": "agent-native build",
     "start": "agent-native start",
     "typecheck": "agent-native typecheck",
+    "migrate:production": "tsx scripts/migrate-production.ts",
     "action": "agent-native action",
     "script": "agent-native script",
     "tauri": "cd desktop && pnpm tauri",
-    "tauri:dev": "cd desktop && pnpm tauri dev",
+    "tauri:dev": "cd desktop && pnpm run dev",
     "tauri:build": "cd desktop && pnpm run build:tauri",
     "chrome:dev": "cd chrome-extension && pnpm dev",
     "chrome:build": "cd chrome-extension && pnpm build",
@@ -33,6 +34,7 @@
     "h3": "catalog:",
     "isbot": "^5",
     "postgres": "^3.4.9",
+    "yjs": "catalog:",
     "zod": "^4.3.6"
   },
   "devDependencies": {

@@ -2,6 +2,7 @@ import { getRequestTimezone } from "@agent-native/core/server";
 import { getUserSetting } from "@agent-native/core/settings";
 
 import type { Settings } from "../../shared/api.js";
+import { DEFAULT_SETTINGS } from "../../shared/settings.js";
 
 function defaultTimezone() {
   const timezone = getRequestTimezone();
@@ -16,12 +17,7 @@ function defaultTimezone() {
 }
 
 export function getDefaultSettings(): Settings {
-  return {
-    timezone: defaultTimezone(),
-    bookingPageTitle: "Book a Meeting",
-    bookingPageDescription: "Select a time that works for you.",
-    defaultEventDuration: 30,
-  };
+  return { ...DEFAULT_SETTINGS, timezone: defaultTimezone() };
 }
 
 export function isCalendarTimezone(value: unknown): value is string {

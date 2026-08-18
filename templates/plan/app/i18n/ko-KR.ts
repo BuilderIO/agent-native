@@ -156,6 +156,7 @@ const messages = {
       artboardCanvas: "Plan 아트보드 캔버스",
       zoomIn: "확대",
       zoomOut: "축소",
+      zoomHint: "⌘/Ctrl을 누른 채 스크롤하여 확대/축소",
       markupSaveFailed: "마크업을 저장할 수 없습니다. 다시 시도하세요.",
     },
     document: {
@@ -376,6 +377,8 @@ const messages = {
         "기본적으로 비공개입니다. 사람들을 초대하고, 조직과 공유하거나, 링크가 있는 모든 사람이 검토할 수 있도록 공개로 설정하세요.",
       peopleAccess: "{{noun}} 액세스 권한이 있는 사용자",
       generalAccess: "일반 {{noun}} 액세스",
+      commenterRoleLabel: "댓글 작성자",
+      commenterRoleDescription: "보고 댓글을 추가할 수 있음",
       shareAria: "{{noun}} 공유",
       share: "{{noun}} 공유",
       shareThis: "{{noun}} 공유",

@@ -2,9 +2,14 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_START_PATH,
   EMBED_TARGET_HEADER,
+  EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import {
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
+} from "../shared/sign-in-journey.js";
 
 let installed = false;
 let memoryToken: string | null = null;
@@ -363,8 +368,14 @@ function shouldGuardAuthFailure(method: string, url: URL): boolean {
   if (!GUARDED_METHODS.has(method)) return false;
   if (url.pathname === EMBED_START_PATH) return false;
   // Suffix, not equality: an app mounted under a base path serves
-  // `/<app>/_agent-native/sign-in`, which the old exact match never matched.
-  if (url.pathname.endsWith("/_agent-native/sign-in")) return false;
+  // `/<app>/sign-in` (or the legacy framework path), which an exact match
+  // would miss.
+  if (
+    url.pathname.endsWith(SIGN_IN_ENTRY_PATH) ||
+    url.pathname.endsWith(SIGN_IN_LEGACY_ENTRY_PATH)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -463,6 +474,7 @@ function withEmbedAuthHeaders(
     isAgentNativeRuntimePath(url.pathname)
   ) {
     url.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+    url.searchParams.set(EMBED_TARGET_QUERY_PARAM, currentEmbedTarget(win));
     return [url.toString(), init];
   }
 

@@ -30,10 +30,37 @@ vi.mock("./agent-chat.js", () => ({
 const sendToAgentChatMock = vi.mocked(sendToAgentChat);
 
 const STATE_PREFIX = "/_agent-native/application-state/";
+const BATCH_PREFIX = "/_agent-native/application-state?keys=";
 
 function keyFromUrl(url: string): string {
   const idx = url.indexOf(STATE_PREFIX);
   return idx >= 0 ? url.slice(idx + STATE_PREFIX.length) : url;
+}
+
+/** Keys a read touched — one per single-key URL, several per batched URL. */
+function keysFromUrl(url: string): string[] {
+  const idx = url.indexOf(BATCH_PREFIX);
+  if (idx < 0) return [keyFromUrl(url)];
+  return url
+    .slice(idx + BATCH_PREFIX.length)
+    .split(",")
+    .map(decodeURIComponent);
+}
+
+/**
+ * Batched-read response. `lookup` returns the stored JSON string, or "" when
+ * the key has never been written — which lands the key in `missing` rather
+ * than in `values`, exactly as the server does.
+ */
+function readResponse(url: string, lookup: (key: string) => string): Response {
+  const values: Record<string, unknown> = {};
+  const missing: string[] = [];
+  for (const key of keysFromUrl(url)) {
+    const raw = lookup(key);
+    if (raw) values[key] = JSON.parse(raw);
+    else missing.push(key);
+  }
+  return new Response(JSON.stringify({ values, missing }), { status: 200 });
 }
 
 const payload = {
@@ -111,13 +138,11 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL) => {
-        const key = keyFromUrl(String(input));
-        seen.push(key);
+        seen.push(...keysFromUrl(String(input)));
         // Only the scoped key holds the payload; the bare key is empty.
-        if (key === "guided-questions:tab123") {
-          return new Response(JSON.stringify(payload), { status: 200 });
-        }
-        return new Response("", { status: 200 });
+        return readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        );
       }),
     );
 
@@ -135,12 +160,10 @@ describe("useGuidedQuestionFlow scoped reads", () => {
   it("reads the bare key (no `:undefined` suffix) when no tab id is provided", async () => {
     const seen: string[] = [];
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const key = keyFromUrl(String(input));
-      seen.push(key);
-      if (key === "guided-questions") {
-        return new Response(JSON.stringify(payload), { status: 200 });
-      }
-      return new Response("", { status: 200 });
+      seen.push(...keysFromUrl(String(input)));
+      return readResponse(String(input), (key) =>
+        key === "guided-questions" ? JSON.stringify(payload) : "",
+      );
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -154,11 +177,84 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     // malformed `guided-questions:undefined` key when there is no tab id.
     expect(result.current().questions?.length).toBe(1);
     expect(fetchMock).toHaveBeenCalled();
-    const requestedKeys = fetchMock.mock.calls.map((call) =>
-      keyFromUrl(String(call[0])),
+    const requestedKeys = fetchMock.mock.calls.flatMap((call) =>
+      keysFromUrl(String(call[0])),
     );
     expect(requestedKeys).toContain("guided-questions");
     expect(requestedKeys).not.toContain("guided-questions:undefined");
+  });
+
+  // The per-tab key is shared by every chat in that browser tab, so an
+  // agent-written payload names the thread that asked. Without this the same
+  // card followed the user into every other conversation.
+  it("hides a question asked in another chat", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123"
+            ? JSON.stringify({ ...payload, threadId: "chat-a" })
+            : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      threadId: "chat-b",
+      refetchInterval: false,
+    });
+
+    expect(result.current().questions).toBeNull();
+    expect(result.current().payload).toBeNull();
+  });
+
+  it("renders a question in the chat that asked it", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123"
+            ? JSON.stringify({ ...payload, threadId: "chat-a" })
+            : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      threadId: "chat-a",
+      refetchInterval: false,
+    });
+
+    expect(result.current().questions?.length).toBe(1);
+  });
+
+  it("renders a payload with no threadId in any chat", async () => {
+    // Client-initiated `askUserQuestion` and deterministic writes are not
+    // thread-bound; they must keep rendering wherever the flow is mounted.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) =>
+        readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        ),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      browserTabId: "tab123",
+      threadId: "chat-b",
+      refetchInterval: false,
+    });
+
+    expect(result.current().questions?.length).toBe(1);
   });
 
   it("does not read application state when disabled", async () => {
@@ -177,11 +273,10 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
   it("refetches on a key-specific DB-sync wakeup without fixed polling", async () => {
     let hasQuestion = false;
-    const fetchMock = vi.fn(
-      async () =>
-        new Response(hasQuestion ? JSON.stringify(payload) : "", {
-          status: 200,
-        }),
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) =>
+      readResponse(String(input), () =>
+        hasQuestion ? JSON.stringify(payload) : "",
+      ),
     );
     vi.stubGlobal("fetch", fetchMock);
 
@@ -208,13 +303,13 @@ describe("useGuidedQuestionFlow scoped reads", () => {
   it("keeps active questions visible while a DB-sync refresh is pending", async () => {
     let reads = 0;
     let resolveRefresh: (() => void) | null = null;
-    const fetchMock = vi.fn(() => {
+    const fetchMock = vi.fn((input: RequestInfo | URL) => {
       reads += 1;
-      if (reads === 1) {
-        return Promise.resolve(new Response(JSON.stringify(payload)));
-      }
+      const body = () =>
+        readResponse(String(input), () => JSON.stringify(payload));
+      if (reads === 1) return Promise.resolve(body());
       return new Promise<Response>((resolve) => {
-        resolveRefresh = () => resolve(new Response(JSON.stringify(payload)));
+        resolveRefresh = () => resolve(body());
       });
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -227,8 +322,13 @@ describe("useGuidedQuestionFlow scoped reads", () => {
 
     await act(async () => {
       bumpChangeVersion("app-state:guided-questions", 10);
-      await Promise.resolve();
+      // Reads are batched on a macrotask, so pump timers, not just microtasks.
+      await new Promise((resolve) => setTimeout(resolve, 0));
     });
+
+    for (let i = 0; i < 20 && fetchMock.mock.calls.length < 2; i += 1) {
+      await flush();
+    }
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
     expect(result.current().questions).toEqual(payload.questions);
@@ -244,15 +344,13 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     vi.stubGlobal(
       "fetch",
       vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-        const key = keyFromUrl(String(input));
         if (init?.method === "DELETE") {
-          deleted.push(key);
+          deleted.push(keyFromUrl(String(input)));
           return new Response("", { status: 200 });
         }
-        if (key === "guided-questions:tab123") {
-          return new Response(JSON.stringify(payload), { status: 200 });
-        }
-        return new Response("", { status: 200 });
+        return readResponse(String(input), (key) =>
+          key === "guided-questions:tab123" ? JSON.stringify(payload) : "",
+        );
       }),
     );
 
@@ -290,7 +388,7 @@ describe("useGuidedQuestionFlow scoped reads", () => {
         store.delete(key);
         return new Response("", { status: 200 });
       }
-      return new Response(store.get(key) ?? "", { status: 200 });
+      return readResponse(String(input), (readKey) => store.get(readKey) ?? "");
     });
   }
 
@@ -446,6 +544,53 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(sendToAgentChatMock).toHaveBeenCalledWith(
       expect.objectContaining({
         context: expect.stringContaining("file id file-command"),
+      }),
+    );
+  });
+
+  it("forwards the payload's submitContext to the continuation turn", async () => {
+    // The answer opens a fresh turn that inherits nothing from the turn that
+    // posed the card, so context the follow-up work needs (a linked design
+    // system, the original brief) has to travel on the payload itself.
+    vi.stubGlobal(
+      "fetch",
+      appStateFetchMock(
+        new Map([
+          [
+            "guided-questions",
+            JSON.stringify({
+              submitMessage: "Use this design direction.",
+              skipMessage: "Show another set.",
+              submitContext:
+                'Linked to design system "ds_flo". Call `get-design-system` before expanding.',
+              questions: [
+                {
+                  id: "variant",
+                  type: "text-options",
+                  question: "Which screen should I keep?",
+                  options: [{ label: "Command Deck", value: "keep-a" }],
+                },
+              ],
+            }),
+          ],
+        ]),
+      ),
+    );
+
+    const result = await renderFlow({
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+      refetchInterval: false,
+    });
+
+    await act(async () => {
+      result.current().handleSubmit({ variant: "keep-a" });
+      await Promise.resolve();
+    });
+
+    expect(sendToAgentChatMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        context: expect.stringContaining("ds_flo"),
       }),
     );
   });

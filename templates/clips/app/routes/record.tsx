@@ -93,6 +93,7 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
 }
 
 import {
+  BUG_REPORT_POPUP_RESPONSE_HEADERS,
   bugReportTitle,
   parseBugReportContext,
   type BugReportContext,
@@ -118,6 +119,16 @@ import {
 } from "@/components/recorder/recorder-engine";
 import { RecordingToolbar } from "@/components/recorder/recording-toolbar";
 import { StorageSetupCard } from "@/components/recorder/storage-setup-card";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -129,6 +140,7 @@ export function headers() {
   return {
     "Permissions-Policy":
       "camera=(self), microphone=(self), display-capture=(self), geolocation=(), screen-wake-lock=()",
+    ...BUG_REPORT_POPUP_RESPONSE_HEADERS,
   };
 }
 
@@ -522,10 +534,6 @@ function friendlyRecordingErrorMessage(error: string): string {
   return error;
 }
 
-function userFacingActionErrorMessage(error: string): string {
-  return error.replace(/^Action [a-z0-9-]+ failed:\s*/i, "").trim() || error;
-}
-
 interface PendingRecording {
   id: string;
   uploadChunkUrl: string;
@@ -789,6 +797,12 @@ export default function RecordRoute() {
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
   const visibilityAutoPausedRef = useRef(false);
+  const [discardConfirmOpen, setDiscardConfirmOpen] = useState(false);
+  // Tracks whether opening the discard-confirm dialog paused the recording
+  // itself (vs. the user having already paused) — so "Resume" only resumes
+  // when we're the ones who paused it, and the dialog never gets captured in
+  // the recorded screen.
+  const discardAutoPausedRef = useRef(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraSize, setCameraSize] = useState<CameraBubbleSize>(
     () => loadRecorderPreferences().cameraSize ?? "md",
@@ -804,7 +818,6 @@ export default function RecordRoute() {
   // the live camera bubble is hidden during full-screen recording.
   const [resolvedDisplaySurface, setResolvedDisplaySurface] =
     useState<DisplaySurface | null>(null);
-  const [loomImporting, setLoomImporting] = useState(false);
   const [recordingMode, setRecordingMode] =
     useState<RecordingMode>("screen+camera");
   // Surfaced during the post-stop compression pass so the spinner can show
@@ -834,6 +847,17 @@ export default function RecordRoute() {
     const params = new URLSearchParams(location.search);
     return params.get("folderId") || null;
   }, [location.search]);
+  const autoOpenUploadFromUrl = useMemo(() => {
+    const params = new URLSearchParams(location.search);
+    return params.get("autoUpload") === "1";
+  }, [location.search]);
+  const importLoomHref = useMemo(() => {
+    const params = new URLSearchParams();
+    if (spaceIdFromUrl) params.set("spaceId", spaceIdFromUrl);
+    if (folderIdFromUrl) params.set("folderId", folderIdFromUrl);
+    const qs = params.toString();
+    return qs ? `/import?${qs}` : "/import";
+  }, [spaceIdFromUrl, folderIdFromUrl]);
   const storageConfigured: boolean | null = storageQuery.isLoading
     ? null
     : !!storageQuery.data?.configured;
@@ -932,6 +956,10 @@ export default function RecordRoute() {
   } | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const fileUploadAbortRef = useRef<AbortController | null>(null);
+  // Set to the recording row created by uploadFile() for the duration of
+  // that upload, so doCancel() can trash it directly — createdId otherwise
+  // only lives in uploadFile's own closure and never reaches pendingRef.
+  const fileUploadRecordingIdRef = useRef<string | null>(null);
   const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
@@ -1550,6 +1578,7 @@ export default function RecordRoute() {
           throw new Error("create-recording did not return an id");
         }
         createdId = info.id;
+        fileUploadRecordingIdRef.current = createdId;
         await saveBugReportContextRef.current(info.id);
         if (isStale()) throw makeAbortError("Upload cancelled");
         const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
@@ -1809,75 +1838,14 @@ export default function RecordRoute() {
         if (fileUploadAbortRef.current === abort) {
           fileUploadAbortRef.current = null;
         }
+        if (fileUploadRecordingIdRef.current === createdId) {
+          fileUploadRecordingIdRef.current = null;
+        }
         setCompressionProgress(null);
         setUploadProgress(null);
       }
     },
     [markStorageConfigured, navigate, probeVideoMetadata, showSavedToast],
-  );
-
-  const importLoom = useCallback(
-    async (url: string) => {
-      startSessionRef.current += 1;
-      fileUploadAbortRef.current?.abort(makeAbortError("Upload cancelled"));
-      fileUploadAbortRef.current = null;
-      setError(null);
-      setLoomImporting(true);
-
-      try {
-        const result = (await callAction(
-          "import-loom-recording" as any,
-          {
-            url,
-            spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
-            folderId: folderIdFromUrl ?? undefined,
-          } as any,
-        )) as {
-          recordingId?: string;
-          status?: string;
-          storageSetupRequired?: boolean;
-        };
-        const recordingId = result?.recordingId;
-        if (!recordingId) {
-          throw new Error("Loom import did not return a recording id.");
-        }
-
-        if (
-          result?.storageSetupRequired ||
-          result?.status === "waiting_storage"
-        ) {
-          toast.info(t("recordRoute.storageNeededToFinishLoomImport"), {
-            description: t("recordRoute.connectStorageToRetryLoom"),
-            duration: 12_000,
-          });
-        } else if (result?.status === "processing") {
-          // The video download + reupload run as a background job (see
-          // import-loom-recording.ts) so this request stays fast regardless of
-          // Loom video length; the recording page polls until it is ready.
-          toast.info(t("recordingPage.importingLoom"));
-        } else {
-          showSavedToast(
-            t("recordRoute.loomImported"),
-            await copyRecordingShareLink(recordingId),
-            recordingId,
-          );
-        }
-        await writeAppState("navigate", {
-          view: "recording",
-          recordingId,
-        }).catch(() => {});
-        navigate(`/r/${recordingId}`);
-      } catch (err) {
-        throw new Error(
-          err instanceof Error
-            ? userFacingActionErrorMessage(err.message)
-            : t("recordRoute.couldNotImportLoom"),
-        );
-      } finally {
-        setLoomImporting(false);
-      }
-    },
-    [folderIdFromUrl, navigate, spaceIdFromUrl, showSavedToast],
   );
 
   const saveBrowserDiagnostics = useCallback(
@@ -2054,6 +2022,11 @@ export default function RecordRoute() {
       // (from Web Speech API) with no API key required.
       const browserTranscript = await liveTranscription.stopAndWait();
       const trimmedTranscript = browserTranscript.trim();
+      // Non-null when Web Speech died before we asked it to stop, so whatever
+      // it captured covers only part of the recording. Send it with the text:
+      // a partial transcript must never be stored as the finished one, or the
+      // cloud fallback is suppressed and the user keeps the first few lines.
+      const incompleteReason = liveTranscription.getIncompleteReason();
       if (trimmedTranscript) {
         const transcriptRes = await fetch(
           agentNativePath("/_agent-native/actions/save-browser-transcript"),
@@ -2064,6 +2037,7 @@ export default function RecordRoute() {
               recordingId: pending.id,
               fullText: trimmedTranscript,
               source: "web-speech",
+              failureReason: incompleteReason ?? undefined,
             }),
           },
         ).catch((err) => {
@@ -2086,9 +2060,11 @@ export default function RecordRoute() {
               recordingId: pending.id,
               fullText: "",
               source: "web-speech",
-              failureReason: liveTranscription.supported
-                ? "Browser native transcription returned no speech before recording stopped."
-                : "Browser Web Speech recognition is unavailable in this browser.",
+              failureReason:
+                incompleteReason ??
+                (liveTranscription.supported
+                  ? "Browser native transcription returned no speech before recording stopped."
+                  : "Browser Web Speech recognition is unavailable in this browser."),
             }),
           },
         ).catch((err) => {
@@ -2211,10 +2187,12 @@ export default function RecordRoute() {
     startSessionRef.current += 1;
     countdownAudioCueRef.current?.cleanup();
     countdownAudioCueRef.current = null;
+    const uploadRecordingId = fileUploadRecordingIdRef.current;
     if (fileUploadAbortRef.current) {
       fileUploadAbortRef.current.abort(makeAbortError("Upload cancelled"));
       fileUploadAbortRef.current = null;
     }
+    fileUploadRecordingIdRef.current = null;
     const engine = engineRef.current;
     const pendingId = pendingRef.current?.id;
     liveTranscription.stop();
@@ -2244,6 +2222,18 @@ export default function RecordRoute() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: pendingId, skipIfReady: true }),
+      }).catch(() => {});
+    }
+    if (uploadRecordingId) {
+      // A local file import (as opposed to a live recording) never
+      // populates pendingRef — its row id only exists in uploadFile's own
+      // closure. Without this, discarding mid-upload aborts the transfer
+      // but leaves the row merely marked "failed" instead of trashed, which
+      // contradicts the confirmation dialog's "permanently deleted" copy.
+      fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
       }).catch(() => {});
     }
     setCameraStream(null);
@@ -2276,6 +2266,56 @@ export default function RecordRoute() {
       setIsPaused(true);
     }
   }, [liveTranscription]);
+
+  // Discarding an in-progress recording is permanent (see doCancel — it
+  // trashes the pending row with no recovery), so route it through a confirm
+  // dialog instead of firing immediately. While live, pause capture first so
+  // the confirmation itself never ends up in the recorded video.
+  const requestDiscard = useCallback(() => {
+    const engine = engineRef.current;
+    if (uiState === "recording" && engine && engine.getState() !== "paused") {
+      engine.pause();
+      liveTranscription.pause();
+      setIsPaused(true);
+      discardAutoPausedRef.current = true;
+    }
+    setDiscardConfirmOpen(true);
+  }, [uiState, liveTranscription]);
+
+  const resumeFromDiscardPrompt = useCallback(() => {
+    setDiscardConfirmOpen(false);
+    if (!discardAutoPausedRef.current) return;
+    discardAutoPausedRef.current = false;
+    const engine = engineRef.current;
+    if (!engine) return;
+    engine.resume();
+    liveTranscription.resume();
+    setIsPaused(false);
+  }, [liveTranscription]);
+
+  const confirmDiscard = useCallback(() => {
+    discardAutoPausedRef.current = false;
+    setDiscardConfirmOpen(false);
+    void doCancel();
+  }, [doCancel]);
+
+  // A background upload (e.g. importing a local video file) can finish
+  // independently of user interaction while this dialog is open -- it isn't
+  // gated behind uiState. Once the recording leaves a discardable state,
+  // Discard would be a no-op (there's nothing left for doCancel to abort or
+  // trash), so close the prompt rather than leave a misleading control open.
+  useEffect(() => {
+    if (!discardConfirmOpen) return;
+    if (
+      uiState === "recording" ||
+      uiState === "uploading" ||
+      uiState === "compressing"
+    ) {
+      return;
+    }
+    discardAutoPausedRef.current = false;
+    setDiscardConfirmOpen(false);
+  }, [uiState, discardConfirmOpen]);
 
   useEffect(() => {
     if (typeof navigator === "undefined") return;
@@ -2347,6 +2387,7 @@ export default function RecordRoute() {
   // -------------------------------------------------------------------------
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
+      if (discardConfirmOpen) return;
       const alt = e.altKey;
       const shift = e.shiftKey;
       const meta = e.metaKey;
@@ -2379,8 +2420,20 @@ export default function RecordRoute() {
         }
       }
 
-      // Opt/Alt+Shift+C — cancel
+      // Opt/Alt+Shift+C -- cancel. Route the same states that show a
+      // discard/cancel control (the recording toolbar and the
+      // uploading/compressing overlay) through the confirm dialog, so the
+      // shortcut can't bypass what the equivalent on-screen button requires.
       if (alt && shift && k === "c") {
+        if (
+          uiState === "recording" ||
+          uiState === "uploading" ||
+          uiState === "compressing"
+        ) {
+          e.preventDefault();
+          requestDiscard();
+          return;
+        }
         if (uiState !== "idle") {
           e.preventDefault();
           void doCancel();
@@ -2408,7 +2461,16 @@ export default function RecordRoute() {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [uiState, togglePause, doCancel, doStop, restart, fireConfetti]);
+  }, [
+    uiState,
+    discardConfirmOpen,
+    togglePause,
+    doCancel,
+    requestDiscard,
+    doStop,
+    restart,
+    fireConfetti,
+  ]);
 
   // Query params can preselect recorder controls, but browser capture must
   // still start from the user's Start click. Calling getDisplayMedia from an
@@ -2539,10 +2601,10 @@ export default function RecordRoute() {
                     initialRecorderOptions.surface
                   }
                   onUpload={uploadFile}
-                  onImportLoom={importLoom}
-                  importingLoom={loomImporting}
+                  importLoomHref={importLoomHref}
                   cameraSize={cameraSize}
                   onCameraSizeChange={handleCameraSizeChange}
+                  autoOpenUpload={autoOpenUploadFromUrl}
                 />
               ) : (
                 <StorageSetupCard
@@ -2642,9 +2704,41 @@ export default function RecordRoute() {
           isPaused={isPaused}
           onTogglePause={togglePause}
           onStop={() => void doStop()}
-          onCancel={() => void doCancel()}
+          onCancel={requestDiscard}
         />
       )}
+
+      <AlertDialog
+        open={discardConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open) resumeFromDiscardPrompt();
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("recordingToolbar.discardConfirmTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("recordingToolbar.discardConfirmDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>
+              {t("recordingToolbar.resume")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={(event) => {
+                event.preventDefault();
+                confirmDiscard();
+              }}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {t("recordingToolbar.discardRecording")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Uploading overlay (also covers the compressing pass which can run
           for several minutes on long recordings — without a distinct copy
@@ -2687,10 +2781,10 @@ export default function RecordRoute() {
             </>
           )}
           <button
-            onClick={doCancel}
+            onClick={requestDiscard}
             className="mt-1 text-xs text-white/50 underline-offset-2 hover:text-white/80 hover:underline"
           >
-            Cancel
+            {t("recordingToolbar.cancel")}
           </button>
         </div>
       )}

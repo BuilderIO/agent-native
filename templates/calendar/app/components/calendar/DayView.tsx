@@ -1,20 +1,11 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
-import { IconAlertTriangleFilled, IconMapPin } from "@tabler/icons-react";
 import {
-  eachHourOfInterval,
-  format,
-  parseISO,
-  differenceInMinutes,
-  startOfDay,
-  isSameDay,
-  set,
-  isToday,
-  addMinutes,
-  addDays,
-  min,
-} from "date-fns";
-import { toZonedTime } from "date-fns-tz";
+  IconAlertTriangleFilled,
+  IconMapPin,
+  IconPlus,
+} from "@tabler/icons-react";
+import { eachHourOfInterval, format, set, addMinutes } from "date-fns";
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 
 import { useCalendarSetters } from "@/components/layout/AppLayout";
@@ -30,8 +21,23 @@ import {
   type ViewPreferences,
 } from "@/hooks/use-view-preferences";
 import { partitionAllDayEvents } from "@/lib/all-day-layout";
+import {
+  dateToCalendarDateKey,
+  getBrowserTimezone,
+  getDateKeyInTimezone,
+  getEventDateKey,
+  getEventSegmentForCalendarDay,
+} from "@/lib/calendar-timezone";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
-import { isOutOfOfficeEvent } from "@/lib/out-of-office";
+import {
+  computeTimedEventLayout,
+  type TimedEventLayout,
+} from "@/lib/event-layout";
+import {
+  fullDayOutOfOfficeCoversDate,
+  isFullDayOutOfOfficeEvent,
+  isOutOfOfficeEvent,
+} from "@/lib/out-of-office";
 import {
   shouldSuppressAfterPopoverClose,
   shouldSuppressCreatePointerDown,
@@ -50,8 +56,8 @@ import { OutOfOfficeEvent } from "./OutOfOfficeEvent";
 
 interface DayViewProps {
   events: CalendarEvent[];
-  timezone: string;
   date: Date;
+  timezone?: string;
   onDeleteEvent: (eventId: string) => void;
   onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
   onClickTimeSlot?: (
@@ -60,6 +66,7 @@ interface DayViewProps {
     endTime: string,
     options?: { explicitDuration?: boolean },
   ) => void;
+  onCreateWorkingLocation?: (date: Date) => void;
   quickEditEventId?: string | null;
   onQuickEditSave?: (
     eventId: string,
@@ -112,7 +119,7 @@ function minutesToTimeString(totalMinutes: number): string {
 /** Convert minutes-from-START_HOUR on a given day into a Date, for ghost label formatting */
 function minutesToDate(date: Date, totalMinutes: number): Date {
   return addMinutes(
-    set(startOfDay(date), { hours: START_HOUR, minutes: 0, seconds: 0 }),
+    set(date, { hours: START_HOUR, minutes: 0, seconds: 0 }),
     totalMinutes,
   );
 }
@@ -136,70 +143,14 @@ function formatEventTime(start: Date, end: Date): string {
   return `${startWithAmPm}–${endStr}`;
 }
 
-interface LayoutInfo {
-  left: number; // percentage 0-100
-  width: number; // percentage 0-100
-  col: number;
-  totalCols: number;
-}
-
-function computeLayout(dayEvents: CalendarEvent[]): Map<string, LayoutInfo> {
-  const result = new Map<string, LayoutInfo>();
-  if (dayEvents.length === 0) return result;
-
-  const sorted = [...dayEvents].sort((a, b) => {
-    const aStart = parseISO(a.start).getTime();
-    const bStart = parseISO(b.start).getTime();
-    if (aStart !== bStart) return aStart - bStart;
-    return parseISO(b.end).getTime() - parseISO(a.end).getTime();
-  });
-
-  const times = new Map<string, { start: number; end: number }>();
-  for (const ev of sorted) {
-    times.set(ev.id, {
-      start: parseISO(ev.start).getTime(),
-      end: parseISO(ev.end).getTime(),
-    });
-  }
-
-  const INDENT_PX = 20; // DayView has wider columns, more indent room
-
-  for (const ev of sorted) {
-    let depth = 0;
-    for (const other of sorted) {
-      if (other.id === ev.id) break;
-      const ta = times.get(other.id)!;
-      const tb = times.get(ev.id)!;
-      if (ta.start < tb.end && tb.start < ta.end) depth++;
-    }
-
-    result.set(ev.id, {
-      left: depth * INDENT_PX,
-      width: 0,
-      col: depth,
-      totalCols: depth + 1,
-    });
-  }
-
-  return result;
-}
-
 function getEventStyleForDate(
   event: CalendarEvent,
   date: Date,
   timezone: string,
 ) {
-  const start = toZonedTime(event.start, timezone);
-  const end = toZonedTime(event.end, timezone);
-  const dayStart = set(startOfDay(date), { hours: START_HOUR });
-  const dayEnd = addDays(startOfDay(date), 1);
-  const cappedEnd = min([end, dayEnd]);
-  const segStart = start > dayStart ? start : dayStart;
-  const topMinutes = Math.max(0, differenceInMinutes(segStart, dayStart));
-  const durationMinutes = Math.max(
-    15,
-    differenceInMinutes(cappedEnd, segStart),
-  );
+  const segment = getEventSegmentForCalendarDay(event, date, timezone);
+  const topMinutes = segment?.topMinutes ?? 0;
+  const durationMinutes = Math.max(15, segment?.durationMinutes ?? 15);
   return {
     top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
     height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
@@ -208,9 +159,9 @@ function getEventStyleForDate(
 
 interface DayEventCardProps {
   event: CalendarEvent;
-  timezone: string;
   date: Date;
-  layout: Map<string, LayoutInfo>;
+  timezone: string;
+  layout: Map<string, TimedEventLayout>;
   now: Date;
   prefs: ViewPreferences;
   focusedEventId: string | null;
@@ -250,8 +201,8 @@ interface DayEventCardProps {
  */
 const DayEventCard = memo(function DayEventCard({
   event,
-  timezone,
   date,
+  timezone,
   layout,
   now,
   prefs,
@@ -280,8 +231,10 @@ const DayEventCard = memo(function DayEventCard({
   const li = layout.get(event.id) ?? {
     left: 0,
     width: 100,
+    indent: 0,
     col: 0,
     totalCols: 1,
+    stackOrder: 0,
   };
   const overrides =
     overrideTop !== null && overrideHeight !== null
@@ -294,30 +247,22 @@ const DayEventCard = memo(function DayEventCard({
       }
     : getEventStyleForDate(event, date, timezone);
   const color = getEventDisplayColor(event, prefs);
-  const evStart = parseISO(event.start);
-  const rawEnd = parseISO(event.end);
-  const midnight = addDays(startOfDay(date), 1);
-  const evEnd = min([rawEnd, midnight]);
-  const isOvernightCapped = rawEnd > midnight;
-  const isStart = isSameDay(evStart, date);
-  const isEnd = rawEnd <= midnight;
-  const dayGridStart = set(startOfDay(date), { hours: START_HOUR });
-  // For continuation segments (started a prior day), measure visible
-  // duration from the grid start, not from the event's true start.
-  const visibleSegStart = isStart ? evStart : dayGridStart;
+  const segment = getEventSegmentForCalendarDay(event, date, timezone);
+  const isStart =
+    getEventDateKey(event, timezone) === dateToCalendarDateKey(date);
+  const isOvernightCapped = !(segment?.endsOnDay ?? true);
+  const isEnd = segment?.endsOnDay ?? true;
   const durationMin = overrides
     ? (overrides.height / HOUR_HEIGHT) * 60
-    : differenceInMinutes(evEnd, visibleSegStart);
+    : (segment?.durationMinutes ?? 15);
   // Compute display times (use drag overrides if active)
   const displayStart = overrides
-    ? addMinutes(dayGridStart, (overrides.top / HOUR_HEIGHT) * 60)
-    : visibleSegStart;
+    ? minutesToDate(date, START_HOUR * 60 + (overrides.top / HOUR_HEIGHT) * 60)
+    : minutesToDate(date, segment?.startMinutes ?? 0);
   const displayEnd = overrides
     ? addMinutes(displayStart, durationMin)
-    : isEnd
-      ? evEnd
-      : midnight;
-  const isPast = parseISO(event.end) < now;
+    : minutesToDate(date, segment?.endMinutes ?? durationMin);
+  const isPast = new Date(event.end) < now;
   const isDeclined = event.responseStatus === "declined";
   const allOthersOut = allOtherDeclined(event);
 
@@ -351,14 +296,14 @@ const DayEventCard = memo(function DayEventCard({
       }
       style={{
         ...posStyle,
-        left: `${li.left}px`,
-        width: `calc(min(85%, 100% - ${li.left + 2}px))`,
+        left: `calc(${li.left}% + ${li.indent}px)`,
+        width: `calc(${li.width}% - ${li.indent * 2 + 2}px)`,
         zIndex:
           isBeingDragged && isDragging
             ? 100
             : focusedEventId === event.id
               ? 50
-              : li.col + 1,
+              : li.stackOrder + 1,
         backgroundColor: color
           ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
           : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
@@ -492,6 +437,7 @@ const DayEventCard = memo(function DayEventCard({
   return (
     <EventDetailPopover
       event={event}
+      timezone={timezone}
       onDelete={onDeleteEvent}
       isDraft={isDraft}
       defaultOpen={defaultOpen}
@@ -537,11 +483,12 @@ const DayCreateGhost = memo(function DayCreateGhost({
 
 export const DayView = memo(function DayView({
   events,
-  timezone,
   date,
+  timezone = getBrowserTimezone(),
   onDeleteEvent,
   onEventTimeChange,
   onClickTimeSlot,
+  onCreateWorkingLocation,
   quickEditEventId,
   onQuickEditSave,
   onQuickEditCancel,
@@ -605,20 +552,35 @@ export const DayView = memo(function DayView({
     [date],
   );
 
-  const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
+  const allDayEvents = useMemo(
+    () =>
+      events.filter(
+        (event) => event.allDay || fullDayOutOfOfficeCoversDate(event, date),
+      ),
+    [date, events],
+  );
   const { workingLocations, regularEvents: regularAllDayEvents } = useMemo(
     () => partitionAllDayEvents(allDayEvents),
     [allDayEvents],
   );
   const outOfOfficeEvents = useMemo(
-    () => events.filter((event) => !event.allDay && isOutOfOfficeEvent(event)),
+    () =>
+      events.filter(
+        (event) =>
+          !event.allDay &&
+          isOutOfOfficeEvent(event) &&
+          !isFullDayOutOfOfficeEvent(event),
+      ),
     [events],
   );
   const timedEvents = useMemo(
     () => events.filter((event) => !event.allDay && !isOutOfOfficeEvent(event)),
     [events],
   );
-  const layout = useMemo(() => computeLayout(timedEvents), [timedEvents]);
+  const layout = useMemo(
+    () => computeTimedEventLayout(timedEvents, date, timezone),
+    [date, timedEvents, timezone],
+  );
 
   // Timezone label: prefer the short generic name (e.g. "PT", "ET")
   // over the offset form ("GMT-7"), and fall back to the IANA id when
@@ -639,10 +601,7 @@ export const DayView = memo(function DayView({
       }
     }
 
-    let iana = "";
-    try {
-      iana = timezone;
-    } catch {}
+    const iana = timezone;
 
     const longGeneric = nameForToken("longGeneric");
     let shortGeneric = nameForToken("shortGeneric");
@@ -662,10 +621,24 @@ export const DayView = memo(function DayView({
     };
   }, [now, timezone]);
 
-  const calendarNow = toZonedTime(now, timezone);
-  const today = isToday(date);
-  const nowMinutes =
-    (calendarNow.getHours() - START_HOUR) * 60 + calendarNow.getMinutes();
+  const today =
+    dateToCalendarDateKey(date) === getDateKeyInTimezone(now, timezone);
+  const nowParts = new Intl.DateTimeFormat("en-US", {
+    timeZone: timezone,
+    hourCycle: "h23",
+    hour: "2-digit",
+    minute: "2-digit",
+  })
+    .formatToParts(now)
+    .reduce(
+      (parts, part) => {
+        if (part.type === "hour") parts.hour = Number(part.value);
+        if (part.type === "minute") parts.minute = Number(part.value);
+        return parts;
+      },
+      { hour: 0, minute: 0 },
+    );
+  const nowMinutes = (nowParts.hour - START_HOUR) * 60 + nowParts.minute;
   const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
   const showNowIndicator =
     today && nowMinutes >= 0 && nowMinutes <= (END_HOUR - START_HOUR) * 60;
@@ -783,19 +756,38 @@ export const DayView = memo(function DayView({
             {format(date, "MMMM d, yyyy")}
           </div>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span className="cursor-default truncate px-1 pt-1 text-[11px] font-medium text-muted-foreground">
-              {tzShort}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">
-            <p className="text-xs">{tzLong}</p>
-            {tzIana && tzIana !== tzLong ? (
-              <p className="text-[10px] text-muted-foreground">{tzIana}</p>
-            ) : null}
-          </TooltipContent>
-        </Tooltip>
+        <div className="flex items-start gap-1">
+          {onCreateWorkingLocation && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t("calendarView.addWorkingLocation")}
+                  className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  onClick={() => onCreateWorkingLocation(date)}
+                >
+                  <IconPlus aria-hidden="true" className="size-3.5" />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {t("calendarView.addWorkingLocation")}
+              </TooltipContent>
+            </Tooltip>
+          )}
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="cursor-default truncate px-1 pt-1 text-[11px] font-medium text-muted-foreground">
+                {tzShort}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">
+              <p className="text-xs">{tzLong}</p>
+              {tzIana && tzIana !== tzLong ? (
+                <p className="text-[10px] text-muted-foreground">{tzIana}</p>
+              ) : null}
+            </TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       {/* Working locations and ordinary all-day events */}
@@ -814,6 +806,7 @@ export const DayView = memo(function DayView({
                     <EventDetailPopover
                       key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
                       event={event}
+                      timezone={timezone}
                       onDelete={onDeleteEvent}
                       isDraft={draftEventIds.includes(event.id)}
                       defaultOpen={quickEditEventId === event.id}
@@ -890,6 +883,7 @@ export const DayView = memo(function DayView({
                     <EventDetailPopover
                       key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
                       event={event}
+                      timezone={timezone}
                       onDelete={onDeleteEvent}
                       isDraft={draftEventIds.includes(event.id)}
                       defaultOpen={quickEditEventId === event.id}
@@ -1055,6 +1049,7 @@ export const DayView = memo(function DayView({
                   key={event._tempId ?? event.id}
                   event={event}
                   day={date}
+                  timezone={timezone}
                   hourHeight={HOUR_HEIGHT}
                   color={
                     getEventDisplayColor(event, prefs) ?? "hsl(var(--primary))"
@@ -1124,8 +1119,8 @@ export const DayView = memo(function DayView({
                 <DayEventCard
                   key={event._tempId ?? event.id}
                   event={event}
-                  timezone={timezone}
                   date={date}
+                  timezone={timezone}
                   layout={layout}
                   now={now}
                   prefs={prefs}

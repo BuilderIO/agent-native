@@ -131,7 +131,7 @@ export async function putObject(input: {
   // Local fs fallback for dev (no provider configured).
   if (process.env.NODE_ENV === "production") {
     throw new Error(
-      "Asset storage is not configured. Connect Builder.io in onboarding, set BUILDER_PRIVATE_KEY, or fill in the ASSETS_STORAGE_* secrets.",
+      "Asset storage is not configured. Connect Builder.io (free tier available) in onboarding, set BUILDER_PRIVATE_KEY, or fill in the ASSETS_STORAGE_* secrets.",
     );
   }
   const localPath = path.join(LOCAL_ROOT, input.key);

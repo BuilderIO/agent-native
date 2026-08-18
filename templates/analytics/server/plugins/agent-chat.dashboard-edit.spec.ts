@@ -1,7 +1,19 @@
 import type { AgentLoopFinalResponseGuardContext } from "@agent-native/core/server";
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("../../.generated/actions-registry.js", () => ({ default: {} }));
+vi.mock("../../.generated/actions-registry.js", () => ({
+  default: {
+    bigquery: {
+      readOnly: true,
+      grounding: true,
+      tool: {
+        description: "Query BigQuery",
+        parameters: { type: "object", properties: {} },
+      },
+      run: async () => "ok",
+    },
+  },
+}));
 
 import { realDataFinalGuard } from "./agent-chat";
 
@@ -58,6 +70,28 @@ describe("realDataFinalGuard dashboard edits", () => {
         toolResults: [
           { name: "get-sql-dashboard", isError: false, content: "ok" },
           { name: "mutate-dashboard", isError: false, content: "ok" },
+        ],
+      }),
+    );
+
+    expect(result).not.toBeNull();
+  });
+
+  it("does not treat a skipped compose as a completed dashboard edit", () => {
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "refresh the existing dashboard panels",
+        draftText: "The dashboard is updated.",
+        toolResults: [
+          {
+            name: "compose-dashboard",
+            isError: false,
+            content: JSON.stringify({
+              saved: true,
+              changed: false,
+              skippedExistingIds: ["pageviews-over-time"],
+            }),
+          },
         ],
       }),
     );

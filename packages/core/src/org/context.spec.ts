@@ -5,6 +5,7 @@ const mockGetSession = vi.fn();
 const mockGetUserSetting = vi.fn();
 const mockPutUserSetting = vi.fn();
 const mockGetSetting = vi.fn();
+const mockAppStatePut = vi.fn();
 
 vi.mock("../db/client.js", async (importOriginal) => ({
   // Real isTransientDatabaseError: the transient-vs-absent split is the
@@ -24,7 +25,11 @@ vi.mock("../settings/user-settings.js", () => ({
 vi.mock("../settings/store.js", () => ({
   getSetting: (...args: any[]) => mockGetSetting(...args),
 }));
+vi.mock("../application-state/store.js", () => ({
+  appStatePut: (...args: any[]) => mockAppStatePut(...args),
+}));
 
+import { __resetDomainMatchCacheForTests } from "./auto-join-domain.js";
 import {
   getOrgContext,
   resolveOrgIdForEmail,
@@ -35,6 +40,16 @@ import {
   getA2ASecretByDomain,
   resolveOrgByDomain,
 } from "./context.js";
+import { __resetProcessMemberOrgCacheForTests } from "./request-org-cache.js";
+
+// File-scope, so a describe block added later cannot forget it. The membership
+// and domain-match caches are process state: without this, one test's rows
+// answer the next test's query and the mock's call count is never what the
+// assertion expects.
+beforeEach(() => {
+  __resetProcessMemberOrgCacheForTests();
+  __resetDomainMatchCacheForTests();
+});
 
 // Factory so each test gets a fresh event object — getOrgContext is per-event
 // memoized on event.context, so sharing a module-level object would bleed
@@ -59,6 +74,7 @@ describe("getOrgContext", () => {
     mockExecute.mockResolvedValue({ rows: [] });
     mockGetUserSetting.mockResolvedValue(null);
     mockGetSetting.mockResolvedValue(null);
+    mockAppStatePut.mockResolvedValue(undefined);
     delete process.env.AUTO_CREATE_DEFAULT_ORG;
     // Fresh event per test so per-event memoization doesn't bleed.
     EVENT = makeEvent();
@@ -617,6 +633,12 @@ describe("getOrgContext", () => {
         "jane@startup.dev",
         "active-org-id",
         { orgId: ctx.orgId },
+      );
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "jane@startup.dev",
+        "onboarding:first-run-eligible",
+        { orgId: ctx.orgId, at: expect.any(String) },
+        { requestSource: "org-auto-create" },
       );
     });
 

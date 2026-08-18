@@ -70,6 +70,15 @@ describe("Claude Code participant", () => {
     ).not.toContain("--no-session-persistence");
   });
 
+  it("passes the selected effort to Claude Code", () => {
+    const args = buildClaudeCodeParticipantArgs({
+      role: "driver",
+      effort: "max",
+    });
+
+    expect(args).toEqual(expect.arrayContaining(["--effort", "max"]));
+  });
+
   it("uses acceptEdits without bypass or shell tools for the driver", () => {
     const args = buildClaudeCodeParticipantArgs({
       role: "driver",

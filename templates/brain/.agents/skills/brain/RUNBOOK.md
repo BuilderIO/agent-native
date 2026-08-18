@@ -295,12 +295,13 @@ Clips, or external workspace data.
 ## Generic ingest payload validation
 
 The signed ingest webhook at `/api/_agent-native/brain/ingest` accepts a
-`RawCapturePayload`. Create a source with a `sourceKey` to receive a bearer
-token, set `Authorization: Bearer <ingestToken>` on the request, and send the
-payload shape below. Clips can export to that endpoint without Brain reading the
-Clips database directly. Generic sources use the same payload shape for call
-transcripts, customer research, imported notes, or any other source that can
-produce a bounded capture.
+normalized capture envelope. Create a source with a `sourceKey` to receive a
+bearer token, set `Authorization: Bearer <ingestToken>` on the request, and
+send one of the payload shapes below. Clips can export to that endpoint without
+Brain reading the Clips database directly. Generic sources use the same
+contract for call transcripts, customer research, approved FAQs/docs, imported
+notes, or any other source that can produce a bounded capture. Successful
+creates and updates automatically create or reuse a distillation queue item.
 
 ```json
 {
@@ -315,3 +316,50 @@ produce a bounded capture.
   "raw": {}
 }
 ```
+
+For a blessed document publisher, create a generic source with an explicit
+answer policy:
+
+```bash
+pnpm --filter brain action create-source \
+  --title "Blessed Agent Native docs" \
+  --provider generic \
+  --sourceKey agent-native-docs \
+  --policy '{"trustTier":"blessed","answerEligible":true,"authority":100,"freshnessWindowDays":null,"reviewRequired":false,"conflictBehavior":"prefer-higher-authority"}' \
+  --visibility org
+```
+
+Then publish one stable upstream record per `externalId`:
+
+```json
+{
+  "sourceKey": "agent-native-docs",
+  "externalId": "what-is-agent-native",
+  "title": "What is Agent Native?",
+  "kind": "document",
+  "content": "Agent Native is ...",
+  "capturedAt": "2026-07-30T12:00:00.000Z",
+  "sourceUrl": "https://docs.example.com/what-is-agent-native",
+  "tags": ["faq", "agent-native"],
+  "metadata": {
+    "slug": "what-is-agent-native",
+    "owner": "product"
+  }
+}
+```
+
+Reusing the same `sourceKey` and `externalId` updates the capture and
+invalidates its derived knowledge/search artifacts before re-distillation.
+When the upstream record is deleted or unblessed, send a content-free
+tombstone:
+
+```json
+{
+  "sourceKey": "agent-native-docs",
+  "externalId": "what-is-agent-native",
+  "deleted": true
+}
+```
+
+Tombstones retire the capture, remove its derived knowledge and published
+canonical resource, and prevent a stale retry from silently recreating it.

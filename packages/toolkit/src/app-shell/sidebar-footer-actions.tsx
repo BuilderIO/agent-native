@@ -4,7 +4,6 @@ import { cn } from "../utils.js";
 
 export interface SidebarFooterActionsProps {
   feedback?: ReactNode;
-  translate?: ReactNode;
   search?: ReactNode;
   collapse?: ReactNode;
   collapsed?: boolean;
@@ -17,7 +16,6 @@ export interface SidebarFooterActionsProps {
  */
 export function SidebarFooterActions({
   feedback,
-  translate,
   search,
   collapse,
   collapsed = false,
@@ -27,7 +25,7 @@ export function SidebarFooterActions({
     <div
       className={cn(
         "flex items-center gap-1",
-        collapsed ? "flex-col px-1 py-1" : "min-w-0 justify-end px-3 py-2",
+        collapsed ? "flex-col px-1 py-1" : "min-w-0 justify-end px-2 py-1",
         className,
       )}
       data-sidebar-footer-actions
@@ -40,7 +38,6 @@ export function SidebarFooterActions({
           {feedback}
         </div>
       ) : null}
-      {translate ? <div data-sidebar-footer-translate>{translate}</div> : null}
       {search ? <div data-sidebar-footer-search>{search}</div> : null}
       {collapse ? <div data-sidebar-footer-collapse>{collapse}</div> : null}
     </div>

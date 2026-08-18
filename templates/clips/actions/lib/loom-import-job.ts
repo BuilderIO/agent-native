@@ -1,9 +1,11 @@
 import { writeAppState } from "@agent-native/core/application-state";
 import { uploadFile } from "@agent-native/core/file-upload";
-import { and, eq } from "drizzle-orm";
+import { and, asc, eq, gte, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
+import { ownerEmailMatches } from "../../server/lib/recordings.js";
+import { transactionalEmailStore } from "../../server/lib/transactional-email-store.js";
 import {
   extractLoomVideoId,
   normalizeLoomShareUrl,
@@ -19,11 +21,45 @@ export type LoomImportJobResult = {
   failureReason?: string;
 };
 
+export async function enqueueFirstImportEmailIfEligible(
+  input: { recordingId: string; ownerEmail: string; createdAt: string },
+  db: ReturnType<typeof getDb> = getDb(),
+): Promise<void> {
+  const { enabledAt } = await transactionalEmailStore.ensureEnabledAt();
+  if (input.createdAt < enabledAt) return;
+
+  const [firstReadyImport] = await db
+    .select({ id: schema.recordings.id })
+    .from(schema.recordings)
+    .where(
+      and(
+        ownerEmailMatches(schema.recordings.ownerEmail, input.ownerEmail),
+        eq(schema.recordings.status, "ready"),
+        inArray(schema.recordings.sourceAppName, ["Loom", "Video link"]),
+        gte(schema.recordings.createdAt, enabledAt),
+      ),
+    )
+    .orderBy(asc(schema.recordings.createdAt), asc(schema.recordings.id))
+    .limit(1);
+  if (firstReadyImport?.id !== input.recordingId) return;
+
+  await transactionalEmailStore.enqueueOrConvergeFirstImport(
+    input.ownerEmail,
+    input.recordingId,
+    input.ownerEmail,
+  );
+}
+
 export async function failLoomImport(
   recordingId: string,
   failureReason: string,
   claimId?: string,
 ): Promise<LoomImportJobResult> {
+  console.error("[loom-import] failed", {
+    recordingId,
+    claimId,
+    failureReason,
+  });
   const now = new Date().toISOString();
   const [updated] = await getDb()
     .update(schema.recordings)
@@ -84,9 +120,15 @@ export async function runLoomImportJob({
       durationMs: schema.recordings.durationMs,
       sourceWindowTitle: schema.recordings.sourceWindowTitle,
       loomImportClaimId: schema.recordings.loomImportClaimId,
+      createdAt: schema.recordings.createdAt,
     })
     .from(schema.recordings)
-    .where(eq(schema.recordings.id, recordingId));
+    .where(
+      and(
+        eq(schema.recordings.id, recordingId),
+        ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+      ),
+    );
 
   const shareUrl = normalizeLoomShareUrl(recording?.sourceWindowTitle ?? "");
   const loomId = shareUrl ? extractLoomVideoId(shareUrl) : null;
@@ -103,9 +145,16 @@ export async function runLoomImportJob({
     );
   }
 
+  console.log("[loom-import] job started", { recordingId, claimId });
+
   let media: Awaited<ReturnType<typeof downloadLoomVideo>>;
   try {
     media = await downloadLoomVideo({ loomId, shareUrl });
+    console.log("[loom-import] download complete", {
+      recordingId,
+      bytes: media.sizeBytes,
+      mimeType: media.mimeType,
+    });
   } catch (err) {
     return failLoomImport(
       recordingId,
@@ -130,6 +179,10 @@ export async function runLoomImportJob({
         claimId,
       );
     }
+    console.log("[loom-import] reupload complete", {
+      recordingId,
+      videoUrl: upload.url,
+    });
 
     const now = new Date().toISOString();
     const [mediaReady] = await db
@@ -144,16 +197,21 @@ export async function runLoomImportJob({
       .where(
         and(
           eq(schema.recordings.id, recordingId),
+          ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
           eq(schema.recordings.loomImportClaimId, claimId),
         ),
       )
       .returning({ id: schema.recordings.id });
     if (!mediaReady) {
-      return {
-        status: "failed",
-        failureReason: "The Loom import lease was lost before media was saved.",
-      };
+      const failureReason =
+        "The Loom import lease was lost before media was saved.";
+      console.warn("[loom-import] lease lost before ready", {
+        recordingId,
+        claimId,
+      });
+      return { status: "failed", failureReason };
     }
+    console.log("[loom-import] recording ready", { recordingId });
 
     void queueBuilderMediaCompression({
       recordingId,
@@ -217,6 +275,18 @@ export async function runLoomImportJob({
     }
 
     try {
+      await enqueueFirstImportEmailIfEligible(
+        { recordingId, ownerEmail, createdAt: recording.createdAt },
+        db,
+      );
+    } catch (err) {
+      console.warn("[clips] First-import email enqueue failed", {
+        recordingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    }
+
+    try {
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
         status: "ready",
@@ -239,6 +309,7 @@ export async function runLoomImportJob({
         .where(
           and(
             eq(schema.recordings.id, recordingId),
+            ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
             eq(schema.recordings.loomImportClaimId, claimId),
           ),
         );

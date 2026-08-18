@@ -12,6 +12,30 @@ describe("createFetchToolEntry", () => {
     return entry.run({ url });
   }
 
+  it("classifies only non-persisting GET and HEAD calls as Plan-mode reads", () => {
+    const entry = createFetchToolEntry()["web-request"];
+    const effect = entry.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ url: "https://example.com" })).toBe("read");
+    expect(effect({ url: "https://example.com", method: "HEAD" })).toBe("read");
+    expect(effect({ url: "https://example.com", method: "POST" })).toBe(
+      "write",
+    );
+    expect(
+      effect({
+        url: "https://example.com",
+        method: "GET",
+        saveToFile: "page.html",
+      }),
+    ).toBe("write");
+    expect(entry.planMode?.allowedValues).toEqual({
+      method: ["GET", "HEAD"],
+    });
+    expect(entry.planMode?.omittedProperties).toEqual(["saveToFile"]);
+  });
+
   it.each([
     "http://localhost:3000/_agent-native/actions/x",
     "http://127.0.0.1:3000/",
@@ -251,6 +275,74 @@ describe("createFetchToolEntry", () => {
       "[Widget reference](https://93.184.216.34/reference/widgets)",
     );
     expect(result).not.toContain("<html>");
+  });
+
+  it("preserves alternate discovery links outside the readable article", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html>
+        <html>
+          <head><title>Shared clip</title></head>
+          <body>
+            <a
+              rel="alternate"
+              type="application/json"
+              href="/api/agent-context.json?id=clip-1"
+            >Agent-readable context</a>
+            <main><article><h1>Shared clip</h1></article></main>
+          </body>
+        </html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+
+    const result = await runWebRequest("https://93.184.216.34/share/clip-1");
+
+    expect(result).toContain("Links:");
+    expect(result).toContain(
+      "https://93.184.216.34/api/agent-context.json?id=clip-1",
+    );
+  });
+
+  it("surfaces shared agent-readable metadata outside the readable article", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        `<!doctype html>
+        <html>
+          <head><title>Shared artifact</title></head>
+          <body>
+            <script type="application/agent-native+json">
+              {
+                "type": "agent-native.resource.discovery",
+                "resourceType": "dashboard",
+                "resourceId": "dash-1",
+                "contextUrl": "/api/dashboard-agent-context.json?id=dash-1&agent_access=scoped-token",
+                "instructions": "Fetch contextUrl for the dashboard data."
+              }
+            </script>
+            <main><article><h1>Shared artifact</h1></article></main>
+          </body>
+        </html>`,
+        {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": "text/html; charset=utf-8" },
+        },
+      ),
+    );
+
+    const result = await runWebRequest("https://93.184.216.34/d/dash-1");
+
+    expect(result).toContain("Agent-readable metadata:");
+    expect(result).toContain('"type": "agent-native.resource.discovery"');
+    expect(result).toContain(
+      '"/api/dashboard-agent-context.json?id=dash-1&agent_access=scoped-token"',
+    );
+    expect(result).toContain("Fetch contextUrl for the dashboard data.");
   });
 
   it("returns bounded matches from extracted HTML content", async () => {

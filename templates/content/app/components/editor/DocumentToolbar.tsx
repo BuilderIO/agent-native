@@ -6,6 +6,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import { ShareTrigger } from "@agent-native/toolkit/sharing";
 import type { DocumentSourceInfo } from "@shared/api";
 import {
   IconArrowBarDown,
@@ -31,7 +32,6 @@ import {
   IconLink,
   IconMessageCircle,
   IconRefresh,
-  IconShare3,
   IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -90,6 +90,7 @@ import {
   useSearchNotionPages,
   useCreateAndLinkNotionPage,
 } from "@/hooks/use-notion";
+import { documentQueryFilter } from "@/lib/document-query";
 import {
   localSourceAbsolutePath,
   revealLinkedLocalSourceFile,
@@ -318,6 +319,15 @@ export function compactToolbarBreadcrumbItems(
   ];
 }
 
+export function firstSelectableBreadcrumbMenuItemId(
+  menuItems: ToolbarBreadcrumbItem["menuItems"],
+  currentDocumentId: string,
+): string | null {
+  return (
+    menuItems?.find((menuItem) => menuItem.id !== currentDocumentId)?.id ?? null
+  );
+}
+
 function ToolbarBreadcrumbMenu({
   item,
   label,
@@ -337,6 +347,12 @@ function ToolbarBreadcrumbMenu({
 }) {
   const [open, setOpen] = useState(false);
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const openedWithKeyboardRef = useRef(false);
+  const firstSelectableItemRef = useRef<HTMLDivElement | null>(null);
+  const firstSelectableItemId = firstSelectableBreadcrumbMenuItemId(
+    item.menuItems,
+    currentDocumentId,
+  );
 
   function cancelClose() {
     if (!closeTimerRef.current) return;
@@ -349,8 +365,25 @@ function ToolbarBreadcrumbMenu({
     closeTimerRef.current = setTimeout(() => setOpen(false), 140);
   }
 
+  useEffect(() => {
+    if (!open || !openedWithKeyboardRef.current) return;
+    openedWithKeyboardRef.current = false;
+    const frame = requestAnimationFrame(() => {
+      firstSelectableItemRef.current?.focus();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
   return (
-    <DropdownMenu modal={false} open={open} onOpenChange={setOpen}>
+    <DropdownMenu
+      modal={false}
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (nextOpen) cancelClose();
+        else openedWithKeyboardRef.current = false;
+        setOpen(nextOpen);
+      }}
+    >
       <DropdownMenuTrigger asChild>
         <button
           type="button"
@@ -364,6 +397,16 @@ function ToolbarBreadcrumbMenu({
             setOpen(true);
           }}
           onPointerLeave={scheduleClose}
+          onKeyDown={(event) => {
+            if (
+              event.key === "Enter" ||
+              event.key === " " ||
+              event.key === "ArrowDown"
+            ) {
+              openedWithKeyboardRef.current = true;
+              cancelClose();
+            }
+          }}
         >
           {children}
         </button>
@@ -371,6 +414,7 @@ function ToolbarBreadcrumbMenu({
       <DropdownMenuContent
         align="start"
         className="w-64"
+        onKeyDown={cancelClose}
         onPointerEnter={cancelClose}
         onPointerLeave={scheduleClose}
       >
@@ -379,7 +423,13 @@ function ToolbarBreadcrumbMenu({
           return (
             <DropdownMenuItem
               key={menuItem.id}
+              ref={
+                menuItem.id === firstSelectableItemId
+                  ? firstSelectableItemRef
+                  : undefined
+              }
               className="gap-2"
+              disabled={menuItem.id === currentDocumentId}
               onSelect={() => onOpen(menuItem.id)}
             >
               <span className="flex size-4 shrink-0 items-center justify-center">
@@ -523,12 +573,8 @@ export function DocumentToolbar({
       const previous = hideFromSearch;
       setPendingHideFromSearch(next);
 
-      queryClient.setQueryData(
-        ["action", "get-document", { id: documentId }],
-        (old: any) =>
-          old && typeof old === "object"
-            ? { ...old, hideFromSearch: next }
-            : old,
+      queryClient.setQueriesData(documentQueryFilter(documentId), (old: any) =>
+        old && typeof old === "object" ? { ...old, hideFromSearch: next } : old,
       );
       queryClient.setQueryData(
         ["action", "list-documents", undefined],
@@ -552,9 +598,7 @@ export function DocumentToolbar({
         });
       } catch (err) {
         setPendingHideFromSearch(previous);
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: documentId }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(documentId));
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -565,9 +609,7 @@ export function DocumentToolbar({
         throw err;
       } finally {
         setPendingHideFromSearch(null);
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id: documentId }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(documentId));
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -849,22 +891,13 @@ export function DocumentToolbar({
             className="mr-1"
           />
           {isLocalFileDocument ? (
-            <Button
-              size="sm"
-              variant="outline"
-              className="h-9 gap-1.5 rounded-lg px-3"
+            <ShareTrigger
+              className="h-9 rounded-lg px-3"
+              pending={shareLocalFile.isPending}
               disabled={shareLocalFile.isPending}
-              onClick={() => void handleShareLocalFile()}
-            >
-              {shareLocalFile.isPending ? (
-                <IconLoader2 className="h-4 w-4 animate-spin" />
-              ) : (
-                <IconShare3 className="h-4 w-4" />
-              )}
-              <span className="hidden sm:inline">
-                {t("editor.toolbar.share")}
-              </span>
-            </Button>
+              label={t("editor.toolbar.share")}
+              onPress={() => void handleShareLocalFile()}
+            />
           ) : (
             <>
               <ShareButton

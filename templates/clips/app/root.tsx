@@ -19,6 +19,7 @@ import {
 } from "@agent-native/core/client/navigation";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconHierarchy2,
   IconCheck,
@@ -53,6 +54,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { SEARCH_FOCUS_PATH } from "@/lib/search-focus";
 
 import { i18nCatalog, loadI18nMessages } from "./i18n";
 
@@ -130,7 +132,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const localeInitScript = getHydrationStableLocaleInitScript({
     locale: loaderData.locale,
     preference: loaderData.preference,
-    messages: loaderData.messages,
   });
 
   return (
@@ -156,7 +157,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#18181B" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -227,7 +227,9 @@ const CLIPS_COMMAND_DOCS = [
     title: "Use the Chrome extension for browser logs",
     description:
       "Record a browser tab with redacted console logs, JavaScript exceptions, and fetch/XHR diagnostics.",
-    href: "https://www.agent-native.com/docs/template-clips#browser-logs-and-developer-diagnostics",
+    href: docsUrl("template-clips-capture-everywhere", {
+      hash: "browser-logs-with-the-chrome-extension",
+    }),
     keywords: [
       "logs",
       "browser logs",
@@ -369,11 +371,11 @@ function AppContent() {
           changelogKey="clips"
         >
           <CommandMenu.Group heading={t("root.commandActions")}>
-            <CommandMenu.Item onSelect={() => navigate("/agent")}>
+            <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
               <IconHierarchy2 size={16} />
               {t("root.openAgent")}
             </CommandMenu.Item>
-            <CommandMenu.Item onSelect={() => {}}>
+            <CommandMenu.Item onSelect={() => navigate(SEARCH_FOCUS_PATH)}>
               {t("root.commandSearch")}
             </CommandMenu.Item>
           </CommandMenu.Group>

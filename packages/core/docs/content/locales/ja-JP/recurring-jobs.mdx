@@ -7,6 +7,12 @@ description: "Cron でスケジュールされたプロンプトは、日次ダ�
 
 **定期的なジョブ** は、cron スケジュールで実行されるプロンプトです。これは、エージェントが独自に物事を行う方法です。「毎朝 7 時に夜間のメールを要約する」「毎週月曜日に先週の登録番号を Slack に投稿する」「1 時間ごとに古い下書きを徹底的に調べて削除する」
 
+<Callout tone="info">
+
+**Recurring Jobs** は **Scheduled** 自動化の旧称です。**Automations** は **Scheduled** と **Event** の包括的な名称です。`jobs/` と `manage-jobs` は既存のスケジュール専用連携向けに残ります。モデルと MCP 許可リストを含む新しい個人または組織の作業には、`manage-automations` と `/agent#jobs` の **Automations** を使用してください。
+
+</Callout>
+
 定期的なジョブは時計に合わせて起動されます。 _events_ (予約の作成、電子メールの受信) に反応するには、同じ `jobs/` ファイル形式と条件を使用します。[Automations](/docs/automations) を参照してください。
 
 ジョブは `jobs/<name>.md` の [エージェント リソース](/docs/agent-resources) に存在します。これは、YAML フロントマターを持つ Markdown ファイルだけです。登録も配線も必要ありません。ファイルをドロップすると、フレームワークがそれを取得します。
@@ -154,8 +160,8 @@ Summarize overnight emails.`,
   <div class="diagram-card accent">
     <span class="diagram-pill accent">3 &middot; run</span
     ><small class="diagram-muted"
-      >fresh agent thread, job body as the user message &mdash; actions, SQL,
-      A2A, email</small
+      >共有 runner がIDを検証し、モデル、MCP許可リスト、継続、
+      配信、使用量を解決</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -216,7 +222,7 @@ Summarize overnight emails.`,
 | `update`   | `name` (必須); `schedule`、`instructions`、`enabled`、`runAs`、`mcpTools` | 既存のジョブを編集する                                                                |
 | `delete`   | `name` (必須)                                                             | ジョブを削除します - 最初に常にユーザーに確認してください                             |
 
-**個人スコープと共有スコープ。** 各ジョブは、個人スコープ (作成者として実行され、作成者のみに表示される) または共有/組織スコープ (作成者に代わって実行されるが、組織メンバーに表示される) のいずれかに存在します。 `scope` および `runAs` パラメータは作成時にこれを制御します。組織管理者は、共有ジョブを更新または削除できます。管理者以外のメンバーは自分のメンバーのみを管理できます。
+**個人スコープと共有スコープ。** 各自動化は個人または組織スコープにあり、作成者として実行されます。管理者は共有定義を管理できますが、作成者のIDは変更できません。組織で実行する前に、フレームワークは作成者が存在し、引き続きメンバーであることを検証します。
 
 ## スケジュール パッケージとは異なります {#vs-scheduling-package}
 
@@ -231,5 +237,5 @@ Summarize overnight emails.`,
 
 - [**Automations**](/docs/automations) — イベント トリガーと条件を同じ `jobs/` 形式に追加します
 - [**エージェント リソース**](/docs/agent-resources) — ジョブが skills、メモリ、カスタム エージェントと共存する場所
-- [**Actions**](/docs/actions) — ジョブが呼び出すツール
+- [**Actions**](/docs/actions-overview) — ジョブが呼び出すツール
 - [**Agent Teams**](/docs/agent-teams) — ジョブは並行作業を行うサブエージェントを生成することがよくあります

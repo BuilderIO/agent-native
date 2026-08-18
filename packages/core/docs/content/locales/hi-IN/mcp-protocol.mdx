@@ -228,7 +228,11 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 {
   "poll": {
     "tool": "ask_app_status",
-    "arguments": { "app": "mail", "taskId": "task_123" }
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
   }
 }
 ```
@@ -241,8 +245,9 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 यदि सीमित, अस्थायी स्थिति-पठन उपलब्ध नहीं है, तो `ask_app_status`
 `status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, मूल `app`
 और `taskId`, तथा `pollAfterMs` / `poll` लौटा सकता है। इसका अर्थ है कि स्थिति-पठन
-अनुपलब्ध है, न कि स्थायी टास्क विफल हुआ है। ठीक उसी `app` और `taskId` के साथ
-`ask_app_status` को फिर आज़माएँ; पुनर्प्राप्ति के लिए `ask_app` को कभी फिर से सबमिट
+अनुपलब्ध है, न कि स्थायी टास्क विफल हुआ है। लौटाए गए उन्हीं `poll.arguments` के साथ
+`ask_app_status` को फिर आज़माएँ, और उपलब्ध होने पर `taskHandle` शामिल करें। बिना
+हैंडल वाले पुराने परिणामों में वही `app` और `taskId` दोबारा उपयोग करें; पुनर्प्राप्ति के लिए `ask_app` को कभी फिर से सबमिट
 न करें, क्योंकि सबमिशन काम की नकल कर सकता है। स्थायी प्रमाणीकरण, न मिलने और
 प्रोटोकॉल त्रुटियाँ त्रुटियाँ ही रहती हैं।
 

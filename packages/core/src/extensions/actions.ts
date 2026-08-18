@@ -13,6 +13,7 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { resolveAccess } from "../sharing/access.js";
+import { roleSatisfies } from "../sharing/schema.js";
 import {
   readWorkspaceFile,
   type WorkspaceFilesScope,
@@ -67,6 +68,10 @@ import {
 // the surrounding metadata and indentation while still bounding tool context.
 const GET_EXTENSION_MAX_RESULT_CHARS = 500_000;
 const GET_EXTENSION_HISTORY_MAX_RESULT_CHARS = 2_000_000;
+const LARGE_EXTENSION_INLINE_CONTENT_MAX_CHARS = 60_000;
+const EXTENSION_CONTENT_MATCH_LIMIT = 8;
+const DEFAULT_EXTENSION_CONTENT_CONTEXT_CHARS = 1_500;
+const MAX_EXTENSION_CONTENT_CONTEXT_CHARS = 4_000;
 
 export function createExtensionActionEntries(): Record<string, ActionEntry> {
   return {
@@ -153,7 +158,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "get-extension": {
       tool: {
         description:
-          "Get one existing extension by id. Use this when <current-screen> or <current-url> contains extensionId for the current extension; do not call list-extensions just to rediscover that id. Defaults to including the full Alpine.js content once per run so you can make a targeted update-extension edit; repeated unchanged reads return compact metadata unless forceContent=true.",
+          "Get one existing extension by id. Use this when <current-screen> or <current-url> contains extensionId for the current extension; do not call list-extensions just to rediscover that id. Small extensions include their full Alpine.js content once per run. Large extensions return compact metadata first; pass contentQuery with a function, variable, section marker, or literal text to retrieve bounded source excerpts for a targeted update-extension edit. Repeated unchanged full reads return compact metadata unless forceContent=true.",
         parameters: {
           type: "object",
           properties: {
@@ -170,7 +175,17 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             forceContent: {
               type: "boolean",
               description:
-                "Return full content even if this run already read the same unchanged body. Use sparingly; prefer update-extension edits after the first read.",
+                "Return full content even when the extension is large or this run already read the same unchanged body. Use only for a broad rewrite; prefer contentQuery plus focused update-extension edits.",
+            },
+            contentQuery: {
+              type: "string",
+              description:
+                "Literal, case-insensitive source text to find. Returns bounded excerpts around up to 8 matches without loading the full extension.",
+            },
+            contentContextChars: {
+              type: "number",
+              description:
+                "Characters of context before and after each contentQuery match. Defaults to 1500 and is capped at 4000.",
             },
           },
           required: ["id"],
@@ -184,6 +199,10 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             ? true
             : coerceBoolean(args.includeContent);
         const forceContent = coerceBoolean(args?.forceContent);
+        const contentQuery = String(args?.contentQuery ?? "").trim();
+        const contentContextChars = normalizeExtensionContentContextChars(
+          args?.contentContextChars,
+        );
         const localExtension = await getLocalExtension(id);
         if (localExtension) {
           return {
@@ -193,6 +212,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
               new Set(),
               includeContent,
               forceContent,
+              contentQuery,
+              contentContextChars,
             ),
           };
         }
@@ -206,6 +227,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             hiddenIds,
             includeContent,
             forceContent,
+            contentQuery,
+            contentContextChars,
           ),
         };
       },
@@ -312,7 +335,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "render-inline-extension": {
       tool: {
         description:
-          "Render a one-time, transient sandboxed Alpine.js mini-app directly inside the chat. Use this for generated UI that should answer the current turn inline without saving anything to the Extensions view: calculators, adjustable controls, knobs, pickers, visualizers, temporary dashboards, and interactive results. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use appAction() or extensionData for writes; dbQuery() is for read-only inspection of known app SQL tables. Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<inline extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send for visible submit/apply actions. For transient UIs, extensionData is browser-local throwaway state; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind colors (bg-background, text-foreground, bg-primary, etc.) so it inherits the parent app theme. Use create-extension instead when the user wants the UI saved or reusable.",
+          "Render a one-time, transient sandboxed Alpine.js mini-app directly inside the chat. Use this for generated UI that should answer the current turn inline without saving anything to the Extensions view: calculators, adjustable controls, knobs, pickers, visualizers, temporary dashboards, and interactive results. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use appAction() or extensionData for writes; dbQuery() is for read-only inspection of known app SQL tables. Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<inline extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send(message, { submit: true }) only for visible user-triggered submit/apply actions; omit submit or set it to false for a draft, and never call chat.send from polling, refresh, or error handlers. For transient UIs, extensionData is browser-local throwaway state; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind colors (bg-background, text-foreground, bg-primary, etc.) so it inherits the parent app theme. Use create-extension instead when the user wants the UI saved or reusable.",
         parameters: {
           type: "object",
           properties: {
@@ -498,7 +521,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "create-extension": {
       tool: {
         description:
-          'Create a persisted sandboxed Alpine.js mini-app extension and render it inline in the chat. Use this when the user wants generated UI that should be saved, reusable, or visible in the Extensions view: extensions, widgets, dashboards, calculators, mini-apps, and reusable interactive utilities. For one-time chat-only UI, use render-inline-extension instead. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use appAction() for app data writes and extensionData for extension-owned persisted UI state; dbQuery() is for read-only inspection of known app SQL tables. Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send for visible submit/apply actions. Persist reusable user-edited state with extensionData: if the extension has checkboxes, todos, notes, filters, preferences, or any control whose value should survive reload/reopen, load that state on init and save changes with extensionData, usually at user scope, instead of keeping it only in Alpine state. IMPORTANT — hosting a pasted file: if the user pasted a large HTML/Alpine file (it appears in your context as an <attachment name="pasted-text-…"> block) and asked you to host it as-is, do NOT copy that file into `content`. Instead leave `content` empty and pass `contentFromAttachment` set to that attachment\'s name (or the literal "latest" for the most recent pasted block) — the server reads the file verbatim. Re-emitting a large pasted file as `content` regularly gets cut off mid-stream and stalls the turn. IMPORTANT — cloning a large extension that lives as a workspace resource (not a chat attachment): leave `content` empty and pass `contentFromWorkspaceFile` set to the resource path (e.g. "intuit-analytics-extension.html"); the server reads the full file. Do NOT try to reconstruct the body with run-code or route create-extension through run-code (mutating actions are not callable there). Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery() only for known existing SQL tables and never for writes. Keep the initial create-extension payload compact and working; for complex extensions, create a useful v1 first, then use focused update-extension edits for refinements rather than assembling one enormous initial tool input. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data(\'name\', () => ({...})) and reference it with x-data="name" — do NOT cram methods, template literals, or branching logic into an inline x-data="{...}" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object\'s initial state. If the extension\'s value depends on an LLM call, require a real key via \\${keys.OPENAI_API_KEY}/\\${keys.ANTHROPIC_API_KEY} (and tell the user to add it in the Dispatch Vault, or in app Settings → API Keys & Connections for standalone apps, if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.',
+          'Create a persisted sandboxed Alpine.js mini-app extension and render it inline in the chat. Use this when the user wants generated UI that should be saved, reusable, or visible in the Extensions view: extensions, widgets, dashboards, calculators, mini-apps, and reusable interactive utilities. For one-time chat-only UI, use render-inline-extension instead. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use appAction() for app data writes and extensionData for extension-owned persisted UI state; dbQuery() is for read-only inspection of known app SQL tables. Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send(message, { submit: true }) only for visible user-triggered submit/apply actions; omit submit or set it to false for a draft, and never call chat.send from polling, refresh, or error handlers. Persist reusable user-edited state with extensionData: if the extension has checkboxes, todos, notes, filters, preferences, or any control whose value should survive reload/reopen, load that state on init and save changes with extensionData, usually at user scope, instead of keeping it only in Alpine state. IMPORTANT — hosting a pasted file: if the user pasted a large HTML/Alpine file (it appears in your context as an <attachment name="pasted-text-…"> block) and asked you to host it as-is, do NOT copy that file into `content`. Instead leave `content` empty and pass `contentFromAttachment` set to that attachment\'s name (or the literal "latest" for the most recent pasted block) — the server reads the file verbatim. Re-emitting a large pasted file as `content` regularly gets cut off mid-stream and stalls the turn. IMPORTANT — cloning a large extension that lives as a workspace resource (not a chat attachment): leave `content` empty and pass `contentFromWorkspaceFile` set to the resource path (e.g. "intuit-analytics-extension.html"); the server reads the full file. Do NOT try to reconstruct the body with run-code or route create-extension through run-code (mutating actions are not callable there). Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery() only for known existing SQL tables and never for writes. Keep the initial create-extension payload compact and working; for complex extensions, create a useful v1 first, then use focused update-extension edits for refinements rather than assembling one enormous initial tool input. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data(\'name\', () => ({...})) and reference it with x-data="name" — do NOT cram methods, template literals, or branching logic into an inline x-data="{...}" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object\'s initial state. If the extension\'s value depends on an LLM call, require a real key via \\${keys.OPENAI_API_KEY}/\\${keys.ANTHROPIC_API_KEY} (and tell the user to add it in the Dispatch Vault, or in app Settings → API Keys & Connections for standalone apps, if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.',
         parameters: {
           type: "object",
           properties: {
@@ -623,7 +646,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "update-extension": {
       tool: {
         description:
-          'Update an existing sandboxed Alpine.js mini-app extension. Pass exactly three fields: `id`, `operation`, and `payloadJson`. `payloadJson` is a JSON object encoded as a string so model gateways cannot fill its optional members with invalid empty placeholders. For operation="edit", pass {"edits":[...]} or {"patches":[...]} and optional format=true. For operation="replace", pass exactly one of content, contentFromAttachment, or contentFromWorkspaceFile; use this operation only for a user-requested broad visual rewrite or complete replacement body. For operation="metadata", pass name, description, or icon. Change sharing through set-resource-visibility instead. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url> directly.',
+          'Update an existing sandboxed Alpine.js mini-app extension. Pass exactly three fields: `id`, `operation`, and `payloadJson`. `payloadJson` is a JSON object encoded as a string so model gateways cannot fill its optional members with invalid empty placeholders. For operation="edit", pass {"edits":[...]} or {"patches":[...]} and optional format=true — prefer several small, targeted edits over one large one; a single edit/replace body over roughly 8KB risks the model truncating its own payloadJson mid-generation, which arrives here as an empty or malformed call that must be retried from scratch. For operation="replace", pass exactly one of content, contentFromAttachment, or contentFromWorkspaceFile; use this operation only for a user-requested broad visual rewrite or complete replacement body. Do not inline large static datasets (full metric histories, big arrays) into the HTML/JS body — store them with extension-data-set and fetch them at runtime via extensionData.list()/get() instead, so edits stay small regardless of dataset size. For operation="metadata", pass name, description, or icon. Change sharing through set-resource-visibility instead. If the user is viewing the extension, use the extensionId from <current-screen> or <current-url> directly.',
         parameters: {
           type: "object",
           properties: {
@@ -842,7 +865,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         if (
           !access ||
           (access.resource as ExtensionRow | undefined)?.archivedAt ||
-          access.role === "viewer"
+          !roleSatisfies(access.role, "editor")
         )
           return `Error: editor access required for extension ${extensionId}.`;
 
@@ -1402,12 +1425,70 @@ async function summarizeExtensionForAgentRead(
   hiddenIds: Set<string>,
   includeContent: boolean,
   forceContent: boolean,
+  contentQuery: string,
+  contentContextChars: number,
 ) {
+  const fingerprint = contentFingerprint(row.content);
+
+  if (contentQuery) {
+    const summary = await summarizeExtension(row, hiddenIds, false);
+    // The whole-body read below is deduped per run, but this branch returned
+    // above it, so a repeated excerpt request re-sent bytes already in context.
+    // One production turn spent 48 of 110 reads re-fetching the same spans.
+    const excerptCtx = getRequestRunContext();
+    const excerpts = excerptCtx
+      ? (excerptCtx.extensionExcerptReads ??= {})
+      : undefined;
+    const excerptKey = `${row.id}:${fingerprint}:${contentContextChars}:${contentQuery}`;
+    if (excerpts?.[excerptKey]) {
+      return {
+        ...summary,
+        contentOmitted: {
+          reason: "identical-excerpt-already-returned-this-run",
+          contentHash: fingerprint,
+          contentLength: row.content.length,
+          next: 'These exact excerpts were already returned earlier in this run and the body has not changed. Use them to call update-extension with operation="edit"; use a different contentQuery only for a source area you have not read yet.',
+        },
+      };
+    }
+    if (excerpts) excerpts[excerptKey] = true;
+    return {
+      ...summary,
+      contentMatches: findExtensionContentMatches(
+        row.content,
+        contentQuery,
+        contentContextChars,
+      ),
+      contentOmitted: {
+        reason: "targeted-content-read",
+        contentHash: fingerprint,
+        contentLength: row.content.length,
+        next: 'Use the returned excerpts to call update-extension with operation="edit" and focused edits. Call get-extension again with a different contentQuery when another source area is needed.',
+      },
+    };
+  }
+
   if (!includeContent) {
     return summarizeExtension(row, hiddenIds, false);
   }
 
-  const fingerprint = contentFingerprint(row.content);
+  if (
+    !forceContent &&
+    row.content.length > LARGE_EXTENSION_INLINE_CONTENT_MAX_CHARS
+  ) {
+    const summary = await summarizeExtension(row, hiddenIds, false);
+    return {
+      ...summary,
+      contentOmitted: {
+        reason: "large-content-requires-targeted-read",
+        contentHash: fingerprint,
+        contentLength: row.content.length,
+        inlineContentLimit: LARGE_EXTENSION_INLINE_CONTENT_MAX_CHARS,
+        next: `Call get-extension again with contentQuery set to the relevant function, variable, section marker, or literal text. If you expect to read more than about three separate areas of this ${row.content.length}-char body, call get-extension once with forceContent=true instead — repeated excerpt reads of the same file cost more context than one whole read.`,
+      },
+    };
+  }
+
   const runCtx = getRequestRunContext();
   const reads = runCtx ? (runCtx.extensionContentReads ??= {}) : undefined;
   const alreadySent = !forceContent && reads?.[row.id] === fingerprint;
@@ -1426,6 +1507,58 @@ async function summarizeExtensionForAgentRead(
       contentLength: row.content.length,
       next: 'Use the content already returned earlier in this run and call update-extension with operation="edit" plus focused edits/patches inside payloadJson. Set forceContent=true only if you truly need the full body again.',
     },
+  };
+}
+
+function normalizeExtensionContentContextChars(value: unknown): number {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return DEFAULT_EXTENSION_CONTENT_CONTEXT_CHARS;
+  }
+  return Math.min(
+    MAX_EXTENSION_CONTENT_CONTEXT_CHARS,
+    Math.max(250, Math.floor(numeric)),
+  );
+}
+
+function findExtensionContentMatches(
+  content: string,
+  query: string,
+  contextChars: number,
+) {
+  const lowerContent = content.toLowerCase();
+  const lowerQuery = query.toLowerCase();
+  const matches: Array<{
+    matchStart: number;
+    matchEnd: number;
+    excerptStart: number;
+    excerptEnd: number;
+    excerpt: string;
+  }> = [];
+  let searchFrom = 0;
+
+  while (matches.length < EXTENSION_CONTENT_MATCH_LIMIT) {
+    const matchStart = lowerContent.indexOf(lowerQuery, searchFrom);
+    if (matchStart < 0) break;
+    const matchEnd = matchStart + query.length;
+    const excerptStart = Math.max(0, matchStart - contextChars);
+    const excerptEnd = Math.min(content.length, matchEnd + contextChars);
+    matches.push({
+      matchStart,
+      matchEnd,
+      excerptStart,
+      excerptEnd,
+      excerpt: content.slice(excerptStart, excerptEnd),
+    });
+    searchFrom = matchEnd;
+  }
+
+  return {
+    query,
+    matches,
+    hasMore:
+      matches.length === EXTENSION_CONTENT_MATCH_LIMIT &&
+      lowerContent.indexOf(lowerQuery, searchFrom) >= 0,
   };
 }
 

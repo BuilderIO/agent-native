@@ -11,7 +11,7 @@ This page is for developers who need to know what runs under the hood in [Chat](
 
 Chat adds no domain tables of its own (see [What's not in it](/docs/template-chat#not-in-it)). It runs entirely on the framework's core tables: chat threads and messages, `application_state`, `settings`, sessions, resources, and run history.
 
-`useDbSync()` is already wired into the app shell: when the agent (or anyone else) writes to SQL, the client receives the change over SSE, or the 2-second polling fallback, and invalidates the matching React Query caches — no manual refresh, no websocket you have to manage yourself. See [`useDbSync`](/docs/client#usedbsync) for the full hook API.
+`useDbSync()` is already wired into the app shell: when the agent (or anyone else) writes to SQL, the client receives the change over SSE, or the 2-second polling fallback, and invalidates the matching React Query caches — no manual refresh, no websocket you have to manage yourself. See [`useDbSync`](/docs/client-data#usedbsync) for the full hook API.
 
 `server/plugins/agent-chat.ts` is where the chat runtime itself is configured: it registers every action in `actions/` as a callable tool (`loadActionsFromStaticRegistry`), resolves the current org for scoping (`resolveOrgId`), sets the system prompt, and declares which tools the model sees on the very first turn (`initialToolNames`) — see [Your first feature in Chat](/docs/template-chat-first-edits#first-edits) for what that last part means when you add a new action.
 
@@ -51,7 +51,7 @@ Three routes are mounted whether or not your app ever links to them:
     ],
     [
       "/extensions",
-      "redirects to /settings#extensions",
+      "redirects to /settings/extensions",
       "Extensions are managed from Settings, not a standalone list page",
     ],
     [
@@ -66,7 +66,7 @@ Three routes are mounted whether or not your app ever links to them:
     ],
     [
       "/team",
-      "redirects to /settings#organization",
+      "redirects to /settings/organization",
       "Organization membership lives under Settings",
     ],
   ]}

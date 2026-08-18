@@ -39,7 +39,7 @@ async function getToken(): Promise<string> {
   });
   if (!credential) {
     throw new Error(
-      "HUBSPOT_PRIVATE_APP_TOKEN or HUBSPOT_ACCESS_TOKEN not configured",
+      "HubSpot is not connected for Analytics. Connect it in Data Sources, then retry.",
     );
   }
   return credential.value;

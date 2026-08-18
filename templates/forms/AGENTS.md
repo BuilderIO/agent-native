@@ -6,13 +6,13 @@ The first screen is the chat: start by helping the user build, set up, inspect,
 or analyze their form workspace, then navigate into app views when a richer
 editor or table is useful.
 
-Detailed building, publishing, response, storage, and UI rules live in
-`.agents/skills/`.
+## Skills
 
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
+Read the relevant skill before deeper work:
+
+- `form-building` for schema/field creation and edits.
+- `form-publishing` for public forms, submission behavior, and sharing.
+- `form-responses` for response review and analysis.
 
 ## Core Rules
 
@@ -22,9 +22,8 @@ ladder.
   or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for form lifecycle, fields, publishing, responses, navigation,
-  sharing, and database work. Do not bypass ownable access checks.
-- In dev, call actions with `pnpm action <name>`; in production, use native
-  tools. The action schema is authoritative.
+  sharing, and database work. Do not bypass ownable access checks. The action
+  schema is authoritative when a parameter is unclear.
 - Use `view-screen` when the active form, selected field, publish state, or
   response table is unclear.
 - For response analytics, call `response-insights` instead of inventing SQL.
@@ -33,10 +32,16 @@ ladder.
   combined dashboard/report requests.
 - For form setup/configuration previews, call `preview-form`. It returns a
   native inline summary/table and an "Open editor" expansion path.
+- For product usage, agent-native signup, conversion, app-wide event, or other
+  data-owned-by-sibling questions, use `describe-workspace-apps` when ownership
+  is unclear, then delegate a narrow natural-language question with `call-agent`
+  to the owning app. In workspaces with Analytics, it normally owns first-party
+  signup, conversion, and app-usage metrics. Do not invent SQL or query another
+  app's database.
 - For an anonymous feedback form or survey, create all fields in one
   `create-form` call with `status: "published"`, verify the persisted form, and
-  return the action's exact public `/f/<slug>` response URL rather than only
-  the private editor link.
+  copy the returned `publicUrl` verbatim. Never derive the link from `slug` or
+  omit the public `/f/<slug>` route segment.
 - To email the form owner when someone submits a response, set
   `settings.emailOnNewResponses: true` through `create-form` or `update-form`.
   Delivery uses the configured framework email provider (`RESEND_API_KEY` or
@@ -88,12 +93,7 @@ ladder.
   do not include both unless the user asked for both; iframe/MCP App rendering
   is only a fallback for external hosts.
 
-## Skills
+## Source Changes
 
-Read the relevant skill before deeper work:
-
-- `form-building` for schema/field creation and edits.
-- `form-publishing` for public forms, submission behavior, and sharing.
-- `form-responses` for response review and analysis.
-- `storing-data`, `real-time-sync`, `security`, `actions`, `frontend-design`,
-  and `shadcn-ui` for framework work.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

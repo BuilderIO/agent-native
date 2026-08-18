@@ -629,7 +629,20 @@ export function observeStreamedToolInput(
     state.byId.set(id, { name: event.name ?? "", text, delivered: false });
     return;
   }
-  if (event.type === "tool-call" || event.type === "tool-call-error") {
+  if (event.type === "tool-call") {
+    // Non-empty terminal input remains authoritative. Some gateways emit the
+    // complete argument JSON as deltas but follow it with an empty terminal
+    // input, so recover the already-complete stream in that case.
+    if (isEmptyToolInput(event.input)) {
+      const streamedInput = parseStreamedToolInput(
+        state.byId.get(event.id)?.text ?? "",
+      );
+      if (streamedInput !== undefined) event.input = streamedInput;
+    }
+    markStreamedToolInputDelivered(state, event.id);
+    return;
+  }
+  if (event.type === "tool-call-error") {
     markStreamedToolInputDelivered(state, event.id);
   }
 }
@@ -686,6 +699,10 @@ function parseStreamedToolInput(
   } catch {
     return undefined;
   }
+}
+
+function isEmptyToolInput(input: unknown): boolean {
+  return input == null || (isRecord(input) && Object.keys(input).length === 0);
 }
 
 // ---------------------------------------------------------------------------

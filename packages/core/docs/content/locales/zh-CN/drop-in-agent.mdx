@@ -9,7 +9,7 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代�
 
 您不需要从头开始构建原生代理。代理聊天、代理资源选项卡、CLI 终端、语音输入和所有相关基础设施都作为少数 React 组件提供给您放入任何应用程序中。
 
-> **先决条件：** 服务器必须运行 `agent-chat-plugin`（它会自动安装在每个模板中）。如果您是从头开始，请参阅 [Server](/docs/server)。
+> **先决条件：** 服务器必须运行 `agent-chat-plugin`（它会自动安装在每个模板中）。如果您是从头开始，请参阅 [Server](/docs/server-overview)。
 >
 > 需要公共 API 地图而不是教程？参见[Component API](/docs/components)。
 
@@ -136,11 +136,11 @@ description: "使用 <AgentPanel>、<AgentSidebar> 和 sendToAgentChat() 将代�
   ]}
 />
 
-就是这样。用户现在在每个页面上都有一个可切换代理 - 具有聊天历史记录、代理资源选项卡、CLI 终端、语音输入和全屏模式。通过 `localStorage` 重新加载，状态仍然存在。
+就是这样。用户现在在每个页面上都有一个可切换代理 - 具有聊天历史记录、代理资源选项卡、CLI 终端、语音输入和更宽的抽屉。通过 `localStorage` 重新加载，状态仍然存在。
 
 ### 道具
 
-- **`children`** — 您的应用程序的正常布局和路线。在主区域渲染；代理面板在桌面上安装在其旁边，在移动/全屏上安装在其上方。
+- **`children`** — 您的应用程序的正常布局和路线。在主区域渲染；代理面板在桌面上安装在其旁边，在移动设备上安装在其上方。
 - **`emptyStateText`** — 聊天没有消息时显示的问候语。默认值：`"How can I help you?"`。
 - **`suggestions`** — 启动提示在空时呈现为可点击的筹码。
 - **`dynamicSuggestions`** — 上下文感知提示芯片与 `suggestions` 合并。默认启用；传递 `false` 仅显示静态建议，或传递 `{ max, includeStatic, getSuggestions }` 进行自定义。
@@ -171,7 +171,7 @@ export default function AgentRoute() {
 - **`defaultMode`** — `"chat"` 或 `"cli"`。默认值：`"chat"`。
 - **`className`** — 外部容器的 CSS 类。
 - **`onCollapse`** — 如果提供，标题中会出现折叠按钮。
-- **`isFullscreen`** / **`onToggleFullscreen`** — 如果您想要 Claude 样式的居中列，请连接外部全屏状态。
+- **`isFullscreen`** — 如果您想在页面级或自定义面板中使用 Claude 样式的居中列，请设置此项。侧边栏改用更宽的抽屉。
 - **`storageKey`** — `localStorage` 密钥的命名空间。当您在同一页面中渲染多个面板（不同的应用程序实例或工作区）时很有用。
 
 完整道具：`@agent-native/core/client` 中的 `AgentPanelProps`。
@@ -188,6 +188,7 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
       message: "Generate a chart showing signups by source",
       context: `Dashboard ID: ${dashboardId}, date range: last 30 days`,
       submit: true,
+      openSidebar: true,
     })
   }
 >
@@ -203,7 +204,8 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 - **`newTab`** — 为此提示创建一个单独的聊天线程。
 - **`background`** — 使用 `newTab`，运行时无需聚焦新线程。隐藏运行在 `RunsTray` 中进行跟踪。
 - **`openSidebar`** — 设置为 `false` 以进行后台/静默发送。默认打开侧边栏，以便用户看到响应。
-- **`type`** — `"content"`（默认）将工作保留在嵌入式应用程序代理中。 `"code"` 路由到代码编辑框架（对于代理编写的代码更改，请参阅 [Frames](/docs/frames)）。
+- **对于用户发起且需要可见的 AI 工作**，请使用 `openSidebar: true`。仅对明确静默的后台或系统发起工作使用 `false`，并将后续操作保留在同一个 AgentSidebar 线程中。
+- **`type`** — `"content"`（默认）将工作保留在使用应用工具的嵌入式代理中。`"code"` 会路由到单独的代码能力 frame 以更改代码库源文件；只有当主机有意授予 repository/workspace 工具时才提供写入权限。参见 [Frames](/docs/frames)。
 
 `sendToAgentChat` 返回一个稳定的 `tabId`，您可以使用它来跟踪聊天运行。
 
@@ -222,10 +224,11 @@ sendToAgentChat({
 
 这仍然是一个使用工具、actions、线程状态和运行运行的完整代理
 跟踪。它根本不会从用户当前的侧边栏状态中窃取焦点。
+请将后续和修订提示保留在现有的侧边栏线程中。不要在结果旁添加第二个自由文本输入框；本地表单仅用于界面必须验证的结构化值。
 
 当嵌入相同的路由作为MCP App时，提交
 `sendToAgentChat()` 呼叫将转发至支持的聊天主机；参见
-[Client](/docs/client#sendtoagentchat) 用于 MCP 应用桥接行为。
+[Agent 聊天](/docs/client-agent-chat#sendtoagentchat) 用于 MCP 应用桥接行为。
 
 如果您想要加载状态，请使用 `useSendToAgentChat()` 钩子 - 它返回 `send` 和 `isGenerating`：
 
@@ -259,6 +262,10 @@ const { send, isGenerating } = useSendToAgentChat();
 真正的自定义表面缺少指定的助手，请先添加该助手
 客户端代码不会学习第二个临时传输。
 
+## 选择代理聊天还是操作 {#agent-or-action}
+
+对于 CRUD、验证、提供商读取和持久化等确定性的本地操作，请直接使用 `useActionQuery` 或 `useActionMutation`。如果用户将该流程体验为研究、分析、生成、推荐、综合或多步骤推理，请使用 `sendToAgentChat({ openSidebar: true })` 启动，并让代理编排专注的操作。实现是确定性的，并不能单独成为将类似 AI 的流程隐藏在一个不透明操作中的理由。
+
 ## 来自 UI 的类型安全 actions：`useActionMutation()` {#use-action-mutation}
 
 当 UI 需要运行代理工具将运行的相同操作（[ladder](/docs/what-is-agent-native#rung-three) 的梯级 3）时，请使用 `useActionMutation`：
@@ -272,7 +279,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-类型安全参数来自 `defineAction()` 中的 zod 模式。完整的动作系统请参见 [Actions](/docs/actions)。
+类型安全参数来自 `defineAction()` 中的 zod 模式。完整的动作系统请参见 [Actions](/docs/actions-overview)。
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
@@ -318,6 +325,7 @@ export default function Root() {
       message: "Summarize this thread",
       context: `Thread id: ${threadId}`,
       submit: true,
+      openSidebar: true,
     })
   }
 >
@@ -329,7 +337,7 @@ export default function Root() {
 
 ## 下一步是什么
 
-- [**Actions**](/docs/actions) — `defineAction()` 和 `useActionMutation()`
+- [**Actions**](/docs/actions-overview) — `defineAction()` 和 `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — 选择、导航、查看屏幕
 - [**代理资源**](/docs/agent-resources) —“代理资源”选项卡包含的内容（skills、内存、MCP 服务器、计划作业）
 - [**Voice Input**](/docs/voice-input) — 聊天编辑器中的麦克风

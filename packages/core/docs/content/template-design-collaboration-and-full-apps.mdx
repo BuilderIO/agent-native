@@ -11,6 +11,23 @@ Once a prototype is in good shape, this page covers what happens next: pulling i
 
 Design isn't only for prototypes generated from a prompt — a coding agent can install `/visual-edit` to bring a real, already-running local app into Design as its own screens. Each requested path or URL becomes its own screen on the canvas, and a numbered flow (an onboarding step 1, 2, 3) stays as separate ordered screens instead of collapsing into one. The entry route renders before sign-in, and a shared design link works read-only without an account — but saving the layout, generating new screens, or sharing still requires signing in first.
 
+### Keep the canvas beside your chat
+
+When your coding app has an inline browser, ask `/visual-edit` to open the returned Design URL there. In Codex Desktop, that means the built-in Browser; in Claude Code Desktop's Code tab, it means the Browser pane. Both can keep the canvas inside the coding app beside the conversation. In VS Code, the Agent Native extension opens the same Design URL in its side-panel webview. Browser panes can be disabled or unavailable in CLI, remote, or restricted sessions, so `/visual-edit` falls back to an **Open design** link instead of claiming the canvas opened.
+
+Once Design is open, choose **Show/Hide UI** from the `Cmd+K` menu or press Figma's `Shift+\` shortcut to toggle all editing chrome so only the canvas remains. The same action is available by right-clicking empty canvas space.
+
+When Design is rendered as an MCP App by a connected coding host, **Apply design updates** sends the pending source-edit handoff back to that host conversation after its normal confirmation. An ordinary inline Browser pane is still useful for the side-by-side canvas, but webpages cannot post into the active Codex or Claude Code task; there, Apply uses Design's local agent and **Copy prompt to your agent** is the coding-agent fallback.
+
+These are especially useful canvas sets:
+
+- **A multi-step flow:** `/visual-edit localhost:5173 — cart, shipping, payment, confirmation; open it beside this chat`
+- **Several pages:** `/visual-edit localhost:5173 — home, pricing, docs, and settings`
+- **One page at several sizes:** `/visual-edit localhost:5173/dashboard — desktop, tablet, and mobile side by side`
+- **Several states of one page:** `/visual-edit localhost:5173/inbox — empty, selected, and compose-open states`
+
+The agent keeps named steps in order and places responsive variants in aligned columns, so the canvas reads like a flow or comparison board rather than a pile of screenshots. Name the routes and sizes you care about; requesting every discovered route at every viewport can create a noisy canvas.
+
 <Diagram id="doc-block-design8" title="Three source modes" summary={"A design's source is inline, localhost, or fusion — the mode decides where an edit actually lands."}>
 
 ```html

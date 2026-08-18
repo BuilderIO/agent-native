@@ -42,6 +42,8 @@ vi.mock("../resources/store.js", () => ({
   resourceList: resourceListMock,
   resourceListAccessible: resourceListAccessibleMock,
   SHARED_OWNER: "__shared__",
+  sharedResourceOwner: (orgId?: string | null) =>
+    orgId ? `__organization__:${orgId}` : "__shared__",
 }));
 
 vi.mock("../settings/index.js", () => ({
@@ -124,6 +126,16 @@ describe("agent discovery", () => {
     const slides = getBuiltinAgents("content").find(
       (agent) => agent.id === "slides",
     );
+
+    expect(slides?.url).toBe("http://localhost:8086");
+  });
+
+  it("allows an explicit local URL preference for an isolated dev directory", () => {
+    process.env.NODE_ENV = "production";
+
+    const slides = getBuiltinAgents("content", {
+      preferLocalUrls: true,
+    }).find((agent) => agent.id === "slides");
 
     expect(slides?.url).toBe("http://localhost:8086");
   });
@@ -229,6 +241,123 @@ describe("agent discovery", () => {
       name: "External QA",
       url: "https://qa.example.com",
     });
+  });
+
+  it("discovers organization-owned agents with legacy shared fallback", async () => {
+    const manifests = new Map([
+      [
+        "legacy-resource",
+        JSON.stringify({
+          id: "shared-qa",
+          name: "Legacy QA",
+          url: "https://legacy.example.com",
+        }),
+      ],
+      [
+        "organization-resource",
+        JSON.stringify({
+          id: "org-qa",
+          name: "Organization QA",
+          url: "https://org.example.com",
+        }),
+      ],
+    ]);
+    resourceListMock.mockImplementation(
+      async (owner: string, prefix: string) => {
+        if (prefix !== "remote-agents/") return [];
+        if (owner === "__shared__") {
+          return [{ id: "legacy-resource", path: "remote-agents/legacy.json" }];
+        }
+        return [
+          {
+            id: "organization-resource",
+            path: "remote-agents/organization.json",
+          },
+        ];
+      },
+    );
+    resourceGetMock.mockImplementation(async (id: string) => ({
+      id,
+      content: manifests.get(id) ?? "{}",
+    }));
+
+    const agents = await runWithRequestContext({ orgId: "org-123" }, () =>
+      discoverAgents("dispatch"),
+    );
+
+    expect(resourceListMock).toHaveBeenCalledWith(
+      "__organization__:org-123",
+      "remote-agents/",
+    );
+    expect(agents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "shared-qa",
+          url: "https://legacy.example.com",
+        }),
+        expect.objectContaining({
+          id: "org-qa",
+          url: "https://org.example.com",
+        }),
+      ]),
+    );
+  });
+
+  it("prefers the organization manifest and reads each scoped resource once", async () => {
+    resourceListMock.mockImplementation(
+      async (owner: string, prefix: string) => {
+        if (prefix !== "remote-agents/") return [];
+        return [
+          {
+            id: owner === "__shared__" ? "shared-resource" : "org-resource",
+            path: "remote-agents/same-agent.json",
+          },
+        ];
+      },
+    );
+    resourceGetMock.mockImplementation(async (id: string) => ({
+      id,
+      content: JSON.stringify({
+        id: "same-agent",
+        name: id === "org-resource" ? "Organization Agent" : "Legacy Agent",
+        url:
+          id === "org-resource"
+            ? "https://org.example.com"
+            : "https://legacy.example.com",
+      }),
+    }));
+
+    const agents = await runWithRequestContext({ orgId: "org-123" }, () =>
+      discoverAgents("dispatch"),
+    );
+
+    expect(agents.filter((agent) => agent.id === "same-agent")).toHaveLength(1);
+    expect(agents.find((agent) => agent.id === "same-agent")).toMatchObject({
+      name: "Organization Agent",
+      url: "https://org.example.com",
+    });
+    expect(resourceGetMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps local built-in URLs ahead of seeded production resources", async () => {
+    process.env.NODE_ENV = "production";
+    resourceListMock.mockResolvedValue([
+      { id: "clips-resource", path: "remote-agents/clips.json" },
+    ]);
+    resourceGetMock.mockResolvedValue({
+      id: "clips-resource",
+      content: JSON.stringify({
+        id: "clips",
+        name: "Clips",
+        url: "https://clips.agent-native.com",
+      }),
+    });
+
+    const clips = (
+      await discoverAgents("dispatch", { preferLocalUrls: true })
+    ).find((agent) => agent.id === "clips");
+
+    expect(clips?.url).toBe("http://localhost:8094");
   });
 
   it("discovers sibling workspace apps from the workspace manifest", async () => {
@@ -337,6 +466,27 @@ describe("agent discovery", () => {
       description: "Custom workspace mail app",
       url: "https://mail.workspace.example.test/",
     });
+  });
+
+  it("keeps preferred local built-in URLs ahead of workspace manifests", async () => {
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = JSON.stringify({
+      version: 1,
+      apps: [
+        {
+          id: "mail",
+          name: "Workspace Mail",
+          path: "/mail",
+          url: "https://mail.workspace.example.test/",
+        },
+      ],
+    });
+
+    const agents = await discoverAgents("dispatch", {
+      preferLocalUrls: true,
+    });
+    expect(agents.find((agent) => agent.id === "mail")?.url).toBe(
+      "http://localhost:8085",
+    );
   });
 
   it("ignores stale localhost workspace URLs for first-party agents on public runtimes", async () => {

@@ -9,9 +9,9 @@ import {
 } from "./aspect-ratios";
 
 describe("ASPECT_RATIOS constants", () => {
-  it("declares exactly the four supported ratios", () => {
+  it("declares exactly the five supported ratios", () => {
     expect(Object.keys(ASPECT_RATIOS).sort()).toEqual(
-      ["1:1", "16:9", "4:5", "9:16"].sort(),
+      ["1:1", "16:9", "4:3", "4:5", "9:16"].sort(),
     );
   });
 

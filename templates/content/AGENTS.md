@@ -16,13 +16,6 @@ Read the relevant skill before deeper work:
   API path.
 - `creative-context` — cross-app source reuse, pinned packs, provenance, and
   context opt-out.
-- `storing-data`, `real-time-sync`, `security`, `actions`, `frontend-design`,
-  and `shadcn-ui` for framework work.
-
-Before building common workspace or agent UI, read `agent-native-toolkit` to
-inventory existing public kits and installed package seams. Use
-`customizing-agent-native` for the configure → compose → eject → propose seam
-ladder.
 
 ## Core Rules
 
@@ -66,6 +59,8 @@ ladder.
 - `creative-context` — `contextMode`, `selectedContextId`, `currentPackId`,
   `pinnedPackId`. Follow the `creative-context` reuse ladder before generating,
   and respect `contextMode: "off"` without silently restoring a pack.
+- `content-last-location-v1` — the last successfully loaded Page. The UI and
+  landing resolver own this state; do not write it from agent workflows.
 - Use actions for full document content and comment context.
 
 ## Actions
@@ -80,11 +75,28 @@ ladder.
 | `get-document` | One document with full content |
 | `pull-document` | Flush live collab state, then read (external edits) |
 | `create-document` | Create a page, optionally under a parent |
+| `resolve-content-landing` | Restore the caller's last authorized page or ensure their private Personal welcome page |
 | `edit-document` | Find/replace edit — preferred for small changes |
 | `update-document` | Full rewrite of title, content, or description |
 | `delete-document` | Move a page and its children to Trash |
+| `list-content-database-blocks` | List stable blocks and revisions in one exact database row/property |
+| `mutate-content-database-block` | Insert, update, upsert, delete, or reorder one supported stable block |
+| `migrate-content-database-rows` | Validate, atomically apply, verify, roll back, or finalize one bounded whole-database row migration |
 
 Every action carries its own schema, and the rest of the app-specific surface
 (comments, sharing, databases, Notion, local file sources such as
 `remove-local-file-source`) is registered too — use `tool-search` instead of
 scanning a table here.
+
+Sidebar ordering has two deliberately different meanings. Reordering Pinned or
+workspace roots moves the exact database membership identified by both
+`databaseId` and `itemId`; it never reparents or moves the referenced document.
+Files sidebar Custom order is a per-user database-view preference written with
+`update-content-database-personal-view`, so it must not change shared Files
+membership positions. Ordinary unconstrained database row reordering remains a
+shared database mutation through `move-database-item`.
+
+## Source Changes
+
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

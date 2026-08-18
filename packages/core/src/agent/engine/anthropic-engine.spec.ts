@@ -325,55 +325,58 @@ describe("createAnthropicEngine", () => {
     expect(requestParams.messages[0].content[0].cache_control).toBeUndefined();
   });
 
-  it("tags upstream 429 rate limits with http_429 + statusCode so retries kick in", async () => {
-    // The Anthropic SDK reports an empty-body rate limit as a bare
-    // "429 status code (no body)" message. Without forwarding the structured
-    // status, isRetryableError couldn't classify it and the run failed hard.
-    class MockRateLimitError extends Error {
-      status = 429;
-      constructor() {
-        super("429 status code (no body)");
+  it.each([429, 529])(
+    "tags upstream %i backpressure with a structured status so retries kick in",
+    async (status) => {
+      // The Anthropic SDK reports an empty-body rate limit as a bare
+      // "429 status code (no body)" message. Without forwarding the structured
+      // status, isRetryableError couldn't classify it and the run failed hard.
+      class MockRateLimitError extends Error {
+        status = status;
+        constructor() {
+          super(`${status} status code (no body)`);
+        }
       }
-    }
-    const mockStream = {
-      [Symbol.asyncIterator]: async function* () {
-        throw new MockRateLimitError();
-      },
-      finalMessage: vi.fn(),
-    };
-    vi.doMock("@anthropic-ai/sdk", () => ({
-      default: class MockAnthropic {
-        messages = { stream: vi.fn().mockReturnValue(mockStream) };
-      },
-    }));
+      const mockStream = {
+        [Symbol.asyncIterator]: async function* () {
+          throw new MockRateLimitError();
+        },
+        finalMessage: vi.fn(),
+      };
+      vi.doMock("@anthropic-ai/sdk", () => ({
+        default: class MockAnthropic {
+          messages = { stream: vi.fn().mockReturnValue(mockStream) };
+        },
+      }));
 
-    vi.resetModules();
-    const { createAnthropicEngine: freshCreate } =
-      await import("./anthropic-engine.js");
-    const engine = freshCreate({ apiKey: "test" });
-    const opts: EngineStreamOptions = {
-      model: "claude-haiku-4-5-20251001",
-      systemPrompt: "Test",
-      messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
-      tools: [],
-      abortSignal: new AbortController().signal,
-    };
+      vi.resetModules();
+      const { createAnthropicEngine: freshCreate } =
+        await import("./anthropic-engine.js");
+      const engine = freshCreate({ apiKey: "test" });
+      const opts: EngineStreamOptions = {
+        model: "claude-haiku-4-5-20251001",
+        systemPrompt: "Test",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        tools: [],
+        abortSignal: new AbortController().signal,
+      };
 
-    // The engine yields the terminal stop event and then rethrows the raw SDK
-    // error, so collect events defensively.
-    const events: any[] = [];
-    await expect(async () => {
-      for await (const e of engine.stream(opts)) events.push(e);
-    }).rejects.toThrow();
+      // The engine yields the terminal stop event and then rethrows the raw SDK
+      // error, so collect events defensively.
+      const events: any[] = [];
+      await expect(async () => {
+        for await (const e of engine.stream(opts)) events.push(e);
+      }).rejects.toThrow();
 
-    const stopEvent = events.find((e) => e.type === "stop");
-    expect(stopEvent?.reason).toBe("error");
-    expect(stopEvent?.error).toBe("429 status code (no body)");
-    expect(stopEvent?.errorCode).toBe("http_429");
-    expect(stopEvent?.statusCode).toBe(429);
+      const stopEvent = events.find((e) => e.type === "stop");
+      expect(stopEvent?.reason).toBe("error");
+      expect(stopEvent?.error).toBe(`${status} status code (no body)`);
+      expect(stopEvent?.errorCode).toBe(`http_${status}`);
+      expect(stopEvent?.statusCode).toBe(status);
 
-    vi.doUnmock("@anthropic-ai/sdk");
-  });
+      vi.doUnmock("@anthropic-ai/sdk");
+    },
+  );
 
   it("tags Anthropic APIConnectionError as provider_network_error", async () => {
     class MockConnectionError extends Error {
@@ -544,7 +547,7 @@ describe("createAnthropicEngine", () => {
     expect(stopEvent?.errorCode).toBe("missing_credentials");
   });
 
-  it("defaults to adaptive thinking at medium effort for a reasoning-capable model", async () => {
+  it("defaults to adaptive thinking at high effort for an effort-capable model", async () => {
     const requestParams = await captureRequestParams({
       model: "claude-sonnet-5",
       systemPrompt: "You are helpful.",
@@ -554,7 +557,7 @@ describe("createAnthropicEngine", () => {
     });
 
     expect(requestParams.thinking).toEqual({ type: "adaptive" });
-    expect(requestParams.output_config).toEqual({ effort: "medium" });
+    expect(requestParams.output_config).toEqual({ effort: "high" });
   });
 
   it("uses manual thinking for Claude Haiku 4.5 instead of adaptive thinking", async () => {
@@ -569,7 +572,7 @@ describe("createAnthropicEngine", () => {
 
     expect(requestParams.thinking).toEqual({
       type: "enabled",
-      budget_tokens: 4_096,
+      budget_tokens: 8_000,
     });
     expect(requestParams.output_config).toBeUndefined();
   });
@@ -881,6 +884,35 @@ describe("createAnthropicEngine streamed tool-input reconciliation", () => {
         id: "toolu_01",
         name: "create_document",
         input: { title: "Q3 plan" },
+      },
+    ]);
+  });
+
+  it("recovers complete streamed arguments when the final message carries an empty input", async () => {
+    const input = {
+      id: "ext-1",
+      operation: "edit",
+      payloadJson: "{}",
+    };
+    const events = await runToolInputStream(
+      [JSON.stringify(input)],
+      [
+        {
+          type: "tool_use",
+          id: "toolu_01",
+          name: "create_document",
+          input: {},
+        },
+      ],
+    );
+
+    expect(events.some((e) => e.type === "tool-call")).toBe(false);
+    expect(events.find((e) => e.type === "assistant-content")?.parts).toEqual([
+      {
+        type: "tool-call",
+        id: "toolu_01",
+        name: "create_document",
+        input,
       },
     ]);
   });

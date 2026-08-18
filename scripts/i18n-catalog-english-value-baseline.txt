@@ -1,6 +1,26 @@
 # Existing non-English catalog values that still exactly match English.
 # Keep this file sorted. Remove entries as catalogs get translated.
 # Format: relative/catalog/locale|key|English source string
+packages/docs/app/i18n/ar-SA|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/ar-SA|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/de-DE|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/de-DE|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/es-ES|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/es-ES|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/fr-FR|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/fr-FR|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/hi-IN|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/hi-IN|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/ja-JP|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/ja-JP|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/ko-KR|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/ko-KR|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/pt-BR|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/pt-BR|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/zh-CN|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/zh-CN|nav.gettingStartedPages|Add a Page
+packages/docs/app/i18n/zh-TW|nav.gettingStartedActions|Add an Action
+packages/docs/app/i18n/zh-TW|nav.gettingStartedPages|Add a Page
 templates/assets/app/i18n/ar-SA|brandKitDetail.addReference|Add reference
 templates/assets/app/i18n/ar-SA|brandKitDetail.chooseReferenceImage|Choose from library
 templates/assets/app/i18n/ar-SA|brandKitDetail.couldNotUploadReferenceImage|Could not upload reference image.
@@ -213,7 +233,202 @@ templates/clips/app/i18n/ar-SA|downloadRoute.clipsDesktop|Clips Desktop
 templates/clips/app/i18n/ar-SA|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/de-DE|downloadRoute.clipsDesktop|Clips Desktop
 templates/clips/app/i18n/de-DE|sharePage.agentNativeClips|Agent-Native Clips
+templates/clips/app/i18n/es-ES|captureInstall.chromeDescription|Best when you want redacted console and network diagnostics from the browser tab.
+templates/clips/app/i18n/es-ES|captureInstall.chromePendingDescription|Browser logs option is ready, pending the Chrome Web Store URL.
+templates/clips/app/i18n/es-ES|captureInstall.chromeTitle|Chrome extension
+templates/clips/app/i18n/es-ES|captureInstall.description|Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.
+templates/clips/app/i18n/es-ES|captureInstall.desktopDescription|Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.
+templates/clips/app/i18n/es-ES|captureInstall.desktopTitle|Desktop app
+templates/clips/app/i18n/es-ES|captureInstall.openDesktopApp|Open desktop app
+templates/clips/app/i18n/es-ES|captureInstall.title|Choose your recorder
+templates/clips/app/i18n/es-ES|chapters.addHere|Add here
+templates/clips/app/i18n/es-ES|chapters.duplicateAtPoint|A chapter already exists at this point
+templates/clips/app/i18n/es-ES|chapters.empty|No chapters yet.
+templates/clips/app/i18n/es-ES|chapters.remove|Remove chapter
+templates/clips/app/i18n/es-ES|chapters.saveFailed|Failed to save chapters
+templates/clips/app/i18n/es-ES|dictateRoute.browserDictationDescriptionDesktop|Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.
+templates/clips/app/i18n/es-ES|dictateRoute.browserDictationDescription|Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup.
+templates/clips/app/i18n/es-ES|dictateRoute.browserDictation|Browser dictation
+templates/clips/app/i18n/es-ES|dictateRoute.browserUnavailableShort|Browser speech recognition is unavailable here
+templates/clips/app/i18n/es-ES|dictateRoute.browserUnavailable|Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation.
+templates/clips/app/i18n/es-ES|dictateRoute.cleanupHint|Click "Cleanup with AI" to fix punctuation, casing, and filler words.
+templates/clips/app/i18n/es-ES|dictateRoute.cleanupWithAi|Cleanup with AI
+templates/clips/app/i18n/es-ES|dictateRoute.desktopCtaTitle|Dictate from anywhere with the desktop app
+templates/clips/app/i18n/es-ES|dictateRoute.desktopShortcutsDescriptionSuffix|, in the desktop app.
+templates/clips/app/i18n/es-ES|dictateRoute.desktopShortcuts|Desktop shortcuts
+templates/clips/app/i18n/es-ES|dictateRoute.dictationSaved|Dictation saved
+templates/clips/app/i18n/es-ES|dictateRoute.dictionaryDescription|Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own.
+templates/clips/app/i18n/es-ES|dictateRoute.dictionaryEmpty|No learned terms yet.
+templates/clips/app/i18n/es-ES|dictateRoute.dictionaryLoading|Loading dictionary...
+templates/clips/app/i18n/es-ES|dictateRoute.downloadDesktopApp|Download Clips desktop app
+templates/clips/app/i18n/es-ES|dictateRoute.emptyTranscript|Empty transcript
+templates/clips/app/i18n/es-ES|dictateRoute.emptyWebDescription|Dictation runs through the desktop app for global shortcuts that work in any app — Slack, your editor, anywhere.
+templates/clips/app/i18n/es-ES|dictateRoute.holdFn|Hold Fn
+templates/clips/app/i18n/es-ES|dictateRoute.howToUse|How to use Dictate
+templates/clips/app/i18n/es-ES|dictateRoute.loadFailed|Couldn't load dictations.
+templates/clips/app/i18n/es-ES|dictateRoute.noFilterMatches|No dictations matching this filter.
+templates/clips/app/i18n/es-ES|dictateRoute.noSpeechCaptured|No speech captured
+templates/clips/app/i18n/es-ES|dictateRoute.noText|No text
+templates/clips/app/i18n/es-ES|dictateRoute.pageTitle|Dictate · Clips
+templates/clips/app/i18n/es-ES|dictateRoute.quickNoteHint|Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop.
+templates/clips/app/i18n/es-ES|dictateRoute.quickNoteTitle|Quick dictation note
+templates/clips/app/i18n/es-ES|dictateRoute.replaceOriginal|Replace original with cleaned
+templates/clips/app/i18n/es-ES|dictateRoute.replacedOriginal|Replaced original with cleaned text
+templates/clips/app/i18n/es-ES|dictateRoute.startFirst|Start your first dictation
+templates/clips/app/i18n/es-ES|dictateRoute.startSpeaking|Start speaking...
+templates/clips/app/i18n/es-ES|dictateRoute.vocabularyAddFailed|Couldn't add term
+templates/clips/app/i18n/es-ES|dictateRoute.vocabularyRemoveFailed|Couldn't remove term
+templates/clips/app/i18n/es-ES|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
 templates/clips/app/i18n/es-ES|downloadRoute.clipsDesktop|Clips Desktop
+templates/clips/app/i18n/es-ES|editableTitle.editLabel|Edit clip title
+templates/clips/app/i18n/es-ES|editableTitle.emptyTitle|Title cannot be empty
+templates/clips/app/i18n/es-ES|editableTitle.generatingTitle|Generating title
+templates/clips/app/i18n/es-ES|editableTitle.placeholder|Clip title
+templates/clips/app/i18n/es-ES|editableTitle.renameFailed|Failed to rename clip
+templates/clips/app/i18n/es-ES|editableTitle.untitled|Untitled Clip
+templates/clips/app/i18n/es-ES|editorToolbar.clearAllEditsDescription|This removes every trim, blur, and the custom thumbnail from this recording. The original video is never modified.
+templates/clips/app/i18n/es-ES|editorToolbar.clearAllEditsTitle|Clear all edits?
+templates/clips/app/i18n/es-ES|editorToolbar.clearAllEdits|Clear all edits
+templates/clips/app/i18n/es-ES|editorToolbar.clearEdits|Clear edits
+templates/clips/app/i18n/es-ES|editorToolbar.clearFailed|Clear failed
+templates/clips/app/i18n/es-ES|editorToolbar.cutAfterPlayhead|Cut after playhead
+templates/clips/app/i18n/es-ES|editorToolbar.cutBeforePlayhead|Cut before playhead
+templates/clips/app/i18n/es-ES|editorToolbar.cutSelectedRange|Cut selected range
+templates/clips/app/i18n/es-ES|editorToolbar.cutSelection|Cut selection
+templates/clips/app/i18n/es-ES|editorToolbar.downloadOriginal|Download original
+templates/clips/app/i18n/es-ES|editorToolbar.editsCleared|Edits cleared
+templates/clips/app/i18n/es-ES|editorToolbar.endCut|End cut
+templates/clips/app/i18n/es-ES|editorToolbar.exportAnyway|Export anyway
+templates/clips/app/i18n/es-ES|editorToolbar.exportFailed|Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file.
+templates/clips/app/i18n/es-ES|editorToolbar.exportMp4|Export MP4
+templates/clips/app/i18n/es-ES|editorToolbar.exportedMp4|Exported MP4
+templates/clips/app/i18n/es-ES|editorToolbar.fitToWidth|Fit to width
+templates/clips/app/i18n/es-ES|editorToolbar.hideChapters|Hide chapters
+templates/clips/app/i18n/es-ES|editorToolbar.loadingFfmpeg|Loading ffmpeg…
+templates/clips/app/i18n/es-ES|editorToolbar.longExportTitle|This export is long
+templates/clips/app/i18n/es-ES|editorToolbar.movePlayheadBeforeEnding|Move the playhead before the ending you want to cut
+templates/clips/app/i18n/es-ES|editorToolbar.movePlayheadPastIntro|Move the playhead past the intro you want to cut
+templates/clips/app/i18n/es-ES|editorToolbar.nothingToUndo|Nothing to undo
+templates/clips/app/i18n/es-ES|editorToolbar.playheadEdits|Playhead edits
+templates/clips/app/i18n/es-ES|editorToolbar.previewSpeedTooltip|Preview speed while trimming
+templates/clips/app/i18n/es-ES|editorToolbar.previewSpeed|Preview speed
+templates/clips/app/i18n/es-ES|editorToolbar.selectRangeFirst|Select a range on the waveform or transcript first
+templates/clips/app/i18n/es-ES|editorToolbar.selectionCut|Selection cut
+templates/clips/app/i18n/es-ES|editorToolbar.showChapters|Show chapters
+templates/clips/app/i18n/es-ES|editorToolbar.splitAdded|Split added
+templates/clips/app/i18n/es-ES|editorToolbar.splitAtPlayhead|Split at playhead
+templates/clips/app/i18n/es-ES|editorToolbar.splitFailed|Split failed
+templates/clips/app/i18n/es-ES|editorToolbar.startCut|Start cut
+templates/clips/app/i18n/es-ES|editorToolbar.stitchClips|Stitch clips
+templates/clips/app/i18n/es-ES|editorToolbar.trimFailed|Trim failed
+templates/clips/app/i18n/es-ES|editorToolbar.undoFailed|Undo failed
+templates/clips/app/i18n/es-ES|editorToolbar.videoNotReady|Video not ready yet
+templates/clips/app/i18n/es-ES|editorToolbar.zoomIn|Zoom in
+templates/clips/app/i18n/es-ES|editorToolbar.zoomOut|Zoom out
+templates/clips/app/i18n/es-ES|meetingsRoute.calendarConnected|Calendar connected
+templates/clips/app/i18n/es-ES|meetingsRoute.calendarDisconnected|Calendar disconnected
+templates/clips/app/i18n/es-ES|meetingsRoute.calendarNeedsReconnect|Google Calendar needs to be reconnected to keep showing your upcoming meetings.
+templates/clips/app/i18n/es-ES|meetingsRoute.calendarSettings|Calendar settings
+templates/clips/app/i18n/es-ES|meetingsRoute.clearSearch|Clear search
+templates/clips/app/i18n/es-ES|meetingsRoute.connectCalendarReminder|Connect Google Calendar for meeting reminders.
+templates/clips/app/i18n/es-ES|meetingsRoute.connectGoogleCalendar|Connect Google Calendar
+templates/clips/app/i18n/es-ES|meetingsRoute.desktopReminder|Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.
+templates/clips/app/i18n/es-ES|meetingsRoute.disconnectGoogleCalendarTitle|Disconnect Google Calendar?
+templates/clips/app/i18n/es-ES|meetingsRoute.getDesktopApp|Get desktop app
+templates/clips/app/i18n/es-ES|meetingsRoute.guideCalendarDescription|Meetings are pulled from your calendar so Clips knows when to remind you.
+templates/clips/app/i18n/es-ES|meetingsRoute.guideCalendarTitle|Connect Google Calendar
+templates/clips/app/i18n/es-ES|meetingsRoute.guideDesktopDescription|Desktop capture is required for mic plus system-audio transcription.
+templates/clips/app/i18n/es-ES|meetingsRoute.guideDesktopTitle|Keep Clips Desktop open
+templates/clips/app/i18n/es-ES|meetingsRoute.guideStartDescription|Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.
+templates/clips/app/i18n/es-ES|meetingsRoute.guideStartTitle|Click Start notes
+templates/clips/app/i18n/es-ES|meetingsRoute.howToTriggerDescription|Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history.
+templates/clips/app/i18n/es-ES|meetingsRoute.howToTriggerTitle|How to trigger meeting notes
+templates/clips/app/i18n/es-ES|meetingsRoute.intro|Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.
+templates/clips/app/i18n/es-ES|meetingsRoute.noMeetingsDescription|Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar.
+templates/clips/app/i18n/es-ES|meetingsRoute.noMeetingsYet|No meetings yet
+templates/clips/app/i18n/es-ES|meetingsRoute.notesPending|Notes pending
+templates/clips/app/i18n/es-ES|meetingsRoute.pageTitle|Meetings · Clips
+templates/clips/app/i18n/es-ES|meetingsRoute.pastRecordings|Past recordings
+templates/clips/app/i18n/es-ES|meetingsRoute.refreshing|Refreshing…
+templates/clips/app/i18n/es-ES|meetingsRoute.requiredForReminders|Desktop captures mic + system audio for meeting transcription.
+templates/clips/app/i18n/es-ES|meetingsRoute.transcriptPending|Transcript pending
+templates/clips/app/i18n/es-ES|playerSettings.addCta|+ Add
+templates/clips/app/i18n/es-ES|playerSettings.allowDownloads|Allow downloads
+templates/clips/app/i18n/es-ES|playerSettings.animatedThumbnail|Animated thumbnail
+templates/clips/app/i18n/es-ES|playerSettings.buttonLabelPlaceholder|Button label
+templates/clips/app/i18n/es-ES|playerSettings.callToAction|Call to action
+templates/clips/app/i18n/es-ES|playerSettings.defaultCtaLabel|Learn more
+templates/clips/app/i18n/es-ES|playerSettings.defaultPlaybackSpeed|Default playback speed
+templates/clips/app/i18n/es-ES|playerSettings.noCtas|No CTAs yet. Add a button that appears during or after the video.
+templates/clips/app/i18n/es-ES|playerSettings.noPasswordPlaceholder|No password
+templates/clips/app/i18n/es-ES|playerSettings.passwordProtection|Password protection
+templates/clips/app/i18n/es-ES|playerSettings.passwordSetPlaceholder|Password is set — type to replace
+templates/clips/app/i18n/es-ES|playerSettings.passwordWhitespaceOnly|Spaces alone aren't a valid password.
+templates/clips/app/i18n/es-ES|playerSettings.placementEnd|At end
+templates/clips/app/i18n/es-ES|playerSettings.viewerOptions|Viewer options
+templates/clips/app/i18n/es-ES|preRecord.audioAndCamera|Audio & camera
+templates/clips/app/i18n/es-ES|preRecord.cameraOff|Camera off
+templates/clips/app/i18n/es-ES|preRecord.captureSource|Capture source
+templates/clips/app/i18n/es-ES|preRecord.chooseMicrophone|Choose microphone...
+templates/clips/app/i18n/es-ES|preRecord.defaultCamera|Default camera
+templates/clips/app/i18n/es-ES|preRecord.defaultMicPlaceholder|Default mic
+templates/clips/app/i18n/es-ES|preRecord.defaultMicrophone|Default microphone
+templates/clips/app/i18n/es-ES|preRecord.enumerateFailed|Could not enumerate devices
+templates/clips/app/i18n/es-ES|preRecord.fixCameraAccess|Fix camera access or switch to Screen mode before recording.
+templates/clips/app/i18n/es-ES|preRecord.fixMicrophoneAccess|Fix microphone access or turn audio off before recording.
+templates/clips/app/i18n/es-ES|preRecord.importLoom|Import Loom
+templates/clips/app/i18n/es-ES|preRecord.importing|Importing...
+templates/clips/app/i18n/es-ES|preRecord.includeAudioAria|Include audio in this recording
+templates/clips/app/i18n/es-ES|preRecord.includeCameraAria|Include camera in this recording
+templates/clips/app/i18n/es-ES|preRecord.loomImportFailed|Could not import that Loom.
+templates/clips/app/i18n/es-ES|preRecord.micOffConfirmDescription|Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.
+templates/clips/app/i18n/es-ES|preRecord.microphoneSelectionUnsupported|This browser does not support microphone device selection.
+templates/clips/app/i18n/es-ES|preRecord.modeCameraOnly|Camera only
+templates/clips/app/i18n/es-ES|preRecord.modeScreenCamera|Screen + cam
+templates/clips/app/i18n/es-ES|preRecord.modeScreenOnly|Screen only
+templates/clips/app/i18n/es-ES|preRecord.noAudio|No audio
+templates/clips/app/i18n/es-ES|preRecord.noCamera|No camera
+templates/clips/app/i18n/es-ES|preRecord.noMicrophone|No microphone
+templates/clips/app/i18n/es-ES|preRecord.openingMicrophone|Opening microphone...
+templates/clips/app/i18n/es-ES|preRecord.startRecording|Start recording
+templates/clips/app/i18n/es-ES|preRecord.startWithoutMic|Start anyway
+templates/clips/app/i18n/es-ES|preRecord.surfaceBrowserDescription|Choose an open tab
+templates/clips/app/i18n/es-ES|preRecord.surfaceBrowser|Browser tab
+templates/clips/app/i18n/es-ES|preRecord.surfaceScreenDescription|Capture everything
+templates/clips/app/i18n/es-ES|preRecord.surfaceWindowDescription|Best for slides or one app
+templates/clips/app/i18n/es-ES|preRecord.tryClipsDesktop|Try Clips Desktop.
+templates/clips/app/i18n/es-ES|preRecord.uploadVideo|Upload video
+templates/clips/app/i18n/es-ES|recordRoute.backToLibrary|Back to library
+templates/clips/app/i18n/es-ES|recordRoute.betterInDesktop|Better in the desktop app
+templates/clips/app/i18n/es-ES|recordRoute.clipsRecorder|Clips recorder
+templates/clips/app/i18n/es-ES|recordRoute.couldNotImportLoom|Could not import that Loom.
+templates/clips/app/i18n/es-ES|recordRoute.couldNotStartRecorder|Could not start recorder
+templates/clips/app/i18n/es-ES|recordRoute.couldNotStartRecording|Could not start recording
+templates/clips/app/i18n/es-ES|recordRoute.desktopAppDescription|Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings.
+templates/clips/app/i18n/es-ES|recordRoute.downloadDesktopApp|Download desktop app
+templates/clips/app/i18n/es-ES|recordRoute.largeClipsNeedReencode|Large clips need a quick re-encode before upload.
+templates/clips/app/i18n/es-ES|recordRoute.logIn|Log in
+templates/clips/app/i18n/es-ES|recordRoute.loomImported|Loom imported
+templates/clips/app/i18n/es-ES|recordRoute.noLocalRecordingData|No local recording data is available to download.
+templates/clips/app/i18n/es-ES|recordRoute.openRecorderInTab|Open recorder in tab
+templates/clips/app/i18n/es-ES|recordRoute.openSettings|Open settings
+templates/clips/app/i18n/es-ES|recordRoute.openedRecorderInNewTab|Opened recorder in a new tab
+templates/clips/app/i18n/es-ES|recordRoute.pageTitle|New recording — Clips
+templates/clips/app/i18n/es-ES|recordRoute.preparingSources|Preparing sources…
+templates/clips/app/i18n/es-ES|recordRoute.recordingDownloadStarted|Recording download started
+templates/clips/app/i18n/es-ES|recordRoute.recordingReadyToUpload|Recording is ready to upload
+templates/clips/app/i18n/es-ES|recordRoute.recordingSaved|Recording saved
+templates/clips/app/i18n/es-ES|recordRoute.recordingScreen|Recording your screen — switch to the window you want to capture
+templates/clips/app/i18n/es-ES|recordRoute.savingRecording|Saving your recording…
+templates/clips/app/i18n/es-ES|recordRoute.sessionExpiredDescription|Your login session has expired. Log in again to start recording.
+templates/clips/app/i18n/es-ES|recordRoute.sessionExpired|Session expired
+templates/clips/app/i18n/es-ES|recordRoute.storageNeededToFinishLoomImport|Storage needed to finish Loom import
+templates/clips/app/i18n/es-ES|recordRoute.technicalDetails|Technical details
+templates/clips/app/i18n/es-ES|recordRoute.uploadFailed|Upload failed
+templates/clips/app/i18n/es-ES|recordRoute.videoReadyToUpload|Video is ready to upload
+templates/clips/app/i18n/es-ES|recordRoute.videoTooLarge|Video is too large
+templates/clips/app/i18n/es-ES|recordRoute.videoUploaded|Video uploaded
+templates/clips/app/i18n/es-ES|recordRoute.whatToCheck|What to check
 templates/clips/app/i18n/es-ES|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/fr-FR|downloadRoute.clipsDesktop|Clips Desktop
 templates/clips/app/i18n/fr-FR|sharePage.agentNativeClips|Agent-Native Clips
@@ -223,7 +438,202 @@ templates/clips/app/i18n/ja-JP|downloadRoute.clipsDesktop|Clips Desktop
 templates/clips/app/i18n/ja-JP|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/ko-KR|downloadRoute.clipsDesktop|Clips Desktop
 templates/clips/app/i18n/ko-KR|sharePage.agentNativeClips|Agent-Native Clips
+templates/clips/app/i18n/pt-BR|captureInstall.chromeDescription|Best when you want redacted console and network diagnostics from the browser tab.
+templates/clips/app/i18n/pt-BR|captureInstall.chromePendingDescription|Browser logs option is ready, pending the Chrome Web Store URL.
+templates/clips/app/i18n/pt-BR|captureInstall.chromeTitle|Chrome extension
+templates/clips/app/i18n/pt-BR|captureInstall.description|Use Chrome when you need browser logs, or desktop for the smoothest everyday capture.
+templates/clips/app/i18n/pt-BR|captureInstall.desktopDescription|Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.
+templates/clips/app/i18n/pt-BR|captureInstall.desktopTitle|Desktop app
+templates/clips/app/i18n/pt-BR|captureInstall.openDesktopApp|Open desktop app
+templates/clips/app/i18n/pt-BR|captureInstall.title|Choose your recorder
+templates/clips/app/i18n/pt-BR|chapters.addHere|Add here
+templates/clips/app/i18n/pt-BR|chapters.duplicateAtPoint|A chapter already exists at this point
+templates/clips/app/i18n/pt-BR|chapters.empty|No chapters yet.
+templates/clips/app/i18n/pt-BR|chapters.remove|Remove chapter
+templates/clips/app/i18n/pt-BR|chapters.saveFailed|Failed to save chapters
+templates/clips/app/i18n/pt-BR|dictateRoute.browserDictationDescriptionDesktop|Use the button below to capture a note right here on this page. It does not paste into other apps — for that, use the desktop shortcut on the right.
+templates/clips/app/i18n/pt-BR|dictateRoute.browserDictationDescription|Use the button on this page, or press the shortcut while this tab is focused. Browser dictation saves here for copy and cleanup.
+templates/clips/app/i18n/pt-BR|dictateRoute.browserDictation|Browser dictation
+templates/clips/app/i18n/pt-BR|dictateRoute.browserUnavailableShort|Browser speech recognition is unavailable here
+templates/clips/app/i18n/pt-BR|dictateRoute.browserUnavailable|Browser speech recognition is unavailable here. Use Chrome or the desktop app for global dictation.
+templates/clips/app/i18n/pt-BR|dictateRoute.cleanupHint|Click "Cleanup with AI" to fix punctuation, casing, and filler words.
+templates/clips/app/i18n/pt-BR|dictateRoute.cleanupWithAi|Cleanup with AI
+templates/clips/app/i18n/pt-BR|dictateRoute.desktopCtaTitle|Dictate from anywhere with the desktop app
+templates/clips/app/i18n/pt-BR|dictateRoute.desktopShortcutsDescriptionSuffix|, in the desktop app.
+templates/clips/app/i18n/pt-BR|dictateRoute.desktopShortcuts|Desktop shortcuts
+templates/clips/app/i18n/pt-BR|dictateRoute.dictationSaved|Dictation saved
+templates/clips/app/i18n/pt-BR|dictateRoute.dictionaryDescription|Terms here bias speech recognition toward your preferred spellings — auto-learned from corrections, or add your own.
+templates/clips/app/i18n/pt-BR|dictateRoute.dictionaryEmpty|No learned terms yet.
+templates/clips/app/i18n/pt-BR|dictateRoute.dictionaryLoading|Loading dictionary...
+templates/clips/app/i18n/pt-BR|dictateRoute.downloadDesktopApp|Download Clips desktop app
+templates/clips/app/i18n/pt-BR|dictateRoute.emptyTranscript|Empty transcript
+templates/clips/app/i18n/pt-BR|dictateRoute.emptyWebDescription|Dictation runs through the desktop app for global shortcuts that work in any app — Slack, your editor, anywhere.
+templates/clips/app/i18n/pt-BR|dictateRoute.holdFn|Hold Fn
+templates/clips/app/i18n/pt-BR|dictateRoute.howToUse|How to use Dictate
+templates/clips/app/i18n/pt-BR|dictateRoute.loadFailed|Couldn't load dictations.
+templates/clips/app/i18n/pt-BR|dictateRoute.noFilterMatches|No dictations matching this filter.
+templates/clips/app/i18n/pt-BR|dictateRoute.noSpeechCaptured|No speech captured
+templates/clips/app/i18n/pt-BR|dictateRoute.noText|No text
+templates/clips/app/i18n/pt-BR|dictateRoute.pageTitle|Dictate · Clips
+templates/clips/app/i18n/pt-BR|dictateRoute.quickNoteHint|Captures here without leaving this page — it does not paste into other apps. Use the button to start and stop.
+templates/clips/app/i18n/pt-BR|dictateRoute.quickNoteTitle|Quick dictation note
+templates/clips/app/i18n/pt-BR|dictateRoute.replaceOriginal|Replace original with cleaned
+templates/clips/app/i18n/pt-BR|dictateRoute.replacedOriginal|Replaced original with cleaned text
+templates/clips/app/i18n/pt-BR|dictateRoute.startFirst|Start your first dictation
+templates/clips/app/i18n/pt-BR|dictateRoute.startSpeaking|Start speaking...
+templates/clips/app/i18n/pt-BR|dictateRoute.vocabularyAddFailed|Couldn't add term
+templates/clips/app/i18n/pt-BR|dictateRoute.vocabularyRemoveFailed|Couldn't remove term
+templates/clips/app/i18n/pt-BR|dictateRoute.voiceToTextDescription|Voice-to-text dictation with AI cleanup. Get the desktop app to dictate from anywhere with a global shortcut.
 templates/clips/app/i18n/pt-BR|downloadRoute.clipsDesktop|Clips Desktop
+templates/clips/app/i18n/pt-BR|editableTitle.editLabel|Edit clip title
+templates/clips/app/i18n/pt-BR|editableTitle.emptyTitle|Title cannot be empty
+templates/clips/app/i18n/pt-BR|editableTitle.generatingTitle|Generating title
+templates/clips/app/i18n/pt-BR|editableTitle.placeholder|Clip title
+templates/clips/app/i18n/pt-BR|editableTitle.renameFailed|Failed to rename clip
+templates/clips/app/i18n/pt-BR|editableTitle.untitled|Untitled Clip
+templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEditsDescription|This removes every trim, blur, and the custom thumbnail from this recording. The original video is never modified.
+templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEditsTitle|Clear all edits?
+templates/clips/app/i18n/pt-BR|editorToolbar.clearAllEdits|Clear all edits
+templates/clips/app/i18n/pt-BR|editorToolbar.clearEdits|Clear edits
+templates/clips/app/i18n/pt-BR|editorToolbar.clearFailed|Clear failed
+templates/clips/app/i18n/pt-BR|editorToolbar.cutAfterPlayhead|Cut after playhead
+templates/clips/app/i18n/pt-BR|editorToolbar.cutBeforePlayhead|Cut before playhead
+templates/clips/app/i18n/pt-BR|editorToolbar.cutSelectedRange|Cut selected range
+templates/clips/app/i18n/pt-BR|editorToolbar.cutSelection|Cut selection
+templates/clips/app/i18n/pt-BR|editorToolbar.downloadOriginal|Download original
+templates/clips/app/i18n/pt-BR|editorToolbar.editsCleared|Edits cleared
+templates/clips/app/i18n/pt-BR|editorToolbar.endCut|End cut
+templates/clips/app/i18n/pt-BR|editorToolbar.exportAnyway|Export anyway
+templates/clips/app/i18n/pt-BR|editorToolbar.exportFailed|Export failed — ffmpeg.wasm can't always handle long videos. Try shorter edits or use the original file.
+templates/clips/app/i18n/pt-BR|editorToolbar.exportMp4|Export MP4
+templates/clips/app/i18n/pt-BR|editorToolbar.exportedMp4|Exported MP4
+templates/clips/app/i18n/pt-BR|editorToolbar.fitToWidth|Fit to width
+templates/clips/app/i18n/pt-BR|editorToolbar.hideChapters|Hide chapters
+templates/clips/app/i18n/pt-BR|editorToolbar.loadingFfmpeg|Loading ffmpeg…
+templates/clips/app/i18n/pt-BR|editorToolbar.longExportTitle|This export is long
+templates/clips/app/i18n/pt-BR|editorToolbar.movePlayheadBeforeEnding|Move the playhead before the ending you want to cut
+templates/clips/app/i18n/pt-BR|editorToolbar.movePlayheadPastIntro|Move the playhead past the intro you want to cut
+templates/clips/app/i18n/pt-BR|editorToolbar.nothingToUndo|Nothing to undo
+templates/clips/app/i18n/pt-BR|editorToolbar.playheadEdits|Playhead edits
+templates/clips/app/i18n/pt-BR|editorToolbar.previewSpeedTooltip|Preview speed while trimming
+templates/clips/app/i18n/pt-BR|editorToolbar.previewSpeed|Preview speed
+templates/clips/app/i18n/pt-BR|editorToolbar.selectRangeFirst|Select a range on the waveform or transcript first
+templates/clips/app/i18n/pt-BR|editorToolbar.selectionCut|Selection cut
+templates/clips/app/i18n/pt-BR|editorToolbar.showChapters|Show chapters
+templates/clips/app/i18n/pt-BR|editorToolbar.splitAdded|Split added
+templates/clips/app/i18n/pt-BR|editorToolbar.splitAtPlayhead|Split at playhead
+templates/clips/app/i18n/pt-BR|editorToolbar.splitFailed|Split failed
+templates/clips/app/i18n/pt-BR|editorToolbar.startCut|Start cut
+templates/clips/app/i18n/pt-BR|editorToolbar.stitchClips|Stitch clips
+templates/clips/app/i18n/pt-BR|editorToolbar.trimFailed|Trim failed
+templates/clips/app/i18n/pt-BR|editorToolbar.undoFailed|Undo failed
+templates/clips/app/i18n/pt-BR|editorToolbar.videoNotReady|Video not ready yet
+templates/clips/app/i18n/pt-BR|editorToolbar.zoomIn|Zoom in
+templates/clips/app/i18n/pt-BR|editorToolbar.zoomOut|Zoom out
+templates/clips/app/i18n/pt-BR|meetingsRoute.calendarConnected|Calendar connected
+templates/clips/app/i18n/pt-BR|meetingsRoute.calendarDisconnected|Calendar disconnected
+templates/clips/app/i18n/pt-BR|meetingsRoute.calendarNeedsReconnect|Google Calendar needs to be reconnected to keep showing your upcoming meetings.
+templates/clips/app/i18n/pt-BR|meetingsRoute.calendarSettings|Calendar settings
+templates/clips/app/i18n/pt-BR|meetingsRoute.clearSearch|Clear search
+templates/clips/app/i18n/pt-BR|meetingsRoute.connectCalendarReminder|Connect Google Calendar for meeting reminders.
+templates/clips/app/i18n/pt-BR|meetingsRoute.connectGoogleCalendar|Connect Google Calendar
+templates/clips/app/i18n/pt-BR|meetingsRoute.desktopReminder|Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins.
+templates/clips/app/i18n/pt-BR|meetingsRoute.disconnectGoogleCalendarTitle|Disconnect Google Calendar?
+templates/clips/app/i18n/pt-BR|meetingsRoute.getDesktopApp|Get desktop app
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideCalendarDescription|Meetings are pulled from your calendar so Clips knows when to remind you.
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideCalendarTitle|Connect Google Calendar
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideDesktopDescription|Desktop capture is required for mic plus system-audio transcription.
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideDesktopTitle|Keep Clips Desktop open
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideStartDescription|Use the desktop reminder or the menu-bar Start Meeting Notes item when the call begins.
+templates/clips/app/i18n/pt-BR|meetingsRoute.guideStartTitle|Click Start notes
+templates/clips/app/i18n/pt-BR|meetingsRoute.howToTriggerDescription|Meeting notes are the Granola-style flow in Clips: calendar events appear here, the desktop app captures mic and system audio, and the transcript plus AI notes land back in this history.
+templates/clips/app/i18n/pt-BR|meetingsRoute.howToTriggerTitle|How to trigger meeting notes
+templates/clips/app/i18n/pt-BR|meetingsRoute.intro|Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.
+templates/clips/app/i18n/pt-BR|meetingsRoute.noMeetingsDescription|Connect your calendar and keep Clips Desktop open. When a meeting starts, use Start notes from the reminder or menu bar.
+templates/clips/app/i18n/pt-BR|meetingsRoute.noMeetingsYet|No meetings yet
+templates/clips/app/i18n/pt-BR|meetingsRoute.notesPending|Notes pending
+templates/clips/app/i18n/pt-BR|meetingsRoute.pageTitle|Meetings · Clips
+templates/clips/app/i18n/pt-BR|meetingsRoute.pastRecordings|Past recordings
+templates/clips/app/i18n/pt-BR|meetingsRoute.refreshing|Refreshing…
+templates/clips/app/i18n/pt-BR|meetingsRoute.requiredForReminders|Desktop captures mic + system audio for meeting transcription.
+templates/clips/app/i18n/pt-BR|meetingsRoute.transcriptPending|Transcript pending
+templates/clips/app/i18n/pt-BR|playerSettings.addCta|+ Add
+templates/clips/app/i18n/pt-BR|playerSettings.allowDownloads|Allow downloads
+templates/clips/app/i18n/pt-BR|playerSettings.animatedThumbnail|Animated thumbnail
+templates/clips/app/i18n/pt-BR|playerSettings.buttonLabelPlaceholder|Button label
+templates/clips/app/i18n/pt-BR|playerSettings.callToAction|Call to action
+templates/clips/app/i18n/pt-BR|playerSettings.defaultCtaLabel|Learn more
+templates/clips/app/i18n/pt-BR|playerSettings.defaultPlaybackSpeed|Default playback speed
+templates/clips/app/i18n/pt-BR|playerSettings.noCtas|No CTAs yet. Add a button that appears during or after the video.
+templates/clips/app/i18n/pt-BR|playerSettings.noPasswordPlaceholder|No password
+templates/clips/app/i18n/pt-BR|playerSettings.passwordProtection|Password protection
+templates/clips/app/i18n/pt-BR|playerSettings.passwordSetPlaceholder|Password is set — type to replace
+templates/clips/app/i18n/pt-BR|playerSettings.passwordWhitespaceOnly|Spaces alone aren't a valid password.
+templates/clips/app/i18n/pt-BR|playerSettings.placementEnd|At end
+templates/clips/app/i18n/pt-BR|playerSettings.viewerOptions|Viewer options
+templates/clips/app/i18n/pt-BR|preRecord.audioAndCamera|Audio & camera
+templates/clips/app/i18n/pt-BR|preRecord.cameraOff|Camera off
+templates/clips/app/i18n/pt-BR|preRecord.captureSource|Capture source
+templates/clips/app/i18n/pt-BR|preRecord.chooseMicrophone|Choose microphone...
+templates/clips/app/i18n/pt-BR|preRecord.defaultCamera|Default camera
+templates/clips/app/i18n/pt-BR|preRecord.defaultMicPlaceholder|Default mic
+templates/clips/app/i18n/pt-BR|preRecord.defaultMicrophone|Default microphone
+templates/clips/app/i18n/pt-BR|preRecord.enumerateFailed|Could not enumerate devices
+templates/clips/app/i18n/pt-BR|preRecord.fixCameraAccess|Fix camera access or switch to Screen mode before recording.
+templates/clips/app/i18n/pt-BR|preRecord.fixMicrophoneAccess|Fix microphone access or turn audio off before recording.
+templates/clips/app/i18n/pt-BR|preRecord.importLoom|Import Loom
+templates/clips/app/i18n/pt-BR|preRecord.importing|Importing...
+templates/clips/app/i18n/pt-BR|preRecord.includeAudioAria|Include audio in this recording
+templates/clips/app/i18n/pt-BR|preRecord.includeCameraAria|Include camera in this recording
+templates/clips/app/i18n/pt-BR|preRecord.loomImportFailed|Could not import that Loom.
+templates/clips/app/i18n/pt-BR|preRecord.micOffConfirmDescription|Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.
+templates/clips/app/i18n/pt-BR|preRecord.microphoneSelectionUnsupported|This browser does not support microphone device selection.
+templates/clips/app/i18n/pt-BR|preRecord.modeCameraOnly|Camera only
+templates/clips/app/i18n/pt-BR|preRecord.modeScreenCamera|Screen + cam
+templates/clips/app/i18n/pt-BR|preRecord.modeScreenOnly|Screen only
+templates/clips/app/i18n/pt-BR|preRecord.noAudio|No audio
+templates/clips/app/i18n/pt-BR|preRecord.noCamera|No camera
+templates/clips/app/i18n/pt-BR|preRecord.noMicrophone|No microphone
+templates/clips/app/i18n/pt-BR|preRecord.openingMicrophone|Opening microphone...
+templates/clips/app/i18n/pt-BR|preRecord.startRecording|Start recording
+templates/clips/app/i18n/pt-BR|preRecord.startWithoutMic|Start anyway
+templates/clips/app/i18n/pt-BR|preRecord.surfaceBrowserDescription|Choose an open tab
+templates/clips/app/i18n/pt-BR|preRecord.surfaceBrowser|Browser tab
+templates/clips/app/i18n/pt-BR|preRecord.surfaceScreenDescription|Capture everything
+templates/clips/app/i18n/pt-BR|preRecord.surfaceWindowDescription|Best for slides or one app
+templates/clips/app/i18n/pt-BR|preRecord.tryClipsDesktop|Try Clips Desktop.
+templates/clips/app/i18n/pt-BR|preRecord.uploadVideo|Upload video
+templates/clips/app/i18n/pt-BR|recordRoute.backToLibrary|Back to library
+templates/clips/app/i18n/pt-BR|recordRoute.betterInDesktop|Better in the desktop app
+templates/clips/app/i18n/pt-BR|recordRoute.clipsRecorder|Clips recorder
+templates/clips/app/i18n/pt-BR|recordRoute.couldNotImportLoom|Could not import that Loom.
+templates/clips/app/i18n/pt-BR|recordRoute.couldNotStartRecorder|Could not start recorder
+templates/clips/app/i18n/pt-BR|recordRoute.couldNotStartRecording|Could not start recording
+templates/clips/app/i18n/pt-BR|recordRoute.desktopAppDescription|Menu-bar launch, global shortcuts, auto-updates, and smoother repeat recordings.
+templates/clips/app/i18n/pt-BR|recordRoute.downloadDesktopApp|Download desktop app
+templates/clips/app/i18n/pt-BR|recordRoute.largeClipsNeedReencode|Large clips need a quick re-encode before upload.
+templates/clips/app/i18n/pt-BR|recordRoute.logIn|Log in
+templates/clips/app/i18n/pt-BR|recordRoute.loomImported|Loom imported
+templates/clips/app/i18n/pt-BR|recordRoute.noLocalRecordingData|No local recording data is available to download.
+templates/clips/app/i18n/pt-BR|recordRoute.openRecorderInTab|Open recorder in tab
+templates/clips/app/i18n/pt-BR|recordRoute.openSettings|Open settings
+templates/clips/app/i18n/pt-BR|recordRoute.openedRecorderInNewTab|Opened recorder in a new tab
+templates/clips/app/i18n/pt-BR|recordRoute.pageTitle|New recording — Clips
+templates/clips/app/i18n/pt-BR|recordRoute.preparingSources|Preparing sources…
+templates/clips/app/i18n/pt-BR|recordRoute.recordingDownloadStarted|Recording download started
+templates/clips/app/i18n/pt-BR|recordRoute.recordingReadyToUpload|Recording is ready to upload
+templates/clips/app/i18n/pt-BR|recordRoute.recordingSaved|Recording saved
+templates/clips/app/i18n/pt-BR|recordRoute.recordingScreen|Recording your screen — switch to the window you want to capture
+templates/clips/app/i18n/pt-BR|recordRoute.savingRecording|Saving your recording…
+templates/clips/app/i18n/pt-BR|recordRoute.sessionExpiredDescription|Your login session has expired. Log in again to start recording.
+templates/clips/app/i18n/pt-BR|recordRoute.sessionExpired|Session expired
+templates/clips/app/i18n/pt-BR|recordRoute.storageNeededToFinishLoomImport|Storage needed to finish Loom import
+templates/clips/app/i18n/pt-BR|recordRoute.technicalDetails|Technical details
+templates/clips/app/i18n/pt-BR|recordRoute.uploadFailed|Upload failed
+templates/clips/app/i18n/pt-BR|recordRoute.videoReadyToUpload|Video is ready to upload
+templates/clips/app/i18n/pt-BR|recordRoute.videoTooLarge|Video is too large
+templates/clips/app/i18n/pt-BR|recordRoute.videoUploaded|Video uploaded
+templates/clips/app/i18n/pt-BR|recordRoute.whatToCheck|What to check
 templates/clips/app/i18n/pt-BR|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/zh-CN|sharePage.agentNativeClips|Agent-Native Clips
 templates/clips/app/i18n/zh-TW|sharePage.agentNativeClips|Agent-Native Clips

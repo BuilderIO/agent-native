@@ -42,6 +42,7 @@ import {
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
+import { countRecordingAgentViews } from "../../lib/agent-views.js";
 import { isMediaVerificationPending } from "../../lib/media-verification-state.js";
 import { resolvePlayerThumbnailUrl } from "../../lib/player-thumbnail-url.js";
 import { resolvePlayerVideoUrl } from "../../lib/player-video-url.js";
@@ -57,6 +58,7 @@ import {
   parseSpaceIds,
   type RecordingVisibility,
 } from "../../lib/recordings.js";
+import { isSeekableRepairPending } from "../../lib/seekable-media-state.js";
 import { verifySharePassword } from "../../lib/share-password.js";
 
 function appPath(path: string): string {
@@ -261,9 +263,15 @@ export default defineEventHandler(async (event) => {
     !viewerIsOrgMember &&
     !tokenAllowsAgentAccess
   ) {
+    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
     setResponseStatus(event, 404);
     return { error: "Not found" };
   }
+
+  const viewerCanComment = Boolean(
+    session?.email &&
+    (rec.visibility === "public" || viewerIsOwner || viewerIsOrgMember),
+  );
 
   // Expiry check
   const recordingExpired = isRecordingExpired(rec.expiresAt);
@@ -405,13 +413,24 @@ export default defineEventHandler(async (event) => {
   // Referer of any outbound link the share page renders.
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
   const transcriptPresentation = resolveTranscriptPresentation(transcript);
-  const verificationPending = await isMediaVerificationPending({
-    ownerEmail: rec.ownerEmail,
-    recordingId,
-    recordingStatus: rec.status,
-  });
+  const [verificationPending, seekableRepairPending] = await Promise.all([
+    isMediaVerificationPending({
+      ownerEmail: rec.ownerEmail,
+      recordingId,
+      recordingStatus: rec.status,
+    }),
+    isSeekableRepairPending({
+      ownerEmail: rec.ownerEmail,
+      recordingId,
+      recordingStatus: rec.status,
+      videoUrl: rec.videoUrl,
+    }),
+  ]);
 
-  const viewCount = await countRecordingViews(recordingId);
+  const [viewCount, agentViewCount] = await Promise.all([
+    countRecordingViews(recordingId),
+    countRecordingAgentViews(recordingId),
+  ]);
 
   const viewerRole =
     viewerAccess?.role ?? (viewerIsOrgMember ? "viewer" : null);
@@ -449,12 +468,15 @@ export default defineEventHandler(async (event) => {
       editsJson: rec.editsJson,
       videoUrl: playbackVideoUrl,
       videoFormat: rec.videoFormat,
+      videoSizeBytes: rec.videoSizeBytes ?? null,
+      mediaUpdatedAt: rec.mediaUpdatedAt,
       width: rec.width,
       height: rec.height,
       hasAudio: Boolean(rec.hasAudio),
       hasCamera: Boolean(rec.hasCamera),
       status: rec.status,
       verificationPending,
+      seekableRepairPending,
       uploadProgress: rec.uploadProgress,
       failureReason: rec.failureReason,
       // Don't leak the password to clients; just indicate whether one was set.
@@ -471,8 +493,9 @@ export default defineEventHandler(async (event) => {
       updatedAt: rec.updatedAt,
     },
     agentContextUrl,
-    // Aggregate count only — never viewer identities on this public payload.
+    // Aggregate counts only — never viewer identities on this public payload.
     viewCount,
+    agentViewCount,
     transcript: transcript
       ? {
           status: transcriptPresentation.status,
@@ -518,6 +541,7 @@ export default defineEventHandler(async (event) => {
             viewerRole === "owner" ||
             viewerRole === "admin" ||
             viewerRole === "editor",
+          canComment: viewerCanComment,
           isOwner: viewerRole === "owner",
           role: viewerRole ?? "viewer",
           canOpenDashboard,

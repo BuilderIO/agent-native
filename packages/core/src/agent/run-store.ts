@@ -69,6 +69,23 @@ export const STALE_RUN_ERROR_EVENT = {
 } as const;
 
 /**
+ * `agent_runs.terminal_reason` recorded by the stale reapers.
+ *
+ * Every other error path records `error:<code>` (`terminalReasonForEvent`), and
+ * `reconcileTerminalRunFromEvents` writes that form for THIS failure too when it
+ * replays the terminal event a reaper itself appended. The reapers used to write
+ * the bare code, which split one outcome across two permanent
+ * `agent_run_outcome_daily` buckets (prod: 612 `stale_run` + 604
+ * `error:stale_run`) purely by whether anything happened to read the row after
+ * the reap — and made the reconciliation convergence guard, which compares
+ * `terminal_reason` for equality, rewrite the row on every read forever.
+ *
+ * Rows reaped before this change keep the bare `stale_run`, so anything matching
+ * on the value must accept both forms for one retention window.
+ */
+export const STALE_RUN_TERMINAL_REASON = `error:${STALE_RUN_ERROR_EVENT.errorCode}`;
+
+/**
  * Terminal error for a background-dispatched run whose worker NEVER claimed it
  * (the foreground fired the self-dispatch, Netlify acked it async with a 202,
  * but the `_process-run` worker never ran far enough to flip
@@ -162,6 +179,46 @@ export const UNCLAIMED_BACKGROUND_RUN_REDISPATCH_BOUND_MS = 5 * 60_000;
  *   existing loud reap (`background_worker_never_started`) still fires.
  */
 export const UNCLAIMED_BACKGROUND_RUN_FAST_SWEEP_MS = 20_000;
+
+/**
+ * How long a negative `status='running'` probe stays trusted.
+ *
+ * MUST stay well below the tightest staleness window any sweep enforces
+ * (`RUN_STALE_MS`, 15s): the probe sees running rows of EVERY age, so a
+ * negative result proves there were zero running rows that instant, and a row
+ * inserted since — by this process or another one — cannot yet be old enough
+ * for a sweep to act on it. Widen this past a staleness window and a genuinely
+ * dead run becomes invisible for a whole extra tick.
+ */
+const NO_RUNNING_RUNS_CACHE_MS = 5_000;
+
+let _noRunningRunsUntil = 0;
+
+/** Test seam — the probe cache is module state, so suites must clear it. */
+export function __resetNoRunningRunsProbeForTests(): void {
+  _noRunningRunsUntil = 0;
+}
+
+/**
+ * `status = 'running'` is a strict superset of every sweep predicate in this
+ * file, so one probe answers all of them. The fast sweep runs `reapAllStaleRuns`
+ * and `listUnclaimedBackgroundRunRows` back to back every 20s; on an idle app
+ * both scan for rows that do not exist, which on a remote database is two
+ * round trips per tick per app, forever. The probe collapses that pair to one.
+ */
+async function hasRunningRuns(): Promise<boolean> {
+  if (Date.now() < _noRunningRunsUntil) return false;
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT id FROM agent_runs WHERE status = 'running' LIMIT 1`,
+    args: [],
+  });
+  if ((rows?.length ?? 0) > 0) {
+    _noRunningRunsUntil = 0;
+    return true;
+  }
+  _noRunningRunsUntil = Date.now() + NO_RUNNING_RUNS_CACHE_MS;
+  return false;
+}
 
 /**
  * FIX 3 (durable-background incident) per-turn run-count ceiling for
@@ -696,7 +753,13 @@ function backgroundAwareStaleCutoffSql(): string {
   // `CAST(? AS BIGINT)` is required: without it Postgres infers the param as
   // int4 from the int4 window literals, so the bound `Date.now()` ms epoch
   // overflows int4. The cast keeps the subtraction 64-bit; a no-op on SQLite.
-  return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode = 'background-processing' THEN ${BACKGROUND_PROCESSING_RUN_STALE_MS} WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
+  // The tight post-claim window buys ONE thing: reaching the durable successor
+  // sooner (see BACKGROUND_PROCESSING_RUN_STALE_MS). A row with no
+  // `dispatch_payload` has no successor to reach — `attemptStaleRunRecovery`
+  // declines it as `not_redispatchable` — so reaping it early is pure loss: it
+  // kills an in-process background automation (scheduler/trigger) that is still
+  // working, and nothing recovers it. Those get the wider background window.
+  return `(CAST(? AS BIGINT) - CASE WHEN dispatch_mode = 'background-processing' AND dispatch_payload IS NOT NULL THEN ${BACKGROUND_PROCESSING_RUN_STALE_MS} WHEN dispatch_mode LIKE 'background%' THEN ${BACKGROUND_RUN_STALE_MS} ELSE ${RUN_STALE_MS} END)`;
 }
 
 function terminalRunEventExclusionSql(runIdColumn = "id"): string {
@@ -906,6 +969,16 @@ export interface UnclaimedBackgroundRunRow {
    *  pre-inserted — independent of any liveness bump a redispatch attempt
    *  makes along the way. */
   startedAt: number;
+  /**
+   * Whether the row still carries the `dispatch_payload` a redispatched worker
+   * would rehydrate its request body from. Eligibility for this sweep does NOT
+   * imply it: a background row can reach the grace window having never had a
+   * payload at all. Redispatching one of those asserts `payloadRef: true` to a
+   * worker that then cannot rehydrate, so it kills the run as
+   * `dispatch_payload_missing` — a reason that reads like data loss for what is
+   * really an un-redispatchable handoff.
+   */
+  hasDispatchPayload: boolean;
 }
 
 /**
@@ -920,11 +993,15 @@ export async function listUnclaimedBackgroundRunRows(): Promise<
   UnclaimedBackgroundRunRow[]
 > {
   await ensureRunTables();
+  if (!(await hasRunningRuns())) return [];
   const client = getDbExec();
   const { rows } = await client.execute({
     // CAST keeps the ms-epoch param 64-bit on Postgres (see
     // backgroundAwareStaleCutoffSql for the int4-inference failure mode).
-    sql: `SELECT id, started_at FROM agent_runs
+    // Report payload presence rather than filtering on it: a payload-less row
+    // must still be VISIBLE to the sweep so the slow pass can reap it. Filtering
+    // it out here would leave it `running` forever.
+    sql: `SELECT id, started_at, (dispatch_payload IS NOT NULL) AS has_dispatch_payload FROM agent_runs
           WHERE status = 'running'
             AND dispatch_mode = 'background'
             AND COALESCE(heartbeat_at, started_at) < (CAST(? AS BIGINT) - ${UNCLAIMED_BACKGROUND_RUN_GRACE_MS})`,
@@ -934,11 +1011,15 @@ export async function listUnclaimedBackgroundRunRows(): Promise<
   for (const row of rows ?? []) {
     const id = (row as { id?: unknown }).id;
     const startedAt = (row as { started_at?: unknown }).started_at;
+    const hasPayload = (row as { has_dispatch_payload?: unknown })
+      .has_dispatch_payload;
     if (typeof id === "string" && id) {
       result.push({
         id,
         startedAt:
           typeof startedAt === "number" ? startedAt : Number(startedAt) || 0,
+        // SQLite returns 1/0 where Postgres returns a boolean.
+        hasDispatchPayload: hasPayload === true || hasPayload === 1,
       });
     }
   }
@@ -1106,10 +1187,20 @@ export async function setRunTerminalReason(
     await ensureRunTables();
     const client = getDbExec();
     const reason = terminalReason.slice(0, 200);
+    // Write-once for a row that is already terminal. Three writers in three
+    // isolates race on this column — the mid-run checkpoint, the run-manager's
+    // finalization, and the background worker's failure path — with no ordering
+    // between them, and last-writer-wins let a late checkpoint relabel a row
+    // another isolate had already finalized. That produced impossible rows
+    // (status='errored' carrying a continuation reason, no error_code, no
+    // terminal event) and misattributed 130 production runs to a failure mode
+    // they never hit. A row still `running` has no honest reason yet, so it
+    // stays writable; once one is recorded on a terminal row, it stands.
+    const guard = `AND (status = 'running' OR terminal_reason IS NULL OR terminal_reason = '')`;
     await client.execute({
       sql: isContinuationTerminalReason(reason)
-        ? `UPDATE agent_runs SET terminal_reason = ?, status = CASE WHEN status = 'completed' THEN 'truncated' ELSE status END WHERE id = ?`
-        : `UPDATE agent_runs SET terminal_reason = ? WHERE id = ?`,
+        ? `UPDATE agent_runs SET terminal_reason = ?, status = CASE WHEN status = 'completed' THEN 'truncated' ELSE status END WHERE id = ? ${guard}`
+        : `UPDATE agent_runs SET terminal_reason = ? WHERE id = ? ${guard}`,
       args: [reason, runId],
     });
   } catch {
@@ -1239,6 +1330,33 @@ export async function reconcileTerminalRunFromEvents(
   const client = getDbExec();
   const errorCode = errorCodeForTerminalEvent(latest.event);
   const errorDetail = errorDetailForTerminalEvent(latest.event);
+  // A row already holding the reconciled values is converged, and saying
+  // otherwise is not cosmetic: the UPDATE below still matches such a row and
+  // SQL counts an unchanged rewrite as affected, so `rowsAffected` reports
+  // "repaired" on every call. `getRunByThread` re-reads and re-reconciles on
+  // that answer, so a settled errored/stale_run row recurses forever and pins
+  // the event loop instead of returning. Converged must read as no work done.
+  const { rows: currentRows } = await client.execute({
+    sql: `SELECT status, error_code, terminal_reason, completed_at FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const current = currentRows[0] as
+    | {
+        status?: string | null;
+        error_code?: string | null;
+        terminal_reason?: string | null;
+        completed_at?: number | string | null;
+      }
+    | undefined;
+  if (
+    current &&
+    current.status === status &&
+    (current.error_code ?? null) === (errorCode ?? null) &&
+    (current.terminal_reason ?? null) === terminalReason &&
+    current.completed_at != null
+  ) {
+    return false;
+  }
   const { rowsAffected } = await client.execute({
     sql: `UPDATE agent_runs
           SET status = ?,
@@ -1366,6 +1484,23 @@ export async function recordRunDiagnostic(
   }
 }
 
+/**
+ * Wall-clock budget for ONE heartbeat write.
+ *
+ * The default `DbExec` budget is `dbOpTimeoutMs()` (8s on serverless) across 3
+ * connection attempts, so a single heartbeat can occupy up to 24s — against a
+ * 15s `RUN_STALE_MS`. The run-manager single-flights the write, so that one
+ * attempt suppresses every 1.5s tick behind it: a live foreground run in a quiet
+ * phase becomes reapable while its own heartbeat is still in flight. The same
+ * attempt also pins a pooler connection for those 24s, feeding the saturation
+ * that starves heartbeats in the first place.
+ *
+ * A heartbeat that cannot land promptly has no value — the 1.5s tick IS the
+ * retry — so it gets ONE attempt inside a third of the stale window, leaving
+ * room for two more to land before the reap cutoff.
+ */
+const HEARTBEAT_WRITE_TIMEOUT_MS = Math.floor(RUN_STALE_MS / 3);
+
 /** Update the run's liveness heartbeat. Called periodically by run-manager. */
 export async function updateRunHeartbeat(runId: string): Promise<void> {
   await ensureRunTables();
@@ -1384,6 +1519,8 @@ export async function updateRunHeartbeat(runId: string): Promise<void> {
               END
           WHERE id = ? AND status = 'running'`,
     args: [Date.now(), currentRssMb(), currentRssMb(), runId],
+    timeoutMs: HEARTBEAT_WRITE_TIMEOUT_MS,
+    maxAttempts: 1,
   });
 }
 
@@ -1408,11 +1545,11 @@ function currentRssMb(): number {
  * stuck-detector can tell "process alive but nothing happening" from
  * "process dead." Callers should throttle (run-manager debounces to ~1/s).
  */
-export async function bumpRunProgress(runId: string): Promise<void> {
+export async function bumpRunProgress(runId: string): Promise<boolean> {
   await ensureRunTables();
   const client = getDbExec();
   const now = Date.now();
-  await client.execute({
+  const { rowsAffected } = await client.execute({
     // Multiple event-persistence paths and serverless isolates can bump the
     // same run concurrently. A slower, older write must never land after a
     // newer one and move the user-visible no-progress clock backwards.
@@ -1420,6 +1557,7 @@ export async function bumpRunProgress(runId: string): Promise<void> {
     sql: `UPDATE agent_runs SET last_progress_at = CASE WHEN last_progress_at IS NULL OR last_progress_at < ? THEN ? ELSE last_progress_at END WHERE id = ? AND status = 'running'`,
     args: [now, now, runId],
   });
+  return (rowsAffected ?? 0) > 0;
 }
 
 /**
@@ -1433,31 +1571,36 @@ export async function bumpRunProgress(runId: string): Promise<void> {
  * depth belt-and-suspenders against a nested 1->2 transition clobbering the
  * ORIGINAL start time with a later one (the caller's own counter already
  * dedupes 0->1 transitions; this WHERE just makes the write itself
- * idempotent/order-independent too). `inFlight: false` always clears
- * unconditionally — if it races a fresh 0->1 write from a *different* tool
- * finishing/starting back to back, worst case is losing a few seconds of
- * grace, never gaining an incorrect one.
+ * idempotent/order-independent too). When `markerSince` is supplied for a
+ * clear, the UPDATE is conditional on the marker still having that value. The
+ * run manager serializes marker writes and supplies this token so a delayed
+ * clear from one tool cannot erase a newer tool's marker.
  *
- * Best-effort: callers fire-and-forget (`.catch(() => {})`) so a write
- * failure here never blocks event emission or aborts the run. If this write
- * itself fails (the same DB pressure that could be starving the heartbeat),
- * the row simply gets no grace — never worse than today's behavior.
+ * Best-effort: callers fire-and-forget so a write failure here never blocks
+ * event emission or aborts the run. The run manager logs marker-write failures
+ * while preserving transition order. If this write itself fails (the same DB
+ * pressure that could be starving the heartbeat), the row simply gets no grace
+ * - never worse than today's behavior.
  */
 export async function setRunInFlightMarker(
   runId: string,
   inFlight: boolean,
+  markerSince?: number,
 ): Promise<void> {
   await ensureRunTables();
   const client = getDbExec();
   if (inFlight) {
     await client.execute({
       sql: `UPDATE agent_runs SET in_flight_since = ? WHERE id = ? AND status = 'running' AND in_flight_since IS NULL`,
-      args: [Date.now(), runId],
+      args: [markerSince ?? Date.now(), runId],
     });
   } else {
     await client.execute({
-      sql: `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ?`,
-      args: [runId],
+      sql:
+        markerSince == null
+          ? `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ?`
+          : `UPDATE agent_runs SET in_flight_since = NULL WHERE id = ? AND in_flight_since = ?`,
+      args: markerSince == null ? [runId] : [runId, markerSince],
     });
   }
 }
@@ -1478,7 +1621,7 @@ interface StaleRunRecoverySuccessor {
 type StaleRunRecoveryOutcome =
   | ({ outcome: "recovered" } & StaleRunRecoverySuccessor)
   | { outcome: "not_background" }
-  | { outcome: "payload_missing" }
+  | { outcome: "not_redispatchable" }
   | { outcome: "newer_run_exists" }
   | { outcome: "budget_exhausted" }
   | { outcome: "repeated_no_progress" };
@@ -1528,7 +1671,9 @@ function staleRecoveryDispatchPayload(payload: string): string {
  *   - the row is a background chat-turn dispatch (`dispatch_mode` starting
  *     with "background") — a foreground/foreground-self-chain run has a
  *     connected client to recover it via its own `auto_continue` re-POST.
- *   - its `dispatch_payload` is still present — without it there is nothing
+ *   - its `dispatch_payload` is still present (an in-process automation run
+ *     never had one and is declined as `not_redispatchable`, not as a loss)
+ *     — without it there is nothing
  *     to rehydrate the successor's request body from. Read HERE, before the
  *     caller's terminal write (which NULLs `dispatch_payload` on every other
  *     path), so it survives long enough to carry over.
@@ -1565,7 +1710,14 @@ async function attemptStaleRunRecovery(
   }
   const payload = row.dispatch_payload;
   if (typeof payload !== "string" || payload.length === 0) {
-    return { outcome: "payload_missing" };
+    // Not an anomaly, and specifically NOT a lost payload: every HTTP-dispatched
+    // background run writes `dispatch_payload` in the same INSERT that creates
+    // the row, so a payload-less row is one that was never HTTP-dispatched at
+    // all — an in-process automation from `runBackgroundAutomation`. It has no
+    // request body to rehydrate because there was never a request. Naming this
+    // `payload_missing` read as "we are losing payloads" in production
+    // forensics and sent a reader hunting a bug that does not exist.
+    return { outcome: "not_redispatchable" };
   }
   const threadId = row.thread_id;
   const turnId = row.turn_id ?? runId;
@@ -1728,9 +1880,15 @@ async function reapSingleStaleRun(
       : // First `?` is backgroundAwareStaleCutoffSql's CAST param, the next two
         // are inFlightGraceSql's — all bound to the same "now".
         [completedAt, completedAt, completedAt];
+  // `completed_at` is when the run DIED, not when a reaper noticed. Stamping
+  // reap time made every stale row report its own detection latency as run
+  // duration (prod: 30-59 minute "runs" against a 15s window), which is the
+  // measurement used to judge whether reaping is timely at all. The liveness
+  // basis is the last proof the producer was alive, and it is what
+  // `reconcileTerminalRunFromEvents` already records for the same failure.
   const updateSql = `UPDATE agent_runs
           SET status = 'errored',
-              completed_at = ?,
+              completed_at = COALESCE(completed_at, ${livenessBasisSql()}),
               error_code = ?,
               error_detail = ?,
               terminal_reason = ?
@@ -1739,10 +1897,9 @@ async function reapSingleStaleRun(
             AND ${terminalRunEventExclusionSql()}
             AND ${staleClause}`;
   const updateArgs = [
-    completedAt,
     STALE_RUN_ERROR_EVENT.errorCode,
     STALE_RUN_ERROR_EVENT.details,
-    STALE_RUN_ERROR_EVENT.errorCode,
+    STALE_RUN_TERMINAL_REASON,
     runId,
     ...staleArgs,
   ];
@@ -1940,6 +2097,7 @@ export async function getRunStatus(runId: string): Promise<string | null> {
  * a second, competing truth.
  */
 const TURN_ENDING_ABORT_REASONS = new Set(["user", "displaced"]);
+const USER_INITIATED_ABORT_REASONS = new Set(["user", "abort"]);
 
 // Only infrastructure interruptions that the client can safely resume are
 // recoverable. An arbitrary caller-supplied abort reason must never become an
@@ -1969,9 +2127,13 @@ export function terminalEventForAbortReason(
   }
   if (
     TURN_ENDING_ABORT_REASONS.has(normalized) ||
+    USER_INITIATED_ABORT_REASONS.has(normalized) ||
     normalized.startsWith("user_")
   ) {
-    return { type: "done" };
+    return {
+      type: "done",
+      ...(normalized !== "displaced" ? { reason: "user" } : {}),
+    };
   }
   return {
     type: "error",
@@ -2051,6 +2213,24 @@ export async function markTurnAborted(
       ),
     ),
   );
+}
+
+/**
+ * Turn identity for a run, or null when the row is unknown. `turn_id` is null
+ * for rows written before the column existed; those runs are their own turn.
+ */
+export async function getRunTurnRef(
+  runId: string,
+): Promise<{ threadId: string; turnId: string } | null> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT thread_id, turn_id FROM agent_runs WHERE id = ?`,
+    args: [runId],
+  });
+  const row = rows[0] as { thread_id?: unknown; turn_id?: unknown } | undefined;
+  const threadId = row?.thread_id ? String(row.thread_id) : "";
+  if (!threadId) return null;
+  return { threadId, turnId: row?.turn_id ? String(row.turn_id) : runId };
 }
 
 export async function isTurnAborted(
@@ -2513,13 +2693,46 @@ export async function getCurrentTurnEventsForThread(
 }
 
 /**
+ * Rows one pass will reap. Each costs ~5-10 serial round trips (reconcile,
+ * transactional reap plus recovery, terminal-event append), and this sweep now
+ * runs ahead of `processRecurringJobs` on the shared durable tick — so an
+ * unbounded first pass against a backlog spends the platform wall before jobs
+ * get any. Production carried 1,216 stale rows while nothing periodic reaped
+ * them, so the first tick after that fix lands on exactly such a backlog.
+ * A truncated pass is drained by the next tick (60s durable, 20s in-process),
+ * never dropped — `truncated` is what stops a partial sweep being reported as
+ * a clean one.
+ */
+const REAP_ALL_STALE_BATCH_LIMIT = 200;
+
+export interface StaleRunReapResult {
+  /** Rows this pass reaped. */
+  reaped: number;
+  /**
+   * Rows whose reap threw. Separate from `reaped` because a pass where every
+   * row failed must not read as "nothing was stale" — those were the same
+   * number before, and the caller's own `null`-vs-`0` distinction is worthless
+   * while the per-row failures underneath it are coerced away.
+   */
+  failed: number;
+  /** More stale rows remain than the batch cap; the next tick continues. */
+  truncated: boolean;
+}
+
+/**
  * Expire any "running" rows whose heartbeat is stale — producer died.
  * Safe to call at server startup on multi-isolate deployments: only rows
  * without a fresh heartbeat get reaped, so runs owned by OTHER live
  * isolates (which keep heartbeating) are left alone.
  */
-export async function reapAllStaleRuns(): Promise<number> {
+export async function reapAllStaleRuns(): Promise<StaleRunReapResult> {
+  const nothingStale: StaleRunReapResult = {
+    reaped: 0,
+    failed: 0,
+    truncated: false,
+  };
   await ensureRunTables();
+  if (!(await hasRunningRuns())) return nothingStale;
   const client = getDbExec();
   const now = Date.now();
   // Background-dispatched runs use the wider window; everything else 15s. The
@@ -2531,13 +2744,23 @@ export async function reapAllStaleRuns(): Promise<number> {
   // server startup across possibly-multiple isolates, so a sibling isolate's
   // still-alive, in-flight run must not be reaped just because THIS isolate
   // just booted and has no heartbeat history for it.
-  const stale = await client.execute({
+  // One row over the cap is how a truncated pass is detected without a second
+  // COUNT query against the same predicate.
+  const scanned = await client.execute({
     sql: `SELECT id FROM agent_runs
           WHERE status = 'running'
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
-            AND ${inFlightGraceSql()}`,
+            AND ${inFlightGraceSql()}
+          ORDER BY started_at ASC
+          LIMIT ${REAP_ALL_STALE_BATCH_LIMIT + 1}`,
     args: [now, now, now],
   });
+  const truncated = scanned.rows.length > REAP_ALL_STALE_BATCH_LIMIT;
+  const stale = {
+    rows: truncated
+      ? scanned.rows.slice(0, REAP_ALL_STALE_BATCH_LIMIT)
+      : scanned.rows,
+  };
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id === "string") {
@@ -2552,15 +2775,20 @@ export async function reapAllStaleRuns(): Promise<number> {
   // `reapSingleStaleRun` re-applies the identical staleness clause per row
   // (same as the bulk UPDATE previously did), so a row whose heartbeat
   // landed between the SELECT above and this loop is still correctly
-  // excluded. This function only runs once, at process startup (see
-  // agent-chat-plugin.ts) — the extra per-row round trips are
-  // inconsequential.
+  // excluded. The per-row round trips only ever run for rows the SELECT above
+  // already found stale; on an idle app `hasRunningRuns` returns before any of
+  // this, so the 20s fast sweep (agent-chat-plugin.ts) costs one probe.
   let reapedCount = 0;
+  let failedCount = 0;
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
     if (typeof id !== "string") continue;
-    const reaped = await reapSingleStaleRun(id).catch(() => false);
-    if (reaped) reapedCount += 1;
+    try {
+      if (await reapSingleStaleRun(id)) reapedCount += 1;
+    } catch (error) {
+      failedCount += 1;
+      console.error(`[run-store] stale reap failed for run ${id}:`, error);
+    }
   }
   for (const row of stale.rows) {
     const id = (row as { id?: unknown }).id;
@@ -2572,7 +2800,7 @@ export async function reapAllStaleRuns(): Promise<number> {
       );
     }
   }
-  return reapedCount;
+  return { reaped: reapedCount, failed: failedCount, truncated };
 }
 
 const RUN_OUTCOME_DAY_MS = 86_400_000;
@@ -2585,6 +2813,8 @@ const RUN_OUTCOME_DAY_MS = 86_400_000;
  * every run id a user pasted into a bug report was gone before anyone looked.
  */
 const UNSUCCESSFUL_STATUS_SQL_LIST = `('errored', 'aborted', 'truncated')`;
+const RUN_OUTCOME_PRUNE_BATCH_LIMIT = 200;
+const RUN_OUTCOME_PRUNE_LOCK_KEY = "agent-native:run-outcome-prune";
 
 /**
  * Fold the terminal outcomes of the rows `cleanupOldRuns` is about to delete
@@ -2593,9 +2823,10 @@ const UNSUCCESSFUL_STATUS_SQL_LIST = `('errored', 'aborted', 'truncated')`;
  * covers exactly the unpruned ones, so a rate over any window is
  * `getRunOutcomeCounters()` plus the live rows — no gap, no double count.
  *
- * The DELETE ... RETURNING is the claim: concurrent cleanup calls can both
- * observe a row, but only the caller that deletes it receives it to roll up.
- * Grouping the returned rows in TypeScript avoids dialect-specific date SQL.
+ * Postgres callers take a transaction-scoped advisory lease before the claim.
+ * The bounded DELETE ... RETURNING is still the source of truth for which rows
+ * this invocation owns. Grouping the returned rows in TypeScript avoids
+ * dialect-specific date SQL.
  * Counter upserts run in the same transaction as the delete; a failed upsert
  * rolls back the claim so the source rows remain available for a retry.
  */
@@ -2605,22 +2836,38 @@ async function pruneAndRollUpPrunedRunOutcomes(
   erroredCutoff: number,
 ): Promise<void> {
   const prune = async (tx: ReturnType<typeof getDbExec>): Promise<void> => {
-    await tx.execute({
-      sql: `DELETE FROM agent_run_events WHERE run_id IN (
-        SELECT id FROM agent_runs
-        WHERE (status = 'completed' AND completed_at < ?)
-           OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
-      )`,
-      args: [cutoff, erroredCutoff],
-    });
+    if (isPostgres()) {
+      const lockResult = await tx.execute({
+        sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
+        args: [RUN_OUTCOME_PRUNE_LOCK_KEY],
+      });
+      const acquired = lockResult.rows[0]?.acquired;
+      if (acquired !== true && acquired !== "t") return;
+    }
 
     const { rows } = await tx.execute({
       sql: `DELETE FROM agent_runs
-            WHERE (status = 'completed' AND completed_at < ?)
-               OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
-            RETURNING status, completed_at, terminal_reason`,
+            WHERE id IN (
+              SELECT id FROM agent_runs
+              WHERE (status = 'completed' AND completed_at < ?)
+                 OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
+              ORDER BY completed_at ASC, id ASC
+              LIMIT ${RUN_OUTCOME_PRUNE_BATCH_LIMIT}
+            )
+            RETURNING id, status, completed_at, terminal_reason`,
       args: [cutoff, erroredCutoff],
     });
+
+    const runIds = rows
+      .map((row) => (row as { id?: unknown }).id)
+      .filter((id): id is string => typeof id === "string");
+    if (runIds.length > 0) {
+      const placeholders = runIds.map(() => "?").join(", ");
+      await tx.execute({
+        sql: `DELETE FROM agent_run_events WHERE run_id IN (${placeholders})`,
+        args: runIds,
+      });
+    }
 
     const groups = new Map<
       string,
@@ -2728,7 +2975,9 @@ export async function getRunOutcomeCounters(options?: {
  *  pruned at `olderThanMs`; errored/aborted/truncated runs are kept until
  *  `erroredOlderThanMs` (a longer window, falling back to `olderThanMs`) so
  *  their event log survives for cut-off pattern analysis via listErroredRuns. */
-export async function cleanupOldRuns(
+let cleanupOldRunsInFlight: Promise<void> | undefined;
+
+async function cleanupOldRunsInternal(
   olderThanMs: number,
   erroredOlderThanMs?: number,
 ): Promise<void> {
@@ -2767,11 +3016,16 @@ export async function cleanupOldRuns(
       await reconcileTerminalRunFromEvents(id);
     }
   }
+  // Both UPDATEs below backdate `completed_at` to the liveness basis for the
+  // reason given on `reapSingleStaleRun`'s UPDATE: this pass can fire a DAY
+  // after the producer died, and stamping now would file that whole gap as run
+  // duration. On the absolute-age branch the basis degrades to `started_at`,
+  // which is still the truest thing known about a row that never heartbeat.
   const completedAt = Date.now();
   await client.execute({
     sql: `UPDATE agent_runs
           SET status = 'errored',
-              completed_at = ?,
+              completed_at = COALESCE(completed_at, ${livenessBasisSql()}),
               error_code = ?,
               error_detail = ?,
               terminal_reason = ?
@@ -2779,10 +3033,9 @@ export async function cleanupOldRuns(
             AND ${terminalRunEventExclusionSql()}
             AND started_at < ?`,
     args: [
-      completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
-      STALE_RUN_ERROR_EVENT.errorCode,
+      STALE_RUN_TERMINAL_REASON,
       cutoff,
     ],
   });
@@ -2797,7 +3050,7 @@ export async function cleanupOldRuns(
   await client.execute({
     sql: `UPDATE agent_runs
           SET status = 'errored',
-              completed_at = ?,
+              completed_at = COALESCE(completed_at, ${livenessBasisSql()}),
               error_code = ?,
               error_detail = ?,
               terminal_reason = ?
@@ -2806,10 +3059,9 @@ export async function cleanupOldRuns(
             AND ${livenessBasisSql()} < ${backgroundAwareStaleCutoffSql()}
             AND ${inFlightGraceSql()}`,
     args: [
-      completedAt,
       STALE_RUN_ERROR_EVENT.errorCode,
       STALE_RUN_ERROR_EVENT.details,
-      STALE_RUN_ERROR_EVENT.errorCode,
+      STALE_RUN_TERMINAL_REASON,
       completedAt,
       completedAt,
       completedAt,
@@ -2829,6 +3081,26 @@ export async function cleanupOldRuns(
   // deleted. The transaction prevents concurrent cleanup calls from both
   // counting the same source rows.
   await pruneAndRollUpPrunedRunOutcomes(client, cutoff, erroredCutoff);
+}
+
+/**
+ * Run cleanup is scheduled after every completed run, including completions
+ * from several concurrent requests in one isolate. Share one sweep locally;
+ * Postgres additionally serializes the durable prune across isolates.
+ */
+export function cleanupOldRuns(
+  olderThanMs: number,
+  erroredOlderThanMs?: number,
+): Promise<void> {
+  if (cleanupOldRunsInFlight) return cleanupOldRunsInFlight;
+
+  const current = cleanupOldRunsInternal(olderThanMs, erroredOlderThanMs);
+  let settled: Promise<void>;
+  settled = current.finally(() => {
+    if (cleanupOldRunsInFlight === settled) cleanupOldRunsInFlight = undefined;
+  });
+  cleanupOldRunsInFlight = settled;
+  return settled;
 }
 
 /**

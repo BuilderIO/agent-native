@@ -267,6 +267,107 @@ describe("extensions/actions", () => {
     );
   });
 
+  it("does not re-send identical extension excerpts within a run", async () => {
+    // The whole-body read is deduped per run, but the contentQuery branch
+    // returned above that check, so repeated excerpt requests re-sent bytes
+    // already in context. Production thread 062ab179 spent 48 of its 110
+    // extension reads re-fetching spans it had already been given.
+    const content =
+      `<div>${"x".repeat(150_000)}` +
+      "function tabMonthlyTableRows(activeTab) { return activeTab; }" +
+      `${"y".repeat(150_000)}</div>`;
+
+    mockExtensionModules({
+      store: {
+        getExtension: vi.fn(async () => ({ ...extensionRow, content })),
+        getHiddenExtensionIdsForCurrentUser: vi.fn(
+          async () => new Set<string>(),
+        ),
+      },
+      resolveAccessRole: "editor",
+    });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+
+    await runWithRequestContext(
+      { userEmail: "thomas@example.com", run: {} },
+      async () => {
+        const read = { id: "ext-zoom", contentQuery: "tabMonthlyTableRows" };
+        const first = (await actions["get-extension"].run(read)) as any;
+        const repeat = (await actions["get-extension"].run(read)) as any;
+        const other = (await actions["get-extension"].run({
+          id: "ext-zoom",
+          contentQuery: "<div>",
+        })) as any;
+
+        expect(first.extension.contentMatches.matches).toHaveLength(1);
+        expect(repeat.extension).not.toHaveProperty("contentMatches");
+        expect(repeat.extension.contentOmitted.reason).toBe(
+          "identical-excerpt-already-returned-this-run",
+        );
+        // A different area of the same body is new work, not a repeat.
+        expect(other.extension.contentMatches.matches.length).toBeGreaterThan(
+          0,
+        );
+      },
+    );
+  });
+
+  it("requires targeted reads for large extension bodies", async () => {
+    const content =
+      `<div>${"x".repeat(150_000)}` +
+      "function tabMonthlyTableRows(activeTab) { return activeTab; }" +
+      `${"y".repeat(150_000)}</div>`;
+    const getExtension = vi.fn(async () => ({
+      ...extensionRow,
+      content,
+    }));
+
+    mockExtensionModules({
+      store: {
+        getExtension,
+        getHiddenExtensionIdsForCurrentUser: vi.fn(
+          async () => new Set<string>(),
+        ),
+      },
+      resolveAccessRole: "editor",
+    });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+
+    const compact = (await actions["get-extension"].run({
+      id: "ext-zoom",
+    })) as any;
+    expect(compact.extension).not.toHaveProperty("content");
+    expect(compact.extension.contentOmitted).toMatchObject({
+      reason: "large-content-requires-targeted-read",
+      contentLength: content.length,
+      inlineContentLimit: 60_000,
+    });
+
+    const targeted = (await actions["get-extension"].run({
+      id: "ext-zoom",
+      contentQuery: "tabMonthlyTableRows",
+      contentContextChars: 500,
+    })) as any;
+    expect(targeted.extension).not.toHaveProperty("content");
+    expect(targeted.extension.contentMatches.matches).toHaveLength(1);
+    expect(targeted.extension.contentMatches.matches[0].excerpt).toContain(
+      "function tabMonthlyTableRows",
+    );
+    expect(
+      targeted.extension.contentMatches.matches[0].excerpt.length,
+    ).toBeLessThanOrEqual(1_020);
+
+    const full = (await actions["get-extension"].run({
+      id: "ext-zoom",
+      forceContent: true,
+    })) as any;
+    expect(full.extension.content).toBe(content);
+  });
+
   it("omits extension history version bodies by default", async () => {
     const getExtensionHistoryVersion = vi.fn(async () => ({
       entry: {

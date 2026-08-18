@@ -273,13 +273,13 @@ function ArrowLink({
   const isInternalPath = to.startsWith("/");
   const className =
     variant === "primary"
-      ? "inline-flex min-w-0 items-center justify-center gap-2 rounded-full bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition hover:opacity-85 hover:no-underline"
-      : "inline-flex min-w-0 items-center justify-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline";
+      ? "inline-flex min-w-0 items-center justify-center gap-2 rounded-xl bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition hover:opacity-85 hover:no-underline"
+      : "inline-flex min-w-0 items-center justify-center gap-2 rounded-xl border border-[var(--docs-border)] bg-[var(--bg)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline";
 
   if (isInternalPath) {
     return (
       <Link
-        data-an-prefetch="render"
+        data-an-prefetch="viewport"
         to={to}
         className={className}
         onClick={() =>
@@ -598,7 +598,7 @@ export default function HomepageNew() {
                 Read the framework guide
               </ArrowLink>
               <ArrowLink
-                to={localizedPath("/docs/actions")}
+                to={localizedPath("/docs/actions-overview")}
                 location="homepage_new_agentic_core"
                 variant="secondary"
               >

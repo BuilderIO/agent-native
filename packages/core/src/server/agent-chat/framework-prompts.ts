@@ -1,6 +1,7 @@
 import nodePath from "node:path";
 
 import type { ActionEntry } from "../../agent/production-agent.js";
+import type { FrameworkToolGroup } from "../../framework-tools.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
 import {
   buildFrameworkCore,
@@ -33,7 +34,11 @@ import { lazyFs } from "./lazy-fs.js";
  */
 export function buildFrameworkPrompts(
   examples?: PromptExamples,
-  options?: { databaseTools?: DatabaseToolsOption; extensionTools?: boolean },
+  options?: {
+    databaseTools?: DatabaseToolsOption;
+    extensionTools?: boolean;
+    disabledFrameworkGroups?: ReadonlySet<FrameworkToolGroup>;
+  },
 ): {
   FRAMEWORK_CORE: string;
   FRAMEWORK_CORE_COMPACT: string;
@@ -44,7 +49,15 @@ export function buildFrameworkPrompts(
 } {
   const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
   const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
-  const extensionToolsEnabled = options?.extensionTools !== false;
+  // Dev agents edit source directly, so their copy of the core drops the
+  // production-only "hand code changes to Builder" sentence.
+  const devCoreOptions = { ...options, canEditSource: true };
+  const DEV_FRAMEWORK_CORE = buildFrameworkCore(examples, devCoreOptions);
+  const DEV_FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(
+    examples,
+    devCoreOptions,
+  );
+  const extensionToolsEnabled = options?.extensionTools === true;
   const planModeArtifactList = extensionToolsEnabled
     ? "source-code handoffs and app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos"
     : "source-code handoffs and app-created artifacts such as documents, designs, slides, or videos";
@@ -52,38 +65,34 @@ export function buildFrameworkPrompts(
     ? "`render-inline-extension`, `create-extension`, `update-extension`, `connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data"
     : "`connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data";
   const extensionConnectBuilderGuard = extensionToolsEnabled
-    ? "If the complete request can be satisfied by a self-contained extension or an existing named slot, use `render-inline-extension`, `create-extension`, `show-extension-inline`, or `update-extension` instead. If the exact placement or behavior requires changing the host UI or no suitable slot exists, continue with the normal `connect-builder` source-change flow even if the user called it an extension; never stop at saying extensions cannot do it."
-    : "Because extension tools are disabled, do NOT invent an extension workflow. Only use `connect-builder` when the request genuinely requires changing the host app's source code.";
+    ? "Prefer native app artifacts and actions. Use an extension only when the user explicitly requests one, or when the result is clearly bespoke and one-off and the native format cannot express it. Reusable or product-wide behavior belongs in app code. If the exact placement or behavior requires changing the host UI or no suitable slot exists, continue with the normal `connect-builder` source-change flow even if the user called it an extension; never stop at saying extensions cannot do it."
+    : "";
   const extensionInstructionsFull = extensionToolsEnabled
     ? `### Generative UI and Extensions (Mini-Apps)
 
 In Act mode, if the user asks for generated interactive UI in chat, choose the smallest extension action for the lifetime: \`render-inline-extension\` (one-off, chat-only), \`create-extension\` (saved/reusable), \`show-extension-inline\` (reopen a saved one), or \`update-extension\` (edit an existing one) — call the right one directly, without a "let me build…" preamble. Each tool's own description covers its exact use case, arguments, and available helpers (appAction, dbQuery, extensionData, agentNative.ui.output, etc.). Extensions are sandboxed mini-apps, not source-code changes, and never go through \`connect-builder\`.
 
-If the app exposes native actions or instructions for dashboards, reports, analyses, charts, documents, decks, or other domain artifacts, use those app-native actions first. Choose an extension only when the user explicitly asks for an extension/custom mini-app, or when the app's native artifact format cannot faithfully express the requested interaction.
+If the app exposes native actions or instructions for dashboards, reports, analyses, charts, documents, decks, or other domain artifacts, use those app-native actions first. Choose an extension only when the user explicitly asks for an extension/custom mini-app, or when the result is clearly bespoke and one-off and the app's native artifact format cannot faithfully express the requested interaction. Reusable or product-wide behavior belongs in app code.
 
 Editing an existing extension (fix, restyle, rename, add behavior) is a SQL data update — call \`update-extension\` directly using the extensionId from \`<current-screen>\`/\`<current-url>\` when present; never call \`connect-builder\` for it.
 
 Extensions render only on their own page or inside an existing named slot; they cannot inject UI into arbitrary native components. If an extension could only approximate the request in a different location, do not silently downgrade the requirement and do not end with "extensions cannot do that." Briefly explain the boundary, then follow the normal source-code handoff so the app can still be customized fully.
 
 For helper APIs, Alpine.js patterns, the extension-vs-code-change boundary, and worked examples, read the \`extensions\` and \`generative-ui\` skills.`
-    : `### Extensions Disabled
-
-Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow. For requests that would otherwise be handled as an extension/widget/dashboard/calculator mini-app, explain that this app has disabled extension tools and use the app's available actions instead.`;
+    : "";
   const extensionInstructionsCompact = extensionToolsEnabled
     ? `### Generative UI and Extensions (Mini-Apps)
 
 In Act mode, choose the smallest extension action for the lifetime: \`render-inline-extension\` (one-off, chat-only), \`create-extension\` (saved/reusable), \`show-extension-inline\` (reopen a saved one), or \`update-extension\` (edit an existing one) — each tool's own description covers its use case and helpers. These are sandboxed mini-apps, not code changes; never route them through \`connect-builder\`. Do not preface with "let me build…" — just call the right extension action.
 
-Use app-native artifact actions first when they exist for dashboards, reports, analyses, charts, documents, decks, or similar domain artifacts. Pick \`create-extension\` only for explicit extension/custom mini-app requests or for behavior the native artifact format cannot support.
+Use app-native artifact actions first when they exist for dashboards, reports, analyses, charts, documents, decks, or similar domain artifacts. Pick \`create-extension\` only for explicit extension/custom mini-app requests, or when the result is clearly bespoke and one-off and the native artifact format cannot support it. Reusable or product-wide behavior belongs in app code.
 
 Editing an existing extension is a data update — call \`update-extension\` directly using the extensionId from \`<current-screen>\`/\`<current-url>\` when present; never \`connect-builder\`.
 
 Extensions can render only on their own page or in an existing named slot; they cannot inject UI into arbitrary native components. If the exact request changes host chrome, native components, layout, styles, routes, business logic, or needs placement where no slot exists, treat it as a source-code change and use the normal \`connect-builder\` flow even if the user called it an extension. Never stop at "extensions cannot do that" or silently offer a different placement; explain the boundary briefly and continue the code-change handoff.
 
 See the \`extensions\` and \`generative-ui\` skills for helper APIs, Alpine.js patterns, and worked examples.`
-    : `### Extensions Disabled
-
-Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow.`;
+    : "";
 
   const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
 
@@ -135,7 +144,7 @@ When editing code, follow the agent-native architecture:
 - All SQL must be dialect-agnostic (works on SQLite and Postgres)
 - No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
 - Use shadcn/ui components and Tabler Icons for all UI work
-${FRAMEWORK_CORE}`;
+${DEV_FRAMEWORK_CORE}`;
 
   const PROD_FRAMEWORK_PROMPT_COMPACT = `## Agent-Native Framework — Production Mode
 
@@ -171,7 +180,7 @@ When editing code, follow the agent-native architecture:
 - All SQL must be dialect-agnostic (works on SQLite and Postgres)
 - No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
 - Use shadcn/ui components and Tabler Icons for all UI work
-${FRAMEWORK_CORE_COMPACT}`;
+${DEV_FRAMEWORK_CORE_COMPACT}`;
 
   return {
     FRAMEWORK_CORE,

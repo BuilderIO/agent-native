@@ -4,23 +4,145 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { AgentNativeI18nProvider } from "../i18n.js";
 import {
   assistantMessageHasCompletedCustomUi,
+  assistantMessageHasActiveTool,
   assistantMessageHasCustomUi,
   assistantMessageHasUnresolvedTool,
   computeActiveTailToolCallId,
+  getAssistantWorkSummaryDurationMs,
   getAssistantToolSummaryInfo,
+  groupAssistantWorkParts,
+  InlineRunErrorNotice,
+  isAlwaysVisibleAssistantTool,
   isCollapsibleAssistantWorkPart,
+  isMissingFinalResponseWarningText,
   latestUserMessageText,
   messageTextFromContent,
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
+  shouldShowInlineRunError,
   shouldShowMissingFinalResponse,
   useSettledFlag,
   ThinkingIndicator,
   userMessageTextBeforeAssistant,
   isHiddenUserMessage,
+  SelectionAttachedPill,
+  assistantMessageRunId,
+  assistantMessageTurnId,
+  assistantMessageWasUserStopped,
+  ChatImageAttachmentPreview,
+  resolveAssistantRequestId,
 } from "./message-components.js";
+import { runErrorKey } from "./run-recovery.js";
+
+describe("assistant request ID resolution", () => {
+  it("prefers the server run ID attached to the message", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id", metadata: { custom: { runId: "run-1" } } },
+        { threadId: "thread-1", runId: "run-2" },
+        "thread-1",
+      ),
+    ).toBe("run-1");
+  });
+
+  it("uses the current thread's active server run ID for an in-flight message", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id" },
+        { threadId: "thread-1", runId: "run-1" },
+        "thread-1",
+      ),
+    ).toBe("run-1");
+  });
+
+  it("never falls back to a local message ID or another thread's run", () => {
+    expect(
+      resolveAssistantRequestId(
+        { id: "local-message-id" },
+        { threadId: "thread-2", runId: "run-2" },
+        "thread-1",
+      ),
+    ).toBeUndefined();
+    expect(assistantMessageRunId({ id: "local-message-id" })).toBeUndefined();
+  });
+
+  it("reads the stable logical turn ID from assistant metadata", () => {
+    expect(
+      assistantMessageTurnId({
+        metadata: { custom: { turnId: "turn-1" } },
+      }),
+    ).toBe("turn-1");
+  });
+
+  it("recognizes a persisted user stop marker", () => {
+    expect(
+      assistantMessageWasUserStopped({
+        metadata: { custom: { userStopped: true } },
+      }),
+    ).toBe(true);
+    expect(assistantMessageWasUserStopped({})).toBe(false);
+  });
+});
+
+describe("SelectionAttachedPill", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: true, status: 204 })),
+    );
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("formats the selected character count with the active app locale", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "de-DE",
+            messages: {
+              agentChat: {
+                selection: {
+                  attached: "{{formattedCount}} Zeichen der Auswahl angehängt",
+                },
+              },
+            },
+          }}
+          initialLocale="de-DE"
+          initialPreference="de-DE"
+          persistPreference={false}
+        >
+          <SelectionAttachedPill />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-panel:selection-attached", {
+          detail: { length: 1234 },
+        }),
+      );
+    });
+
+    expect(container.textContent).toContain(
+      "1.234 Zeichen der Auswahl angehängt",
+    );
+  });
+});
 
 describe("ThinkingIndicator", () => {
   let container: HTMLDivElement;
@@ -54,6 +176,81 @@ describe("ThinkingIndicator", () => {
     expect(
       container.querySelector(".agent-thinking-indicator__logo"),
     ).toBeNull();
+  });
+});
+
+describe("ChatImageAttachmentPreview", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const src = "data:image/png;base64,AAAA";
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    document.body.innerHTML = "";
+    vi.unstubAllGlobals();
+  });
+
+  it("opens the full-size image with localized controls and closes it", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          persistPreference={false}
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {
+              agentChat: {
+                composer: {
+                  previewAttachment: "Open {{name}}",
+                  closePreview: "Custom close",
+                },
+              },
+            },
+          }}
+        >
+          <ChatImageAttachmentPreview src={src} alt="Screenshot" />
+        </AgentNativeI18nProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    const thumbnail = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Open Screenshot"]',
+    );
+    expect(thumbnail).toBeTruthy();
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
+
+    act(() => {
+      thumbnail?.click();
+    });
+
+    const dialog = document.body.querySelector<HTMLElement>('[role="dialog"]');
+    expect(dialog).toBeTruthy();
+    expect(
+      Array.from(dialog?.querySelectorAll("img") ?? []).some(
+        (image) => image.src === src,
+      ),
+    ).toBe(true);
+    expect(
+      dialog?.querySelector('button[aria-label="Custom close"]'),
+    ).toBeTruthy();
+
+    act(() => {
+      dialog
+        ?.querySelector<HTMLButtonElement>('button[aria-label="Custom close"]')
+        ?.click();
+    });
+
+    expect(document.body.querySelector('[role="dialog"]')).toBeNull();
   });
 });
 
@@ -103,7 +300,19 @@ describe("shouldShowAssistantMessageFooter", () => {
     ).toBe(false);
   });
 
-  it("keeps completed historical assistant controls visible while chat work runs", () => {
+  it("hides controls while a delegated agent is still pending", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: true,
+        chatRunning: false,
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+        hasActiveTool: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("keeps unrelated historical assistant controls while chat work runs", () => {
     expect(
       shouldShowAssistantMessageFooter({
         isLast: false,
@@ -112,6 +321,48 @@ describe("shouldShowAssistantMessageFooter", () => {
         statusIsTerminal: true,
       }),
     ).toBe(true);
+  });
+
+  it("hides historical controls when they belong to the active run", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-active",
+        messageRunId: "run-active",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("hides historical controls across continuation run IDs in the same turn", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-successor",
+        messageRunId: "run-original",
+        activeTurnId: "turn-shared",
+        messageTurnId: "turn-shared",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not treat missing turn metadata as a different turn", () => {
+    expect(
+      shouldShowAssistantMessageFooter({
+        isLast: false,
+        chatRunning: true,
+        activeRunId: "run-same",
+        messageRunId: "run-same",
+        activeTurnId: "turn-current",
+        hasRenderableContent: true,
+        statusIsTerminal: true,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -164,6 +415,18 @@ describe("shouldShowMissingFinalResponse", () => {
         statusIsTerminal: true,
         hasAssistantText: false,
         hasUnresolvedTool: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("stays hidden after the user explicitly stops the run", () => {
+    expect(
+      shouldShowMissingFinalResponse({
+        isCurrentTurnRunning: false,
+        statusIsTerminal: true,
+        hasAssistantText: false,
+        hasUnresolvedTool: false,
+        userStoppedRun: true,
       }),
     ).toBe(false);
   });
@@ -279,6 +542,18 @@ describe("assistantMessageHasCompletedCustomUi", () => {
       ]),
     ).toBe(false);
   });
+
+  it("recognizes a completed Builder handoff as interactive UI", () => {
+    expect(
+      assistantMessageHasCompletedCustomUi([
+        {
+          type: "tool-call",
+          toolName: "connect-builder",
+          result: JSON.stringify({ kind: "connect-builder-card" }),
+        },
+      ]),
+    ).toBe(true);
+  });
 });
 
 describe("assistantMessageHasCustomUi", () => {
@@ -306,6 +581,48 @@ describe("assistantMessageHasCustomUi", () => {
       ]),
     ).toBe(false);
   });
+
+  it("keeps pending needsApproval affordances expanded", () => {
+    expect(
+      assistantMessageHasCustomUi([
+        {
+          type: "tool-call",
+          toolName: "create-builder-branch",
+          result: "Awaiting human approval. This action did NOT execute.",
+          approval: { approvalKey: "create-builder-branch:{}" },
+        },
+        {
+          type: "text",
+          text: "Waiting for your approval to run create-builder-branch.",
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      assistantMessageHasCustomUi([
+        {
+          type: "tool-call",
+          toolName: "create-builder-branch",
+          result: "Awaiting human approval. This action did NOT execute.",
+          approval: {
+            approvalKey: "create-builder-branch:{}",
+            dismissed: true,
+          },
+        },
+      ]),
+    ).toBe(false);
+  });
+
+  it("keeps the Builder handoff treated as interactive UI", () => {
+    expect(
+      assistantMessageHasCustomUi([
+        {
+          type: "tool-call",
+          toolName: "connect-builder",
+          result: JSON.stringify({ kind: "connect-builder-card" }),
+        },
+      ]),
+    ).toBe(true);
+  });
 });
 
 describe("messageTextFromContent", () => {
@@ -326,6 +643,19 @@ describe("messageTextFromContent", () => {
         },
       ]),
     ).toBe("Stopped because manage-progress failed 3 times.");
+  });
+});
+
+describe("assistant completion notices", () => {
+  it("recognizes terminal missing-response warnings separately from final text", () => {
+    expect(
+      isMissingFinalResponseWarningText(
+        "The agent completed the view screen action, but stopped before sending a final message.",
+      ),
+    ).toBe(true);
+    expect(isMissingFinalResponseWarningText("The work is complete.")).toBe(
+      false,
+    );
   });
 });
 
@@ -397,6 +727,7 @@ describe("shouldShowAssistantWorkSummary", () => {
         isComplete: false,
         hasCollapsibleWork: true,
         hasUnresolvedTool: false,
+        chatRunning: true,
       }),
     ).toBe(true);
   });
@@ -408,30 +739,220 @@ describe("shouldShowAssistantWorkSummary", () => {
         isComplete: false,
         hasCollapsibleWork: true,
         hasUnresolvedTool: false,
+        chatRunning: true,
       }),
     ).toBe(false);
   });
 
-  it("does not group work that still has an unresolved tool", () => {
+  it("does not group the running turn whose tool is still in flight", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: true,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: true,
+        chatRunning: true,
+      }),
+    ).toBe(false);
+  });
+
+  it("still shows the duration summary for a stalled turn that is not running", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: true,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: true,
+        chatRunning: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not collapse active delegated work into a duration summary", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: true,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: false,
+        hasActiveTool: true,
+        chatRunning: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("groups historical work with a dangling tool", () => {
     expect(
       shouldShowAssistantWorkSummary({
         isLast: false,
         isComplete: false,
         hasCollapsibleWork: true,
         hasUnresolvedTool: true,
+        chatRunning: true,
+      }),
+    ).toBe(true);
+  });
+});
+
+describe("getAssistantWorkSummaryDurationMs", () => {
+  it("shows a turn duration only on the first folded work segment", () => {
+    expect(getAssistantWorkSummaryDurationMs(11_000, 2, 2)).toBe(11_000);
+    expect(getAssistantWorkSummaryDurationMs(11_000, 5, 2)).toBeNull();
+  });
+
+  it("does not invent a duration when the turn has none", () => {
+    expect(getAssistantWorkSummaryDurationMs(null, 2, 2)).toBeNull();
+    expect(getAssistantWorkSummaryDurationMs(undefined, 2, 2)).toBeUndefined();
+  });
+});
+
+describe("shouldShowInlineRunError", () => {
+  const runError = {
+    message: "Provider timed out.",
+    errorCode: "connection_error",
+    runId: "run-9",
+  };
+
+  it("marks a failed turn regardless of where it sits in the thread", () => {
+    // No isLast input: an error persisted on an earlier turn stays visible once
+    // the user sends the next message.
+    expect(
+      shouldShowInlineRunError({ runError, bannerRunErrorKey: null }),
+    ).toBe(true);
+    expect(
+      shouldShowInlineRunError({ runError, bannerRunErrorKey: undefined }),
+    ).toBe(true);
+  });
+
+  it("stays quiet when the banner already shows this same run", () => {
+    expect(
+      shouldShowInlineRunError({
+        runError,
+        bannerRunErrorKey: runErrorKey(runError),
       }),
     ).toBe(false);
+  });
+
+  it("still marks a turn while the banner shows a different run", () => {
+    expect(
+      shouldShowInlineRunError({
+        runError,
+        bannerRunErrorKey: runErrorKey({ ...runError, runId: "run-10" }),
+      }),
+    ).toBe(true);
+  });
+
+  it("shows nothing when the turn carries no run error", () => {
+    expect(
+      shouldShowInlineRunError({ runError: null, bannerRunErrorKey: null }),
+    ).toBe(false);
+  });
+});
+
+describe("InlineRunErrorNotice", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.unstubAllGlobals();
+  });
+
+  it("collapses to one line with the run duration and expands on click", () => {
+    act(() => {
+      root.render(
+        <InlineRunErrorNotice
+          info={{
+            message: "Provider timed out.",
+            errorCode: "connection_error",
+            runId: "run-9",
+            recoverable: true,
+          }}
+          durationMs={125_000}
+        />,
+      );
+    });
+
+    const toggle = container.querySelector("button");
+    expect(toggle?.textContent).toBe(
+      "The agent stopped before finishing after 2m 5s",
+    );
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(container.textContent).not.toContain("Provider timed out.");
+
+    act(() => {
+      toggle?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).toContain("Provider timed out.");
+    expect(container.textContent).toContain("connection_error");
+  });
+
+  it("uses the error headline when the run is not recoverable", () => {
+    act(() => {
+      root.render(
+        <InlineRunErrorNotice info={{ message: "Boom." }} durationMs={null} />,
+      );
+    });
+
+    expect(container.querySelector("button")?.textContent).toBe(
+      "The agent hit an error",
+    );
+  });
+
+  it("formats the inline error duration with the selected locale", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          catalog={{
+            sourceLocale: "en-US",
+            messages: {
+              agentChat: {
+                duration: {
+                  minuteShort: "min",
+                  secondShort: "sec",
+                },
+              },
+            },
+          }}
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <InlineRunErrorNotice
+            info={{
+              message: "Provider timed out.",
+              errorCode: "connection_error",
+              recoverable: true,
+            }}
+            durationMs={125_000}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.querySelector("button")?.textContent).toBe(
+      "The agent stopped before finishing after 2min 5sec",
+    );
   });
 });
 
 describe("isCollapsibleAssistantWorkPart", () => {
   it("keeps the Builder handoff card outside collapsed work", () => {
-    expect(
-      isCollapsibleAssistantWorkPart({
-        type: "tool-call",
-        toolName: "connect-builder",
-      }),
-    ).toBe(false);
+    const builderHandoff = {
+      type: "tool-call",
+      toolName: "connect-builder",
+    };
+    expect(isAlwaysVisibleAssistantTool(builderHandoff)).toBe(true);
+    expect(isCollapsibleAssistantWorkPart(builderHandoff)).toBe(false);
   });
 
   it("still groups ordinary work and reasoning", () => {
@@ -452,6 +973,26 @@ describe("isCollapsibleAssistantWorkPart", () => {
         chatUI: { renderer: "todo-demo.todo-list-inline" },
       }),
     ).toBe(false);
+  });
+
+  it("keeps pending needsApproval tools outside collapsed work", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "create-builder-branch",
+        approval: { approvalKey: "create-builder-branch:{}" },
+      }),
+    ).toBe(false);
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "create-builder-branch",
+        approval: {
+          approvalKey: "create-builder-branch:{}",
+          dismissed: true,
+        },
+      }),
+    ).toBe(true);
   });
 });
 
@@ -498,6 +1039,51 @@ describe("getAssistantToolSummaryInfo", () => {
         { type: "tool-call", toolName: "summarize", args: {} },
       ]),
     ).toEqual({ startIndex: -1, hiddenToolCount: 0 });
+  });
+});
+
+describe("groupAssistantWorkParts", () => {
+  it("keeps a shadowed call-agent row inside the surrounding work group", () => {
+    const parts = [
+      { type: "tool-call", toolName: "read-file" },
+      {
+        type: "tool-call",
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+        args: { agent: "analytics" },
+      },
+      {
+        type: "tool-call",
+        toolCallId: "agent-analytics",
+        toolName: "agent:Analytics",
+        args: {},
+      },
+      { type: "tool-call", toolName: "query" },
+    ] as const;
+
+    expect(
+      parts.map((part, index) => groupAssistantWorkParts(part, index, parts)),
+    ).toEqual([["group-work"], ["group-work"], ["group-work"], ["group-work"]]);
+  });
+
+  it("does not open a work group for a leading shadowed call-agent row", () => {
+    const parts = [
+      {
+        type: "tool-call",
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+        args: { agent: "analytics" },
+      },
+      {
+        type: "tool-call",
+        toolCallId: "agent-analytics",
+        toolName: "agent:Analytics",
+        args: {},
+      },
+    ] as const;
+
+    expect(groupAssistantWorkParts(parts[0], 0, parts)).toBeNull();
+    expect(groupAssistantWorkParts(parts[1], 1, parts)).toEqual(["group-work"]);
   });
 });
 
@@ -643,6 +1229,40 @@ describe("assistantMessageHasUnresolvedTool", () => {
           argsText: "{}",
           args: {},
           result: "{}",
+        },
+      ]),
+    ).toBe(false);
+  });
+});
+
+describe("assistantMessageHasActiveTool", () => {
+  it("detects a delegated agent that is pending after the parent call returns", () => {
+    expect(
+      assistantMessageHasActiveTool([
+        {
+          type: "tool-call",
+          toolName: "agent:Analytics",
+          toolCallId: "agent-call",
+          argsText: "",
+          args: {},
+          result: "Remote agent task is still pending",
+          activity: true,
+          structuredMeta: { agentPending: true },
+        },
+      ]),
+    ).toBe(true);
+  });
+
+  it("does not treat a generic activity placeholder as active by itself", () => {
+    expect(
+      assistantMessageHasActiveTool([
+        {
+          type: "tool-call",
+          toolName: "edit-design",
+          toolCallId: "activity-only",
+          argsText: "",
+          args: {},
+          activity: true,
         },
       ]),
     ).toBe(false);

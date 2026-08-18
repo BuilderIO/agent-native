@@ -15,6 +15,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 const NETWORK_RESTART_BASE_MS = 1_000;
 const NETWORK_RESTART_MAX_MS = 30_000;
+const RESTART_RETRY_BASE_MS = 400;
+const MAX_RESTART_ATTEMPTS = 8;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getSpeechRecognitionCtor(): any {
@@ -42,6 +44,14 @@ export interface LiveTranscriptionApi {
   stopAndWait: (timeoutMs?: number) => Promise<string>;
   pause: () => void;
   resume: () => void;
+  /**
+   * Non-null when recognition died before the caller asked it to stop, so the
+   * returned transcript covers only part of the session. Callers must pass it
+   * along rather than storing a partial transcript as a finished one. Read
+   * through a getter (not state) so a stop handler can never observe a stale
+   * "everything was fine" value from an earlier render.
+   */
+  getIncompleteReason: () => string | null;
 }
 
 export function useLiveTranscription(
@@ -64,6 +74,20 @@ export function useLiveTranscription(
   const restartTimerRef = useRef<number | null>(null);
   const networkErrorCountRef = useRef(0);
   const restartDelayRef = useRef(0);
+  const restartFailureCountRef = useRef(0);
+  const incompleteReasonRef = useRef<string | null>(null);
+
+  // First reason wins: it names what actually broke the capture, and later
+  // teardown noise must not overwrite it.
+  const markIncomplete = useCallback((reason: string) => {
+    if (incompleteReasonRef.current) return;
+    incompleteReasonRef.current = reason;
+  }, []);
+
+  const getIncompleteReason = useCallback(
+    () => incompleteReasonRef.current,
+    [],
+  );
 
   const currentTranscript = useCallback(
     () =>
@@ -102,6 +126,8 @@ export function useLiveTranscription(
     stoppedManuallyRef.current = false;
     networkErrorCountRef.current = 0;
     restartDelayRef.current = 0;
+    restartFailureCountRef.current = 0;
+    incompleteReasonRef.current = null;
     setTranscript("");
     setInterimText("");
 
@@ -122,6 +148,7 @@ export function useLiveTranscription(
       if (event.results.length > 0) {
         networkErrorCountRef.current = 0;
         restartDelayRef.current = 0;
+        restartFailureCountRef.current = 0;
       }
     };
 
@@ -133,6 +160,9 @@ export function useLiveTranscription(
         event.error === "audio-capture"
       ) {
         stoppedManuallyRef.current = true;
+        markIncomplete(
+          `Browser speech recognition stopped mid-recording (${event.error}).`,
+        );
         setIsActive(false);
         return;
       }
@@ -163,17 +193,34 @@ export function useLiveTranscription(
           }
           try {
             recognition.start();
+            restartFailureCountRef.current = 0;
           } catch {
-            setIsActive(false);
+            // Chrome throws InvalidStateError while the previous session is
+            // still releasing. `onend` has already fired and will not fire
+            // again, so this timer is the only thing left that can revive
+            // recognition — giving up here freezes the transcript mid-recording
+            // and the partial text then looks like the whole recording.
+            const attempt = ++restartFailureCountRef.current;
+            if (attempt >= MAX_RESTART_ATTEMPTS) {
+              markIncomplete(
+                "Browser speech recognition stopped mid-recording and could not be restarted.",
+              );
+              setIsActive(false);
+              return;
+            }
+            restartTimerRef.current = window.setTimeout(
+              restart,
+              RESTART_RETRY_BASE_MS * attempt,
+            );
           }
         };
-        const delayMs = restartDelayRef.current;
+        // Never call start() synchronously from inside onend — Chrome still
+        // has the session marked as running during dispatch and throws.
+        restartTimerRef.current = window.setTimeout(
+          restart,
+          restartDelayRef.current,
+        );
         restartDelayRef.current = 0;
-        if (delayMs > 0) {
-          restartTimerRef.current = window.setTimeout(restart, delayMs);
-        } else {
-          restart();
-        }
         return;
       }
       setIsActive(false);
@@ -185,10 +232,14 @@ export function useLiveTranscription(
     try {
       recognition.start();
       setIsActive(true);
-    } catch {
-      /* browser may block without user gesture */
+    } catch (err) {
+      // Browser may block without user gesture. Nothing was captured, and the
+      // caller must not treat the resulting empty text as "no speech".
+      markIncomplete(
+        `Browser speech recognition could not start (${(err as Error)?.message || "unknown error"}).`,
+      );
     }
-  }, [currentTranscript, lang]);
+  }, [currentTranscript, lang, markIncomplete]);
 
   const stop = useCallback((): string => {
     const text = currentTranscript();
@@ -307,5 +358,6 @@ export function useLiveTranscription(
     stopAndWait,
     pause,
     resume,
+    getIncompleteReason,
   };
 }

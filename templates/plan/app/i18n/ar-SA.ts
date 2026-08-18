@@ -155,6 +155,7 @@ const messages = {
       artboardCanvas: "لوحة عمل Plan",
       zoomIn: "تكبير",
       zoomOut: "تصغير",
+      zoomHint: "اضغط مع الاستمرار على ⌘/Ctrl ومرّر للتكبير",
       markupSaveFailed: "تعذر حفظ الترميز. حاول مرة أخرى.",
     },
     document: {
@@ -378,6 +379,8 @@ const messages = {
         'خاصة بشكل افتراضي. قم بدعوة الأشخاص أو المشاركة مع مؤسستك أو قم بتعيين "عام" لمراجعة أي شخص لديه رابط.',
       peopleAccess: "الأشخاص الذين لديهم حق الوصول {{noun}}",
       generalAccess: "الوصول العام {{noun}}",
+      commenterRoleLabel: "معلّق",
+      commenterRoleDescription: "يمكنه العرض وإضافة التعليقات",
       shareAria: "مشاركة {{noun}}",
       share: "مشاركة {{noun}}",
       shareThis: "شارك هذا {{noun}}",

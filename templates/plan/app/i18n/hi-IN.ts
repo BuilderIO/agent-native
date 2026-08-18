@@ -155,6 +155,7 @@ const messages = {
       artboardCanvas: "Plan आर्टबोर्ड कैनवास",
       zoomIn: "ज़ूम इन",
       zoomOut: "ज़ूम आउट",
+      zoomHint: "ज़ूम करने के लिए ⌘/Ctrl दबाकर स्क्रॉल करें",
       markupSaveFailed: "मार्कअप सहेजा नहीं जा सका। फिर कोशिश करें।",
     },
     document: {
@@ -373,6 +374,8 @@ const messages = {
         "डिफ़ॉल्ट रूप से निजी. लोगों को आमंत्रित करें, अपने संगठन के साथ साझा करें, या लिंक वाले किसी भी व्यक्ति की समीक्षा के लिए सार्वजनिक सेट करें।",
       peopleAccess: "{{noun}} पहुंच वाले लोग",
       generalAccess: "सामान्य {{noun}} पहुंच",
+      commenterRoleLabel: "टिप्पणीकार",
+      commenterRoleDescription: "देख और टिप्पणियाँ जोड़ सकते हैं",
       shareAria: "साझा करें {{noun}}",
       share: "साझा करें {{noun}}",
       shareThis: "इसे साझा करें {{noun}}",

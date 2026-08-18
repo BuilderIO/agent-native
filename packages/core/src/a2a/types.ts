@@ -85,6 +85,12 @@ export interface AgentSkill {
   requiresAuth?: boolean;
   isConsequential?: boolean;
   publicAgent?: PublicAgentActionConfig;
+  /**
+   * JSON Schema for the action's `input`. Advertising a skill without it tells a
+   * caller the action exists but not how to call it, so callers invoke with `{}`
+   * and get a required-property error back.
+   */
+  inputSchema?: Record<string, unknown>;
 }
 
 export interface AgentCapabilities {
@@ -154,16 +160,30 @@ export interface A2ASourceContextReference {
 }
 
 /**
- * Telemetry-only cross-app correlation. Receivers must never use these
- * caller-supplied values for identity, ownership, org scoping, access, or
- * approval decisions.
+ * Bounded cross-app correlation and routing preferences. Receivers must never
+ * use any caller-supplied value here for identity, data ownership, org scoping,
+ * access, or approval decisions. `selectedReceiverApp` may only prioritize the
+ * matching receiver's local tool surface, while `callerModel` may only pick a
+ * model the receiver's already-resolved engine advertises.
  */
 export interface A2ACorrelationMetadata {
   callerApp?: string;
+  /** App the caller deliberately selected for this delegated objective. */
+  selectedReceiverApp?: string;
   callerThreadId?: string;
   parentRunId?: string;
   parentTurnId?: string;
   invocationId?: string;
+  /** Number of cross-app edges already traversed by this logical request. */
+  delegationDepth?: number;
+  /** Bounded app ids already visited, used only for cycle prevention. */
+  visitedApps?: string[];
+  /**
+   * Model the caller resolved for its own turn. A hint only: the receiver
+   * honours it just when it has no model of its own, and only after bounding
+   * it to its own engine's catalog.
+   */
+  callerModel?: string;
 }
 
 // --- Framework config ---
@@ -225,6 +245,13 @@ export interface A2AConfig {
   description: string;
   version?: string;
   skills: AgentSkill[];
+  /**
+   * Skills advertised only to a caller with a verified A2A identity. Read-only
+   * skills may also be available through `actions/invoke`; mutating skills are
+   * message-only capabilities for delegation. Anonymous card fetches never see
+   * either set.
+   */
+  authenticatedSkills?: AgentSkill[];
   /** If true, public agent-card discovery includes only explicit public-safe skills. */
   publicSkillsOnly?: boolean;
   handler?: A2AHandler;

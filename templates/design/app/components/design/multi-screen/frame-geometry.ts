@@ -1,3 +1,9 @@
+import {
+  BREAKPOINT_FRAME_GAP,
+  getResponsiveGroupWidth,
+  visibleBreakpointWidths,
+} from "@shared/responsive-frame-layout";
+
 import { DEVICE_FRAME_VIEWPORTS, type DeviceFrameType } from "../types";
 import { SURFACE_PADDING } from "./overview-layout";
 import type { FrameGeometry, FrameGeometryById, Point } from "./types";
@@ -5,7 +11,8 @@ import type { FrameGeometry, FrameGeometryById, Point } from "./types";
 const SCREEN_WIDTH = 320;
 const SCREEN_GAP = 56;
 const FRAME_LABEL_HEIGHT = 28;
-const BREAKPOINT_FRAME_GAP = 24;
+
+export { BREAKPOINT_FRAME_GAP, visibleBreakpointWidths };
 
 export interface BoundsRect {
   left: number;
@@ -25,26 +32,6 @@ type ResponsiveLayoutScreen = {
   breakpointWidths?: readonly number[];
   layoutGroupId?: string;
 };
-
-/** Drops any breakpoint whose width equals the primary frame's own width — a
- * redundant duplicate of the base — also cleaning up designs authored before
- * the default set excluded the primary width. */
-export function visibleBreakpointWidths(
-  breakpointWidths: readonly number[] | undefined,
-  primaryWidthPx: number | undefined,
-): number[] {
-  const deduped = Array.from(
-    new Set(
-      (breakpointWidths ?? []).filter(
-        (width) => Number.isFinite(width) && width > 0,
-      ),
-    ),
-  );
-  if (primaryWidthPx === undefined || !Number.isFinite(primaryWidthPx)) {
-    return deduped;
-  }
-  return deduped.filter((width) => Math.abs(width - primaryWidthPx) > 1);
-}
 
 /** Minimum height for a frame of the given width — one device viewport tall
  * before it grows to content. Keep in sync with deviceViewportHeight in
@@ -85,12 +72,11 @@ export function getResponsiveScreenGroupSize(
       : (width * sourceHeight) / sourceWidth;
   };
   return {
-    width:
-      baseWidth +
-      breakpoints.reduce(
-        (total, width) => total + BREAKPOINT_FRAME_GAP + width * scale,
-        0,
-      ),
+    width: getResponsiveGroupWidth({
+      primaryWidth: baseWidth,
+      scale,
+      visibleWidths: breakpoints,
+    }),
     height: Math.max(
       baseHeight,
       ...breakpoints.map((width) => breakpointNaturalHeight(width) * scale),
@@ -351,6 +337,9 @@ export function getBreakpointFrameGeometry(args: {
   /** Measured content height at this width; wins over the primary-aspect
    * projection, which clipped narrower frames (they reflow taller). */
   contentHeightPx?: number;
+  /** A height the user set. Content measurement must never overwrite it, or
+   * the frame grows out from under them and 100vh content chases itself. */
+  pinnedHeightPx?: number;
 }): {
   frameWidth: number;
   frameHeight: number;
@@ -367,10 +356,16 @@ export function getBreakpointFrameGeometry(args: {
       : undefined;
   // Until the frame's own content is measured, use the pure aspect projection;
   // the device-viewport floor only applies once a real height is known.
+  const pinned =
+    args.pinnedHeightPx && args.pinnedHeightPx > 0
+      ? Math.round(args.pinnedHeightPx)
+      : undefined;
   const naturalHeight =
-    measured !== undefined
-      ? Math.max(deviceViewportFloorForWidth(args.widthPx), measured)
-      : Math.round(args.widthPx * Math.max(0.01, args.naturalAspect));
+    pinned !== undefined
+      ? pinned
+      : measured !== undefined
+        ? Math.max(deviceViewportFloorForWidth(args.widthPx), measured)
+        : Math.round(args.widthPx * Math.max(0.01, args.naturalAspect));
   const frameWidth = Math.round(args.widthPx * scale);
   const frameHeight = Math.round(naturalHeight * scale);
   return { frameWidth, frameHeight, naturalHeight, scale };

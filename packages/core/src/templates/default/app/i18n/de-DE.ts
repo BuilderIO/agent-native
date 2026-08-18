@@ -73,6 +73,24 @@ const messages = {
       suggestionGrantKey: "Gewähren Sie dieser App meinen OpenAI-Schlüssel",
     },
     pages: {
+      browserChatUnavailableTitle: "Browser-Chat-Sitzung nicht verfügbar",
+      browserChatUnavailableDescription:
+        "Stelle die Verbindung über die Agent-Native-Erweiterung erneut her.",
+      browserChatPlaceholder: "Zu dieser Seite fragen…",
+      browserChatAttachedPlaceholder: "Zu {{page}} fragen…",
+      browserConnectTitle: "Browser-Chat verbinden",
+      browserConnectDescription:
+        "Erlaube der Agent-Native Chrome-Erweiterung, diese Dispatch-Sitzung zu öffnen. Die Verbindung verwendet ein einmaliges, kurzlebiges Ticket.",
+      browserConnectInvalid:
+        "Diese Verbindungsanfrage ist ungültig. Starte erneut über die Erweiterung.",
+      browserConnectConnected:
+        "Browser-Chat verbunden. Du kannst diesen Tab schließen.",
+      browserConnectConnecting: "Verbindung wird hergestellt…",
+      browserConnectButton: "Verbinden",
+      browserConnectOpenFromExtension:
+        "Öffne diese Seite über die Agent-Native Chrome-Erweiterung.",
+      browserConnectFailed:
+        "Die Browser-Erweiterung konnte keine Verbindung herstellen.",
       appsDescription:
         "Öffnen Sie Workspace-Apps und starten Sie die Erstellung neuer Apps von Dispatch aus.",
       appsDescriptionWithWorkspace:
@@ -216,6 +234,8 @@ const messages = {
     newTerminal: "Neues Terminal",
     panelOptions: "Optionen im Agentenpanel",
     collapseSidebar: "Seitenleiste einklappen",
+    widenChat: "Chat verbreitern",
+    returnChatToLayout: "Chat zurück ins Layout",
     hideChats: "Chats ausblenden",
     allChats: "Alle Chats",
     settings: "Einstellungen",
@@ -262,6 +282,8 @@ const messages = {
       "Jeder, der mit dem Link angemeldet ist, kann es ansehen",
     viewer: "Viewer",
     viewerDescription: "Kann angesehen werden",
+    commenter: "Kommentator",
+    commenterDescription: "Kann ansehen und Kommentare hinzufügen",
     editor: "Editor",
     editorDescription: "Kann bearbeiten",
     admin: "Admin",
@@ -321,7 +343,7 @@ const messages = {
     codeChangeBadge: "Codeänderung",
     connectBuilderTitle: "Builder.io verbinden",
     connectBuilderDescription:
-      "Connect Builder, um cloudbasierte Codeänderungen über diese App zu ermöglichen.",
+      "Connect Builder (kostenloser Tarif verfügbar), um cloudbasierte Codeänderungen über diese App zu ermöglichen.",
     setupRequired: "Einrichtung erforderlich",
     branchCreated: "Zweig erstellt",
     close: "Schließen",
@@ -365,6 +387,16 @@ const messages = {
     deleting: "Wird archiviert...",
     openFullView: "Vollansicht öffnen",
     removeFromWidgetArea: "Aus diesem Widget-Bereich entfernen",
+    customBlockSandboxed: "Custom Block · isoliert",
+    sandboxedCustomBlock: "Isolierter SQL-Custom-Block",
+    sandboxedCustomBlockCreatedBy:
+      "Isolierter SQL-Custom-Block, erstellt von {{email}}",
+    promoteToAppCode: "In App-Code überführen",
+    historyShowsSourceVersions: "Der Verlauf zeigt Quellversionen",
+    createdByHistoryShowsSourceVersions:
+      "Erstellt von {{email}}. Der Verlauf zeigt Quellversionen.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "Erstellt von {{email}} · Verlauf zeigt Quellversionen",
     deleteExtensionEllipsis: "Erweiterung archivieren...",
     removeFromMyListEllipsis: "Von meiner Liste entfernen...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
@@ -448,6 +480,10 @@ const messages = {
     noMembers: "Noch keine Mitglieder.",
     memberCount_one: "{{count}} member",
     memberCount_other: "{{count}} members",
+    memberPagination: "Seitennavigation der Mitgliederliste",
+    previousMemberPage: "Zur vorherigen Mitgliederseite",
+    nextMemberPage: "Zur nächsten Mitgliederseite",
+    memberPageStatus: "Seite {{page}} von {{totalPages}}",
     youAreRole: "You are {{role}}",
     changeRole: "Rolle wechseln",
     removeMember: "Mitglied entfernen",
@@ -476,7 +512,7 @@ const messages = {
     back: "Zurück",
     agentEngineRequired: "Agent-Engine erforderlich",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (kostenloser Tarif verfügbar) or an LLM key before {{platform}} can answer.",
     openLlm: "Öffnen Sie LLM",
     setup: "Setup",
     shareDocumentsWith: "Teilen Sie Dokumente mit",

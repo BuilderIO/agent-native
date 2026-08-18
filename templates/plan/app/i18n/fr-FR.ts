@@ -157,6 +157,7 @@ const messages = {
       artboardCanvas: "Canevas de plan",
       zoomIn: "Zoom avant",
       zoomOut: "Zoom arriere",
+      zoomHint: "Maintenez ⌘/Ctrl et faites défiler pour zoomer",
       markupSaveFailed: "Impossible d enregistrer l annotation. Reessayez.",
     },
     document: {
@@ -720,6 +721,8 @@ const messages = {
       finishAccount:
         "Terminez la création de votre compte, puis revenez et nous générerons le lien.",
       generalAccess: "Accès général à {{noun}}",
+      commenterRoleLabel: "Commentateur",
+      commenterRoleDescription: "Peut consulter et ajouter des commentaires",
       hostedCopy:
         "Cet {{noun}} local dispose d'une copie hébergée pour le partage. Ouvrez l'{{noun}} hébergé pour gérer l'accès.",
       linkCopied: "Lien partageable copié",

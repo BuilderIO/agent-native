@@ -1,15 +1,28 @@
-import * as amplitude from "@amplitude/analytics-browser";
-import * as Sentry from "@sentry/browser";
+import type * as amplitude from "@amplitude/analytics-browser";
+import type * as Sentry from "@sentry/browser";
 
+import {
+  ANALYTICS_CLIENT_PLATFORM_PROPERTY,
+  type AnalyticsClientPlatform,
+} from "../shared/analytics-platform.js";
 import {
   llmConnectionTrackingProperties,
   type LlmConnectionStatus,
 } from "../shared/llm-connection.js";
+import { toPostHogExceptionProperties } from "../tracking/posthog-exception.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
-import { agentNativePath } from "./api-path.js";
+export {
+  clearAnalyticsSessionId,
+  setAnalyticsSessionId,
+} from "./analytics-session.js";
+import {
+  fetchAgentEngineStatus,
+  fetchAuthSessionStatus,
+} from "./client-status-requests.js";
 import {
   installErrorCapture,
   type CapturedExceptionEvent,
@@ -49,8 +62,25 @@ declare global {
   interface Window {
     gtag?: (...args: any[]) => void;
     __AGENT_NATIVE_CONFIG__?: {
+      /**
+       * This app's origins, projected by server/app-origin-config.ts. These
+       * replace the `VITE_` mirrors of APP_URL / WORKSPACE_* — the prefix only
+       * ever answered "how does this reach the browser", which the shell
+       * answers better. Impersonal, so safe in the CDN-cached shell.
+       */
+      appUrl?: string;
+      workspaceGatewayUrl?: string;
+      workspaceOAuthOrigin?: string;
       sentryDsn?: string;
       sentryEnvironment?: string;
+      /**
+       * Public PostHog project key + host. Publishable and identical for every
+       * visitor, so it ships inside the CDN-cached SSR shell alongside the
+       * Sentry DSN. Absent when no public key is configured.
+       */
+      posthogKey?: string;
+      posthogHost?: string;
+      posthogErrorTracking?: boolean;
       /**
        * Hosted Realtime Gateway config. Impersonal (same for every visitor),
        * so it is safe inside the CDN-cached SSR shell — unlike the per-user
@@ -96,6 +126,8 @@ export type ErrorCaptureConfigOptions = {
 };
 
 export type ConfigureTrackingOptions = {
+  /** Platform attribution attached to every event emitted by this client. */
+  clientPlatform?: AnalyticsClientPlatform;
   /**
    * Agent Native first-party analytics public key. This mirrors hosted
    * analytics SDKs where consumers pass the key at setup time instead of
@@ -146,10 +178,21 @@ type TrackingIdentity = {
 };
 
 let _getDefaultProps: GetDefaultProps | null = null;
+let _configuredAnalyticsClientPlatform: AnalyticsClientPlatform | null = null;
 let _agentNativeAnalyticsPublicKey: string | null = null;
 let _agentNativeAnalyticsEndpoint: string | null = null;
 let _amplitudeInitialized = false;
+let _amplitudeModule: typeof amplitude | null = null;
+let _amplitudeLoadPromise: Promise<typeof amplitude | null> | null = null;
+let _amplitudeApiKey: string | null = null;
+let _pendingAmplitudeEvents: Array<[string, Record<string, unknown>]> = [];
 let _sentryInitialized = false;
+let _sentryModule: typeof Sentry | null = null;
+let _sentryLoadPromise: Promise<typeof Sentry | null> | null = null;
+let _pendingSentryCaptures: Array<{
+  error: unknown;
+  context: ClientCaptureContext;
+}> = [];
 let _llmConnectionStatus: LlmConnectionStatus | null = null;
 let _llmConnectionRefresh: Promise<void> | null = null;
 let _llmConnectionRefreshInstalled = false;
@@ -301,20 +344,12 @@ function refreshLlmConnectionStatus(): Promise<void> {
     return Promise.resolve();
   }
   if (_llmConnectionRefresh) return _llmConnectionRefresh;
-  let request: Promise<Response>;
-  try {
-    request = fetch(agentNativePath("/_agent-native/agent-engine/status"));
-  } catch {
-    return Promise.resolve();
-  }
-  _llmConnectionRefresh = request
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data) => {
-      _llmConnectionStatus = normalizeAgentEngineStatus(data);
-      cacheLlmConnectionStatus(_llmConnectionStatus);
-    })
-    .catch(() => {
-      if (!_llmConnectionStatus) {
+  _llmConnectionRefresh = fetchAgentEngineStatus()
+    .then((result) => {
+      if (result.state === "available") {
+        _llmConnectionStatus = normalizeAgentEngineStatus(result.value);
+        cacheLlmConnectionStatus(_llmConnectionStatus);
+      } else if (!_llmConnectionStatus) {
         _llmConnectionStatus = readCachedLlmConnectionStatus();
       }
     })
@@ -396,15 +431,11 @@ function refreshTrackingAuthSession(): Promise<void> {
     return Promise.resolve();
   }
   if (_trackingSessionRefresh) return _trackingSessionRefresh;
-  _trackingSessionRefresh = fetch(
-    agentNativePath("/_agent-native/auth/session"),
-  )
-    .then((res) => (res.ok ? res.json() : null))
-    .then((data) => {
-      setTrackingIdentityFromSession(data);
-    })
-    .catch(() => {
-      clearTrackingIdentity();
+  _trackingSessionRefresh = fetchAuthSessionStatus()
+    .then((result) => {
+      if (result.state === "available") {
+        setTrackingIdentityFromSession(result.value);
+      }
     })
     .finally(() => {
       _trackingIdentityResolved = true;
@@ -439,6 +470,15 @@ function applyTrackingIdentity(
   assign("userName", identity.userName);
   assign("orgId", identity.orgId);
   return next;
+}
+
+/**
+ * The signed-in user id used to attribute browser events, or `undefined` when
+ * signed out. Same value the server attributes its events to (email, falling
+ * back to the auth user id), so a person is one person across both.
+ */
+function getTrackingUserId(): string | undefined {
+  return _trackingIdentity?.userId;
 }
 
 function getOrCreateAnonymousId(): string | undefined {
@@ -616,12 +656,31 @@ function ensureAmplitude(): boolean {
   const key = (import.meta.env as Record<string, string | undefined>)
     ?.VITE_AMPLITUDE_API_KEY;
   if (!key) return false;
-  // Standard pageviews and explicit events are emitted below. Keep SDK-level
-  // DOM/network autocapture off so rendered user content is never collected as
-  // an implicit analytics side effect.
-  amplitude.init(key, { autocapture: false });
-  _amplitudeInitialized = true;
-  return true;
+  _amplitudeApiKey = key;
+  if (_amplitudeLoadPromise) return false;
+
+  _amplitudeLoadPromise = import("@amplitude/analytics-browser")
+    .then((module) => {
+      // Standard pageviews and explicit events are emitted below. Keep SDK-level
+      // DOM/network autocapture off so rendered user content is never collected as
+      // an implicit analytics side effect.
+      module.init(key, { autocapture: false });
+      _amplitudeModule = module;
+      _amplitudeInitialized = true;
+      for (const [name, properties] of _pendingAmplitudeEvents) {
+        module.track(name, properties);
+      }
+      _pendingAmplitudeEvents = [];
+      return module;
+    })
+    .catch(() => {
+      _pendingAmplitudeEvents = [];
+      return null;
+    })
+    .finally(() => {
+      _amplitudeLoadPromise = null;
+    });
+  return false;
 }
 
 function hasOnlySourcelessFrames(value: {
@@ -881,58 +940,103 @@ function getClientSentryDsn(): string | undefined {
   );
 }
 
-function ensureSentry(): void {
-  if (_sentryInitialized) return;
+function captureWithSentry(
+  module: typeof Sentry,
+  error: unknown,
+  context: ClientCaptureContext,
+): string | undefined {
+  return module.withScope((scope) => {
+    if (context.tags) {
+      for (const [k, v] of Object.entries(context.tags)) {
+        if (typeof v === "string") scope.setTag(k, v);
+      }
+    }
+    if (context.extra) {
+      for (const [k, v] of Object.entries(context.extra)) {
+        if (v !== undefined) scope.setExtra(k, v);
+      }
+    }
+    if (context.contexts) {
+      for (const [k, v] of Object.entries(context.contexts)) {
+        scope.setContext(k, v);
+      }
+    }
+    return module.captureException(error);
+  });
+}
+
+function ensureSentry(loadWithoutDsn = false): void {
+  if (_sentryInitialized || _sentryLoadPromise) return;
   const dsn = getClientSentryDsn();
-  if (!dsn) return;
-  Sentry.init({
-    dsn,
-    environment:
-      window.__AGENT_NATIVE_CONFIG__?.sentryEnvironment ||
-      (import.meta.env as Record<string, string | undefined>)?.MODE ||
-      "production",
-    beforeSend(event) {
-      if (shouldDropBrowserSentryNoise(event)) {
-        return null;
+  if (!dsn && !loadWithoutDsn) return;
+  _sentryLoadPromise = import("@sentry/browser")
+    .then((module) => {
+      _sentryModule = module;
+      if (!dsn) {
+        for (const pending of _pendingSentryCaptures) {
+          captureWithSentry(module, pending.error, pending.context);
+        }
+        _pendingSentryCaptures = [];
+        return module;
       }
-      // Strip sensitive query params from the request URL. React Router
-      // history can include share tokens, ?signin=1, password reset codes,
-      // public-share password params (audit F-07), etc.
-      if (event.request?.url) {
-        event.request.url = scrubUrl(event.request.url);
-      }
-      // Clean the same params from breadcrumb URLs (Sentry captures
-      // history.pushState breadcrumbs by default).
-      if (Array.isArray(event.breadcrumbs)) {
-        for (const crumb of event.breadcrumbs) {
-          if (crumb && typeof crumb === "object" && "data" in crumb) {
-            const data = crumb.data as Record<string, unknown> | undefined;
-            if (data && typeof data.url === "string") {
-              data.url = scrubUrl(data.url);
-            }
-            if (data && typeof data.from === "string") {
-              data.from = scrubUrl(data.from);
-            }
-            if (data && typeof data.to === "string") {
-              data.to = scrubUrl(data.to);
+      module.init({
+        dsn,
+        environment:
+          window.__AGENT_NATIVE_CONFIG__?.sentryEnvironment ||
+          (import.meta.env as Record<string, string | undefined>)?.MODE ||
+          "production",
+        beforeSend(event) {
+          if (shouldDropBrowserSentryNoise(event)) {
+            return null;
+          }
+          // Strip sensitive query params from the request URL. React Router
+          // history can include share tokens, ?signin=1, password reset codes,
+          // public-share password params (audit F-07), etc.
+          if (event.request?.url) {
+            event.request.url = scrubUrl(event.request.url);
+          }
+          // Clean the same params from breadcrumb URLs (Sentry captures
+          // history.pushState breadcrumbs by default).
+          if (Array.isArray(event.breadcrumbs)) {
+            for (const crumb of event.breadcrumbs) {
+              if (crumb && typeof crumb === "object" && "data" in crumb) {
+                const data = crumb.data as Record<string, unknown> | undefined;
+                if (data && typeof data.url === "string") {
+                  data.url = scrubUrl(data.url);
+                }
+                if (data && typeof data.from === "string") {
+                  data.from = scrubUrl(data.from);
+                }
+                if (data && typeof data.to === "string") {
+                  data.to = scrubUrl(data.to);
+                }
+              }
             }
           }
-        }
+          return event;
+        },
+      });
+      module.setTag("runtime", "browser");
+      _sentryInitialized = true;
+      // Flush any user/tag that was set before init.
+      if (_pendingSentryUser !== undefined) {
+        module.setUser(_pendingSentryUser);
+        _pendingSentryUser = undefined;
       }
-      return event;
-    },
-  });
-  Sentry.setTag("runtime", "browser");
-  _sentryInitialized = true;
-  // Flush any user/tag that was set before init.
-  if (_pendingSentryUser !== undefined) {
-    Sentry.setUser(_pendingSentryUser);
-    _pendingSentryUser = undefined;
-  }
-  if (_pendingSentryOrgId !== undefined) {
-    Sentry.setTag("orgId", _pendingSentryOrgId);
-    _pendingSentryOrgId = undefined;
-  }
+      if (_pendingSentryOrgId !== undefined) {
+        module.setTag("orgId", _pendingSentryOrgId);
+        _pendingSentryOrgId = undefined;
+      }
+      for (const pending of _pendingSentryCaptures) {
+        captureWithSentry(module, pending.error, pending.context);
+      }
+      _pendingSentryCaptures = [];
+      return module;
+    })
+    .catch(() => null)
+    .finally(() => {
+      _sentryLoadPromise = null;
+    });
 }
 
 /**
@@ -972,10 +1076,10 @@ export function setSentryUser(
   ) {
     void startConfiguredSessionReplay(_sessionReplayOptions);
   }
-  if (_sentryInitialized) {
-    Sentry.setUser(user);
+  if (_sentryInitialized && _sentryModule) {
+    _sentryModule.setUser(user);
     if (orgId !== undefined) {
-      Sentry.setTag("orgId", orgId ?? null);
+      _sentryModule.setTag("orgId", orgId ?? null);
     }
     return;
   }
@@ -1024,25 +1128,12 @@ export function captureClientException(
 ): string | undefined {
   if (typeof window === "undefined") return undefined;
   try {
-    ensureSentry();
-    return Sentry.withScope((scope) => {
-      if (context.tags) {
-        for (const [k, v] of Object.entries(context.tags)) {
-          if (typeof v === "string") scope.setTag(k, v);
-        }
-      }
-      if (context.extra) {
-        for (const [k, v] of Object.entries(context.extra)) {
-          if (v !== undefined) scope.setExtra(k, v);
-        }
-      }
-      if (context.contexts) {
-        for (const [k, v] of Object.entries(context.contexts)) {
-          scope.setContext(k, v);
-        }
-      }
-      return Sentry.captureException(error);
-    });
+    ensureSentry(true);
+    if (_sentryModule) return captureWithSentry(_sentryModule, error, context);
+    if (_pendingSentryCaptures.length < 50) {
+      _pendingSentryCaptures.push({ error, context });
+    }
+    return undefined;
   } catch {
     return undefined;
   }
@@ -1150,6 +1241,9 @@ export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
 }
 
 export function configureTracking(options: ConfigureTrackingOptions): void {
+  if (options.clientPlatform) {
+    _configuredAnalyticsClientPlatform = options.clientPlatform;
+  }
   const publicKey = options.key || options.publicKey;
   if (publicKey) {
     _agentNativeAnalyticsPublicKey = publicKey;
@@ -1261,6 +1355,102 @@ function exceptionEventProperties(
   };
 }
 
+function amplitudeEventProperties(
+  name: string,
+  properties: Record<string, unknown>,
+): Record<string, unknown> {
+  if (name !== AGENT_NATIVE_EXCEPTION_EVENT_NAME) return properties;
+  const {
+    exceptionTags: _exceptionTags,
+    exceptionExtra: _exceptionExtra,
+    ...stableProperties
+  } = properties;
+  return stableProperties;
+}
+
+/**
+ * Resolve browser PostHog config, or `undefined` when error capture should not
+ * reach PostHog. Reads the SSR-injected shell config first, then Vite env for
+ * static/SPA builds that never render through the SSR handler.
+ */
+function posthogErrorConfig(): { key: string; host: string } | undefined {
+  const shell = window.__AGENT_NATIVE_CONFIG__;
+  if (shell?.posthogErrorTracking === false) return undefined;
+  const env = import.meta.env as Record<string, string | undefined>;
+  // Static/SPA builds never render through the SSR handler, so they never see
+  // the shell config that carries the server-side opt-out. Without this a
+  // Vite-only deployment could not honour `POSTHOG_ERROR_TRACKING=false`
+  // short of deleting the public key.
+  if (env?.VITE_POSTHOG_ERROR_TRACKING?.trim().toLowerCase() === "false") {
+    return undefined;
+  }
+  const key = shell?.posthogKey || env?.VITE_POSTHOG_KEY;
+  if (!key) return undefined;
+  const host = (
+    shell?.posthogHost ||
+    env?.VITE_POSTHOG_HOST ||
+    "https://us.i.posthog.com"
+  ).replace(/\/+$/, "");
+  return { key, host };
+}
+
+/**
+ * Send the exception straight to PostHog's event endpoint.
+ *
+ * Not relayed through `/_agent-native/track`: that route requires a resolved
+ * session, so every signed-out crash would be dropped without a trace.
+ *
+ * `distinct_id` uses the signed-in user id when we have one so browser events
+ * join the server's events for the same person; otherwise the stable anonymous
+ * id, which `$identify` later aliases on login.
+ */
+function sendPostHogExceptionEvent(event: CapturedExceptionEvent): void {
+  const config = posthogErrorConfig();
+  if (!config) return;
+
+  try {
+    const session = errorCaptureSessionContext();
+    const body = JSON.stringify({
+      api_key: config.key,
+      event: AGENT_NATIVE_EXCEPTION_EVENT_NAME,
+      properties: {
+        distinct_id: getTrackingUserId() || session.anonymousId || "anonymous",
+        ...toPostHogExceptionProperties({
+          type: event.type,
+          value: event.message,
+          stack: event.stack,
+          handled: event.handled,
+          level: event.level,
+        }),
+        $current_url: event.url,
+        $session_id: session.sessionId,
+        ...(session.replayId ? { $replay_id: session.replayId } : {}),
+        ...(event.release ? { release: event.release } : {}),
+        ...(event.environment ? { environment: event.environment } : {}),
+        ...(event.tags ? { exceptionTags: event.tags } : {}),
+        source: "browser",
+      },
+      timestamp: event.occurredAt,
+    });
+    const endpoint = `${config.host}/i/v0/e/`;
+
+    if (navigator.sendBeacon) {
+      // text/plain avoids a CORS preflight the page may not survive.
+      const blob = new Blob([body], { type: "text/plain;charset=UTF-8" });
+      if (navigator.sendBeacon(endpoint, blob)) return;
+    }
+    fetch(endpoint, {
+      method: "POST",
+      body,
+      keepalive: true,
+      headers: { "Content-Type": "text/plain;charset=UTF-8" },
+    }).catch(() => {});
+    // coercion-ok: throwing would replace the page's real error
+  } catch {
+    // Error reporting must never mask the original failure.
+  }
+}
+
 function sendExceptionEvent(event: CapturedExceptionEvent): void {
   // Route through the existing first-party analytics ingest as a dedicated
   // `$exception` event. This reuses the public-key auth + sendBeacon/keepalive
@@ -1270,6 +1460,7 @@ function sendExceptionEvent(event: CapturedExceptionEvent): void {
     AGENT_NATIVE_EXCEPTION_EVENT_NAME,
     exceptionEventProperties(event),
   );
+  sendPostHogExceptionEvent(event);
 }
 
 function emitExceptionToReplay(event: CapturedExceptionEvent): void {
@@ -1287,7 +1478,9 @@ function errorCaptureAutoEnabled(): boolean {
     _agentNativeAnalyticsPublicKey ||
     (import.meta.env as Record<string, string | undefined>)
       ?.VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY;
-  return !!publicKey;
+  // A PostHog public key is an equally explicit opt-in — an app running
+  // PostHog and no Agent Native Analytics should still report browser crashes.
+  return !!publicKey || !!posthogErrorConfig();
 }
 
 function maybeInstallErrorCapture(
@@ -1598,7 +1791,12 @@ function resolveProps(
   for (const [key, value] of Object.entries(replayProps)) {
     if (enriched[key] === undefined) enriched[key] = value;
   }
-  return applyTrackingIdentity(enriched);
+  return {
+    ...applyTrackingIdentity(enriched),
+    [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: getAnalyticsClientPlatform(
+      _configuredAnalyticsClientPlatform ?? undefined,
+    ),
+  };
 }
 
 function sessionReplayTrackingProperties(): Record<string, unknown> {
@@ -1647,6 +1845,7 @@ function pageviewProperties(reason: string): Record<string, unknown> {
 }
 
 function emitPageview(reason: string): void {
+  if (typeof window === "undefined") return;
   if (isLocalAnalyticsHostname(window.location.hostname)) return;
   const state = getPageviewTrackingState();
   const key = pageviewKey();
@@ -1765,9 +1964,14 @@ export function trackEvent(
   if (typeof window === "undefined") return;
   ensureSentry();
   const props = resolveProps(name, params);
+  const amplitudeProps = amplitudeEventProperties(name, props);
   window.gtag?.("event", name.replace(/\s+/g, "_"), props);
   if (ensureAmplitude()) {
-    amplitude.track(name, props);
+    _amplitudeModule?.track(name, amplitudeProps);
+  } else if (_amplitudeApiKey) {
+    if (_pendingAmplitudeEvents.length < 100) {
+      _pendingAmplitudeEvents.push([name, amplitudeProps]);
+    }
   }
   sendAgentNativeAnalytics(name, props);
 }

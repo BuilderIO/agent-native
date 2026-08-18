@@ -157,6 +157,7 @@ const messages = {
       artboardCanvas: "Plan artboard canvas",
       zoomIn: "Zoom in",
       zoomOut: "Zoom out",
+      zoomHint: "Hold ⌘/Ctrl and scroll to zoom",
       markupSaveFailed: "Couldn't save markup. Try again.",
     },
     document: {
@@ -376,6 +377,8 @@ const messages = {
         "Private by default. Invite people, share with your org, or set Public for anyone-with-link review.",
       peopleAccess: "People with {{noun}} access",
       generalAccess: "General {{noun}} access",
+      commenterRoleLabel: "Commenter",
+      commenterRoleDescription: "Can view and add comments",
       shareAria: "Share {{noun}}",
       share: "Share {{noun}}",
       shareThis: "Share this {{noun}}",

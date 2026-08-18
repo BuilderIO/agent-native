@@ -7,7 +7,7 @@ import {
 } from "@agent-native/core/settings";
 import { defineEventHandler, setResponseStatus, type H3Event } from "h3";
 
-import type { Settings } from "../../shared/api.js";
+import { normalizeCalendarSettings } from "../../shared/settings.js";
 import { getDefaultSettings } from "../lib/calendar-settings.js";
 
 async function uEmail(event: H3Event): Promise<string> {
@@ -22,10 +22,11 @@ async function uEmail(event: H3Event): Promise<string> {
 export const getSettings = defineEventHandler(async (event: H3Event) => {
   try {
     const email = await uEmail(event);
-    const settings =
-      (await getUserSetting(email, "calendar-settings")) ||
-      getDefaultSettings();
-    return settings;
+    const stored = await getUserSetting(email, "calendar-settings");
+    return normalizeCalendarSettings({
+      ...getDefaultSettings(),
+      ...(stored && typeof stored === "object" ? stored : {}),
+    });
   } catch (error: any) {
     setResponseStatus(event, 500);
     return { error: error.message };
@@ -33,16 +34,19 @@ export const getSettings = defineEventHandler(async (event: H3Event) => {
 });
 
 export const getPublicSettings = defineEventHandler(async (_event: H3Event) => {
-  const settings =
-    ((await getSetting("calendar-settings")) as unknown as Settings | null) ||
-    getDefaultSettings();
-  return settings;
+  return normalizeCalendarSettings(await getSetting("calendar-settings"));
 });
 
 export const updateSettings = defineEventHandler(async (event: H3Event) => {
   try {
     const email = await uEmail(event);
-    const settings: Settings = await readBody(event);
+    const body = await readBody<unknown>(event);
+    const settings = normalizeCalendarSettings({
+      ...normalizeCalendarSettings(
+        await getUserSetting(email, "calendar-settings"),
+      ),
+      ...(body && typeof body === "object" ? body : {}),
+    });
     const settingsRecord = settings as unknown as Record<string, unknown>;
     await putUserSetting(email, "calendar-settings", settingsRecord);
     // Also write to global key so the public booking/settings page can read it

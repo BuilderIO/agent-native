@@ -6,6 +6,7 @@ import type {
   CalendarEventDraft,
   UpdateEventScope,
 } from "@shared/api";
+import { getWeekStartsOn } from "@shared/calendar-week";
 import {
   IconCheck,
   IconChevronLeft,
@@ -17,8 +18,6 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import {
   format,
-  startOfMonth,
-  endOfMonth,
   startOfWeek,
   endOfWeek,
   addMonths,
@@ -27,10 +26,7 @@ import {
   subWeeks,
   addDays,
   subDays,
-  parseISO,
-  startOfDay,
 } from "date-fns";
-import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { useState, useMemo, useEffect, useCallback, useRef } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -48,6 +44,7 @@ import {
 } from "@/components/calendar/GuestNotificationDialog";
 import { MonthView } from "@/components/calendar/MonthView";
 import { PeopleSearchDialog } from "@/components/calendar/PeopleSearchDialog";
+import { TimezoneSwitchDialog } from "@/components/calendar/TimezoneSwitchDialog";
 import { WeekView } from "@/components/calendar/WeekView";
 import { useCalendarContext } from "@/components/layout/AppLayout";
 import type { ViewMode } from "@/components/layout/AppLayout";
@@ -81,22 +78,55 @@ import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useMeetingStartNotifications } from "@/hooks/use-meeting-start-notifications";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useOverlayPeople } from "@/hooks/use-overlay-people";
-import { useSettings } from "@/hooks/use-settings";
+import { useSettings, useUpdateSettings } from "@/hooks/use-settings";
 import { setUndoAction, runUndo } from "@/hooks/use-undo";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import {
+  buildWorkingLocationDraft,
+  resolveDraftWorkingLocation,
+} from "@/lib/calendar-drafts";
+import {
+  addCalendarDays,
+  dateKeyToDate,
+  dateKeyToTimezoneIso,
+  dateToCalendarDateKey,
+  eventOverlapsCalendarDay,
+  getBrowserTimezone,
+  getDateKeyInTimezone,
+  getEventDateKey,
+  getViewDateRange,
+  moveEventToCalendarDate,
+  normalizeTimezone,
+} from "@/lib/calendar-timezone";
 import { resolveEventAccountEmail } from "@/lib/event-account-selection";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
 import {
+  buildEventTitleUpdate,
   dateTimeInTimezoneToIso,
-  getLocalTimezone,
+  getEditableEventTitle,
+  UNNAMED_EVENT_TITLE,
+  resolveEventTimezone,
 } from "@/lib/event-form-utils";
 import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
+import { getLocationSuggestions } from "@/lib/location-suggestions";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
 import { cn } from "@/lib/utils";
+import {
+  buildWorkingLocationProperties,
+  findOwnedWorkingLocationForDay,
+} from "@/lib/working-location";
 
 const CALENDAR_DRAFT_EVENT_PREFIX = "calendar-draft-event:";
+const TIMEZONE_DISMISSAL_PREFIX = "calendar.timezone.dismissed.";
+
+function timezoneDismissalKey(savedTimezone: string, browserTimezone: string) {
+  return `${TIMEZONE_DISMISSAL_PREFIX}${encodeURIComponent(
+    savedTimezone,
+  )}:${encodeURIComponent(browserTimezone)}`;
+}
 
 type DraftEventPatch = Partial<CalendarEvent> & {
+  fullDay?: boolean;
   addGoogleMeet?: boolean;
   addZoom?: boolean;
   workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
@@ -139,49 +169,6 @@ function isRecurringCalendarEvent(event: CalendarEvent): boolean {
   return Boolean(event.recurringEventId || event.recurrence?.length);
 }
 
-function moveEventTimes({
-  start,
-  end,
-  targetDate,
-  allDay,
-  timezone,
-}: {
-  start: string;
-  end: string;
-  targetDate: Date;
-  allDay: boolean;
-  timezone: string;
-}) {
-  const originalStart = parseISO(start);
-  const originalEnd = parseISO(end);
-  const newStart = allDay
-    ? new Date(originalStart)
-    : toZonedTime(originalStart, timezone);
-  const newEnd = allDay
-    ? new Date(originalEnd)
-    : toZonedTime(originalEnd, timezone);
-
-  newStart.setFullYear(
-    targetDate.getFullYear(),
-    targetDate.getMonth(),
-    targetDate.getDate(),
-  );
-  newEnd.setFullYear(
-    targetDate.getFullYear(),
-    targetDate.getMonth(),
-    targetDate.getDate(),
-  );
-
-  return {
-    start: allDay
-      ? newStart.toISOString()
-      : fromZonedTime(newStart, timezone).toISOString(),
-    end: allDay
-      ? newEnd.toISOString()
-      : fromZonedTime(newEnd, timezone).toISOString(),
-  };
-}
-
 function updateScopePayload(scope: UpdateEventScope | undefined): {
   scope?: UpdateEventScope;
 } {
@@ -212,8 +199,42 @@ function addMinutesToDateTimeParts(
 
 function draftRange(draft: CalendarEventDraft, fallbackDate: Date) {
   const fallback = fallbackDraftRange(fallbackDate);
-  const start = parseValidDate(draft.start) ?? fallback.start;
-  const parsedEnd = parseValidDate(draft.end);
+  const fullDayTimezone = draft.startTimeZone ?? draft.endTimeZone;
+  const fullDayDatePattern = /^\d{4}-\d{2}-\d{2}$/;
+  const dateOnlyAllDay =
+    draft.allDay === true &&
+    Boolean(
+      draft.start &&
+      draft.end &&
+      fullDayDatePattern.test(draft.start) &&
+      fullDayDatePattern.test(draft.end),
+    );
+  const semanticFullDay =
+    draft.eventType === "outOfOffice" &&
+    draft.fullDay &&
+    fullDayTimezone &&
+    draft.start &&
+    draft.end &&
+    fullDayDatePattern.test(draft.start) &&
+    fullDayDatePattern.test(draft.end);
+  const start = dateOnlyAllDay
+    ? dateKeyToDate(draft.start!)
+    : semanticFullDay
+      ? new Date(
+          dateTimeInTimezoneToIso(draft.start!, "00:00", fullDayTimezone!),
+        )
+      : (parseValidDate(draft.start) ?? fallback.start);
+  const parsedEnd = dateOnlyAllDay
+    ? dateKeyToDate(draft.end!)
+    : semanticFullDay
+      ? new Date(
+          dateTimeInTimezoneToIso(
+            addCalendarDays(draft.end!, 1),
+            "00:00",
+            fullDayTimezone!,
+          ),
+        )
+      : parseValidDate(draft.end);
   const end =
     parsedEnd && parsedEnd.getTime() > start.getTime()
       ? parsedEnd
@@ -226,16 +247,38 @@ function draftToCalendarEvent(
   fallbackDate: Date,
 ): CalendarEvent {
   const { start, end } = draftRange(draft, fallbackDate);
+  const editableTitle = draft.title?.trim() ?? "";
+  const allDay =
+    draft.eventType === "outOfOffice" && draft.fullDay
+      ? false
+      : (draft.allDay ?? false);
+  const dateOnlyAllDay =
+    allDay &&
+    Boolean(
+      draft.start &&
+      draft.end &&
+      /^\d{4}-\d{2}-\d{2}$/.test(draft.start) &&
+      /^\d{4}-\d{2}-\d{2}$/.test(draft.end),
+    );
+  const { workingLocationType, workingLocationLabel } =
+    resolveDraftWorkingLocation(draft);
   return {
     id: calendarDraftEventId(draft.id),
-    title: draft.title?.trim() || "(No title)",
+    title:
+      editableTitle ||
+      (draft.eventType === "outOfOffice"
+        ? "Out of office"
+        : draft.eventType === "workingLocation"
+          ? "Working location"
+          : UNNAMED_EVENT_TITLE),
+    titleIsGenerated: !editableTitle,
     description: draft.description ?? "",
-    start: start.toISOString(),
-    end: end.toISOString(),
+    start: dateOnlyAllDay ? draft.start! : start.toISOString(),
+    end: dateOnlyAllDay ? draft.end! : end.toISOString(),
     startTimeZone: draft.startTimeZone,
     endTimeZone: draft.endTimeZone ?? draft.startTimeZone,
-    location: draft.location ?? draft.workingLocationLabel ?? "",
-    allDay: draft.allDay ?? false,
+    location: draft.location || workingLocationLabel,
+    allDay,
     source: "local",
     accountEmail: draft.accountEmail,
     colorId: draft.colorId,
@@ -243,6 +286,17 @@ function draftToCalendarEvent(
     transparency: draft.transparency,
     visibility: draft.visibility,
     eventType: draft.eventType ?? "default",
+    workingLocationProperties:
+      draft.eventType === "workingLocation"
+        ? buildWorkingLocationProperties(
+            { workingLocationProperties: undefined },
+            {
+              type: workingLocationType,
+              label: workingLocationLabel,
+            },
+          )
+        : undefined,
+    outOfOfficeProperties: draft.outOfOfficeProperties,
     recurrence: draft.recurrence,
     attendees: draft.attendees,
     reminders: draft.reminders,
@@ -280,7 +334,13 @@ function applyDraftPatch(
   copy("endTimeZone");
   copy("location");
   copy("allDay");
+  copy("fullDay");
+  if (patch.allDay === true) {
+    delete next.startTimeZone;
+    delete next.endTimeZone;
+  }
   copy("eventType");
+  copy("outOfOfficeProperties");
   copy("transparency");
   copy("visibility");
   copy("colorId");
@@ -367,6 +427,7 @@ export default function CalendarView() {
     Record<string, string>
   >({});
   const openedDraftIdRef = useRef<string | null>(null);
+  const preserveDraftViewRef = useRef(false);
   const committingDraftIdsRef = useRef<Set<string>>(new Set());
   const discardedCommittingDraftsRef = useRef<Map<string, CalendarEventDraft>>(
     new Map(),
@@ -380,17 +441,13 @@ export default function CalendarView() {
   const defaultAccountEmail = googleStatus.data?.accounts?.[0]?.email;
   const settingsQuery = useSettings();
   const { data: settings } = settingsQuery;
-  const calendarTimezone = settings?.timezone || getLocalTimezone();
-  const selectedCalendarDate = useMemo(
-    () => toZonedTime(selectedDate, calendarTimezone),
-    [selectedDate, calendarTimezone],
-  );
-  const selectCalendarDate = useCallback(
-    (date: Date) => {
-      setSelectedDate(fromZonedTime(date, calendarTimezone));
-    },
-    [calendarTimezone, setSelectedDate],
-  );
+  const weekStartsOn = getWeekStartsOn(settings?.weekStart);
+  const updateSettings = useUpdateSettings();
+  const displayTimezone = normalizeTimezone(settings?.timezone);
+  const [timezonePrompt, setTimezonePrompt] = useState<{
+    savedTimezone: string;
+    browserTimezone: string;
+  } | null>(null);
   const { data: rawOverlayPeople } = useOverlayPeople();
   const overlayPeople = Array.isArray(rawOverlayPeople) ? rawOverlayPeople : [];
   const overlayEmails = useMemo(
@@ -409,41 +466,83 @@ export default function CalendarView() {
     day: t("calendarView.day"),
   };
 
-  // Compute date range for query based on view
-  const { from, to } = useMemo(() => {
-    switch (viewMode) {
-      case "month": {
-        const ms = startOfMonth(selectedCalendarDate);
-        const me = endOfMonth(selectedCalendarDate);
-        return {
-          from: fromZonedTime(startOfWeek(ms), calendarTimezone).toISOString(),
-          to: fromZonedTime(endOfWeek(me), calendarTimezone).toISOString(),
-        };
+  useEffect(() => {
+    if (!settings?.timezone || typeof window === "undefined") return;
+
+    const checkBrowserTimezone = () => {
+      const browserTimezone = getBrowserTimezone();
+      if (browserTimezone === settings.timezone) {
+        setTimezonePrompt(null);
+        return;
       }
-      case "week": {
-        return {
-          from: fromZonedTime(
-            startOfWeek(selectedCalendarDate),
-            calendarTimezone,
-          ).toISOString(),
-          to: fromZonedTime(
-            endOfWeek(selectedCalendarDate),
-            calendarTimezone,
-          ).toISOString(),
-        };
+
+      const dismissalKey = timezoneDismissalKey(
+        settings.timezone,
+        browserTimezone,
+      );
+      try {
+        if (window.localStorage.getItem(dismissalKey) === "1") {
+          setTimezonePrompt(null);
+          return;
+        }
+      } catch (error) {
+        console.warn(
+          "Calendar timezone dismissal could not be read from local storage.",
+          error,
+        );
       }
-      case "day": {
-        const dayStart = new Date(selectedCalendarDate);
-        dayStart.setHours(0, 0, 0, 0);
-        const dayEnd = new Date(selectedCalendarDate);
-        dayEnd.setHours(23, 59, 59, 999);
-        return {
-          from: fromZonedTime(dayStart, calendarTimezone).toISOString(),
-          to: fromZonedTime(dayEnd, calendarTimezone).toISOString(),
-        };
-      }
+      setTimezonePrompt({
+        savedTimezone: settings.timezone,
+        browserTimezone,
+      });
+    };
+
+    checkBrowserTimezone();
+    window.addEventListener("focus", checkBrowserTimezone);
+    document.addEventListener("visibilitychange", checkBrowserTimezone);
+    return () => {
+      window.removeEventListener("focus", checkBrowserTimezone);
+      document.removeEventListener("visibilitychange", checkBrowserTimezone);
+    };
+  }, [settings?.timezone]);
+
+  const keepSavedTimezone = useCallback(() => {
+    if (!timezonePrompt) return;
+    try {
+      window.localStorage.setItem(
+        timezoneDismissalKey(
+          timezonePrompt.savedTimezone,
+          timezonePrompt.browserTimezone,
+        ),
+        "1",
+      );
+    } catch (error) {
+      console.warn(
+        "Calendar timezone dismissal could not be saved to local storage.",
+        error,
+      );
     }
-  }, [viewMode, selectedCalendarDate, calendarTimezone]);
+    setTimezonePrompt(null);
+  }, [timezonePrompt]);
+
+  const switchToBrowserTimezone = useCallback(() => {
+    if (!timezonePrompt || !settings) return;
+    updateSettings.mutate(
+      { ...settings, timezone: timezonePrompt.browserTimezone },
+      {
+        onSuccess: () => setTimezonePrompt(null),
+        onError: () => toast.error(t("settings.saveFailed")),
+      },
+    );
+  }, [settings, t, timezonePrompt, updateSettings]);
+
+  // The saved Calendar Settings timezone owns the range boundary. The browser
+  // timezone is only a temporary fallback while settings are loading.
+  const { from, to } = useMemo(
+    () =>
+      getViewDateRange(viewMode, selectedDate, displayTimezone, weekStartsOn),
+    [displayTimezone, selectedDate, viewMode, weekStartsOn],
+  );
 
   const {
     data: rawEventsData,
@@ -496,38 +595,40 @@ export default function CalendarView() {
         case "month": {
           const next = addMonths(selectedDate, 1);
           const prev = subMonths(selectedDate, 1);
-          return [next, prev].map((d) => ({
-            from: startOfWeek(startOfMonth(d)).toISOString(),
-            to: endOfWeek(endOfMonth(d)).toISOString(),
-          }));
+          return [next, prev].map((date) =>
+            getViewDateRange("month", date, displayTimezone, weekStartsOn),
+          );
         }
         case "week": {
           // Two weeks forward so rapid `j j` stays instant, plus one back.
           const next = addWeeks(selectedDate, 1);
           const next2 = addWeeks(selectedDate, 2);
           const prev = subWeeks(selectedDate, 1);
-          return [next, next2, prev].map((d) => ({
-            from: startOfWeek(d).toISOString(),
-            to: endOfWeek(d).toISOString(),
-          }));
+          return [next, next2, prev].map((date) =>
+            getViewDateRange("week", date, displayTimezone, weekStartsOn),
+          );
         }
         case "day": {
           const next = addDays(selectedDate, 1);
           const prev = subDays(selectedDate, 1);
-          return [next, prev].map((d) => {
-            const start = new Date(d);
-            start.setHours(0, 0, 0, 0);
-            const end = new Date(d);
-            end.setHours(23, 59, 59, 999);
-            return { from: start.toISOString(), to: end.toISOString() };
-          });
+          return [next, prev].map((date) =>
+            getViewDateRange("day", date, displayTimezone, weekStartsOn),
+          );
         }
       }
     })();
     for (const range of ranges) {
       void prefetchEvents(queryClient, range.from, range.to, overlayEmails);
     }
-  }, [isLoading, viewMode, selectedDate, overlayEmails, queryClient]);
+  }, [
+    displayTimezone,
+    isLoading,
+    overlayEmails,
+    queryClient,
+    selectedDate,
+    viewMode,
+    weekStartsOn,
+  ]);
 
   // Show the skeleton only when there is genuinely nothing to show for the
   // current date range — the first load, or navigating to a range we have not
@@ -599,31 +700,31 @@ export default function CalendarView() {
 
   // Filter events for day view — use overlap check so multi-day continuation
   // events (started on a prior day) still appear on the selected day.
-  const dayEvents = useMemo(
-    () =>
-      viewMode === "day"
-        ? events.filter((e) => {
-            const evStart = e.allDay
-              ? parseISO(e.start)
-              : toZonedTime(e.start, calendarTimezone);
-            const evEnd = e.allDay
-              ? parseISO(e.end)
-              : toZonedTime(e.end, calendarTimezone);
-            const dayStart = startOfDay(selectedCalendarDate);
-            const dayEnd = addDays(dayStart, 1);
-            return evStart < dayEnd && evEnd > dayStart;
-          })
-        : events,
-    [events, viewMode, selectedCalendarDate, calendarTimezone],
+  const dayEvents = useMemo(() => {
+    if (viewMode !== "day") return events;
+    return events.filter((event) =>
+      eventOverlapsCalendarDay(event, selectedDate, displayTimezone),
+    );
+  }, [displayTimezone, events, selectedDate, viewMode]);
+  const locationSuggestions = useMemo(
+    () => getLocationSuggestions(events),
+    [events],
   );
   const openNotificationEvent = useCallback(
     (event: CalendarEvent) => {
-      setSelectedDate(parseISO(event.start));
+      const eventDate = getEventDateKey(event, displayTimezone);
+      if (eventDate) setSelectedDate(dateKeyToDate(eventDate));
       setViewMode("day");
       setSidebarEvent(event);
       setFocusedEvent(event);
     },
-    [setFocusedEvent, setSelectedDate, setSidebarEvent, setViewMode],
+    [
+      displayTimezone,
+      setFocusedEvent,
+      setSelectedDate,
+      setSidebarEvent,
+      setViewMode,
+    ],
   );
   useMeetingStartNotifications(events, openNotificationEvent);
 
@@ -634,10 +735,17 @@ export default function CalendarView() {
     }
     if (openedDraftIdRef.current === eventDraft.id) return;
     openedDraftIdRef.current = eventDraft.id;
+    const preserveView = preserveDraftViewRef.current;
+    preserveDraftViewRef.current = false;
 
-    const { start } = draftRange(eventDraft, selectedDate);
-    setSelectedDate(start);
-    if (isMobile || viewMode === "month") {
+    const draftDate = getEventDateKey(
+      draftToCalendarEvent(eventDraft, selectedDate),
+      displayTimezone,
+    );
+    if (!preserveView && draftDate) {
+      setSelectedDate(dateKeyToDate(draftDate));
+    }
+    if (!preserveView && (isMobile || viewMode === "month")) {
       setViewMode("day");
     }
     setCreateDefaultStart(undefined);
@@ -648,6 +756,7 @@ export default function CalendarView() {
     setQuickEditEventId(calendarDraftEventId(eventDraft.id));
   }, [
     eventDraft,
+    displayTimezone,
     isMobile,
     selectedDate,
     setEventDetailSidebar,
@@ -684,10 +793,15 @@ export default function CalendarView() {
         setEventDraft(draft);
         persistCalendarDraft(draft);
       }
-      const trimmedTitle = draft.title?.trim();
+      const editableTitle = draft.title?.trim() ?? "";
+      const eventType = draft.eventType ?? "default";
       const title =
-        trimmedTitle && trimmedTitle !== "(No title)" ? trimmedTitle : "";
-      if (!title && !isSlotDraftId(draftId)) {
+        editableTitle || (eventType === "outOfOffice" ? "Out of office" : "");
+      if (
+        !title &&
+        eventType !== "workingLocation" &&
+        !isSlotDraftId(draftId)
+      ) {
         committingDraftIdsRef.current.delete(draftId);
         toast.error(t("calendarView.addTitleBeforeCreate"));
         return;
@@ -700,36 +814,60 @@ export default function CalendarView() {
         return;
       }
 
-      const eventType = draft.eventType ?? "default";
-      const location = draft.location ?? draft.workingLocationLabel ?? "";
-      const timezone = draft.startTimeZone ?? getLocalTimezone();
+      const { workingLocationType, workingLocationLabel } =
+        resolveDraftWorkingLocation(draft);
+      const location =
+        eventType === "workingLocation"
+          ? workingLocationLabel
+          : (draft.location ?? "");
+      const timezone = resolveEventTimezone(
+        draft.startTimeZone ?? draft.endTimeZone ?? displayTimezone,
+      );
+      const semanticFullDay =
+        eventType === "outOfOffice" &&
+        draft.fullDay === true &&
+        /^\d{4}-\d{2}-\d{2}$/.test(draft.start ?? "") &&
+        /^\d{4}-\d{2}-\d{2}$/.test(draft.end ?? "");
+      const dateOnlyAllDay =
+        draft.allDay === true &&
+        /^\d{4}-\d{2}-\d{2}$/.test(draft.start ?? "") &&
+        /^\d{4}-\d{2}-\d{2}$/.test(draft.end ?? "");
       const statusPatch =
         eventType === "default"
           ? {}
           : {
               eventType,
-              workingLocationType:
-                draft.workingLocationType ?? "customLocation",
-              workingLocationLabel:
-                (draft.workingLocationType ?? "customLocation") ===
-                "customLocation"
-                  ? location
-                  : draft.workingLocationLabel,
+              workingLocationType,
+              workingLocationLabel,
+              autoDeclineMode:
+                eventType === "outOfOffice"
+                  ? draft.outOfOfficeProperties?.autoDeclineMode
+                  : undefined,
+              declineMessage:
+                eventType === "outOfOffice"
+                  ? draft.outOfOfficeProperties?.declineMessage
+                  : undefined,
             };
 
       const payload: Parameters<typeof createEvent.mutate>[0] = {
         _tempId: eventId,
         title,
-        description: draft.description ?? "",
-        start: start.toISOString(),
-        end: end.toISOString(),
+        titleIsGenerated: !editableTitle,
+        description:
+          eventType === "outOfOffice" ? "" : (draft.description ?? ""),
+        start:
+          semanticFullDay || dateOnlyAllDay
+            ? draft.start!
+            : start.toISOString(),
+        end: semanticFullDay || dateOnlyAllDay ? draft.end! : end.toISOString(),
         startTimeZone: draft.allDay ? undefined : timezone,
         endTimeZone: draft.allDay
           ? undefined
           : (draft.endTimeZone ?? draft.startTimeZone ?? timezone),
-        location,
+        location: eventType === "outOfOffice" ? "" : location,
         accountEmail,
         allDay: draft.allDay ?? false,
+        fullDay: draft.fullDay,
         transparency:
           eventType === "workingLocation"
             ? "transparent"
@@ -741,15 +879,16 @@ export default function CalendarView() {
         reminders: draft.reminders,
         remindersUseDefault: draft.remindersUseDefault,
         ...statusPatch,
-        addGoogleMeet: draft.addGoogleMeet,
-        addZoom: draft.addZoom,
+        addGoogleMeet:
+          eventType === "outOfOffice" ? undefined : draft.addGoogleMeet,
+        addZoom: eventType === "outOfOffice" ? undefined : draft.addZoom,
         color: draft.colorId
           ? getGoogleEventColorHex(draft.colorId)
           : undefined,
         colorId: draft.colorId,
         recurrence: draft.recurrence,
         attachments: draft.attachments,
-        attendees: draft.attendees,
+        attendees: eventType === "outOfOffice" ? undefined : draft.attendees,
       };
 
       deletePersistedCalendarDraft(draftId);
@@ -802,6 +941,7 @@ export default function CalendarView() {
       defaultAccountEmail,
       deleteEvent,
       eventDraft,
+      displayTimezone,
       googleStatus.data?.accounts,
       selectedDate,
       setEventDraft,
@@ -877,25 +1017,26 @@ export default function CalendarView() {
       direction === "next"
         ? { month: addMonths, week: addWeeks, day: addDays }
         : { month: subMonths, week: subWeeks, day: subDays };
-    selectCalendarDate(fns[viewMode](selectedCalendarDate, 1));
+    setSelectedDate(fns[viewMode](selectedDate, 1));
   }
 
   function handleToday() {
-    setSelectedDate(new Date());
+    const today = getDateKeyInTimezone(new Date(), displayTimezone);
+    if (today) setSelectedDate(dateKeyToDate(today));
   }
 
   const handleDateSelect = useCallback(
     (date: Date) => {
-      selectCalendarDate(date);
+      setSelectedDate(date);
       if (viewMode === "month") {
         setViewMode("day");
       }
     },
-    [viewMode, selectCalendarDate, setViewMode],
+    [viewMode, setSelectedDate, setViewMode],
   );
 
   function handleGoToDate(date: Date) {
-    selectCalendarDate(date);
+    setSelectedDate(date);
     setViewMode("day");
   }
 
@@ -1046,41 +1187,24 @@ export default function CalendarView() {
     const event = events.find((e) => e.id === eventId);
     if (!event) return;
 
+    const moved = moveEventToCalendarDate(event, newDate, displayTimezone);
+    if (!moved) return;
+
     if (calendarDraftIdFromEventId(eventId)) {
-      const times = moveEventTimes({
-        start: event.start,
-        end: event.end,
-        targetDate: newDate,
-        allDay: event.allDay,
-        timezone: calendarTimezone,
-      });
-      updateDraftEvent(eventId, {
-        start: times.start,
-        end: times.end,
-      });
+      updateDraftEvent(eventId, moved);
       return;
     }
 
     const oldStartISO = event.start;
     const oldEndISO = event.end;
-    const times = moveEventTimes({
-      start: event.start,
-      end: event.end,
-      targetDate: newDate,
-      allDay: event.allDay,
-      timezone: calendarTimezone,
-    });
-    const newStart = parseISO(times.start);
-    const newEnd = parseISO(times.end);
+    const newStart = new Date(moved.start);
+    const newEnd = new Date(moved.end);
 
     // Guard against a zero/negative duration reaching the server (e.g. a
     // DST transition collapsing a short event's start/end onto each other).
     if (newEnd.getTime() <= newStart.getTime()) return;
 
-    const updates = {
-      start: times.start,
-      end: times.end,
-    };
+    const updates = moved;
     const isRecurring = isRecurringCalendarEvent(event);
     const guestNotification = await promptGuestNotification({
       event,
@@ -1140,7 +1264,9 @@ export default function CalendarView() {
       if (newEnd.getTime() <= newStart.getTime()) return;
 
       if (calendarDraftIdFromEventId(eventId)) {
-        const timezone = settings?.timezone || getLocalTimezone();
+        const timezone = resolveEventTimezone(
+          event.startTimeZone ?? event.endTimeZone ?? displayTimezone,
+        );
         updateDraftEvent(eventId, {
           start: newStart.toISOString(),
           end: newEnd.toISOString(),
@@ -1151,8 +1277,8 @@ export default function CalendarView() {
         return;
       }
 
-      const oldStart = parseISO(event.start).getTime();
-      const oldEnd = parseISO(event.end).getTime();
+      const oldStart = new Date(event.start).getTime();
+      const oldEnd = new Date(event.end).getTime();
       if (oldStart === newStart.getTime() && oldEnd === newEnd.getTime()) {
         return;
       }
@@ -1210,8 +1336,9 @@ export default function CalendarView() {
       );
     },
     [
+      displayTimezone,
       events,
-      settings,
+      displayTimezone,
       updateDraftEvent,
       promptGuestNotification,
       updateEvent,
@@ -1236,7 +1363,7 @@ export default function CalendarView() {
         return;
       }
 
-      selectCalendarDate(clickedDate);
+      setSelectedDate(clickedDate);
       const defaultDuration = Math.max(
         5,
         activeSettings.defaultEventDuration ?? 30,
@@ -1245,7 +1372,7 @@ export default function CalendarView() {
       setCreateDefaultStart(startTime);
       setCreateDialogOpen(false);
 
-      const dateStr = format(clickedDate, "yyyy-MM-dd");
+      const dateStr = dateToCalendarDateKey(clickedDate);
       // A drag-to-create gesture already computed the exact dragged range;
       // a plain click falls back to the user's configured default duration.
       const end = options?.explicitDuration
@@ -1281,7 +1408,54 @@ export default function CalendarView() {
       settings,
       settingsQuery,
       t,
-      selectCalendarDate,
+      setSelectedDate,
+      setEventDraft,
+    ],
+  );
+
+  const handleCreateWorkingLocation = useCallback(
+    (date: Date) => {
+      const existing = findOwnedWorkingLocationForDay(
+        events,
+        date,
+        displayTimezone,
+        defaultAccountEmail,
+      );
+
+      preserveDraftViewRef.current = true;
+      setCreateDefaultStart(undefined);
+      setCreateDefaultEnd(undefined);
+
+      if (existing) {
+        const existingDraftId = calendarDraftIdFromEventId(existing.id);
+        if (!existingDraftId && eventDraft) {
+          discardDraftEvent(calendarDraftEventId(eventDraft.id));
+        }
+        setQuickEditEventId(existing.id);
+        return;
+      }
+
+      if (eventDraft) {
+        discardDraftEvent(calendarDraftEventId(eventDraft.id));
+      }
+
+      const draftId = `slot-working-location-${Date.now()}`;
+      const draft = buildWorkingLocationDraft({
+        id: draftId,
+        date,
+        accountEmail: defaultAccountEmail,
+      });
+
+      persistCalendarDraft(draft);
+      setEventDraft(draft);
+      setQuickEditEventId(calendarDraftEventId(draftId));
+    },
+    [
+      defaultAccountEmail,
+      discardDraftEvent,
+      displayTimezone,
+      eventDraft,
+      events,
       setEventDraft,
     ],
   );
@@ -1360,8 +1534,9 @@ export default function CalendarView() {
   const handleQuickEditSave = useCallback(
     async (eventId: string, title: string, accountEmail?: string) => {
       setQuickEditEventId(null);
+      const trimmedTitle = title.trim();
       if (calendarDraftIdFromEventId(eventId)) {
-        updateDraftEvent(eventId, { title: title.trim() });
+        updateDraftEvent(eventId, { title: trimmedTitle });
         return;
       }
       setQuickEditTempIds((current) => {
@@ -1369,9 +1544,9 @@ export default function CalendarView() {
         const { [eventId]: _removed, ...next } = current;
         return next;
       });
-      if (title.trim() && title.trim() !== "(No title)") {
+      if (trimmedTitle) {
         const event = events.find((e) => e.id === eventId);
-        const updates = { title: title.trim() };
+        const updates = buildEventTitleUpdate(trimmedTitle);
         const guestNotification = event
           ? await promptGuestNotification({
               event,
@@ -1393,12 +1568,14 @@ export default function CalendarView() {
 
   const handleTitleSave = useCallback(
     async (eventId: string, title: string, accountEmail?: string) => {
+      const trimmedTitle = title.trim();
+      if (!trimmedTitle) return;
       if (calendarDraftIdFromEventId(eventId)) {
-        updateDraftEvent(eventId, { title });
+        updateDraftEvent(eventId, { title: trimmedTitle });
         return;
       }
       const event = events.find((e) => e.id === eventId);
-      const updates = { title };
+      const updates = buildEventTitleUpdate(trimmedTitle);
       const guestNotification = event
         ? await promptGuestNotification({
             event,
@@ -1431,7 +1608,7 @@ export default function CalendarView() {
       });
       // Delete the event if title was never set
       const ev = events.find((e) => e.id === eventId);
-      if (!ev || ev.title === "(No title)") {
+      if (!ev || !getEditableEventTitle(ev).trim()) {
         deleteEvent.mutate(
           buildDeleteEventMutationInput(
             {
@@ -1519,18 +1696,18 @@ export default function CalendarView() {
           break;
         case "ArrowDown":
           e.preventDefault();
-          selectCalendarDate(
+          setSelectedDate(
             viewMode === "month"
-              ? addWeeks(selectedCalendarDate, 1)
-              : addDays(selectedCalendarDate, 1),
+              ? addWeeks(selectedDate, 1)
+              : addDays(selectedDate, 1),
           );
           break;
         case "ArrowUp":
           e.preventDefault();
-          selectCalendarDate(
+          setSelectedDate(
             viewMode === "month"
-              ? subWeeks(selectedCalendarDate, 1)
-              : subDays(selectedCalendarDate, 1),
+              ? subWeeks(selectedDate, 1)
+              : subDays(selectedDate, 1),
           );
           break;
         case "p":
@@ -1570,8 +1747,7 @@ export default function CalendarView() {
     deleteDialogEvent,
     isTypingInInput,
     viewMode,
-    selectedCalendarDate,
-    selectCalendarDate,
+    selectedDate,
     sidebarEvent,
     focusedEvent,
     events,
@@ -1584,19 +1760,19 @@ export default function CalendarView() {
     switch (viewMode) {
       case "month":
         return isMobile
-          ? format(selectedCalendarDate, "MMM yyyy")
-          : format(selectedCalendarDate, "MMMM yyyy");
+          ? format(selectedDate, "MMM yyyy")
+          : format(selectedDate, "MMMM yyyy");
       case "week": {
-        const ws = startOfWeek(selectedCalendarDate);
-        const we = endOfWeek(selectedCalendarDate);
+        const ws = startOfWeek(selectedDate, { weekStartsOn });
+        const we = endOfWeek(selectedDate, { weekStartsOn });
         return isMobile
           ? `${format(ws, "MMM d")} – ${format(we, "d")}`
           : `${format(ws, "MMM d")} – ${format(we, "d, yyyy")}`;
       }
       case "day":
         return isMobile
-          ? format(selectedCalendarDate, "EEE, MMM d")
-          : format(selectedCalendarDate, "EEEE, MMMM d, yyyy");
+          ? format(selectedDate, "EEE, MMM d")
+          : format(selectedDate, "EEEE, MMMM d, yyyy");
     }
   })();
 
@@ -1772,9 +1948,10 @@ export default function CalendarView() {
                     setCreateDefaultEnd(undefined);
                   }
                 }}
-                defaultDate={selectedCalendarDate}
+                defaultDate={selectedDate}
                 defaultStartTime={createDefaultStart}
                 defaultEndTime={createDefaultEnd}
+                locationSuggestions={locationSuggestions}
               />
               <AccountAvatars />
               <AgentToggleButton />
@@ -1786,9 +1963,10 @@ export default function CalendarView() {
             {viewMode === "month" && (
               <MonthView
                 events={events}
-                timezone={calendarTimezone}
-                selectedDate={selectedCalendarDate}
+                selectedDate={selectedDate}
+                timezone={displayTimezone}
                 onDateSelect={handleDateSelect}
+                onCreateWorkingLocation={handleCreateWorkingLocation}
                 onDeleteEvent={handleDeleteEvent}
                 onEventDrop={handleEventDrop}
                 draftEventIds={draftEventIds}
@@ -1796,17 +1974,19 @@ export default function CalendarView() {
                 onDraftCreate={createDraftEvent}
                 onDraftDiscard={discardDraftEvent}
                 isLoading={eventsLoading}
+                weekStartsOn={weekStartsOn}
               />
             )}
             {viewMode === "week" && (
               <WeekView
                 events={events}
-                timezone={calendarTimezone}
-                selectedDate={selectedCalendarDate}
+                selectedDate={selectedDate}
+                timezone={displayTimezone}
                 onDateSelect={handleDateSelect}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
                 onClickTimeSlot={handleClickTimeSlot}
+                onCreateWorkingLocation={handleCreateWorkingLocation}
                 quickEditEventId={quickEditEventId}
                 onQuickEditSave={handleQuickEditSave}
                 onQuickEditCancel={handleQuickEditCancel}
@@ -1815,16 +1995,18 @@ export default function CalendarView() {
                 onDraftCreate={createDraftEvent}
                 onDraftDiscard={discardDraftEvent}
                 isLoading={eventsLoading}
+                weekStartsOn={weekStartsOn}
               />
             )}
             {viewMode === "day" && (
               <DayView
                 events={dayEvents}
-                timezone={calendarTimezone}
-                date={selectedCalendarDate}
+                date={selectedDate}
+                timezone={displayTimezone}
                 onDeleteEvent={handleDeleteEvent}
                 onEventTimeChange={handleEventTimeChange}
                 onClickTimeSlot={handleClickTimeSlot}
+                onCreateWorkingLocation={handleCreateWorkingLocation}
                 quickEditEventId={quickEditEventId}
                 onQuickEditSave={handleQuickEditSave}
                 onQuickEditCancel={handleQuickEditCancel}
@@ -1849,15 +2031,28 @@ export default function CalendarView() {
         )}
 
         {/* Dialogs */}
+        {timezonePrompt && (
+          <TimezoneSwitchDialog
+            open
+            savedTimezone={timezonePrompt.savedTimezone}
+            browserTimezone={timezonePrompt.browserTimezone}
+            isSwitching={updateSettings.isPending}
+            onKeep={keepSavedTimezone}
+            onSwitch={switchToBrowserTimezone}
+            onOpenChange={(open) => {
+              if (!open) keepSavedTimezone();
+            }}
+          />
+        )}
         <CommandPalette
           open={commandPaletteOpen}
           onClose={() => setCommandPaletteOpen(false)}
           events={events}
-          timezone={calendarTimezone}
           onGoToDate={handleGoToDate}
           onEventClick={(event) => {
             setCommandPaletteOpen(false);
-            handleGoToDate(parseISO(event.start));
+            const eventDate = getEventDateKey(event, displayTimezone);
+            if (eventDate) handleGoToDate(dateKeyToDate(eventDate));
           }}
           onCreateEvent={() => {
             setCommandPaletteOpen(false);

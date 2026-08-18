@@ -1,4 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AppState } from "react-native";
+
+import { trackMobileEvent } from "@/lib/analytics";
 
 import {
   abortRun,
@@ -31,6 +34,27 @@ import { isTerminalWireEvent, messageText } from "./types";
  * interval. Scroll/entering animations run on the UI thread regardless.
  */
 const FLUSH_INTERVAL_MS = 50;
+const NAVIGATE_POLL_INTERVAL_MS = 2000;
+const NAVIGATE_POLL_TIMEOUT_MS = Math.max(
+  10_000,
+  NAVIGATE_POLL_INTERVAL_MS * 4,
+);
+
+/**
+ * Bounds `call` so a hung request can't pin the poll's `inFlight` guard
+ * forever. `call` keeps running if it loses the race, but nothing awaits it
+ * beyond this, so a late resolution can't clobber a newer poll cycle.
+ */
+function withPollTimeout<T>(call: Promise<T>, timeoutMs: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`Poll timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+  });
+  return Promise.race([call, timeout]).finally(() => clearTimeout(timer));
+}
 
 export interface AgentChatSettings {
   model?: string;
@@ -59,7 +83,7 @@ export interface AgentChatController {
   approve: (approvalKey: string) => void;
   deny: (approvalKey?: string) => void;
   retry: () => void;
-  newChat: () => void;
+  newChat: (baseUrl?: string) => void;
   /** Open a thread; pass its origin app base URL for cross-app threads. */
   openThread: (threadId: string, baseUrl?: string) => void;
   clearAuthRequired: () => void;
@@ -94,6 +118,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const liveTurnRef = useRef<LiveTurn | null>(null);
+  const pendingApprovalTurnIdRef = useRef<string | null>(null);
   const mountedRef = useRef(true);
   const lastPromptRef = useRef<string | null>(null);
   const runIdsRef = useRef(new Map<string, string>());
@@ -112,12 +137,26 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       text: string,
       extra: Pick<
         ChatSendOptions & { approvedToolCalls?: string[] },
-        "approvedToolCalls" | "attachments" | "references"
+        "approvedToolCalls" | "attachments" | "references" | "turnId"
       > = {},
       currentThreadId?: string,
     ) => {
       const currentGeneration = ++activeGenerationRef.current;
       const activeThreadId = currentThreadId ?? threadId;
+      if (!extra.approvedToolCalls?.length) {
+        pendingApprovalTurnIdRef.current = null;
+      }
+      void trackMobileEvent(
+        "agent_chat_turn_started",
+        {
+          chat_surface: "mobile",
+          thread_id: activeThreadId,
+          turn_kind: extra.approvedToolCalls?.length ? "approval" : "message",
+          has_attachments: Boolean(extra.attachments?.length),
+          reference_count: extra.references?.length ?? 0,
+        },
+        baseUrlRef.current,
+      );
       const committed = stateRef.current.messages;
       const history = committed
         .map((message) => ({
@@ -173,6 +212,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           text,
           {
             threadId: activeThreadId,
+            ...(extra.turnId ? { turnId: extra.turnId } : {}),
             history,
             model: settingsRef.current.model,
             engine: settingsRef.current.engine,
@@ -205,6 +245,15 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         };
 
         if (turn.runId) runIdsRef.current.set(assistantId, turn.runId);
+        void trackMobileEvent(
+          "agent_chat_run_started",
+          {
+            chat_surface: "mobile",
+            thread_id: activeThreadId,
+            ...(turn.runId ? { run_id: turn.runId } : {}),
+          },
+          baseUrlRef.current,
+        );
         buffered = { ...buffered, runId: turn.runId };
         dirty = true;
 
@@ -213,6 +262,9 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         const applyEvent = (event: WireEvent) => {
           if (typeof event.seq === "number") lastSeq = event.seq;
           if (isTerminalWireEvent(event)) sawTerminal = true;
+          if (event.type === "approval_required") {
+            pendingApprovalTurnIdRef.current = turn.turnId;
+          }
           buffered = applyWireEvent(buffered, event, assistantId);
           dirty = true;
         };
@@ -320,8 +372,10 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   const approve = useCallback(
     (approvalKey: string) => {
       if (stateRef.current.isStreaming) return;
+      const turnId = pendingApprovalTurnIdRef.current;
       void runTurn("Approved. Go ahead and run the requested action.", {
         approvedToolCalls: [approvalKey],
+        ...(turnId ? { turnId } : {}),
       });
     },
     [runTurn],
@@ -363,12 +417,12 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     setTimeout(() => void runTurn(prompt), 0);
   }, [runTurn]);
 
-  const newChat = useCallback(() => {
+  const newChat = useCallback((nextBaseUrl = DEFAULT_CHAT_BASE_URL) => {
     activeGenerationRef.current++;
     liveTurnRef.current?.abort();
+    pendingApprovalTurnIdRef.current = null;
     setThreadId(newThreadId());
-    // New chats always start on the chat app.
-    setBaseUrl(DEFAULT_CHAT_BASE_URL);
+    setBaseUrl(nextBaseUrl);
     lastPromptRef.current = null;
     setState({
       messages: [],
@@ -509,6 +563,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     (nextThreadId: string, nextBaseUrl?: string) => {
       const currentGeneration = ++activeGenerationRef.current;
       liveTurnRef.current?.abort();
+      pendingApprovalTurnIdRef.current = null;
       const resolvedBaseUrl = nextBaseUrl ?? DEFAULT_CHAT_BASE_URL;
       // Set synchronously so runTurn/reattach read the right app immediately,
       // before the state update commits.
@@ -529,6 +584,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         fetchThreadMessages(nextThreadId, resolvedBaseUrl),
         getActiveRun(nextThreadId, resolvedBaseUrl).catch(() => ({
           active: false as const,
+          turnId: undefined,
         })),
       ])
         .then(([messages, activeRun]) => {
@@ -539,6 +595,9 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             return;
           }
           setState((current) => ({ ...current, messages }));
+          if (activeRun.turnId) {
+            pendingApprovalTurnIdRef.current = activeRun.turnId;
+          }
           setHistoryLoading(false);
           if (activeRun.active && activeRun.runId) {
             void resumeRun(activeRun.runId, currentGeneration);
@@ -570,32 +629,56 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
   // Poll for navigate commands from the agent
   useEffect(() => {
     if (!mountedRef.current) return;
-    const pollInterval = setInterval(async () => {
-      // Don't poll while streaming
-      if (stateRef.current.isStreaming) return;
+    let active = AppState.currentState === "active";
+    let inFlight = false;
+    const tick = async () => {
+      // Don't poll while streaming, backgrounded, or a previous tick is still in flight
+      if (stateRef.current.isStreaming || !active || inFlight) return;
+      inFlight = true;
+      try {
+        // Poll and acknowledge against the active thread's app — a command
+        // written by a Dispatch/Content/etc. thread lives on that origin, not
+        // the default Chat one.
+        const origin = baseUrlRef.current;
+        const command = await withPollTimeout(
+          fetchNavigateCommand(origin),
+          NAVIGATE_POLL_TIMEOUT_MS,
+        ).catch((err: unknown) => {
+          // A failed or timed-out probe is not "no command pending" — the two
+          // are indistinguishable downstream, so say which one happened.
+          console.warn("[agent-chat] navigate command poll failed:", err);
+          return null;
+        });
+        if (!command) return;
 
-      // Poll and acknowledge against the active thread's app — a command
-      // written by a Dispatch/Content/etc. thread lives on that origin, not
-      // the default Chat one.
-      const origin = baseUrlRef.current;
-      const command = await fetchNavigateCommand(origin);
-      if (!command) return;
-
-      const dedupKey = navigateCommandDedupKey(command);
-      if (lastProcessedWriteIdRef.current === dedupKey) {
+        const dedupKey = navigateCommandDedupKey(command);
+        if (lastProcessedWriteIdRef.current === dedupKey) {
+          void deleteNavigateCommand(origin);
+          return;
+        }
+        lastProcessedWriteIdRef.current = dedupKey;
         void deleteNavigateCommand(origin);
-        return;
-      }
-      lastProcessedWriteIdRef.current = dedupKey;
-      void deleteNavigateCommand(origin);
 
-      const targetThreadId = extractThreadId(command);
-      if (targetThreadId && targetThreadId !== threadId) {
-        openThread(targetThreadId, origin);
+        const targetThreadId = extractThreadId(command);
+        if (targetThreadId && targetThreadId !== threadId) {
+          openThread(targetThreadId, origin);
+        }
+      } finally {
+        inFlight = false;
       }
-    }, 2000);
+    };
+    const pollInterval = setInterval(
+      () => void tick(),
+      NAVIGATE_POLL_INTERVAL_MS,
+    );
+    const subscription = AppState.addEventListener("change", (state) => {
+      active = state === "active";
+    });
 
-    return () => clearInterval(pollInterval);
+    return () => {
+      clearInterval(pollInterval);
+      subscription.remove();
+    };
   }, [threadId, openThread]);
 
   const getRunId = useCallback(

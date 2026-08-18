@@ -22,13 +22,18 @@ import { TOOL_SEARCH_ACTION_NAME } from "../agent/tool-search.js";
 import { parseAcceptLanguage } from "../localization/server.js";
 import { getSession } from "./auth.js";
 import {
+  gatewayLaneUnavailableMessage,
   getBuilderGatewayBaseUrl,
-  resolveBuilderCredentials,
+  resolveBuilderGatewayCredentials,
   resolveSecret,
 } from "./credential-provider.js";
 import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 import { isSameOriginRequest } from "./request-origin.js";
+import {
+  signRealtimeVoiceCapability,
+  verifyRealtimeVoiceCapability,
+} from "./short-lived-token.js";
 
 export const REALTIME_VOICE_SESSION_PATH =
   "/_agent-native/realtime-voice/session";
@@ -39,8 +44,9 @@ export const REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS = 16_000;
 export const REALTIME_VOICE_MAX_TOOLS = 32;
 export const REALTIME_VOICE_MAX_TOOL_SCHEMA_BYTES = 32_000;
 export const REALTIME_VOICE_MAX_SESSION_BYTES = 64_000;
-export const REALTIME_VOICE_TOOL_GRANT_TTL_MS = 10 * 60 * 1_000;
-export const REALTIME_VOICE_MAX_TOOL_GRANT_SESSIONS = 256;
+/** Absolute, not sliding — a signed grant cannot be extended server-side, so
+ * this must outlast the provider's 60-minute maximum realtime session. */
+export const REALTIME_VOICE_TOOL_GRANT_TTL_MS = 75 * 60 * 1_000;
 export const REALTIME_VOICE_CAPABILITY_HEADER =
   "X-Agent-Native-Realtime-Capability";
 
@@ -48,7 +54,7 @@ const OPENAI_REALTIME_CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const DEFAULT_MODEL = "gpt-realtime-2.1";
 const DEFAULT_VOICE = "marin";
 const DEFAULT_INSTRUCTIONS =
-  "You are the live voice interface for this Agent Native app. Speak naturally, briefly, and conversationally. Use the available function tools when the user asks you to navigate or take an action. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, explain that the user must approve it in chat.";
+  "You are the live voice interface for this Agent Native app. Speak naturally, briefly, and conversationally. Use the available function tools when the user asks you to navigate or take an action. When the user asks about a previous conversation, saved chat details, or something they told you before, search with the `chat-history` tool before saying you cannot access it. Summarize a matching result and open a thread only when the user asks. If the user repeats a request, acknowledge the prior attempt and finish or correct the missing part instead of restarting from scratch or asking the same clarification again. Never claim an action succeeded until its tool result confirms success. If a tool requires approval, explain that the user must approve it in chat.";
 const MAX_INSTRUCTIONS_CHARS = 16_000;
 const MAX_TOOL_DESCRIPTION_CHARS = 2_000;
 const MAX_APPROVAL_KEY_CHARS = 1_024;
@@ -85,6 +91,7 @@ const REALTIME_VOICE_PRIORITY_TOOLS = [
   "set-url-path",
   "set-search-params",
   "view-screen",
+  "chat-history",
   TOOL_SEARCH_ACTION_NAME,
 ] as const;
 
@@ -146,12 +153,9 @@ interface RealtimeToolCapability {
   userEmail: string;
   orgId?: string;
   browserTabId?: string;
-  expiresAt: number;
   initialNames: Set<string>;
   names: Set<string>;
 }
-
-type RealtimeToolCapabilityStore = Map<string, RealtimeToolCapability>;
 
 interface AuthenticatedVoiceContext extends RealtimeVoiceRequestContext {
   timezone?: string;
@@ -353,68 +357,39 @@ function packRealtimeTools(
   return packed;
 }
 
-function mintRealtimeToolCapability(): string {
-  return globalThis.crypto.randomUUID().replaceAll("-", "");
-}
-
-function cleanRealtimeToolCapabilities(
-  capabilities: RealtimeToolCapabilityStore,
-  now = Date.now(),
-): void {
-  for (const [key, capability] of capabilities) {
-    if (capability.expiresAt <= now) capabilities.delete(key);
-  }
-  while (capabilities.size > REALTIME_VOICE_MAX_TOOL_GRANT_SESSIONS) {
-    let oldestKey: string | undefined;
-    let oldestExpiry = Number.POSITIVE_INFINITY;
-    for (const [key, capability] of capabilities) {
-      if (capability.expiresAt < oldestExpiry) {
-        oldestKey = key;
-        oldestExpiry = capability.expiresAt;
-      }
-    }
-    if (!oldestKey) break;
-    capabilities.delete(oldestKey);
-  }
-}
-
-function registerRealtimeToolCapability(
-  capabilities: RealtimeToolCapabilityStore,
+function mintRealtimeToolCapability(
   auth: AuthenticatedVoiceContext,
-  initialNames: Iterable<string>,
+  capability: Pick<RealtimeToolCapability, "initialNames" | "names">,
 ): string {
-  cleanRealtimeToolCapabilities(capabilities);
-  const token = mintRealtimeToolCapability();
-  capabilities.set(token, {
-    userEmail: auth.userEmail.trim().toLowerCase(),
-    ...(auth.orgId ? { orgId: auth.orgId } : {}),
-    ...(auth.browserTabId ? { browserTabId: auth.browserTabId } : {}),
-    expiresAt: Date.now() + REALTIME_VOICE_TOOL_GRANT_TTL_MS,
-    initialNames: new Set(initialNames),
-    names: new Set(),
-  });
-  cleanRealtimeToolCapabilities(capabilities);
-  return token;
+  return signRealtimeVoiceCapability(
+    {
+      userEmail: auth.userEmail,
+      ...(auth.orgId ? { orgId: auth.orgId } : {}),
+      ...(auth.browserTabId ? { browserTabId: auth.browserTabId } : {}),
+      toolNames: [...capability.initialNames],
+      discoveredToolNames: [...capability.names],
+    },
+    REALTIME_VOICE_TOOL_GRANT_TTL_MS / 1_000,
+  );
 }
 
 function resolveRealtimeToolCapability(
-  capabilities: RealtimeToolCapabilityStore,
   token: string | undefined,
   auth: AuthenticatedVoiceContext,
 ): RealtimeToolCapability | null {
-  cleanRealtimeToolCapabilities(capabilities);
-  if (!token) return null;
-  const capability = capabilities.get(token);
-  if (!capability) return null;
-  if (
-    capability.userEmail !== auth.userEmail.trim().toLowerCase() ||
-    capability.orgId !== auth.orgId ||
-    capability.browserTabId !== auth.browserTabId
-  ) {
-    return null;
-  }
-  capability.expiresAt = Date.now() + REALTIME_VOICE_TOOL_GRANT_TTL_MS;
-  return capability;
+  const verified = verifyRealtimeVoiceCapability(token, {
+    userEmail: auth.userEmail,
+    ...(auth.orgId ? { orgId: auth.orgId } : {}),
+    ...(auth.browserTabId ? { browserTabId: auth.browserTabId } : {}),
+  });
+  if (!verified.ok) return null;
+  return {
+    userEmail: verified.userEmail,
+    ...(verified.orgId ? { orgId: verified.orgId } : {}),
+    ...(verified.browserTabId ? { browserTabId: verified.browserTabId } : {}),
+    initialNames: new Set(verified.toolNames),
+    names: new Set(verified.discoveredToolNames),
+  };
 }
 
 function parseSuccessfulToolSearchNames(output: string): string[] {
@@ -467,7 +442,6 @@ function grantDiscoveredRealtimeTools(input: {
     input.capability.names.add(tool.name);
     expandedTools.push(tool);
   }
-  input.capability.expiresAt = Date.now() + REALTIME_VOICE_TOOL_GRANT_TTL_MS;
   return expandedTools;
 }
 
@@ -556,7 +530,6 @@ function invalidMethod(event: H3Event): { error: string } {
 
 function createSessionHandler(
   tools: RealtimeFunctionTool[],
-  capabilities: RealtimeToolCapabilityStore,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -605,7 +578,7 @@ function createSessionHandler(
           : undefined,
       },
       async () => {
-        const builderCredentials = await resolveBuilderCredentials();
+        const builderCredentials = await resolveBuilderGatewayCredentials();
         const builderConfigured = Boolean(
           builderCredentials.privateKey?.trim() &&
           builderCredentials.publicKey?.trim(),
@@ -616,8 +589,9 @@ function createSessionHandler(
         if (!builderConfigured && !apiKey) {
           setResponseStatus(event, 409);
           return {
-            error:
-              "Connect Builder or configure an OpenAI API key to use realtime voice.",
+            error: gatewayLaneUnavailableMessage(
+              "Connect Builder (free tier available) or configure an OpenAI API key to use realtime voice.",
+            ),
             code: "realtime_voice_setup_required",
           };
         }
@@ -711,7 +685,9 @@ function createSessionHandler(
           setResponseStatus(event, 502);
           return {
             error: builderConfigured
-              ? "Could not reach the Builder realtime voice gateway"
+              ? gatewayLaneUnavailableMessage(
+                  "Could not reach the Builder realtime voice gateway",
+                )
               : "Could not reach the OpenAI Realtime API",
           };
         }
@@ -722,16 +698,22 @@ function createSessionHandler(
             builderConfigured ? builderCredentials.privateKey! : apiKey!,
           );
           setResponseStatus(event, builderConfigured ? upstream.status : 502);
+          const rejection = `${builderConfigured ? "Builder" : "OpenAI"} rejected the realtime session (${upstream.status})${detail ? `: ${detail}` : ""}`;
           return {
-            error: `${builderConfigured ? "Builder" : "OpenAI"} rejected the realtime session (${upstream.status})${detail ? `: ${detail}` : ""}`,
+            error: builderConfigured
+              ? gatewayLaneUnavailableMessage(rejection)
+              : rejection,
           };
         }
 
         const answerSdp = await upstream.text().catch(() => "");
         if (!answerSdp.trim()) {
           setResponseStatus(event, 502);
+          const emptyAnswer = `${builderConfigured ? "Builder" : "OpenAI"} returned an empty realtime session answer`;
           return {
-            error: `${builderConfigured ? "Builder" : "OpenAI"} returned an empty realtime session answer`,
+            error: builderConfigured
+              ? gatewayLaneUnavailableMessage(emptyAnswer)
+              : emptyAnswer,
           };
         }
 
@@ -740,11 +722,10 @@ function createSessionHandler(
         setResponseHeader(
           event,
           REALTIME_VOICE_CAPABILITY_HEADER,
-          registerRealtimeToolCapability(
-            capabilities,
-            auth,
-            packedTools.map((tool) => tool.name),
-          ),
+          mintRealtimeToolCapability(auth, {
+            initialNames: new Set(packedTools.map((tool) => tool.name)),
+            names: new Set(),
+          }),
         );
         return answerSdp;
       },
@@ -818,7 +799,6 @@ function normalizeExecutionResult(
 
 function createToolHandler(
   toolsByName: ReadonlyMap<string, RealtimeFunctionTool>,
-  capabilities: RealtimeToolCapabilityStore,
   options: MountRealtimeVoiceRoutesOptions,
 ) {
   return defineEventHandler(async (event: H3Event) => {
@@ -835,7 +815,6 @@ function createToolHandler(
       return { error: "Authentication required" };
     }
     const capability = resolveRealtimeToolCapability(
-      capabilities,
       readSafeHeader(event, REALTIME_VOICE_CAPABILITY_HEADER),
       auth,
     );
@@ -923,7 +902,12 @@ function createToolHandler(
           return {
             callId: request.callId,
             ...result,
-            ...(expandedTools.length > 0 ? { expandedTools } : {}),
+            ...(expandedTools.length > 0
+              ? {
+                  expandedTools,
+                  capability: mintRealtimeToolCapability(auth, capability),
+                }
+              : {}),
           };
         } catch (error) {
           setResponseStatus(event, 500);
@@ -953,16 +937,9 @@ export function mountRealtimeVoiceRoutes(
 
   const tools = buildRealtimeTools(actions);
   const toolsByName = new Map(tools.map((tool) => [tool.name, tool]));
-  const capabilities: RealtimeToolCapabilityStore = new Map();
   const app = getH3App(nitroApp);
-  app.use(
-    REALTIME_VOICE_SESSION_PATH,
-    createSessionHandler(tools, capabilities, options),
-  );
-  app.use(
-    REALTIME_VOICE_TOOL_PATH,
-    createToolHandler(toolsByName, capabilities, options),
-  );
+  app.use(REALTIME_VOICE_SESSION_PATH, createSessionHandler(tools, options));
+  app.use(REALTIME_VOICE_TOOL_PATH, createToolHandler(toolsByName, options));
   return {
     sessionPath: REALTIME_VOICE_SESSION_PATH,
     toolPath: REALTIME_VOICE_TOOL_PATH,

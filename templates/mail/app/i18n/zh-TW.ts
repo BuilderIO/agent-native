@@ -467,6 +467,10 @@ const messages = {
     when: "當",
     lastRun: "上次執行：",
     automationsDescription: "使用 AI 自動處理新收件箱郵件的規則。",
+    allowAutomationSends: "允許自動化自動傳送郵件",
+    allowAutomationSendsDescription:
+      "預設為關閉。需要自動化每次傳送郵件時不必請求核准時，請開啟此選項。",
+    automationSendSettingSaveFailed: "無法儲存自動郵件傳送設定。",
     loadingModels: "正在載入模型",
     newRule: "新建規則",
     noAutomationRules: "還沒有自動化規則。",
@@ -485,6 +489,8 @@ const messages = {
     importFromGmail: "從 Gmail 匯入",
     signatureHelp:
       "會新增到新草稿中，位於引用的回覆歷史之前。支援 Markdown 連結和圖片。",
+    addSignatureImage: "新增圖片",
+    signatureImageUploadFailed: "簽名圖片上傳失敗",
     writingStyle: "寫作風格",
     writingStylePlaceholder: "簡短、具體、溫暖。避免正式套話。",
     saveDraftingSettings: "儲存草稿設定",

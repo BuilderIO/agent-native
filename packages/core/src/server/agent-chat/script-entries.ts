@@ -17,7 +17,7 @@ import {
 } from "../request-context.js";
 
 // ---------------------------------------------------------------------------
-// CLI-script-backed action entries: db-*, docs-search/source-search,
+// CLI-script-backed action entries: db-*, framework-search/docs-search/source-search,
 // resources/save-memory/delete-memory, chat-history, manage-agent-engine,
 // manage-agent-loop-settings, and call-agent. Each wraps a core CLI script
 // (that writes to console.log) as an ActionEntry via `wrapCliScript`.
@@ -81,7 +81,7 @@ export async function createDbScriptEntries(
   try {
     if (mode === "off") return {};
     const extensionQueryGuidance =
-      options.extensionTools === false
+      options.extensionTools !== true
         ? "Extension management tools are disabled for this app; do not query or mutate the legacy tools table as a workaround."
         : "For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.";
     const [schemaMod, queryMod] = await Promise.all([
@@ -235,6 +235,60 @@ export async function createDocsScriptEntries(): Promise<
   const entries: Record<string, ActionEntry> = {};
 
   try {
+    const mod = await import("../../scripts/docs/framework-search.js");
+    entries["framework-search"] = wrapCliScript(
+      {
+        description:
+          "Search the version-matched Agent Native docs and readable Core, Toolkit, and first-party template source in one bounded read-only call. Use this first when a docs answer may require implementation evidence.",
+        parameters: {
+          type: "object",
+          properties: {
+            pattern: {
+              type: "string",
+              description:
+                "Text pattern to search across docs and source. Use normal text by default, or use glob (* and ?) / SQL-like (% and _) / regex mode for broader or more precise matching.",
+            },
+            scope: {
+              type: "string",
+              description:
+                "Search corpus: all, docs, or source (default: all).",
+              enum: ["all", "docs", "source"],
+            },
+            mode: {
+              type: "string",
+              description:
+                "Match mode: substring, glob, sql-like, or safe regex (default: substring).",
+              enum: ["substring", "glob", "sql-like", "regex"],
+            },
+            path: {
+              type: "string",
+              description:
+                "Optional glob path filter such as templates/*/actions/*.ts or core/src/server/*.",
+            },
+            limit: {
+              type: "string",
+              description: "Maximum matching files to return, from 1 to 50.",
+            },
+            list: {
+              type: "string",
+              description:
+                'Set to "true" to list searchable docs and source roots.',
+              enum: ["true"],
+            },
+          },
+        },
+      },
+      mod.default,
+      { readOnly: true },
+    );
+  } catch (error) {
+    console.warn(
+      "[agent-chat] framework-search unavailable; keeping the older lookup tools:",
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+
+  try {
     const mod = await import("../../scripts/docs/search.js");
     entries["docs-search"] = wrapCliScript(
       {
@@ -270,22 +324,25 @@ export async function createDocsScriptEntries(): Promise<
 
   try {
     const mod = await import("../../scripts/docs/source-search.js");
+    if (!mod.hasSourceCorpus()) {
+      return entries;
+    }
     entries["source-search"] = wrapCliScript(
       {
         description:
-          "Search and read the packaged Agent Native source corpus under node_modules/@agent-native/core/corpus. Use --list for sections, --query to search core/template source, and --path to read a file.",
+          "Search and read readable version-matched Core, Toolkit, and first-party template source. Use framework-search for one combined docs/source search with glob, SQL-like, or regex matching; use --list, --query, or --path for focused source lookup.",
         parameters: {
           type: "object",
           properties: {
             query: {
               type: "string",
               description:
-                "Search term to find relevant core or template source (e.g. 'defineAction', 'useActionQuery', 'view-screen').",
+                "Search term to find relevant template source (e.g. 'defineAction', 'useActionQuery', 'view-screen').",
             },
             path: {
               type: "string",
               description:
-                "Read a specific corpus file or list a directory (e.g. 'templates/plan/AGENTS.md' or 'core/src/action.ts').",
+                "Read a specific corpus file or list a directory (e.g. 'templates/plan/AGENTS.md' or 'templates/chat/actions/hello.ts').",
             },
             list: {
               type: "string",
@@ -319,6 +376,10 @@ export function shouldDefaultResourceWriteToWorkspace(path: string): boolean {
     normalized.startsWith("agents/") ||
     normalized.startsWith("remote-agents/")
   );
+}
+
+export function shouldDefaultResourceWriteToShared(path: string): boolean {
+  return path.replace(/^\/+/, "") === "LEARNINGS.md";
 }
 
 export async function createResourceScriptEntries(): Promise<
@@ -442,6 +503,17 @@ export async function createResourceScriptEntries(): Promise<
             required: ["action"],
           },
         },
+        planMode: {
+          effect: (args) =>
+            args.action === "list" ||
+            args.action === "read" ||
+            args.action === "effective"
+              ? "read"
+              : "write",
+          allowedValues: { action: ["list", "read", "effective"] },
+          description:
+            "Plan mode allows listing and reading workspace resources.",
+        },
         run: async (args: Record<string, string>) => {
           const { action: a, ...rest } = args;
           if (a === "list") return listEntry.run(rest);
@@ -461,6 +533,11 @@ export async function createResourceScriptEntries(): Promise<
             )
               return "Error: path and content are required for write";
             rest.createdBy = "agent";
+            rest.scope =
+              rest.scope ??
+              (shouldDefaultResourceWriteToShared(String(rest.path))
+                ? "shared"
+                : undefined);
             rest.visibility =
               rest.visibility ??
               (shouldDefaultResourceWriteToWorkspace(String(rest.path))
@@ -678,6 +755,11 @@ export async function createChatScriptEntries(): Promise<
             required: ["action"],
           },
         },
+        planMode: {
+          effect: (args) => (args.action === "search" ? "read" : "write"),
+          allowedValues: { action: ["search"] },
+          description: "Plan mode allows searching chat history.",
+        },
         run: async (args) => {
           if (args?.action === "open") {
             return openEntry.run(args);
@@ -743,6 +825,23 @@ export async function createAgentEngineScriptEntries(
     return {
       "manage-agent-engine": {
         tool: mod.tool,
+        planMode: {
+          // Reads, per the tool's own enum: only set/set-app-default/
+          // reset-app-default mutate. Misclassifying a read here makes every
+          // call announce a change and bump the global `action` change
+          // version, which is how the model-picker's catalog read ended up
+          // recorded as a write for 1,127 identities.
+          // `allowedValues` stays narrower on purpose — it governs what plan
+          // mode may run, and `test` spends a live model call.
+          effect: (args) =>
+            args.action === "list" ||
+            args.action === "test" ||
+            args.action === "get-app-default"
+              ? "read"
+              : "write",
+          allowedValues: { action: ["list"] },
+          description: "Plan mode allows listing available agent engines.",
+        },
         run: (args) =>
           mod.run({
             ...args,
@@ -789,6 +888,35 @@ export async function createCallAgentScriptEntry(
     const mod = await import("../../scripts/call-agent.js");
     entries["call-agent"] = {
       tool: mod.tool,
+      planMode: {
+        effect: (args) => {
+          const keys = Object.keys(args);
+          if (
+            keys.some(
+              (key) => key !== "agent" && key !== "action" && key !== "input",
+            )
+          ) {
+            return "write";
+          }
+          if (
+            typeof args.agent !== "string" ||
+            !args.agent.trim() ||
+            typeof args.action !== "string" ||
+            !args.action.trim() ||
+            !Object.hasOwn(args, "input") ||
+            args.input === null ||
+            typeof args.input !== "object" ||
+            Array.isArray(args.input)
+          ) {
+            return "unknown";
+          }
+          return "read";
+        },
+        allowedProperties: ["agent", "action", "input"],
+        requiredProperties: ["agent", "action"],
+        description:
+          "Plan mode allows only exact read-only cross-app action calls with agent, action, and input.",
+      },
       run: (args, context) => mod.run(args, context, selfAppId),
     };
   } catch {
@@ -800,6 +928,7 @@ export async function createCallAgentScriptEntry(
     entries["describe-workspace-apps"] = {
       tool: mod.tool,
       run: (args, context) => mod.run(args, context, selfAppId),
+      readOnly: true,
     };
   } catch {
     // A missing built-in leaves the rest of the toolset usable.

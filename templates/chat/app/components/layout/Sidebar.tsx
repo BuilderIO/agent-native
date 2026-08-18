@@ -4,7 +4,7 @@ import {
   type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appPath } from "@agent-native/core/client/api-path";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -334,9 +334,6 @@ export function Sidebar({
       <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
@@ -361,23 +358,50 @@ export function Sidebar({
       >
         <Link
           to="/"
+          onClick={(event) => {
+            if (
+              !collapsible ||
+              !onCollapsedChange ||
+              event.metaKey ||
+              event.ctrlKey ||
+              event.shiftKey ||
+              event.altKey ||
+              event.button !== 0
+            ) {
+              return;
+            }
+            event.preventDefault();
+            onCollapsedChange(!collapsed);
+          }}
           className={cn(
             "flex min-w-0 items-center rounded outline-none focus-visible:ring-2 focus-visible:ring-ring",
             collapsed ? "size-7 justify-center" : "flex-1 gap-3",
           )}
-          aria-label={collapsed ? APP_TITLE : undefined}
+          aria-label={
+            collapsible && onCollapsedChange
+              ? collapsed
+                ? t("navigation.expandSidebar")
+                : t("navigation.collapseSidebar")
+              : collapsed
+                ? APP_TITLE
+                : undefined
+          }
         >
           <img
             src={appPath("/agent-native-icon-light.svg")}
             alt=""
             aria-hidden="true"
-            className="block h-4 w-auto shrink-0 dark:hidden"
+            width={28}
+            height={16}
+            className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
           />
           <img
             src={appPath("/agent-native-icon-dark.svg")}
             alt=""
             aria-hidden="true"
-            className="hidden h-4 w-auto shrink-0 dark:block"
+            width={28}
+            height={16}
+            className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
           />
           <div className={cn("min-w-0", collapsed && "sr-only")}>
             <p className="truncate text-sm font-semibold text-sidebar-accent-foreground">
@@ -495,7 +519,6 @@ export function Sidebar({
         <SidebarFooterActions
           collapsed={collapsed}
           feedback={feedbackButton}
-          translate={translateButton}
           search={searchButton}
           collapse={collapseButton}
         />

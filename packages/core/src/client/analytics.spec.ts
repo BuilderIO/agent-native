@@ -129,6 +129,7 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
     ),
   };
   const gtag = vi.fn();
+  let cookie = "";
   const windowMock = {
     location,
     history,
@@ -142,6 +143,12 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
   vi.stubGlobal("document", {
     referrer: "https://builder.io/start?token=secret&utm=ok",
     title: "Inbox",
+    get cookie() {
+      return cookie;
+    },
+    set cookie(value: string) {
+      cookie = value;
+    },
   });
   vi.stubGlobal("navigator", { sendBeacon: vi.fn(() => false) });
 
@@ -151,6 +158,7 @@ function installBrowser(url = "https://mail.agent-native.com/inbox") {
     history,
     listeners,
     location,
+    getCookie: () => cookie,
   };
 }
 
@@ -175,7 +183,7 @@ describe("browser analytics pageviews", () => {
   });
 
   it("emits a default pageview with useful browser context", async () => {
-    installBrowser();
+    const { getCookie } = installBrowser();
     const { analyticsCalls } = installFetch();
     vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
     vi.stubEnv(
@@ -208,6 +216,7 @@ describe("browser analytics pageviews", () => {
         referrer: "https://builder.io/start?token=%3Credacted%3E&utm=ok",
         title: "Inbox",
         navigation_type: "load",
+        client_platform: "web",
         llm_connection: "builder",
         llm_connection_configured: true,
         llm_engine: "builder",
@@ -215,6 +224,37 @@ describe("browser analytics pageviews", () => {
         llm_connection_source: "app_secrets",
       },
     });
+    expect(body.anonymousId).toMatch(/^[A-Za-z0-9_-]+$/);
+    expect(getCookie()).toContain(`an_aid=${body.anonymousId}`);
+  });
+
+  it("uses the configured native client platform for every pageview", async () => {
+    installBrowser("https://mail.agent-native.com/inbox");
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({ clientPlatform: "electron" });
+    await tick();
+
+    const body = JSON.parse(String(analyticsCalls[0]?.[1].body));
+    expect(body.properties.client_platform).toBe("electron");
+  });
+
+  it("detects a host-provided mobile platform marker", async () => {
+    installBrowser("https://chat.agent-native.com/chat");
+    (
+      window as Window & { __AGENT_NATIVE_HOST_PLATFORM__?: string }
+    ).__AGENT_NATIVE_HOST_PLATFORM__ = "mobile";
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({});
+    await tick();
+
+    const body = JSON.parse(String(analyticsCalls[0]?.[1].body));
+    expect(body.properties.client_platform).toBe("mobile");
   });
 
   it("can skip the authenticated engine-status probe on public routes", async () => {
@@ -250,10 +290,9 @@ describe("browser analytics pageviews", () => {
       endpoint: "https://analytics.example.test/api/analytics/track",
     });
     setTrackingContentCaptureEnabled(false);
-    expect(captureClientException(new Error("Renderer failed"))).toBe(
-      "event_id",
-    );
+    captureClientException(new Error("Renderer failed"));
     await tick();
+    expect(sentryMock.captureException).toHaveBeenCalledWith(expect.any(Error));
 
     expect(analyticsCalls).toHaveLength(1);
     const body = JSON.parse(String(analyticsCalls[0][1].body));
@@ -281,6 +320,49 @@ describe("browser analytics pageviews", () => {
     );
     expect(replayMock.stopSessionReplay).toHaveBeenCalled();
     expect(sentryMock.captureException).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps exception context in first-party analytics but omits it from Amplitude", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    vi.stubEnv("VITE_AMPLITUDE_API_KEY", "amplitude_test");
+    const { captureException, configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      endpoint: "https://analytics.example.test/track",
+      errorCapture: {
+        captureGlobalErrors: false,
+        captureUnhandledRejections: false,
+      },
+    });
+    await tick();
+    amplitudeMock.track.mockClear();
+    analyticsCalls.length = 0;
+
+    captureException(new Error("Renderer failed"), {
+      tags: { route: "/api/run", status_code: 500 },
+      extra: { request_id: "request-1", runId: "run-1" },
+    });
+    await tick();
+
+    const firstPartyException = analyticsCalls
+      .map(([, init]) => JSON.parse(String(init.body)))
+      .find((body) => body.event === "$exception");
+    expect(firstPartyException?.properties).toMatchObject({
+      exceptionTags: { route: "/api/run", status_code: "500" },
+      exceptionExtra: { request_id: "request-1", runId: "run-1" },
+    });
+
+    const amplitudeException = amplitudeMock.track.mock.calls.find(
+      ([name]) => name === "$exception",
+    );
+    expect(amplitudeException?.[1]).toMatchObject({
+      exceptionType: "Error",
+      exceptionMessage: "Renderer failed",
+    });
+    expect(amplitudeException?.[1]).not.toHaveProperty("exceptionTags");
+    expect(amplitudeException?.[1]).not.toHaveProperty("exceptionExtra");
   });
 
   it("accepts the first-party public key and endpoint at configure time", async () => {
@@ -360,6 +442,22 @@ describe("browser analytics pageviews", () => {
       "/sent",
     ]);
     expect(events[1].properties.navigation_type).toBe("pushState");
+  });
+
+  it("drops a queued pageview when the browser environment is gone", async () => {
+    installBrowser();
+    const { analyticsCalls } = installFetch();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({
+      key: "anpk_configured",
+      llmConnectionStatus: false,
+      authSessionRefresh: false,
+    });
+    vi.unstubAllGlobals();
+    await tick();
+
+    expect(analyticsCalls).toHaveLength(0);
   });
 
   it("initializes a chat surface and de-duplicates repeated run observation", async () => {
@@ -583,6 +681,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
 
     expect(sentryMock.init).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -601,6 +700,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
 
     expect(sentryMock.init).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -618,6 +718,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -645,6 +746,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const replayEvent = {
       exception: {
@@ -680,6 +782,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -702,6 +805,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -755,6 +859,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -786,6 +891,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -857,6 +963,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       tags: {
@@ -887,6 +994,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -914,6 +1022,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -941,6 +1050,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const result = options.beforeSend({
       exception: {
@@ -966,6 +1076,7 @@ describe("browser analytics pageviews", () => {
     const { configureTracking } = await freshAnalytics();
 
     configureTracking({});
+    await tick();
     const options = sentryMock.init.mock.calls[0][0];
     const event = {
       exception: {
@@ -995,8 +1106,9 @@ describe("browser analytics pageviews", () => {
       tags: { source: "agent-chat-client" },
       extra: { runId: "run_123" },
     });
+    await tick();
 
-    expect(result).toBe("event_id");
+    expect(result).toBeUndefined();
     expect(sentryMock.captureException).toHaveBeenCalledWith(err);
   });
 });

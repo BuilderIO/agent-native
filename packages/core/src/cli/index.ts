@@ -13,6 +13,13 @@ import {
   resolveAgentNativeNitroPreset,
 } from "../deploy/nitro-preset.js";
 import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
+import {
+  assertNativeDependencies,
+  assertNodeRuntimeMarker,
+  ensureNativeDependencies,
+  writeNodeRuntimeMarker,
+} from "./native-dependencies.js";
+import { cliSpawnOptions } from "./process.js";
 import { shouldTrackCliRun } from "./telemetry-routing.js";
 import { createCliTelemetry } from "./telemetry.js";
 
@@ -447,13 +454,13 @@ function extractNodeInspectFlag(args: string[]): {
 function run(
   cmd: string,
   cmdArgs: string[],
-  opts?: { stdio?: "inherit" | "pipe"; env?: NodeJS.ProcessEnv },
+  opts?: {
+    stdio?: "inherit" | "pipe";
+    env?: NodeJS.ProcessEnv;
+    shell?: boolean;
+  },
 ) {
-  const child = spawn(cmd, cmdArgs, {
-    stdio: opts?.stdio ?? "inherit",
-    shell: process.platform === "win32",
-    env: opts?.env ?? process.env,
-  });
+  const child = spawn(cmd, cmdArgs, cliSpawnOptions(opts));
   child.on("exit", (code) => process.exit(code ?? 0));
   // Forward signals to child so Cmd+C doesn't leave zombie processes holding ports
   for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
@@ -613,6 +620,12 @@ if (shouldTrackCliRun(command, args)) trackCli("cli.run");
 
 switch (command) {
   case "dev": {
+    try {
+      ensureNativeDependencies({ repair: true, label: "dev" });
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
     if (isWorkspaceRoot()) {
       import("./workspace-dev.js")
         .then((m) => m.runWorkspaceDev({ args }))
@@ -652,7 +665,10 @@ switch (command) {
       NITRO_DEV_RUNNER: process.env.NITRO_DEV_RUNNER ?? "node-process",
     };
     console.log(`[agent-native] API server debugger listening on ${target}`);
-    run(process.execPath, ["--import", preload, viteJsEntry, ...rest], { env });
+    run(process.execPath, ["--import", preload, viteJsEntry, ...rest], {
+      env,
+      shell: false,
+    });
     break;
   }
 
@@ -676,11 +692,12 @@ switch (command) {
     // child exits non-zero, runBuildStep calls process.exit itself; the
     // continuation only runs on success.
     (async () => {
+      ensureNativeDependencies({ repair: true, label: "build" });
+
       // Doctor pre-step: scans app source for the security-critical guard
-      // invariants (see `agent-native doctor --help`). Warn-only by
-      // default — prints findings to stderr and always continues. Only
-      // fails the build when `agent-native build --strict` was passed or
-      // `agent-native.json` sets `{ "doctor": { "failOnBuild": true } }`.
+      // invariants (see `agent-native doctor --help`). Findings fail by
+      // default; only an explicit `doctor.failOnBuild: false` opt-out keeps
+      // a build moving, while `agent-native build --strict` always fails.
       try {
         const { runDoctorBuildHook } = await import("./doctor.js");
         const hook = await runDoctorBuildHook({
@@ -694,9 +711,10 @@ switch (command) {
           process.exit(1);
         }
       } catch (err) {
-        console.warn(
-          `[doctor] pre-build scan failed to run (continuing): ${err instanceof Error ? err.message : String(err)}`,
+        console.error(
+          `[doctor] pre-build scan failed, so the build is blocked: ${err instanceof Error ? err.message : String(err)}`,
         );
+        process.exit(1);
       }
 
       if (isReactRouterFramework()) {
@@ -736,6 +754,15 @@ switch (command) {
         }
       }
 
+      const serverDirectory = path.resolve(".output/server");
+      if (fs.existsSync(serverDirectory)) {
+        assertNativeDependencies({
+          fromDirectory: serverDirectory,
+          label: "build output",
+        });
+        writeNodeRuntimeMarker(serverDirectory);
+      }
+
       console.log("\nBuild complete.");
     })().catch((err) => {
       // runBuildStep handles its own failures and exits, so reaching here
@@ -761,7 +788,18 @@ switch (command) {
       );
       process.exit(1);
     }
-    run("node", [serverEntry, ...args]);
+    const serverDirectory = path.dirname(serverEntry);
+    try {
+      assertNodeRuntimeMarker(serverDirectory);
+      assertNativeDependencies({
+        fromDirectory: serverDirectory,
+        label: "start output",
+      });
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+    run(process.execPath, [serverEntry, ...args]);
     break;
   }
 
@@ -926,6 +964,21 @@ switch (command) {
     break;
   }
 
+  case "clean": {
+    // Reclaim disk by deleting regenerable build caches. Dry-run unless
+    // --apply, like `package add` and `eject`.
+    import("./clean.js")
+      .then(async (m) => {
+        const code = await m.runClean(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
   case "code": {
     import("./code.js")
       .then((m) => m.runCode(args))
@@ -979,6 +1032,18 @@ switch (command) {
     // Package or install an agent-native app as a skill-backed MCP/app bundle.
     import("./app-skill.js")
       .then((m) => m.runAppSkill(args))
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "plugin": {
+    // Import a standard Agent Plugin's Skills and remote MCP entries into the
+    // current Agent-Native workspace.
+    import("./agent-plugin.js")
+      .then((m) => m.runAgentPlugin(args))
       .catch((err) => {
         console.error(err?.message ?? err);
         process.exit(1);
@@ -1223,9 +1288,11 @@ Usage:
                                 Call another agent-native app over A2A
   agent-native script <name>    Run an action (deprecated alias for 'action')
   agent-native typecheck        Run TypeScript type checking
+  agent-native doctor           Scan app/workspace source for guard violations
   agent-native create [name]    Scaffold a new agent-native workspace with a
                                 multi-select template picker. Use --standalone
-                                for a single-app scaffold.
+                                for a single-app scaffold, or choose Community
+                                template to install a public GitHub repository.
   agent-native code             Launch Agent-Native Code workspace. Type a task or
                                 use goals like /migrate and /audit.
   agent-native code serve       Run the Agent-Native Code remote connector.
@@ -1243,6 +1310,8 @@ Usage:
                                 reinstalling app skills/connectors.
   agent-native app-skill <cmd>  Install, launch, or package app-backed skills.
                                 cmds: ensure | launch | pack
+  agent-native plugin import <path> [--into <workspace>] [--yes] [--force]
+                                Import standard Agent Plugin Skills and remote MCP servers.
   agent-native skills add assets|content|design-exploration|visual-edit|visual-plan|visual-recap|context-xray
                                 Install the skill instructions, register the MCP
                                 connector, AND authenticate it in one step.
@@ -1300,6 +1369,10 @@ Usage:
                                 cmds: add "<summary>" [--type added|fixed|...] |
                                 release | list. Pending entries live in
                                 changelog/; 'release' rolls them into CHANGELOG.md.
+  agent-native clean            Reclaim disk by deleting regenerable build
+                                caches (node_modules/.vite, .nitro). Dry-run
+                                unless --apply; --builds also selects build/,
+                                dist/, .output/ and .netlify bundles.
   agent-native audit-agent-web  Audit a public URL for agent-readable surfaces
   agent-native eval [pattern]   Run the app's evals (**/*.eval.ts, evals/*.ts)
                                 and exit non-zero if any scores below its
@@ -1310,8 +1383,9 @@ Options:
   -h, --help                    Show this help message
   -v, --version                 Show version number
   --template <names>            Comma-separated templates to pre-select
-                                (mail,calendar,analytics,...) — or
-                                github:user/repo for community templates
+                                (mail,calendar,analytics,...), or install a
+                                community repo from a plain GitHub URL or
+                                community:owner/repo[?app=id][#ref]
   --headless                    Create the primitive-first action-only scaffold
   --standalone                  Scaffold a single standalone app (no workspace)
   --emit [dir]                  With migrate, emit an own-agent dossier
@@ -1320,6 +1394,8 @@ Options:
                                 cloudflare_pages (default), netlify, or vercel
   --build-only                  Build workspace deploy artifacts without publishing
   --eager                       With workspace dev, start every app immediately
+  --prewarm                     With workspace dev, warm non-default apps in the background
+  --no-prewarm                  With workspace dev, keep non-default apps lazy
   --url <url>                   URL to audit with audit-agent-web
 
 Feedback:  ${FEEDBACK_URL}

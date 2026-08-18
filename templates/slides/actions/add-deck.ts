@@ -16,6 +16,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { assertHumanReadableDeckTitle } from "../shared/deck-title.js";
 import {
   assertDesignSystemReadable,
   assertValidAspectRatio,
@@ -50,6 +51,7 @@ export default defineAction({
     const now = new Date().toISOString();
     deck.createdAt = deck.createdAt || now;
     deck.updatedAt = now;
+    assertHumanReadableDeckTitle(deckTitle(deck));
 
     const designSystemId = deckDesignSystemId(deck);
     await assertDesignSystemReadable(designSystemId);

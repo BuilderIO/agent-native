@@ -91,7 +91,7 @@ describe("DesignImportPanel", () => {
   it("shows visual-edit setup without the broken agent button", () => {
     expect(source).toContain("VISUAL_EDIT_INSTALL_COMMAND");
     expect(source).toContain("VISUAL_EDIT_CONNECT_COMMAND");
-    expect(source).toContain('href="/docs/template-design"');
+    expect(source).toContain('href={docsUrl("template-design")}');
     expect(source).not.toContain("sendToDesignAgentChat");
     expect(source).not.toContain("useVisualEditNow");
   });

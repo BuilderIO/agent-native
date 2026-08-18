@@ -1,6 +1,7 @@
 import {
   createContext,
   useContext,
+  useMemo,
   type ComponentType,
   type ReactNode,
 } from "react";
@@ -25,6 +26,10 @@ export interface EngineModelGroup {
   label: string;
   models: string[];
   configured: boolean;
+  /** Provider-owned connection state shown at the far edge of the row. */
+  statusLabel?: string;
+  /** Marks a configured local subscription so setup CTAs can stay hidden. */
+  isSubscription?: boolean;
 }
 
 export interface ComposerModelState {
@@ -43,6 +48,7 @@ export interface ComposerBuilderConnectFlow {
   envManaged: boolean;
   connecting: boolean;
   statusResolved: boolean;
+  error: string | null;
   start: () => void;
 }
 
@@ -104,6 +110,7 @@ export interface VoiceContextPack {
 export interface ComposerRuntimeAdapters {
   resolvePath?: (path: string) => string;
   translate?: ComposerTranslate;
+  formatNumber?: (value: number, options?: Intl.NumberFormatOptions) => string;
   models?: {
     useChatModels?: (options: { enabled: boolean }) => ComposerModelState;
     useAgentEngineConfigured?: (enabled: boolean) => {
@@ -172,13 +179,20 @@ export interface ComposerRuntimeAdapters {
 }
 
 const identityPath = (path: string) => path;
-const fallbackTranslate: ComposerTranslate = (key, options) =>
-  typeof options?.defaultValue === "string" ? options.defaultValue : key;
+const fallbackTranslate: ComposerTranslate = (key, options) => {
+  const template =
+    typeof options?.defaultValue === "string" ? options.defaultValue : key;
+
+  return template.replace(/{{\s*([\w$.-]+)\s*}}/g, (match, name: string) => {
+    const value = options?.[name];
+    return value == null ? match : String(value);
+  });
+};
 const fallbackModels = {
   useChatModels: () => ({
     selectedModel: "auto",
     selectedEngine: "auto",
-    selectedEffort: "medium" as ReasoningEffort,
+    selectedEffort: "high" as ReasoningEffort,
     availableModels: [],
     isLoading: false,
     onModelChange: () => {},
@@ -196,6 +210,7 @@ const fallbackBuilderFlow = {
   envManaged: false,
   connecting: false,
   statusResolved: false,
+  error: null,
   start: () => {},
 };
 
@@ -203,6 +218,8 @@ const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &
   ComposerRuntimeAdapters = {
   resolvePath: identityPath,
   translate: fallbackTranslate,
+  formatNumber: (value, options) =>
+    new Intl.NumberFormat("en-US", options).format(value),
   models: fallbackModels,
   agentChat: {
     sendToAgentChat: () => {},
@@ -249,18 +266,22 @@ export function ComposerRuntimeAdaptersProvider({
   adapters: ComposerRuntimeAdapters;
   children: ReactNode;
 }) {
+  // Consumers key effects off this value; a fresh identity per render re-runs
+  // every one of them (app-state reads, event subscriptions) on each render.
+  const value = useMemo(
+    () => ({
+      ...fallbackAdapters,
+      ...adapters,
+      models: { ...fallbackModels, ...adapters.models },
+      agentChat: { ...fallbackAdapters.agentChat, ...adapters.agentChat },
+      builder: { ...fallbackAdapters.builder, ...adapters.builder },
+      resources: { ...fallbackAdapters.resources, ...adapters.resources },
+      voice: { ...fallbackAdapters.voice, ...adapters.voice },
+    }),
+    [adapters],
+  );
   return (
-    <ComposerRuntimeAdaptersContext.Provider
-      value={{
-        ...fallbackAdapters,
-        ...adapters,
-        models: { ...fallbackModels, ...adapters.models },
-        agentChat: { ...fallbackAdapters.agentChat, ...adapters.agentChat },
-        builder: { ...fallbackAdapters.builder, ...adapters.builder },
-        resources: { ...fallbackAdapters.resources, ...adapters.resources },
-        voice: { ...fallbackAdapters.voice, ...adapters.voice },
-      }}
-    >
+    <ComposerRuntimeAdaptersContext.Provider value={value}>
       {children}
     </ComposerRuntimeAdaptersContext.Provider>
   );
@@ -270,7 +291,7 @@ export function useComposerRuntimeAdapters() {
   return useContext(ComposerRuntimeAdaptersContext);
 }
 
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "medium";
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
 export function getReasoningEffortOptionsForModel(
   _model?: string,
 ): ReasoningEffort[] {

@@ -44,6 +44,7 @@ import {
   getBreakpointIframeId,
   getPrimaryIframeId,
   isBreakpointSelectionTarget,
+  shouldSuppressFrameSelectionBox,
 } from "./multi-screen/iframe-targeting";
 import {
   BOARD_SURFACE_RENDER_MAX_SIZE,
@@ -242,6 +243,7 @@ describe("board surface pointer capture", () => {
     expect(
       shouldRenderBoardSurfaceStaticPreview({
         zoom: 2,
+        hasSurfaceContent: true,
         viewportGeometry: viewport,
         renderGeometry: active,
       }),
@@ -272,6 +274,7 @@ describe("board surface pointer capture", () => {
 
     expect(content).toContain("transform:scale(0.03125)!important");
     expect(content).toContain("translate:65536px 65536px!important");
+    expect(content).toContain("background:hsl(0, 0%, 10%)!important");
     expect(content).toContain('data-agent-native-node-id="left"');
     expect(content).toContain('data-agent-native-node-id="right"');
     expect(content).not.toMatch(/<script|onload=|<iframe|<object|<embed/i);
@@ -308,6 +311,33 @@ describe("board surface pointer capture", () => {
         boardSurfaceLocalPointToBoardPoint(localPoint, renderGeometry),
       ).toEqual(boardPoint);
     }
+  });
+
+  it("keeps the opaque board replica off when the board has nothing on it", () => {
+    // A board file can be a full HTML document with an empty <body> — truthy as
+    // a string, nothing to show. The replica paints itself in the board colour,
+    // so rendering it there covers the canvas in a full-board slab at low zoom.
+    const logical = makeGeom(-65536, -65536, 131072, 131072);
+    const active = makeGeom(-12288, -12288, 24576, 24576);
+    const viewport = makeGeom(-36000, -22500, 72000, 45000);
+
+    expect(
+      shouldRenderBoardSurfaceStaticPreview({
+        zoom: 2,
+        hasSurfaceContent: false,
+        viewportGeometry: viewport,
+        renderGeometry: active,
+      }),
+    ).toBe(false);
+    // Also below the pre-measurement zoom fallback.
+    expect(
+      shouldRenderBoardSurfaceStaticPreview({
+        zoom: 2,
+        hasSurfaceContent: false,
+        viewportGeometry: null,
+        renderGeometry: active,
+      }),
+    ).toBe(false);
   });
 
   it("treats empty board documents as having no surface content", () => {
@@ -1613,6 +1643,42 @@ describe("isBreakpointSelectionTarget (BP-DEEP v2 item 3)", () => {
   });
 });
 
+describe("shouldSuppressFrameSelectionBox (overview element selection)", () => {
+  it("suppresses the frame box when the selection is an element inside this screen", () => {
+    expect(
+      shouldSuppressFrameSelectionBox({ id: "screen-1" }, "screen-1"),
+    ).toBe(true);
+  });
+
+  it("does not suppress when the element selection belongs to a different screen", () => {
+    expect(
+      shouldSuppressFrameSelectionBox({ id: "screen-1" }, "screen-2"),
+    ).toBe(false);
+  });
+
+  it("does not suppress a plain frame selection (no element selected anywhere)", () => {
+    expect(shouldSuppressFrameSelectionBox({ id: "screen-1" }, null)).toBe(
+      false,
+    );
+    expect(shouldSuppressFrameSelectionBox({ id: "screen-1" }, undefined)).toBe(
+      false,
+    );
+  });
+
+  it("still suppresses for the existing breakpoint-target case", () => {
+    expect(
+      shouldSuppressFrameSelectionBox(
+        {
+          id: "screen-1",
+          breakpointWidths: [390, 810],
+          activeBreakpointWidth: 810,
+        },
+        null,
+      ),
+    ).toBe(true);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // STEVE TEST BATCH 3 item 8b — overview breakpoint frame "…" menu gate
 // ---------------------------------------------------------------------------
@@ -1961,5 +2027,28 @@ describe("getOutsideFrameDraftFallback", () => {
     expect(
       getOutsideFrameDraftFallback([], { hasBoardDrawHandler: false }),
     ).toBeUndefined();
+  });
+});
+
+describe("board surface background follows the editor theme", () => {
+  const preview = (background?: string) =>
+    getBoardSurfaceStaticPreviewContent({
+      html: `<!doctype html><html><head></head><body><div data-agent-native-node-id="a" style="position:absolute;left:0;top:0;width:10px;height:10px"></div></body></html>`,
+      logicalGeometry: { x: 0, y: 0, width: 1000, height: 1000 },
+      viewport: { width: 500, height: 500 },
+      background,
+    });
+
+  it("paints the themed canvas colour when one is supplied", () => {
+    // The board is its own iframe and cannot read the host's CSS vars, so a
+    // hardcoded dark fill made the canvas black in the light theme.
+    const content = preview("hsl(0 0% 92%)");
+    expect(content).toContain("hsl(0 0% 92%)");
+    expect(content).not.toContain("hsl(0, 0%, 10%)");
+  });
+
+  it("falls back to the dark default when no theme colour is resolved", () => {
+    expect(preview()).toContain("hsl(0, 0%, 10%)");
+    expect(preview("   ")).toContain("hsl(0, 0%, 10%)");
   });
 });

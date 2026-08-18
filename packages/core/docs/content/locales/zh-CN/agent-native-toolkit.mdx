@@ -20,12 +20,12 @@ Toolkit 是面向高质量智能体应用的可复用、久经验证的构建模
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="工具包如何融入" summary={"框架运行时提供持久保证。Toolkit 将这些保证转化为可复用的产品系统。应用再加入领域特定的数据、路由和视觉标识。"}>
+<Diagram id="doc-block-toolkits-boundary" title="三个层次如何配合" summary={"Core 是框架基础。Toolkit 是可选的可复用基础设施和 UI。Templates 是构建在 Core 上、通常使用 Toolkit 的可选应用。"}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">运行时</span><br />
+    <span class="diagram-pill accent">Core</span><br />
     操作、SQL、认证、应用状态、访问检查、实时传输
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -35,7 +35,7 @@ Toolkit 是面向高质量智能体应用的可复用、久经验证的构建模
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">应用</span><br />
+    <span class="diagram-pill accent">Templates</span><br />
     领域架构、路由、操作、品牌、专门工作流
   </div>
 </div>
@@ -60,6 +60,8 @@ Toolkit 是面向高质量智能体应用的可复用、久经验证的构建模
 
 </Diagram>
 
+Core 就是框架。Toolkit 是框架可选的可复用部件集合。Templates 是构建在 Core 上的可选应用；它们可以使用 Toolkit，也可以分叉作为完整起点。应用也可以不采用 Toolkit 或模板而直接使用 Core。
+
 ## 目录 {#catalog}
 
 | 领域               | 从这里开始                                      | 覆盖内容                                                     |
@@ -74,19 +76,19 @@ Toolkit 是面向高质量智能体应用的可复用、久经验证的构建模
 
 ## 产品套件 {#product-kits}
 
-| 工具包                                         | 用途                                                                    |
-| ---------------------------------------------- | ----------------------------------------------------------------------- |
-| [共享](/docs/toolkit-sharing)                  | 可拥有资源、共享对话框、可见性徽章、共享操作、公开/私有/组织访问。      |
-| [协作](/docs/toolkit-collaboration)            | 实时编辑、在线状态、实时光标、最近编辑高亮、协作撤销。                  |
-| [设置](/docs/toolkit-settings)                 | 标准设置页和标签页，让应用设置与智能体/提供商设置位于一个可预测的位置。 |
-| [组织与团队](/docs/toolkit-org-team)           | 团队页、组织切换、邀请、组织域、角色和应用切换。                        |
-| [配置与连接](/docs/toolkit-setup-connections)  | 引导、密钥、工作区连接、OAuth/提供商就绪状态和 Builder 连接。           |
-| [命令与导航](/docs/toolkit-command-navigation) | 命令菜单、深层链接、标准应用路由、侧栏和外壳模式。                      |
-| [资源](/docs/toolkit-resources)                | 资源树、编辑器、文件选择/搜索、附件和本地文件模式。                     |
-| [智能体 UX](/docs/toolkit-agent-ux)            | 编辑器、模型选择器、上下文标签、批准、运行恢复和运行托盘。              |
-| [历史记录](/docs/toolkit-history)              | 版本历史、审计日志、撤销/重做、恢复和“发生了什么变化”界面。             |
-| [评论与审阅](/docs/toolkit-comments-review)    | 内联评论、注释、提及、已解决线程和审阅状态。                            |
-| [可观测性](/docs/toolkit-observability)        | 用量、支出、反馈、回放、错误和运行诊断。                                |
+| 工具包                                         | 用途                                                                          |
+| ---------------------------------------------- | ----------------------------------------------------------------------------- |
+| [共享](/docs/toolkit-sharing)                  | 可拥有资源、共享对话框、可见性徽章、共享操作、公开/私有/组织访问。            |
+| [协作](/docs/toolkit-collaboration)            | 实时编辑、在线状态、实时光标、最近编辑高亮、协作撤销。                        |
+| [设置](/docs/toolkit-settings)                 | 标准设置页和标签页，让应用设置与智能体/提供商设置位于一个可预测的位置。       |
+| [组织与团队](/docs/toolkit-org-team)           | 团队页、组织切换、邀请、组织域、角色和应用切换。                              |
+| [配置与连接](/docs/toolkit-setup-connections)  | 引导、密钥、工作区连接、OAuth/提供商就绪状态和 Builder 连接（提供免费套餐）。 |
+| [命令与导航](/docs/toolkit-command-navigation) | 命令菜单、深层链接、标准应用路由、侧栏和外壳模式。                            |
+| [资源](/docs/toolkit-resources)                | 资源树、编辑器、文件选择/搜索、附件和本地文件模式。                           |
+| [智能体 UX](/docs/toolkit-agent-ux)            | 编辑器、模型选择器、上下文标签、批准、运行恢复和运行托盘。                    |
+| [历史记录](/docs/toolkit-history)              | 版本历史、审计日志、撤销/重做、恢复和“发生了什么变化”界面。                   |
+| [评论与审阅](/docs/toolkit-comments-review)    | 内联评论、注释、提及、已解决线程和审阅状态。                                  |
+| [可观测性](/docs/toolkit-observability)        | 用量、支出、反馈、回放、错误和运行诊断。                                      |
 
 ## 包成熟度与所有权 {#package-maturity-and-ownership}
 

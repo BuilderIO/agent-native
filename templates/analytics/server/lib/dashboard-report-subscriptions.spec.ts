@@ -80,8 +80,9 @@ describe("dashboard report subscriptions", () => {
         config: { description: string };
       }>
     )[0];
-    expect(panel?.sql).toContain("WITH first_seen AS");
-    expect(panel?.sql).toContain("), activity AS");
+    expect(panel?.sql).toContain("WITH activity AS");
+    expect(panel?.sql).toContain("MIN(event_date) OVER");
+    expect(panel?.sql.match(/FROM analytics_events/g)).toHaveLength(1);
     expect(panel?.config.description).toContain("previous 365 days");
   });
 

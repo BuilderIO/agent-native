@@ -246,6 +246,13 @@ export default defineAction({
 Use this for first-party app UI. Keep cross-host iframe UI in `mcpApp`, and keep
 arbitrary query execution behind typed read actions rather than raw SQL in chat.
 
+Size renderers in absolute units, not percentages. The transcript grows to fit
+its messages, so a renderer's container has no definite height to resolve a
+percentage against — `height: 40%` on a chart bar collapses to zero rather than
+erroring, which reads as a renderer that failed to draw. Give charts and other
+height-driven visuals a pixel (or `rem`) basis; widths are fine as percentages
+because the transcript column does have a definite width.
+
 ## BYO agent runtimes {#byo-agent-runtimes}
 
 `AgentChatRuntime` is the bring-your-own-agent contract for the chat shell, and
@@ -407,7 +414,7 @@ if it matures, it should adapt into this same explicit runtime/widget contract.
 
 ## What's next {#whats-next}
 
-- [Actions](/docs/actions) — define the operations that return native widget data.
+- [Actions](/docs/actions-overview) — define the operations that return native widget data.
 - [Agent Surfaces](/docs/agent-surfaces) — decide whether you need headless, chat, sidecar, or full app.
 - [Drop-in Agent](/docs/drop-in-agent) — the tutorial for mounting the standard chat runtime.
 - [Component API](/docs/components) — the per-export API map for chat layers, runtimes, and tool renderers.

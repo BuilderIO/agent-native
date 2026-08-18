@@ -3,6 +3,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { TooltipProvider } from "./ui/tooltip";
 import {
   WorkspaceTemplateCard,
   WorkspaceTemplatesSection,
@@ -66,14 +67,27 @@ describe("WorkspaceTemplateCard", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows template context and only links to a live app when supplied", async () => {
+  it("keeps template cards concise and moves setup context into the add flow", async () => {
     await act(async () => {
-      root.render(<WorkspaceTemplateCard template={template} />);
+      root.render(
+        <TooltipProvider>
+          <WorkspaceTemplateCard template={template} />
+        </TooltipProvider>,
+      );
     });
 
     expect(container.textContent).toContain("Weekly report");
-    expect(container.textContent).toContain("RevOps");
-    expect(container.textContent).toContain(
+    expect(container.textContent).not.toContain("RevOps");
+    expect(container.textContent).not.toContain(
+      "Connect your CRM after installing the app.",
+    );
+
+    const trigger = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
+    );
+    expect(trigger).not.toBeUndefined();
+    await act(async () => trigger?.click());
+    expect(document.body.textContent).toContain(
       "Connect your CRM after installing the app.",
     );
 
@@ -85,9 +99,11 @@ describe("WorkspaceTemplateCard", () => {
 
     await act(async () => {
       root.render(
-        <WorkspaceTemplateCard
-          template={{ ...template, liveUrl: null, productUrl: null }}
-        />,
+        <TooltipProvider>
+          <WorkspaceTemplateCard
+            template={{ ...template, liveUrl: null, productUrl: null }}
+          />
+        </TooltipProvider>,
       );
     });
     expect(
@@ -98,12 +114,14 @@ describe("WorkspaceTemplateCard", () => {
   it("creates an app with the default app id and allows an override", async () => {
     await act(async () => {
       root.render(
-        <WorkspaceTemplateCard template={template} defaultAppId="pipeline" />,
+        <TooltipProvider>
+          <WorkspaceTemplateCard template={template} defaultAppId="pipeline" />
+        </TooltipProvider>,
       );
     });
 
     const trigger = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Create from template"),
+      (button) => button.textContent?.includes("Add app"),
     );
     expect(trigger).not.toBeUndefined();
 
@@ -121,7 +139,7 @@ describe("WorkspaceTemplateCard", () => {
       Object.getOwnPropertyDescriptor(
         HTMLInputElement.prototype,
         "value",
-      )?.set?.call(input, "sales-ops");
+      )?.set?.call(input, "Sales Ops");
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
 
@@ -144,31 +162,67 @@ describe("WorkspaceTemplateCard", () => {
     );
   });
 
+  it("keeps add app available in catalog cards", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <WorkspaceTemplateCard template={template} catalog />
+        </TooltipProvider>,
+      );
+    });
+
+    const settingsButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Settings for Weekly report"]',
+    );
+    expect(settingsButton).not.toBeNull();
+    await act(async () => {
+      settingsButton?.dispatchEvent(
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+      );
+    });
+    const addItem = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Add app"));
+    expect(addItem).not.toBeUndefined();
+    const settingsMenu = document.querySelector<HTMLElement>('[role="menu"]');
+    expect(settingsMenu?.className).toContain("w-48");
+    expect(settingsMenu?.className).toContain("bg-popover");
+    expect(settingsMenu?.className).toContain("shadow-md");
+    expect(addItem?.querySelector("svg")).not.toBeNull();
+    await act(async () => addItem?.click());
+    expect(document.body.textContent).toContain("Choose the URL-safe id");
+    expect(
+      container.querySelector('a[href="https://reports.example.test"]'),
+    ).not.toBeNull();
+  });
+
   it("accepts the list action envelope and renders installed state", async () => {
     await act(async () => {
       root.render(
-        <WorkspaceTemplatesSection
-          templates={{
-            templates: [
-              {
-                ...template,
-                installed: true,
-                liveUrl: null,
-                productUrl: null,
-              },
-            ],
-          }}
-          title="Curated templates"
-        />,
+        <TooltipProvider>
+          <WorkspaceTemplatesSection
+            templates={{
+              templates: [
+                {
+                  ...template,
+                  installed: true,
+                  liveUrl: null,
+                  productUrl: null,
+                },
+              ],
+            }}
+            title="Curated templates"
+          />
+        </TooltipProvider>,
       );
     });
 
     expect(container.textContent).toContain("Curated templates");
     expect(container.textContent).toContain("Installed");
     expect(container.querySelector('a[href^="https://"]')).toBeNull();
-    const remixButton = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Create from template"),
+    const addButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Add app"),
     );
-    expect(remixButton).not.toHaveProperty("disabled", true);
+    expect(addButton).not.toHaveProperty("disabled", true);
   });
 });

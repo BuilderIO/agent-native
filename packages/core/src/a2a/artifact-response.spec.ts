@@ -640,6 +640,53 @@ describe("appendA2AArtifactLinks", () => {
     );
   });
 
+  it("verifies a deck built through actions outside the deck allow-list", () => {
+    // The documented live-generation flow creates an empty deck and fills it in
+    // with a follow-up write, so neither call looks like a populated create.
+    const text = appendA2AArtifactLinks(
+      "Your deck is ready: https://slides.agent.test/deck/deck_123",
+      [
+        {
+          tool: "create-deck",
+          result: JSON.stringify({
+            id: "deck_123",
+            title: "Roadmap",
+            slideCount: 0,
+            url: "https://slides.agent.test/deck/deck_123",
+          }),
+        },
+        {
+          tool: "patch-deck",
+          result: JSON.stringify({ ok: true, deckId: "deck_123" }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test/" },
+    );
+
+    expect(text).not.toContain("could not verify");
+    expect(text).toContain("https://slides.agent.test/deck/deck_123");
+  });
+
+  it("verifies a deck from an importer that returns its canonical URL", () => {
+    const text = appendA2AArtifactLinks(
+      "Imported: https://slides.agent.test/deck/deck_123",
+      [
+        {
+          tool: "import-pptx",
+          result: JSON.stringify({
+            id: "deck_123",
+            slideCount: 12,
+            url: "https://slides.agent.test/deck/deck_123",
+          }),
+        },
+      ],
+      { baseUrl: "https://slides.agent.test/" },
+    );
+
+    expect(text).not.toContain("could not verify");
+    expect(text).toContain("https://slides.agent.test/deck/deck_123");
+  });
+
   it("treats update-dashboard as a recoverable dashboard artifact", () => {
     const text = buildA2ARecoverableArtifactMessage(
       [

@@ -8,6 +8,7 @@ import type {
   ActionTool,
   AgentChatAttachment,
   AgentChatEvent,
+  AgentNativeJsonSchema,
 } from "./agent/types.js";
 import { normalizeAuditConfig, resolveAuditAttach } from "./audit/config.js";
 import type { ActionAuditConfig } from "./audit/types.js";
@@ -71,8 +72,16 @@ export interface ActionRunContext {
    * must apply their own.
    */
   userEmail?: string;
+  /**
+   * Request headers for server-only actions that must delegate to an
+   * authenticated framework protocol, such as Better Auth password setup.
+   * Never expose this context to agent tools or return it from an action.
+   */
+  requestHeaders?: Headers;
   /** Resolved org id, or `null` when the request has no org. */
   orgId?: string | null;
+  /** Hosting app/template id used for app-owned resource boundaries. */
+  appId?: string;
   /** How this action was invoked. */
   caller: ActionCaller;
   /** Present only for trigger-dispatched automation calls. */
@@ -81,6 +90,9 @@ export interface ActionRunContext {
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
   networkPeer?: string;
+  /** Bounded cross-app lineage used to prevent recursive delegation cycles. */
+  delegationDepth?: number;
+  visitedApps?: string[];
   /**
    * Attachments submitted with the current agent turn (pasted text blocks,
    * uploaded files, images), exactly as the server received them — with full,
@@ -121,13 +133,75 @@ export interface ActionRunContext {
   /** Concrete execution id for this agent-loop attempt. */
   runId?: string;
   turnId?: string;
+  /**
+   * Stable key for this exact tool call when the agent loop accepted a human
+   * approval grant. This is trusted loop metadata; action input can never set
+   * it.
+   */
+  approvedToolCallKey?: string;
 }
+
+/**
+ * Pre-run authorization gate. Throw to deny with a specific message (the
+ * framework's `ForbiddenError` carries a 403), or return `false` for a generic
+ * denial. Returning `undefined` allows the call — a guard that forgets to
+ * return is therefore permissive, which is why `false` is honoured at all:
+ * `(args) => someCheck(args)` written against a boolean helper would otherwise
+ * pass silently on every denial.
+ */
+export type ActionAuthorize<TArgs> = (
+  args: TArgs,
+  ctx?: ActionRunContext,
+) => void | boolean | Promise<void | boolean>;
 
 export interface AgentActionStopOptions {
   /** Optional stable code surfaced in run metadata and tests. */
   errorCode?: string;
   /** Optional short tool-result text. Defaults to the user-facing message. */
   toolResult?: string;
+}
+
+export interface ActionContractErrorOptions {
+  /** Stable machine-readable code safe to expose on every action transport. */
+  errorCode: string;
+  /** Safe structured context for callers. Never include secrets or raw driver errors. */
+  details?: Record<string, unknown>;
+  /** HTTP status for the action route. Contract conflicts normally use 409. */
+  statusCode?: number;
+}
+
+/**
+ * A deterministic, caller-correctable action contract failure.
+ *
+ * Unlike an ordinary Error, its code and explicitly safe details survive the
+ * framework HTTP transport. Internal failures remain generic 500 responses.
+ */
+export class ActionContractError extends Error {
+  readonly actionContractError = true;
+  readonly errorCode: string;
+  readonly details?: Record<string, unknown>;
+  readonly statusCode: number;
+
+  constructor(message: string, options: ActionContractErrorOptions) {
+    super(message);
+    this.name = "ActionContractError";
+    this.errorCode = options.errorCode;
+    this.details = options.details;
+    this.statusCode = options.statusCode ?? 409;
+  }
+}
+
+export function isActionContractError(
+  error: unknown,
+): error is ActionContractError {
+  return (
+    error instanceof ActionContractError ||
+    (!!error &&
+      typeof error === "object" &&
+      (error as { actionContractError?: unknown }).actionContractError ===
+        true &&
+      typeof (error as { errorCode?: unknown }).errorCode === "string")
+  );
 }
 
 /**
@@ -163,7 +237,11 @@ export function isAgentActionStopError(
 
 /** HTTP exposure config for an action. */
 export interface ActionHttpConfig {
-  /** HTTP method. Default: "POST". Use "GET" for read-only actions. */
+  /**
+   * Method required from direct HTTP callers. Default: "POST". Use "GET" for
+   * read-only actions. Browser action clients use the framework's frontend
+   * mutation transport and do not need to repeat this method.
+   */
   method?: "GET" | "POST" | "PUT" | "DELETE";
   /** Override route path under /_agent-native/actions/. Default: action filename. */
   path?: string;
@@ -176,6 +254,52 @@ export interface PublicAgentActionConfig {
   requiresAuth?: boolean;
   isConsequential?: boolean;
   title?: string;
+  description?: string;
+  /**
+   * Allow a sibling app to invoke this action over A2A even though its input is
+   * a free-form query or program (`sql`, `query`, `code`, `script`,
+   * `expression`).
+   *
+   * Off by default and rarely correct. The app that owns the data owns its
+   * schema, data dictionary, and reference queries; a caller has none of that,
+   * so passing raw SQL across apps makes every caller reimplement the owner's
+   * schema knowledge and silently break when it changes. Prefer a semantic
+   * action the owner implements, or let the caller ask in natural language and
+   * form the query yourself.
+   */
+  allowRawQueryInput?: boolean;
+}
+
+export type ActionPlanModeEffect = "read" | "write" | "unknown";
+
+/**
+ * Declares how an action behaves in Plan mode.
+ *
+ * A fixed `"read"` effect makes the action callable while planning. Mixed
+ * tools can classify each call from its arguments; only a returned `"read"`
+ * is allowed. Classifier errors and `"unknown"` fail closed.
+ */
+export interface ActionPlanModeConfig<TInput = unknown> {
+  effect: ActionPlanModeEffect | ((args: TInput) => ActionPlanModeEffect);
+  /**
+   * Optional argument values advertised and accepted in Plan mode. This keeps
+   * mixed-tool schemas focused on their read variants while the runtime gate
+   * independently rechecks every invocation.
+   */
+  allowedValues?: Record<string, readonly string[]>;
+  /**
+   * Optional Plan-mode input-property allowlist. Other properties are hidden
+   * from the advertised schema and rejected by the runtime gate.
+   */
+  allowedProperties?: readonly string[];
+  /** Properties required by the Plan-mode schema. */
+  requiredProperties?: readonly string[];
+  /**
+   * Properties hidden and rejected in Plan mode (for example persistence or
+   * notification options on an otherwise read-only request).
+   */
+  omittedProperties?: readonly string[];
+  /** Additional Plan-mode guidance appended to the tool description. */
   description?: string;
 }
 
@@ -392,10 +516,22 @@ interface DefineActionWithSchema<
    *  Only set this manually when you need to override the inference — e.g. a
    *  POST action that only reads data but can't use GET for a protocol reason. */
   readOnly?: boolean;
+  /** Declares that a successful call returns real evidence retrieved from a data
+   *  source at call time — a provider API, a warehouse, a connected repo, or the
+   *  app's own event/observability store. Apps that police fabricated answers
+   *  (see the Analytics final-response guard) read this instead of keeping a
+   *  hand-maintained list of action names, which drifts the moment a new source
+   *  action ships. Orthogonal to `readOnly`: a write that probes a live endpoint
+   *  and returns the outcome is still grounding. Metadata-only reads (schema,
+   *  catalogs, saved config) are not. */
+  grounding?: boolean;
   /** Set false for read-only tools that should stay available in Act mode but
    *  must not run during Plan mode because they perform substantive work
    *  rather than lightweight inspection. Defaults to allowed when read-only. */
   allowInPlanMode?: boolean;
+  /** First-class Plan-mode effect policy. Prefer this over `readOnly` for
+   *  mixed tools whose effect depends on their arguments. */
+  planMode?: ActionPlanModeConfig<StandardSchemaV1.InferInput<TSchema>>;
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn.
    *  Only set this for mutating actions that are internally concurrency-safe
@@ -467,6 +603,30 @@ interface DefineActionWithSchema<
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
   /**
+   * Authorization gate that runs before `run()` on **every** caller — agent
+   * tool, HTTP, frontend, MCP, A2A, and CLI. It wraps `run` itself rather than
+   * hanging off the action entry, because a flag consulted by the dispatcher
+   * only guards the dispatchers that remember to consult it.
+   *
+   * This is *authorization*, not approval: `needsApproval` asks a human to
+   * bless one call the caller is already allowed to make, while `authorize`
+   * decides whether they are allowed at all. It also does not replace
+   * `accessFilter` / `assertAccess` — those scope which rows a permitted caller
+   * may see; this decides whether the operation is open to them.
+   *
+   * ```ts
+   * import { coachAccess } from "../lib/access.js";
+   *
+   * export default defineAction({
+   *   description: "Archive a training plan.",
+   *   schema,
+   *   authorize: coachAccess.requireAny("coach-admin"),
+   *   run: async (args) => { ... },
+   * });
+   * ```
+   */
+  authorize?: ActionAuthorize<StandardSchemaV1.InferOutput<TSchema>>;
+  /**
    * Audit-log configuration. **Default-on for mutating actions** — you only
    * need this to tune capture: declare the mutated `target` (so the change
    * shows up in the owner's audit trail) and/or a `summary`, opt a read-only
@@ -523,9 +683,15 @@ interface DefineActionWithParams<
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** Declares that a successful call returns real evidence retrieved from a data
+   *  source at call time. See the schema overload above. */
+  grounding?: boolean;
   /** Set false for read-only tools that should stay available in Act mode but
    *  must not run during Plan mode. See the schema overload above. */
   allowInPlanMode?: boolean;
+  /** First-class Plan-mode effect policy. Prefer this over `readOnly` for
+   *  mixed tools whose effect depends on their arguments. */
+  planMode?: ActionPlanModeConfig<InferParams<TParams>>;
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn. */
   parallelSafe?: boolean;
@@ -556,6 +722,9 @@ interface DefineActionWithParams<
         args: InferParams<TParams>,
         ctx?: ActionRunContext,
       ) => boolean | Promise<boolean>);
+  /** Pre-run authorization gate applied to every caller. See the schema
+   *  overload above for full semantics. */
+  authorize?: ActionAuthorize<InferParams<TParams>>;
   /** Audit-log configuration (default-on for mutations). See the schema
    *  overload above and the `audit-log` skill. */
   audit?: ActionAuditConfig;
@@ -594,7 +763,9 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
+  readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
+  readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly parallelSafe?: boolean;
   readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
@@ -714,12 +885,21 @@ export function defineAction(options: any) {
     );
   }
 
+  // Authorization sits INSIDE input validation, so a gate that inspects `args`
+  // is handed the parsed, coerced value its type promises rather than whatever
+  // shape the caller sent. Putting it outside would have every guard reading
+  // attacker-shaped input while typed as though it were validated.
+  const guardedRun =
+    typeof options.authorize === "function"
+      ? wrapRunWithAuthorize(options.run, options.authorize)
+      : options.run;
+
   // Wrap run() with INPUT validation when schema is provided.
   // Pass toolParameters so the validation error can echo the expected signature
   // (required vs optional fields) and help the caller self-correct.
   const inputValidatedRun = hasSchema
-    ? wrapWithValidation(options.schema, options.run, toolParameters)
-    : options.run;
+    ? wrapWithValidation(options.schema, guardedRun, toolParameters)
+    : guardedRun;
 
   // Then wrap with OUTPUT validation when an outputSchema is provided. This
   // composes AROUND the input-validated run so the order is: validate input →
@@ -844,8 +1024,20 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
+    ...(typeof options.grounding === "boolean"
+      ? { grounding: options.grounding }
+      : {}),
     ...(typeof options.allowInPlanMode === "boolean"
       ? { allowInPlanMode: options.allowInPlanMode }
+      : {}),
+    ...(options.planMode &&
+    typeof options.planMode === "object" &&
+    !Array.isArray(options.planMode) &&
+    (typeof options.planMode.effect === "function" ||
+      options.planMode.effect === "read" ||
+      options.planMode.effect === "write" ||
+      options.planMode.effect === "unknown")
+      ? { planMode: options.planMode }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
@@ -874,6 +1066,38 @@ export function defineAction(options: any) {
       ? { needsApproval: options.needsApproval }
       : {}),
     ...(auditConfig ? { audit: auditConfig } : {}),
+  };
+}
+
+/**
+ * Wrap an action's run with its `authorize` gate.
+ *
+ * The gate is applied here, around `run`, rather than exposed as a flag on the
+ * action entry: `run` is the one thing all six dispatch sites (agent loop, HTTP
+ * route, frontend, MCP, A2A, CLI) go through, so there is no caller that can
+ * reach the body without passing the check. `needsApproval` took the flag route
+ * and is consequently honoured only inside the agent loop.
+ *
+ * Composed so the full order is: validate input → authorize → run → validate
+ * output → audit. The audit wrapper is outermost, so a denial is still recorded
+ * as an attempt — which is precisely what an audit trail is for.
+ *
+ * A guard that throws denies with its own message. A guard that returns `false`
+ * denies generically. Anything else — including `undefined` — allows.
+ */
+function wrapRunWithAuthorize(
+  run: (args: any, ctx?: ActionRunContext) => any,
+  authorize: ActionAuthorize<any>,
+): (args: any, ctx?: ActionRunContext) => Promise<any> {
+  return async function authorizedRun(args: any, ctx?: ActionRunContext) {
+    const verdict = await authorize(args, ctx);
+    if (verdict === false) {
+      const err = new Error("Not authorized") as Error & { statusCode: number };
+      err.name = "ForbiddenError";
+      err.statusCode = 403;
+      throw err;
+    }
+    return run(args, ctx);
   };
 }
 
@@ -1289,6 +1513,85 @@ function coerceGatewayStringifiedArgs(
   return out ?? args;
 }
 
+// The enums and required members that actually explain a rejection are usually
+// nested inside `items`/`oneOf` (a discriminated union of operations), not on
+// the top-level property, so rendering only the top level prints `operations*:
+// array` — true and useless. Bounded depth keeps a deep schema from crowding out
+// the validation errors it is meant to explain.
+const MAX_SIGNATURE_DEPTH = 4;
+const MAX_SIGNATURE_LENGTH = 1200;
+
+function describeSchemaType(
+  spec: AgentNativeJsonSchema | undefined,
+  depth: number,
+): string {
+  if (!spec) return "any";
+  if (spec.const !== undefined) return JSON.stringify(spec.const);
+  if (Array.isArray(spec.enum)) {
+    return spec.enum.map((value) => JSON.stringify(value)).join("|");
+  }
+
+  const branches = spec.oneOf ?? spec.anyOf;
+  if (branches?.length) {
+    if (depth >= MAX_SIGNATURE_DEPTH) return "object";
+    return branches
+      .map((branch) => describeSchemaType(branch, depth))
+      .join(" | ");
+  }
+
+  if (spec.properties && Object.keys(spec.properties).length > 0) {
+    if (depth >= MAX_SIGNATURE_DEPTH) return "object";
+    const required = new Set(spec.required ?? []);
+    const members = Object.entries(spec.properties)
+      .map(
+        ([key, value]) =>
+          `${key}${required.has(key) ? "*" : "?"}: ${describeSchemaType(value, depth + 1)}`,
+      )
+      .join(", ");
+    return `{ ${members} }`;
+  }
+
+  if (spec.items) {
+    if (depth >= MAX_SIGNATURE_DEPTH) return "array";
+    return `array<${describeSchemaType(spec.items, depth + 1)}>`;
+  }
+
+  return Array.isArray(spec.type) ? spec.type.join("|") : (spec.type ?? "any");
+}
+
+/**
+ * Compact signature of an action's parameters, e.g.
+ * `{ deckId*: string, operation*: "edit"|"replace", slideId?: string }` where
+ * `*` = required and `?` = optional.
+ *
+ * Enum values are spelled out because a rejected call is usually a wrong enum:
+ * gateways that pre-fill optional fields reach for the first allowed value, and
+ * a model that only learns "must be equal to one of the allowed values" re-sends
+ * the same guess until the identical-error breaker kills the turn.
+ *
+ * Shared so the raw-JSON-schema tool path in the agent loop describes a
+ * rejection the same way `wrapWithValidation` does for Zod actions.
+ */
+export function describeToolParameterSignature(
+  parameters: ActionTool["parameters"] | undefined,
+  only?: readonly string[],
+): string | null {
+  const properties = parameters?.properties;
+  if (!properties) return null;
+  const required = new Set(parameters?.required ?? []);
+  const keys = Object.keys(properties).filter(
+    (key) => !only?.length || only.includes(key),
+  );
+  const sig = (keys.length ? keys : Object.keys(properties))
+    .map(
+      (key) =>
+        `${key}${required.has(key) ? "*" : "?"}: ${describeSchemaType(properties[key], 1)}`,
+    )
+    .join(", ");
+  if (!sig) return null;
+  return `{ ${sig.length > MAX_SIGNATURE_LENGTH ? `${sig.slice(0, MAX_SIGNATURE_LENGTH)}…` : sig} }`;
+}
+
 /**
  * Wrap an action's run function with schema validation.
  * Invalid inputs get a clear error message (including what was actually passed)
@@ -1346,22 +1649,10 @@ function wrapWithValidation(
         received = String(args);
       }
 
-      // Also show the EXPECTED signature so the agent doesn't have to guess.
-      // Format: `{ deckId*: string, content*: string, slideId?: string, ... }`
-      // where `*` = required, `?` = optional.
-      let expected = "";
-      if (toolParameters?.properties) {
-        const required = new Set(toolParameters.required ?? []);
-        const sig = Object.entries(toolParameters.properties)
-          .map(([k, v]) => {
-            const mark = required.has(k) ? "*" : "?";
-            const type = (v as { type?: string }).type ?? "any";
-            return `${k}${mark}: ${type}`;
-          })
-          .join(", ");
-        if (sig)
-          expected = ` Expected: { ${sig} } (where * = required, ? = optional).`;
-      }
+      const signature = describeToolParameterSignature(toolParameters);
+      const expected = signature
+        ? ` Expected: ${signature} (where * = required, ? = optional).`
+        : "";
 
       throw new Error(
         `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,

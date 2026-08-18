@@ -9,6 +9,14 @@ Les modèles sont des applications natives d'agent complètes et exploitables qu
 
 Utilisez `@agent-native/core` pour le contrat de runtime : actions, plugins serveur, aides de base de données, état de l'application, aides de routage et chat de l'agent. Utilisez `@agent-native/toolkit` pour l'UI réutilisable de construction d'applications et les aides comme les primitives partagées, les hooks toast/mobile, les sélecteurs de date et les slots simples de shell d'application. Gardez les variantes propres au modèle locales lorsqu'elles encodent un comportement produit ou une identité visuelle.
 
+Gardez les trois couches à l’esprit pour choisir où placer une capacité :
+
+- **Core - le framework :** le contrat d’exécution et de données requis que toute app peut utiliser.
+- **Toolkit - éléments réutilisables facultatifs :** UI et systèmes produit partagés que les apps peuvent adopter, composer ou forker.
+- **Templates - apps facultatives :** produits métier complets bâtis sur Core, souvent avec Toolkit, que l’on peut forker comme point de départ.
+
+Toolkit et Templates sont facultatifs. Un template n’est pas le framework lui-même, et Toolkit ne remplace pas Core.
+
 Un bon modèle :
 
 - Résout un flux de travail de bout en bout, avec des données de départ utiles ou un flux à état vide.
@@ -35,7 +43,7 @@ npx @agent-native/core@latest create my-platform
 
 Chat vous offre une authentification, des fils de discussion durables, des ressources soutenues par SQL, des outils, l'état de l'application, actions et la synchronisation des sondages. Vous ajoutez le modèle de domaine et le produit UI.
 
-Si vous ne créez pas encore de modèle UI réutilisable, utilisez la rampe d'accès sans tête dans [Getting Started](/docs/getting-started#1-create-your-app) : définissez une action, exécutez-la avec `pnpm agent` et ajoutez UI plus tard lorsque le flux de travail a besoin d'une surface durable.
+Si vous ne créez pas encore de modèle UI réutilisable, utilisez [Automation-First Apps](/docs/pure-agent-apps) : définissez des actions, exécutez-les sans navigateur et ajoutez l’interface plus tard lorsque le workflow a besoin d’une surface durable.
 
 ## Structure du projet {#project-structure}
 
@@ -493,11 +501,23 @@ Avant de partager :
 4. Documenter les variables d'environnement requises et les étapes d'intégration.
 5. Inclure des exemples ou des lignes de départ via des migrations additives, et non des fichiers de données d'exécution suivis.
 
-Les modèles de communauté peuvent être créés à partir d'un dépôt GitHub :
+Les modèles de la communauté s’installent directement depuis un dépôt GitHub public. Placez l’application Agent Native à la racine du dépôt :
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+Ajoutez `#branch`, `#tag` ou `#commit` pour épingler une révision précise :
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+La CLI télécharge uniquement le code source. Elle n’installe pas les dépendances et n’exécute pas les scripts du modèle. Les modèles communautaires sont du code tiers : vérifiez le dépôt, la licence, les dépendances et les scripts avant d’exécuter `pnpm install`.
+
+Pour figurer au catalogue, fournissez une application complète à la racine, un dépôt public avec une licence et un README de configuration, une dépendance à `@agent-native/core`, ainsi que des vérifications de types et des tests réussis. Une démo hébergée et une capture d’écran sont facultatives.
+
+[Proposez un modèle communautaire](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml) lorsque le dépôt est prêt. Ces modèles restent séparés du catalogue officiel et sont maintenus par leurs auteurs.
 
 ## Contribuer au framework monorepo {#contributing}
 

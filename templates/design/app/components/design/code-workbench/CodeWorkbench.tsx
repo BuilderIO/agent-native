@@ -19,6 +19,7 @@ import {
   readCodeWorkbenchTheme,
   type CodeWorkbenchTheme,
 } from "../code-workbench-theme";
+import { CODE_WORKBENCH_SHELL_CLASSNAME } from "./code-workbench-shell";
 import {
   createCoreCommands,
   dispatchKeybinding,
@@ -373,7 +374,10 @@ function CodeWorkbenchInner({
       data-testid="design-code-workbench"
       tabIndex={-1}
       onKeyDownCapture={handleKeyDownCapture}
-      className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--workbench-bg)] text-[var(--workbench-fg)] outline-none"
+      className={cn(
+        CODE_WORKBENCH_SHELL_CLASSNAME,
+        "flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[var(--workbench-bg)] text-[var(--workbench-fg)] outline-none",
+      )}
       style={theme.values as CSSProperties}
     >
       <div className="flex min-h-0 flex-1">

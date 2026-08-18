@@ -146,6 +146,16 @@ export const recordings = table("recordings", {
   thumbnailUrl: text("thumbnail_url"),
   animatedThumbnailUrl: text("animated_thumbnail_url"),
 
+  // Editor timeline filmstrip: one sprite image plus the grid geometry needed
+  // to address a cell. Null means "not generated yet", which is why the editor
+  // still has a browser-side extraction fallback.
+  filmstripUrl: text("filmstrip_url"),
+  filmstripFrameCount: integer("filmstrip_frame_count").notNull().default(0),
+  filmstripColumns: integer("filmstrip_columns").notNull().default(0),
+  filmstripRows: integer("filmstrip_rows").notNull().default(0),
+  filmstripFrameWidth: integer("filmstrip_frame_width").notNull().default(0),
+  filmstripFrameHeight: integer("filmstrip_frame_height").notNull().default(0),
+
   durationMs: integer("duration_ms").notNull().default(0),
   videoUrl: text("video_url"),
   videoFormat: text("video_format", { enum: ["webm", "mp4"] })
@@ -168,6 +178,13 @@ export const recordings = table("recordings", {
   // Authoritative liveness for an in-flight upload: renewed by every chunk
   // POST, and the only thing the upload reaper is allowed to consult.
   uploadLeaseExpiresAt: text("upload_lease_expires_at"),
+  // Fences resumed writers: every recovery claim rotates this token so stale
+  // chunks and delayed interruption callbacks cannot mutate the new attempt.
+  uploadAttemptId: text("upload_attempt_id"),
+  // Every destructive restart receives a new generation. Unlike the attempt
+  // id (which is deliberately stable across a lost response), this fences the
+  // provider handle and buffered scratch that the restart replaces.
+  uploadGenerationId: text("upload_generation_id"),
   failureReason: text("failure_reason"),
   loomImportClaimId: text("loom_import_claim_id"),
   loomImportClaimedAt: text("loom_import_claimed_at"),
@@ -199,6 +216,7 @@ export const recordings = table("recordings", {
 
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+  mediaUpdatedAt: text("media_updated_at").notNull().default(now()),
   archivedAt: text("archived_at"),
   trashedAt: text("trashed_at"),
 
@@ -229,6 +247,13 @@ export const recordingTranscripts = table("recording_transcripts", {
     .notNull()
     .default("pending"),
   failureReason: text("failure_reason"),
+  // The MACHINE-READABLE reason, and the one that decides retryability — see
+  // shared/transcript-failure.ts. `failureReason` above is prose rendered from
+  // this and is for humans only; production accumulated 39 distinct strings
+  // for what turned out to be a handful of conditions, and retryability was
+  // being re-derived by regex over that prose. Nullable for rows written
+  // before this column existed.
+  failureCode: text("failure_code"),
   // Count of automatic retries already attempted after a transient failure
   // (ffmpeg timeout, transient provider/network error). Bounds the
   // fire-and-forget auto-retry pass in request-transcript.ts so a repeatedly
@@ -387,6 +412,24 @@ export const recordingViews = table("recording_views", {
   viewedAt: text("viewed_at").notNull().default(now()),
 });
 
+export const recordingPlaybackPositions = table(
+  "recording_playback_positions",
+  {
+    id: text("id").primaryKey(),
+    recordingId: text("recording_id").notNull(),
+    viewerKey: text("viewer_key").notNull(),
+    viewerEmail: text("viewer_email"),
+    positionMs: integer("position_ms").notNull().default(0),
+    updatedAt: text("updated_at").notNull().default(now()),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (position) => ({
+    recordingPlaybackPositionUnique: uniqueIndex(
+      "recording_playback_positions_recording_viewer_key_unique_idx",
+    ).on(position.recordingId, position.viewerKey),
+  }),
+);
+
 // Agent views — one row per (clip, agent, time bucket). Deliberately separate
 // from `recording_viewers` / `recording_views` so no human-view count can ever
 // pick agents up by forgetting a filter: the human tables stay agent-free.
@@ -397,7 +440,11 @@ export const recordingAgentViews = table(
     recordingId: text("recording_id").notNull(),
     // sha256 of user-agent + request IP. Never stores the raw IP.
     agentKey: text("agent_key").notNull(),
+    // Null when nothing named the agent — distinct from a self-declared name.
     agentLabel: text("agent_label"),
+    // Raw (truncated) user-agent, kept so an unnamed agent stays identifiable
+    // and new AGENT_LABELS patterns come from real traffic, not guesses.
+    userAgent: text("user_agent"),
     // Time bucket that collapses one agent's burst of context/transcript/frame
     // polls into a single view.
     viewSessionId: text("view_session_id").notNull(),
@@ -678,6 +725,7 @@ export const recordingEvents = table("recording_events", {
       "resume",
       "cta-click",
       "reaction",
+      "access-request",
     ],
   }).notNull(),
   // Video-time position (for progress/seek/pause/resume/reaction/cta-click).

@@ -1,7 +1,16 @@
 import type { CalendarEvent } from "@shared/api";
-import { startOfDay, set, addMinutes, parseISO } from "date-fns";
-import { fromZonedTime, toZonedTime } from "date-fns-tz";
+import { parseISO, startOfDay } from "date-fns";
 import { useState, useRef, useCallback, useEffect } from "react";
+
+import {
+  addCalendarDays,
+  dateKeyToDate,
+  dateKeyToTimezoneIso,
+  dateToCalendarDateKey,
+  getBrowserTimezone,
+  getEventDateKey,
+  getEventSegmentForCalendarDay,
+} from "@/lib/calendar-timezone";
 
 const SNAP_MINUTES = 15;
 
@@ -49,33 +58,8 @@ export interface UseEventDragOptions {
   onEventTimeChange: (eventId: string, newStart: Date, newEnd: Date) => void;
   /** All events (to find the event being dragged) */
   events: CalendarEvent[];
-  timezone: string;
-}
-
-export function resolveDraggedEventTimes({
-  event,
-  mode,
-  start,
-  heightMinutes,
-  timezone,
-}: {
-  event: CalendarEvent;
-  mode: DragState["mode"];
-  start: Date;
-  heightMinutes: number;
-  timezone: string;
-}) {
-  const newStart = fromZonedTime(start, timezone);
-  const durationMinutes =
-    mode === "move"
-      ? (parseISO(event.end).getTime() - parseISO(event.start).getTime()) /
-        60_000
-      : heightMinutes;
-
-  return {
-    start: newStart,
-    end: addMinutes(newStart, durationMinutes),
-  };
+  /** IANA timezone used by the visible calendar grid */
+  timezone?: string;
 }
 
 export function useEventDrag({
@@ -85,7 +69,7 @@ export function useEventDrag({
   days,
   onEventTimeChange,
   events,
-  timezone,
+  timezone = getBrowserTimezone(),
 }: UseEventDragOptions) {
   const [dragState, setDragState] = useState<DragState | null>(null);
   const dragStateRef = useRef<DragState | null>(null);
@@ -154,12 +138,15 @@ export function useEventDrag({
       const pointerYInGrid = e.clientY - gridTop + scrollTop;
 
       // Compute current event position
-      const evStart = toZonedTime(event.start, timezone);
-      const evEnd = toZonedTime(event.end, timezone);
-      const dayStart = set(startOfDay(evStart), {
-        hours: startHour,
-      });
-      const startMinutes = (evStart.getTime() - dayStart.getTime()) / 60000;
+      const evStart = parseISO(event.start);
+      const evEnd = parseISO(event.end);
+      const eventDateKey =
+        getEventDateKey(event, timezone) ?? dateToCalendarDateKey(evStart);
+      const eventDay = days?.[dayIndex] ?? dateKeyToDate(eventDateKey);
+      const segment = getEventSegmentForCalendarDay(event, eventDay, timezone);
+      const startMinutes =
+        segment?.startMinutes ??
+        (evStart.getTime() - startOfDay(evStart).getTime()) / 60000;
       const durationMinutes = (evEnd.getTime() - evStart.getTime()) / 60000;
 
       const originalTop = Math.max(0, (startMinutes / 60) * hourHeight);
@@ -318,28 +305,41 @@ export function useEventDrag({
         pxToMinutes(state.currentHeight),
       );
 
-      // Determine the base day
-      const originalStart = toZonedTime(state.event.start, timezone);
-      let baseDay: Date;
-      if (days && state.currentDayIndex !== state.startDayIndex) {
-        baseDay = days[state.currentDayIndex];
-      } else {
-        baseDay = startOfDay(originalStart);
-      }
+      // Determine the base day in the visible calendar timezone.
+      const originalStart = parseISO(state.event.start);
+      const baseDay =
+        days && state.currentDayIndex !== state.startDayIndex
+          ? days[state.currentDayIndex]
+          : dateKeyToDate(
+              getEventDateKey(state.event, timezone) ??
+                dateToCalendarDateKey(originalStart),
+            );
+      const baseDate = dateToCalendarDateKey(baseDay);
+      const startTotalMinutes = startHour * 60 + topMinutes;
+      const endTotalMinutes = startTotalMinutes + heightMinutes;
+      const toZonedIso = (totalMinutes: number) => {
+        const dayOffset = Math.floor(totalMinutes / (24 * 60));
+        const minuteOfDay = totalMinutes - dayOffset * 24 * 60;
+        const hour = Math.floor(minuteOfDay / 60);
+        const minute = Math.round(minuteOfDay % 60);
+        const normalizedMinute = minute === 60 ? 0 : minute;
+        const normalizedHour = minute === 60 ? hour + 1 : hour;
+        const time =
+          normalizedHour >= 24
+            ? "00:00"
+            : `${String(normalizedHour).padStart(2, "0")}:${String(
+                normalizedMinute,
+              ).padStart(2, "0")}`;
+        return dateKeyToTimezoneIso(
+          addCalendarDays(baseDate, dayOffset),
+          time,
+          timezone,
+        );
+      };
+      const newStart = new Date(toZonedIso(startTotalMinutes));
+      const newEnd = new Date(toZonedIso(endTotalMinutes));
 
-      const newStart = addMinutes(
-        set(baseDay, { hours: startHour, minutes: 0, seconds: 0 }),
-        topMinutes,
-      );
-      const times = resolveDraggedEventTimes({
-        event: state.event,
-        mode: state.mode,
-        start: newStart,
-        heightMinutes,
-        timezone,
-      });
-
-      onEventTimeChange(state.eventId, times.start, times.end);
+      onEventTimeChange(state.eventId, newStart, newEnd);
     }
 
     dragStateRef.current = null;

@@ -26,6 +26,7 @@ interface L1Entry {
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const MAX_L1_ENTRIES = 500;
+const CACHE_IO_TIMEOUT_MS = 1_000;
 
 const l1Cache = new Map<string, L1Entry>();
 // De-dupes identical concurrent cache misses (e.g. the same panel query fired
@@ -70,7 +71,7 @@ function setL1(key: string, result: AnalyticsQueryResult): void {
 
 async function getL2(
   key: string,
-  timeoutMs?: number,
+  deadlineAt: number,
 ): Promise<AnalyticsQueryResult | null> {
   try {
     const db = getDbExec();
@@ -78,7 +79,8 @@ async function getL2(
     const { rows } = await db.execute({
       sql: "SELECT result FROM first_party_analytics_cache WHERE key = ? AND expires_at > ?",
       args: [key, nowIso],
-      timeoutMs,
+      timeoutMs: cacheIoTimeoutMs(deadlineAt),
+      maxAttempts: 1,
     });
     if (!rows.length) return null;
     const raw = (rows[0] as { result: string }).result;
@@ -93,23 +95,24 @@ async function setL2(
   key: string,
   sql: string,
   result: AnalyticsQueryResult,
-  timeoutMs?: number,
+  deadlineAt: number,
 ): Promise<void> {
   try {
     const db = getDbExec();
     const now = new Date();
     const expiresAt = new Date(now.getTime() + CACHE_TTL_MS);
     const serialized = JSON.stringify(result);
-    // Upsert via delete+insert to stay dialect-agnostic (SQLite/Postgres).
     await db.execute({
-      sql: "DELETE FROM first_party_analytics_cache WHERE key = ?",
-      args: [key],
-      timeoutMs,
-    });
-    await db.execute({
-      sql: "INSERT INTO first_party_analytics_cache (key, sql, result, created_at, expires_at) VALUES (?, ?, ?, ?, ?)",
+      sql: `INSERT INTO first_party_analytics_cache (key, sql, result, created_at, expires_at)
+        VALUES (?, ?, ?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+          sql = excluded.sql,
+          result = excluded.result,
+          created_at = excluded.created_at,
+          expires_at = excluded.expires_at`,
       args: [key, sql, serialized, now.toISOString(), expiresAt.toISOString()],
-      timeoutMs,
+      timeoutMs: cacheIoTimeoutMs(deadlineAt),
+      maxAttempts: 1,
     });
     // Opportunistically prune expired rows so the table doesn't grow
     // unbounded — the keyspace is effectively every distinct panel/filter
@@ -118,12 +121,24 @@ async function setL2(
       await db.execute({
         sql: "DELETE FROM first_party_analytics_cache WHERE expires_at <= ?",
         args: [now.toISOString()],
-        timeoutMs,
+        timeoutMs: cacheIoTimeoutMs(deadlineAt),
+        maxAttempts: 1,
       });
     }
   } catch (err) {
     console.warn("[first-party-analytics] L2 cache write failed:", err);
   }
+}
+
+function remainingTimeoutMs(deadlineAt: number): number {
+  return Math.max(0, deadlineAt - Date.now());
+}
+
+function cacheIoTimeoutMs(deadlineAt: number): number {
+  return Math.max(
+    1,
+    Math.min(CACHE_IO_TIMEOUT_MS, remainingTimeoutMs(deadlineAt)),
+  );
 }
 
 /**
@@ -134,11 +149,14 @@ async function setL2(
 export async function withFirstPartyCache(
   key: string,
   sql: string,
-  compute: () => Promise<AnalyticsQueryResult>,
+  compute: (timeoutMs: number) => Promise<AnalyticsQueryResult>,
   options: FirstPartyCacheOptions = {},
 ): Promise<AnalyticsQueryResult> {
   const l1Hit = getL1(key);
   if (l1Hit) return l1Hit;
+
+  const timeoutMs = Math.max(1, options.timeoutMs ?? CACHE_IO_TIMEOUT_MS);
+  const deadlineAt = Date.now() + timeoutMs;
 
   // A report prewarm may have a shorter deadline than a normal panel request;
   // never let those callers inherit one another's database timeout.
@@ -150,14 +168,22 @@ export async function withFirstPartyCache(
   // callers racing on the same key can't both slip past the check above and
   // both hit L2/compute.
   const promise = (async () => {
-    const l2Hit = await getL2(key, options.timeoutMs);
+    const l2Hit = await getL2(key, deadlineAt);
     if (l2Hit) {
       setL1(key, l2Hit);
       return l2Hit;
     }
-    const result = await compute();
+    const queryTimeoutMs = remainingTimeoutMs(deadlineAt);
+    if (queryTimeoutMs <= 0) {
+      throw new Error(
+        `First-party analytics query timed out after ${timeoutMs}ms`,
+      );
+    }
+    const result = await compute(queryTimeoutMs);
     setL1(key, result);
-    await setL2(key, sql, result, options.timeoutMs);
+    // Cache persistence is best-effort. A successful panel query must not miss
+    // its delivery deadline because the cache table is slow or unavailable.
+    void setL2(key, sql, result, deadlineAt);
     return result;
   })().finally(() => {
     inFlight.delete(requestKey);

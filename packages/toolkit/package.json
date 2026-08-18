@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/toolkit",
-  "version": "0.10.8",
+  "version": "0.16.4",
   "description": "Reusable app-building UI and helpers for Agent-Native apps.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -75,6 +75,20 @@
       "import": "./dist/dashboard/*.js",
       "default": "./dist/dashboard/*.js"
     },
+    "./data-grid": {
+      "types": "./dist/data-grid/index.d.ts",
+      "browser": "./dist/data-grid/index.js",
+      "development": "./dist/data-grid/index.js",
+      "import": "./dist/data-grid/index.js",
+      "default": "./dist/data-grid/index.js"
+    },
+    "./data-grid/*": {
+      "types": "./dist/data-grid/*.d.ts",
+      "browser": "./dist/data-grid/*.js",
+      "development": "./dist/data-grid/*.js",
+      "import": "./dist/data-grid/*.js",
+      "default": "./dist/data-grid/*.js"
+    },
     "./chat-history": {
       "types": "./dist/chat-history/index.d.ts",
       "browser": "./dist/chat-history/index.js",
@@ -88,6 +102,34 @@
       "development": "./dist/chat-history/*.js",
       "import": "./dist/chat-history/*.js",
       "default": "./dist/chat-history/*.js"
+    },
+    "./canvas-annotations": {
+      "types": "./dist/canvas-annotations/index.d.ts",
+      "browser": "./dist/canvas-annotations/index.js",
+      "development": "./dist/canvas-annotations/index.js",
+      "import": "./dist/canvas-annotations/index.js",
+      "default": "./dist/canvas-annotations/index.js"
+    },
+    "./canvas-annotations/*": {
+      "types": "./dist/canvas-annotations/*.d.ts",
+      "browser": "./dist/canvas-annotations/*.js",
+      "development": "./dist/canvas-annotations/*.js",
+      "import": "./dist/canvas-annotations/*.js",
+      "default": "./dist/canvas-annotations/*.js"
+    },
+    "./canvas-interactions": {
+      "types": "./dist/canvas-interactions/index.d.ts",
+      "browser": "./dist/canvas-interactions/index.js",
+      "development": "./dist/canvas-interactions/index.js",
+      "import": "./dist/canvas-interactions/index.js",
+      "default": "./dist/canvas-interactions/index.js"
+    },
+    "./canvas-interactions/*": {
+      "types": "./dist/canvas-interactions/*.d.ts",
+      "browser": "./dist/canvas-interactions/*.js",
+      "development": "./dist/canvas-interactions/*.js",
+      "import": "./dist/canvas-interactions/*.js",
+      "default": "./dist/canvas-interactions/*.js"
     },
     "./composer": {
       "types": "./dist/composer/index.d.ts",
@@ -243,7 +285,7 @@
     "build": "tsc && node scripts/finalize-build.mjs",
     "prepublishOnly": "npm run build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest --run --passWithNoTests"
+    "test": "vitest --run --dir src --passWithNoTests"
   },
   "dependencies": {
     "@assistant-ui/react": "catalog:",

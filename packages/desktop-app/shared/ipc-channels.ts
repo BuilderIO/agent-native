@@ -6,12 +6,17 @@ import type {
   DesktopShortcutUpdateResult,
   DesktopShortcutUpsertRequest,
 } from "./desktop-shortcuts";
+import type {
+  QuickPromptSettings,
+  QuickPromptPreferences,
+} from "./quick-prompt";
 
 export const IPC = {
   /** Window control channels (renderer → main) */
   WINDOW_MINIMIZE: "window:minimize",
   WINDOW_MAXIMIZE: "window:maximize",
   WINDOW_CLOSE: "window:close",
+  WINDOW_NATIVE_BUTTONS_VISIBILITY: "window:native-buttons-visibility",
 
   /** Window state query (renderer ↔ main) */
   WINDOW_IS_MAXIMIZED: "window:is-maximized",
@@ -26,8 +31,21 @@ export const IPC = {
   /** App status events (main → renderer) */
   APP_STATUS: "app:status",
 
+  /** Desktop workspace identity (renderer intent/status only; no secrets) */
+  IDENTITY_STATUS_GET: "identity:status:get",
+  IDENTITY_AVAILABILITY_GET: "identity:availability:get",
+  IDENTITY_STATUS_CHANGED: "identity:status:changed",
+  IDENTITY_SETTINGS_GET: "identity:settings:get",
+  IDENTITY_SSO_ENABLED_SET: "identity:sso-enabled:set",
+  IDENTITY_APP_SESSION_ENSURE: "identity:app-session:ensure",
+  IDENTITY_SIGN_IN: "identity:sign-in",
+  IDENTITY_AUTHENTICATE: "identity:authenticate",
+  IDENTITY_MAGIC_LINK_REQUEST: "identity:magic-link:request",
+  IDENTITY_SIGN_OUT: "identity:sign-out",
+
   /** App config management (renderer ↔ main) */
   APPS_LOAD: "apps:load",
+  APPS_LOAD_WORKSPACE: "apps:load-workspace",
   APPS_ADD: "apps:add",
   APPS_REMOVE: "apps:remove",
   APPS_UPDATE: "apps:update",
@@ -37,7 +55,13 @@ export const IPC = {
   APPS_GET_CREATION_SETTINGS: "apps:get-creation-settings",
   APPS_UPDATE_CREATION_SETTINGS: "apps:update-creation-settings",
   APPS_CREATE_FROM_PROMPT: "apps:create-from-prompt",
+  APPS_PREPARE_LOCAL_CODE_CHANGE: "apps:prepare-local-code-change",
   APPS_SHOW_CONTEXT_MENU: "apps:show-context-menu",
+
+  /** Loopback relay for shell-owned chat requests using an app's session */
+  DESKTOP_CHAT_GET_API_URL: "desktop-chat:get-api-url",
+  /** Loopback relay for discovering a local app's PTY WebSocket */
+  DESKTOP_CHAT_GET_TERMINAL_INFO_URL: "desktop-chat:get-terminal-info-url",
 
   /** Hosted Plan app local-file sync (Plan webview ↔ main) */
   PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
@@ -66,10 +90,7 @@ export const IPC = {
 
   /** Clipboard helpers (renderer ↔ main) */
   CLIPBOARD_WRITE_TEXT: "clipboard:write-text",
-
-  /** Frame settings (renderer ↔ main) */
-  FRAME_LOAD: "frame:load",
-  FRAME_UPDATE: "frame:update",
+  SHELL_OPEN_EXTERNAL: "shell:open-external",
 
   /** Auto-update (renderer ↔ main) */
   UPDATE_CHECK: "update:check",
@@ -82,9 +103,12 @@ export const IPC = {
   /** Agent-Native Code hub (renderer ↔ main) */
   CODE_AGENTS_LIST_RUNS: "code-agents:list-runs",
   CODE_AGENTS_CREATE_RUN: "code-agents:create-run",
+  CODE_AGENTS_REMOTE_WAITLIST: "code-agents:remote-waitlist",
   CODE_AGENTS_LIST_MODELS: "code-agents:list-models",
   CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",
   CODE_AGENTS_APPEND_FOLLOW_UP: "code-agents:append-follow-up",
+  CODE_AGENTS_PORTAL_TRANSFER_RUN: "code-agents:portal-transfer-run",
+  CODE_AGENTS_PORTAL_TRANSFER_ALL: "code-agents:portal-transfer-all",
   CODE_AGENTS_UPDATE_RUN: "code-agents:update-run",
   CODE_AGENTS_CONTROL_RUN: "code-agents:control-run",
   CODE_AGENTS_RETRY_RUN: "code-agents:retry-run",
@@ -116,6 +140,14 @@ export const IPC = {
   SHORTCUTS_LOAD: "shortcuts:load",
   SHORTCUTS_UPSERT: "shortcuts:upsert",
   SHORTCUTS_REMOVE: "shortcuts:remove",
+
+  /** Global Quick Prompt overlay (renderer ↔ main) */
+  QUICK_PROMPT_LOAD: "quick-prompt:load",
+  QUICK_PROMPT_UPDATE: "quick-prompt:update",
+  QUICK_PROMPT_DISMISS: "quick-prompt:dismiss",
+  QUICK_PROMPT_SET_PICKER_OPEN: "quick-prompt:set-picker-open",
+  QUICK_PROMPT_HIDDEN: "quick-prompt:hidden",
+  QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
 
 /** Auto-update status surfaced from electron-updater. */
@@ -134,6 +166,17 @@ export type UpdateStatus =
     }
   | { state: "downloaded"; version: string; releaseNotes?: string }
   | { state: "error"; message: string };
+
+export type DesktopIdentityStatus =
+  | "idle"
+  | "signing-in"
+  | "signed-in"
+  | "sign-in-required"
+  | "failed";
+
+export interface DesktopIdentitySettings {
+  ssoEnabled: boolean;
+}
 
 export interface ActiveWebviewTarget {
   appId: string;
@@ -176,6 +219,42 @@ export interface DesktopCreateAppRequest {
   appsRoot?: string;
 }
 
+export type DesktopIdentityAuthMode = "sign-in" | "sign-up";
+
+export interface DesktopIdentityAuthRequest {
+  mode: DesktopIdentityAuthMode;
+  email: string;
+  password: string;
+}
+
+export interface DesktopIdentityAuthResult {
+  ok: boolean;
+  email?: string;
+  error?: string;
+}
+
+export interface DesktopIdentityMagicLinkRequest {
+  email: string;
+}
+
+export interface DesktopIdentityMagicLinkResult {
+  ok: boolean;
+  email?: string;
+  pending?: boolean;
+  error?: string;
+}
+
+/** Token-free result for the optional signed-in workspace app inventory. */
+export interface DesktopWorkspaceAppListResult {
+  enabled: boolean;
+  apps: import("@agent-native/shared-app-config").AppConfig[];
+}
+
+export interface DesktopPrepareLocalCodeChangeRequest {
+  appId: string;
+  prompt: string;
+}
+
 export interface DesktopCreateAppResult {
   ok: boolean;
   apps: import("@agent-native/shared-app-config").AppConfig[];
@@ -184,6 +263,8 @@ export interface DesktopCreateAppResult {
   message: string;
   error?: string;
 }
+
+export type DesktopPrepareLocalCodeChangeResult = DesktopCreateAppResult;
 
 export type DesktopAppContextAction =
   | "edit"
@@ -356,6 +437,8 @@ export interface CodeAgentModelOption {
   label: string;
   description?: string;
   configured?: boolean;
+  statusLabel?: string;
+  isSubscription?: boolean;
 }
 
 export interface CodeAgentModelListResult {
@@ -535,6 +618,7 @@ export interface CodeAgentCreateRunRequest {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -569,6 +653,44 @@ export interface CodeAgentFollowUpResult {
   ok: boolean;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferRequest {
+  runId: string;
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferItem {
+  runId: string;
+  title?: string;
+  ok: boolean;
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferResult {
+  ok: boolean;
+  runId: string;
+  run?: CodeAgentRun;
+  host?: { id: string; label: string };
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferAllRequest {
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferAllResult {
+  ok: boolean;
+  host?: { id: string; label: string };
+  transferred: CodeAgentPortalTransferItem[];
+  skipped: CodeAgentPortalTransferItem[];
+  failed: CodeAgentPortalTransferItem[];
   message: string;
   error?: string;
 }
@@ -616,6 +738,7 @@ export interface CodeAgentRemoteConnectorStatus {
   configured: boolean;
   configPath: string;
   relayUrl?: string;
+  workspacePath?: string;
   pid?: number;
   startedAt?: string;
   lastExitAt?: string;
@@ -635,6 +758,7 @@ export interface CodeAgentRemoteConnectorControlResult {
 export interface CodeAgentRemoteConnectorPairRequest {
   relayUrl?: string;
   label?: string;
+  workspacePath?: string;
 }
 
 export interface CodeAgentRemoteConnectorPairResult {
@@ -714,6 +838,7 @@ export interface CodeAgentRerunRequest {
   runId: string;
   prompt?: string;
   cwd?: string;
+  executionTarget?: CodeAgentExecutionTarget;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -740,6 +865,21 @@ export interface CodeAgentRetryRunResult {
   ok: boolean;
   run?: CodeAgentRun;
   message: string;
+  error?: string;
+}
+
+export type CodeAgentExecutionTarget = "local" | "worktree" | "portal";
+
+export interface CodeAgentRemoteWaitlistRequest {
+  email: string;
+  pageUrl?: string;
+  source?: string;
+  useCase?: string;
+}
+
+export interface CodeAgentRemoteWaitlistResult {
+  ok: boolean;
+  message?: string;
   error?: string;
 }
 
@@ -819,8 +959,21 @@ export interface DesktopShortcutActivationRequest extends DesktopOpenRequest {
   requestId: string;
 }
 
+export interface QuickPromptSubmitRequest {
+  prompt: string;
+  cwd?: string;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
+  attachments?: CodeAgentPromptAttachment[];
+}
+
+export type QuickPromptSubmitResult = CodeAgentCreateRunResult;
+
 export type {
   DesktopShortcutSettings,
   DesktopShortcutUpdateResult,
   DesktopShortcutUpsertRequest,
+  QuickPromptPreferences,
+  QuickPromptSettings,
 };

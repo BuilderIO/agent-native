@@ -15,6 +15,12 @@ Create, search, list, update, and delete calendar events. Events come from the G
 
 **Events live in Google Calendar, not SQL.** Never use `db-query` or `db-exec` to work with events. Always use the dedicated scripts which query the Google Calendar API directly.
 
+Event detail panels and popovers expose `calendar.event-detail.bottom` as an
+`ExtensionSlot` with `slotContext` containing the event id, title, times,
+timezones, location, attendees, and account email. Use the first-party
+attendee-timezone UI or a source edit for adornments next to guest rows; the
+slot does not inject per-row UI.
+
 ## Scripts
 
 ### list-events
@@ -84,7 +90,10 @@ pnpm action create-event \
   --addZoom=true
 ```
 
-Required: `--title`, `--start`, `--end` (all ISO datetime format).
+Required for ordinary events: `--title`, `--start`, `--end` (ISO datetime
+format). Out-of-office events default the title to `Out of office`, and
+working-location events use Google's generated display title when `--title` is
+omitted.
 Optional: `--description`, `--location`, `--attendees`, `--addGoogleMeet`, `--addZoom`, `--sendUpdates`, `--accountEmail`.
 
 When multiple Google accounts are connected, choose the destination account's
@@ -111,11 +120,22 @@ a Zoom/Meet/Teams link in the location or description, or asks for
 Native Google Calendar status events are supported:
 
 ```bash
-# Out of office
+# Full-day out of office. Start and end are inclusive human dates; Calendar
+# writes Google-compatible local-midnight timed bounds in this timezone.
 pnpm action create-event \
-  --title "OOO" \
-  --start 2026-04-03T09:00:00 \
-  --end 2026-04-03T17:00:00 \
+  --start 2026-04-03 \
+  --end 2026-04-07 \
+  --startTimeZone America/New_York \
+  --fullDay true \
+  --eventType outOfOffice \
+  --autoDeclineMode declineAllConflictingInvitations \
+  --declineMessage "Declined because I am out of office"
+
+# Partial-day out of office
+pnpm action create-event \
+  --start 2026-04-03T13:00:00-04:00 \
+  --end 2026-04-03T17:00:00-04:00 \
+  --startTimeZone America/New_York \
   --eventType outOfOffice
 
 # Focus time
@@ -137,9 +157,29 @@ pnpm action create-event \
 
 Working-location events sync from Google with `workingLocationProperties` and
 render as native working locations in the UI instead of generic all-day events.
-They are transparent/non-blocking for availability. Google allows timed working
-locations or single-day all-day working locations; multi-day all-day ranges must
-be represented as separate daily working-location events.
+They are transparent/non-blocking for availability. All-day working locations
+use an exclusive `--end` date and can span multiple days; timed working
+locations use ISO datetime start and end values.
+
+Creating from a calendar day uses the selected Home, Office, or Other type —
+do not leave the draft as Home and create that instead. Office does not need a
+custom building name; Other does. The Other name is `workingLocationLabel`
+(drafts keep `location` empty), so create must send that label — not an empty
+`location`. Create and update reject a blank Other name instead of storing
+`Working`. If that day already has a working location
+on the same account, update that day's occurrence (`scope: "single"`) instead
+of creating a second event. Timed (not all-day) working locations need a
+summary of Home, Office, or the custom label — never the generated
+`Working location` placeholder. All-day ones omit summary so Google can derive
+the title. Converting a timed location that ends at local midnight back to
+all-day keeps that single day; do not add another exclusive day.
+
+`--fullDay true` is semantic only for out-of-office creation. It does not send
+Google an all-day `date` event, which Google rejects for this event type.
+Instead, the action converts inclusive dates to timed local-midnight bounds,
+sets provider `allDay` false, and preserves the chosen IANA timezone across DST.
+The default auto-decline mode covers all conflicting invitations; override it
+with `declineOnlyNewConflictingInvitations` or `declineNone` when requested.
 
 For a visible occurrence in a recurring working-location series, default to
 `scope: "single"` and pass the occurrence's event `id`, not its
@@ -211,6 +251,25 @@ location, attendees, reminders, attachments, color, and video provider.
 Update an existing Google Calendar event. Use the event `id` from `list-events`,
 `search-events`, or `get-event`. Always preserve the event's `accountEmail` on
 the update so multi-account calendars use the right connected account.
+
+To move an existing event between connected Google account calendars, pass its
+current account as `--accountEmail` and the destination account as
+`--targetAccountEmail`:
+
+```bash
+pnpm action update-event \
+  --id google-event-id \
+  --accountEmail work@example.com \
+  --targetAccountEmail personal@example.com
+```
+
+The action creates a copy on the destination account and deletes the source
+event. It preserves the supported event fields and creates a fresh Google Meet
+when the original has one. Do not combine a calendar move with other event
+field changes. If guests are present, pass `--sendUpdates all` or
+`--sendUpdates none` explicitly when the desired notification behavior matters.
+Moving an entire recurring series is not supported; use `--scope single` for
+one occurrence.
 
 ```bash
 pnpm action update-event --id google-event-id --accountEmail secondary@example.com --title "New title"
@@ -365,6 +424,7 @@ When the user says:
 | "schedule a meeting"                           | `create-event --title ... --start ... --end ...`                             |
 | "draft an invite"                              | `manage-event-draft --action create --title ... --start ... --end ...`       |
 | "schedule a Zoom meeting"                      | `create-event --title ... --start ... --end ... --addZoom=true`              |
+| "move an event to another connected calendar"   | `update-event --id ... --accountEmail ... --targetAccountEmail ...`         |
 | "move/rename/update a meeting"                 | `update-event --id ...`                                                      |
 | "add Zoom to this meeting"                     | `update-event --id ... --addZoom=true`                                       |
 | "delete/remove a meeting"                      | `delete-event --id ...`                                                      |

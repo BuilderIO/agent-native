@@ -16,6 +16,7 @@ import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { isSameOriginRequest } from "../server/request-origin.js";
 import { generateAgentCard } from "./agent-card.js";
+import { canonicalA2AAudience } from "./audience.js";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
@@ -26,7 +27,7 @@ import {
   getA2AApprovalForOwner,
   settleA2AApproval,
 } from "./task-store.js";
-import type { A2AConfig } from "./types.js";
+import type { A2AConfig, AgentSkill } from "./types.js";
 
 /**
  * One-time warning when A2A is running unauthenticated in development. We
@@ -48,11 +49,14 @@ function warnA2AUnauthOnce(): void {
 /**
  * Result of verifying an inbound A2A JWT. `email` is the caller identity from
  * the token's `sub` claim (null when verification fails), `orgDomain` mirrors
- * the verified `org_domain` claim when present.
+ * the verified `org_domain` claim when present, and `orgId` mirrors the
+ * optional verified `org_id` claim used when a sender knows its exact org but
+ * cannot resolve that org's domain.
  */
 export interface A2ATokenPayload {
   email: string | null;
   orgDomain: string | null;
+  orgId?: string;
 }
 
 function addSecretCandidate(
@@ -73,22 +77,69 @@ function addSecretCandidate(
  * service must not verify here). Only tokens without an `aud` claim (minted
  * before the audience claim shipped) skip the audience check.
  */
-function expectedJwtAudience(event: any | undefined): string | undefined {
+function expectedJwtAudience(
+  event: any | undefined,
+  options?: {
+    routePrefix?: string;
+    allowBaseAudience?: boolean;
+  },
+): string | string[] | undefined {
   const fromEnv =
     process.env.APP_URL ||
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
-  if (fromEnv) return String(fromEnv).replace(/\/$/, "");
+  const receiverBasePath = process.env.APP_BASE_PATH;
+  if (fromEnv) {
+    return audienceForRoute(
+      canonicalA2AAudience(String(fromEnv), receiverBasePath),
+      options,
+    );
+  }
   // Best-effort: derive from the inbound request host. This is forgeable
   // (Host-header attack), but only useful as a hint when env-derived URL
   // is unset; the rest of the JWT verification still uses the secret.
   try {
     const proto = getRequestHeader(event, "x-forwarded-proto") || "https";
     const host = getRequestHeader(event, "host");
-    if (host) return `${proto}://${host}`;
+    if (host) {
+      return audienceForRoute(
+        canonicalA2AAudience(`${proto}://${host}`, receiverBasePath),
+        options,
+      );
+    }
+    // coercion-ok: undefined makes audience-bearing token verification fail closed.
   } catch {}
   return undefined;
+}
+
+function audienceForRoute(
+  baseAudience: string,
+  options:
+    | {
+        routePrefix?: string;
+        allowBaseAudience?: boolean;
+      }
+    | undefined,
+): string | string[] {
+  const trimmedPrefix = options?.routePrefix?.replace(/^\/+|\/+$/g, "");
+  if (!trimmedPrefix || trimmedPrefix === "_agent-native") return baseAudience;
+  const normalizedPrefix = `/${trimmedPrefix}`;
+  const routeAudience = `${baseAudience.replace(/\/+$/, "")}${normalizedPrefix}`;
+  return options?.allowBaseAudience
+    ? [routeAudience, baseAudience]
+    : routeAudience;
+}
+
+function tokenHasAudienceClaim(token: string): boolean {
+  return typeof jose.decodeJwt(token).aud !== "undefined";
+}
+
+function isDirectReadSkill(skill: AgentSkill): boolean {
+  return (
+    skill.readOnly === true ||
+    (skill.readOnly === undefined && skill.publicAgent?.readOnly === true)
+  );
 }
 
 /**
@@ -104,11 +155,17 @@ function expectedJwtAudience(event: any | undefined): string | undefined {
  * Exported so workspaces can accept A2A callers on the HTTP action route with
  * the same routine — including org-level fallback secrets — instead of
  * reimplementing a partial verifier. Pass the H3 `event` to enable org-domain →
- * org-secret lookup and audience derivation; it is optional.
+ * org-secret lookup and audience derivation; it is optional. A custom mounted
+ * JSON-RPC route also passes its prefix so endpoint-bound tokens verify against
+ * the same audience the client derived from the advertised URL.
  */
 export async function verifyA2AToken(
   token: string,
   event?: any,
+  audienceOptions?: {
+    routePrefix?: string;
+    allowBaseAudience?: boolean;
+  },
 ): Promise<A2ATokenPayload> {
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
   // This is safe because we only use org_domain to look up the secret,
@@ -164,7 +221,7 @@ export async function verifyA2AToken(
       // whose `aud` targets ANOTHER service verify against a shared secret. A
       // token that self-declares an audience must be checked against ours, so
       // when we have nothing to check it against we reject rather than skip.
-      const aud = expectedJwtAudience(event);
+      const aud = expectedJwtAudience(event, audienceOptions);
       if (!aud) return { email: null, orgDomain: null };
       verifyOptions.audience = aud;
     }
@@ -182,9 +239,14 @@ export async function verifyA2AToken(
           new TextEncoder().encode(secret),
           verifyOptions,
         );
+        const orgId =
+          typeof payload.org_id === "string" && payload.org_id.trim()
+            ? payload.org_id.trim()
+            : undefined;
         return {
           email: (payload.sub as string) ?? null,
           orgDomain: (payload.org_domain as string) ?? null,
+          ...(orgId ? { orgId } : {}),
         };
       } catch {
         // Try the next candidate without leaking which secret failed.
@@ -222,7 +284,7 @@ export function mountA2A(
   // /tmp/security-audit/12-mcp-a2a-agent.md.
   getH3App(nitroApp).use(
     "/.well-known/agent-card.json",
-    defineEventHandler((event) => {
+    defineEventHandler(async (event) => {
       if (getMethod(event) !== "GET") {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -233,10 +295,36 @@ export function mountA2A(
       const host = getRequestHeader(event, "host") ?? "localhost";
       const baseUrl = `${protocol}://${host}`;
 
-      const filteredSkills = filterPublicAgentCardSkills(config);
+      // The anonymous card may only advertise actions safe to disclose
+      // publicly (`requiresAuth !== true`). A verified caller instead sees the
+      // authenticated surface: schemas for direct read invocation plus concise
+      // message-only capabilities for writes owned by the receiving agent.
+      // Anonymous fetches keep the public list unchanged.
+      let skills = filterPublicAgentCardSkills(config);
+      if (config.authenticatedSkills?.length) {
+        const bearer = extractBearerToken(
+          getRequestHeader(event, "authorization"),
+        );
+        if (bearer) {
+          const payload = await verifyA2AToken(bearer, event, {
+            routePrefix,
+            // Capability discovery may begin from either the app URL or an
+            // already-advertised endpoint URL. Both identify this receiver;
+            // direct POST invocation below remains endpoint-bound.
+            allowBaseAudience: true,
+          });
+          if (payload.email) {
+            skills = tokenHasAudienceClaim(bearer)
+              ? config.authenticatedSkills
+              : config.authenticatedSkills.filter(
+                  (skill) => !isDirectReadSkill(skill),
+                );
+          }
+        }
+      }
 
       return generateAgentCard(
-        { ...config, skills: filteredSkills },
+        { ...config, skills },
         baseUrl,
         `${routePrefix}/a2a`,
       );
@@ -454,16 +542,13 @@ export function mountA2A(
 
       // Try JWT verification first (org-level or global A2A_SECRET-based identity)
       if (bearerToken) {
-        const tokenPayload = await verifyA2AToken(bearerToken, event);
+        const tokenPayload = await verifyA2AToken(bearerToken, event, {
+          routePrefix,
+        });
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
         if (verifiedCallerEmail) {
-          try {
-            verifiedAudienceBound =
-              typeof jose.decodeJwt(bearerToken).aud !== "undefined";
-          } catch {
-            verifiedAudienceBound = false;
-          }
+          verifiedAudienceBound = tokenHasAudienceClaim(bearerToken);
         }
         bearerTokenRejectedByJwt = !verifiedCallerEmail;
       }

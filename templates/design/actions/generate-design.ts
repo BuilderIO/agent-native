@@ -45,6 +45,11 @@ import {
   type DesignGenerationSession,
   updateGenerationSessionWithSavedFiles,
 } from "../shared/generation-session.js";
+import {
+  assertDesignHtmlCreateIntegrity,
+  describeDesignHtmlIntegrityIssue,
+  inspectDesignHtmlDocumentIntegrity,
+} from "../shared/html-integrity.js";
 import { assertLockedLayersPreserved } from "../shared/locked-layers.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
@@ -166,12 +171,15 @@ const reuseLabelSchema = z
     }
   });
 
-function hasBreakpointSet(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
+function classifyBreakpointSet(
+  value: unknown,
+): "absent" | "malformed" | "present" {
+  if (value === null || value === undefined) return "absent";
+  if (typeof value !== "object" || Array.isArray(value)) return "malformed";
   const breakpoints = (value as { breakpoints?: unknown }).breakpoints;
-  return Array.isArray(breakpoints) && breakpoints.length > 0;
+  if (breakpoints === undefined) return "malformed";
+  if (!Array.isArray(breakpoints)) return "malformed";
+  return breakpoints.length > 0 ? "present" : "malformed";
 }
 
 function jsonValuesEqual(left: unknown, right: unknown): boolean {
@@ -434,7 +442,7 @@ const generateDesignAgentParameters = {
       type: "string",
       description:
         "Optional JSON array of overview-canvas placements keyed by filename or fileId. " +
-        "Pass explicit x/y/width/height for every generated screen; desktop is 1440x900.",
+        "Pass explicit x/y/width/height for every generated screen as numbers; desktop is 1440x900.",
     },
     contextPackId: {
       type: "string",
@@ -499,7 +507,8 @@ const generateDesignAction = defineAction({
     "for a mobile- or tablet-primary design when not passing `devices`. " +
     "Do not report a design as ready until this action succeeds. " +
     "When adding multiple screens or states, pass canvasFrames with filenames " +
-    "and x/y/width/height so the new screens appear placed on the overview canvas.",
+    "and numeric x/y/width/height so the new screens appear placed on the " +
+    "overview canvas.",
   schema: z.object({
     designId: z.string().describe("Design project ID to save content to"),
     prompt: z.string().describe("The generation prompt (stored for reference)"),
@@ -768,6 +777,38 @@ const generateDesignAction = defineAction({
       ...file,
       content: annotateScreenHtmlForPersist(file.content, file.fileType),
     }));
+
+    // Gate every NEW file up front so a rejected file cannot orphan the ones
+    // written before it. Existing files take the edit transition inside
+    // writeInlineSourceFile, which still allows repairing a malformed screen.
+    const integrityWarnings: Array<{ filename: string; message: string }> = [];
+    for (const file of annotatedFiles) {
+      if ((file.fileType ?? "html") !== "html") continue;
+      const existing = existingByName.get(file.filename);
+      // A row changing type into HTML is new HTML, not an edit: the edit
+      // transition validates against the row's CURRENT type, so a css→html
+      // candidate would skip the HTML checks and still be stored as HTML below.
+      const becomesHtml =
+        existing !== undefined && (existing.fileType ?? "html") !== "html";
+      // Blocking applies to new files and type transitions. An existing HTML row
+      // takes the lenient edit transition instead, so a legacy-malformed screen
+      // stays repairable — but its advisories are still reported, or the same
+      // content would warn as a new file and save silently as a regeneration.
+      const advisory =
+        !existing || becomesHtml
+          ? assertDesignHtmlCreateIntegrity({
+              content: file.content,
+              fileType: "html",
+              filename: file.filename,
+            })
+          : (inspectDesignHtmlDocumentIntegrity(file.content).advisory ?? []);
+      for (const entry of advisory) {
+        integrityWarnings.push({
+          filename: file.filename,
+          message: describeDesignHtmlIntegrityIssue(entry),
+        });
+      }
+    }
 
     for (const file of annotatedFiles) {
       const existing = existingByName.get(file.filename);
@@ -1099,7 +1140,7 @@ const generateDesignAction = defineAction({
           mergedData.breakpointSetUpdatedAt = updatedAt;
         } else if (
           generatedBreakpointSet.length > 0 &&
-          !hasBreakpointSet(mergedData.breakpointSet)
+          classifyBreakpointSet(mergedData.breakpointSet) === "absent"
         ) {
           mergedData.breakpointSet = {
             id: "generated-responsive",
@@ -1162,7 +1203,7 @@ const generateDesignAction = defineAction({
           devices && devices.length > 0
             ? jsonValuesEqual(currentBreakpointWidths, expectedBreakpointWidths)
             : generatedBreakpointSet.length === 0 ||
-              hasBreakpointSet(current.breakpointSet);
+              classifyBreakpointSet(current.breakpointSet) !== "absent";
         return framesApplied && breakpointSetApplied;
       },
     });
@@ -1198,6 +1239,9 @@ const generateDesignAction = defineAction({
       savedFiles,
       placedFrames,
       fileCount: savedFiles.length,
+      // Non-blocking: a well-formed screen with no Tailwind runtime renders
+      // unstyled, which reads as a layout bug rather than a missing runtime.
+      ...(integrityWarnings.length > 0 ? { warnings: integrityWarnings } : {}),
       ...creativeContextProvenance,
     };
   },

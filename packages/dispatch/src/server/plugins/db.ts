@@ -3,7 +3,7 @@ import { runMigrations } from "@agent-native/core/db";
 import { dispatchMigrations } from "../../db/migrations.js";
 import { scheduleVaultBootResync } from "../lib/vault-boot-resync.js";
 
-const runDispatchMigrations = runMigrations(dispatchMigrations, {
+export const runDispatchMigrations = runMigrations(dispatchMigrations, {
   table: "dispatch_migrations",
 });
 

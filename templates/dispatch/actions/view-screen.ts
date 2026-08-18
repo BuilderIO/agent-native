@@ -3,7 +3,6 @@ import { readAppState } from "@agent-native/core/application-state";
 import { dispatchActions } from "@agent-native/dispatch/actions";
 import { z } from "zod";
 
-import { listDispatchUsageMetricsScoped } from "../server/lib/usage-metrics.js";
 import listWorkspaceConnections from "./list-workspace-connections.js";
 
 async function runDispatchAction(name: string, args: Record<string, unknown>) {
@@ -16,6 +15,20 @@ function stripUndefined(args: Record<string, unknown>) {
   return Object.fromEntries(
     Object.entries(args).filter(([, value]) => value !== undefined),
   );
+}
+
+function threadDebugLookbackHours(value: unknown): number {
+  if (value === "7d") return 168;
+  if (value === "30d") return 720;
+  return 24;
+}
+
+function threadDebugFailureStatus(
+  value: unknown,
+): "all" | "errored" | "aborted" | "truncated" {
+  return value === "errored" || value === "aborted" || value === "truncated"
+    ? value
+    : "all";
 }
 
 function optionalTimestamp(source: object, key: string) {
@@ -87,14 +100,22 @@ export default defineAction({
     }
     if (navigation?.view === "metrics") {
       try {
-        const metrics = await listDispatchUsageMetricsScoped({ sinceDays: 30 });
+        const usageScope =
+          navigation.usageScope === "workspace" ? "workspace" : "me";
+        const metrics = await runDispatchAction("list-dispatch-usage-metrics", {
+          sinceDays: 30,
+          scope: usageScope,
+          userEmail: navigation.usageUserEmail,
+        });
         screen.usageMetrics = {
           billing: metrics.billing,
+          viewScope: metrics.viewScope,
+          selectedUserEmail: metrics.selectedUserEmail,
           totals: metrics.totals,
           byApp: metrics.byApp.slice(0, 8),
           byUser: metrics.byUser.slice(0, 8),
           appAccess: metrics.appAccess
-            .filter((app) => !app.isDispatch)
+            .filter((app: { isDispatch?: boolean }) => !app.isDispatch)
             .slice(0, 8),
         };
       } catch (error) {
@@ -186,7 +207,18 @@ export default defineAction({
           "list-agent-thread-sources",
           {},
         );
-        if (nav.query) {
+        if (nav.threadDebugMode !== "threads") {
+          screen.agentRunFailures = await runDispatchAction(
+            "list-agent-run-failures",
+            {
+              sourceId: nav.sourceId ?? "all",
+              ownerEmail: nav.ownerEmail,
+              status: threadDebugFailureStatus(nav.failureStatus),
+              lookbackHours: threadDebugLookbackHours(nav.range),
+              limit: 10,
+            },
+          );
+        } else if (nav.query) {
           screen.threadDebugResults = await runDispatchAction(
             "search-agent-threads",
             {
@@ -199,7 +231,10 @@ export default defineAction({
         }
         if (nav.threadId || nav.runId) {
           const detail = (await runDispatchAction("get-agent-thread-debug", {
-            sourceId: nav.sourceId,
+            sourceId:
+              nav.runId && nav.inspectSourceId
+                ? nav.inspectSourceId
+                : nav.sourceId,
             threadId: nav.runId ? undefined : nav.threadId,
             runId: nav.runId,
             ownerEmail: nav.ownerEmail,
@@ -215,6 +250,10 @@ export default defineAction({
             debug: detail.debug,
             debugRuns: detail.debugRuns?.slice(-5) ?? [],
             messages: detail.messages?.slice(-6) ?? [],
+            runs:
+              detail.runs
+                ?.slice(0, 5)
+                .map(({ events: _events, ...run }: any) => run) ?? [],
           };
         }
       } catch (error) {

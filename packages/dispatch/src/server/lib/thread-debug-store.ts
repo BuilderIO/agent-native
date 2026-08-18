@@ -1,4 +1,9 @@
+import {
+  classifyAgentFailure,
+  type AgentFailureRegime,
+} from "@agent-native/core/agent/engine";
 import { createDbExec, getDbExec, type DbExec } from "@agent-native/core/db";
+import { ForbiddenError } from "@agent-native/core/sharing";
 
 import { currentOrgId, currentOwnerEmail } from "./dispatch-store.js";
 
@@ -65,9 +70,46 @@ interface AgentRunRow {
   started_at: number | string;
   completed_at?: number | string | null;
   heartbeat_at?: number | string | null;
+  turn_id?: string | null;
+  last_progress_at?: number | string | null;
+  error_code?: string | null;
+  error_detail?: string | null;
+  terminal_reason?: string | null;
+  dispatch_mode?: string | null;
+  worker_stage?: string | null;
+  diag_stage?: string | null;
+  peak_rss_mb?: number | string | null;
+  in_flight_since?: number | string | null;
+  dispatch_payload?: string | null;
 }
 
 const execCache = new Map<string, Promise<DbExec>>();
+
+const UNSUCCESSFUL_RUN_STATUSES = ["errored", "aborted", "truncated"] as const;
+
+export type AgentRunFailureStatus = (typeof UNSUCCESSFUL_RUN_STATUSES)[number];
+
+type ThreadDebugSourceHealthStatus =
+  | "ok"
+  | "disconnected"
+  | "unsupported"
+  | "unavailable";
+
+interface AgentRunFailureRow extends AgentRunRow {
+  debug_owner_email: string;
+  debug_thread_title?: string | null;
+  debug_thread_preview?: string | null;
+  debug_terminal_event_data?: string | null;
+}
+
+class UnsupportedThreadDebugSchemaError extends Error {
+  readonly code = "thread_debug_schema_unsupported";
+
+  constructor(readonly table: string) {
+    super(`This database does not have the required "${table}" table.`);
+    this.name = "UnsupportedThreadDebugSchemaError";
+  }
+}
 
 function envEmails(name: string): string[] {
   return (process.env[name] ?? "")
@@ -89,14 +131,24 @@ function isEnvAdmin(email: string): boolean {
   ].includes(normalized);
 }
 
+function missingTableName(error: unknown): string | null {
+  const message = String((error as Error)?.message ?? error);
+  const patterns = [
+    /no such table:\s*(?:(?:main|public)\.)?["'`]?([a-zA-Z_][\w$]*)/i,
+    /relation\s+["'`](?:(?:public)\.)?([a-zA-Z_][\w$]*)["'`]\s+does not exist/i,
+    /table\s+["'`](?:[^"'`.]+\.)?([a-zA-Z_][\w$]*)["'`]\s+does(?:n't| not)\s+exist/i,
+    /unknown table\s+["'`]?(?:[^"'`.\s]+\.)?([a-zA-Z_][\w$]*)/i,
+    /undefined table[^a-zA-Z_]+(?:[^.\s]+\.)?([a-zA-Z_][\w$]*)/i,
+  ];
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    if (match?.[1]) return match[1].toLowerCase();
+  }
+  return null;
+}
+
 function isMissingTableError(error: unknown): boolean {
-  const message = String((error as Error)?.message ?? error).toLowerCase();
-  return (
-    message.includes("no such table") ||
-    message.includes("does not exist") ||
-    message.includes("unknown table") ||
-    message.includes("undefined table")
-  );
+  return missingTableName(error) !== null;
 }
 
 async function optionalRows<T = Record<string, unknown>>(
@@ -120,10 +172,9 @@ async function queryRows<T = Record<string, unknown>>(
   try {
     return (await exec.execute({ sql, args })).rows as T[];
   } catch (error) {
-    if (isMissingTableError(error)) {
-      throw new Error(
-        "This database does not have agent chat thread tables yet.",
-      );
+    const missingTable = missingTableName(error);
+    if (missingTable) {
+      throw new UnsupportedThreadDebugSchemaError(missingTable);
     }
     throw error;
   }
@@ -276,7 +327,6 @@ function parseConfiguredSources(): ThreadDebugSourceConfig[] {
           : databaseUrlEnv
             ? process.env[databaseUrlEnv]
             : undefined;
-      if (!databaseUrl) return null;
       return {
         id,
         label:
@@ -349,7 +399,14 @@ function sourceConfigs(): ThreadDebugSourceConfig[] {
 function resolveSourceConfig(sourceId = "current"): ThreadDebugSourceConfig {
   const normalized = sourceId.trim() || "current";
   const direct = sourceConfigs().find((source) => source.id === normalized);
-  if (direct) return direct;
+  if (direct) {
+    if (direct.kind !== "current" && !direct.databaseUrl) {
+      throw new Error(
+        `Thread debug source "${normalized}" is configured but disconnected.`,
+      );
+    }
+    return direct;
+  }
 
   const prefix = envPrefixForSourceId(normalized);
   const databaseUrlEnv = `${prefix}_DATABASE_URL`;
@@ -371,6 +428,11 @@ function resolveSourceConfig(sourceId = "current"): ThreadDebugSourceConfig {
 
 async function execForSource(source: ThreadDebugSourceConfig): Promise<DbExec> {
   if (source.kind === "current") return getDbExec();
+  if (!source.databaseUrl) {
+    throw new Error(
+      `Thread debug source "${source.id}" is configured but disconnected.`,
+    );
+  }
   const cacheKey = `${source.databaseUrl ?? ""}\n${source.databaseAuthToken ?? ""}`;
   if (!execCache.has(cacheKey)) {
     execCache.set(
@@ -437,25 +499,39 @@ function assertSourceAccess(
 ) {
   if (source.kind === "current") return;
   if (!access.canInspectAll) {
-    throw new Error(
+    throw new ForbiddenError(
       "Only Dispatch admins can inspect thread databases from other apps.",
     );
   }
 }
 
-function ownerScope(access: DebugAccess, ownerEmail?: string): OwnerScope {
+function ownerScope(
+  access: DebugAccess,
+  ownerEmail?: string,
+  column = "owner_email",
+): OwnerScope {
   const requested = ownerEmail?.trim();
   if (!access.canInspectAll) {
     return {
-      sql: "owner_email = ?",
+      sql: `${column} = ?`,
       args: [access.viewerEmail],
       label: access.viewerEmail,
     };
   }
 
   if (requested && requested !== "*") {
+    if (
+      access.orgId &&
+      !access.memberEmails.some(
+        (email) => email.toLowerCase() === requested.toLowerCase(),
+      )
+    ) {
+      throw new Error(
+        "The requested owner is not a member of the current organization.",
+      );
+    }
     return {
-      sql: "owner_email = ?",
+      sql: `${column} = ?`,
       args: [requested],
       label: requested,
     };
@@ -468,14 +544,14 @@ function ownerScope(access: DebugAccess, ownerEmail?: string): OwnerScope {
   const emails = access.memberEmails;
   if (emails.length === 0) {
     return {
-      sql: "owner_email = ?",
+      sql: `${column} = ?`,
       args: [access.viewerEmail],
       label: access.viewerEmail,
     };
   }
   const placeholders = emails.map(() => "?").join(", ");
   return {
-    sql: `owner_email IN (${placeholders})`,
+    sql: `${column} IN (${placeholders})`,
     args: emails,
     label: access.orgId ? "current organization" : "all users",
   };
@@ -498,11 +574,25 @@ function serializeRun(row: AgentRunRow, events: any[] = []) {
   return {
     id: String(row.id),
     threadId: String(row.thread_id),
+    turnId: row.turn_id ? String(row.turn_id) : null,
     status: String(row.status),
     abortReason: row.abort_reason ? String(row.abort_reason) : null,
+    errorCode: row.error_code ? String(row.error_code) : null,
+    errorDetail: row.error_detail ? String(row.error_detail) : null,
+    terminalReason: row.terminal_reason ? String(row.terminal_reason) : null,
     startedAt: numberField(row.started_at),
     completedAt: nullableNumberField(row.completed_at),
     heartbeatAt: nullableNumberField(row.heartbeat_at),
+    lastProgressAt: nullableNumberField(row.last_progress_at),
+    dispatchMode: row.dispatch_mode ? String(row.dispatch_mode) : null,
+    workerStage: row.worker_stage ? String(row.worker_stage) : null,
+    diagStage: row.diag_stage ? String(row.diag_stage) : null,
+    peakRssMb: nullableNumberField(row.peak_rss_mb),
+    inFlightSince: nullableNumberField(row.in_flight_since),
+    hasDispatchPayload:
+      row.dispatch_payload !== null &&
+      row.dispatch_payload !== undefined &&
+      String(row.dispatch_payload).length > 0,
     events,
   };
 }
@@ -547,6 +637,246 @@ export async function listThreadDebugSources(): Promise<{
   };
 }
 
+function publicSource(source: ThreadDebugSourceConfig) {
+  return {
+    id: source.id,
+    label: source.label,
+    kind: source.kind,
+    databaseUrlEnv: source.databaseUrlEnv ?? null,
+  };
+}
+
+function parseTerminalEvent(value: unknown): Record<string, unknown> | null {
+  if (value == null || value === "") return null;
+  try {
+    const parsed = JSON.parse(String(value));
+    return parsed && typeof parsed === "object"
+      ? (parsed as Record<string, unknown>)
+      : { type: "unparseable" };
+  } catch {
+    return { type: "unparseable" };
+  }
+}
+
+function serializeRunFailure(
+  row: AgentRunFailureRow,
+  source: ThreadDebugSourceConfig,
+) {
+  const startedAt = numberField(row.started_at);
+  const completedAt = nullableNumberField(row.completed_at);
+  const terminalEvent = parseTerminalEvent(row.debug_terminal_event_data);
+  const failureTaxonomy = classifyAgentFailure({
+    runId: row.id,
+    errorCode: row.error_code,
+    errorDetail: row.error_detail,
+    terminalReason: row.terminal_reason,
+    terminalEvent,
+  });
+  return {
+    source: publicSource(source),
+    id: String(row.id),
+    threadId: String(row.thread_id),
+    turnId: row.turn_id ? String(row.turn_id) : null,
+    ownerEmail: String(row.debug_owner_email ?? ""),
+    threadTitle: String(row.debug_thread_title ?? ""),
+    threadPreview: String(row.debug_thread_preview ?? ""),
+    status: String(row.status) as AgentRunFailureStatus,
+    abortReason: row.abort_reason ? String(row.abort_reason) : null,
+    errorCode: row.error_code ? String(row.error_code) : null,
+    errorDetail: row.error_detail ? String(row.error_detail) : null,
+    terminalReason: row.terminal_reason ? String(row.terminal_reason) : null,
+    startedAt,
+    completedAt,
+    heartbeatAt: nullableNumberField(row.heartbeat_at),
+    lastProgressAt: nullableNumberField(row.last_progress_at),
+    durationMs: completedAt == null ? null : completedAt - startedAt,
+    dispatchMode: row.dispatch_mode ? String(row.dispatch_mode) : null,
+    workerStage: row.worker_stage ? String(row.worker_stage) : null,
+    diagStage: row.diag_stage ? String(row.diag_stage) : null,
+    peakRssMb: nullableNumberField(row.peak_rss_mb),
+    terminalEvent,
+    regime: failureTaxonomy.regime,
+    failureTaxonomy,
+  };
+}
+
+function sourceHealth(
+  source: ThreadDebugSourceConfig,
+  status: ThreadDebugSourceHealthStatus,
+  failureCount: number,
+  errorCode:
+    | null
+    | "thread_debug_source_disconnected"
+    | "thread_debug_schema_unsupported"
+    | "thread_debug_source_unavailable",
+) {
+  return {
+    source: publicSource(source),
+    status,
+    failureCount,
+    errorCode,
+  };
+}
+
+async function failuresForSource(
+  source: ThreadDebugSourceConfig,
+  scope: OwnerScope,
+  input: {
+    status: AgentRunFailureStatus | "all";
+    regime: AgentFailureRegime | "all";
+    cutoff: number;
+    limit: number;
+  },
+) {
+  const exec = await execForSource(source);
+  const statuses =
+    input.status === "all" ? [...UNSUCCESSFUL_RUN_STATUSES] : [input.status];
+  const statusPlaceholders = statuses.map(() => "?").join(", ");
+  const regimeClause =
+    input.regime === "scheduled"
+      ? "AND r.id LIKE 'job-%'"
+      : input.regime === "interactive"
+        ? "AND r.id NOT LIKE 'job-%'"
+        : "";
+  const rows = await queryRows<AgentRunFailureRow>(
+    exec,
+    `SELECT r.*,
+            t.owner_email AS debug_owner_email,
+            t.title AS debug_thread_title,
+            t.preview AS debug_thread_preview,
+            (
+              SELECT e.event_data
+                FROM agent_run_events e
+               WHERE e.run_id = r.id
+               ORDER BY e.seq DESC
+               LIMIT 1
+            ) AS debug_terminal_event_data
+       FROM agent_runs r
+       JOIN chat_threads t ON t.id = r.thread_id
+      WHERE r.status IN (${statusPlaceholders})
+        AND ${scope.sql}
+        ${regimeClause}
+        AND COALESCE(r.completed_at, r.started_at) >= ?
+      ORDER BY COALESCE(r.completed_at, r.started_at) DESC, r.id DESC
+      LIMIT ?`,
+    [...statuses, ...scope.args, input.cutoff, input.limit],
+  );
+  return rows.map((row) => serializeRunFailure(row, source));
+}
+
+export async function listAgentRunFailures(input: {
+  sourceId?: string;
+  ownerEmail?: string;
+  status?: AgentRunFailureStatus | "all";
+  regime?: AgentFailureRegime | "all";
+  lookbackHours?: number;
+  limit?: number;
+}) {
+  const access = await resolveDebugAccess();
+  const requestedSourceId = input.sourceId?.trim() || "all";
+  const status = input.status ?? "all";
+  const regime = input.regime ?? "all";
+  const lookbackHours = Math.max(1, Math.min(720, input.lookbackHours ?? 168));
+  const limit = Math.max(1, Math.min(100, input.limit ?? DEFAULT_SEARCH_LIMIT));
+  const scope = ownerScope(access, input.ownerEmail, "t.owner_email");
+  const cutoff = Date.now() - lookbackHours * 60 * 60 * 1000;
+
+  let sources: ThreadDebugSourceConfig[];
+  if (requestedSourceId === "all") {
+    sources = sourceConfigs().filter(
+      (source) => source.kind === "current" || access.canInspectAll,
+    );
+  } else {
+    const configured = sourceConfigs().find(
+      (source) => source.id === requestedSourceId,
+    );
+    const source = configured ?? resolveSourceConfig(requestedSourceId);
+    assertSourceAccess(source, access);
+    if (source.kind !== "current" && !source.databaseUrl) {
+      throw new Error(
+        `Thread debug source "${requestedSourceId}" is configured but disconnected.`,
+      );
+    }
+    sources = [source];
+  }
+
+  const results = await Promise.all(
+    sources.map(async (source) => {
+      if (source.kind !== "current" && !source.databaseUrl) {
+        return {
+          failures: [] as ReturnType<typeof serializeRunFailure>[],
+          health: sourceHealth(
+            source,
+            "disconnected",
+            0,
+            "thread_debug_source_disconnected",
+          ),
+        };
+      }
+      try {
+        const failures = await failuresForSource(source, scope, {
+          status,
+          regime,
+          cutoff,
+          limit,
+        });
+        return {
+          failures,
+          health: sourceHealth(source, "ok", failures.length, null),
+        };
+      } catch (error) {
+        if (error instanceof UnsupportedThreadDebugSchemaError) {
+          return {
+            failures: [] as ReturnType<typeof serializeRunFailure>[],
+            health: sourceHealth(
+              source,
+              "unsupported",
+              0,
+              "thread_debug_schema_unsupported",
+            ),
+          };
+        }
+        return {
+          failures: [] as ReturnType<typeof serializeRunFailure>[],
+          health: sourceHealth(
+            source,
+            "unavailable",
+            0,
+            "thread_debug_source_unavailable",
+          ),
+        };
+      }
+    }),
+  );
+
+  const failures = results
+    .flatMap((result) => result.failures)
+    .sort(
+      (a, b) =>
+        (b.completedAt ?? b.startedAt) - (a.completedAt ?? a.startedAt) ||
+        b.id.localeCompare(a.id) ||
+        b.source.id.localeCompare(a.source.id),
+    )
+    .slice(0, limit);
+
+  return {
+    sourceId: requestedSourceId,
+    status,
+    regime,
+    lookbackHours,
+    limit,
+    count: failures.length,
+    partial: results.some((result) => result.health.status !== "ok"),
+    access: {
+      viewerEmail: access.viewerEmail,
+      scope: scope.label,
+      canInspectAll: access.canInspectAll,
+    },
+    sources: results.map((result) => result.health),
+    failures,
+  };
+}
+
 export async function searchAgentThreads(input: {
   sourceId?: string;
   query?: string;
@@ -583,11 +913,11 @@ export async function searchAgentThreads(input: {
         ? " OR id IN (" + runThreadIds.map(() => "?").join(", ") + ")"
         : "";
     where.push(
-      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\'" +
+      "(LOWER(title) LIKE ? ESCAPE '\\' OR LOWER(preview) LIKE ? ESCAPE '\\' OR LOWER(owner_email) LIKE ? ESCAPE '\\' OR LOWER(thread_data) LIKE ? ESCAPE '\\'" +
         runIdClause +
         ")",
     );
-    args.push(pattern, pattern, pattern);
+    args.push(pattern, pattern, pattern, pattern);
     args.push(...runThreadIds);
   }
   args.push(limit);
@@ -694,10 +1024,10 @@ export async function getAgentThreadDebug(input: {
 
   const runRows = await optionalRows<AgentRunRow>(
     exec,
-    `SELECT id, thread_id, status, abort_reason, started_at, heartbeat_at, completed_at
-       FROM agent_runs
-      WHERE thread_id = ?
-      ORDER BY started_at DESC
+    `SELECT r.*
+       FROM agent_runs r
+      WHERE r.thread_id = ?
+      ORDER BY r.started_at DESC
       LIMIT ?`,
     [row.id, maxRuns],
   );

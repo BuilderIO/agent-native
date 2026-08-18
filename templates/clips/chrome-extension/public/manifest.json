@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Agent-Native Clips",
   "short_name": "Clips",
-  "version": "0.1.17",
-  "description": "Start Clips recordings from Chrome, capture optional diagnostics, and preview Clips links on GitHub.",
+  "version": "0.1.18",
+  "description": "Start Clips recordings from Chrome, capture optional diagnostics, and preview Clips links on GitHub and Jira.",
   "minimum_chrome_version": "116",
   "action": {
     "default_title": "Record with Clips",
@@ -35,7 +35,11 @@
   ],
   "content_scripts": [
     {
-      "matches": ["https://github.com/*"],
+      "matches": [
+        "https://github.com/*",
+        "https://*.atlassian.net/*",
+        "https://*.jira.com/*"
+      ],
       "js": ["assets/github-preview-content.js"],
       "run_at": "document_idle",
       "all_frames": false
@@ -48,7 +52,11 @@
     },
     {
       "resources": ["src/github-preview.html"],
-      "matches": ["https://github.com/*"]
+      "matches": [
+        "https://github.com/*",
+        "https://*.atlassian.net/*",
+        "https://*.jira.com/*"
+      ]
     }
   ],
   "externally_connectable": {

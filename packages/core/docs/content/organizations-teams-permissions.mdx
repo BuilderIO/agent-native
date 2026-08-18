@@ -41,8 +41,8 @@ server-side action or access guard must enforce the rule.
 ## Organizations and teams
 
 Every scaffold includes the framework's own `org/` module. It is backed by
-`organizations`, `org_members`, and `org_invitations`; it is not Better Auth's
-organization plugin. The built-in flow supports:
+`organizations`, `org_members`, `org_invitations`, and `app_member_roles`; it is
+not Better Auth's organization plugin. The built-in flow supports:
 
 - Creating an organization. The creator becomes the `owner`.
 - Inviting people as `member` or `admin` and accepting invitations.
@@ -64,6 +64,8 @@ routes are:
 | `GET /_agent-native/org/members`                 | List members in the active organization                         |
 | `DELETE /_agent-native/org/members/:email`       | Remove a member                                                 |
 | `PUT /_agent-native/org/members/:email/role`     | Change a member's role                                          |
+| `GET /_agent-native/org/app-roles?appId=X`       | An app's role vocabulary plus its assignments in the active org |
+| `PUT /_agent-native/org/app-roles/:email`        | Assign or clear one member's app role (owner/admin only)        |
 | `GET /_agent-native/org/invitations`             | List pending invites                                            |
 | `POST /_agent-native/org/invitations`            | Invite one or more people                                       |
 | `POST /_agent-native/org/invitations/:id/accept` | Accept an invitation                                            |
@@ -91,7 +93,8 @@ export function AppShell() {
 export function TeamSettings() {
   return (
     <RequireActiveOrg>
-      <TeamPage />
+      {/* `appRoles` is optional — see App roles below */}
+      <TeamPage appRoles={coachRoles} />
     </RequireActiveOrg>
   );
 }
@@ -162,11 +165,114 @@ The same helpers are available from
 client checks as progressive disclosure only; repeat the authorization check
 in the server action or route that changes org state.
 
+## App roles (per-app RBAC)
+
+App roles answer: **what may this person do inside _one app_?**
+
+An organization role is a statement about the team, and a resource role is a
+statement about a row. Neither can express "Dana runs the coaching program, but
+is an ordinary member everywhere else." App roles are that overlay: an
+app-defined vocabulary layered on the org roster, stored in `app_member_roles`
+and edited from the same team surface. They are not a second roster — do not
+create another organization to get app-specific permissions.
+
+Declare the vocabulary once in app source, then guard actions with an explicit
+list of accepted roles:
+
+```ts
+// server/lib/access.ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member", // display only — never satisfies a guard
+  label: "Coach role", // column header in TeamPage
+  roleLabels: { "coach-admin": "Coach admin" },
+});
+```
+
+```ts
+// actions/archive-plan.ts
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+Against `requireAny("coach-admin")`, the caller resolves to exactly one of:
+
+| Caller                                     | `resolve()` status | Passes the guard              |
+| ------------------------------------------ | ------------------ | ----------------------------- |
+| Org member assigned `coach-admin`          | `assigned`         | Yes                           |
+| Org member assigned `member`               | `assigned`         | No — not in the accepted list |
+| Org member with no assignment row          | `unassigned`       | No, even with a `defaultRole` |
+| Signed-in user who is not in this org      | `not-a-member`     | No                            |
+| Request with no active organization        | `no-org`           | No                            |
+| Unattended caller with no user (CLI, cron) | `no-identity`      | No                            |
+
+The caveats that make this safe to build on:
+
+- **Roles are an unordered set, not a ladder.** Declaration order carries no
+  meaning; `["ae", "se", "csm"]` are classifications, and ranking them would
+  silently grant the last one everything the first one has. Authorization is
+  always an explicit accepted-role list, never "at least".
+- **`defaultRole` is display only.** `requireAny` matches an explicit
+  assignment row and nothing else. If the default satisfied a guard, "nobody
+  has assigned this person" and "this person was granted the role" would be the
+  same answer, and later widening the default would silently widen every guard
+  that names it.
+- **Org membership is a precondition.** Membership and assignment resolve in
+  one SQL statement, so an assignment left behind by a removed member can never
+  authorize.
+- **A failed lookup throws.** It is not one of the deny statuses above: a
+  database error is not an answer, and reporting it as a denial would look
+  exactly like a legitimate one.
+- **`requireAny` validates at definition time.** Calling it with no roles, or
+  with a role outside the declared vocabulary, throws when the module loads —
+  a dropped argument breaks where the mistake is instead of surfacing later as
+  an unexplained 403 in production.
+- **An explicit `null` caller is not "unspecified".** `resolve({ userEmail:
+null })` means "this run has no user" and does not fall back to the ambient
+  request context; only `undefined` does. Collapsing the two would let a system
+  or cron caller that deliberately declared no identity inherit whichever
+  request happens to be on the stack and authorize as that person.
+- **`appId` comes from trusted server config, never from the request.** The
+  REST layer resolves descriptors out of the `defineAppRoles` registry and 404s
+  an app id the server never declared.
+- **An app admin is not an org admin.** Only org owners and admins may change
+  app-role assignments, and nothing in the org handlers reads an app role. The
+  implication does not run in either direction.
+
+In the browser, `<TeamPage appRoles={coachRoles} />` adds a role column and
+picker next to the org role. The argument is the descriptor — the serializable
+half of the declaration, free of database imports — so hoist that object literal
+into a shared module as `coachRoles`, hand it to `defineAppRoles` on the server,
+and pass the same object to `TeamPage`. Passing `coachAccess` itself would drag
+the database into the browser bundle. To read the current user's own role:
+
+```tsx
+import { useAppRole } from "@agent-native/core/client/org-team";
+
+const { role } = useAppRole("coach");
+```
+
+`useAppRoles`, `useAppRole`, and `useSetAppMemberRole` are progressive
+disclosure only. Every guarded operation re-resolves the role on the server, so
+a client that shows the wrong affordance still cannot perform the operation.
+See [Actions → Authorization](/docs/actions-access-control#authorize) for how `authorize`
+differs from `needsApproval` and from row-level access guards.
+
 ## Resource permissions (sharing RBAC)
 
 Organization roles and resource roles are different systems:
 
 - **Organization role** controls team administration.
+- **App role** controls what a member may do inside one app.
 - **Resource role** controls access to one document, dashboard, or other
   shareable row.
 

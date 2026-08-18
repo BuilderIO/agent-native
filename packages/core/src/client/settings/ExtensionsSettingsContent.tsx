@@ -1,5 +1,6 @@
-import { IconLoader2 } from "@tabler/icons-react";
 import { lazy, Suspense } from "react";
+
+import { SettingsSkeleton } from "./SettingsSkeleton.js";
 
 const ExtensionsListPage = lazy(() =>
   import("../extensions/ExtensionsListPage.js").then((module) => ({
@@ -9,13 +10,9 @@ const ExtensionsListPage = lazy(() =>
 
 export function ExtensionsSettingsContent() {
   return (
-    <div className="mx-auto w-full max-w-5xl">
+    <div className="w-full">
       <Suspense
-        fallback={
-          <div className="flex min-h-[28rem] items-center justify-center text-muted-foreground">
-            <IconLoader2 className="size-5 animate-spin" aria-label="Loading" />
-          </div>
-        }
+        fallback={<SettingsSkeleton lines={4} className="min-h-[28rem]" />}
       >
         <ExtensionsListPage embedded />
       </Suspense>

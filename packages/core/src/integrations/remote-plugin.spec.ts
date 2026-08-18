@@ -12,6 +12,7 @@ const unregisterRemoteDeviceMock = vi.hoisted(() => vi.fn());
 const updateRemoteDeviceDetailsMock = vi.hoisted(() => vi.fn());
 const authenticateRemoteDeviceTokenMock = vi.hoisted(() => vi.fn());
 const getRemoteComputerCapabilitiesMock = vi.hoisted(() => vi.fn());
+const getRemoteExecutionCapabilitiesMock = vi.hoisted(() => vi.fn());
 const claimNextComputerCommandMock = vi.hoisted(() => vi.fn());
 const claimNextRemoteCommandMock = vi.hoisted(() => vi.fn());
 const enqueueComputerCommandMock = vi.hoisted(() => vi.fn());
@@ -63,6 +64,7 @@ vi.mock("./remote-devices-store.js", () => ({
   authenticateRemoteDeviceToken: authenticateRemoteDeviceTokenMock,
   createRemoteDevice: createRemoteDeviceMock,
   getRemoteComputerCapabilities: getRemoteComputerCapabilitiesMock,
+  getRemoteExecutionCapabilities: getRemoteExecutionCapabilitiesMock,
   getRemoteDeviceForOwner: getRemoteDeviceForOwnerMock,
   listRemoteDevicesForOwner: listRemoteDevicesForOwnerMock,
   revokeRemoteDeviceForOwner: revokeRemoteDeviceForOwnerMock,
@@ -186,7 +188,7 @@ async function dispatch(
 
 describe("remote integration plugin routes", () => {
   afterEach(() => {
-    vi.clearAllMocks();
+    vi.resetAllMocks();
   });
 
   it("registers a remote device with session auth and returns the raw token once", async () => {
@@ -293,6 +295,73 @@ describe("remote integration plugin routes", () => {
     });
   });
 
+  it("accepts the proxy-safe device token header for polling", async () => {
+    authenticateRemoteDeviceTokenMock.mockResolvedValueOnce({
+      id: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: null,
+      label: "Studio Mac",
+      deviceTokenHash: "hashed",
+      lastSeenAt: 1,
+      status: "active",
+      createdAt: 1,
+      updatedAt: 1,
+    });
+    claimNextRemoteCommandMock.mockResolvedValueOnce(null);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/remote/poll?waitMs=0",
+      "POST",
+      { waitMs: 0 },
+      { "x-agent-native-device-token": "anr_raw-token" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(authenticateRemoteDeviceTokenMock).toHaveBeenCalledWith(
+      "anr_raw-token",
+    );
+  });
+
+  it("tries the proxy-safe token when Authorization is also present", async () => {
+    const device = {
+      id: "device-1",
+      ownerEmail: "alice@example.com",
+      orgId: null,
+      label: "Studio Mac",
+      deviceTokenHash: "hashed",
+      lastSeenAt: 1,
+      status: "active",
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    authenticateRemoteDeviceTokenMock.mockImplementation(async (token) =>
+      token === "anr_raw-token" ? device : null,
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/remote/poll?waitMs=0",
+      "POST",
+      { waitMs: 0 },
+      {
+        authorization: "Bearer proxy-supplied-token",
+        "x-agent-native-device-token": "anr_raw-token",
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(authenticateRemoteDeviceTokenMock).toHaveBeenNthCalledWith(
+      1,
+      "anr_raw-token",
+    );
+    expect(claimNextRemoteCommandMock).toHaveBeenCalledWith("device-1");
+  });
+
   it("claims only computer operations matching advertised device capabilities", async () => {
     const device = {
       id: "device-1",
@@ -312,6 +381,12 @@ describe("remote integration plugin routes", () => {
       metadata: {
         computerCapabilities: {
           browser: { observe: true, control: true },
+        },
+        browserSession: {
+          version: 1,
+          handle: "bsn_00000000-0000-4000-8000-000000000000",
+          origin: "https://example.com",
+          title: "Example",
         },
       },
     });
@@ -337,6 +412,12 @@ describe("remote integration plugin routes", () => {
         computerCapabilities: {
           browser: { observe: true, control: true },
         },
+        browserSession: {
+          version: 1,
+          handle: "bsn_00000000-0000-4000-8000-000000000000",
+          origin: "https://example.com",
+          title: "Example",
+        },
       },
       { authorization: "Bearer anr_raw-token" },
     );
@@ -346,6 +427,26 @@ describe("remote integration plugin routes", () => {
       ownerEmail: "alice@example.com",
       orgId: "org-1",
       operationClasses: ["browser.observe", "browser.control"],
+    });
+    expect(updateRemoteDeviceDetailsMock).toHaveBeenCalledWith({
+      id: "device-1",
+      metadata: {
+        computerCapabilities: {
+          browser: {
+            observe: true,
+            control: true,
+            provider: null,
+            version: null,
+          },
+          desktop: undefined,
+        },
+        browserSession: {
+          version: 1,
+          handle: "bsn_00000000-0000-4000-8000-000000000000",
+          origin: "https://example.com",
+          title: "Example",
+        },
+      },
     });
     expect(claimNextRemoteCommandMock).not.toHaveBeenCalled();
     expect(result.body).toEqual({
@@ -569,6 +670,48 @@ describe("remote integration plugin routes", () => {
         }),
       }),
     );
+  });
+
+  it("does not fall back to another host when an exact host is requested", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "alice@example.com" });
+    getOrgContextMock.mockResolvedValueOnce({ orgId: "org-1" });
+    listRemoteCommandsForOwnerMock.mockResolvedValueOnce([]);
+    listRemoteDevicesForOwnerMock.mockResolvedValueOnce([
+      {
+        id: "device-1",
+        ownerEmail: "alice@example.com",
+        orgId: "org-1",
+        label: "Studio Mac",
+        deviceTokenHash: "hashed",
+        lastSeenAt: Date.now(),
+        status: "active",
+        createdAt: 1,
+        updatedAt: 1,
+      },
+    ]);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/remote/enqueue",
+      "POST",
+      {
+        kind: "code-agent",
+        command: {
+          type: "create",
+          hostId: "device-that-is-not-paired",
+          prompt: "Use the exact host.",
+        },
+      },
+    );
+
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      ok: false,
+      error: expect.stringContaining("not paired"),
+    });
+    expect(enqueueRemoteCommandMock).not.toHaveBeenCalled();
   });
 
   it("lists scoped host details without exposing device token hashes", async () => {

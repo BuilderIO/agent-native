@@ -74,6 +74,23 @@ const messages = {
       suggestionGrantKey: "منح مفتاح OpenAI الخاص بي لهذا التطبيق",
     },
     pages: {
+      browserChatUnavailableTitle: "جلسة دردشة المتصفح غير متاحة",
+      browserChatUnavailableDescription:
+        "أعد الاتصال من إضافة Agent-Native للمتصفح.",
+      browserChatPlaceholder: "اسأل عن هذه الصفحة…",
+      browserChatAttachedPlaceholder: "اسأل عن {{page}}…",
+      browserConnectTitle: "ربط دردشة المتصفح",
+      browserConnectDescription:
+        "اسمح لإضافة Agent-Native في Chrome بفتح جلسة Dispatch هذه. يستخدم الاتصال تذكرة قصيرة الأجل لمرة واحدة.",
+      browserConnectInvalid:
+        "طلب الاتصال هذا غير صالح. ابدأ مرة أخرى من الإضافة.",
+      browserConnectConnected:
+        "تم ربط دردشة المتصفح. يمكنك إغلاق علامة التبويب هذه.",
+      browserConnectConnecting: "جارٍ الاتصال…",
+      browserConnectButton: "اتصال",
+      browserConnectOpenFromExtension:
+        "افتح هذه الصفحة من إضافة Agent-Native في Chrome.",
+      browserConnectFailed: "لم تتصل إضافة المتصفح.",
       appsDescription:
         "افتح تطبيقات مساحة العمل وابدأ في إنشاء تطبيق جديد من Dispatch.",
       appsDescriptionWithWorkspace:
@@ -215,6 +232,8 @@ const messages = {
     newTerminal: "محطة جديدة",
     panelOptions: "خيارات لوحة الوكيل",
     collapseSidebar: "طي الشريط الجانبي",
+    widenChat: "توسيع الدردشة",
+    returnChatToLayout: "إعادة الدردشة إلى تخطيط الصفحة",
     hideChats: "إخفاء الدردشات",
     allChats: "جميع الدردشات",
     settings: "الإعدادات",
@@ -260,6 +279,8 @@ const messages = {
     publicDescription: "يمكن لأي شخص قام بتسجيل الدخول باستخدام الرابط المشاهدة",
     viewer: "Viewer",
     viewerDescription: "يمكن عرض",
+    commenter: "معلّق",
+    commenterDescription: "يمكنه العرض وإضافة التعليقات",
     editor: "Editor",
     editorDescription: "يمكن تحرير",
     admin: "مسؤول",
@@ -330,7 +351,7 @@ const messages = {
     codeChangeBadge: "تغيير الكود",
     connectBuilderTitle: "اتصال Builder.io",
     connectBuilderDescription:
-      "قم بتوصيل Builder لتمكين تغييرات التعليمات البرمجية المستندة إلى السحابة من هذا التطبيق.",
+      "قم بتوصيل Builder (free tier available) لتمكين تغييرات التعليمات البرمجية المستندة إلى السحابة من هذا التطبيق.",
     setupRequired: "الإعداد مطلوب",
     branchCreated: "تم إنشاء الفرع",
     close: "إغلاق",
@@ -372,6 +393,15 @@ const messages = {
     deleting: "جارٍ الأرشفة...",
     openFullView: "فتح عرض كامل",
     removeFromWidgetArea: "إزالة من منطقة القطعة هذه",
+    customBlockSandboxed: "كتلة مخصصة · معزولة",
+    sandboxedCustomBlock: "كتلة SQL مخصصة ومعزولة",
+    sandboxedCustomBlockCreatedBy: "كتلة SQL مخصصة ومعزولة أنشأها {{email}}",
+    promoteToAppCode: "الترقية إلى رمز التطبيق",
+    historyShowsSourceVersions: "يعرض السجل إصدارات المصدر",
+    createdByHistoryShowsSourceVersions:
+      "أنشأها {{email}}. يعرض السجل إصدارات المصدر.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "أنشأها {{email}} · يعرض السجل إصدارات المصدر",
     deleteExtensionEllipsis: "أرشفة الامتداد...",
     removeFromMyListEllipsis: "إزالة من قائمتي...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
@@ -461,6 +491,10 @@ const messages = {
     noMembers: "لا يوجد أعضاء بعد.",
     memberCount_one: "{{count}} member",
     memberCount_other: "{{count}} members",
+    memberPagination: "ترقيم قائمة الأعضاء",
+    previousMemberPage: "الانتقال إلى صفحة الأعضاء السابقة",
+    nextMemberPage: "الانتقال إلى صفحة الأعضاء التالية",
+    memberPageStatus: "الصفحة {{page}} من {{totalPages}}",
     memberCount_zero: "{{count}} members",
     memberCount_two: "{{count}} members",
     memberCount_few: "{{count}} members",
@@ -493,7 +527,7 @@ const messages = {
     back: "رجوع",
     agentEngineRequired: "مطلوب محرك الوكيل",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (free tier available) or an LLM key before {{platform}} can answer.",
     openLlm: "افتح LLM",
     setup: "Setup",
     shareDocumentsWith: "مشاركة المستندات مع",

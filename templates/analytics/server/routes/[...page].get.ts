@@ -2,6 +2,7 @@ import { AGENT_ACCESS_PARAM } from "@agent-native/core/server";
 import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 import {
   buildAgentReadableResourceDiscovery,
+  injectDocumentMarkup,
   renderAgentReadableResourceDiscoveryScript,
 } from "@agent-native/core/shared";
 import {
@@ -140,13 +141,7 @@ function injectAgentDiscovery(html: string, script: string): string {
   if (scriptId && html.includes(`id="${scriptId}"`)) {
     return html;
   }
-  if (html.includes("</head>")) {
-    return html.replace("</head>", `${script}</head>`);
-  }
-  if (html.includes("</body>")) {
-    return html.replace("</body>", `${script}</body>`);
-  }
-  return `${html}${script}`;
+  return injectDocumentMarkup(html, script, { target: "head" });
 }
 
 export default defineEventHandler(async (event) => {

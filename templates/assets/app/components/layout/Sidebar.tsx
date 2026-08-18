@@ -7,7 +7,7 @@ import {
 import { appPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
 import { useActionQuery } from "@agent-native/core/client/hooks";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -291,7 +291,7 @@ function AssetsChatsSection({ open }: { open: boolean }) {
             unpin: t("chat.unpinChat"),
             delete: t("chat.archiveChat"),
           }}
-          className="min-w-0 [&_.an-chat-history-rail__new-chat]:justify-start"
+          className="min-w-0"
         />
       </div>
     </div>
@@ -370,15 +370,50 @@ export function Sidebar() {
       <TooltipContent side="right">{t("root.commandSearch")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton
       variant={collapsed ? "icon" : "sidebar"}
       side="right"
       className={collapsed ? "h-8 w-8" : "min-w-0"}
     />
+  );
+  const brandControl = (
+    <button
+      type="button"
+      onClick={() => setCollapsed((value) => !value)}
+      aria-label={
+        collapsed
+          ? t("navigation.expandSidebar")
+          : t("navigation.collapseSidebar")
+      }
+      className={cn(
+        "flex items-center gap-2 rounded outline-none transition-colors hover:bg-sidebar-accent/50 focus-visible:ring-2 focus-visible:ring-ring",
+        collapsed ? "size-8 justify-center" : "text-start",
+      )}
+      data-sidebar-brand-toggle
+    >
+      <img
+        src={appPath("/agent-native-icon-light.svg")}
+        alt=""
+        aria-hidden="true"
+        width={28}
+        height={16}
+        className="block h-4 w-7 shrink-0 object-contain object-center dark:hidden"
+      />
+      <img
+        src={appPath("/agent-native-icon-dark.svg")}
+        alt=""
+        aria-hidden="true"
+        width={28}
+        height={16}
+        className="hidden h-4 w-7 shrink-0 object-contain object-center dark:block"
+      />
+      {!collapsed && (
+        <span className="text-sm font-semibold tracking-tight">
+          {t("navigation.brand")}
+        </span>
+      )}
+    </button>
   );
 
   return (
@@ -394,25 +429,7 @@ export function Sidebar() {
           collapsed ? "justify-center px-2" : "justify-between px-4",
         )}
       >
-        {!collapsed && (
-          <div className="flex items-center gap-2">
-            <img
-              src={appPath("/agent-native-icon-light.svg")}
-              alt=""
-              aria-hidden="true"
-              className="block h-4 w-auto dark:hidden"
-            />
-            <img
-              src={appPath("/agent-native-icon-dark.svg")}
-              alt=""
-              aria-hidden="true"
-              className="hidden h-4 w-auto dark:block"
-            />
-            <span className="text-sm font-semibold tracking-tight">
-              {t("navigation.brand")}
-            </span>
-          </div>
-        )}
+        {brandControl}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -478,8 +495,8 @@ export function Sidebar() {
             return (
               <div key={item.href}>
                 {link}
-                {item.href === "/" && isCreateRoute ? (
-                  <AssetsChatsSection open />
+                {item.href === "/" ? (
+                  <AssetsChatsSection open={isCreateRoute} />
                 ) : null}
               </div>
             );
@@ -541,7 +558,6 @@ export function Sidebar() {
       <SidebarFooterActions
         collapsed={collapsed}
         feedback={feedbackButton}
-        translate={translateButton}
         search={searchButton}
         collapse={collapseButton}
       />

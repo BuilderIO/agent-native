@@ -1,5 +1,7 @@
 import { readFileSync } from "node:fs";
 
+import { parse } from "yaml";
+
 export type WorkflowGuardResult = {
   ok: boolean;
   issues: string[];
@@ -62,6 +64,33 @@ function count(source: string, pattern: RegExp): number {
   return source.match(pattern)?.length ?? 0;
 }
 
+type GuardedWorkflowStep = {
+  uses?: string;
+  with: Record<string, string>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseWorkflowSteps(source: string): GuardedWorkflowStep[] {
+  const workflow: unknown = parse(source);
+  if (!isRecord(workflow) || !isRecord(workflow.jobs)) return [];
+  const build = workflow.jobs.build;
+  if (!isRecord(build) || !Array.isArray(build.steps)) return [];
+
+  return build.steps.filter(isRecord).map((step) => ({
+    uses: typeof step.uses === "string" ? step.uses : undefined,
+    with: isRecord(step.with)
+      ? Object.fromEntries(
+          Object.entries(step.with).filter(
+            (entry): entry is [string, string] => typeof entry[1] === "string",
+          ),
+        )
+      : {},
+  }));
+}
+
 export function validateTrustedAcceptanceWorkflow(
   source: string,
 ): WorkflowGuardResult {
@@ -69,6 +98,12 @@ export function validateTrustedAcceptanceWorkflow(
   const workflowEnvironment = section(source, "\nenv:\n", "\njobs:\n");
   const build = section(source, "\n  build:\n", "\n  deploy:\n");
   const deploy = section(source, "\n  deploy:\n", "\n  receipt:\n");
+  let workflowSteps: GuardedWorkflowStep[] = [];
+  try {
+    workflowSteps = parseWorkflowSteps(source);
+  } catch {
+    issues.push("workflow must be valid YAML");
+  }
 
   if (!source.includes("workflow_dispatch:")) {
     issues.push("workflow must be manually dispatched");
@@ -109,6 +144,18 @@ export function validateTrustedAcceptanceWorkflow(
     }
     if (!build.includes("needs.plan.outputs.effective_sha")) {
       issues.push("candidate build must use the provenance-verified exact SHA");
+    }
+    const pnpmSetupSteps = workflowSteps.filter((step) =>
+      step.uses?.startsWith("pnpm/action-setup@"),
+    );
+    if (pnpmSetupSteps.length !== 1) {
+      issues.push("candidate build must contain exactly one pnpm setup step");
+    } else if (
+      pnpmSetupSteps[0]!.with.package_json_file !== "candidate/package.json"
+    ) {
+      issues.push(
+        "candidate pnpm setup must read package-manager metadata from the nested checkout",
+      );
     }
     if (!build.includes("Upload inert candidate artifact")) {
       issues.push("candidate output must cross jobs as an inert artifact");

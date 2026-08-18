@@ -16,6 +16,7 @@ const messages = {
     navInbox: "Inbox",
     navTasks: "Tasks",
     navFields: "Fields",
+    search: "Search",
     collapseSidebar: "Collapse sidebar",
     expandSidebar: "Expand sidebar",
     navigationTitle: "Navigation",
@@ -28,6 +29,12 @@ const messages = {
     pageTeam: "Team",
     pageExtension: "Extension",
     pageExtensions: "Extensions",
+  },
+  settings: {
+    languageTitle: "Language",
+    languageDescription:
+      "Choose the interface language. This preference is saved for your account.",
+    languageLabel: "Interface language",
   },
   agent: {
     emptyState: "Ask the agent to inspect or change this app.",

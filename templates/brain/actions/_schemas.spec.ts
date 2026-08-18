@@ -8,6 +8,13 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  getCredentialContext: vi.fn(() => ({
+    userEmail: "owner@example.test",
+    orgId: "org-1",
+  })),
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn(),
 }));
@@ -25,6 +32,7 @@ vi.mock("../server/lib/brain.js", () => ({
 }));
 
 vi.mock("../server/lib/source-credentials.js", () => ({
+  assertSourceCredentialAvailable: vi.fn(),
   assertSourceWorkspaceConnectionAvailable: vi.fn(),
 }));
 
@@ -77,5 +85,34 @@ describe("Brain JSON action inputs", () => {
     });
 
     expect(parsed.config).toEqual(config);
+  });
+
+  it("validates and coerces trusted-answer policy updates", () => {
+    const actionSchema = (
+      updateSourceAction as unknown as {
+        schema: { parse: (value: unknown) => { policy?: unknown } };
+      }
+    ).schema;
+
+    expect(
+      actionSchema.parse({
+        id: "source-docs",
+        policy: JSON.stringify({
+          trustTier: "blessed",
+          answerEligible: true,
+          authority: 95,
+          freshnessWindowDays: 30,
+          reviewRequired: false,
+          conflictBehavior: "prefer-higher-authority",
+        }),
+      }).policy,
+    ).toEqual({
+      trustTier: "blessed",
+      answerEligible: true,
+      authority: 95,
+      freshnessWindowDays: 30,
+      reviewRequired: false,
+      conflictBehavior: "prefer-higher-authority",
+    });
   });
 });

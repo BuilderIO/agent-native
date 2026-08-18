@@ -7,6 +7,12 @@ description: "Cron 调度提示代理自行运行 - 每日摘要、每周报告�
 
 **重复作业**是按 cron 计划运行的提示。这就是代理自己做事的方式：“每天早上 7 点总结我隔夜收到的电子邮件”，“每周一将上周的注册号码发布到 Slack”，“每小时清理陈旧的草稿并将其删除。”
 
+<Callout tone="info">
+
+**Recurring Jobs** 是 **Scheduled** 自动化的旧称。**Automations** 是 **Scheduled** 和 **Event** 的总称。`jobs/` 和 `manage-jobs` 为旧 schedule-only 集成保留。新的个人或组织工作（包括模型和 MCP 允许列表）请使用 `manage-automations` 和 `/agent#jobs` 中的 **Automations**。
+
+</Callout>
+
 重复性工作按时进行。要对*事件*（创建的预订、收到的电子邮件）做出反应 - 相同的 `jobs/` 文件格式加上条件 - 请参阅 [Automations](/docs/automations)。
 
 作业位于 `jobs/<name>.md` 的 [代理资源](/docs/agent-resources) 中 — 只是一个带有 YAML frontmatter 的 Markdown 文件。无需注册，无需接线。将文件放入，框架就会拾取它。
@@ -154,8 +160,7 @@ Summarize overnight emails.`,
   <div class="diagram-card accent">
     <span class="diagram-pill accent">3 &middot; run</span
     ><small class="diagram-muted"
-      >fresh agent thread, job body as the user message &mdash; actions, SQL,
-      A2A, email</small
+      >共享运行器验证身份并解析模型、MCP 允许列表、继续执行、 交付和用量</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -216,7 +221,7 @@ Summarize overnight emails.`,
 | `update` | `name`（必填）； `schedule`、`instructions`、`enabled`、`runAs`、`mcpTools` | 编辑现有作业                                      |
 | `delete` | `name`（必填）                                                              | 删除作业 - 始终先与用户确认                       |
 
-**个人与共享范围。**每个作业都位于个人范围（作为创建者运行且仅对创建者可见）或共享/组织范围（代表创建者运行但对组织成员可见）。 `scope` 和 `runAs` 参数在创建时对此进行控制。组织管理员可以更新或删除任何共享作业；非管理员成员只能管理自己的成员。
+**个人与共享范围。**每个自动化都位于个人或组织范围，并以创建者身份运行。管理员可以管理共享定义，但不能更改创建者身份。每次组织运行前，框架都会验证创建者仍然存在且仍是组织成员。
 
 ## 与调度包不同 {#vs-scheduling-package}
 
@@ -231,5 +236,5 @@ Summarize overnight emails.`,
 
 - [**Automations**](/docs/automations) — 将事件触发器和条件添加到相同的 `jobs/` 格式
 - [**代理资源**](/docs/agent-resources) — 作业与 skills、内存和自定义代理一起存在
-- [**Actions**](/docs/actions) — 工作调用的工具
+- [**Actions**](/docs/actions-overview) — 工作调用的工具
 - [**Agent Teams**](/docs/agent-teams) - 作业通常会产生子代理来执行并行工作

@@ -4,6 +4,8 @@
 
 export type OrgRole = "owner" | "admin" | "member";
 
+export type RequiredAuthProvider = "google" | null;
+
 export interface OrgContext {
   email: string;
   orgId: string | null;
@@ -38,6 +40,16 @@ export interface OrgInfo {
   pendingInvitations: OrgInvitationSummary[];
   domainMatches: DomainMatchOrg[];
   allowedDomain: string | null;
+  /**
+   * Origin of the org's own workspace deployment, when it runs one. Members
+   * who land on a different host (a shared hosted app reached from the
+   * template catalog) get pointed here instead of concluding their team's
+   * apps are missing. Null for the common case of an org with no separate
+   * workspace.
+   */
+  workspaceUrl: string | null;
+  /** Sign-in provider required for members of the active org. */
+  requiredAuthProvider: RequiredAuthProvider;
   /**
    * Whether the active org has an A2A secret. The value itself is never part
    * of this payload — owners/admins fetch it on demand from

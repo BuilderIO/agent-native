@@ -74,6 +74,24 @@ const messages = {
       suggestionGrantKey: "Accorder ma clé OpenAI à cette application",
     },
     pages: {
+      browserChatUnavailableTitle:
+        "La session de chat du navigateur est indisponible",
+      browserChatUnavailableDescription:
+        "Reconnectez-vous depuis l’extension Agent-Native.",
+      browserChatPlaceholder: "Posez une question sur cette page…",
+      browserChatAttachedPlaceholder: "Posez une question sur {{page}}…",
+      browserConnectTitle: "Connecter le chat du navigateur",
+      browserConnectDescription:
+        "Autorisez l’extension Chrome Agent-Native à ouvrir cette session Dispatch. La connexion utilise un ticket unique de courte durée.",
+      browserConnectInvalid:
+        "Cette demande de connexion est invalide. Recommencez depuis l’extension.",
+      browserConnectConnected:
+        "Le chat du navigateur est connecté. Vous pouvez fermer cet onglet.",
+      browserConnectConnecting: "Connexion…",
+      browserConnectButton: "Connecter",
+      browserConnectOpenFromExtension:
+        "Ouvrez cette page depuis l’extension Chrome Agent-Native.",
+      browserConnectFailed: "L’extension du navigateur ne s’est pas connectée.",
       appsDescription:
         "Ouvrez les applications de l'espace de travail et démarrez la création d'une nouvelle application à partir de Dispatch.",
       appsDescriptionWithWorkspace:
@@ -218,6 +236,8 @@ const messages = {
     newTerminal: "Nouvelle borne",
     panelOptions: "Options du panneau d'agent",
     collapseSidebar: "Réduire la barre latérale",
+    widenChat: "Élargir le chat",
+    returnChatToLayout: "Remettre le chat dans la mise en page",
     hideChats: "Masquer les discussions",
     allChats: "Toutes les discussions",
     settings: "Paramètres",
@@ -263,6 +283,8 @@ const messages = {
     publicDescription: "Toute personne connectée avec le lien peut voir",
     viewer: "Viewer",
     viewerDescription: "Peut voir",
+    commenter: "Commentateur",
+    commenterDescription: "Peut consulter et ajouter des commentaires",
     editor: "Editor",
     editorDescription: "Peut modifier",
     admin: "Admin",
@@ -325,7 +347,7 @@ const messages = {
     codeChangeBadge: "Changement de code",
     connectBuilderTitle: "Connecter Builder.io",
     connectBuilderDescription:
-      "Connectez Builder pour activer les modifications de code basées sur le cloud à partir de cette application.",
+      "Connectez Builder (offre gratuite disponible) pour activer les modifications de code basées sur le cloud à partir de cette application.",
     setupRequired: "Configuration requise",
     branchCreated: "Branche créée",
     close: "Fermer",
@@ -367,6 +389,16 @@ const messages = {
     deleting: "Archivage...",
     openFullView: "Ouvrir la vue complète",
     removeFromWidgetArea: "Supprimer de cette zone de widget",
+    customBlockSandboxed: "Bloc personnalisé · isolé",
+    sandboxedCustomBlock: "Bloc SQL personnalisé et isolé",
+    sandboxedCustomBlockCreatedBy:
+      "Bloc SQL personnalisé et isolé créé par {{email}}",
+    promoteToAppCode: "Promouvoir vers le code de l’application",
+    historyShowsSourceVersions: "L’historique affiche les versions du code",
+    createdByHistoryShowsSourceVersions:
+      "Créé par {{email}}. L’historique affiche les versions du code.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "Créé par {{email}} · L’historique affiche les versions du code",
     deleteExtensionEllipsis: "Archiver l'extension...",
     removeFromMyListEllipsis: "Supprimer de ma liste...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
@@ -453,6 +485,10 @@ const messages = {
     noMembers: "Aucun membre pour le moment.",
     memberCount_one: "{{count}} member",
     memberCount_other: "{{count}} members",
+    memberPagination: "Pagination de la liste des membres",
+    previousMemberPage: "Accéder à la page précédente des membres",
+    nextMemberPage: "Accéder à la page suivante des membres",
+    memberPageStatus: "Page {{page}} sur {{totalPages}}",
     memberCount_many: "{{count}} members",
     youAreRole: "You are {{role}}",
     changeRole: "Changer de rôle",
@@ -482,7 +518,7 @@ const messages = {
     back: "Retour",
     agentEngineRequired: "Moteur d'agent requis",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (offre gratuite disponible) or an LLM key before {{platform}} can answer.",
     openLlm: "Ouvrir LLM",
     setup: "Setup",
     shareDocumentsWith: "Partager des documents avec",

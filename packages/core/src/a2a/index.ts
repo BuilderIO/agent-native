@@ -11,7 +11,10 @@ export {
   MAX_A2A_ACTIVITY_TOOL_CALLS,
   MAX_A2A_ACTIVITY_TOTAL_CHARS,
   MAX_A2A_ACTIVITY_TOOL_ID_CHARS,
+  MAX_A2A_ACTIVITY_TOOL_INPUT_CHARS,
   MAX_A2A_ACTIVITY_TOOL_NAME_CHARS,
+  MAX_A2A_ACTIVITY_TOOL_PAYLOAD_CHARS,
+  MAX_A2A_ACTIVITY_TOOL_RESULT_CHARS,
   applyA2AAgentActivityEvent,
   buildA2AAgentActivityPart,
   buildA2AAgentActivitySnapshot,
@@ -21,6 +24,9 @@ export {
 
 // Client
 export { A2AClient, callAction, callAgent, signA2AToken } from "./client.js";
+export { canonicalA2AAudience } from "./audience.js";
+export { resolveA2ACallerAuth } from "./caller-auth.js";
+export type { A2ACallerAuth } from "./caller-auth.js";
 export {
   AgentInvocationError,
   buildAgentInvocationPrompt,

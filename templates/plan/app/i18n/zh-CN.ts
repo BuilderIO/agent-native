@@ -151,6 +151,7 @@ const messages = {
       artboardCanvas: "Plan 画板画布",
       zoomIn: "放大",
       zoomOut: "缩小",
+      zoomHint: "按住 ⌘/Ctrl 并滚动以缩放",
       markupSaveFailed: "无法保存标注。请重试。",
     },
     document: {
@@ -665,6 +666,8 @@ const messages = {
         "默认为私有。邀请他人、与您的组织共享或设置公开以供任何有链接的人审核。",
       finishAccount: "完成创建您的帐户，然后返回，我们将生成链接。",
       generalAccess: "通用 {{noun}} 访问",
+      commenterRoleLabel: "评论者",
+      commenterRoleDescription: "可以查看并添加评论",
       hostedCopy:
         "此本地 {{noun}} 有一个托管副本可供共享。打开托管的 {{noun}} 来管理访问。",
       linkCopied: "已复制共享链接",

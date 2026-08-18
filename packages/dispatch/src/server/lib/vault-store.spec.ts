@@ -5,6 +5,7 @@ const mocks = vi.hoisted(() => ({
   currentOwnerEmail: vi.fn(),
   deleteAppSecret: vi.fn(),
   discoverAgents: vi.fn(),
+  getDbExec: vi.fn(),
   getDb: vi.fn(),
   getOrgSetting: vi.fn(),
   getUserSetting: vi.fn(),
@@ -19,6 +20,11 @@ vi.mock("@agent-native/core/secrets", () => ({
   listAppSecretsForScope: mocks.listAppSecretsForScope,
   readAppSecret: mocks.readAppSecret,
   writeAppSecret: mocks.writeAppSecret,
+}));
+
+vi.mock("@agent-native/core/db", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/db")>()),
+  getDbExec: mocks.getDbExec,
 }));
 
 vi.mock("@agent-native/core/server/agent-discovery", () => ({
@@ -49,9 +55,12 @@ vi.mock("../../db/index.js", async (importOriginal) => {
 import { readAppSecret } from "@agent-native/core/secrets";
 
 import {
+  assertCanManageVault,
   cleanupSyncedCredentialKeysIfUnused,
   credentialStoreScopeForVaultCtx,
   isTrustedEnvVarSyncAgentUrl,
+  getGrant,
+  listGrants,
   resyncAllVaultSecretsToCredentialStore,
   syncGrantsToApp,
   syncSecretsToCredentialStore,
@@ -82,6 +91,58 @@ describe("credentialStoreScopeForVaultCtx", () => {
       scope: "workspace",
       scopeId: "solo:owner@example.test",
     });
+  });
+});
+
+describe("vault authorization", () => {
+  it("rejects an organization member before reading shared vault values", async () => {
+    mocks.currentOrgId.mockReturnValue("org_123");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.getDbExec.mockReturnValue({
+      execute: vi.fn().mockResolvedValue({ rows: [{ role: "member" }] }),
+    });
+
+    await expect(assertCanManageVault()).rejects.toMatchObject({
+      message:
+        "Only organization owners and admins can manage the workspace vault.",
+      statusCode: 403,
+    });
+  });
+
+  it("rejects organization members before listing or reading grants", async () => {
+    mocks.currentOrgId.mockReturnValue("org_123");
+    mocks.currentOwnerEmail.mockReturnValue("member@example.test");
+    mocks.getDbExec.mockReturnValue({
+      execute: vi.fn().mockResolvedValue({ rows: [{ role: "member" }] }),
+    });
+
+    await expect(listGrants()).rejects.toThrow(
+      "Only organization owners and admins can manage the workspace vault.",
+    );
+    await expect(getGrant("grant-1")).rejects.toThrow(
+      "Only organization owners and admins can manage the workspace vault.",
+    );
+    expect(mocks.getDb).not.toHaveBeenCalled();
+  });
+
+  it.each(["owner", "admin"])(
+    "allows an organization %s to manage shared vault values",
+    async (role) => {
+      mocks.currentOrgId.mockReturnValue("org_123");
+      mocks.currentOwnerEmail.mockReturnValue(`${role}@example.test`);
+      mocks.getDbExec.mockReturnValue({
+        execute: vi.fn().mockResolvedValue({ rows: [{ role }] }),
+      });
+
+      await expect(assertCanManageVault()).resolves.toBeUndefined();
+    },
+  );
+
+  it("allows a solo workspace owner to manage their own vault", async () => {
+    mocks.currentOrgId.mockReturnValue(null);
+
+    await expect(assertCanManageVault()).resolves.toBeUndefined();
+    expect(mocks.getDbExec).not.toHaveBeenCalled();
   });
 });
 

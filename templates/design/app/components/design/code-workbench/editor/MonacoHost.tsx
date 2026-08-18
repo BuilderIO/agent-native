@@ -45,7 +45,7 @@ export function MonacoHost({
   commands,
   commandContext,
 }: MonacoHostProps) {
-  const { state } = useWorkbench();
+  const { state, api } = useWorkbench();
   const hostRef = useRef<HTMLDivElement | null>(null);
   const activeUriRef = useRef<string | null>(null);
   const commandsRef = useRef(commands);
@@ -117,17 +117,19 @@ export function MonacoHost({
     // Explorer, sidebar toggle, tab navigation) must also work while Monaco
     // has focus — Monaco swallows keydown otherwise, so register editor
     // commands that call back into the same dispatcher the root uses.
-    const editorKeyDownDisposable = editor.onKeyDown((event) => {
-      const handled = dispatchKeybinding(
-        event.browserEvent,
-        commandsRef.current,
-        commandContextRef.current,
-      );
-      if (handled) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    });
+    const editorKeyDownDisposable = editor.onKeyDown(
+      (event: monaco.IKeyboardEvent) => {
+        const handled = dispatchKeybinding(
+          event.browserEvent,
+          commandsRef.current,
+          commandContextRef.current,
+        );
+        if (handled) {
+          event.preventDefault();
+          event.stopPropagation();
+        }
+      },
+    );
 
     return () => {
       editorKeyDownDisposable.dispose();
@@ -273,6 +275,24 @@ export function MonacoHost({
       {loading ? (
         <div className="absolute inset-0 grid place-items-center bg-[var(--workbench-editor-bg)]/80 text-[var(--workbench-muted-fg)]">
           <Spinner className="size-4" />
+        </div>
+      ) : null}
+      {!loading && activeUri && activeBuffer?.error ? (
+        <div
+          role="alert"
+          data-testid="design-code-buffer-error"
+          className="absolute inset-0 grid place-items-center bg-[var(--workbench-editor-bg)]/95 p-6 text-[var(--workbench-muted-fg)]"
+        >
+          <div className="max-w-sm text-center text-[12px]">
+            <p className="break-words">{activeBuffer.error}</p>
+            <button
+              type="button"
+              className="mt-3 cursor-pointer rounded-[5px] bg-[var(--workbench-accent)] px-3 py-1.5 font-medium text-white hover:opacity-90"
+              onClick={() => void api.reloadBuffer(activeUri)}
+            >
+              {"Try again" /* i18n-ignore */}
+            </button>
+          </div>
         </div>
       ) : null}
     </div>

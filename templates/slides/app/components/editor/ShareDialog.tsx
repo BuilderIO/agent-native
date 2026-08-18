@@ -1,208 +1,155 @@
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useT } from "@agent-native/core/client/i18n";
+import { ShareDialog as CoreShareDialog } from "@agent-native/core/client/sharing";
+import { ShareCopyRow } from "@agent-native/toolkit/sharing";
 import {
-  IconShare2,
-  IconCopy,
-  IconCheck,
-  IconLoader2,
-  IconExternalLink,
-} from "@tabler/icons-react";
-import { useState, type ReactNode } from "react";
+  cloneElement,
+  isValidElement,
+  useCallback,
+  useState,
+  type MouseEvent,
+  type ReactElement,
+  type ReactNode,
+} from "react";
+import { toast } from "sonner";
 
 import { CloudUpgrade } from "@/components/CloudUpgrade";
-import {
-  Popover,
-  PopoverTrigger,
-  PopoverContent,
-} from "@/components/ui/popover";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import type { Deck } from "@/context/DeckContext";
 import { useDbStatus } from "@/hooks/use-db-status";
+import { getDeckShareLinkOrder } from "@/lib/deck-share-links";
 
 interface ShareDialogProps {
   deck: Deck;
-  /** Trigger element rendered as the popover anchor (usually the Share button). */
+  /** Trigger element rendered as the dialog anchor (usually the Share button). */
   children: ReactNode;
+}
+
+function getShareUrls(deckId: string) {
+  const origin = typeof window === "undefined" ? "" : window.location.origin;
+
+  return {
+    editor:
+      typeof window === "undefined"
+        ? `/deck/${deckId}`
+        : `${origin}${appPath(`/deck/${deckId}`)}`,
+    presentation:
+      typeof window === "undefined"
+        ? `/p/${deckId}`
+        : `${origin}${appPath(`/p/${deckId}`)}`,
+  };
 }
 
 export default function ShareDialog({ deck, children }: ShareDialogProps) {
   const t = useT();
-  const [open, setOpen] = useState(false);
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [error, setError] = useState("");
   const { isLocal } = useDbStatus();
-  const [showCloudUpgrade, setShowCloudUpgrade] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [shareLink, setShareLink] = useState<{
+    deckId: string;
+    token: string;
+  } | null>(null);
+  const [creatingLink, setCreatingLink] = useState(false);
 
-  const handleShare = async () => {
-    setLoading(true);
-    setError("");
+  const shareUrls = getShareUrls(deck.id);
+  const shareLinkOrder = getDeckShareLinkOrder(deck.visibility);
+  const shareToken =
+    shareLink?.deckId === deck.id ? shareLink.token : undefined;
+  const primaryShareLink = shareToken
+    ? `${typeof window === "undefined" ? "" : window.location.origin}${appPath(`/share/${shareToken}`)}`
+    : undefined;
+  const secondaryShareLink = shareUrls[shareLinkOrder.secondary];
 
+  const openShareDialog = useCallback(async () => {
+    if (isLocal) {
+      setOpen(true);
+      return;
+    }
+    if (shareToken) {
+      setOpen(true);
+      return;
+    }
+    if (creatingLink) return;
+
+    setCreatingLink(true);
     try {
-      const res = await fetch(`${appBasePath()}/api/share`, {
+      const response = await fetch(`${appBasePath()}/api/share`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deck }),
       });
-
-      if (!res.ok) {
-        const err = await res.json();
-        throw new Error(err.error || t("share.createFailed"));
+      let payload: { error?: unknown; shareToken?: unknown };
+      try {
+        payload = (await response.json()) as {
+          error?: unknown;
+          shareToken?: unknown;
+        };
+      } catch {
+        throw new Error(t("share.createFailed"));
       }
-
-      const data = await res.json();
-      const url = `${window.location.origin}${appBasePath()}/share/${data.shareToken}`;
-      setShareUrl(url);
-    } catch (err: any) {
-      setError(err.message);
+      if (!response.ok) {
+        throw new Error(
+          typeof payload.error === "string"
+            ? payload.error
+            : t("share.createFailed"),
+        );
+      }
+      if (typeof payload.shareToken !== "string" || !payload.shareToken) {
+        throw new Error(t("share.createFailed"));
+      }
+      setShareLink({ deckId: deck.id, token: payload.shareToken });
+      setOpen(true);
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : t("share.createFailed"),
+      );
     } finally {
-      setLoading(false);
+      setCreatingLink(false);
     }
-  };
+  }, [creatingLink, deck, isLocal, shareToken, t]);
 
-  const handleCopy = async () => {
-    if (!shareUrl) return;
-    await navigator.clipboard.writeText(shareUrl);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
+  const trigger = isValidElement(children)
+    ? (() => {
+        const triggerElement = children as ReactElement<{
+          onClick?: (event: MouseEvent) => void;
+        }>;
+        return cloneElement(triggerElement, {
+          onClick: (event) => {
+            triggerElement.props.onClick?.(event);
+            if (!event.defaultPrevented) void openShareDialog();
+          },
+        });
+      })()
+    : children;
 
   return (
-    <Popover
-      open={open}
-      onOpenChange={(v) => {
-        setOpen(v);
-        if (!v) {
-          setShareUrl(null);
-          setError("");
-        }
-      }}
-    >
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
-      <PopoverContent
-        align="end"
-        className="w-[420px] bg-card border-border p-4"
-      >
-        {showCloudUpgrade || isLocal ? (
-          <CloudUpgrade
-            title={t("share.title")}
-            description={t("share.cloudUpgradeDescription")}
-            onClose={() => {
-              setShowCloudUpgrade(false);
-              setOpen(false);
-            }}
+    <>
+      {trigger}
+      {open && isLocal ? (
+        <CloudUpgrade
+          title={t("share.title")}
+          description={t("share.cloudUpgradeDescription")}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+      <CoreShareDialog
+        open={open && !isLocal}
+        onClose={() => setOpen(false)}
+        resourceType="deck"
+        resourceId={deck.id}
+        resourceTitle={deck.title}
+        shareUrl={primaryShareLink}
+        linkTabExtras={
+          <ShareCopyRow
+            label={t("editorToolbar.presentationLink")}
+            description={t("editorToolbar.presentationLinkDescription")}
+            value={secondaryShareLink}
+            copyLabel={t("share.copyLink")}
+            copiedLabel={t("share.copied")}
+            onCopy={(value) => writeClipboardText(value)}
+            className="mt-3"
           />
-        ) : (
-          <>
-            <div className="mb-3">
-              <div className="text-foreground flex items-center gap-2 text-sm font-semibold">
-                <IconShare2 className="w-4 h-4 text-[#609FF8]" />
-                {t("share.title")}
-              </div>
-              <div className="text-muted-foreground text-xs mt-0.5">
-                {t("share.description", { title: deck.title })}
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              {!shareUrl ? (
-                <>
-                  <div className="bg-muted/50 rounded-lg p-3 border border-border">
-                    <h4 className="text-sm font-medium text-foreground/90 mb-2">
-                      {t("share.whatGetsShared")}
-                    </h4>
-                    <ul className="text-xs text-muted-foreground space-y-1">
-                      <li>
-                        {t("share.slideContent", {
-                          count: deck.slides.length,
-                        })}
-                      </li>
-                      <li>{t("share.presentationView")}</li>
-                    </ul>
-                    <h4 className="text-sm font-medium text-foreground/90 mt-3 mb-2">
-                      {t("share.whatStaysPrivate")}
-                    </h4>
-                    <ul className="text-xs text-muted-foreground space-y-1">
-                      <li>{t("share.speakerNotes")}</li>
-                      <li>{t("share.otherPresentations")}</li>
-                      <li>{t("share.editingAccess")}</li>
-                    </ul>
-                  </div>
-
-                  {error && (
-                    <p className="text-xs text-red-400 bg-red-400/10 px-3 py-2 rounded-lg">
-                      {error}
-                    </p>
-                  )}
-
-                  <button
-                    onClick={handleShare}
-                    disabled={loading}
-                    className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-[#609FF8] hover:bg-[#7AB2FA] disabled:opacity-50 text-black text-sm font-medium transition-colors"
-                  >
-                    {loading ? (
-                      <>
-                        <IconLoader2 className="w-4 h-4 animate-spin" />
-                        {t("share.creatingLink")}
-                      </>
-                    ) : (
-                      <>
-                        <IconShare2 className="w-4 h-4" />
-                        {t("share.createShareLink")}
-                      </>
-                    )}
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center gap-2">
-                    <input
-                      readOnly
-                      value={shareUrl}
-                      className="flex-1 bg-accent/50 border border-border rounded-lg px-3 py-2 text-sm text-foreground/90 outline-none"
-                    />
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={handleCopy}
-                          className="flex-shrink-0 p-2 rounded-lg bg-accent hover:bg-accent border border-border transition-colors"
-                          aria-label={t("share.copyLink")}
-                        >
-                          {copied ? (
-                            <IconCheck className="w-4 h-4 text-green-400" />
-                          ) : (
-                            <IconCopy className="w-4 h-4 text-muted-foreground" />
-                          )}
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t("share.copyLink")}</TooltipContent>
-                    </Tooltip>
-                  </div>
-
-                  <a
-                    href={shareUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center justify-center gap-2 w-full px-4 py-2 rounded-lg bg-accent hover:bg-accent border border-border text-foreground/70 text-sm transition-colors"
-                  >
-                    <IconExternalLink className="w-3.5 h-3.5" />
-                    {t("share.openSharedLink")}
-                  </a>
-
-                  <p className="text-[11px] text-muted-foreground/70 text-center">
-                    {t("share.anyoneWithLink")}
-                  </p>
-                </>
-              )}
-            </div>
-          </>
-        )}
-      </PopoverContent>
-    </Popover>
+        }
+      />
+    </>
   );
 }

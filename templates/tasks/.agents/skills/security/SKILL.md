@@ -149,6 +149,35 @@ export default defineEventHandler(async (event) => {
 
 - Never create unprotected routes that modify data.
 
+## Same-Origin Workspace Apps
+
+Path-mounted workspace apps share the Dispatch gateway origin. Because the
+framework's session cookie is scoped to `/`, a mounted pane receives the
+ambient Dispatch session and can act as the signed-in user through same-origin
+requests. This is an intentional trusted-code model, not an isolation
+boundary; removing a mounted app from SSO fanout does not revoke that ambient
+access.
+
+Only trusted, workspace-owner-authored code belongs on that origin. Treat each
+of these as a trust-boundary change that requires an explicit origin, sandbox,
+or capability design before shipping:
+
+- non-owners can create or edit mounted app code;
+- mounted apps render or execute untrusted external content or remote code;
+- apps are publicly shareable, anonymously reachable, or installable by users
+  outside the owning workspace;
+- app source, dependencies, or deployment artifacts can be replaced by a
+  third party without the workspace owner's authorization;
+- a mounted app can be registered across workspaces or can change its mount
+  path/origin without an ownership check; or
+- cookie scope, proxying, iframe policy, or navigation changes make this
+  ambient-session behavior broader than the owning workspace.
+
+Do not describe canonical-only SSO eligibility as origin isolation. Canonical
+apps and explicitly registered custom origins remain eligible; path-mounted
+apps are deliberately excluded as SSO targets while retaining their existing
+same-origin session behavior.
+
 **Exception — the SSR HTML/`.data` catch-all is deliberately session-blind.**
 The rule above is for routes that read or mutate user data. The SSR page
 render and React Router `.data` route are different: they serve one
@@ -158,6 +187,37 @@ that path render no user data. Do not "fix" this by adding `getSession`,
 whole site. Data scoping lives in actions and API routes; the client gates
 private UI after the shell loads. See the `authentication` skill and
 `guard:ssr-cache-shell` / `ssr-handler.spec.ts`.
+
+**Authorization beyond "is there a session" — `authorize`.** The auth guard only
+proves *someone* is signed in. To restrict an operation to some teammates, set
+`authorize` on the `defineAction`. It wraps `run`, so it applies at every
+dispatch site (agent tool, HTTP, frontend, MCP, A2A, CLI) — unlike
+`needsApproval`, which is honored by the agent loop and MCP 2026 hosts that
+support elicitation, but is not an authorization boundary for every dispatch
+site.
+
+```ts
+import { coachAccess } from "../lib/access.js"; // defineAppRoles(...)
+
+export default defineAction({
+  description: "Archive a client roster.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async (args) => {
+    /* ... */
+  },
+});
+```
+
+A guard that throws denies with its own message; returning `false` denies
+generically; anything else (including `undefined`) allows. Guarded actions need
+a user identity — an unattended CLI/cron caller with no user email is denied.
+
+`authorize` is **not** a substitute for `accessFilter` / `assertAccess`. It
+decides whether this caller may perform the operation at all; `accessFilter` /
+`assertAccess` scope which rows a permitted caller may see or touch. A
+restricted write action needs both. See the `authentication` skill for
+`defineAppRoles` and the `actions` skill for the full surface.
 
 ## Human-in-the-Loop Approval for High-Consequence Actions
 
@@ -174,7 +234,16 @@ export default defineAction({
 });
 ```
 
-When the gate is truthy and the call is not yet approved, the loop emits an `approval_required` event and **stops the turn — `run()` never executes**. The human approves via the chat UI's Approve affordance, which re-issues the turn with the call's stable `approvalKey`; only then does the action run. A predicate gates conditionally (e.g. only external recipients) and **fails closed** — a throw is treated as "approval required".
+When the gate is truthy and the call is not yet approved, the agent loop emits
+an `approval_required` event and **stops the turn — `run()` never executes**.
+The human approves via the chat UI's Approve affordance, which re-issues the
+turn with the call's stable `approvalKey`; only then does the action run. MCP
+2026 hosts receive an `input_required` approval request bound to the exact
+caller, action, and arguments. The signed response state is backed by a durable,
+single-use grant, so denial, expiry, replay, missing host support, or invalid
+state fails closed before `run()`. A predicate gates conditionally (e.g. only
+external recipients) and **fails closed** — a throw is treated as "approval
+required".
 
 Rules:
 
@@ -274,6 +343,8 @@ Run `pnpm action db-check-scoping` to verify. Use `--require-org` for multi-org 
 - [ ] New env vars in `.env` only, not committed
 - [ ] New user-data tables have `owner_email` column
 - [ ] Custom routes call `getSession` and reject unauthenticated requests
+- [ ] Actions only some teammates may run set `authorize` (in addition to any
+      `accessFilter` / `assertAccess` row scoping)
 
 ## Related Skills
 

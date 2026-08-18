@@ -5,6 +5,7 @@ import {
   keyboardKeyLabels,
   keyboardShortcutLabels,
 } from "../i18n-keyboard-shortcuts";
+import { responsiveInteractOverrides } from "../i18n-responsive-interact";
 import { designTemplateFeatureOverrides } from "../i18n-template-feature";
 
 const messages = {
@@ -63,7 +64,7 @@ const messages = {
     commentMode: "評論",
     sendToAgent: "傳送給代理",
     sendingToAgent: "正在傳送給代理…",
-    enterToPost: "按 Enter 發布 · 按 Shift+Enter 換行",
+    enterToPost: "按 Enter 發布 · 按 Shift Enter 換行",
     post: "發布",
     posting: "正在發布…",
     postFailed: "無法發布這則評論",
@@ -135,7 +136,8 @@ const messages = {
     pageHelpDescription:
       "編輯您選取的任何版式、間距、大小、邊框和填充。頁面預設如下。",
     sections: {
-      page: "頁面",
+      page: "畫面",
+      canvas: "畫布",
       typography: "版式",
       flexLayout: "彈性布局",
       autoLayout: "自動布局",
@@ -190,6 +192,9 @@ const messages = {
       shadow: "陰影",
       filter: "濾鏡",
       addLayer: "新增圖層",
+      addFill: "新增填色",
+      addStroke: "新增外框",
+      addEffect: "新增效果",
       removeLayer: "移除圖層",
       showLayer: "顯示圖層",
       hideLayer: "隱藏圖層",
@@ -408,8 +413,13 @@ const messages = {
       dotted: "點線",
       double: "雙線",
     },
+    exportPreview: {
+      rendering: "正在產生預覽…",
+      failed: "無法產生預覽",
+    },
     framePresets: {
       title: "外框",
+      applyToFrame: "調整為預設尺寸",
       categories: {
         phone: "手機",
         tablet: "平板",
@@ -424,7 +434,10 @@ const messages = {
   },
   designEditor: {
     ...designTemplateFeatureOverrides["zh-TW"].designEditor,
+    ...responsiveInteractOverrides["zh-TW"].designEditor,
     askAgent: "詢問代理",
+    commenterRoleLabel: "評論者",
+    commenterRoleDescription: "可以檢視並新增審閱評論",
     nodeRewrite: {
       composerTitle: "詢問或變更所選內容",
       send: "傳送",
@@ -682,7 +695,7 @@ const messages = {
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
       figUploadTitle: "上傳 .fig",
       figUploadDescription:
-        "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 50 MB。",
+        "本機匯入，不使用 Figma API 配額。包含內嵌圖片。格式可能隨 Figma 版本變更。上限為 {{max}} MB。",
       figUploadDescriptionShort:
         "本機匯入 — 不使用 Figma API 配額。包含內嵌圖片。",
       chooseFigFile: "選擇 .fig 檔案",
@@ -728,7 +741,8 @@ const messages = {
         figmaPasteFailed: "Figma 貼上匯入失敗",
         uploadFailed: "檔案上傳失敗",
         invalidFigFile: "請選擇副檔名為 .fig 的檔案。",
-        figFileTooLarge: ".fig 檔案必須為 50 MB 或更小。",
+        figFileTooLarge:
+          "此 .fig 檔案太大 — 上傳上限為 {{max}} MB。請在 Figma 中將要匯入的畫框複製到新檔案，並匯出該檔案為 .fig，或改用「從 Figma 貼上」。",
       },
     },
     generationMayHaveStopped:
@@ -758,6 +772,7 @@ const messages = {
     tools: {
       move: "移動",
       frame: "畫框",
+      screen: "畫面",
       rect: "矩形",
       line: "線條",
       arrow: "箭頭",
@@ -866,6 +881,12 @@ const messages = {
       rollback: "回復",
       keep: "保留",
       selectorMissing: "選取的元素已不在此畫面中。",
+      clientRenderedShell:
+        "此畫面由用戶端渲染，因此提供的 HTML 不包含可供修補的應用程式標記。請要求代理將此變更套用到元件原始碼。",
+      snapshotNotLoaded:
+        "此畫面的原始碼尚未載入，因此未寫入此編輯。請等待畫面完成載入後再試一次。",
+      selectorAmbiguous:
+        "此元素是原始碼中 {{count}} 個相同實例之一，因此未寫入此變更。請要求代理將範圍限定至此實例。",
       status: {
         runtime: "已套用即時樣式",
         queued: "正在寫入來源補丁",
@@ -885,6 +906,8 @@ const messages = {
       abortPreview: "放棄預覽並進入互動",
       agentMessage: "將待處理的視覺樣式編輯套用到來源。",
       sentToast: "樣式編輯已傳送給 Design 代理",
+      agentHandoffFailedToast:
+        "無法連線到代理。預覽已保留，您可以重試或複製提示。",
       verifiedToast: "已驗證來源與執行階段結構",
       conflictToast:
         "重新載入的執行階段與待處理的結構編輯不符。預覽仍可復原；請解決來源衝突後重試。",
@@ -893,11 +916,11 @@ const messages = {
       copiedToast: "樣式提示已複製",
       abortedToast: "已捨棄待處理的預覽",
       interactBlocked: "切換到互動前，請先套用或放棄待處理的即時編輯。",
-      leaveTitle: "離開前要套用樣式嗎？",
+      leaveTitle: "離開前要套用設計更新嗎？",
       leaveDescriptionOne:
-        "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄該未套用的樣式變更。",
+        "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它。",
       leaveDescriptionOther:
-        "即時預覽中有 {{count}} 個待處理的視覺樣式編輯。現在離開會捨棄這些未套用的樣式變更。",
+        "即時預覽中有 {{count}} 個僅限此工作階段的設計更新。現在離開或重新載入會捨棄它們。",
       stay: "留在這裡",
       leave: "不套用並離開",
     },
@@ -943,6 +966,8 @@ const messages = {
       pngReadOnlyUnavailable: "唯讀預覽不支援 PNG 擷取",
       pngSaveError: "無法儲存 PNG",
       pngExportError: "無法匯出 PNG",
+      pdfExportError: "無法匯出 PDF",
+      pdfDownloaded: "PDF 已下載",
       pdfAllScreensDownloaded: "PDF 已下載（所有畫面）",
       openScreenSvg: "匯出 SVG 前請先開啟一個螢幕",
       svgDownloaded: "SVG 已下載",
@@ -972,7 +997,11 @@ const messages = {
       redoSkippedConcurrentEdit: "已略過重做 — 其他人移動了該項目",
       autoLayoutScreensUnsupported: "新增自動布局不適用於畫面",
       reactSourceAnchorsLoading:
-        "React 原始碼錨點仍在載入中。請等本機應用程式完成渲染後再試一次。",
+        "無法在原始碼中定位此圖層。請等應用程式載入完成後重試，或請代理程式協助完成此變更。",
+      reactSourceAnchorsUnavailable:
+        "此應用程式未向編輯器提供原始碼位置，因此無法將此圖層對應到特定行。請讓代理程式完成此變更。",
+      designStateLiveScreen:
+        "即時畫面無法預覽設計狀態 — 其內容是執行中的應用程式，而非文件。",
     },
   },
   layersPanel: {
@@ -1019,6 +1048,8 @@ const messages = {
     },
   },
   multiScreenCanvas: {
+    preparingLiveEditor: "正在準備即時編輯器…",
+    addBreakpointToAllScreens: "為所有畫面新增 {{label}} 中斷點（{{width}}px）",
     duplicate: "複製",
     fork: "分支",
     fullView: "互動",
@@ -1073,6 +1104,8 @@ const messages = {
     assetsNoImageUrl: "Assets 未回傳圖片 URL。",
     assetAdded: "新增資產",
     failedToUploadFile: "上傳檔案失敗",
+    attachmentsTooLarge:
+      "這些附件太大。上傳總大小上限為 {{max}} MB — 請減少檔案數量或改用較小的檔案。",
     failedToSubmitPrompt: "無法提交提示",
     skipPrompt: "略過提示",
     designSystem: "Design系統",
@@ -1171,6 +1204,9 @@ const messages = {
     newDesign: "新Design",
     newDesignLower: "新設計",
     createDesignProject: "建立一個設計專案",
+    createdBy: "建立者",
+    allAuthors: "所有作者",
+    me: "我",
     openingDesign: "正在開啟設計...",
     skipToEditor: "直接進入編輯器",
     failedToCreateDesign: "無法建立設計",
@@ -1237,17 +1273,25 @@ const messages = {
     figmaCreateSuccess: "由Figma建立的設計系統",
     figmaCreateError: "無法建立設計系統",
     backToDesignSystems: "返回設計系統",
+    otherSources: "其他",
+    otherSourcesDescription: "從網站、程式碼、檔案或現有設計系統連接。",
+    chooseSourcePrompt: "選擇一個來源進行設定",
     continue: "繼續生成",
+    starting: "正在啟動…",
+    githubIndexStarted: "GitHub 索引已開始",
     title: "設定您的設計系統",
     description:
       "透過 Builder DSI 連接 Figma、程式碼和選用的 design.md 指引。脈絡越多，代理得到的系統越準確。",
     figmaParsingTitle: "正在啟動 Builder DSI 索引...",
     figmaParsingDescription: "Builder 會擷取權杖、元件、資產和使用指引",
+    figmaDecodeFailed: "解碼失敗：{{error}}",
     uploadFig: "連接 Figma .fig 檔案",
     figmaSaveLocalCopy: "上傳 Figma 本機副本：File -> Save local copy",
     websiteUrl: "網站 URL",
     add: "新增",
     githubRepository: "GitHub 儲存庫",
+    githubRef: "分支、標籤或提交（選用）",
+    githubPaths: "檔案或資料夾，以逗號分隔（選用）",
     privateRepoPrefix: "私人倉庫需要一個細粒度的權杖，另存為",
     privateRepoSuffix: "具有內容讀取權限。",
     localCodeFiles: "連接程式碼檔案",
@@ -1290,6 +1334,8 @@ const messages = {
       enterGithub: "在新增之前輸入 GitHub 儲存庫 URL。",
       githubUrl:
         "使用完整的 GitHub 儲存庫 URL，例如 https://github.com/org/repo。",
+      githubIndex:
+        "無法啟動 GitHub 索引。請檢查 Builder 連線和儲存庫存取權限。",
       noSources: "在生成設計系統之前至少新增一個來源。",
     },
     sections: {
@@ -1410,6 +1456,7 @@ const messages = {
       logos: "標誌",
       assets: "資產",
       savedCount: "已儲存 {{count}} 個",
+      namedTokens: "具名代幣",
       colorLabels: {
         primary: "基本的",
         secondary: "中學",

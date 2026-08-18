@@ -4,6 +4,11 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  clearActiveRun,
+  setActiveRun,
+  updateActiveRunSeq,
+} from "./active-run-state.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { useRunStuckDetection } from "./use-run-stuck-detection.js";
 
@@ -54,6 +59,7 @@ describe("RunStuckBanner", () => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
     window.localStorage.clear();
+    clearActiveRun();
     vi.useRealTimers();
   });
 
@@ -152,6 +158,70 @@ describe("RunStuckBanner", () => {
       await vi.advanceTimersByTimeAsync(1);
     });
     expect(fetchSpy).toHaveBeenCalledTimes(3);
+  });
+
+  it("trusts fresh real SSE progress while durable progress catches up", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({
+        active: true,
+        runId: "run-streaming",
+        status: "running",
+        heartbeatAt: 390_000,
+        lastProgressAt: 10_000,
+        serverNow: 400_000,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    setActiveRun({
+      threadId: "thread-1",
+      runId: "run-streaming",
+      lastSeq: 1,
+    });
+
+    await act(async () => {
+      root.render(<RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(container.textContent).toBe("stuck");
+
+    await act(async () => {
+      updateActiveRunSeq("thread-1", "run-streaming", 2, true);
+    });
+    expect(container.textContent).toBe("healthy");
+  });
+
+  it("does not trust keepalive-only SSE cursor advancement as real progress", async () => {
+    const fetchSpy = vi.fn(async () =>
+      jsonResponse({
+        active: true,
+        runId: "run-keepalive-only",
+        status: "running",
+        heartbeatAt: 390_000,
+        lastProgressAt: 10_000,
+        serverNow: 400_000,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    setActiveRun({
+      threadId: "thread-1",
+      runId: "run-keepalive-only",
+      lastSeq: 1,
+    });
+
+    await act(async () => {
+      root.render(<RunStuckProbe liveBackgroundStuckThresholdMs={60_000} />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(container.textContent).toBe("stuck");
+
+    await act(async () => {
+      updateActiveRunSeq(2, false);
+    });
+    expect(container.textContent).toBe("stuck");
   });
 
   it("automatically aborts and retries a stuck active run once", async () => {
@@ -784,5 +854,85 @@ describe("RunStuckBanner", () => {
       act(() => secondRoot.unmount());
       secondContainer.remove();
     }
+  });
+
+  it("stays hidden when the chat is not waiting on a reply", async () => {
+    // A turn that finished normally can leave the run row in `running` until
+    // the stale-run reaper catches it. That is server hygiene, not a stuck
+    // chat: warning about it - and auto-retrying, which re-prompts a thread
+    // the user considers done - is the bug.
+    const onRetry = vi.fn();
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-abandoned",
+          status: "running",
+          heartbeatAt: 10_000,
+          lastProgressAt: 10_000,
+          serverNow: 101_000,
+        });
+      }
+      return jsonResponse({ error: "unexpected" }, false);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      root.render(
+        <RunStuckBanner
+          threadId="thread-1"
+          autoRetry
+          onRetry={onRetry}
+          isAwaitingResponse={() => false}
+        />,
+      );
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(container.textContent).toBe("");
+    expect(onRetry).not.toHaveBeenCalled();
+    expect(
+      fetchSpy.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes("/abort") && init?.method === "POST",
+      ),
+    ).toBe(false);
+  });
+
+  it("re-enables controls when an auto-retry leaves the run running", async () => {
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes("/runs/active")) {
+        return jsonResponse({
+          active: true,
+          runId: "run-wedged",
+          status: "running",
+          heartbeatAt: 10_000,
+          lastProgressAt: 10_000,
+          serverNow: 101_000,
+        });
+      }
+      if (url.includes("/runs/run-wedged/abort")) {
+        return jsonResponse({ ok: true });
+      }
+      return jsonResponse({ error: "unexpected" }, false);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      root.render(<RunStuckBanner threadId="thread-1" autoRetry />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(container.textContent).toContain("Retrying automatically now.");
+    const buttons = [...container.querySelectorAll("button")];
+    expect(buttons.map((button) => button.textContent)).toEqual([
+      "Retry",
+      "Cancel",
+    ]);
+    expect(buttons.every((button) => button.disabled)).toBe(false);
   });
 });

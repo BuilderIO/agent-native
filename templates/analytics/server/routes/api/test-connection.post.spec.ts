@@ -73,6 +73,41 @@ describe("test-connection", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("tests HubSpot with the shared OAuth-or-legacy credential resolver", async () => {
+    mocks.body = { source: "hubspot" };
+    mocks.resolveAnalyticsProviderCredential.mockResolvedValue({
+      value: "hubspot-oauth-token",
+      source: "workspace_connection",
+      connectionId: "hubspot-connection",
+    });
+    vi.mocked(fetch).mockResolvedValue(new Response("{}", { status: 200 }));
+
+    await expect(handler({} as never)).resolves.toEqual({ ok: true });
+
+    expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledWith({
+      provider: "hubspot",
+      keys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
+      ctx: mocks.ctx,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.hubapi.com/crm/v3/objects/contacts?limit=1",
+      {
+        headers: { Authorization: "Bearer hubspot-oauth-token" },
+      },
+    );
+  });
+
+  it("does not call HubSpot without an OAuth or legacy credential", async () => {
+    mocks.body = { source: "hubspot" };
+    mocks.resolveAnalyticsProviderCredential.mockResolvedValue(null);
+
+    await expect(handler({} as never)).resolves.toEqual({
+      ok: false,
+      error: "Missing HubSpot token",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("tests Mixpanel through the provider API substrate", async () => {
     mocks.body = { source: "mixpanel" };
     mocks.resolveCredential.mockImplementation(async (key: string) =>

@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs clips"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter clips build && pnpm exec tsx templates/clips/jobs/emit-netlify-brain-export-cron.ts"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter clips build && pnpm exec tsx templates/clips/jobs/emit-netlify-brain-export-cron.ts && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter clips migrate:production; fi"
 publish = "templates/clips/dist"
 functions = "templates/clips/.netlify/functions-internal"
 
@@ -13,11 +13,15 @@ AUTO_CREATE_DEFAULT_ORG = "1"
 # Emit the shared 15-minute Netlify background function used by agent chat and
 # Clips post-recording transcription/seekability workers.
 AGENT_CHAT_DURABLE_BACKGROUND = "true"
+
+[context.production.environment]
+AGENT_NATIVE_HOSTED_HARNESS = "true"
+
 # Netlify Functions run on linux/x64 (AWS Lambda). This tells the deploy build
-# to bundle the matching ffmpeg-static binary into the server bundle so the
-# server-side audio-only transcription fallback (analyzeAudioSignal / audio
-# extraction) can spawn ffmpeg. Without it ffmpeg-static is skipped at build
-# time and request-transcript fails at runtime with FFMPEG_UNAVAILABLE.
+# to bundle the matching ffmpeg-static binary into the server bundle so frame
+# extraction, WebM seekability, filmstrips, and audio-only transcription work
+# in production. The deploy guard grants this known media-runtime payload its
+# explicit allowance instead of treating it as accidental bundle growth.
 AGENT_NATIVE_SERVERLESS_FFMPEG_ARCH = "x64"
 
 # A2A delegation calls run a full agent loop (LLM + tool calls + DB queries).

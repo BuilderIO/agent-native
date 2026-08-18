@@ -20,6 +20,7 @@ import { fileURLToPath } from "node:url";
  */
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
+import { getUserSetting } from "@agent-native/core/settings";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -33,6 +34,7 @@ import {
   sql,
 } from "drizzle-orm";
 
+import { ANALYTICS_USER_PREFS_KEY } from "../../shared/analytics-user-prefs";
 import { getDb, schema } from "../db/index.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
@@ -394,6 +396,12 @@ function normalizeMessageForFingerprint(message: string): string {
       .replace(/(['"`])[^\s'"`]*\1/g, "<str>")
       .replace(/(?:\/[\w.@%+-]+){2,}\/?/g, "<path>")
       .replace(/0x[0-9a-f]+/gi, "<hex>")
+      // Bare hex ids (request ids, trace ids, the gateway's "ERROR ID: ...")
+      // carry no dashes and no 0x, so they used to fall through to the digit
+      // rule below — which keeps the a-f nibbles and gives every occurrence its
+      // own key. An outage then renders as N unrelated issues of count 1.
+      // Requiring a letter AND a digit keeps prose and identifiers out.
+      .replace(/\b(?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{8,}\b/gi, "<hex>")
       // Not \b\d+\b: a unit suffix ("8000ms") keeps the digits word-adjacent, so
       // a bounded rule leaves every timeout value in its own group.
       .replace(/\d+/g, "<n>")
@@ -952,11 +960,14 @@ export async function ingestException(
   });
 
   if (isNewIssue) {
-    await notifyNewIssue(scope, { issueId, title, level: raw.level }).catch(
-      () => {
-        // New-issue alerts are best-effort; never fail ingest on delivery.
-      },
-    );
+    const emailEnabled = await errorEmailNotificationsEnabled(scope);
+    await notifyNewIssue(
+      scope,
+      { issueId, title, level: raw.level },
+      emailEnabled,
+    ).catch(() => {
+      // New-issue alerts are best-effort; never fail ingest on delivery.
+    });
   }
 
   return { issueId, eventId, isNewIssue, sessionRecordingId };
@@ -990,18 +1001,25 @@ export async function ingestAnalyticsExceptionEvents(
 async function notifyNewIssue(
   scope: IngestScope,
   issue: { issueId: string; title: string; level: ExceptionLevel },
+  emailEnabled: boolean,
 ): Promise<void> {
   await notifyWithDelivery(
     {
       severity: issue.level === "fatal" ? "critical" : "warning",
       title: `New error: ${issue.title}`,
       body: "A new JavaScript error was captured in your app.",
-      channels: ["inbox"],
+      channels: emailEnabled ? ["inbox", "email"] : ["inbox"],
       metadata: {
         kind: "error_issue",
         issueId: issue.issueId,
         level: issue.level,
         path: `/monitoring?view=errors&issue=${issue.issueId}`,
+        ...(emailEnabled
+          ? {
+              emailRecipients: [scope.ownerEmail],
+              emailSubject: `New error in your app: ${issue.title}`,
+            }
+          : {}),
       },
     },
     // The notification inbox is owner-scoped; the issue's owner is the analytics
@@ -1009,6 +1027,26 @@ async function notifyNewIssue(
     // `accessFilter`).
     { owner: scope.ownerEmail },
   );
+}
+
+async function errorEmailNotificationsEnabled(
+  scope: IngestScope,
+): Promise<boolean> {
+  try {
+    const prefs = await getUserSetting(
+      scope.ownerEmail,
+      ANALYTICS_USER_PREFS_KEY,
+    );
+    return prefs?.errorEmailNotifications === true;
+  } catch (error) {
+    // Error email delivery must fail closed when the owner preference cannot be
+    // read; the in-app issue notification still remains available.
+    console.warn(
+      "[error-capture] Could not read error email preference; skipping email delivery:",
+      error,
+    );
+    return false;
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -1171,6 +1171,41 @@ describe("agent-native skills", () => {
     expect(result.mcpUrl).toBe("https://design.agent-native.com/mcp");
   });
 
+  it("does not replace a symlinked project skill folder", async () => {
+    const root = tmpDir();
+    const sourceDir = path.join(root, "skills", "visual-edit");
+    const skillDir = path.join(root, ".agents", "skills", "visual-edit");
+    fs.mkdirSync(sourceDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(sourceDir, "SKILL.md"),
+      "local visual-edit source\n",
+      "utf8",
+    );
+    fs.mkdirSync(path.dirname(skillDir), { recursive: true });
+    fs.symlinkSync(path.relative(path.dirname(skillDir), sourceDir), skillDir);
+
+    await expect(
+      addAgentNativeSkill(
+        parseSkillsArgs([
+          "add",
+          "visual-edit",
+          "--client",
+          "codex",
+          "--scope",
+          "project",
+        ]),
+        { baseDir: root, runCommand: async () => 0 },
+      ),
+    ).rejects.toThrow(
+      "Refusing to replace symlinked Agent Native skill folder",
+    );
+
+    expect(fs.lstatSync(skillDir).isSymbolicLink()).toBe(true);
+    expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf8")).toBe(
+      "local visual-edit source\n",
+    );
+  });
+
   it("accepts shorthand aliases for the built-in Plans skill", async () => {
     const root = tmpDir();
     const codexHome = path.join(root, "codex-home");
@@ -2774,6 +2809,156 @@ describe("agent-native skills", () => {
       expect(fs.readlinkSync(claudePath)).toBe("AGENTS.md");
     }
     expect(fs.existsSync(path.join(root, ".claude", "skills"))).toBe(true);
+  });
+
+  it("preserves app-owned framework-named skills in existing workspace apps", async () => {
+    const root = tmpDir();
+    const shared = path.join(root, "packages", "shared");
+    const app = path.join(root, "apps", "mail");
+    fs.mkdirSync(path.join(shared, ".agents", "skills", "actions"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(app, ".agents", "skills", "actions"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(app, ".agents", "skills", "call-coach"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(app, ".agents", "skills", "feature-flags"), {
+      recursive: true,
+    });
+    fs.mkdirSync(path.join(root, "apps"), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "my-workspace",
+          "agent-native": { workspaceCore: "@my/shared" },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(
+      path.join(shared, "package.json"),
+      JSON.stringify({ name: "@my/shared" }, null, 2),
+    );
+    fs.writeFileSync(
+      path.join(shared, ".agents", "skills", "actions", "SKILL.md"),
+      "old actions skill\n",
+    );
+    fs.writeFileSync(
+      path.join(app, "package.json"),
+      JSON.stringify({ name: "mail" }, null, 2),
+    );
+    fs.writeFileSync(
+      path.join(app, ".agents", "skills", "actions", "SKILL.md"),
+      "old actions skill\n",
+    );
+    fs.writeFileSync(
+      path.join(app, ".agents", "skills", "call-coach", "SKILL.md"),
+      "app-owned skill\n",
+    );
+    fs.writeFileSync(
+      path.join(app, ".agents", "skills", "feature-flags", "SKILL.md"),
+      "copied optional framework skill\n",
+    );
+
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    expect(
+      fs.readFileSync(
+        path.join(app, ".agents", "skills", "actions", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("old actions skill\n");
+    expect(
+      fs.readFileSync(
+        path.join(app, ".agents", "skills", "call-coach", "SKILL.md"),
+        "utf8",
+      ),
+    ).toBe("app-owned skill\n");
+    expect(
+      fs.existsSync(path.join(app, ".agents", "skills", "feature-flags")),
+    ).toBe(true);
+  });
+
+  it("repairs copied skills even when workspace-core is already current", async () => {
+    const root = tmpDir();
+    const shared = path.join(root, "packages", "shared");
+    const app = path.join(root, "apps", "mail");
+    fs.mkdirSync(path.join(root, "apps"), { recursive: true });
+    fs.cpSync(
+      path.join(
+        workspaceRoot(),
+        "packages",
+        "core",
+        "src",
+        "templates",
+        "workspace-core",
+        ".agents",
+        "skills",
+      ),
+      path.join(shared, ".agents", "skills"),
+      { recursive: true },
+    );
+    fs.mkdirSync(path.join(app, ".agents", "skills", "actions"), {
+      recursive: true,
+    });
+    fs.writeFileSync(
+      path.join(root, "package.json"),
+      JSON.stringify(
+        {
+          name: "my-workspace",
+          "agent-native": { workspaceCore: "@my/shared" },
+        },
+        null,
+        2,
+      ),
+    );
+    fs.writeFileSync(
+      path.join(shared, "package.json"),
+      JSON.stringify({ name: "@my/shared" }, null, 2),
+    );
+    fs.writeFileSync(
+      path.join(app, "package.json"),
+      JSON.stringify({ name: "mail" }, null, 2),
+    );
+    fs.cpSync(
+      path.join(shared, ".agents", "skills", "actions"),
+      path.join(app, ".agents", "skills", "actions"),
+      { recursive: true },
+    );
+
+    const stdout: string[] = [];
+    vi.spyOn(process.stdout, "write").mockImplementation((chunk) => {
+      stdout.push(String(chunk));
+      return true;
+    });
+
+    await runSkills(["update", "scaffold", "--scope", "project", "--json"], {
+      baseDir: root,
+      runCommand: async () => 0,
+    });
+
+    expect(JSON.parse(stdout.join(""))).toMatchObject({
+      scaffold: [{ status: "current" }],
+      updated: 0,
+    });
+    expect(
+      fs
+        .lstatSync(path.join(app, ".agents", "skills", "actions"))
+        .isSymbolicLink(),
+    ).toBe(true);
   });
 
   it("updates generated standalone headless scaffold skills", async () => {

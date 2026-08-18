@@ -55,10 +55,16 @@ import {
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { normalizeLoomShareUrl } from "../shared/loom.js";
 import {
+  isRetryableTranscriptFailure,
+  transcriptFailureMessage,
+  type TranscriptFailureCode,
+} from "../shared/transcript-failure.js";
+import {
   buildCaptionSegmentsFromText,
   normalizeTranscriptSegments,
   parseTranscriptSegments,
 } from "../shared/transcript-segments.js";
+import { PENDING_TRANSCRIPT_HEARTBEAT_MS } from "../shared/transcript-status.js";
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
@@ -219,6 +225,13 @@ export function recordingMediaFetchTimeoutMs(
 // the completed transcription request.
 const MAX_AUTO_TRANSCRIPT_RETRIES = 2;
 const AUTO_TRANSCRIPT_RETRY_BACKOFF_MS = [5_000, 20_000];
+
+/** The typed code an error already carries, if any. */
+function transcriptFailureCodeFor(err: unknown): TranscriptFailureCode | null {
+  return err instanceof AudioOnlyExtractionError
+    ? (err.code as TranscriptFailureCode)
+    : null;
+}
 
 function isTransientTranscriptionError(err: unknown): boolean {
   if (isTransientExtractionError(err)) return true;
@@ -419,6 +432,54 @@ function isRecentlyPendingTranscript(transcript: {
   );
 }
 
+/**
+ * Run `work` while keeping this recording's pending transcript row marked live.
+ *
+ * `resolveTranscriptPresentation` infers "the worker is gone" from a pending
+ * row nothing has written for STALE_PENDING_TRANSCRIPT_MS, because the row
+ * carries no other liveness signal. Media fetch, ffmpeg extraction and the
+ * provider call legitimately add up past that window on a long recording, so
+ * without this ping the UI publishes a terminal "stopped before it finished"
+ * failure over a run that is still working — and the player's self-heal then
+ * forces a second concurrent transcription of the same clip.
+ *
+ * The update is scoped to `status = 'pending'` so it can never touch a row a
+ * concurrent run has already finished, and the interval is unref'd and cleared
+ * so it cannot hold a serverless invocation open.
+ */
+async function withPendingTranscriptHeartbeat<T>(
+  db: ReturnType<typeof getDb>,
+  recordingId: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const timer = setInterval(() => {
+    void (async () => {
+      try {
+        await db
+          .update(schema.recordingTranscripts)
+          .set({ updatedAt: new Date().toISOString() })
+          .where(
+            and(
+              eq(schema.recordingTranscripts.recordingId, recordingId),
+              eq(schema.recordingTranscripts.status, "pending"),
+            ),
+          );
+      } catch (err) {
+        console.warn(
+          `[clips] transcript heartbeat failed for ${recordingId}:`,
+          (err as Error)?.message ?? String(err),
+        );
+      }
+    })();
+  }, PENDING_TRANSCRIPT_HEARTBEAT_MS);
+  (timer as { unref?: () => void }).unref?.();
+  try {
+    return await work();
+  } finally {
+    clearInterval(timer);
+  }
+}
+
 async function writeTranscriptCleanupState(
   recordingId: string,
   value: Record<string, unknown>,
@@ -592,7 +653,13 @@ async function failAudioOnlyPreparation({
   });
   if (preserved) return preserved;
 
-  const transient = isTransientTranscriptionError(err);
+  // The code decides retryability. `isTransientTranscriptionError` stays as the
+  // fallback for errors that carry no code yet — it reads regexes over prose,
+  // which is why a reworded message could once change whether a clip retried.
+  const failureCode = transcriptFailureCodeFor(err);
+  const transient = failureCode
+    ? isRetryableTranscriptFailure(failureCode)
+    : isTransientTranscriptionError(err);
   const nextRetryCount = currentRetryCount + 1;
 
   await upsertTranscriptRow(db, {
@@ -600,6 +667,7 @@ async function failAudioOnlyPreparation({
     ownerEmail,
     status: "failed",
     failureReason: reason,
+    failureCode: failureCode ?? "UNKNOWN",
     segmentsJson: "[]",
     fullText: "",
     now,
@@ -1087,9 +1155,12 @@ const requestTranscriptAction = defineAction({
       const videoUrl = rec.videoUrl;
       if (!videoUrl) throw new Error("Recording has no videoUrl");
       if (rec.hasAudio === false) {
+        // NOT "no speech was detected" — this is a measurement of the stored
+        // file, and blaming the recording sent people hunting for a microphone
+        // problem when the screen-share simply never included audio.
         throw new AudioOnlyExtractionError(
-          "NO_AUDIO_TRACK",
-          "No speech was detected because this recording was saved without audio.",
+          "NO_AUDIO_SAVED",
+          transcriptFailureMessage("NO_AUDIO_SAVED"),
         );
       }
       audioMediaPromise ??= (async () => {
@@ -1251,8 +1322,15 @@ const requestTranscriptAction = defineAction({
 
       let audioMedia: AudioOnlyTranscriptionMedia;
       try {
-        audioMedia = await getAudioMedia(rec);
-        await ensureAudioHasSignal(audioMedia);
+        audioMedia = await withPendingTranscriptHeartbeat(
+          db,
+          args.recordingId,
+          async () => {
+            const media = await getAudioMedia(rec);
+            await ensureAudioHasSignal(media);
+            return media;
+          },
+        );
       } catch (err) {
         return failAudioOnlyPreparation({
           db,
@@ -1266,13 +1344,18 @@ const requestTranscriptAction = defineAction({
 
       try {
         const startedAt = Date.now();
-        const builderResult = await transcribeWithBuilderModelFallback({
-          audioBytes: audioMedia.audioBytes,
-          mimeType: audioMedia.mimeType,
-          diarize: false,
-          instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
-          timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
-        });
+        const builderResult = await withPendingTranscriptHeartbeat(
+          db,
+          args.recordingId,
+          () =>
+            transcribeWithBuilderModelFallback({
+              audioBytes: audioMedia.audioBytes,
+              mimeType: audioMedia.mimeType,
+              diarize: false,
+              instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
+              timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
+            }),
+        );
 
         const segments = (builderResult.segments ?? [])
           .map((s) => ({
@@ -1403,14 +1486,33 @@ const requestTranscriptAction = defineAction({
     const reason = builderError
       ? "No native transcript was captured, and Builder transcription could not finish. Retry transcription or check Builder connection and recording audio."
       : "No transcript was captured by native speech recognition, and Builder transcription is not configured.";
+    // A cloud failure gets the SAME transient-retry treatment the audio-only
+    // path already has (see `failAudioOnlyPreparation`). This branch classified
+    // the error, logged it, and then fell through with no retry scheduled and
+    // no `retryCount` written — so the one path users report as "it works if I
+    // retry" was the one path that never retried itself. Production bears that
+    // out: `retry_count` averages 0.0 on these rows, while 12 of them say
+    // `fetch failed` and 11 say `timed out after 45` — textbook transient.
+    const cloudTransient = builderError
+      ? isTransientTranscriptionError(new Error(builderError))
+      : false;
+    const cloudNextRetryCount = currentRetryCount + 1;
     await upsertTranscriptRow(db, {
       recordingId: args.recordingId,
       ownerEmail,
       status: "failed",
       failureReason: reason,
+      failureCode: builderError ? "CLOUD_FAILED" : "CLOUD_UNCONFIGURED",
       now,
+      ...(cloudTransient ? { retryCount: cloudNextRetryCount } : {}),
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
+    if (cloudTransient) {
+      scheduleAutoTranscriptRetry({
+        recordingId: args.recordingId,
+        nextRetryCount: cloudNextRetryCount,
+      });
+    }
     console.warn(`[clips] ${reason}`);
     return {
       recordingId: args.recordingId,
@@ -1427,6 +1529,11 @@ async function upsertTranscriptRow(
     ownerEmail: string;
     status: "pending" | "ready" | "failed";
     failureReason: string | null;
+    /**
+     * Machine-readable cause. This is what decides retryability; the prose in
+     * `failureReason` is rendered from it and is for humans only.
+     */
+    failureCode?: TranscriptFailureCode | null;
     language?: string;
     segmentsJson?: string;
     fullText?: string;
@@ -1449,6 +1556,11 @@ async function upsertTranscriptRow(
     .limit(1);
 
   const retryCount = row.status === "ready" ? 0 : (row.retryCount ?? undefined);
+  // `row.now` is captured once at the top of a run that can last minutes, so it
+  // is a creation timestamp, never a "last written" one. Stamping it as
+  // `updatedAt` would walk the pending heartbeat backwards and re-arm the stale
+  // check over a run that just finished.
+  const updatedAt = new Date().toISOString();
 
   if (existing) {
     await db
@@ -1457,11 +1569,13 @@ async function upsertTranscriptRow(
         ownerEmail: row.ownerEmail,
         status: row.status,
         failureReason: row.failureReason,
+        // Cleared on success so a recovered row does not keep a stale cause.
+        failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
         ...(row.language ? { language: row.language } : {}),
         ...(row.segmentsJson ? { segmentsJson: row.segmentsJson } : {}),
         ...(row.fullText !== undefined ? { fullText: row.fullText } : {}),
         ...(retryCount !== undefined ? { retryCount } : {}),
-        updatedAt: row.now,
+        updatedAt,
       })
       .where(eq(schema.recordingTranscripts.recordingId, row.recordingId));
   } else {
@@ -1473,9 +1587,10 @@ async function upsertTranscriptRow(
       fullText: row.fullText ?? "",
       status: row.status,
       failureReason: row.failureReason,
+      failureCode: row.status === "failed" ? (row.failureCode ?? null) : null,
       retryCount: retryCount ?? 0,
       createdAt: row.now,
-      updatedAt: row.now,
+      updatedAt,
     });
   }
 }

@@ -1,7 +1,22 @@
+import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
 import { VisibilityBadge } from "@agent-native/toolkit/sharing";
-import { IconPalette, IconStar, IconStarFilled } from "@tabler/icons-react";
+import {
+  IconBuildingCommunity,
+  IconComponents,
+  IconDots,
+  IconStar,
+  IconStarFilled,
+  IconTrash,
+} from "@tabler/icons-react";
 
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -16,8 +31,14 @@ interface DesignSystemCardProps {
   data: DesignSystemData;
   isDefault: boolean;
   visibility?: "private" | "org" | "public" | null;
+  accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
+  canManage?: boolean;
   onClick: () => void;
   onSetDefault: () => void;
+  onDelete: () => void;
+  isWorkspaceDefault?: boolean;
+  canSetWorkspaceDefault?: boolean;
+  onSetWorkspaceDefault?: (isDefault: boolean) => void;
 }
 
 function firstFontName(stack: string): string {
@@ -30,9 +51,16 @@ export function DesignSystemCard({
   data,
   isDefault,
   visibility,
+  accessRole,
+  canManage,
   onClick,
   onSetDefault,
+  onDelete,
+  isWorkspaceDefault = false,
+  canSetWorkspaceDefault = false,
+  onSetWorkspaceDefault,
 }: DesignSystemCardProps) {
+  const t = useT();
   const swatchColors = [
     { label: "Primary", color: data.colors.primary },
     { label: "Secondary", color: data.colors.secondary },
@@ -71,28 +99,66 @@ export function DesignSystemCard({
           className="absolute top-3 right-3 z-10 flex items-center gap-1.5"
           onClick={(e) => e.stopPropagation()}
         >
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                onClick={onSetDefault}
-                className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
-              >
-                {isDefault ? (
-                  <IconStarFilled className="w-4 h-4 text-[#609FF8]" />
-                ) : (
-                  <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {isDefault ? "Default design system" : "Set as default"}
-            </TooltipContent>
-          </Tooltip>
+          {accessRole === "owner" && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  onClick={onSetDefault}
+                  className="h-9 w-9 inline-flex items-center justify-center rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
+                >
+                  {isDefault ? (
+                    <IconStarFilled className="w-4 h-4 text-primary" />
+                  ) : (
+                    <IconStar className="w-4 h-4 text-muted-foreground group-hover:text-foreground/70" />
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent>
+                {isDefault ? "Default design system" : "Set as default"}
+              </TooltipContent>
+            </Tooltip>
+          )}
           <ShareButton
             resourceType="design-system"
             resourceId={id}
+            allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={title}
           />
+          {(canManage || canSetWorkspaceDefault) && (
+            <DropdownMenu modal={false}>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("designSystems.moreActions")}
+                  className="h-9 w-9 rounded-md bg-background/80 backdrop-blur-sm border border-border/40 hover:bg-background cursor-pointer"
+                >
+                  <IconDots className="w-4 h-4 text-muted-foreground" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                {canSetWorkspaceDefault && onSetWorkspaceDefault && (
+                  <DropdownMenuItem
+                    onClick={() => onSetWorkspaceDefault(!isWorkspaceDefault)}
+                  >
+                    <IconBuildingCommunity className="w-3.5 h-3.5 me-2" />
+                    {isWorkspaceDefault
+                      ? t("home.clearWorkspaceDefault")
+                      : t("home.setWorkspaceDefault")}
+                  </DropdownMenuItem>
+                )}
+                {canManage && (
+                  <DropdownMenuItem
+                    onClick={onDelete}
+                    className="text-red-400 focus:text-red-400"
+                  >
+                    <IconTrash className="w-3.5 h-3.5 me-2" />
+                    {t("designSystems.delete")}
+                  </DropdownMenuItem>
+                )}
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
         </div>
 
         {/* Typography preview */}
@@ -125,13 +191,19 @@ export function DesignSystemCard({
       {/* Info area */}
       <div className="p-4 space-y-1.5">
         <div className="flex items-center gap-2 min-w-0">
-          <IconPalette className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+          <IconComponents className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
           <h3
             className="font-medium text-sm text-foreground truncate"
             title={title}
           >
             {title}
           </h3>
+          {isWorkspaceDefault && (
+            <span className="ms-auto inline-flex shrink-0 items-center gap-1 rounded border border-[#609FF8]/40 px-1.5 py-0.5 text-[10px] text-[#609FF8]">
+              <IconBuildingCommunity className="h-3 w-3 shrink-0" />
+              {t("home.workspaceDefaultBadge")}
+            </span>
+          )}
           {isDefault && (
             <span className="ml-auto shrink-0 text-[10px] font-medium uppercase text-[#609FF8] bg-[#609FF8]/10 px-1.5 py-0.5 rounded">
               Default

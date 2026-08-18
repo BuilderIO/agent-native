@@ -18,6 +18,14 @@
  * — it can be bundled into the serverless function alongside `mountMCP`.
  */
 
+import type {
+  CallToolResult,
+  InputRequiredResult,
+  RequestStateCodec,
+  ServerContext,
+  Tool,
+} from "@modelcontextprotocol/server";
+
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
@@ -45,6 +53,10 @@ import {
   withCollapsedAgentSidebarParam,
 } from "../shared/agent-sidebar-url.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
+import {
+  consumeMcpApprovalGrant,
+  createMcpApprovalGrant,
+} from "./approval-store.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 import {
   MCP_CONNECT_OAUTH_CLIENT_ID,
@@ -57,6 +69,12 @@ import {
   hasMcpOAuthScope,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
+
+const PRESERVE_MCP_OBJECT_RESULT = Symbol("preserveMcpObjectResult");
+
+type MCPActionEntry = ActionEntry & {
+  [PRESERVE_MCP_OBJECT_RESULT]?: true;
+};
 
 export interface MCPConfig {
   /** App name shown in MCP server info */
@@ -111,6 +129,21 @@ export interface MCPConfig {
    */
   builtinCrossAppTools?: boolean;
   /**
+   * `"app"` serves exactly the app's own tool registry, flat: every action the
+   * in-app agent holds, and nothing the in-app agent does not — no cross-app
+   * builtins, no `ask-agent`, no `tool-search`, and no compact/connector
+   * trimming. `connectorCatalog`, the compact default, and the
+   * `--full-catalog` / `AGENT_NATIVE_MCP_FULL_CATALOG` opt-ins are all inert
+   * on this mode; `externalAgents.denyActions` and the OAuth scope filter
+   * still apply, because both are explicit removals rather than tiering.
+   *
+   * The dev-open surface split is deliberately NOT bypassed: an
+   * unauthenticated loopback probe still gets `actions`, not
+   * `productionActions`. Parity is with the app's agent for a real
+   * authenticated caller, not an escalation for anonymous ones.
+   */
+  catalogMode?: "app";
+  /**
    * Curated allow-list of action names served to **external connector** clients
    * on a hosted multi-tenant deployment.
    *
@@ -161,6 +194,81 @@ export interface MCPCallerIdentity {
   oauthClientId?: string;
   /** Present only for framework-minted first-party MCP client tokens. */
   firstPartyMcp?: boolean;
+}
+
+const MCP_ACTION_APPROVAL_TTL_SECONDS = 10 * 60;
+const MCP_ACTION_APPROVAL_INPUT_KEY = "actionApproval";
+
+interface McpActionApprovalState {
+  version: 1;
+  nonce: string;
+  actionName: string;
+  argumentsHash: string;
+  expiresAt: number;
+}
+
+function canonicalJson(value: unknown): string {
+  if (
+    value === null ||
+    typeof value === "boolean" ||
+    typeof value === "string"
+  ) {
+    return JSON.stringify(value);
+  }
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) {
+      throw new TypeError("MCP action arguments must contain finite numbers");
+    }
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) {
+    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(",")}}`;
+  }
+  throw new TypeError("MCP action arguments must be JSON values");
+}
+
+async function sha256Base64Url(value: string): Promise<string> {
+  const digest = await globalThis.crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(value),
+  );
+  const bytes = new Uint8Array(digest);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+function mcpApprovalPrincipal(
+  identity: MCPCallerIdentity | undefined,
+  orgId: string | undefined,
+  requestMeta: MCPRequestMeta | undefined,
+): string {
+  return canonicalJson({
+    caller: "mcp",
+    userEmail: identity?.userEmail?.trim().toLowerCase() ?? "",
+    orgId: orgId ?? identity?.orgId ?? "",
+    orgDomain: identity?.orgDomain?.trim().toLowerCase() ?? "",
+    oauthClientId: identity?.oauthClientId ?? "",
+    firstPartyMcp: identity?.firstPartyMcp === true,
+    origin: requestMeta?.origin ?? "",
+  });
+}
+
+function actionApprovalError(message: string): CallToolResult {
+  return {
+    content: [{ type: "text" as const, text: message }],
+    isError: true,
+  };
 }
 
 /** Per-request context used to turn an action's relative deep link into the
@@ -276,6 +384,48 @@ function isActionVisibleForOAuthScope(
   return hasMcpOAuthScope(scopes, required);
 }
 
+/** Mirrors `TOOL_SEARCH_ACTION_NAME`; not imported, because `agent/tool-search.ts`
+ *  reaches Node-only request context and this module must stay bundleable. */
+const TOOL_SEARCH_TOOL_NAME = "tool-search";
+
+function withoutToolSearch(
+  actions: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  if (!(TOOL_SEARCH_TOOL_NAME in actions)) return actions;
+  return Object.fromEntries(
+    Object.entries(actions).filter(([name]) => name !== TOOL_SEARCH_TOOL_NAME),
+  );
+}
+
+/**
+ * Re-point `tool-search` at the surface this caller can actually reach.
+ *
+ * The registry's own entry closes over the app's *whole* action registry, but
+ * `tools/call` accepts only the advertised set — so unscoped it answers with
+ * names that come straight back as "Unknown tool", and its `callable` field
+ * reports plan-mode availability, not that gate. Every template that noticed
+ * worked around it by hand-rolling a narrowed copy; scoping it here is what
+ * makes the trimmed catalog honest without one.
+ */
+function scopeToolSearchToAdvertised(
+  advertised: Record<string, ActionEntry>,
+): Record<string, ActionEntry> {
+  const entry = advertised[TOOL_SEARCH_TOOL_NAME];
+  if (!entry) return advertised;
+  return {
+    ...advertised,
+    [TOOL_SEARCH_TOOL_NAME]: {
+      ...entry,
+      // Imported lazily: `agent/tool-search.ts` pulls Node-only request
+      // context, and this module has to stay bundleable for serverless.
+      run: async (args: Record<string, unknown>) => {
+        const { searchToolRegistry } = await import("../agent/tool-search.js");
+        return searchToolRegistry(advertised, args ?? {});
+      },
+    },
+  };
+}
+
 const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
   "list_apps",
   "open_app",
@@ -283,9 +433,10 @@ const COMPACT_MCP_APP_CATALOG_BUILTINS = new Set([
   "ask_app_status",
   "create_embed_session",
   // `tool-search` MUST stay in every compact/connector surface: it is how a
-  // compacted client discovers and loads any action on demand, which is what
-  // makes "small catalog by default" safe instead of limiting.
-  "tool-search",
+  // compacted client discovers any action on demand, which is what makes
+  // "small catalog by default" non-opaque. Discovery is not permission — a
+  // searched name still has to be in the advertised set to be callable.
+  TOOL_SEARCH_TOOL_NAME,
 ]);
 
 function isActionAdvertisedInCompactMcpAppCatalog(
@@ -878,7 +1029,16 @@ function mergeBuiltinTools(
   requestMeta?: MCPRequestMeta,
 ): Record<string, ActionEntry> {
   if (config.builtinCrossAppTools === false) return baseActions;
-  const builtins = getBuiltinCrossAppTools(config, requestMeta);
+  const builtins = getBuiltinCrossAppTools(config, requestMeta) as Record<
+    string,
+    MCPActionEntry
+  >;
+  // Async ask_app responses contain the opaque handle needed to poll the same
+  // task. Mark the actual framework builtin rather than matching by name: an
+  // app-defined ask_app overrides this entry and keeps normal concise output.
+  if (builtins.ask_app) {
+    builtins.ask_app[PRESERVE_MCP_OBJECT_RESULT] = true;
+  }
   const merged: Record<string, ActionEntry> = { ...builtins };
   // Template / app actions overwrite same-named builtins.
   for (const [name, entry] of Object.entries(baseActions)) {
@@ -933,6 +1093,10 @@ function mcpServerInfo(config: MCPConfig, requestMeta?: MCPRequestMeta) {
     ...(websiteUrl ? { websiteUrl } : {}),
     ...(icons?.length ? { icons } : {}),
   };
+}
+
+function compareMcpCatalogValues(a: string, b: string): number {
+  return a < b ? -1 : a > b ? 1 : 0;
 }
 
 function safeUiSegment(value: string | undefined, fallback: string): string {
@@ -1419,14 +1583,13 @@ export async function createMCPServerForRequest(
   identity: MCPCallerIdentity | undefined,
   requestMeta?: MCPRequestMeta,
 ) {
-  const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
   const {
-    ListToolsRequestSchema,
-    CallToolRequestSchema,
-    ListResourcesRequestSchema,
-    ReadResourceRequestSchema,
-    ListResourceTemplatesRequestSchema,
-  } = await import("@modelcontextprotocol/sdk/types.js");
+    ResourceNotFoundError,
+    Server,
+    acceptedContent,
+    createRequestStateCodec,
+    inputRequired,
+  } = await import("@modelcontextprotocol/server");
 
   // Resolve the effective caller identity. JWT / header-derived identity
   // (passed by `mountMCP` via `verifyAuth`) wins. When the caller passed no
@@ -1466,20 +1629,41 @@ export async function createMCPServerForRequest(
     useFullSurface && config.productionActions
       ? config.productionActions
       : config.actions;
-  const actions = mergeBuiltinTools(config, baseActions, requestMeta);
+  const appCatalog = config.catalogMode === "app";
+  // The app catalog IS a full flat catalog, so the `--full-catalog` opt-ins
+  // have nothing left to escalate — collapsing them here keeps every tier gate
+  // below reading one flag instead of testing `appCatalog` a fifth time.
+  const fullCatalogRequested =
+    !appCatalog && explicitlyRequestsFullMcpCatalog(requestMeta);
+  // `tool-search` earns its place only on a *trimmed* catalog, where it is how
+  // a client reaches an action that was not listed. On a flat catalog — app
+  // mode or the `--full-catalog` opt-in — every tool is already in `tools/list`
+  // beside it, so it can only ever describe its own neighbours while spending
+  // a tool slot and a round trip to do it.
+  const flatCatalog = appCatalog || fullCatalogRequested;
+  // `catalogMode: "app"` asks for parity with the in-app agent, so the cross-app
+  // builtins the MCP layer adds on its own come back off too.
+  const mergedActions = appCatalog
+    ? baseActions
+    : mergeBuiltinTools(config, baseActions, requestMeta);
+  // Strip from `actions`, not just the advertised set: on the full-catalog tier
+  // `actions` IS the callable surface, so filtering only the listing would
+  // leave `tool-search` callable but invisible.
+  const actions = flatCatalog
+    ? withoutToolSearch(mergedActions)
+    : mergedActions;
   const visibleActions = Object.fromEntries(
     Object.entries(actions).filter(([, entry]) =>
       isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes),
     ),
   );
-  const fullCatalogRequested = explicitlyRequestsFullMcpCatalog(requestMeta);
   // Compact/connector is the DEFAULT for every caller — hosted connectors,
   // code clients (Claude Code / Cursor / Codex), and the local CLI alike. The
   // full ~105-tool catalog is served only on the explicit opt-in above, so a
   // host can never dump every action schema into one giant tool card. The
   // `mcp:apps` scope still lands on this compact MCP-Apps surface; with no
   // opt-in, everyone else does too.
-  const compactMcpAppCatalog = !fullCatalogRequested;
+  const compactMcpAppCatalog = !appCatalog && !fullCatalogRequested;
   const advertisedActionsBeforeConnector = compactMcpAppCatalog
     ? Object.fromEntries(
         Object.entries(visibleActions).filter(([name, entry]) =>
@@ -1501,6 +1685,7 @@ export async function createMCPServerForRequest(
   // This stays compact by default and keeps db-exec / seed-* / extension /
   // browser-session footguns off the external surface.
   const connectorCatalogActive =
+    !appCatalog &&
     (connectorNames.size > 0 || automaticConnectorPolicyActive) &&
     !fullCatalogRequested;
   // When the connector catalog is active, filter directly from visibleActions
@@ -1508,24 +1693,64 @@ export async function createMCPServerForRequest(
   // tier is an independent, template-declared surface that doesn't accidentally
   // narrow to just the compact-catalog builtins when shouldUseCompactMcpCatalogByDefault
   // would have activated the compact catalog for the same caller.
-  const advertisedActions = connectorCatalogActive
+  const advertisedActionsBeforeToolSearchScope = appCatalog
     ? Object.fromEntries(
-        Object.entries(visibleActions).filter(([name, entry]) => {
-          if (denyNames.has(name)) return false;
-          if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
-          if (!connectorNames.has(name)) return false;
-          if (
-            externalAgentWritesAreAskAppOnly(config) &&
-            entry.readOnly !== true
-          ) {
-            return false;
-          }
-          return true;
-        }),
+        Object.entries(visibleActions).filter(([name]) => !denyNames.has(name)),
       )
-    : advertisedActionsBeforeConnector;
+    : connectorCatalogActive
+      ? Object.fromEntries(
+          Object.entries(visibleActions).filter(([name, entry]) => {
+            if (denyNames.has(name)) return false;
+            if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
+            if (!connectorNames.has(name)) return false;
+            if (
+              externalAgentWritesAreAskAppOnly(config) &&
+              entry.readOnly !== true
+            ) {
+              return false;
+            }
+            return true;
+          }),
+        )
+      : advertisedActionsBeforeConnector;
+  const advertisedActions = scopeToolSearchToAdvertised(
+    advertisedActionsBeforeToolSearchScope,
+  );
   if (fullCatalogRequested) {
     warnFullCatalogServed(Object.keys(advertisedActions).length);
+  }
+  // Resolve orgId once per request (DB lookup) so approval state and every
+  // downstream action see the same authenticated principal.
+  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
+  const hasApprovalActions = Object.values(actions).some(
+    (entry) => entry.needsApproval !== undefined,
+  );
+  const approvalOrgId = hasApprovalActions ? await orgIdPromise : undefined;
+  const approvalPrincipal = hasApprovalActions
+    ? mcpApprovalPrincipal(effectiveIdentity, approvalOrgId, requestMeta)
+    : undefined;
+  const approvalCallerKey = approvalPrincipal
+    ? await sha256Base64Url(approvalPrincipal)
+    : undefined;
+  let approvalCodec: RequestStateCodec<McpActionApprovalState> | undefined;
+  let approvalConfigurationError = false;
+  if (hasApprovalActions && approvalPrincipal) {
+    try {
+      const { getAuthSecret } =
+        await import("../server/better-auth-instance.js");
+      approvalCodec = createRequestStateCodec<McpActionApprovalState>({
+        key: getAuthSecret(),
+        ttlSeconds: MCP_ACTION_APPROVAL_TTL_SECONDS,
+        bind: (ctx) => `${ctx.mcpReq.method}\0${approvalPrincipal}`,
+      });
+    } catch {
+      // Production secret resolution deliberately throws when neither the
+      // explicit Better Auth secret nor the workspace-derived A2A secret is
+      // stable. Keep the MCP server available for reads, but refuse every
+      // approval-gated action rather than minting replayable/ephemeral hosted
+      // authorization state.
+      approvalConfigurationError = true;
+    }
   }
   const supportsMcpApps =
     compactMcpAppCatalog ||
@@ -1546,14 +1771,27 @@ export async function createMCPServerForRequest(
           }
         : {}),
     },
+    // Every catalog and resource is identity-scoped and can change at runtime
+    // through app configuration/HMR. Explicitly mark modern cacheable results
+    // private and immediately stale; the 2026 codec adds the required
+    // ttlMs/cacheScope fields while 2025 responses remain byte-compatible.
+    cacheHints: {
+      "server/discover": { ttlMs: 0, cacheScope: "private" },
+      "tools/list": { ttlMs: 0, cacheScope: "private" },
+      "resources/list": { ttlMs: 0, cacheScope: "private" },
+      "resources/templates/list": { ttlMs: 0, cacheScope: "private" },
+      "resources/read": { ttlMs: 0, cacheScope: "private" },
+    },
+    ...(approvalCodec
+      ? {
+          inputRequired: {
+            maxRounds: 2,
+            roundTimeoutMs: 10 * 60_000,
+          },
+          requestState: { verify: approvalCodec.verify },
+        }
+      : {}),
   });
-
-  // Resolve orgId once per request (DB lookup) so subsequent wraps are
-  // synchronous. The caller identity may be undefined for true dev-open —
-  // in that case we run with no userEmail/orgId, which makes downstream
-  // tools that require per-user scope return empty results rather than
-  // cross-tenant data (the safe default).
-  const orgIdPromise = resolveMcpIdentityOrgId(effectiveIdentity);
 
   /**
    * Wrap a callback in
@@ -1578,68 +1816,185 @@ export async function createMCPServerForRequest(
     ) as Promise<T>;
   }
 
+  async function requireMcpActionApproval(
+    entry: ActionEntry,
+    name: string,
+    args: Record<string, unknown>,
+    ctx: ServerContext,
+  ): Promise<CallToolResult | InputRequiredResult | undefined> {
+    const verifiedState =
+      ctx.mcpReq.requestState<McpActionApprovalState>() ?? undefined;
+    const argumentsHash = await sha256Base64Url(canonicalJson(args));
+
+    if (verifiedState !== undefined) {
+      if (
+        verifiedState.version !== 1 ||
+        typeof verifiedState.nonce !== "string" ||
+        verifiedState.actionName !== name ||
+        verifiedState.argumentsHash !== argumentsHash ||
+        !Number.isFinite(verifiedState.expiresAt) ||
+        verifiedState.expiresAt < Date.now() ||
+        !approvalCallerKey
+      ) {
+        return actionApprovalError(
+          `Approval for ${name} is invalid or does not match this exact call.`,
+        );
+      }
+
+      const consumed = await consumeMcpApprovalGrant({
+        nonce: verifiedState.nonce,
+        callerKey: approvalCallerKey,
+        actionName: name,
+        argumentsHash,
+        expiresAt: verifiedState.expiresAt,
+      });
+      if (!consumed) {
+        return actionApprovalError(
+          `Approval for ${name} is invalid, expired, or already used.`,
+        );
+      }
+
+      const approval = acceptedContent(
+        ctx.mcpReq.inputResponses,
+        MCP_ACTION_APPROVAL_INPUT_KEY,
+      ) as Record<string, unknown> | undefined;
+      if (approval?.decision !== "approve") {
+        return actionApprovalError(`${name} was not approved.`);
+      }
+      return undefined;
+    }
+
+    if (entry.needsApproval === undefined) return undefined;
+    let mustApprove = false;
+    try {
+      mustApprove =
+        typeof entry.needsApproval === "function"
+          ? Boolean(
+              await entry.needsApproval(args, {
+                userEmail: getRequestUserEmail(),
+                orgId: getRequestOrgId() ?? null,
+                caller: "mcp",
+                actionName: name,
+              }),
+            )
+          : entry.needsApproval === true;
+    } catch {
+      mustApprove = true;
+    }
+    if (!mustApprove) return undefined;
+
+    if (approvalConfigurationError || !approvalCodec || !approvalCallerKey) {
+      return actionApprovalError(
+        `${name} requires approval, but secure MCP approval is not configured on this server.`,
+      );
+    }
+
+    const now = Date.now();
+    const approvalState: McpActionApprovalState = {
+      version: 1,
+      nonce: globalThis.crypto.randomUUID(),
+      actionName: name,
+      argumentsHash,
+      expiresAt: now + MCP_ACTION_APPROVAL_TTL_SECONDS * 1000,
+    };
+    await createMcpApprovalGrant({
+      ...approvalState,
+      callerKey: approvalCallerKey,
+    });
+    const requestState = await approvalCodec.mint(approvalState, ctx);
+    return inputRequired({
+      inputRequests: {
+        [MCP_ACTION_APPROVAL_INPUT_KEY]: inputRequired.elicit({
+          message:
+            `Action "${name}" requires your approval before it can run. ` +
+            "Review the exact tool arguments in your MCP client, then explicitly choose Approve or Deny.",
+          requestedSchema: {
+            type: "object",
+            properties: {
+              decision: {
+                type: "string",
+                title: `Run ${name}?`,
+                description:
+                  "Approve runs this exact call once. Deny leaves it unexecuted.",
+                enum: ["approve", "deny"],
+              },
+            },
+            required: ["decision"],
+          },
+        }),
+      },
+      requestState,
+    });
+  }
+
   // tools/list — return all actions + ask-agent meta-tool. Wrapped in the
   // request context so per-user MCP visibility (mcp-client/visibility.ts)
   // applies to the listing too.
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
+  server.setRequestHandler("tools/list", async () => {
     return withCallerContext(async () => {
-      const tools = await Promise.all(
-        Object.entries(advertisedActions).map(async ([name, entry]) => {
-          const hasLink = typeof entry.link === "function";
-          const mcpAppResource = await resolveMcpAppResourceSafely(
-            config,
-            name,
-            entry,
-            requestMeta,
-          );
-          const rawToolMeta =
-            (entry.tool as any)._meta &&
-            typeof (entry.tool as any)._meta === "object" &&
-            !Array.isArray((entry.tool as any)._meta)
-              ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
-              : {};
-          const toolMeta = {
-            ...rawToolMeta,
-            // Advertisement path: only tag the tool with its inline-embed
-            // descriptor when the kill switch is on, so disabled embeds never
-            // prompt a host to render/read the `ui://` resource.
-            ...(mcpAppResource && requestMeta?.inlineMcpApps
-              ? {
-                  ...openAiToolDescriptorMeta(mcpAppResource),
-                  [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
-                  ui: mcpAppToolUiMeta(
-                    mcpAppResource,
-                    entry.mcpApp?.visibility ??
-                      metadataObject(rawToolMeta.ui).visibility,
-                  ),
-                }
-              : {}),
-          };
-          const baseDescription = entry.tool.description ?? name;
-          const annotations: Record<string, unknown> = {
-            readOnlyHint: entry.readOnly === true,
-            destructiveHint: entry.publicAgent?.isConsequential === true,
-            openWorldHint: false,
-          };
-          if (hasLink) annotations["agent-native/producesOpenLink"] = true;
-          return {
-            name,
-            description: hasLink
-              ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
-              : baseDescription,
-            inputSchema: entry.tool.parameters ?? {
-              type: "object" as const,
-              properties: {},
-            },
-            ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
-            annotations,
-          };
-        }),
+      const tools: Tool[] = await Promise.all(
+        Object.entries(advertisedActions)
+          .sort(([a], [b]) => compareMcpCatalogValues(a, b))
+          .map(async ([name, entry]) => {
+            const hasLink = typeof entry.link === "function";
+            const mcpAppResource = await resolveMcpAppResourceSafely(
+              config,
+              name,
+              entry,
+              requestMeta,
+            );
+            const rawToolMeta =
+              (entry.tool as any)._meta &&
+              typeof (entry.tool as any)._meta === "object" &&
+              !Array.isArray((entry.tool as any)._meta)
+                ? { ...((entry.tool as any)._meta as Record<string, unknown>) }
+                : {};
+            const toolMeta = {
+              ...rawToolMeta,
+              // Advertisement path: only tag the tool with its inline-embed
+              // descriptor when the kill switch is on, so disabled embeds
+              // never prompt a host to render/read the `ui://` resource.
+              ...(mcpAppResource && requestMeta?.inlineMcpApps
+                ? {
+                    ...openAiToolDescriptorMeta(mcpAppResource),
+                    [MCP_APP_RESOURCE_URI_META_KEY]: mcpAppResource.uri,
+                    ui: mcpAppToolUiMeta(
+                      mcpAppResource,
+                      entry.mcpApp?.visibility ??
+                        metadataObject(rawToolMeta.ui).visibility,
+                    ),
+                  }
+                : {}),
+            };
+            const baseDescription = entry.tool.description ?? name;
+            const annotations: Record<string, unknown> = {
+              readOnlyHint: entry.readOnly === true,
+              destructiveHint:
+                entry.publicAgent?.isConsequential === true ||
+                entry.needsApproval !== undefined,
+              openWorldHint: false,
+            };
+            if (hasLink) annotations["agent-native/producesOpenLink"] = true;
+            return {
+              name,
+              description: hasLink
+                ? `${baseDescription} After calling, surface the returned "Open in … →" link to the user.`
+                : baseDescription,
+              inputSchema: entry.tool.parameters ?? {
+                type: "object" as const,
+                properties: {},
+              },
+              ...(Object.keys(toolMeta).length > 0 ? { _meta: toolMeta } : {}),
+              annotations,
+            } as Tool;
+          }),
       );
 
+      // `ask-agent` is the legacy full-catalog meta-tool; `ask_app` is the
+      // builtin every other tier carries. Gate on the one flag that means
+      // "this caller opted all the way in".
       if (
-        !compactMcpAppCatalog &&
-        !connectorCatalogActive &&
+        fullCatalogRequested &&
         config.askAgent &&
         hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")
       ) {
@@ -1679,6 +2034,7 @@ export async function createMCPServerForRequest(
         });
       }
 
+      tools.sort((a, b) => compareMcpCatalogValues(a.name, b.name));
       return { tools };
     });
   });
@@ -1686,52 +2042,212 @@ export async function createMCPServerForRequest(
   // tools/call — dispatch to action registry or ask-agent. Wrapped in the
   // request context so the action's `run(args)` and `askAgent()` execute
   // with the verified caller's identity, not the platform default.
-  server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
-    return withCallerContext(async () => {
-      const { name, arguments: args } = request.params;
+  server.setRequestHandler(
+    "tools/call",
+    async (request: any, ctx: ServerContext) => {
+      return withCallerContext(async () => {
+        const { name, arguments: args } = request.params;
 
-      if (name === "ask-agent" && config.askAgent) {
-        if (compactMcpAppCatalog || connectorCatalogActive) {
+        if (name === "ask-agent" && config.askAgent) {
+          if (!fullCatalogRequested) {
+            return {
+              content: [{ type: "text", text: `Unknown tool: ${name}` }],
+              isError: true,
+            };
+          }
+          if (!hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")) {
+            return {
+              content: [
+                {
+                  type: "text",
+                  text: "Forbidden: OAuth scope does not allow ask-agent",
+                },
+              ],
+              isError: true,
+            };
+          }
+          const message = args?.message ?? "";
+          try {
+            // Keep the legacy meta-tool compatible for local callers, but use
+            // the same durable A2A submission path as ask_app whenever this is
+            // an HTTP/hosted request. A full agent loop must never be held open
+            // for minutes behind one MCP tools/call request. Always route
+            // through ask_app's own run() — even with no request origin, since
+            // it now bounds that case too via its process-local inline-task
+            // fallback (ask-app-inline-tasks.ts) instead of us awaiting
+            // config.askAgent() here unbounded. This is the shared helper: no
+            // second task map to keep in sync.
+            const hostedAskApp = getBuiltinCrossAppTools(
+              config,
+              requestMeta,
+            ).ask_app;
+            const result = await hostedAskApp.run({
+              message,
+              async: isExplicitAsyncAskAgent(args?.async),
+              maxWaitMs: isExplicitAsyncAskAgent(args?.async)
+                ? 0
+                : boundedAskAgentWaitMs(args?.maxWaitMs),
+            });
+            return {
+              content: [{ type: "text", text: formatAskAgentResult(result) }],
+            };
+          } catch (err: any) {
+            return {
+              content: [{ type: "text", text: `Error: ${err.message}` }],
+              isError: true,
+            };
+          }
+        }
+
+        // Every tier except the explicit full-catalog opt-in treats the
+        // advertised set as the authoritative callable surface: a name that
+        // was not listed is rejected, not merely hidden. Deriving this from
+        // the one opt-in flag rather than re-testing each tier is what keeps a
+        // newly added tier from silently defaulting to "everything callable".
+        const callableActions = fullCatalogRequested
+          ? actions
+          : advertisedActions;
+        const entry = callableActions[name];
+        if (!entry) {
           return {
             content: [{ type: "text", text: `Unknown tool: ${name}` }],
             isError: true,
           };
         }
-        if (!hasMcpOAuthScope(effectiveIdentity?.oauthScopes, "mcp:write")) {
+        if (
+          !isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes)
+        ) {
           return {
             content: [
               {
                 type: "text",
-                text: "Forbidden: OAuth scope does not allow ask-agent",
+                text: `Forbidden: OAuth scope does not allow tool ${name}`,
               },
             ],
             isError: true,
           };
         }
-        const message = args?.message ?? "";
+
         try {
-          // Keep the legacy meta-tool compatible for local callers, but use
-          // the same durable A2A submission path as ask_app whenever this is
-          // an HTTP/hosted request. A full agent loop must never be held open
-          // for minutes behind one MCP tools/call request. Always route
-          // through ask_app's own run() — even with no request origin, since
-          // it now bounds that case too via its process-local inline-task
-          // fallback (ask-app-inline-tasks.ts) instead of us awaiting
-          // config.askAgent() here unbounded. This is the shared helper: no
-          // second task map to keep in sync.
-          const hostedAskApp = getBuiltinCrossAppTools(
-            config,
+          const approvalResult = await requireMcpActionApproval(
+            entry,
+            name,
+            (args as Record<string, unknown>) ?? {},
+            ctx,
+          );
+          if (approvalResult !== undefined) return approvalResult;
+
+          // We're inside `withCallerContext`, so the request-context getters
+          // resolve the verified MCP caller's identity (do NOT inject a dev
+          // fallback). Tag the call as an external-agent MCP dispatch.
+          const result = await entry.run(
+            (args as Record<string, string>) ?? {},
+            {
+              userEmail: getRequestUserEmail(),
+              orgId: getRequestOrgId() ?? null,
+              caller: "mcp",
+              actionName: name,
+            },
+          );
+          const mcpResult = isMcpActionResult(result) ? result : null;
+          const rawResult = mcpResult ? mcpResult.raw : result;
+          const resultForClient = mcpResult ? mcpResult.text : result;
+          const mcpResultIsError =
+            !!mcpResult &&
+            !!mcpResult.raw &&
+            typeof mcpResult.raw === "object" &&
+            (mcpResult.raw as Record<string, unknown>).isError === true;
+          // Render path: only treat the result as an inline embed when the kill
+          // switch is on. When off, `mcpAppResource` is null so every embed
+          // branch below degrades to the plain deep-link artifacts the tool would
+          // otherwise return — no `openai/outputTemplate`, no minted embed-start,
+          // no embed structuredContent — so the host shows a link, not an iframe.
+          const mcpAppResourceCandidate = requestMeta?.inlineMcpApps
+            ? await resolveMcpAppResourceSafely(
+                config,
+                name,
+                entry,
+                requestMeta,
+              )
+            : null;
+          const rawResultForClient = mcpAppResourceCandidate
+            ? await withServerMintedMcpAppEmbedStart(rawResult, requestMeta)
+            : rawResult;
+          // Only attach the embed widget for a non-error result that has content.
+          const embedHasContent = mcpResultHasContent(rawResultForClient);
+          const mcpAppResource =
+            mcpAppResourceCandidate && !mcpResultIsError && embedHasContent
+              ? mcpAppResourceCandidate
+              : null;
+          // `openai/outputTemplate` is declared at the tool level, so the host
+          // renders a widget for every call regardless of result _meta. The only
+          // per-result signal it honors is `isError` (shows error text, no widget),
+          // so treat an embed tool that produced nothing as an error.
+          const embedProducedNothing =
+            !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
+          const { block, _meta } = buildLinkArtifacts(
+            entry,
+            (args as Record<string, any>) ?? {},
+            rawResultForClient,
             requestMeta,
-          ).ask_app;
-          const result = await hostedAskApp.run({
-            message,
-            async: isExplicitAsyncAskAgent(args?.async),
-            maxWaitMs: isExplicitAsyncAskAgent(args?.async)
-              ? 0
-              : boundedAskAgentWaitMs(args?.maxWaitMs),
-          });
+          );
+          const responseMeta: Record<string, unknown> = {
+            ...(_meta ?? {}),
+            ...(mcpAppResource
+              ? mcpAppEmbedOpenLinkMeta(
+                  rawResultForClient,
+                  mcpAppResource,
+                  requestMeta,
+                )
+              : {}),
+            ...(mcpAppResource ? openAiToolResultMeta(mcpAppResource) : {}),
+          };
+          const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
+          const toolVisibility = toolUiMeta.visibility;
+          const isAppOnlyVisibility =
+            Array.isArray(toolVisibility) &&
+            toolVisibility.length > 0 &&
+            toolVisibility.every((v) => v === "app");
+          const readOnlyStructuredResult =
+            entry.readOnly === true &&
+            rawResultForClient &&
+            typeof rawResultForClient === "object"
+              ? Array.isArray(rawResultForClient)
+                ? { items: rawResultForClient }
+                : rawResultForClient
+              : undefined;
+          const structuredContent = mcpAppResource
+            ? mcpAppStructuredContent(rawResultForClient, responseMeta)
+            : isAppOnlyVisibility &&
+                rawResult &&
+                typeof rawResult === "object" &&
+                !Array.isArray(rawResult)
+              ? (rawResult as Record<string, unknown>)
+              : readOnlyStructuredResult
+                ? mcpAppStructuredContent(
+                    readOnlyStructuredResult,
+                    responseMeta,
+                  )
+                : undefined;
+          const text = mcpAppResource
+            ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
+            : conciseToolResultText(name, resultForClient, {
+                preserveObjectResult:
+                  entry.readOnly === true ||
+                  (entry as MCPActionEntry)[PRESERVE_MCP_OBJECT_RESULT] ===
+                    true,
+              });
+          const content: any[] = [{ type: "text", text }];
+          if (block) content.push(block);
           return {
-            content: [{ type: "text", text: formatAskAgentResult(result) }],
+            content,
+            ...(mcpResultIsError || embedProducedNothing
+              ? { isError: true }
+              : {}),
+            ...(structuredContent ? { structuredContent } : {}),
+            ...(Object.keys(responseMeta).length > 0
+              ? { _meta: responseMeta }
+              : {}),
           };
         } catch (err: any) {
           return {
@@ -1739,146 +2255,12 @@ export async function createMCPServerForRequest(
             isError: true,
           };
         }
-      }
-
-      // Connector-catalog tier: when active, callableActions === advertisedActions
-      // (the filtered set). Non-listed tools are not callable — mirroring how
-      // compactMcpAppCatalog gates calls on advertisedActions.
-      const callableActions =
-        compactMcpAppCatalog || connectorCatalogActive
-          ? advertisedActions
-          : actions;
-      const entry = callableActions[name];
-      if (!entry) {
-        return {
-          content: [{ type: "text", text: `Unknown tool: ${name}` }],
-          isError: true,
-        };
-      }
-      if (
-        !isActionVisibleForOAuthScope(entry, effectiveIdentity?.oauthScopes)
-      ) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Forbidden: OAuth scope does not allow tool ${name}`,
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      try {
-        // We're inside `withCallerContext`, so the request-context getters
-        // resolve the verified MCP caller's identity (do NOT inject a dev
-        // fallback). Tag the call as an external-agent MCP dispatch.
-        const result = await entry.run((args as Record<string, string>) ?? {}, {
-          userEmail: getRequestUserEmail(),
-          orgId: getRequestOrgId() ?? null,
-          caller: "mcp",
-          actionName: name,
-        });
-        const mcpResult = isMcpActionResult(result) ? result : null;
-        const rawResult = mcpResult ? mcpResult.raw : result;
-        const resultForClient = mcpResult ? mcpResult.text : result;
-        const mcpResultIsError =
-          !!mcpResult &&
-          !!mcpResult.raw &&
-          typeof mcpResult.raw === "object" &&
-          (mcpResult.raw as Record<string, unknown>).isError === true;
-        // Render path: only treat the result as an inline embed when the kill
-        // switch is on. When off, `mcpAppResource` is null so every embed
-        // branch below degrades to the plain deep-link artifacts the tool would
-        // otherwise return — no `openai/outputTemplate`, no minted embed-start,
-        // no embed structuredContent — so the host shows a link, not an iframe.
-        const mcpAppResourceCandidate = requestMeta?.inlineMcpApps
-          ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
-          : null;
-        const rawResultForClient = mcpAppResourceCandidate
-          ? await withServerMintedMcpAppEmbedStart(rawResult, requestMeta)
-          : rawResult;
-        // Only attach the embed widget for a non-error result that has content.
-        const embedHasContent = mcpResultHasContent(rawResultForClient);
-        const mcpAppResource =
-          mcpAppResourceCandidate && !mcpResultIsError && embedHasContent
-            ? mcpAppResourceCandidate
-            : null;
-        // `openai/outputTemplate` is declared at the tool level, so the host
-        // renders a widget for every call regardless of result _meta. The only
-        // per-result signal it honors is `isError` (shows error text, no widget),
-        // so treat an embed tool that produced nothing as an error.
-        const embedProducedNothing =
-          !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
-        const { block, _meta } = buildLinkArtifacts(
-          entry,
-          (args as Record<string, any>) ?? {},
-          rawResultForClient,
-          requestMeta,
-        );
-        const responseMeta: Record<string, unknown> = {
-          ...(_meta ?? {}),
-          ...(mcpAppResource
-            ? mcpAppEmbedOpenLinkMeta(
-                rawResultForClient,
-                mcpAppResource,
-                requestMeta,
-              )
-            : {}),
-          ...(mcpAppResource ? openAiToolResultMeta(mcpAppResource) : {}),
-        };
-        const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
-        const toolVisibility = toolUiMeta.visibility;
-        const isAppOnlyVisibility =
-          Array.isArray(toolVisibility) &&
-          toolVisibility.length > 0 &&
-          toolVisibility.every((v) => v === "app");
-        const readOnlyStructuredResult =
-          entry.readOnly === true &&
-          rawResultForClient &&
-          typeof rawResultForClient === "object"
-            ? Array.isArray(rawResultForClient)
-              ? { items: rawResultForClient }
-              : rawResultForClient
-            : undefined;
-        const structuredContent = mcpAppResource
-          ? mcpAppStructuredContent(rawResultForClient, responseMeta)
-          : isAppOnlyVisibility &&
-              rawResult &&
-              typeof rawResult === "object" &&
-              !Array.isArray(rawResult)
-            ? (rawResult as Record<string, unknown>)
-            : readOnlyStructuredResult
-              ? mcpAppStructuredContent(readOnlyStructuredResult, responseMeta)
-              : undefined;
-        const text = mcpAppResource
-          ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
-          : conciseToolResultText(name, resultForClient, {
-              preserveObjectResult: entry.readOnly === true,
-            });
-        const content: any[] = [{ type: "text", text }];
-        if (block) content.push(block);
-        return {
-          content,
-          ...(mcpResultIsError || embedProducedNothing
-            ? { isError: true }
-            : {}),
-          ...(structuredContent ? { structuredContent } : {}),
-          ...(Object.keys(responseMeta).length > 0
-            ? { _meta: responseMeta }
-            : {}),
-        };
-      } catch (err: any) {
-        return {
-          content: [{ type: "text", text: `Error: ${err.message}` }],
-          isError: true,
-        };
-      }
-    });
-  });
+      });
+    },
+  );
 
   if (supportsMcpApps) {
-    server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    server.setRequestHandler("resources/list", async () => {
       return withCallerContext(async () => {
         const mcpAppResources = await getMcpAppResources(
           config,
@@ -1886,21 +2268,23 @@ export async function createMCPServerForRequest(
           requestMeta,
         );
         return {
-          resources: mcpAppResources.map((resource) => ({
-            uri: resource.uri,
-            name: resource.name,
-            ...(resource.title ? { title: resource.title } : {}),
-            ...(resource.description
-              ? { description: resource.description }
-              : {}),
-            mimeType: resource.mimeType,
-            ...(resource._meta ? { _meta: resource._meta } : {}),
-          })),
+          resources: mcpAppResources
+            .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
+            .map((resource) => ({
+              uri: resource.uri,
+              name: resource.name,
+              ...(resource.title ? { title: resource.title } : {}),
+              ...(resource.description
+                ? { description: resource.description }
+                : {}),
+              mimeType: resource.mimeType,
+              ...(resource._meta ? { _meta: resource._meta } : {}),
+            })),
         };
       });
     });
 
-    server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+    server.setRequestHandler("resources/templates/list", async () => {
       return withCallerContext(async () => {
         const mcpAppResources = await getMcpAppResources(
           config,
@@ -1908,71 +2292,71 @@ export async function createMCPServerForRequest(
           requestMeta,
         );
         return {
-          resourceTemplates: mcpAppResources.map((resource) => ({
-            uriTemplate: resource.uri,
-            name: resource.name,
-            ...(resource.title ? { title: resource.title } : {}),
-            ...(resource.description
-              ? { description: resource.description }
-              : {}),
-            mimeType: resource.mimeType,
-            ...(resource._meta ? { _meta: resource._meta } : {}),
-          })),
+          resourceTemplates: mcpAppResources
+            .sort((a, b) => compareMcpCatalogValues(a.uri, b.uri))
+            .map((resource) => ({
+              uriTemplate: resource.uri,
+              name: resource.name,
+              ...(resource.title ? { title: resource.title } : {}),
+              ...(resource.description
+                ? { description: resource.description }
+                : {}),
+              mimeType: resource.mimeType,
+              ...(resource._meta ? { _meta: resource._meta } : {}),
+            })),
         };
       });
     });
 
-    server.setRequestHandler(
-      ReadResourceRequestSchema,
-      async (request: any) => {
-        return withCallerContext(async () => {
-          const uri = request.params?.uri;
-          let found: {
-            actionName: string;
-            resource: ResolvedMcpAppResource;
-          } | null = null;
-          for (const [name, entry] of Object.entries(advertisedActions)) {
-            const resourceUri = getMcpAppResourceUri(config, name, entry);
-            if (!resourceUri || !matchesMcpAppResourceUri(resourceUri, uri)) {
-              continue;
-            }
-            const resource = await resolveMcpAppResourceSafely(
-              config,
-              name,
-              entry,
-              requestMeta,
-            );
-            if (resource) {
-              found = { actionName: name, resource };
-              break;
-            }
-            // resolveMcpAppResourceSafely returned null (e.g. an async resolver
-            // threw) — keep scanning the remaining candidates rather than
-            // aborting and reporting the resource as missing.
+    server.setRequestHandler("resources/read", async (request: any) => {
+      return withCallerContext(async () => {
+        const uri = request.params?.uri;
+        let found: {
+          actionName: string;
+          resource: ResolvedMcpAppResource;
+        } | null = null;
+        for (const [name, entry] of Object.entries(advertisedActions)) {
+          const resourceUri = getMcpAppResourceUri(config, name, entry);
+          if (!resourceUri || !matchesMcpAppResourceUri(resourceUri, uri)) {
+            continue;
           }
-          if (!found) {
-            throw new Error(`MCP App resource not found: ${uri}`);
+          const resource = await resolveMcpAppResourceSafely(
+            config,
+            name,
+            entry,
+            requestMeta,
+          );
+          if (resource) {
+            found = { actionName: name, resource };
+            break;
           }
-          return {
-            contents: [
-              {
-                uri,
-                mimeType: found.resource.mimeType,
-                text: renderMcpAppHtml(
-                  found.resource,
-                  found.actionName,
-                  config,
-                  requestMeta,
-                ),
-                ...(found.resource._meta
-                  ? { _meta: found.resource._meta }
-                  : {}),
-              },
-            ],
-          };
-        });
-      },
-    );
+          // resolveMcpAppResourceSafely returned null (e.g. an async resolver
+          // threw) — keep scanning the remaining candidates rather than
+          // aborting and reporting the resource as missing.
+        }
+        if (!found) {
+          throw new ResourceNotFoundError(
+            String(uri ?? ""),
+            `MCP App resource not found: ${uri}`,
+          );
+        }
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: found.resource.mimeType,
+              text: renderMcpAppHtml(
+                found.resource,
+                found.actionName,
+                config,
+                requestMeta,
+              ),
+              ...(found.resource._meta ? { _meta: found.resource._meta } : {}),
+            },
+          ],
+        };
+      });
+    });
   }
 
   return server;

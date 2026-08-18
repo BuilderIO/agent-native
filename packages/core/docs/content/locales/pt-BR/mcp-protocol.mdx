@@ -224,7 +224,11 @@ O agente executa o mesmo loop que o bate-papo interativo: ele pode chamar divers
 {
   "poll": {
     "tool": "ask_app_status",
-    "arguments": { "app": "mail", "taskId": "task_123" }
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
   }
 }
 ```
@@ -239,7 +243,8 @@ Se uma leitura de status transitória e limitada estiver indisponível,
 `statusRead: "unavailable"`, `retryable: true`, o `app` e o `taskId` originais,
 e `pollAfterMs` / `poll`. Isso significa que a leitura de status está
 indisponível, não que a tarefa durável falhou. Tente novamente `ask_app_status`
-com exatamente o mesmo `app` e `taskId`; nunca reenvie `ask_app` para recuperar,
+com os mesmos `poll.arguments`, incluindo o `taskHandle` quando presente. Resultados
+legados sem identificador devem reutilizar o mesmo `app` e `taskId`; nunca reenvie `ask_app` para recuperar,
 pois o envio pode duplicar o trabalho. Erros permanentes de autenticação, de não
 encontrado e de protocolo continuam sendo erros.
 

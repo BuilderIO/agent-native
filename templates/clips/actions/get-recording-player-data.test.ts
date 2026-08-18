@@ -40,6 +40,21 @@ const mockDb = vi.hoisted(() => ({
 const mockCountRecordingViews = vi.hoisted(() =>
   vi.fn(async (_recordingId: string) => 0),
 );
+const mockResolvePlayerVideoUrl = vi.hoisted(() =>
+  vi.fn(() => "/api/video/rec-1"),
+);
+const mockResolvePlayerThumbnailUrl = vi.hoisted(() =>
+  vi.fn(
+    (recording: {
+      thumbnailUrl?: string | null;
+      animatedThumbnailUrl?: string | null;
+    }) =>
+      recording.thumbnailUrl || recording.animatedThumbnailUrl
+        ? "/api/thumbnail/rec-1"
+        : null,
+  ),
+);
+const mockIsSeekableRepairPending = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
@@ -118,11 +133,22 @@ vi.mock("../server/lib/agent-recording-access.js", () => ({
 }));
 
 vi.mock("../server/lib/player-video-url.js", () => ({
-  resolvePlayerVideoUrl: vi.fn(),
+  resolvePlayerVideoUrl: (...args: unknown[]) =>
+    mockResolvePlayerVideoUrl(...args),
+}));
+
+vi.mock("../server/lib/player-thumbnail-url.js", () => ({
+  resolvePlayerThumbnailUrl: (...args: unknown[]) =>
+    mockResolvePlayerThumbnailUrl(...args),
 }));
 
 vi.mock("../server/lib/media-verification-state.js", () => ({
   isMediaVerificationPending: vi.fn(() => false),
+}));
+
+vi.mock("../server/lib/seekable-media-state.js", () => ({
+  isSeekableRepairPending: (...args: unknown[]) =>
+    mockIsSeekableRepairPending(...args),
 }));
 
 vi.mock("../server/lib/recordings.js", () => ({
@@ -162,6 +188,7 @@ describe("get-recording-player-data direct public access", () => {
     mockIsAgentRecordingCaller.mockImplementation(
       (caller: string | undefined) => caller === "tool",
     );
+    mockIsSeekableRepairPending.mockResolvedValue(false);
     mockShareLimit.mockResolvedValue([]);
   });
 
@@ -222,6 +249,9 @@ describe("get-recording-player-data view count", () => {
     mockPlayerQuery.build = emptyPlayerQuery;
     mockCountRecordingViews.mockClear();
     mockCountRecordingViews.mockResolvedValue(0);
+    mockIsSeekableRepairPending.mockClear();
+    mockIsSeekableRepairPending.mockResolvedValue(false);
+    mockResolvePlayerVideoUrl.mockClear();
     mockShareLimit.mockResolvedValue([]);
     mockResolveAccess.mockResolvedValue({
       role: "owner",
@@ -233,6 +263,8 @@ describe("get-recording-player-data view count", () => {
         expiresAt: null,
         status: "ready",
         chaptersJson: "[]",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
+        videoSizeBytes: 1234,
       },
     });
   });
@@ -257,5 +289,59 @@ describe("get-recording-player-data view count", () => {
 
     expect(result.viewCount).toBe(0);
     expect(result.recording.id).toBe("rec-1");
+  });
+
+  it("exposes pending seekable repair state to the player", async () => {
+    mockIsSeekableRepairPending.mockResolvedValue(true);
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(result.recording.seekableRepairPending).toBe(true);
+    expect(mockIsSeekableRepairPending).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      recordingId: "rec-1",
+      recordingStatus: "ready",
+      videoUrl: "https://cdn.example.com/rec-1.webm",
+    });
+  });
+
+  it("keeps owner media behind the same-origin video proxy", async () => {
+    mockResolveAccess.mockResolvedValueOnce({
+      role: "owner",
+      resource: {
+        id: "rec-1",
+        ownerEmail: "owner@example.com",
+        visibility: "private",
+        password: null,
+        expiresAt: null,
+        status: "ready",
+        chaptersJson: "[]",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
+        videoSizeBytes: 1234,
+        thumbnailUrl: "https://cdn.example.com/rec-1.jpg",
+      },
+    });
+
+    const result = await action.run({ recordingId: "rec-1" });
+
+    expect(mockResolvePlayerVideoUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-1",
+        videoUrl: "https://cdn.example.com/rec-1.webm",
+      }),
+      {
+        addPasswordToken: false,
+        proxyRemoteMedia: true,
+      },
+    );
+    expect(result.recording.videoUrl).toBe("/api/video/rec-1");
+    expect(mockResolvePlayerThumbnailUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "rec-1",
+        thumbnailUrl: "https://cdn.example.com/rec-1.jpg",
+      }),
+    );
+    expect(result.recording.thumbnailUrl).toBe("/api/thumbnail/rec-1");
+    expect(result.recording.videoSizeBytes).toBe(1234);
   });
 });

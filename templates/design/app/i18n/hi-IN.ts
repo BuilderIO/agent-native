@@ -4,6 +4,13 @@ const messages = {
   ...messagesByLocale["hi-IN"],
   designEditor: {
     ...messagesByLocale["hi-IN"].designEditor,
+    commenterRoleLabel: "टिप्पणीकार",
+    commenterRoleDescription: "समीक्षा टिप्पणियाँ देख और जोड़ सकते हैं",
+    toasts: {
+      ...messagesByLocale["hi-IN"].designEditor.toasts,
+      pdfExportError: "PDF निर्यात नहीं किया जा सका",
+      pdfDownloaded: "PDF डाउनलोड किया गया",
+    },
     nodeRewrite: {
       composerTitle: "चयन के बारे में पूछें या बदलें",
       send: "भेजें",
@@ -55,7 +62,7 @@ const messages = {
     commentMode: "टिप्पणी करें",
     sendToAgent: "एजेंट को भेजें",
     sendingToAgent: "एजेंट को भेजा जा रहा है…",
-    enterToPost: "पोस्ट करने के लिए Enter · नई पंक्ति के लिए Shift+Enter",
+    enterToPost: "पोस्ट करने के लिए Enter · नई पंक्ति के लिए Shift Enter",
     post: "पोस्ट करें",
     posting: "पोस्ट किया जा रहा है…",
     postFailed: "यह टिप्पणी पोस्ट नहीं की जा सकी",

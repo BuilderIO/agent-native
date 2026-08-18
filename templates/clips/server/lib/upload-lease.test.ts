@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // "the sweep selected the wrong population", so the reaper's population has to
 // be exercised against a real table rather than an asserted SQL string.
 let sqlite: Client;
+const mockAbortResumableUploadSession = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/db", () => ({
   getDbExec: () => sqlite,
@@ -17,6 +18,11 @@ vi.mock("../db/index.js", () => ({
     throw new Error("renewUploadLease is covered by the route tests");
   },
   schema: { recordings: {} },
+}));
+
+vi.mock("./resumable-upload-cleanup.js", () => ({
+  abortResumableUploadSession: (...args: unknown[]) =>
+    mockAbortResumableUploadSession(...args),
 }));
 
 const { reapExpiredUploads, UPLOAD_LEASE_EXPIRED_REASON, uploadLeaseExpiry } =
@@ -73,12 +79,14 @@ async function statusOf(id: string) {
 describe("upload lease", () => {
   beforeEach(async () => {
     sqlite = createClient({ url: ":memory:" });
+    mockAbortResumableUploadSession.mockResolvedValue(true);
     await sqlite.execute(`CREATE TABLE recordings (
       id TEXT PRIMARY KEY,
       owner_email TEXT NOT NULL,
       status TEXT NOT NULL,
       failure_reason TEXT,
       upload_lease_expires_at TEXT,
+      upload_generation_id TEXT,
       updated_at TEXT NOT NULL
     )`);
     await sqlite.execute(`CREATE TABLE application_state (
@@ -125,6 +133,53 @@ describe("upload lease", () => {
       failure_reason: UPLOAD_LEASE_EXPIRED_REASON,
     });
     expect(await chunkKeys()).toEqual([]);
+  });
+
+  it("removes the generation-scoped session for a reaped upload", async () => {
+    await insertRecording({
+      id: "fenced-dead",
+      status: "uploading",
+      lease: iso(-1_000),
+    });
+    await sqlite.execute({
+      sql: `UPDATE recordings SET upload_generation_id = ? WHERE id = ?`,
+      args: ["generation-1", "fenced-dead"],
+    });
+    await sqlite.execute({
+      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
+      args: [
+        "resumable-session-fenced-dead-generation-1",
+        JSON.stringify({
+          providerId: "s3",
+          sessionId: "remote-dead",
+          meta: { objectKey: "clips/fenced-dead.webm" },
+          bytesUploaded: 10,
+        }),
+      ],
+    });
+    await sqlite.execute({
+      sql: `INSERT INTO application_state (key, value) VALUES (?, ?)`,
+      args: ["resumable-session-fenced-dead", "{}"],
+    });
+
+    const result = await reapExpiredUploads({ now: NOW });
+
+    expect(result.failed).toBe(1);
+    const { rows } = await sqlite.execute({
+      sql: `SELECT key FROM application_state WHERE key LIKE ? ORDER BY key`,
+      args: ["resumable-session-fenced-dead%"],
+    });
+    expect(rows.map((row) => String(row.key))).toEqual([
+      "resumable-session-fenced-dead",
+    ]);
+    expect(result.resumableSessionsAborted).toBe(1);
+    expect(mockAbortResumableUploadSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        providerId: "s3",
+        sessionId: "remote-dead",
+      }),
+      expect.objectContaining({ label: "upload-reaper-fenced-dead" }),
+    );
   });
 
   it("reaches a long-stuck 'processing' recording that no upload session tracks", async () => {

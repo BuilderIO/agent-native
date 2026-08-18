@@ -235,7 +235,11 @@ The agent runs the same loop as the interactive chat — it can call multiple to
 {
   "poll": {
     "tool": "ask_app_status",
-    "arguments": { "app": "mail", "taskId": "task_123" }
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
   }
 }
 ```
@@ -248,9 +252,10 @@ If a bounded transient status read is unavailable, `ask_app_status` can return
 `status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, the
 original `app` and `taskId`, and `pollAfterMs` / `poll`. This means the status
 read is unavailable—not that the durable task failed. Retry `ask_app_status`
-with that exact `app` and `taskId`; never resubmit `ask_app` to recover, because
-submission can duplicate work. Permanent authentication, not-found, and
-protocol failures remain errors.
+with the returned `poll.arguments` unchanged, including `taskHandle` when
+present; legacy results without a handle must reuse the same `app` and `taskId`.
+Never resubmit `ask_app` to recover, because submission can duplicate work.
+Permanent authentication, not-found, and protocol failures remain errors.
 
 ## Authentication {#authentication}
 
@@ -428,4 +433,4 @@ Claude Code calls: ask-agent(message: "Prepare a full breakdown of Q3 signups by
 - [**MCP Apps**](/docs/mcp-apps) — inline UI resources for hosts that render them
 - [**MCP Clients**](/docs/mcp-clients) — the other direction: your app consuming external MCP servers
 - [**A2A Protocol**](/docs/a2a-protocol) — the sibling protocol for agent-to-agent calls
-- [**Actions**](/docs/actions) — how an action becomes an MCP tool
+- [**Actions**](/docs/actions-overview) — how an action becomes an MCP tool

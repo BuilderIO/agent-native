@@ -213,12 +213,11 @@ tú mismo. Es el campo, no todo el tiempo de ejecución del chat.
 Utilice `@agent-native/core/client/conversation` para renderizado estilo transcripción
 fuera del tiempo de ejecución completo del agente.
 
-| API                                             | Usar cuando                                                                                  |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| `<AgentConversation>`                           | Presentar una lista de mensajes de agentes normalizados.                                     |
-| `<AgentConversationMessageView>`                | Presentar un mensaje normalizado.                                                            |
-| `normalizeCodeAgentTranscriptForConversation()` | Convierta eventos de transcripción de code-agent en mensajes de conversación.                |
-| `useNearBottomAutoscroll()`                     | Mantenga una transcripción personalizada fijada en la parte inferior durante la transmisión. |
+| API                                             | Usar cuando                                                                   |
+| ----------------------------------------------- | ----------------------------------------------------------------------------- |
+| `<AgentConversation>`                           | Presentar una lista de mensajes de agentes normalizados.                      |
+| `<AgentConversationMessageView>`                | Presentar un mensaje normalizado.                                             |
+| `normalizeCodeAgentTranscriptForConversation()` | Convierta eventos de transcripción de code-agent en mensajes de conversación. |
 
 Esta capa intencionalmente da prioridad a los datos: usted es dueño de dónde provienen los mensajes y
 el renderizador posee rebajas, archivos adjuntos, avisos, artefactos y
@@ -503,6 +502,6 @@ razonamiento.
 
 - [**Drop-in Agent**](/docs/drop-in-agent) — monta `<AgentSidebar>` y `<AgentPanel>` con un recorrido centrado en el tutorial
 - [**Native Chat UI**](/docs/native-chat-ui) — el contrato de resultados de acciones detrás de los widgets de datos y renderizadores personalizados
-- [**Actions**](/docs/actions) — `defineAction()`, esquemas y la superficie de acciones que llaman estos componentes
+- [**Actions**](/docs/actions-overview) — `defineAction()`, esquemas y la superficie de acciones que llaman estos componentes
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — los hooks de colaboración y componentes de presencia en detalle
 - [**Sharing**](/docs/sharing) — configuración de `<ShareButton>` y `<ShareDialog>` para recursos con propietario

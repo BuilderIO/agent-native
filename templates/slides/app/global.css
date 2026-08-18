@@ -14,6 +14,12 @@
 
 @source "./**/*.{ts,tsx}";
 
+/* Keep the editable agent prompt readable even if the generated text utility
+   is missing or loses a cascade tie during the hosted build. */
+.agent-composer-root [data-agent-composer-slot="editor-input"] {
+  color: hsl(var(--foreground));
+}
+
 /* Hide the sidebar's built-in collapsed tab strip — AgentToggleButton in the
    toolbar serves this purpose instead, so we don't want a redundant bar. */
 button[title="Open agent sidebar"] {
@@ -61,6 +67,9 @@ button[title="Open agent sidebar"] {
   --sidebar-accent-foreground: 0 0% 93%;
   --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 50%;
+
+  --accent-cyan: 187 100% 50%;
+  --slides-thumbnail-shadow: 0 0% 0%;
 }
 
 .light {
@@ -102,6 +111,106 @@ button[title="Open agent sidebar"] {
   --sidebar-accent-foreground: 0 0% 10%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 65%;
+
+  /* Darker than the dark-theme #00E5FF so text stays >= 4.5:1 against a white popover. */
+  --accent-cyan: 193 82% 31%;
+}
+
+[data-slides-thumbnail-scroll]::before {
+  position: absolute;
+  z-index: 20;
+  inset: 0.5rem 0.5rem auto;
+  height: 1rem;
+  pointer-events: none;
+  content: "";
+  opacity: 0;
+  background: radial-gradient(
+    ellipse 82% 125% at 50% 0%,
+    hsl(var(--slides-thumbnail-shadow) / 0.18) 0%,
+    hsl(var(--slides-thumbnail-shadow) / 0.08) 48%,
+    transparent 100%
+  );
+  box-shadow: 0 0.2rem 0.45rem -0.25rem
+    hsl(var(--slides-thumbnail-shadow) / 0.64);
+  transition: opacity 150ms ease-out;
+}
+
+[data-slides-thumbnail-scroll="scrolled"]::before {
+  opacity: 1;
+}
+
+/* Slides keeps the shared visual inspector behavior, but the dock and context toolbar need the
+   flatter, filled-control treatment used by the slide editor. */
+.slide-style-inspector,
+.slide-context-toolbar {
+  --slides-inspector-control-background: hsl(var(--muted) / 0.82);
+  --slides-inspector-divider: hsl(var(--border) / 0.7);
+  --design-editor-control-bg: var(--slides-inspector-control-background);
+  --design-editor-control-border: transparent;
+  --design-editor-accent-color: #609ff8;
+}
+
+.slide-style-inspector > div:first-child {
+  min-height: 2.75rem;
+  padding: 0.5rem 0.75rem;
+}
+
+.slide-style-inspector > div:first-child > div > div:first-child {
+  font-size: 0.75rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.slide-style-inspector > div:last-child {
+  max-height: none;
+  padding: 0;
+}
+
+.slide-style-inspector .slides-inspector-section {
+  border-bottom: 0;
+  border-radius: 0;
+  padding: 0.625rem 0.75rem;
+}
+
+.slide-style-inspector .slides-inspector-section > div:first-child {
+  margin-bottom: 0.5rem;
+  padding: 0;
+  font-size: 0.6875rem;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.slide-style-inspector label[for] {
+  border: 0;
+  background: transparent;
+}
+
+.slide-style-inspector input {
+  border: 0;
+  border-radius: 0.125rem;
+  background: var(--slides-inspector-control-background);
+  box-shadow: none;
+}
+
+/* The toolbar sits on a muted surface, so its inputs need the opposite
+   treatment to stay readable: a light box rather than a darker fill. */
+.slide-context-toolbar input {
+  border: 1px solid var(--slides-inspector-divider);
+  border-radius: 0.25rem;
+  background: hsl(var(--background));
+  box-shadow: none;
+}
+
+.slide-style-inspector input:focus {
+  border: 0;
+}
+
+.slide-style-inspector .slides-inspector-segment,
+.slide-context-toolbar .slides-inspector-segment {
+  min-height: 1.5rem;
+  border: 0;
+  border-radius: 0.125rem;
+  background: var(--slides-inspector-control-background);
 }
 
 @layer base {
@@ -153,6 +262,48 @@ button[title="Open agent sidebar"] {
 .deck-grid-container {
   container-type: inline-size;
 }
+
+.deck-editor-shell {
+  --slides-editor-surface: hsl(var(--background));
+  container-type: inline-size;
+  container-name: deck-editor;
+}
+
+@supports (background: color-mix(in srgb, white, black)) {
+  .deck-editor-shell {
+    --slides-editor-surface: color-mix(
+      in srgb,
+      hsl(var(--background)) 35%,
+      var(--agent-native-lower-surface, hsl(var(--background))) 65%
+    );
+  }
+}
+
+.deck-editor-context-toolbar-host {
+  min-width: 0;
+  overflow: auto;
+}
+
+.deck-editor-context-toolbar-host--wide {
+  display: none;
+}
+
+.deck-editor-context-toolbar-host--narrow {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.deck-editor-context-toolbar-host--narrow
+  > [data-slide-inline-edit-surface="true"] {
+  min-width: 0;
+  width: 100%;
+  flex: 1 1 auto;
+}
+
+/* The element-controls toolbar (New Slide, text/style controls, zoom)
+ * always renders as its own row below the title/Share/Present bar, at every
+ * viewport size — the "wide" host above stays permanently hidden by the
+ * base rule so the row never merges into the title bar on large screens. */
 
 @container (max-width: 36rem) {
   .deck-grid {
@@ -280,19 +431,128 @@ button[title="Open agent sidebar"] {
 
 /* Full-bleed wrapper for blank-layout slides */
 .fmd-slide {
+  position: relative;
   width: 100%;
   height: 100%;
   display: flex;
   flex-direction: column;
-  font-family: "Poppins", sans-serif;
+  color: var(--ds-text, #ffffff);
+  background: var(--ds-bg, #0b0b0d);
+  font-family: var(--ds-body-font, "Poppins", sans-serif);
   box-sizing: border-box;
   overflow: hidden;
 }
 
+/* Semantic slide markup is persisted by the agent. Keep the classes useful
+   when a later edit omits inline styles, while leaving explicit inline values
+   authoritative through the normal CSS cascade. */
+.fmd-slide.fmd-slide--title {
+  justify-content: center;
+  align-items: flex-start;
+  gap: 24px;
+  padding: 80px 110px;
+}
+
+.fmd-slide.fmd-slide--content,
+.fmd-slide.fmd-slide--two-column {
+  justify-content: flex-start;
+  gap: 24px;
+  padding: 64px 80px;
+}
+
+.fmd-slide.fmd-slide--statement {
+  align-items: center;
+  justify-content: center;
+  gap: 24px;
+  padding: 64px 80px;
+  text-align: center;
+}
+
+.fmd-slide.fmd-slide--title h1,
+.fmd-slide.fmd-slide--content h1,
+.fmd-slide.fmd-slide--content h2,
+.fmd-slide.fmd-slide--two-column h1,
+.fmd-slide.fmd-slide--two-column h2,
+.fmd-slide.fmd-slide--statement h1,
+.fmd-slide.fmd-slide--statement h2 {
+  color: var(--ds-text, #ffffff);
+  font-family: var(
+    --ds-heading-font,
+    var(--ds-body-font, "Poppins", sans-serif)
+  );
+  font-weight: 700;
+  letter-spacing: -0.03em;
+}
+
+.fmd-slide.fmd-slide--title h1 {
+  font-size: 46px;
+  line-height: 1.1;
+}
+
+.fmd-slide.fmd-slide--content h1,
+.fmd-slide.fmd-slide--two-column h1,
+.fmd-slide.fmd-slide--statement h1 {
+  font-size: 38px;
+  line-height: 1.15;
+}
+
+.fmd-slide.fmd-slide--content h2,
+.fmd-slide.fmd-slide--two-column h2 {
+  font-size: 30px;
+  line-height: 1.2;
+}
+
+.fmd-slide.fmd-slide--statement h2 {
+  font-size: 42px;
+  line-height: 1.15;
+}
+
+.fmd-slide .fmd-subtitle,
+.fmd-slide .fmd-muted {
+  color: var(--ds-text-muted, rgba(255, 255, 255, 0.7));
+}
+
+.fmd-slide .fmd-subtitle {
+  font-size: 22px;
+  line-height: 1.4;
+}
+
+.fmd-slide .fmd-columns {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 32px;
+  width: 100%;
+  min-height: 0;
+}
+
+.fmd-slide .fmd-callout {
+  padding: 20px 24px;
+  border: 1px solid var(--ds-accent, rgba(255, 255, 255, 0.2));
+  border-radius: var(--ds-radius, 12px);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.fmd-slide .fmd-accent,
+.fmd-slide .fmd-cyan {
+  color: var(--ds-accent, #00e5ff);
+}
+
 .fmd-autofit-scale {
+  transform-origin: top left;
+}
+
+/* Only apply the fit transform once autofit is actually shrinking content
+   (see SlideRenderer's `data-fmd-autofit-active`). Any non-"none" `transform`
+   value — even the identity transform this rule used to apply unconditionally
+   — creates a new containing block for `position: absolute` descendants
+   (CSS Transforms spec). Freeform slide objects are authored against the
+   full `.fmd-slide` box; an always-on transform here silently re-anchored
+   them to this layer's smaller, padding-inset box instead, shifting them
+   off-canvas. Scoping the transform to the active-fit state keeps the
+   common (no scaling needed) case free of a containing block at all. */
+.fmd-autofit-scale[data-fmd-autofit-active] {
   transform: translate(var(--fmd-fit-x, 0px), var(--fmd-fit-y, 0px))
     scale(var(--fmd-fit-scale, 1));
-  transform-origin: top left;
 }
 
 .fmd-slide > [data-fmd-autofit-content] {
@@ -310,7 +570,7 @@ button[title="Open agent sidebar"] {
 
 /* Section label - cyan uppercase */
 .fmd-label {
-  color: #00e5ff;
+  color: var(--ds-accent, #00e5ff);
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 3px;
@@ -320,7 +580,7 @@ button[title="Open agent sidebar"] {
 
 /* Cyan accent color */
 .fmd-cyan {
-  color: #00e5ff !important;
+  color: var(--ds-accent, #00e5ff);
 }
 
 /* Large stat numbers */
@@ -837,8 +1097,14 @@ button[title="Open agent sidebar"] {
   font-style: normal;
 }
 
+/* An imported PPTX `a:srcRect` crop is rendered by oversizing the `<img>` past
+   its `overflow: hidden` box (e.g. `width: 255%; left: -77%`), so both caps
+   have to be lifted, not just the vertical one — `max-width: 100%` alone
+   silently shrank the image back to its box while the negative `left` kept
+   scrolling, leaving the visible crop window off the picture entirely. */
 .slide-content .fmd-slide img {
   border-radius: 0;
+  max-width: none;
   max-height: none;
   margin: 0;
 }
@@ -1080,6 +1346,103 @@ button[title="Open agent sidebar"] {
 /* Selection highlight */
 .slide-tiptap-editor .tiptap ::selection {
   background: rgba(96, 159, 248, 0.35);
+}
+
+/* Google Slides-style object selection chrome. The edge hit targets are wider
+   than their visible bars, but both centers sit on the 1px outline rather than
+   drifting into the selected object through the outline's border box. */
+[data-slide-selection-chrome="true"] [data-slide-resize-handle] {
+  box-sizing: border-box;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="nw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="se"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle-bar="true"] {
+  border: 1px solid #609ff8;
+  background: #fff;
+  box-shadow: none;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="nw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="se"] {
+  width: 7px;
+  height: 7px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="nw"] {
+  top: -4px;
+  left: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="ne"] {
+  top: -4px;
+  right: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="sw"] {
+  bottom: -4px;
+  left: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="se"] {
+  right: -4px;
+  bottom: -4px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="n"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="s"] {
+  width: 22px;
+  height: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="n"] {
+  top: -6.5px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="s"] {
+  bottom: -6.5px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="e"],
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="w"] {
+  width: 12px;
+  height: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="e"] {
+  right: -6.5px;
+}
+
+[data-slide-selection-chrome="true"] [data-slide-resize-handle="w"] {
+  left: -6.5px;
+}
+
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="n"]
+  [data-slide-resize-handle-bar="true"],
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="s"]
+  [data-slide-resize-handle-bar="true"] {
+  width: 14px;
+  height: 4px;
+}
+
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="e"]
+  [data-slide-resize-handle-bar="true"],
+[data-slide-selection-chrome="true"]
+  [data-slide-resize-handle="w"]
+  [data-slide-resize-handle-bar="true"] {
+  width: 4px;
+  height: 14px;
 }
 
 /* ─── Slide Transition Keyframes ─── */

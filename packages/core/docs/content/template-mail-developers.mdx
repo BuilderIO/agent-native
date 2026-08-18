@@ -323,13 +323,13 @@ Emails flowing through the API have the shape `{ id, threadId, from, to, cc, sub
 - `/draft-queue` and `/draft-queue/:id` — the draft queue list and detail view
 - `/settings` — account connections, tracking, automations, aliases, Slack intake
 - `/team` — redirects to `/settings?section=team`
-- `/extensions` — installed extension widgets (redirects to `/settings#extensions` when no extension id is given)
+- `/extensions` — installed extension widgets (redirects to `/settings/extensions` when no extension id is given)
 
 ## Customizing it
 
 Mail is yours to change. Everything important lives in a handful of places — start there.
 
-**Adding an agent capability.** Add a new file under `templates/mail/actions/` using `defineAction`. Your action becomes an agent tool, a CLI command (`pnpm action <name>`), and a typed frontend hook surface through `useActionQuery` / `useActionMutation`. Look at `templates/mail/actions/star-email.ts` for a short example or `templates/mail/actions/manage-automations.ts` for one with multiple sub-actions. See the [actions](/docs/actions) docs for the full pattern.
+**Adding an agent capability.** Add a new file under `templates/mail/actions/` using `defineAction`. Your action becomes an agent tool, a CLI command (`pnpm action <name>`), and a typed frontend hook surface through `useActionQuery` / `useActionMutation`. Look at `templates/mail/actions/star-email.ts` for a short example or `templates/mail/actions/manage-automations.ts` for one with multiple sub-actions. See the [actions](/docs/actions-overview) docs for the full pattern.
 
 **Changing the UI.** Routes are in `templates/mail/app/routes/` and components in `templates/mail/app/components/email/` and `templates/mail/app/components/layout/`. The app uses shadcn/ui primitives from `app/components/ui/` and Tabler Icons — stick to those.
 
@@ -343,7 +343,10 @@ Mail is yours to change. Everything important lives in a handful of places — s
 
 **Changing keyboard shortcuts.** Keybind handlers live in `templates/mail/app/components/email/` — search for `useHotkeys` or `addEventListener("keydown"` to find where each key is wired.
 
-Ask the agent to make any of these changes for you. The agent can edit its own source — see [Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+Make these changes in the repository's development workflow. The embedded app
+agent can edit source when its frame is intentionally granted workspace and
+write tooling; otherwise it operates the resulting app through its actions and
+data surface. See [Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## What's next
 
@@ -351,6 +354,6 @@ Ask the agent to make any of these changes for you. The agent can edit its own s
 - [**Inbox, Search & Automations**](/docs/template-mail-inbox) — the user-facing triage and automation flows
 - [**Drafting, Scheduling & the Draft Queue**](/docs/template-mail-drafts-and-queue) — the user-facing drafting flow
 - [**Talking to the Agent**](/docs/template-mail-agent) — prompts and the provider-API escalation path
-- [**Actions**](/docs/actions) — the action system this page's inventory is built on
+- [**Actions**](/docs/actions-overview) — the action system this page's inventory is built on
 - [**Extensions**](/docs/extensions) — building a widget for Mail's contact-sidebar slot
 - [**Automations**](/docs/automations) — the event-triggered engine mail's auto-triage rules build on

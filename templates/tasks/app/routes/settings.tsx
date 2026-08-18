@@ -1,5 +1,7 @@
-import { useT } from "@agent-native/core/client/i18n";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import {
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
 } from "@agent-native/core/client/settings";
@@ -20,10 +22,23 @@ export default function SettingsRoute() {
     <SettingsTabsPage
       extraTabs={agentSettingsTabs}
       general={
-        <div className="mx-auto w-full max-w-2xl">
+        <div className="mx-auto w-full max-w-2xl space-y-6">
           <p className="text-sm leading-6 text-muted-foreground">
             {t("header.pageSettings")}
           </p>
+
+          <SettingsGroup>
+            <SettingsRow
+              id="language"
+              label={t("settings.languageTitle")}
+              description={t("settings.languageDescription")}
+              control={
+                <div className="w-56">
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </div>
+              }
+            />
+          </SettingsGroup>
         </div>
       }
     />

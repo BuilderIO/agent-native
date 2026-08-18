@@ -689,7 +689,30 @@
       cursor = parent;
     }
 
-    return absolutePrimitiveContainerTargetForPoint(clientX, clientY);
+    var absoluteTarget = absolutePrimitiveContainerTargetForPoint(
+      clientX,
+      clientY,
+    );
+    if (absoluteTarget) return absoluteTarget;
+    // Everything above resolves only auto-layout (flex/grid) ancestors and
+    // absolute primitive containers, so an ordinary block-layout page answers
+    // every hit-test with no anchor at all and the host rejects each drop onto
+    // it as "anchor-unresolved". Block flow still has a well-defined insertion
+    // point, so fall back to appending into the nearest block container under
+    // the pointer rather than reporting no target.
+    var blockCursor: Element | null = hit;
+    while (blockCursor) {
+      if (isContainerDropTarget(blockCursor)) {
+        return {
+          anchor: blockCursor,
+          placement: "inside",
+          axis: "y",
+          dropMode: "flow-insert",
+        };
+      }
+      blockCursor = blockCursor.parentElement;
+    }
+    return null;
   }
 
   function showInsertionGuideFor(

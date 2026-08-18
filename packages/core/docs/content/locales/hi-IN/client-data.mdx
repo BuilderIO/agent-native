@@ -1,0 +1,435 @@
+---
+title: "डेटा और सिंक"
+description: "वे action हुक जिनका उपयोग app/ पढ़ने, लिखने, और उन्हीं actions के साथ लाइव-सिंक रहने के लिए करता है जिन्हें एजेंट कॉल करता है।"
+---
+
+# डेटा और सिंक
+
+क्लाइंट एप्लिकेशन से ऐप डेटा पढ़ने और लिखने का प्राथमिक तरीका [action](/docs/actions-overview) हुक के माध्यम से है। रिक्वेस्ट को actions में एम्बेड करके, आपका क्लाइंट और एजेंट दोनों आपके एप्लिकेशन के साथ एक ही तरीके से इंटरैक्ट कर सकते हैं।
+
+नीचे दिए गए उदाहरण में, एक टिकट को वर्तमान उपयोगकर्ता को पहले मैन्युअल रूप से एक ड्रॉपडाउन के माध्यम से असाइन किया जाता है, और फिर चैट एजेंट के माध्यम से। UI और एजेंट दोनों एक ही action का उपयोग करते हैं।
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa5548a35d1494c1f8a4f960fbe8d9b2c%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=a5548a35d1494c1f8a4f960fbe8d9b2c&alt=media&optimized=true"
+  alt="एक UI action और एक एजेंट action का एक ही परिणाम होने का उदाहरण।"
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="एक UI action और एक एजेंट action का एक ही परिणाम होने का उदाहरण।"
+/>
+
+## डेटा फ़ेच और म्यूटेट करें {#fetching-mutating}
+
+एक सामान्य ऐप अपनी खुद की API लेयर बनाता है और उसे हाथ से लिखे `fetch` रिक्वेस्ट के साथ कॉल करता है। एक एजेंट-नेटिव ऐप उस लेयर को छोड़ देता है: `app/` उन्हीं actions को कॉल करता है जो एजेंट के पास नीचे दिए गए हुक के माध्यम से टूल के रूप में पहले से हैं।
+
+<Diagram id="doc-block-client-data-fm-1" title="सामान्य fetch बनाम एक action हुक" summary="एक सामान्य घटक एक रूट को कॉल करता है जिसे केवल वही पहुंच सकता है। एक एजेंट-नेटिव घटक एक ऐसी action को कॉल करता है जिसे एजेंट भी कॉल कर सकता है।">
+
+```html
+<div class="diagram-fmcmp">
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">सामान्य</div>
+    <div class="diagram-node">घटक</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">fetch("/api/leads/:id")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>आपका API रूट</strong>
+      <small class="diagram-muted">केवल फ्रंटएंड इसे कॉल कर सकता है</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>डेटाबेस</div>
+  </div>
+  <div class="fmcmp-vs diagram-muted">बनाम</div>
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="diagram-node">घटक</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">useActionQuery("get-lead")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">get-lead action</span>
+      <small class="diagram-muted">एक एजेंट टूल भी है</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL डेटाबेस</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fmcmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.fmcmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+}
+.fmcmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.fmcmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-fmcmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-items: center;
+}
+.fmcmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+### Action हुक {#action-hooks}
+
+दो action हुक हैं जिनका उपयोग करने की सबसे अधिक संभावना है: `useActionQuery()` और `useActionMutation()`। ये दो हुक आपके ऐप की actions तक एक्सेस प्रदान करते हैं।
+
+#### useActionQuery {#use-action-query}
+
+<Signature
+  id="doc-block-client-data-1"
+  name="useActionQuery"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "action का रजिस्टर्ड नाम।",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "action का इनपुट, इसके `defineAction()` स्कीमा से टाइप किया गया।",
+    },
+    {
+      name: "options",
+      type: "UseQueryOptions",
+      optional: true,
+      description:
+        "[useQuery options](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) से सब कुछ, `queryKey` और `queryFn` को छोड़कर, जिन्हें हुक स्वयं सेट करता है।",
+    },
+  ]}
+  returns={{
+    type: "UseQueryResult<TResult>",
+    description:
+      '`["action", name, params]` के अंतर्गत कैश किया गया। किसी भी म्यूटेटिंग action के पूरा होने पर स्वचालित रूप से रीफ़ेच होता है, बिना किसी मैन्युअल इनवैलिडेशन की आवश्यकता के।',
+  }}
+/>
+
+यह हुक केवल-पढ़ने योग्य actions के लिए उपयोग किए जाने का इरादा है। यह [useQuery()](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery) फ़ंक्शन के इर्द-गिर्द एक पतला रैपर है।
+
+नीचे दिए गए उदाहरण में, `list-tickets` action को कॉल किया जाता है। यह सभी टिकट के लिए GET रिक्वेस्ट बनाने जैसा है।
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery("list-tickets", {});
+```
+
+निम्नलिखित उदाहरण `get-ticket` action के माध्यम से एक ही टिकट को फ़ेच करने के लिए एक रिक्वेस्ट दिखाता है। क्वेरी को केवल एक विशिष्ट टिकट लौटाने के लिए स्कोप करने के लिए एक `ticketId` प्रदान किया जाता है। अतिरिक्त `enabled` विकल्प यह सुनिश्चित करने के लिए प्रदान किया गया है कि क्वेरी स्वचालित रूप से नहीं चलती है, और केवल तब चलती है जब कोई `ticketId` मौजूद हो।
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery(
+  "get-ticket",
+  { ticketId: ticketId ?? "" },
+  { enabled: Boolean(ticketId) },
+);
+```
+
+#### useActionMutation {#use-action-mutation}
+
+<Signature
+  id="doc-block-client-data-2"
+  name="useActionMutation"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "action का रजिस्टर्ड नाम।",
+    },
+    {
+      name: "options",
+      type: "UseMutationOptions",
+      optional: true,
+      description:
+        "[useMutation options](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) से सब कुछ, `mutationFn` को छोड़कर, जिसे हुक स्वयं सेट करता है।",
+      fields: [
+        {
+          name: "method",
+          type: '"POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "डिफ़ॉल्ट रिक्वेस्ट मेथड को ओवरराइड करता है।",
+        },
+        {
+          name: "skipActionQueryInvalidation",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "सफलता पर स्वचालित कैश रीफ्रेश से बाहर निकलता है।",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "UseMutationResult",
+    description:
+      'सफलता पर, `source: "action"` के साथ एक चेंज इवेंट उत्सर्जित करता है, इसलिए प्रभावित डेटा पढ़ने वाला हर `useActionQuery()` स्वचालित रूप से रीफ़ेच होता है। किसी मैन्युअल इनवैलिडेशन की आवश्यकता नहीं है।',
+  }}
+/>
+
+यह हुक उन actions के लिए उपयोग किए जाने का इरादा है जो डेटा बदलती हैं, जैसे बनाना, अपडेट करना, या कुछ भेजना। यह [useMutation()](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation) फ़ंक्शन के इर्द-गिर्द एक पतला रैपर है।
+
+`useActionQuery()` के विपरीत, action का इनपुट हुक को स्वयं पास नहीं किया जाता है। इसे `mutate()` या `mutateAsync()` को पास किया जाता है जब आप म्यूटेशन चलाने के लिए तैयार हों।
+
+नीचे दिए गए उदाहरण में, `send-ticket-reply` action को किसी टिकट पर रिप्लाई पोस्ट करने के लिए कॉल किया जाता है। किसी इवेंट हैंडलर से, जैसे किसी बटन के `onClick` से, `mutate()` कॉल करें।
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply");
+
+mutate({ ticketId, body: draft });
+```
+
+निम्नलिखित उदाहरण एक `onSuccess` विकल्प के साथ वही म्यूटेशन दिखाता है। कैश इनवैलिडेशन हर म्यूटेशन के बाद स्वचालित रूप से होता है, इसलिए `onSuccess` की आवश्यकता केवल लोकल साइड इफ़ेक्ट के लिए होती है, जैसे रिप्लाई भेजने के बाद रिप्लाई कंपोज़र को साफ़ करना।
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply", {
+  onSuccess: () => setDraft(""),
+});
+
+mutate({ ticketId, body: draft });
+```
+
+### callAction {#call-action}
+
+<Signature
+  id="doc-block-client-data-3"
+  name="callAction"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "action का रजिस्टर्ड नाम।",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "action का इनपुट, इसके `defineAction()` स्कीमा से टाइप किया गया।",
+    },
+    {
+      name: "options",
+      type: "ClientActionCallOptions",
+      optional: true,
+      description: "नीचे सब कुछ वैकल्पिक है।",
+      fields: [
+        {
+          name: "method",
+          type: '"GET" | "POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "डिफ़ॉल्ट रिक्वेस्ट मेथड को ओवरराइड करता है।",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "रिक्वेस्ट को कैंसल करता है।",
+        },
+        {
+          name: "timeoutMs",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "उन actions के लिए डिफ़ॉल्ट 60 सेकंड टाइमआउट को ओवरराइड करता है जो वैध रूप से अधिक समय लेती हैं।",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TResult>",
+    description:
+      "ऊपर दिए गए हुक के विपरीत, यहां कोई कैश और कोई स्वचालित रीफ़ेच नहीं है। यदि अन्य UI परिणाम पर निर्भर है तो इसे मैन्युअल इनवैलिडेशन के साथ जोड़ें।",
+  }}
+/>
+
+यह फ़ंक्शन React रेंडर फ्लो के बाहर इंपेरेटिव वन-ऑफ़ action कॉल के लिए है, जैसे कोई सादा इवेंट हैंडलर, एक स्क्रिप्ट, या कोई अन्य नॉन-React कोड पथ। यह एक हुक परिणाम के बजाय सीधे एक प्रॉमिस लौटाता है।
+
+नीचे दिए गए उदाहरण में, `update-ticket` action को एक कीबोर्ड शॉर्टकट हैंडलर से React के रेंडर फ्लो के बाहर कॉल किया जाता है, जो टिकट को एक रेप को असाइन करता है।
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction("update-ticket", {
+  ticketId,
+  assignedToEmail: "jordan@example.com",
+});
+```
+
+निम्नलिखित उदाहरण `timeoutMs` विकल्प के साथ वही कॉल दिखाता है, जो उन actions के लिए उपयोगी है जो वैध रूप से डिफ़ॉल्ट 60 सेकंड टाइमआउट से अधिक समय लेती हैं।
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction(
+  "update-ticket",
+  { ticketId, assignedToEmail: "jordan@example.com" },
+  { timeoutMs: 120_000 },
+);
+```
+
+हर `useActionQuery()`, `useActionMutation()`, और `callAction()` रिक्वेस्ट 60 सेकंड के टाइमआउट से बंधी है, और टाइमआउट बिना साइलेंट रीट्राई के त्रुटियों के रूप में सामने आते हैं। `useActionQuery()` React Query के एबॉर्ट सिग्नल का उपयोग करते हुए सुपरसीडेड रिक्वेस्ट को भी स्वचालित रूप से कैंसल करता है।
+
+## useDbSync {#usedbsync}
+
+<Signature
+  id="doc-block-client-data-4"
+  name="useDbSync"
+  params={[
+    {
+      name: "options",
+      type: "UseDbSyncOptions",
+      description: "हर फ़ील्ड वैकल्पिक है।",
+      fields: [
+        {
+          name: "queryClient",
+          type: "QueryClient",
+          optional: true,
+          description:
+            "कैश इनवैलिडेशन के लिए उपयोग किया जाने वाला React Query क्लाइंट।",
+        },
+        {
+          name: "pollUrl",
+          type: "string",
+          optional: true,
+          default: '"/_agent-native/poll"',
+          description: "पोल एंडपॉइंट URL।",
+        },
+        {
+          name: "sseUrl",
+          type: "string | false",
+          optional: true,
+          default: '"/_agent-native/events"',
+          description:
+            "SSE एंडपॉइंट URL। केवल पोलिंग उपयोग करने के लिए `false` पास करें।",
+        },
+        {
+          name: "interval",
+          type: "number",
+          optional: true,
+          default: "2000",
+          description: "मिलीसेकंड में पोलिंग इंटरवल।",
+        },
+        {
+          name: "fallbackInterval",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "SSE कनेक्टेड रहते हुए पोल इंटरवल, बैकअप के रूप में यदि कोई इवेंट मिस हो जाए। एक डिस्कनेक्टेड टैब इसके बजाय तेज़ `interval` (या एक फ़िक्स्ड इडल कैडेंस) पर पोल करता है।",
+        },
+        {
+          name: "pauseWhenHidden",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "ब्राउज़र टैब छिपे होने पर पोलिंग रोकें। छिपे टैब SSE को कनेक्टेड रखते हैं और सक्रिय रहते हुए हर 10 सेकंड में, इडल होने पर 60 सेकंड में एक बार से ज़्यादा तेज़ी से पोल नहीं करते।",
+        },
+        {
+          name: "ignoreSource",
+          type: "string",
+          optional: true,
+          description:
+            "अनदेखा करने के लिए प्रति-टैब रिक्वेस्ट सोर्स, ताकि कोई टैब अपने ही राइट्स से रीफ़ेच न करे।",
+        },
+        {
+          name: "onEvent",
+          type: "(data) => void",
+          optional: true,
+          description:
+            "जब SSE या पोलिंग को कोई चेंज इवेंट मिले तो वैकल्पिक कॉलबैक।",
+        },
+        {
+          name: "actionInvalidatePredicate",
+          type: "(query: Query) => boolean",
+          optional: true,
+          description:
+            "किसी action इवेंट द्वारा ट्रिगर किए गए व्यापक इनवैलिडेशन को फ़िल्टर करता है। शायद ही कभी आवश्यक होता है। किसी महंगी सक्रिय क्वेरी को एक्सप्लिसिट-रिफ्रेश सिमेंटिक्स पर रखने के लिए उपयोग करें जबकि सामान्य सोर्स-वर्ज़न वाली क्वेरीज़ फिर भी `useChangeVersion` के माध्यम से रिएक्ट करती रहें।",
+        },
+        {
+          name: "suppressActionInvalidationFor",
+          type: "string[]",
+          optional: true,
+          description:
+            "उन action नामों की सूची जिनके सिंक इवेंट को सभी action क्वेरीज़ को इनवैलिडेट नहीं करना चाहिए। केवल उन हाई-वॉल्यूम बैकग्राउंड actions के लिए जो पहले से अपना खुद का संकीर्ण इनवैलिडेशन करते हैं।",
+        },
+        {
+          name: "queryKeys",
+          type: "string[]",
+          optional: true,
+          description:
+            "डेप्रीकेटेड और अनदेखा किया गया। पुराने कॉल साइट्स के लिए रखा गया।",
+        },
+      ],
+    },
+  ]}
+  returns={{ type: "void" }}
+/>
+
+यह हुक UI को उन डेटाबेस बदलावों के साथ सिंक में रखने के लिए है जो आपकी अपनी actions के बाहर होते हैं, जैसे कोई एजेंट राइट, कोई वेबहुक, या किसी अन्य ब्राउज़र टैब से किया गया बदलाव। यह सर्वर-सेंट इवेंट पर बदलावों को सुनता है, और सर्वर-सेंट इवेंट उपलब्ध न होने पर पोलिंग पर वापस आ जाता है।
+
+```ts
+import { useDbSync } from "@agent-native/core/client/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+
+function App() {
+  const queryClient = useQueryClient();
+
+  useDbSync({
+    queryClient,
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
+  });
+
+  return <div>...</div>;
+}
+```
+
+सामान्य CRUD के लिए, `useActionQuery()` और `useActionMutation()` को प्राथमिकता दें। म्यूटेटिंग actions `source: "action"` उत्सर्जित करती हैं, इसलिए वे हुक तुरंत रीफ़ेच होते हैं। एजेंट, किसी वेबहुक, या किसी अन्य टैब से आने वाले बदलाव इसके बजाय `useDbSync()` के माध्यम से आते हैं, SSE या पोलिंग फ़ॉलबैक पर। यदि किसी कस्टम key पर कच्चे `useQuery()` कॉल को सिंक करने की आवश्यकता है, तो [सिंक इंटरनल्स](/docs/client-sync-internals) देखें। यदि आपको सीधे `application_state` पर लिखने की आवश्यकता है, तो [उन्नत](/docs/client-advanced) देखें।
+
+## आगे क्या
+
+- [**अवलोकन**](/docs/client-overview) - `app/` और `public/` डायरेक्टरी लेआउट जिसमें इस पेज के हुक रहते हैं
+- [**एजेंट चैट**](/docs/client-agent-chat) - एजेंट के लिए प्रॉम्प्ट भेजना और कॉन्टेक्स्ट स्टेज करना
+- [**Actions**](/docs/actions-overview) - इस पेज के हर हुक के पीछे `defineAction` सतह
+- [**उन्नत**](/docs/client-advanced) - सीधी `application_state` एक्सेस
+- [**सिंक इंटरनल्स**](/docs/client-sync-internals) - `useChangeVersion` के साथ कच्चे `useQuery` को सिंक करना
+- [**रीयल-टाइम सिंक**](/docs/key-concepts#polling-sync) - `useDbSync` UI को कैसे करेंट रखता है

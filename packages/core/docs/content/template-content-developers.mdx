@@ -278,7 +278,7 @@ Every operation is a TypeScript file in `templates/content/actions/`, auto-mount
 
 **Comments** — `list-comments`, `add-comment`, `update-comment`, `delete-comment`.
 
-**Databases, properties & views** — `create-content-database`, `create-inline-content-database`, `get-content-database`, `list-content-databases`, `delete-content-database`, `restore-content-database`, `list-trashed-content-databases`, `add-database-item`, `duplicate-database-item`, `duplicate-database-items`, `delete-database-items`, `move-database-item`, `update-content-database-view`, `get-content-database-personal-view`, `update-content-database-personal-view`, `list-document-properties`, `configure-document-property`, `set-document-property`, `duplicate-document-property`, `delete-document-property`, `reorder-document-property`, `submit-content-database-form`.
+**Databases, properties & views** — `create-content-database`, `create-inline-content-database`, `get-content-database`, `list-content-databases`, `delete-content-database`, `restore-content-database`, `list-trashed-content-databases`, `add-database-item`, `duplicate-database-item`, `duplicate-database-items`, `remove-database-items`, `move-database-item`, `update-content-database-view`, `get-content-database-personal-view`, `update-content-database-personal-view`, `list-document-properties`, `configure-document-property`, `set-document-property`, `duplicate-document-property`, `delete-document-property`, `reorder-document-property`, `submit-content-database-form`.
 
 **External database sources** — `attach-content-database-source`, `disconnect-content-database-source`, `get-content-database-source`, `refresh-content-database-source`, `review-content-database-source-change-set`, `bind-content-database-source-field`, `add-content-database-source-field-property`, `suggest-source-join-key`, `list-notion-database-sources`, `list-builder-cms-models`. Builder's write-back path adds `prepare-builder-source-review`, `preview-builder-source-review`, `prepare-builder-source-execution`, `validate-builder-source-execution`, `execute-builder-source-execution`, `execute-builder-source-batch`, `cancel-prepared-builder-source-update`, `stage-builder-revision`, `stage-builder-source-bulk-update`, `materialize-builder-required-fields`, and `process-builder-body-hydration`.
 
@@ -304,13 +304,58 @@ Every operation is a TypeScript file in `templates/content/actions/`, auto-mount
 | `_app.favorites.tsx`                                                                                               | Redirects into the current space's Favorites Files-database document                                                                                         |
 | `_app.local-files.tsx`                                                                                             | `/local-files` — connect, pull, check, and push local folders                                                                                                |
 | `_app.settings.tsx`                                                                                                | Settings                                                                                                                                                     |
-| `_app.team.tsx`                                                                                                    | `/team` redirects to `/settings#organization`                                                                                                                |
+| `_app.team.tsx`                                                                                                    | `/team` redirects to `/settings/organization`                                                                                                                |
 | `_app.agent.tsx`                                                                                                   | `/agent` — the full agent chat tab page                                                                                                                      |
 | `_app.extensions.tsx` + `_app.extensions._index.tsx` + `_app.extensions.$id.tsx` + `_app.extensions.$id.$slug.tsx` | `/extensions` — sandboxed widget routes (the framework's Alpine.js extension system; unrelated to the Tiptap "editor extensions" used elsewhere in this doc) |
 | `p.$id.tsx`                                                                                                        | `/p/:id` — public, read-only document view with a read-only agent chat                                                                                       |
 | `$id.tsx`                                                                                                          | Legacy `/:id` redirect to `/page/:id`                                                                                                                        |
 
 ## Customizing it
+
+### Data grid boundary {#data-grid}
+
+Content's database table view composes the reusable `DataGrid` component from
+`@agent-native/toolkit/data-grid`. The adapter is
+`app/components/editor/database/DatabaseView.tsx`.
+
+Toolkit supplies the shared spreadsheet mechanics: keyboard navigation,
+active-cell behavior, the scroll surface, and the optional selection and column
+width callbacks. Content supplies `ContentDatabaseItem` rows and typed
+columns, then keeps database-specific property rendering, grouping, filters,
+row drag and drop, previews, access checks, and action-backed mutations in the
+app.
+
+The table preserves its existing Content surface through the grid's custom
+slots and scroll-container props:
+
+```tsx filename="app/components/editor/database/DatabaseView.tsx"
+import { DataGrid, type DataGridColumn } from "@agent-native/toolkit/data-grid";
+import type { ContentDatabaseItem } from "@shared/api";
+
+const dataGridColumns: readonly DataGridColumn<ContentDatabaseItem>[] = [
+  // Content maps its name, property, and action columns here.
+];
+
+<DataGrid
+  rows={items}
+  columns={dataGridColumns}
+  getRowId={(item) => item.id}
+  columnWidths={columnWidths}
+  contentClassName="min-w-[720px]"
+  scrollContainerProps={{
+    "data-database-scroll-surface": "table",
+    tabIndex: 0,
+  }}
+/>;
+```
+
+The live implementation also supplies Content's custom `renderHeader` and
+`renderBody` callbacks around this shell.
+
+Do not move Content database models, access checks, grouping, drag and drop,
+or domain actions into Toolkit. If a change is reusable spreadsheet behavior,
+extend the Toolkit contract first. If it describes how Content rows behave,
+keep it in the app adapter and its actions.
 
 <AnnotatedCode
   id="doc-block-content10"
@@ -343,6 +388,9 @@ The places to look when changing behavior:
 
 - **`actions/`** — every operation the agent or UI can perform. Add a new file like `actions/publish-to-wordpress.ts` using `defineAction` and both sides get it for free.
 - **`app/routes/`** — the page surface described above.
+- **`app/components/editor/database/DatabaseView.tsx`** — the Content database
+  table adapter. It composes `@agent-native/toolkit/data-grid` while keeping
+  database-specific rendering and actions local.
 - **`app/components/editor/`** — the Tiptap editor. Add a new node type under `extensions/` and register it in `DocumentEditor.tsx`. The bubble toolbar, slash menu, and hover previews are all component files you can edit.
 - **`.agents/skills/`** — guidance the agent reads before acting: `content`, `document-editing`, `notion-integration`, `creative-context`, plus the framework skills. Add a new skill folder when you add a capability big enough to need its own guidance.
 - **`AGENTS.md`** — the top-level agent guide with the action cheatsheet. Update it whenever you add a feature so the agent discovers it without exploring.
@@ -360,5 +408,5 @@ The agent can make most of these changes itself — ask it to "add a tags column
 - [Databases, properties & forms](/docs/template-content-databases) — the full inline-database and external-source data model
 - [Local files, Notion & Builder CMS sync](/docs/template-content-sync) — the non-developer view of every sync surface
 - [Database](/docs/database) — the framework's Drizzle conventions and migration rules
-- [Actions](/docs/actions) — the action system every operation above is built on
+- [Actions](/docs/actions-overview) — the action system every operation above is built on
 - [Sharing](/docs/sharing) — the share-grant model `document_shares` builds on

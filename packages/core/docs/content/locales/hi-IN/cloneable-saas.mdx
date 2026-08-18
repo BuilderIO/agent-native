@@ -1,17 +1,17 @@
 ---
 title: "ऐप्स"
-description: "एक कार्यशील SaaS उत्पाद से शुरू करें और इसे अपना बनाएं - एजेंट शामिल।"
+description: "एक पूर्ण SaaS उत्पाद से शुरू करें जिसमें UI, डेटाबेस, ऑथ और एजेंट पहले से बने हुए हैं।"
 ---
 
 # ऐप्स
 
-क्या आप अपना खुद का AI-पावर्ड एनालिटिक्स टूल भेजना चाहते हैं? मेल क्लाइंट? फॉर्म बिल्डर? एक उदाहरण ऐप चुनें, और आपको मिनटों में एक कार्यशील SaaS मिल जाएगा - एजेंट, डेटाबेस, ऑथ, और परिनियोजन पाइपलाइन पहले से ही तैयार है।
+एजेंट-नेटिव ऐप्स दो प्रकार के होते हैं: टेम्पलेट, जिनमें पूरा browser UI होता है, और automation-first ऐप्स, जिनमें नहीं होता — जैसे कोई Slack bot, कोई रात की रिपोर्ट, या कोई webhook responder। यह दस्तावेज़ टेम्पलेट को कवर करता है; दूसरे प्रकार के लिए [Automation-First Apps](/docs/pure-agent-apps) देखें।
 
-अधिकांश स्टार्टर टेम्प्लेट आपको एक खाली मचान और एक लंबी TODO सूची देते हैं। एजेंट-नेटिव उसे फ़्लिप करता है। प्रत्येक उदाहरण ऐप एक **पूर्ण, SaaS-ग्रेड उत्पाद** है - पहले ही दिन से चलाने योग्य, पहले से ही शिप करने योग्य, और अनुकूलित करने, ब्रांड करने और तैनात करने के लिए पूरी तरह से आपका। उन्हें क्लोन करने योग्य SaaS के रूप में सोचें, स्टार्टर किट के रूप में नहीं: आप एक तैयार उत्पाद फोर्क कर रहे हैं, बॉयलरप्लेट को नहीं देख रहे हैं।
+एक टेम्पलेट एक पूर्ण SaaS उत्पाद है: UI, डेटाबेस, ऑथ और एजेंट पहले से बने और आपस में जुड़े हुए। एक चुनें, उसे ब्रांड करें, और खाली मचान से शुरू करने के बजाय उसे अपने स्वयं के उत्पाद के रूप में तैनात करें। इस मॉडल को क्लोन करने योग्य SaaS कहा जाता है: आप एक तैयार उत्पाद से शुरू करते हैं, मचान से नहीं।
 
 ## उदाहरण ऐप्स {#catalog}
 
-प्रत्येक एक वास्तविक ऐप है जिसका आप आज उपयोग कर सकते हैं, और इसके अपने संस्करण के लिए लॉन्चिंग पैड भी है।
+हर ऐप एक पूर्ण उत्पाद है जिसे आप आज चला सकते हैं और अपने अनुसार अनुकूलित कर सकते हैं।
 
 | ऐप                                        | यह क्या है                                                                                                           |
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -29,26 +29,139 @@ description: "एक कार्यशील SaaS उत्पाद से श
 | [**Plan**](/docs/template-plan)           | चित्र, वायरफ्रेम और एनोटेशन के साथ विज़ुअल योजनाएं और पीआर पुनर्कथन।                                                 |
 | [**Dispatch**](/docs/template-dispatch)   | कार्यस्थान नियंत्रण विमान: साझा रहस्य, पुन: प्रयोज्य एकीकरण, Slack/टेलीग्राम, निर्धारित कार्य।                       |
 
-डोमेन ऐप नहीं चाहिए? जब आप ऐसा बुनियादी ऐप चाहते हैं जिससे उपयोगकर्ता तुरंत बात कर सकें और जिसे actions, native results और screens के साथ बढ़ाया जा सके, तो [Chat](/docs/template-chat) का उपयोग करें. [Automation-First Apps](/docs/pure-agent-apps) केवल तब उपयोग करें जब workflow को अभी browser UI की ज़रूरत न हो.
+यदि इनमें से कोई भी आपके डोमेन से मेल नहीं खाता, तो [Chat](/docs/template-chat) से शुरू करें और इसे actions, native results और screens के साथ बढ़ाएँ। यदि आपके workflow को browser UI की ज़रूरत नहीं है, तो [Automation-First Apps](/docs/pure-agent-apps) का उपयोग करें।
 
-[Apps](/apps) के अंतर्गत पूरा कैटलॉग देखें, या सीधे एक पर जाएं - उदाहरण के लिए, यदि आप वर्कस्पेस-शैली ऐप चाहते हैं तो [Dispatch](/docs/template-dispatch) शुरू करने के लिए एक शानदार जगह है।
+हर ऐप के अपने docs हैं जो उसकी architecture, actions और customization को कवर करते हैं। लाइव होस्टेड संस्करण [agent-native.com/apps](/apps) पर ब्राउज़ करें, या वर्कस्पेस-शैली ऐप के लिए [Dispatch](/docs/template-dispatch) से शुरू करें।
+
+## कम्युनिटी टेम्पलेट {#community-templates}
+
+CLI पिकर में नाम वाले टेम्पलेट **फ़र्स्ट-पार्टी** हैं: Agent Native उन्हें
+फ़्रेमवर्क के साथ मेंटेन, टेस्ट, डॉक्यूमेंट और रिलीज़ करता है। **कम्युनिटी
+टेम्पलेट** का मेंटेनेंस और वर्ज़निंग उसके रिपॉज़िटरी मालिक की ज़िम्मेदारी है।
+वह उसी फ़्रेमवर्क सतह का उपयोग कर सकता है, लेकिन कम्युनिटी सूची में शामिल होना
+Agent Native का समर्थन या सहायता का वादा नहीं है।
+
+`create` चलाएँ, **कम्युनिटी टेम्पलेट** चुनें और किसी public GitHub repository
+का सामान्य URL पेस्ट करें:
+
+```bash
+https://github.com/owner/repo
+```
+
+यदि repository root एक Agent Native ऐप है, तो CLI किसी दूसरे picker के बिना
+सीधे उसे install करता है। यदि repository एक Agent Native workspace है, तो CLI
+`apps/*` के valid direct children खोजता है, `dispatch` हटाता है और पूछता है कि
+कौन सा ऐप install करना है।
+
+Non-empty `agent-native.workspaceCore` marker repository को workspace बनाता है,
+भले ही root package भी `@agent-native/core` पर depend करता हो; malformed marker
+reject होता है।
+
+Scripts के लिए वही सामान्य URL `--template` को दें या छोटा `community:` रूप
+इस्तेमाल करें। दोहराने योग्य शुरुआती बिंदु के लिए `#` के बाद branch, tag या
+commit पिन करें। Ref न देने पर CLI पहले `main`, फिर `master` आज़माता है:
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest create my-app --template https://github.com/owner/repo#v1.2.0
+```
+
+Workspace repository से source ऐप बिना interaction के चुनने के लिए
+`?app=<app-name>` इस्तेमाल करें। Selector optional `#ref` से पहले आता है। पूरी
+value को quote करें, क्योंकि zsh जैसे shells `?` को glob मानते हैं:
+
+```bash
+npx @agent-native/core@latest create my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+npx @agent-native/core@latest create my-app --template 'https://github.com/owner/repo?app=analytics#v1.2.0'
+```
+
+Workspace के बाहर `create` चुने हुए source ऐप को standalone बनाता है। उसे किसी
+मौजूदा workspace में जोड़ने के लिए community repository स्पष्ट रूप से दें,
+क्योंकि `add-app` picker केवल first-party templates दिखाता है। Source workspace
+से interactively चुनने के लिए `?app` छोड़ दें या scriptable install के लिए इसे
+शामिल करें:
+
+```bash
+npx @agent-native/core@latest add-app my-app --template community:owner/repo#v1.2.0
+npx @agent-native/core@latest add-app my-app --template 'community:owner/repo?app=analytics#v1.2.0'
+```
+
+केवल public GitHub repositories स्वीकार किए जाते हैं। Private repositories,
+non-GitHub hosts, GitHub tree या subdirectory URLs और nested app paths समर्थित
+नहीं हैं। Root ऐप में पढ़ने योग्य `package.json` होना चाहिए जो
+`@agent-native/core` को `dependencies`, `devDependencies` या
+`peerDependencies` में सूचीबद्ध करे। Workspace repository में हर selectable
+source ऐप को यही शर्त सीधे `apps/<app-name>/` में पूरी करनी होगी; `dispatch`
+कभी selectable नहीं है।
+
+Community workspace ऐप portable leaf होने चाहिए, monorepo के arbitrary हिस्से
+नहीं:
+
+- Default `catalog:` dependency refs source repository root के
+  `pnpm-workspace.yaml` से resolve होते हैं; named catalog refs समर्थित नहीं हैं;
+- `@agent-native/core`, `@agent-native/dispatch` और `@agent-native/toolkit` के
+  `workspace:*` refs published versions में rewrite होते हैं। दूसरे sibling
+  workspace packages copy नहीं होते; उन्हें publish करें और concrete version
+  इस्तेमाल करें;
+- source `workspaceCore` dependency हटा दी जाती है। Inherited canonical
+  workspace auth और agent-chat plugins standalone install में detach या
+  destination workspace से rebind होते हैं। Source `workspaceCore` package का
+  कोई दूसरा import स्पष्ट error देता है; उस code को app में ले जाएँ या concrete
+  dependency के रूप में publish करें।
+
+बाकी पूरा ऐप उसके `package.json` के साथ रखें: उपयोग होने पर
+`agent-native.json`, source, actions, एजेंट निर्देश और डेटाबेस सेटअप। Catalog
+के लिए तैयार repository में ये भी होने चाहिए:
+
+- लाइसेंस और मेंटेनर या सहायता लिंक;
+- सेटअप चरणों, ज़रूरी environment variables और सही CLI कमांड वाला README;
+- केवल placeholders वाला `.env.example`, जिसमें कोई secret, ग्राहक डेटा,
+  runtime database या generated build output न हो;
+- काम करने वाला install और development command, typecheck और टेम्पलेट के
+  अनुसार tests।
+
+Installer resolved `source` और `ref` को installed ऐप के `package.json` में
+`agent-native.communityTemplate` के अंतर्गत दर्ज करता है। Workspace repository
+से चुने गए ऐप source ऐप को `agent-native.communityTemplate.app` के रूप में भी
+दर्ज करते हैं। `agent-native template sync` केवल first-party टेम्पलेट के लिए
+है; community टेम्पलेट अपडेट करते समय नए upstream ref की समीक्षा करें और बदलाव
+खुद merge करें।
+
+पूरी ऐप, action, state, security और publishing checklist के लिए
+[Creating Templates](/docs/creating-templates) देखें।
+
+> **Dependencies इंस्टॉल करने या कोड चलाने से पहले कम्युनिटी कोड की समीक्षा
+> करें।** कम्युनिटी टेम्पलेट third-party रिपॉज़िटरी से डाउनलोड होते हैं; Agent
+> Native उन्हें sandbox, audit या maintain नहीं करता। CLI केवल source डाउनलोड
+> करता है; वह dependencies इंस्टॉल नहीं करता या template scripts नहीं चलाता।
+> Source, license, dependencies और package install scripts जाँचें और पिन किया
+> हुआ विश्वसनीय ref पसंद करें।
+
+Hosted demo वैकल्पिक है। यदि आप एक देते हैं, तो उसे सार्वजनिक try-it लिंक बनाएँ
+और sign-in, seed data या provider की आवश्यकताएँ लिखें। इंस्टॉल के लिए
+रिपॉज़िटरी ही source of truth रहती है और रिपॉज़िटरी मालिक टेम्पलेट और demo,
+दोनों के लिए ज़िम्मेदार रहता है।
+
+सूची में आना चाहते हैं? रिपॉज़िटरी URL, एक वाक्य का विवरण, मेंटेनर और लाइसेंस
+जानकारी, टेस्ट किया हुआ CLI कमांड और वैकल्पिक hosted demo URL के साथ
+[कम्युनिटी टेम्पलेट सबमिट करें](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)।
 
 ## आपको बॉक्स से क्या मिलता है {#what-you-get}
 
-प्रत्येक उदाहरण ऐप उन हिस्सों के साथ भेजा जाता है जिन्हें बनाने में आम तौर पर महीनों का समय लगता है:
+हर उदाहरण ऐप में शामिल है:
 
-- **एक कार्यशील एजेंट** - पहले से ही ऐप से जुड़ा हुआ है, पहले से ही आपके डेटा पर actions लेने में सक्षम है, आप जो देख रहे हैं उसके बारे में पहले से ही संदर्भ-जागरूक है। यह कैसे काम करता है इसके लिए [Messaging the agent](/docs/messaging) देखें।
-- **प्रामाणिक** — साइन इन, सत्र, संगठन, बहु-किरायेदार अलगाव। पहले ही हो चुका है.
-- **एक डेटाबेस** - प्रत्येक उदाहरण ऐप की अपनी स्कीमा, क्वेरीज़ और माइग्रेशन जाने के लिए तैयार हैं। अपना खुद का SQL डेटाबेस (Postgres, SQLite, Turso, D1) लाएँ - फ्रेमवर्क अनुकूल है।
-- **एक वास्तविक समय UI** - एजेंट जो करता है उसके साथ स्क्रीन सिंक में रहती है। चैट में "ईमेल का मसौदा तैयार करें" पर क्लिक करें, ड्राफ्ट को तुरंत अपने इनबॉक्स में देखें।
-- **तैनाती के लिए तैयार** - नेटलिफाई, वर्सेल, क्लाउडफ्लेयर, AWS, या कहीं और जो नोड चलाता है, पर पुश करें। कोई वेंडर लॉक-इन नहीं।
-- **ब्रांडिंग हुक** — नाम, रंग, लोगो, कॉपी सभी को बदलना आसान है।
+- **एक कार्यशील एजेंट** — ऐप से जुड़ा हुआ, आपके डेटा पर actions लेने में सक्षम, और आप जो देख रहे हैं उसके बारे में जागरूक। [Messaging the agent](/docs/messaging) देखें।
+- **ऑथ** — साइन-इन, सत्र, संगठन, और बहु-किरायेदार अलगाव।
+- **एक डेटाबेस** — स्कीमा, क्वेरीज़ और माइग्रेशन, उपयोग के लिए तैयार। अपना खुद का SQL डेटाबेस (Postgres, SQLite, Turso, D1) लाएँ; फ्रेमवर्क अनुकूल हो जाता है।
+- **एक वास्तविक समय UI** — स्क्रीन एजेंट के साथ सिंक में रहती है। उदाहरण के लिए, चैट में ईमेल का मसौदा तैयार करना तुरंत इनबॉक्स को अपडेट करता है।
+- **तैनाती के लिए तैयार** — नेटलिफाई, वर्सेल, क्लाउडफ्लेयर, AWS, या किसी भी host पर तैनात करें जो Node चलाता है।
+- **ब्रांडिंग हुक** — नाम, रंग, लोगो और कॉपी बदलें।
 
-यह कोई सैद्धांतिक दावा नहीं है। फ़्रेमवर्क का लेखक Mail ऐप पर अपना वास्तविक इनबॉक्स चलाता है, Calendar ऐप पर अपना वास्तविक कैलेंडर चलाता है, और Analytics ऐप पर अपना वास्तविक विश्लेषण चलाता है। ये दैनिक उपयोग वाले ऐप हैं।
+फ़्रेमवर्क का मेंटेनर अपना ईमेल, कैलेंडर और एनालिटिक्स Mail, Calendar और Analytics ऐप्स पर चलाता है।
 
 ## आप क्या करते हैं {#what-you-do}
 
-"मुझे अपना SaaS चाहिए" से "मेरे पास अपना SaaS है" तक का रास्ता छोटा है:
+चार चरण आपको टेम्पलेट से तैनात ऐप तक ले जाते हैं:
 
 <Diagram id="doc-block-14gviqw" title={"एक working app से शुरू करें"} summary={"एक तैयार उत्पाद चुनें, उसकी ब्रांडिंग करें, उसे सरल अंग्रेजी में विकसित करें और उसे अपने डोमेन पर भेजें।"}>
 
@@ -98,30 +211,30 @@ description: "एक कार्यशील SaaS उत्पाद से श
 
 </Diagram>
 
-1. **एक उदाहरण ऐप चुनें।** CLI पिकर का उपयोग करें, या दस्तावेज़ ब्राउज़ करें और शुरू करने के लिए एक चुनें।
+1. **एक ऐप चुनें।** CLI पिकर का उपयोग करें, या दस्तावेज़ ब्राउज़ करें।
 2. **इसे ब्रांड करें।** नाम, रंग, लोगो और कॉपी बदलें। अधिकांश उदाहरण ऐप्स इसे एक ही कॉन्फ़िगरेशन फ़ाइल में प्रदर्शित करते हैं।
-3. **इसे अनुकूलित करें।** एजेंट से कहें कि वह आपके लिए आवश्यक कॉलम जोड़ें, इनबॉक्स समूहों को कैसे बदलें, अपने आंतरिक API से कनेक्ट करें, एक नया दृश्य जोड़ें। एजेंट कोड संपादित करता है; आप अंतर की समीक्षा करें.
-4. **इसे शिप करें।** परिनियोजन आदेश चलाएँ। अब आपके पास अपने स्वयं के डोमेन पर अपना स्वयं का उत्पादन SaaS है।
+3. **इसे अनुकूलित करें।** अपने repository और development workflow में source changes करें। Agent तब मदद कर सकता है जब उसके frame को जानबूझकर workspace और write tooling दी गई हो; अन्यथा embedded agent actions, data और configured integrations के माध्यम से app चलाता है।
+4. **इसे शिप करें।** परिनियोजन आदेश चलाएँ। अब आपके पास अपने स्वयं के डोमेन पर एक उत्पादन ऐप है।
 
-चरण 2-4 में आम तौर पर दिन लगते हैं, महीने नहीं। चरण 3 ओपन-एंडेड है - आपका फ़ोर्क्ड SaaS एजेंट से बात करके, सामान्य अंग्रेजी में, समय के साथ विकसित होता है।
+चरण 2-4 में आम तौर पर कुछ दिन लगते हैं। चरण 3 का कोई निश्चित अंत बिंदु नहीं है — app आपका है और आप इसे विकसित कर सकते हैं, जबकि embedded agent deployed product चलाने के लिए उपलब्ध रहता है और code access स्पष्ट रूप से enable होने पर source changes में मदद कर सकता है।
 
 ## यह व्यावहारिक क्यों है {#why}
 
-एक पारंपरिक फोर्क-द-कोडबेस मॉडल बड़े पैमाने पर टूट जाता है: प्रत्येक उपयोगकर्ता अपना स्वयं का इनबॉक्स बनाए रखना एक रखरखाव दुःस्वप्न जैसा लगता है। दो रूपरेखा निर्णय इसे कार्यान्वित करते हैं:
+प्रत्येक उपयोगकर्ता के लिए अलग codebase स्केल नहीं करता — हर उपयोगकर्ता के लिए ऐप का fork बनाए रखना संभालना मुश्किल हो जाता है। दो फ्रेमवर्क निर्णय इससे बचते हैं:
 
-1. **एजेंट रखरखाव करता है।** आप कॉलम जोड़ने या नया एकीकरण तार करने के लिए कोड नहीं लिखते हैं - आप एजेंट से पूछते हैं। तो "आपका अपना फोर्क्ड इनबॉक्स" एक सुविधा है, बोझ नहीं।
+1. **App framework contract बनाए रखता है।** आपका source domain behavior का मालिक है, जबकि Core app के विकसित होने पर actions, SQL, state और sync को consistent रखता है।
 2. **प्रति-उपयोगकर्ता कोड के बिना प्रति-उपयोगकर्ता अनुकूलन।** Skills, मेमोरी, निर्देश, कनेक्टेड MCP सर्वर और उप-एजेंट सभी SQL में रहते हैं। प्रत्येक उपयोगकर्ता को अपनी स्वयं की अनुकूलन परत मिलती है; साझा कोडबेस उन सभी को एक साथ होस्ट करता है।
 
-परिणाम: सामान्य SaaS परिनियोजन अर्थशास्त्र के साथ, प्रत्येक उपयोगकर्ता के लिए Claude-कोड-स्तरीय लचीलापन।
+परिणाम: प्रति-उपयोगकर्ता तैनाती के बिना प्रति-उपयोगकर्ता अनुकूलन।
 
-<Diagram id="doc-block-4tne0k" title={"प्रति-उपयोगकर्ता अनुकूलन क्यों स्केल करता है"} summary={"दो विचार working app से शुरू करने के मॉडल को व्यावहारिक रखते हैं: एजेंट रखरखाव करता है, और प्रति-उपयोगकर्ता अनुकूलन SQL में रहता है - प्रति-उपयोगकर्ता कोड में नहीं।"}>
+<Diagram id="doc-block-4tne0k" title={"प्रति-उपयोगकर्ता अनुकूलन क्यों स्केल करता है"} summary={"दो विचार working app से शुरू करने के मॉडल को व्यावहारिक रखते हैं: app framework contract बनाए रखता है, और प्रति-उपयोगकर्ता अनुकूलन SQL में रहता है - प्रति-उपयोगकर्ता कोड में नहीं।"}>
 
 ```html
 <div class="diagram-why">
   <div class="diagram-panel" data-rough>
     <strong>साझा करेंd codebase</strong
     ><small class="diagram-muted">एक ऐप, एक बार डिप्लॉय</small>
-    <div class="diagram-pill accent">agent does the maintenance</div>
+    <div class="diagram-pill accent">app framework contract बनाए रखता है</div>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
   <div class="diagram-panel" data-rough>
@@ -159,11 +272,11 @@ description: "एक कार्यशील SaaS उत्पाद से श
 
 ## कस्टमाइज़ नहीं करना चाहते? {#hosted}
 
-आपको ऐसा करने की आवश्यकता नहीं है। प्रत्येक उदाहरण ऐप `agent-native.com` - `mail.agent-native.com`, `calendar.agent-native.com` इत्यादि पर एक होस्टेड ऐप के रूप में भी उपलब्ध है। होस्ट किए गए संस्करण का निःशुल्क या सशुल्क उपयोग करें; केवल तभी फोर्क करें जब आप कुछ ऐसा बदलना चाहते हैं जो होस्ट किया गया संस्करण उजागर न हो।
+हर उदाहरण ऐप `agent-native.com` पर एक होस्टेड उत्पाद के रूप में भी उपलब्ध है — `mail.agent-native.com`, `calendar.agent-native.com`, और इसी तरह। होस्ट किए गए संस्करण का निःशुल्क या सशुल्क उपयोग करें; जब आप कुछ ऐसा बदलना चाहें जो होस्ट किया गया संस्करण उजागर नहीं करता, तो टेम्पलेट से अपना खुद का ऐप बनाएँ।
 
 ## इसे कौशल के साथ आज़माएं {#try-with-a-skill}
 
-मचान बनाने के लिए तैयार नहीं हैं? आप पहले से ही उपयोग किए जा रहे कोडिंग एजेंट में एक ही कमांड के साथ एजेंट-नेटिव सुपरपावर जोड़ सकते हैं - किसी ऐप की आवश्यकता नहीं है। [Skills Guide](/docs/skills-guide#app-backed-skills) देखें.
+आप पहले से उपयोग किए जा रहे किसी कोडिंग एजेंट में, किसी ऐप का मचान बनाए बिना, एजेंट-नेटिव क्षमताएँ जोड़ सकते हैं। [Skills Guide](/docs/skills-guide#app-backed-skills) देखें।
 
 ## इस पर निर्माण
 
@@ -175,15 +288,15 @@ description: "एक कार्यशील SaaS उत्पाद से श
 
 ### डेवलपर्स के लिए {#dev-details}
 
-यदि आप अभी मचान बना रहे हैं, तो CLI कमांड है:
+नया ऐप का मचान बनाने के लिए:
 
 ```bash
 npx @agent-native/core@latest create my-platform
 ```
 
-आपको एक बहु-चयन पिकर मिलेगा। एक ऐप (स्टैंडअलोन) या कई (वर्कस्पेस - ऐप्स शेयर ऑथ, ब्रांड, एजेंट कॉन्फ़िगरेशन और डेटाबेस) चुनें। प्रत्येक चयनित ऐप को आपकी आवश्यक प्रत्येक फ़ाइल के साथ `apps/<name>/` में रखा गया है। ऐप UI के बजाय बिना browser UI वाली automation के लिए, `npx @agent-native/core@latest create my-agent --headless` का उपयोग करें।
+CLI पहले पूछता है **आप कैसे शुरू करना चाहते हैं?** Chat और Dispatch वाले न्यूनतम workspace के लिए **Chat** चुनें, या multi-select picker खोलने के लिए **First-party template(s)** चुनें। Community और Headless standalone app के विकल्प हैं। Workspace apps auth, brand, agent configuration और database साझा करते हैं; हर app आपकी ज़रूरत की सभी फ़ाइलों के साथ `apps/<name>/` में रखा जाता है। App UI के बजाय बिना browser UI वाली automation के लिए, `npx @agent-native/core@latest create my-agent --headless` का उपयोग करें।
 
-`.env` (ज्यादातर `ANTHROPIC_API_KEY` और `DATABASE_URL`), `pnpm install`, `pnpm dev` भरें और यह काम करता है। नहीं "TODO: लॉगिन लागू करें," कोई प्लेसहोल्डर रूट नहीं।
+`.env` (`ANTHROPIC_API_KEY` और `DATABASE_URL`) भरें, फिर `pnpm install` और `pnpm dev` चलाएँ। कोई login लागू करने के लिए नहीं है और कोई प्लेसहोल्डर रूट नहीं है।
 
 परिनियोजन लक्ष्य: कोई भी Nitro-संगत होस्ट (नोड, क्लाउडफ्लेयर, नेटलिफाई, वर्सेल, डेनो, लैम्ब्डा, बन) और कोई भी Drizzle-संगत SQL डेटाबेस (SQLite, Postgres, Turso, D1, Supabase, Neon)। कार्यस्थानों के लिए, `npx @agent-native/core@latest deploy` प्रत्येक ऐप को एक ही बार में बनाता है और उन्हें एक ही मूल में शिप करता है। [Deployment](/docs/deployment) देखें.
 

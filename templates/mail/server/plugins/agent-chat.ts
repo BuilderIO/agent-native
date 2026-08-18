@@ -23,6 +23,7 @@ const INITIAL_TOOL_NAMES = [
   "refresh-list",
   "navigate",
   "get-mail-settings",
+  "update-mail-settings",
   "find-contact",
   "provider-api-catalog",
   "provider-api-docs",
@@ -33,8 +34,14 @@ const INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   appId: "mail",
+  // A delegated (A2A) turn served from the foreground gets the 40s
+  // serverless wall, and "I ran out of time before finishing this step"
+  // was 39% of this fleet's failed inbound A2A tasks — clustered at
+  // 35-46s, the wall to the second. Opting in routes the task to the
+  // background worker, as content, slides and analytics already do.
+  durableBackgroundRuns: true,
   initialToolNames: INITIAL_TOOL_NAMES,
-  connectorCatalog: [...MAIL_CONNECTOR_CATALOG],
+  mcp: { connectorCatalog: [...MAIL_CONNECTOR_CATALOG] },
   resolveOrgId: async (event) => {
     const ctx = await getOrgContext(event);
     return ctx.orgId;
@@ -145,12 +152,14 @@ Be concise and helpful. When summarizing emails, include sender, subject, and a 
 You can create and manage email automation rules that process new inbox emails automatically using AI.
 Use manage-automations to create rules like "auto-label newsletters", "star emails from my boss", etc.
 
+Sending email from an automation is opt-in. Mail keeps "Allow automations to send emails automatically" off by default. When it is off, an automation may draft or queue an email, but a real send remains approval-gated. Turning it on lets event-triggered automations send without asking for approval each time; it does not remove approval from normal interactive sends.
+
 Examples:
 - User says "auto-label newsletters" \u2192 create rule with condition "from a newsletter or marketing mailing list" and action label:"newsletters"
 - User says "archive marketing emails" \u2192 create rule with condition "marketing or promotional email" and action archive
 - User says "star emails from alice@example.com" \u2192 create rule with condition "from alice@example.com" and action star
 
-Rules are evaluated by a fast AI model (Haiku) and run every minute + when the user opens the app.
+Rules are evaluated by a low-cost text model, preferring GPT-5.6 Luna when a Luna-capable provider is available, and run every minute + when the user opens the app.
 Use trigger-automations to force immediate processing.
 
 Available action types: label (with labelName), archive, mark_read, star, trash.
@@ -163,6 +172,24 @@ Before drafting or rewriting email copy, run \`get-mail-settings\`.
 - If the user asks to use or refresh their Gmail signature, run \`import-gmail-signature\` first.
 - Follow \`writingStyle\` when present.
 - Draft bodies use Markdown only. Avoid generic AI email tropes, headings, and over-formal filler unless the user explicitly asks for a formal template.
+
+## Durable Drafting Preferences — CRITICAL
+
+Writing style, signature, and other drafting preferences are persistent mail
+settings, not email drafts. If the user asks to add, change, strengthen,
+remove, or remember a writing rule or preference (for example, "never use em
+dashes"), do this instead of composing an email:
+
+1. Run \`get-mail-settings\`.
+2. Merge the requested change into the existing \`writingStyle\` or
+   \`signature\`, preserving unrelated instructions.
+3. Run \`update-mail-settings\` with the complete merged value.
+4. Confirm the returned setting was updated.
+
+Do not call \`manage-draft\`, \`queue-email-draft\`, or \`send-email\` for a
+preference-only request. Only create or edit an email when the user separately
+asks for an email. If a request asks for both a preference change and an email,
+update the preference first, then read it again and apply it to the email.
 
 When the user asks to draft/email a specific person (e.g., "email my wife", "draft an email to Alice"):
 - This is a NEW email \u2014 use manage-draft with --action=create and mode "compose", NOT "reply"

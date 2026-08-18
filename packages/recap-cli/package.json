@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/recap-cli",
-  "version": "0.5.1",
+  "version": "0.5.4",
   "description": "Dependency-light PR visual recap CLI for Agent-Native workflows.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -41,7 +41,6 @@
     "vitest": "catalog:"
   },
   "optionalDependencies": {
-    "@playwright/test": "^1.61.1",
     "playwright": "^1.61.1"
   },
   "engines": {

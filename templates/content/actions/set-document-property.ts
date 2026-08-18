@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -12,24 +12,50 @@ import {
   parsePropertyOptions,
   type DocumentPropertyType,
 } from "../shared/properties.js";
+import {
+  lockPrimaryBlocksFields,
+  persistBlocksFieldIdentity,
+} from "./_blocks-field-identity.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
+import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   getDatabaseById,
   listPropertiesForDatabaseDocuments,
   nanoid,
   normalizedValueJson,
-  writeBlockFieldContent,
-  writePrimaryBlocksContent,
 } from "./_property-utils.js";
 
 export default defineAction({
   description: "Set a Notion-style property value on a document.",
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Set Content Document Property",
+    description:
+      "Delegate one property update on an existing Content database document.",
+  },
   schema: z.object({
     documentId: z.string().describe("Document ID (required)"),
+    databaseId: z
+      .string()
+      .optional()
+      .describe(
+        "Database ID that owns the property; omit only for context-free entry points",
+      ),
     propertyId: z.string().describe("Property definition ID"),
     value: z.unknown().describe("Value for the property type"),
+    expectedBlocksFieldRevision: z.number().int().nonnegative().optional(),
   }),
-  run: async ({ documentId, propertyId, value }) => {
+  run: async ({
+    documentId,
+    databaseId,
+    propertyId,
+    value,
+    expectedBlocksFieldRevision,
+  }) => {
     const db = getDb();
     const [definition] = await db
       .select()
@@ -38,6 +64,9 @@ export default defineAction({
     if (!definition) throw new Error(`Property "${propertyId}" not found`);
     if (!definition.databaseId) {
       throw new Error(`Property "${propertyId}" is not attached to a database`);
+    }
+    if (databaseId && definition.databaseId !== databaseId) {
+      throw new Error(`Property "${propertyId}" not found`);
     }
     const database = await getDatabaseById(definition.databaseId);
     if (!database) throw new Error("Document database not found.");
@@ -72,20 +101,116 @@ export default defineAction({
       await assertAccess("document", documentId, "editor");
       const normalized = normalizePropertyValue(type, value);
       const content = typeof normalized === "string" ? normalized : "";
-      const target = blocksStorageTarget(
+      let target = blocksStorageTarget(
         parsePropertyOptions(definition.optionsJson),
       );
-      if (target === "document_body") {
-        await writePrimaryBlocksContent({ documentId, content, now });
-      } else {
-        await writeBlockFieldContent({
+      await db.transaction(async (tx) => {
+        const primaryBlocksFields = await lockPrimaryBlocksFields(
+          tx as unknown as ReturnType<typeof getDb>,
           documentId,
-          propertyId,
-          ownerEmail: database.ownerEmail,
-          content,
-          now,
-        });
-      }
+        );
+        const [lockedDefinition] = await tx
+          .select()
+          .from(schema.documentPropertyDefinitions)
+          .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+        const [lockedMembership] = await tx
+          .select({ id: schema.contentDatabaseItems.id })
+          .from(schema.contentDatabaseItems)
+          .where(
+            and(
+              eq(schema.contentDatabaseItems.id, membership.id),
+              eq(schema.contentDatabaseItems.databaseId, database.id),
+              eq(schema.contentDatabaseItems.documentId, documentId),
+            ),
+          );
+        if (!lockedDefinition || lockedDefinition.databaseId !== database.id) {
+          throw new Error(`Property "${propertyId}" not found`);
+        }
+        if (!lockedMembership) {
+          throw new Error("Document is not part of this database.");
+        }
+        if (
+          !isBlocksPropertyType(lockedDefinition.type as DocumentPropertyType)
+        ) {
+          throw new Error(
+            "Property type changed before the operation completed.",
+          );
+        }
+        target = blocksStorageTarget(
+          parsePropertyOptions(lockedDefinition.optionsJson),
+        );
+        let previousContent = "";
+        if (target === "document_body") {
+          const [currentDocument] = await tx
+            .select({ content: schema.documents.content })
+            .from(schema.documents)
+            .where(eq(schema.documents.id, documentId));
+          if (!currentDocument) {
+            throw new Error(`Document "${documentId}" not found`);
+          }
+          previousContent = currentDocument.content;
+          await tx
+            .update(schema.documents)
+            .set({ content, updatedAt: now })
+            .where(eq(schema.documents.id, documentId));
+        } else {
+          const [currentField] = await tx
+            .select({ content: schema.documentBlockFieldContents.content })
+            .from(schema.documentBlockFieldContents)
+            .where(
+              and(
+                eq(schema.documentBlockFieldContents.documentId, documentId),
+                eq(schema.documentBlockFieldContents.propertyId, propertyId),
+              ),
+            );
+          previousContent = currentField?.content ?? "";
+          await tx
+            .insert(schema.documentBlockFieldContents)
+            .values({
+              id: nanoid(),
+              ownerEmail: database.ownerEmail,
+              documentId,
+              propertyId,
+              content,
+              createdAt: now,
+              updatedAt: now,
+            })
+            .onConflictDoUpdate({
+              target: [
+                schema.documentBlockFieldContents.documentId,
+                schema.documentBlockFieldContents.propertyId,
+              ],
+              set: { content, updatedAt: now },
+            });
+        }
+        const identityFields =
+          target === "document_body"
+            ? primaryBlocksFields
+            : [{ propertyId, ownerEmail: database.ownerEmail }];
+        if (
+          target === "document_body" &&
+          !identityFields.some((field) => field.propertyId === propertyId)
+        ) {
+          throw new Error(
+            "Primary Blocks membership changed before the operation completed.",
+          );
+        }
+        for (const field of identityFields) {
+          await persistBlocksFieldIdentity({
+            db: tx as unknown as ReturnType<typeof getDb>,
+            ownerEmail: field.ownerEmail,
+            documentId,
+            propertyId: field.propertyId,
+            previousMarkdown: previousContent,
+            markdown: content,
+            expectedRevision:
+              field.propertyId === propertyId
+                ? expectedBlocksFieldRevision
+                : undefined,
+            now,
+          });
+        }
+      });
       return {
         documentId,
         databaseId: database.id,
@@ -104,32 +229,188 @@ export default defineAction({
     }
 
     const valueJson = normalizedValueJson(type, value);
-    const [existing] = await db
-      .select({ id: schema.documentPropertyValues.id })
-      .from(schema.documentPropertyValues)
-      .where(
-        and(
-          eq(schema.documentPropertyValues.documentId, documentId),
-          eq(schema.documentPropertyValues.propertyId, propertyId),
-        ),
+    await db.transaction(async (tx) => {
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
       );
-
-    if (existing) {
-      await db
-        .update(schema.documentPropertyValues)
-        .set({ valueJson, updatedAt: now })
-        .where(eq(schema.documentPropertyValues.id, existing.id));
-    } else {
-      await db.insert(schema.documentPropertyValues).values({
-        id: nanoid(),
-        ownerEmail: database.ownerEmail,
-        documentId,
-        propertyId,
-        valueJson,
-        createdAt: now,
-        updatedAt: now,
-      });
-    }
+      const [lockedDatabase] = await tx
+        .select({
+          id: schema.contentDatabases.id,
+          naturalKeyPropertyId: schema.contentDatabases.naturalKeyPropertyId,
+        })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            eq(schema.contentDatabases.id, database.id),
+            eq(schema.contentDatabases.documentId, database.documentId),
+            eq(schema.contentDatabases.ownerEmail, database.ownerEmail),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        );
+      if (!lockedDatabase) throw new Error("Database is no longer active.");
+      await lockDatabaseMemberships(tx, [membership.id]);
+      const [lockedDefinition] = await tx
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(eq(schema.documentPropertyDefinitions.id, propertyId));
+      const [lockedMembership] = await tx
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.id, membership.id),
+            eq(schema.contentDatabaseItems.databaseId, database.id),
+            eq(schema.contentDatabaseItems.documentId, documentId),
+          ),
+        );
+      if (!lockedDefinition || lockedDefinition.databaseId !== database.id) {
+        throw new Error(`Property "${propertyId}" not found`);
+      }
+      if (!lockedMembership) {
+        throw new Error("Document is not part of this database.");
+      }
+      const lockedType = lockedDefinition.type as DocumentPropertyType;
+      if (lockedType !== type) {
+        throw new Error(
+          "Property type changed before the operation completed.",
+        );
+      }
+      if (isBlocksPropertyType(lockedType)) {
+        throw new Error(
+          "Property type changed before the operation completed.",
+        );
+      }
+      if (isComputedPropertyType(lockedType)) {
+        throw new Error("Computed properties cannot be edited.");
+      }
+      const isNaturalKey = lockedDatabase.naturalKeyPropertyId === propertyId;
+      if (isNaturalKey) {
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(valueJson);
+        } catch {
+          parsed = null;
+        }
+        if (typeof parsed !== "string" || !parsed.trim()) {
+          throw new Error(
+            "A database natural key must remain a non-empty string.",
+          );
+        }
+        const [existingNaturalKeyClaim] = await tx
+          .select({
+            keyValueJson: schema.contentDatabaseItemKeyClaims.keyValueJson,
+          })
+          .from(schema.contentDatabaseItemKeyClaims)
+          .where(
+            and(
+              eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+              eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+              eq(schema.contentDatabaseItemKeyClaims.documentId, documentId),
+            ),
+          )
+          .limit(1);
+        if (
+          existingNaturalKeyClaim &&
+          existingNaturalKeyClaim.keyValueJson !== valueJson
+        ) {
+          throw new Error(
+            "A claimed database natural key cannot be changed. Create a new row instead.",
+          );
+        }
+      }
+      const [conflictingClaim] = await tx
+        .select({ id: schema.contentDatabaseItemKeyClaims.id })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+            eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+            eq(schema.contentDatabaseItemKeyClaims.keyValueJson, valueJson),
+            ne(schema.contentDatabaseItemKeyClaims.documentId, documentId),
+          ),
+        )
+        .limit(1);
+      if (conflictingClaim) {
+        throw new Error(
+          "This value is already claimed as another row's stable key.",
+        );
+      }
+      const [existing] = await tx
+        .select({ id: schema.documentPropertyValues.id })
+        .from(schema.documentPropertyValues)
+        .where(
+          and(
+            eq(schema.documentPropertyValues.documentId, documentId),
+            eq(schema.documentPropertyValues.propertyId, propertyId),
+          ),
+        );
+      if (existing) {
+        await tx
+          .update(schema.documentPropertyValues)
+          .set({ valueJson, updatedAt: now })
+          .where(eq(schema.documentPropertyValues.id, existing.id));
+      } else {
+        await tx.insert(schema.documentPropertyValues).values({
+          id: nanoid(),
+          ownerEmail: database.ownerEmail,
+          documentId,
+          propertyId,
+          valueJson,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      if (isNaturalKey) {
+        await tx
+          .insert(schema.contentDatabaseItemKeyClaims)
+          .values({
+            id: nanoid(),
+            ownerEmail: database.ownerEmail,
+            orgId: database.orgId,
+            databaseId: database.id,
+            propertyId,
+            keyValueJson: valueJson,
+            itemId: membership.id,
+            documentId,
+            createdAt: now,
+            updatedAt: now,
+          })
+          .onConflictDoNothing();
+        const [claim] = await tx
+          .select({
+            itemId: schema.contentDatabaseItemKeyClaims.itemId,
+            documentId: schema.contentDatabaseItemKeyClaims.documentId,
+          })
+          .from(schema.contentDatabaseItemKeyClaims)
+          .where(
+            and(
+              eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+              eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+              eq(schema.contentDatabaseItemKeyClaims.keyValueJson, valueJson),
+            ),
+          );
+        if (
+          !claim ||
+          claim.itemId !== membership.id ||
+          claim.documentId !== documentId
+        ) {
+          throw new Error(
+            "This natural key is already claimed by another database row.",
+          );
+        }
+      }
+      await tx
+        .delete(schema.contentDatabaseItemKeyClaims)
+        .where(
+          and(
+            eq(schema.contentDatabaseItemKeyClaims.databaseId, database.id),
+            eq(schema.contentDatabaseItemKeyClaims.propertyId, propertyId),
+            eq(schema.contentDatabaseItemKeyClaims.documentId, documentId),
+            ne(schema.contentDatabaseItemKeyClaims.keyValueJson, valueJson),
+          ),
+        );
+    });
 
     return {
       documentId,

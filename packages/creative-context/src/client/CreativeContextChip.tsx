@@ -99,7 +99,7 @@ export function CreativeContextChip({
 }
 
 export function CreativeContextComposerChip({
-  href = "/agent#library",
+  href = "/settings/library",
   className,
 }: {
   href?: string;

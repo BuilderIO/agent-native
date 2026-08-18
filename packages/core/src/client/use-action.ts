@@ -27,8 +27,15 @@ import type {
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
+import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
+import {
+  agentNativeApiDisabledReason,
+  assertAgentNativeApiEnabled,
+} from "./api-surface.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
 import {
   clientBuildId,
@@ -207,6 +214,12 @@ function appendActionQueryParam(
     }
     return;
   }
+  if (typeof value === "object") {
+    // defineAction restores JSON strings when the schema expects an object.
+    // Preserve nested GET params instead of collapsing them to "[object Object]".
+    qs.append(key, JSON.stringify(value));
+    return;
+  }
   qs.append(key, String(value));
 }
 
@@ -293,7 +306,17 @@ async function performActionFetch<T>(
   const buildId = clientBuildId();
   if (buildId) headers["X-Agent-Native-Build-Id"] = buildId;
   const tz = resolveUserTimezone();
-  if (tz) headers["x-user-timezone"] = tz;
+  if (tz) {
+    headers["x-user-timezone"] = tz;
+  }
+  // Same browser session the agent chat sends on an agent run, so an action
+  // called from the UI and an action the agent calls during that visit land on
+  // one `$session_id` in traces and session replay.
+  const browserSessionId = getOrCreateAnalyticsSessionId();
+  if (browserSessionId) {
+    headers["X-Agent-Native-Session-Id"] = browserSessionId;
+  }
+  headers[ANALYTICS_CLIENT_PLATFORM_HEADER] = getAnalyticsClientPlatform();
   const init: RequestInit = {
     method,
     headers,
@@ -513,6 +536,7 @@ async function actionFetch<T>(
   params?: Record<string, any>,
   options?: ActionFetchOptions,
 ): Promise<T> {
+  assertAgentNativeApiEnabled(`${method} ${name}`);
   const startedAt = actionTelemetryNow();
   let response: Response | undefined;
   let responseAt: number | undefined;
@@ -626,7 +650,8 @@ export function callAction<
 
 export type KeepaliveActionCallRejectionReason =
   | "body-too-large"
-  | "budget-exhausted";
+  | "budget-exhausted"
+  | "api-disabled";
 
 export type KeepaliveActionCallResult<TResult> =
   | {
@@ -663,6 +688,17 @@ export function tryCallActionKeepalive<
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   const serializedBody = JSON.stringify(params ?? {});
   const bodyBytes = utf8ByteLength(serializedBody);
+
+  // Reported as a refusal rather than thrown: callers keep the work queued on
+  // `accepted: false`, which is the honest outcome for a surface with no backend.
+  if (agentNativeApiDisabledReason()) {
+    return {
+      accepted: false,
+      bodyBytes,
+      reason: "api-disabled",
+      completion: null,
+    };
+  }
 
   if (bodyBytes > ACTION_KEEPALIVE_BODY_BUDGET_BYTES) {
     return {
@@ -731,6 +767,10 @@ export function useActionQuery<
   >,
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
+  // Not `enabled: false` via options: a disabled surface must win over whatever
+  // the caller asked for, and an unfired query reads as "no data" rather than
+  // as an error the UI has to special-case.
+  const apiDisabled = Boolean(agentNativeApiDisabledReason());
   return useQuery<R>({
     queryKey: ["action", actionName, params],
     // Thread React Query's per-fetch AbortSignal into the network request so
@@ -741,6 +781,7 @@ export function useActionQuery<
     retry: defaultActionQueryRetry,
     retryDelay: defaultActionQueryRetryDelay,
     ...options,
+    ...(apiDisabled ? { enabled: false as const } : {}),
   });
 }
 
@@ -749,7 +790,9 @@ export function useActionQuery<
 // ---------------------------------------------------------------------------
 
 /**
- * Mutate via an action exposed as POST (default), PUT, or DELETE.
+ * Mutate through the framework's frontend action transport. Mutations use
+ * POST by default and do not need to repeat the action's direct HTTP method.
+ * An explicit PUT or DELETE remains supported for compatibility.
  *
  * When the action type registry is generated, the return type and parameter
  * types are inferred automatically.

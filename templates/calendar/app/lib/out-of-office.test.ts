@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  fullDayOutOfOfficeCoversDate,
   getFirstVisibleOutOfOfficeDayIndex,
   getOutOfOfficeSegment,
+  isFullDayOutOfOfficeEvent,
   isOutOfOfficeEvent,
 } from "./out-of-office";
 
@@ -14,6 +16,90 @@ describe("out-of-office display", () => {
   it("recognizes native Google out-of-office events", () => {
     expect(isOutOfOfficeEvent({ eventType: "outOfOffice" })).toBe(true);
     expect(isOutOfOfficeEvent({ eventType: "default" })).toBe(false);
+  });
+
+  it("recognizes provider-timed full-day out-of-office events", () => {
+    const event = {
+      eventType: "outOfOffice" as const,
+      allDay: false,
+      start: "2026-07-18T00:00:00-04:00",
+      end: "2026-07-19T00:00:00-04:00",
+      startTimeZone: "America/New_York",
+    };
+
+    expect(isFullDayOutOfOfficeEvent(event)).toBe(true);
+    expect(fullDayOutOfOfficeCoversDate(event, new Date(2026, 6, 18))).toBe(
+      true,
+    );
+    expect(fullDayOutOfOfficeCoversDate(event, new Date(2026, 6, 17))).toBe(
+      false,
+    );
+  });
+
+  it("recognizes multi-day out-of-office events across DST", () => {
+    expect(
+      isFullDayOutOfOfficeEvent({
+        eventType: "outOfOffice",
+        allDay: false,
+        start: "2026-10-31T00:00:00-04:00",
+        end: "2026-11-02T00:00:00-05:00",
+        startTimeZone: "America/New_York",
+      }),
+    ).toBe(true);
+  });
+
+  it("recognizes a full-day event when DST skips local midnight", () => {
+    const event = {
+      eventType: "outOfOffice" as const,
+      allDay: false,
+      start: "2026-09-06T04:00:00.000Z",
+      end: "2026-09-07T03:00:00.000Z",
+      startTimeZone: "America/Santiago",
+    };
+
+    expect(isFullDayOutOfOfficeEvent(event)).toBe(true);
+    expect(fullDayOutOfOfficeCoversDate(event, new Date(2026, 8, 6))).toBe(
+      true,
+    );
+  });
+
+  it("uses the pinned timezone for a DST-crossing visible segment", () => {
+    expect(
+      getOutOfOfficeSegment(
+        {
+          start: "2026-03-08T06:30:00.000Z",
+          end: "2026-03-08T08:30:00.000Z",
+        },
+        new Date(2026, 2, 8, 12),
+        "America/New_York",
+      ),
+    ).toEqual({
+      topMinutes: 90,
+      durationMinutes: 180,
+      startsOnDay: true,
+      endsOnDay: true,
+    });
+  });
+
+  it("keeps partial-day and ordinary midnight events out of the all-day lane", () => {
+    expect(
+      isFullDayOutOfOfficeEvent({
+        eventType: "outOfOffice",
+        allDay: false,
+        start: "2026-07-18T09:00:00-04:00",
+        end: "2026-07-18T17:00:00-04:00",
+        startTimeZone: "America/New_York",
+      }),
+    ).toBe(false);
+    expect(
+      isFullDayOutOfOfficeEvent({
+        eventType: "default",
+        allDay: false,
+        start: "2026-07-18T00:00:00-04:00",
+        end: "2026-07-19T00:00:00-04:00",
+        startTimeZone: "America/New_York",
+      }),
+    ).toBe(false);
   });
 
   it("returns the visible portion of a partial-day event", () => {

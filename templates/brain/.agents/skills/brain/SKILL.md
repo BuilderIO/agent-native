@@ -8,14 +8,16 @@ description: Work with the Brain institutional-memory template, including import
 Use Brain actions rather than raw SQL.
 
 1. Call `get-brain-settings` before answering, searching broadly, or distilling when current settings are not already in context. Apply the returned guidance for assistant name, company name, tone, source policy, citation requirements, publish tier, redaction, and distillation instructions.
-2. Import raw material with `import-capture` (generic) or `import-transcript`
-   (meeting-shaped: participants, `sourceUrl`, tags). Both default
-   `enqueueDistillation: true` and auto-create a `manual` source when
-   `sourceId` is omitted — don't call `create-source` first just to import one
-   ad hoc capture.
-3. Call `enqueue-distillation` when a capture needs distillation. Re-running it
-   for a capture that's already queued/processing refreshes the handoff
-   instructions instead of creating a duplicate queue row.
+2. Import raw material with `import-capture` (generic), `import-transcript`
+   (meeting-shaped: participants, `sourceUrl`, tags), or
+   `import-markdown-files` for a bounded Markdown folder/batch. These default
+   `enqueueDistillation: true`, immediately create or reuse queue items, and
+   auto-create a private `manual` source when `sourceId` is omitted — don't
+   call `create-source` first just to import one ad hoc item.
+3. Call `enqueue-distillation` when an existing capture needs an explicit
+   queue/retry handoff. Re-running it for a capture that's already
+   queued/processing refreshes the handoff instructions instead of creating a
+   duplicate queue row.
 4. Before writing knowledge, call `get-capture` and copy short exact quotes.
    Quotes and offsets always reference the persisted safe capture, never an
    upstream raw payload. `get-capture` redacts `title`/`content`/`metadata` by
@@ -91,6 +93,11 @@ company-relevant content retained from this capture." — treat that string as
 
 ## Search: Scoped Hybrid Retrieval
 
+For every company-specific factual question, call `ask-brain` before answering.
+Use only its cited evidence. A result with no citations means the fact is
+unverified or unavailable, not that the agent may fill the gap from general
+model knowledge.
+
 - `search-knowledge` — scoped retrieval over **distilled knowledge only**. Use
   for "what does Brain officially know about X."
 - `search-everything` — broader pass across knowledge, raw captures, and
@@ -131,13 +138,23 @@ not just documented:
 returning an answer with no usable citation — it returns a policy-explanation
 message instead of a bare summary when that happens.
 
+Each source may also carry an `answerPolicy`, configured through the
+`create-source` / `update-source` `policy` argument. `ask-brain` excludes stale
+or answer-ineligible results, prevents review-required raw captures from
+supporting answers, ranks `blessed` before `standard` before `untrusted`, and
+then ranks by `authority`. It returns the evaluated policy alongside citations
+so external apps can explain why a result was preferred or excluded. Sources
+without this policy retain the compatible `standard`, eligible, authority-50
+behavior.
+
 ## Publish Tiers And Proposal Gating
 
 `write-knowledge` writes at a `publishTier`: `private` (draft, private
 visibility), `team`, or `company` (published, org visibility) — default comes
 from `settings.defaultPublishTier`. A `company`-tier write becomes a
-**proposal** (`mode: "proposal"`, held for human review) instead of publishing
-immediately when ALL of:
+**proposal** (`mode: "proposal"`, held for human review) when any cited source
+has `answerPolicy.reviewRequired: true`. Otherwise the workspace approval
+behavior applies when ALL of:
 
 - `proposalMode !== "never"`, and
 - `tier === "company"`, and
@@ -163,12 +180,13 @@ AGENTS.md carries a one-line action index; these are the fuller purposes.
 | `ask-brain` | Cited-answer endpoint: reviewed knowledge, capped raw-capture fallback, citations, `federatedCoverage`. |
 | `get-knowledge` / `list-knowledge` | Read one or list distilled knowledge records. |
 | `get-capture` / `list-captures` | Read one or list raw captures (redacted by default; `includeRawContent` for exact quotes). |
-| `import-capture` / `import-transcript` | Ingest a generic capture or a meeting transcript; auto-creates a `manual` source. |
+| `import-capture` / `import-transcript` / `import-markdown-files` | Ingest generic material or a bounded Markdown batch, auto-create a private `manual` source when needed, and queue distillation by default. |
 | `enqueue-distillation` / `mark-capture-distilled` | Queue a capture for distillation; close out the queue row when done. |
 | `write-knowledge` | Write/update durable knowledge; may return a pending proposal — see Publish Tiers above. |
 | `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Human-review workflow for gated writes. |
 | `set-knowledge-canonical` | Mirror/unmirror approved knowledge into `context/company-brain/...` workspace resources. |
 | `create-source` / `update-source` / `delete-source` / `list-sources` / `get-source` | Source lifecycle across the six providers. |
+| `set-resource-visibility` / `share-resource` | Set source visibility or grant explicit source access. |
 | `sync-source` / `sync-due-sources` | Run one connector now, or sweep all due sources. |
 | `get-brain-health` | Setup/source health, sync freshness, queue and proposal counts, next steps. |
 | `list-connection-providers` | Per-provider workspace-connection readiness and credential health. |

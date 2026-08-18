@@ -158,7 +158,7 @@ Plus the org tables (`organizations`, `org_members`, `org_invitations`) from `@a
 
 Every operation is a TypeScript file in `templates/analytics/actions/`, auto-mounted at `POST /_agent-native/actions/:name`.
 
-**Dashboards & panels** — `update-dashboard` (new/full-config saves), `mutate-dashboard` (existing-dashboard edits via a small typed script API), `compose-dashboard` (build a large first-party dashboard from a metric-key catalog in one atomic call), `get-sql-dashboard`, `list-sql-dashboards`, `archive-dashboard`, `delete-sql-dashboard` / `delete-explorer-dashboard`, `reorder-dashboard-panels`, `install-dashboard-template` / `list-dashboard-templates`.
+**Dashboards & panels** — `update-dashboard` (new/full-config saves), `mutate-dashboard` (existing-dashboard edits via a small typed script API), `compose-dashboard` (build a large first-party dashboard from a metric-key catalog in one atomic call), `get-sql-dashboard`, `list-sql-dashboards`, `archive-dashboard`, `delete-sql-dashboard` / `delete-explorer-dashboard`, and `reorder-dashboard-panels`.
 
 **Analyses** — `save-analysis`, `get-analysis`, `list-analyses`, `rename-analysis`, `hide-analysis`, `list-analysis-revisions` / `restore-analysis-revision`.
 
@@ -282,6 +282,6 @@ For new capabilities — a new chart type, a new provider, a new admin view — 
 - [**Dashboards, Analyses, and the Data Dictionary**](/docs/template-analytics-dashboards) — the user-facing surface this data model backs
 - [**Monitoring, Errors, and Session Replay**](/docs/template-analytics-monitoring-and-sessions) — the user-facing surface for monitors, errors, and replay
 - [**Connecting and Extending Data Sources**](/docs/template-analytics-connectors) — the full connector catalog
-- [**Actions**](/docs/actions) — the action system this template is built on
+- [**Actions**](/docs/actions-overview) — the action system this template is built on
 - [**Data Programs**](/docs/data-programs) — the full data-program authoring contract
 - [**Sharing**](/docs/sharing) — the share-grant model dashboards, analyses, and error issues build on

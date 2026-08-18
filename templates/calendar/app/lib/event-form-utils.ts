@@ -34,6 +34,19 @@ export const REMINDER_PRESETS = [
 ] as const;
 
 export const MAX_EVENT_ATTACHMENTS = 25;
+export const UNNAMED_EVENT_TITLE = "(No title)";
+
+export function getEditableEventTitle(
+  event: Pick<CalendarEvent, "title" | "titleIsGenerated">,
+): string {
+  return event.titleIsGenerated ? "" : event.title;
+}
+
+export function buildEventTitleUpdate(
+  title: string,
+): Pick<CalendarEvent, "title" | "titleIsGenerated"> {
+  return { title: title.trim(), titleIsGenerated: false };
+}
 
 const DAY_CODES = ["SU", "MO", "TU", "WE", "TH", "FR", "SA"] as const;
 const DAY_CODE_BY_LABEL: Record<string, (typeof DAY_CODES)[number]> = {
@@ -217,6 +230,11 @@ export function getLocalTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 }
 
+/** New event drafts follow the viewer's browser zone unless they name one. */
+export function resolveEventTimezone(timezone?: string | null) {
+  return timezone?.trim() || getLocalTimezone();
+}
+
 function getTimezoneOffsetMs(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: timezone,
@@ -247,14 +265,36 @@ export function dateTimeInTimezoneToIso(
 ) {
   const [year, month, day] = date.split("-").map(Number);
   const [hour, minute] = time.split(":").map(Number);
-  const wallTimeAsUtc = new Date(
-    Date.UTC(year, month - 1, day, hour, minute, 0),
-  );
-  let offset = getTimezoneOffsetMs(wallTimeAsUtc, timezone);
-  let result = new Date(wallTimeAsUtc.getTime() - offset);
-  offset = getTimezoneOffsetMs(result, timezone);
-  result = new Date(wallTimeAsUtc.getTime() - offset);
-  return result.toISOString();
+  const wallClockUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
+  const offsets = new Set<number>();
+  for (let hours = -36; hours <= 36; hours += 6) {
+    offsets.add(
+      getTimezoneOffsetMs(
+        new Date(wallClockUtc + hours * 60 * 60 * 1000),
+        timezone,
+      ),
+    );
+  }
+
+  const candidates = [...offsets]
+    .map((offset) => new Date(wallClockUtc - offset))
+    .map((candidate) => ({
+      candidate,
+      localWallClock:
+        candidate.getTime() + getTimezoneOffsetMs(candidate, timezone),
+    }))
+    .sort((a, b) => {
+      const aDelta = a.localWallClock - wallClockUtc;
+      const bDelta = b.localWallClock - wallClockUtc;
+      if (aDelta === 0 && bDelta === 0) {
+        return a.candidate.getTime() - b.candidate.getTime();
+      }
+      if (aDelta >= 0 && bDelta < 0) return -1;
+      if (aDelta < 0 && bDelta >= 0) return 1;
+      return Math.abs(aDelta) - Math.abs(bDelta);
+    });
+
+  return candidates[0].candidate.toISOString();
 }
 
 export function formatTimezoneLabel(timezone: string) {

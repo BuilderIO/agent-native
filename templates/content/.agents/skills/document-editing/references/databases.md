@@ -96,6 +96,18 @@ its stored name). In table views a Blocks column shows a word count (e.g.
 database view's column menu (not from the page body); deleting the last
 Blocks field warns that it removes the body for every object of the type.
 
+For one-block agent edits, call `list-content-database-blocks` with the exact
+space, database, backing document, membership row, row document, and property
+IDs. Preserve its schema, row, and field revisions. Each returned block names
+the operations its kind supports and carries canonical Notion-flavored Markdown
+(NFM) for that one block. Pass all three revisions to
+`mutate-content-database-block`; its `insert`, `update`, `upsert`, `delete`, and
+`reorder` variants preserve unmentioned fields and sibling blocks. A block
+value must contain exactly one top-level block of the declared kind. Reuse an
+idempotency key only for an exact retry. Unsupported kinds, kind conversion,
+tombstone reuse, cross-parent reorder, schema drift, and stale row or field
+revisions fail explicitly.
+
 Formula properties store their expression in property options and support
 `{Property name}` substitution plus simple numeric math such as `{MSV} * 2`.
 
@@ -117,7 +129,9 @@ checkbox filters as initial property values, resolving option labels back to
 stable option IDs for select, status, and multi-select filters, so a row
 created under "Status is Published" remains visible instead of immediately
 disappearing. Agents can mirror that behavior by passing
-`--propertyValues '{"propertyId":"value"}'` to `add-database-item`. Filter
+the discovered property IDs in `propertyValues` to `add-database-item`. The
+action also requires the exact space/database/backing-page target, current
+schema revision, and a caller-stable idempotency key. Filter
 controls are type-aware: option properties choose from their configured
 options, option value editors can search existing options or create a new
 option from the typed query, and property settings can rename option labels
@@ -132,7 +146,7 @@ filters for that column, hide property columns in the current view without
 changing other views, and resize column widths. Column headers show compact
 sort/filter indicators when that column has active view constraints. Table
 rows can be selected with row checkboxes, and the table shows a compact
-selected-row bar with clear, duplicate, confirmed delete, and bulk property
+selected-row bar with clear, duplicate, confirmed membership removal, and bulk property
 set actions for editable non-computed fields. Empty table cells stay
 visually blank while remaining clickable for editing, and checkbox table
 cells render as compact checkbox glyphs instead of "Checked"/"Unchecked"
@@ -161,9 +175,17 @@ adding fields without returning to the table header. The New property picker
 supports searching property types by label or machine name.
 
 In unconstrained table views, row drag handles can reorder database item
-pages through `move-database-item`; clear search, sort, and filters before
-manual reordering. Creating a database row returns the created item IDs and
-opens the new row page in the side preview. Duplicating a database row
+pages through `move-database-item`; pass both `databaseId` and `itemId` so the
+membership target is exact, and clear search, sort, and filters before manual
+reordering. Pinned and workspace-root sidebar rows also reorder exact
+memberships, but they are references: moving one never reparents, transfers,
+or changes access to the referenced page. Files sidebar Custom order is
+different again: persist it per user and per database view with
+`update-content-database-personal-view`, without changing the shared Files
+membership order. Creating a database row returns a receipt with stable item
+and document IDs, row link, revisions, affected fields, idempotency outcome,
+and verified read-back, then opens the new row page in the side preview.
+Duplicating a database row
 returns the duplicate item IDs and opens the copied row in the side preview
 so users can continue editing the new page immediately, including from
 table, list, and gallery row action menus. Board, calendar, and timeline
@@ -221,17 +243,45 @@ property definition.
 
 Use `create-content-database`, `create-inline-content-database`,
 `get-content-database`, `list-trashed-content-databases`,
-`restore-content-database`, `add-database-item`, `duplicate-database-item`,
-`duplicate-database-items`, `delete-database-items`, `move-database-item`,
+`restore-content-database`, `add-database-item`, `update-database-item`,
+`upsert-database-item-by-key`, `duplicate-database-item`,
+`duplicate-database-items`, `remove-database-items`, `move-database-item`,
 `update-content-database-view`, `list-document-properties`,
 `configure-document-property`, `set-document-property`,
+`list-content-database-blocks`, `mutate-content-database-block`,
 `duplicate-document-property`, and `delete-document-property`; do not edit
 property rows or view config via raw SQL when an action can do it.
 
+Read `get-content-database.mutationContract` immediately before a single-row
+mutation. Pass its exact target and schema revision to create, exact item and
+document IDs plus the current row revision to sparse update, and a fresh
+idempotency key for each intended effect. Reusing the same key with the same
+payload replays the durable receipt; reusing it with a different payload fails.
+Configure at most one ordinary text property as the database's natural key,
+then use `upsert-database-item-by-key` with that property. Natural-key upsert
+never accepts an arbitrary property name or silently chooses a field. Blocks,
+computed, system, source-managed, unknown, and relation properties are not
+writable through these actions; use their owning surfaces instead.
+
+For a bounded migration that must rewrite every existing row body while adding
+new property definitions and values, use `migrate-content-database-rows` rather
+than looping the single-row actions. Its `validate` phase is read-only; `apply`
+commits the complete plan with an idempotency receipt or writes nothing. Read
+the database and every row independently after apply, then call its separate
+`verify` phase with the saved post-apply digest. Only a verified receipt may
+`finalize` the exact legacy property IDs stored in that receipt. `rollback` is
+available before finalize only while the saved post-apply digest still matches,
+so it never overwrites a later edit. The bounded migration accepts ordinary
+databases without attached Sources; source-backed and system databases retain
+their dedicated synchronization actions. If flushing a live row editor changes
+its persisted revision, read the rows again and build a fresh plan.
+
 When targeting more than one database row, call `duplicate-database-items` or
-`delete-database-items` once with a native JSON array of `itemIds` or
+`remove-database-items` once with a native JSON array of `itemIds` or
 `documentIds`. Do not loop `duplicate-database-item` or `delete-document` for
-multi-row duplicate/delete requests.
+multi-row duplicate or membership-removal requests. Removing a row from a
+database preserves its Page, descendants, other database memberships, and
+unrelated property values.
 
 Database views follow Notion-style tab labels. When creating or duplicating
 views in `viewConfig`, use unique default names (`Table 2`, `SEO copy 2`,

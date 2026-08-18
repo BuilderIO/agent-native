@@ -272,7 +272,7 @@ function retrievalPolicy(
         rawCaptureFallback: "allowed-leads" as const,
         instructions: [
           "Start with reviewed Brain knowledge, then include accessible raw captures and source records as clearly labeled leads.",
-          "Never present raw capture matches as approved company knowledge.",
+          "Never present raw capture matches as approved company knowledge or answer evidence; use them only as leads for review.",
           "Say when a result is unreviewed and needs distillation or review.",
         ],
       };
@@ -282,7 +282,7 @@ function retrievalPolicy(
         rawCaptureFallback: "thin-results" as const,
         instructions: [
           "Prefer reviewed Brain knowledge.",
-          "Use accessible raw captures only when reviewed knowledge is missing or too thin, and label them as raw capture matches.",
+          "Use accessible raw captures only when reviewed knowledge is missing or too thin, return them as clearly labeled leads, and never use their text as answer evidence.",
           "Do not invent facts beyond returned Brain results.",
         ],
       };
@@ -355,8 +355,8 @@ export function buildBrainAgentGuidance(
     response: {
       toneInstruction: toneInstruction(tone),
       citationInstruction: requireCitations
-        ? "Cite Brain evidence or source URLs for factual claims; say when support is missing."
-        : "Include citations when helpful, but concise uncited summaries are allowed by workspace settings.",
+        ? "Cite published Brain knowledge evidence or source URLs for factual claims; raw captures are leads, not answer citations; say when approved support is missing."
+        : "Include published Brain knowledge citations when helpful; raw captures are leads, not answer evidence, and concise uncited summaries are allowed by workspace settings.",
     },
   };
 }
@@ -524,7 +524,7 @@ export function serializeProposal(
 
 export async function getAccessibleSource(
   sourceId: string,
-  role: "viewer" | "editor" | "admin" | "owner" = "viewer",
+  role: "viewer" | "commenter" | "editor" | "admin" | "owner" = "viewer",
 ): Promise<ResolvedAccess> {
   if (role !== "viewer") {
     return assertAccess("brain-source", sourceId, role);
@@ -609,7 +609,7 @@ export async function createSource(values: {
     lastError: null,
     ownerEmail,
     orgId,
-    visibility: values.visibility ?? "org",
+    visibility: values.visibility ?? "private",
     createdAt: now,
     updatedAt: now,
   });
@@ -693,6 +693,12 @@ async function findUpstreamDeletionReceipt(
     : null;
 }
 
+function captureMetadataFingerprint(metadata: Record<string, unknown>) {
+  const comparable = { ...metadata };
+  delete comparable.captureSanitization;
+  return stableJson(comparable);
+}
+
 export async function createCapture(values: {
   id?: string;
   sourceId: string;
@@ -773,13 +779,31 @@ export async function createCapture(values: {
     throw new BrainCaptureBlockedError(receipt);
   }
   const nextContentHash = await contentHash(sanitized.content);
+  const nextMetadataJson = stableJson(sanitized.metadata);
   const nextCapturedAt = values.capturedAt ?? existing?.capturedAt ?? now;
   const contentChanged = existing?.contentHash !== nextContentHash;
+  const metadataChanged = Boolean(
+    existing &&
+    captureMetadataFingerprint(
+      parseJson<Record<string, unknown>>(existing.metadataJson, {}),
+    ) !== captureMetadataFingerprint(sanitized.metadata),
+  );
   const indexedMetadataChanged = Boolean(
     existing &&
     (existing.title !== sanitized.title ||
       existing.capturedAt !== nextCapturedAt),
   );
+  const derivedInputChanged =
+    !existing || contentChanged || metadataChanged || indexedMetadataChanged;
+  const nextStatus =
+    values.status ??
+    (derivedInputChanged ? "queued" : (existing?.status ?? "queued"));
+  const nextDistilledAt =
+    values.status === "distilled"
+      ? now
+      : values.status !== undefined || derivedInputChanged
+        ? null
+        : (existing?.distilledAt ?? null);
   const captureId = existing?.id ?? id;
   try {
     if (!existing) {
@@ -791,11 +815,11 @@ export async function createCapture(values: {
         kind: values.kind,
         content: sanitized.content,
         contentHash: nextContentHash,
-        metadataJson: stableJson(sanitized.metadata),
+        metadataJson: nextMetadataJson,
         capturedAt: nextCapturedAt,
         importedBy: requireUserEmail(),
-        status: values.status ?? "queued",
-        distilledAt: values.status === "distilled" ? now : null,
+        status: nextStatus,
+        distilledAt: nextDistilledAt,
         sensitivityDisposition: "pending",
         sensitivityPolicyVersion: sanitized.decision.policyVersion,
         audienceAclHash: null,
@@ -875,10 +899,10 @@ export async function createCapture(values: {
       kind: values.kind,
       content: sanitized.content,
       contentHash: nextContentHash,
-      metadataJson: stableJson(sanitized.metadata),
+      metadataJson: nextMetadataJson,
       capturedAt: nextCapturedAt,
-      status: values.status ?? "queued",
-      distilledAt: values.status === "distilled" ? now : null,
+      status: nextStatus,
+      distilledAt: nextDistilledAt,
       sensitivityDisposition: "allowed",
       sensitivityPolicyVersion: sanitized.decision.policyVersion,
       audienceAclHash: audience.aclHash,
@@ -901,7 +925,7 @@ export async function createCapture(values: {
     if (receipt) throw new BrainCaptureBlockedError(receipt);
     throw new Error("Capture finalization was blocked");
   }
-  if (existing?.contentHash && contentChanged) {
+  if (existing?.contentHash && derivedInputChanged) {
     await invalidateDerivedForCapture(captureId);
   }
   const [capture] = await db
@@ -909,14 +933,13 @@ export async function createCapture(values: {
     .from(schema.brainRawCaptures)
     .where(eq(schema.brainRawCaptures.id, captureId))
     .limit(1);
-  const invalidationReason =
-    !existing || contentChanged || indexedMetadataChanged
-      ? "content-changed"
-      : existing.audienceAclHash !== audience.aclHash
-        ? "access-changed"
-        : existing.sensitivityPolicyVersion !== sanitized.decision.policyVersion
-          ? "sensitivity-changed"
-          : null;
+  const invalidationReason = derivedInputChanged
+    ? "content-changed"
+    : existing.audienceAclHash !== audience.aclHash
+      ? "access-changed"
+      : existing.sensitivityPolicyVersion !== sanitized.decision.policyVersion
+        ? "sensitivity-changed"
+        : null;
   if (!invalidationReason) return capture;
   try {
     await enqueueCaptureInvalidation({
@@ -1495,10 +1518,17 @@ async function evidenceSourceReviewPolicy(
       ),
     );
   if (sources.length !== sourceIds.length) return "required";
-  const values = sources.map(
-    (source) =>
-      parseJson<Record<string, unknown>>(source.configJson, {}).reviewRequired,
-  );
+  const values = sources.map((source) => {
+    const config = parseJson<Record<string, unknown>>(source.configJson, {});
+    const answerPolicy =
+      config.answerPolicy &&
+      typeof config.answerPolicy === "object" &&
+      !Array.isArray(config.answerPolicy)
+        ? (config.answerPolicy as Record<string, unknown>)
+        : null;
+    if (answerPolicy?.conflictBehavior === "require-review") return true;
+    return answerPolicy?.reviewRequired ?? config.reviewRequired;
+  });
   if (values.includes(true)) return "required";
   return values.every((value) => value === false) ? "disabled" : "legacy";
 }
@@ -2153,6 +2183,9 @@ export async function searchKnowledgeRows(args: {
         like(schema.brainKnowledge.title, q),
         like(schema.brainKnowledge.body, q),
         like(schema.brainKnowledge.summary, q),
+        like(schema.brainKnowledge.topic, q),
+        like(schema.brainKnowledge.tagsJson, q),
+        like(schema.brainKnowledge.entitiesJson, q),
       )!,
     );
   }

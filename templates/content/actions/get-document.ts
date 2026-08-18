@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccess, roleSatisfies } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -11,6 +11,7 @@ import { favoriteDocumentIds } from "./_content-favorites.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   getDatabaseByDocumentId,
+  getBuilderBodyHydrationMembershipByDocumentId,
   getDocumentContextPath,
   getDatabaseItemByDocumentId,
   isSoftDeletedDatabaseDocument,
@@ -18,12 +19,21 @@ import {
 } from "./_database-utils.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
+  getDatabaseById,
   listPropertiesForDocument,
+  resolvePropertyDatabaseForDocument,
   serializeDatabase,
 } from "./_property-utils.js";
 
 function canEditRole(role: string) {
   return role === "owner" || role === "admin" || role === "editor";
+}
+
+function canCommentRole(role: string) {
+  return roleSatisfies(
+    role as Parameters<typeof roleSatisfies>[0],
+    "commenter",
+  );
 }
 
 function canManageRole(role: string) {
@@ -54,6 +64,14 @@ export default defineAction({
   description: "Get a single document by ID with full content.",
   schema: z.object({
     id: z.string().optional().describe("Document ID (required)"),
+    databaseId: z
+      .string()
+      .optional()
+      .describe("Exact Database context for membership-local data"),
+    databaseDocumentId: z
+      .string()
+      .optional()
+      .describe("Backing document ID for the exact Database context"),
   }),
   http: { method: "GET" },
   readOnly: true,
@@ -79,8 +97,54 @@ export default defineAction({
       });
     }
     const doc = access.resource;
+    if (args.databaseDocumentId && !args.databaseId) {
+      throw Object.assign(new Error("databaseDocumentId requires databaseId"), {
+        statusCode: 404,
+      });
+    }
+
     const database = await getDatabaseByDocumentId(doc.id);
-    const databaseMembership = await getDatabaseItemByDocumentId(doc.id);
+    const databaseMembership = args.databaseId
+      ? await getDatabaseItemByDocumentId(doc.id, {
+          databaseId: args.databaseId,
+        })
+      : await getDatabaseItemByDocumentId(doc.id);
+    const propertyDatabase = args.databaseId
+      ? await getDatabaseById(args.databaseId)
+      : await resolvePropertyDatabaseForDocument(doc);
+    const propertyDatabaseAccess =
+      args.databaseId && propertyDatabase
+        ? await resolveDocumentAccess(propertyDatabase.documentId)
+        : null;
+    if (
+      args.databaseId &&
+      (!propertyDatabase ||
+        !propertyDatabaseAccess ||
+        (propertyDatabase.documentId !== doc.id && !databaseMembership))
+    ) {
+      throw Object.assign(new Error("Database context not found"), {
+        statusCode: 404,
+      });
+    }
+    if (
+      args.databaseDocumentId &&
+      propertyDatabase?.documentId !== args.databaseDocumentId
+    ) {
+      throw Object.assign(new Error("Database context not found"), {
+        statusCode: 404,
+      });
+    }
+    const bodyHydrationTarget =
+      await getBuilderBodyHydrationMembershipByDocumentId(doc.id);
+    const bodyHydrationMembership = bodyHydrationTarget?.membership;
+    const bodyHydrationAccess = bodyHydrationTarget?.hydrationSourceId
+      ? await resolveDocumentAccess(
+          bodyHydrationMembership!.database.documentId,
+        )
+      : null;
+    const bodyHydration = bodyHydrationMembership
+      ? serializeDatabaseMembership(bodyHydrationMembership).bodyHydration
+      : null;
     const userEmail = getRequestUserEmail();
     const favoriteIds = userEmail
       ? await favoriteDocumentIds(getDb(), userEmail, [doc.id])
@@ -104,6 +168,7 @@ export default defineAction({
       visibility: doc.visibility,
       source: serializeDocumentSource(doc),
       accessRole: access.role,
+      canComment: canCommentRole(access.role),
       canEdit: canEditRole(access.role),
       canManage: canManageRole(access.role),
       database: database
@@ -112,10 +177,34 @@ export default defineAction({
       databaseMembership: databaseMembership
         ? serializeDatabaseMembership(databaseMembership)
         : undefined,
+      bodyHydration: bodyHydrationMembership
+        ? {
+            hydration: bodyHydrationAccess
+              ? bodyHydration!
+              : {
+                  status: bodyHydration!.status,
+                  attemptedAt: null,
+                  error: null,
+                  version: null,
+                },
+            ...(bodyHydrationAccess &&
+            canEditRole(bodyHydrationAccess.role) &&
+            bodyHydrationTarget?.hydrationSourceId
+              ? {
+                  provider: "builder" as const,
+                  sourceId: bodyHydrationTarget.hydrationSourceId,
+                  databaseDocumentId:
+                    bodyHydrationMembership.database.documentId,
+                }
+              : {}),
+          }
+        : undefined,
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
-      properties: await listPropertiesForDocument(doc),
-      contextPath: await getDocumentContextPath(doc),
+      properties: await listPropertiesForDocument(doc, args.databaseId),
+      contextPath: await getDocumentContextPath(doc, {
+        databaseId: args.databaseId,
+      }),
     };
   },
   link: ({ result }) => {

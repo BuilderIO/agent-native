@@ -20,6 +20,7 @@ import {
   normalizeOrigin,
   rewriteRedirectLocation,
 } from "../packages/core/src/cli/gateway-helpers.ts";
+import { ensureNativeDependencies } from "../packages/core/src/cli/native-dependencies.ts";
 
 interface TemplateApp {
   id: string;
@@ -277,11 +278,18 @@ const prewarmEnabled = (() => {
   if (hasFlag("--prewarm")) return true;
   return readBooleanEnv(process.env.WORKSPACE_PREWARM) === true;
 })();
+// Reading another app for two minutes is normal navigation, not abandonment,
+// and evicting on that timescale charged a full Vite/Nitro cold start (10-20s)
+// for going back. Eviction exists to bound memory across a long session, so the
+// window only needs to be longer than a person's attention span, not shorter.
+// `agent-native dev` never evicts at all; this stays as the framework repo's
+// concession to running every template at once. 0 disables it.
+const DEFAULT_TEMPLATE_IDLE_MS = 1_800_000;
 const templateIdleMs = (() => {
   const raw = process.env.WORKSPACE_TEMPLATE_IDLE_MS;
-  if (raw === undefined) return 120_000;
+  if (raw === undefined) return DEFAULT_TEMPLATE_IDLE_MS;
   const parsed = Number(raw);
-  if (!Number.isFinite(parsed) || parsed < 0) return 120_000;
+  if (!Number.isFinite(parsed) || parsed < 0) return DEFAULT_TEMPLATE_IDLE_MS;
   return Math.floor(parsed);
 })();
 const prewarmConcurrency = (() => {
@@ -807,11 +815,15 @@ export function probeHttpReady(
       },
       (res) => {
         res.resume();
-        // Once the child can return headers, let the gateway proxy real traffic.
-        // Nitro's transient startup 503 contains a self-refreshing response;
-        // hiding it here would keep the browser on the gateway's Starting page
-        // and make the normal persistent-5xx recovery path unreachable.
-        finish(true);
+        // A booting app is not a ready app. Nitro answers early in cold start
+        // with a transient 503 (`Vite environment "nitro" is unavailable`);
+        // accepting it here handed the user's own request that same 503, which
+        // reads as a broken page with a retry button seconds before the app
+        // would have served it. Keep probing until it answers non-5xx — the
+        // caller's deadline (`proxyReadyTimeoutMs`) still bounds the wait, and
+        // the persistent-5xx self-heal is driven by `lastNon5xxAt`, not by
+        // this probe, so a genuinely wedged app is still restarted.
+        finish((res.statusCode ?? 500) < 500);
       },
     );
     req.setTimeout(timeoutMs, () => finish(false));
@@ -924,9 +936,15 @@ export function shouldEvict(input: {
   openSockets: number;
   now: number;
   idleTimeoutMs: number;
+  ready?: boolean;
 }): boolean {
   if (input.idleTimeoutMs <= 0) return false;
   if (input.openSockets > 0) return false;
+  // An app that has never served a response is booting, not idle. Vite can
+  // compile well past the readiness deadline, and once that probe gives up
+  // nothing else marks the app busy — so the sweep would kill it mid-compile
+  // and the next request would start the same slow boot over, forever.
+  if (input.ready === false) return false;
   return input.now - input.lastActivityAt > input.idleTimeoutMs;
 }
 
@@ -955,6 +973,7 @@ function sweepIdleApps(): void {
         openSockets: app.openSockets ?? 0,
         now,
         idleTimeoutMs: templateIdleMs,
+        ready: app.ready ?? false,
       })
     ) {
       evictApp(app);
@@ -1762,6 +1781,14 @@ function ensureElectronBinary() {
   }
 }
 
+function runNativeBindingPreflight(): void {
+  ensureNativeDependencies({
+    fromDirectory: ROOT,
+    label: "dev-lazy",
+    repair: true,
+  });
+}
+
 function electronLazyEnv(): NodeJS.ProcessEnv {
   return {
     ...process.env,
@@ -1850,6 +1877,8 @@ async function main(): Promise<void> {
     }
     return;
   }
+
+  runNativeBindingPreflight();
 
   if (includeElectron) {
     ensureElectronBinary();

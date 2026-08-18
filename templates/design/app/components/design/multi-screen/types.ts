@@ -32,6 +32,8 @@ export interface ScreenFile {
   updatedAt?: string;
   width?: number;
   height?: number;
+  /** A height the user dragged; auto-fit must not grow past it. */
+  heightPinned?: boolean;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -105,6 +107,7 @@ export interface ScreenMetadata {
   title?: string;
   width?: number;
   height?: number;
+  heightPinned?: boolean;
   url?: string;
   previewUrl?: string;
   bridgeUrl?: string;
@@ -124,6 +127,13 @@ export interface MultiScreenCanvasProps {
   zoom: number;
   activeId?: string | null;
   selectedScreenIds?: string[];
+  /** Screen id whose active selection is a specific element INSIDE the
+   * screen (a Layers-panel row, an in-canvas click) rather than the screen
+   * frame itself. The frame's own SelectionBox is suppressed for this
+   * screen — the iframe's editor-chrome bridge already draws a tightly
+   * fitted outline + resize handles around the real element, so drawing the
+   * frame-sized box on top of it would be wrong, not just redundant. */
+  selectedElementScreenId?: string | null;
   /** Hidden screen/file rows retain geometry but do not render or participate
    * in overview hit testing, fit, or selection until shown again. */
   hiddenScreenIds?: ReadonlySet<string> | readonly string[];
@@ -188,7 +198,13 @@ export interface MultiScreenCanvasProps {
     placement: "before" | "after" | "inside";
   }) => void;
   onCreateScreenFrame?: (geometry: FrameGeometry) => void;
+  /** Whether the frame tool commits a top-level screen or a plain frame. */
+  frameToolDraws?: "screen" | "frame";
   onDeleteSelection?: (ids: string[]) => boolean | void;
+  /** Return false to keep the arrow key: the host's real selection is an
+   * element inside a screen, and this canvas still lists that screen in
+   * `selectedIds`. Same veto `onDeleteSelection` uses. */
+  onNudgeSelection?: (ids: string[]) => boolean | void;
   onZoomChange?: (zoom: number) => void;
   renderScreenContent?: (
     screen: ScreenFile,
@@ -218,7 +234,11 @@ export interface MultiScreenCanvasProps {
    * Called when the user clicks the + affordance on a screen's breakpoint
    * row to add the next standard breakpoint width (390 / 768 / 1280).
    */
-  onAddBreakpoint?: (screenId: string, widthPx: number) => void;
+  /** Adds a breakpoint width to the DESIGN. A design has one active breakpoint
+   *  set in v1, so this deliberately takes no screen id: every screen renders
+   *  the same widths, and a per-screen parameter here only ever promised
+   *  scoping the action cannot deliver. */
+  onAddBreakpoint?: (widthPx: number) => void;
   /**
    * Called when the user clicks a breakpoint frame header to make it the
    * active edit scope.
@@ -294,6 +314,8 @@ export interface MultiScreenCanvasProps {
     targetLocalPoint?: Point;
     /** Pointer offset from the dragged element's top-left in source iframe px. */
     sourcePointerOffset?: Point;
+    /** Host-captured HTML for a board root, including its current DOM subtree. */
+    sourceHtmlSnapshot?: string;
     /** Portable computed styles captured in the source iframe before the move. */
     styleSnapshot?: PortableStyleSnapshot;
   }) => void;
@@ -829,6 +851,9 @@ export type PendingWheelGesture =
   | {
       mode: "zoom";
       deltaY: number;
+      /** Trackpad pinch rather than a discrete mouse notch — the two use
+       *  different sensitivities, so accumulation must not mix them. */
+      pinch: boolean;
       cursor: Point;
       clientX: number;
       clientY: number;
@@ -951,11 +976,16 @@ export interface ResolvedScreenMetadata {
   title?: string;
   width: number;
   height: number;
+  /** A height the user dragged; auto-fit must not grow past it. */
+  heightPinned?: boolean;
   previewUrl?: string;
 }
 
 export interface DuplicatePreview {
   display: string;
+  /** How many frames the drop will copy — the whole frame selection when the
+   *  alt-drag started on a selected frame, otherwise just the pressed one. */
+  count: number;
   x: number;
   y: number;
   width: number;

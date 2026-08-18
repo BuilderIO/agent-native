@@ -3,6 +3,10 @@ import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { PoweredByBadge } from "@agent-native/core/client/ui";
 import {
+  AGENT_ACCESS_PARAM,
+  normalizeDocumentTitle,
+} from "@agent-native/core/shared";
+import {
   IconCalendar,
   IconCheck,
   IconCopy,
@@ -15,8 +19,12 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { and, eq, isNull } from "drizzle-orm";
 import { useEffect, useRef, useState } from "react";
-import type { LoaderFunctionArgs, MetaFunction } from "react-router";
-import { useLoaderData, useParams } from "react-router";
+import type {
+  HeadersArgs,
+  LoaderFunctionArgs,
+  MetaFunction,
+} from "react-router";
+import { useLoaderData, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -35,14 +43,41 @@ import {
 } from "@/lib/public-meeting";
 
 import { getDb, schema } from "../../server/db";
+import { CLIPS_MEETING_AGENT_RESOURCE_KIND } from "../../shared/meeting-agent-access";
+import { privateShareLoaderData } from "../../shared/share-loader-response";
+import {
+  normalizeTranscriptSegments,
+  parseTranscriptSegments,
+} from "../../shared/transcript-segments";
+import { resolveTranscriptPresentation } from "../../shared/transcript-status";
 
 type LoaderData = { meeting: PublicMeeting | null };
 
-export async function loader({
-  params,
-}: LoaderFunctionArgs): Promise<LoaderData> {
+function shareMeetingLoaderData(
+  payload: LoaderData,
+  privateAgentAccess = false,
+) {
+  return privateAgentAccess ? privateShareLoaderData(payload) : payload;
+}
+
+export function headers({ loaderHeaders }: HeadersArgs) {
+  return loaderHeaders;
+}
+
+export async function loader({ params, url }: LoaderFunctionArgs) {
   const meetingId = params.meetingId;
   if (!meetingId) return { meeting: null };
+
+  const { verifyScopedAgentAccessToken } =
+    await import("@agent-native/core/server");
+  const agentAccessToken = url.searchParams.get(AGENT_ACCESS_PARAM) ?? "";
+  const hasAgentAccessToken = Boolean(agentAccessToken);
+  const tokenGrantsAgentAccess = agentAccessToken
+    ? verifyScopedAgentAccessToken(agentAccessToken, {
+        resourceKind: CLIPS_MEETING_AGENT_RESOURCE_KIND,
+        resourceId: meetingId,
+      }).ok
+    : false;
 
   const [meeting] = await getDb()
     .select({
@@ -51,23 +86,33 @@ export async function loader({
       scheduledStart: schema.meetings.scheduledStart,
       summaryMd: schema.meetings.summaryMd,
       bulletsJson: schema.meetings.bulletsJson,
+      ownerEmail: schema.meetings.ownerEmail,
       actualStart: schema.meetings.actualStart,
       actualEnd: schema.meetings.actualEnd,
       transcriptStatus: schema.meetings.transcriptStatus,
+      recordingId: schema.meetings.recordingId,
+      shareTranscript: schema.meetings.shareTranscript,
       visibility: schema.meetings.visibility,
     })
     .from(schema.meetings)
     .where(
-      and(
-        eq(schema.meetings.id, meetingId),
-        eq(schema.meetings.visibility, "public"),
-        isNull(schema.meetings.trashedAt),
-      ),
+      tokenGrantsAgentAccess
+        ? and(
+            eq(schema.meetings.id, meetingId),
+            isNull(schema.meetings.trashedAt),
+          )
+        : and(
+            eq(schema.meetings.id, meetingId),
+            eq(schema.meetings.visibility, "public"),
+            isNull(schema.meetings.trashedAt),
+          ),
     )
     .limit(1);
-  if (!meeting) return { meeting: null };
+  if (!meeting) {
+    return shareMeetingLoaderData({ meeting: null }, hasAgentAccessToken);
+  }
 
-  const [participants, actionItems] = await Promise.all([
+  const [participants, actionItems, transcriptRows] = await Promise.all([
     getDb()
       .select({
         email: schema.meetingParticipants.email,
@@ -85,7 +130,32 @@ export async function loader({
       })
       .from(schema.meetingActionItems)
       .where(eq(schema.meetingActionItems.meetingId, meetingId)),
+    meeting.shareTranscript && meeting.recordingId
+      ? getDb()
+          .select({
+            status: schema.recordingTranscripts.status,
+            language: schema.recordingTranscripts.language,
+            fullText: schema.recordingTranscripts.fullText,
+            failureReason: schema.recordingTranscripts.failureReason,
+            segmentsJson: schema.recordingTranscripts.segmentsJson,
+            updatedAt: schema.recordingTranscripts.updatedAt,
+          })
+          .from(schema.recordingTranscripts)
+          .where(
+            eq(schema.recordingTranscripts.recordingId, meeting.recordingId),
+          )
+          .limit(1)
+      : Promise.resolve([]),
   ]);
+
+  const transcript = transcriptRows[0] ?? null;
+  const transcriptPresentation = resolveTranscriptPresentation(transcript);
+  const transcriptSegments = transcript
+    ? normalizeTranscriptSegments({
+        segments: parseTranscriptSegments(transcript.segmentsJson),
+        fullText: transcript.fullText,
+      })
+    : [];
 
   let bullets: PublicMeeting["bullets"] = [];
   try {
@@ -100,29 +170,53 @@ export async function loader({
     }
   } catch {}
 
-  return {
-    meeting: {
-      id: meeting.id,
-      title: meeting.title,
-      scheduledStart: meeting.scheduledStart,
-      summaryMd: meeting.summaryMd,
-      bullets,
-      participants,
-      actionItems,
-      actualStart: meeting.actualStart,
-      actualEnd: meeting.actualEnd,
-      transcriptStatus: meeting.transcriptStatus,
+  // The owner's email is only safe to disclose here when it's already public
+  // via the attendee list — an unauthenticated viewer must never learn an
+  // account email that isn't otherwise visible on this page.
+  const ownerEmailIsPublic = participants.some(
+    (participant) =>
+      participant.email.trim().toLowerCase() ===
+      meeting.ownerEmail?.trim().toLowerCase(),
+  );
+
+  return shareMeetingLoaderData(
+    {
+      meeting: {
+        id: meeting.id,
+        title: meeting.title,
+        scheduledStart: meeting.scheduledStart,
+        summaryMd: meeting.summaryMd,
+        bullets,
+        participants,
+        actionItems,
+        ownerEmail: ownerEmailIsPublic ? meeting.ownerEmail : null,
+        actualStart: meeting.actualStart,
+        actualEnd: meeting.actualEnd,
+        transcriptStatus: meeting.transcriptStatus,
+        transcript: transcript
+          ? {
+              status: transcriptPresentation.status ?? transcript.status,
+              language: transcript.language,
+              fullText: transcript.fullText,
+              segments: transcriptSegments,
+            }
+          : null,
+      },
     },
-  };
+    hasAgentAccessToken,
+  );
 }
 
 export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   const meeting = loaderData?.meeting;
-  const title = meeting?.title
-    ? `${meeting.title} · Clips`
+  const meetingTitle = meeting?.title
+    ? normalizeDocumentTitle(meeting.title, enMessages.shareMeeting.pageTitle)
+    : null;
+  const title = meetingTitle
+    ? `${meetingTitle} · Clips`
     : enMessages.shareMeeting.pageTitle;
-  const description = meeting?.title
-    ? `AI meeting notes for "${meeting.title}"`
+  const description = meetingTitle
+    ? `AI meeting notes for "${meetingTitle}"`
     : enMessages.shareMeeting.description;
   return [
     { title },
@@ -193,7 +287,9 @@ export default function ShareMeetingRoute() {
   const t = useT();
   const loaderData = useLoaderData<LoaderData>();
   const { meetingId } = useParams<{ meetingId: string }>();
+  const [searchParams] = useSearchParams();
   const { session, isLoading: sessionLoading } = useSession();
+  const agentAccessToken = searchParams.get(AGENT_ACCESS_PARAM) ?? "";
   const pollingStartedAtRef = useRef<number | null>(null);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const initialMeetingResult: PublicMeetingResult | undefined =
@@ -211,8 +307,13 @@ export default function ShareMeetingRoute() {
       meetingId,
       session?.email ?? null,
       session?.orgId ?? null,
+      agentAccessToken,
     ],
-    queryFn: ({ signal }) => fetchPublicMeeting(meetingId ?? "", { signal }),
+    queryFn: ({ signal }) =>
+      fetchPublicMeeting(meetingId ?? "", {
+        signal,
+        agentAccessToken,
+      }),
     enabled: !!meetingId && !sessionLoading,
     initialData: initialMeetingResult,
     refetchInterval: (query) => {
@@ -242,7 +343,12 @@ export default function ShareMeetingRoute() {
       : null;
 
   useEffect(() => {
-    if (meeting?.title) document.title = `${meeting.title} · Clips`;
+    if (!meeting?.title) return;
+    const meetingTitle = normalizeDocumentTitle(
+      meeting.title,
+      enMessages.shareMeeting.pageTitle,
+    );
+    document.title = `${meetingTitle} · Clips`;
   }, [meeting?.title]);
 
   if (!meeting && (sessionLoading || meetingQuery.isLoading)) {
@@ -268,6 +374,7 @@ export default function ShareMeetingRoute() {
     (participant) => ({
       email: participant.email,
       name: participant.name ?? undefined,
+      isOrganizer: participant.isOrganizer,
     }),
   );
   const transcript = meeting.transcript;
@@ -354,7 +461,7 @@ export default function ShareMeetingRoute() {
                   {meeting.bullets.map((bullet, index) => (
                     <li
                       key={index}
-                      className="flex gap-2 text-sm leading-relaxed text-muted-foreground"
+                      className="flex gap-2 text-sm leading-relaxed text-foreground"
                     >
                       <span>•</span>
                       <span className="flex-1">{bullet.text}</span>
@@ -427,8 +534,8 @@ export default function ShareMeetingRoute() {
                 <TranscriptBubbles
                   segments={transcript.segments}
                   isLive={false}
-                  recordingId={null}
-                  onSeek={() => {}}
+                  participants={attendees}
+                  ownerEmail={meeting.ownerEmail}
                 />
               </div>
             ) : transcript.fullText ? (
@@ -437,12 +544,7 @@ export default function ShareMeetingRoute() {
               </div>
             ) : (
               <div className="flex min-h-40 flex-col overflow-hidden rounded-lg border border-border">
-                <TranscriptBubbles
-                  segments={[]}
-                  isLive={false}
-                  recordingId={null}
-                  onSeek={() => {}}
-                />
+                <TranscriptBubbles segments={[]} isLive={false} />
               </div>
             )}
           </section>

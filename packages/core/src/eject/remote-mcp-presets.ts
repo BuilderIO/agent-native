@@ -59,6 +59,7 @@ function preset(id: string): DefaultMcpIntegration {
 export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   preset("context7"),
   preset("sentry"),
+  preset("fullstory"),
   preset("notion"),
   preset("granola"),
   preset("semgrep"),
@@ -132,7 +133,7 @@ export function findMcpIntegrationForText(
 function withUiIntegrations(
   integrations: readonly DefaultMcpIntegration[] = [],
 ): DefaultMcpIntegration[] {
-  return mergeDefaultMcpIntegrations(integrations);
+  return getDefaultMcpIntegrations(undefined, integrations);
 }
 
 export function McpIntegrationDialog(

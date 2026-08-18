@@ -296,6 +296,32 @@ describe("standalone scaffold — chat template", { timeout: 180_000 }, () => {
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     expect(pkg.dependencies?.postgres).toBeDefined();
   });
+
+  it("allows Tesseract builds through pnpm-workspace.yaml", async () => {
+    await createApp("test-app", { template: "chat" });
+    const root = path.join(tmpDir, "test-app");
+    const pkg = readPkg(root);
+    const workspaceYaml = fs.readFileSync(
+      path.join(root, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(pkg.pnpm).toBeUndefined();
+    expect(workspaceYaml).toContain("allowBuilds:");
+    expect(workspaceYaml).toContain("tesseract.js: true");
+    expect(workspaceYaml).not.toContain("onlyBuiltDependencies:");
+  });
+
+  it("pins the Tiptap family for fresh standalone installs", async () => {
+    await createApp("test-app", { template: "chat" });
+    const workspaceYaml = fs.readFileSync(
+      path.join(tmpDir, "test-app", "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(workspaceYaml).toContain('"@tiptap/core": "3.28.0"');
+    expect(workspaceYaml).toContain('"@tiptap/extension-list": "3.28.0"');
+  });
 });
 
 describe("installed package template discovery", () => {
@@ -393,11 +419,145 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     );
     expect(workspaceYaml).toContain("allowBuilds:");
     expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
+    expect(workspaceYaml).toContain('"@modelcontextprotocol/client"');
+    expect(workspaceYaml).toContain('"@modelcontextprotocol/core"');
+    expect(workspaceYaml).toContain('"@modelcontextprotocol/node"');
+    expect(workspaceYaml).toContain('"@modelcontextprotocol/server"');
     expect(workspaceYaml).toContain('"@typescript/*"');
     expect(workspaceYaml).toContain('"@sentry/*"');
     expect(workspaceYaml).toContain("fast-xml-parser");
     expect(workspaceYaml).toContain("typescript-7");
     expect(workspaceYaml).not.toContain("@assistant-ui");
+  });
+});
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * In-place scaffold safety boundary (`create .`)
+ *
+ * `create .` scaffolds into the current directory, which may already be a git
+ * repo with the user's own files. The scaffold must be staged so a failure
+ * can't delete that directory, must preserve pre-existing files, and must not
+ * write a commit into the user's history.
+ * ───────────────────────────────────────────────────────────────────────── */
+
+describe("in-place scaffold — safety boundary", { timeout: 60000 }, () => {
+  function git(cwd: string, args: string[]): string {
+    const res = spawnSync("git", args, {
+      cwd,
+      encoding: "utf-8",
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: "Test",
+        GIT_AUTHOR_EMAIL: "test@example.com",
+        GIT_COMMITTER_NAME: "Test",
+        GIT_COMMITTER_EMAIL: "test@example.com",
+      },
+    });
+    if (res.status !== 0) {
+      throw new Error(`git ${args.join(" ")} failed: ${res.stderr}`);
+    }
+    return res.stdout.trim();
+  }
+
+  function setupExistingRepo(dir: string): {
+    readme: string;
+    gitignore: string;
+    head: string;
+  } {
+    fs.mkdirSync(dir, { recursive: true });
+    const readme = "# My existing project\nDo not clobber me.\n";
+    const gitignore = "node_modules\n.env\n";
+    fs.writeFileSync(path.join(dir, "README.md"), readme);
+    fs.writeFileSync(path.join(dir, ".gitignore"), gitignore);
+    git(dir, ["init"]);
+    git(dir, ["add", "-A"]);
+    git(dir, ["commit", "-m", "existing history"]);
+    return { readme, gitignore, head: git(dir, ["rev-parse", "HEAD"]) };
+  }
+
+  it("preserves .git, README.md, .gitignore and existing history", async () => {
+    const dir = path.join(tmpDir, "in-place-app");
+    const { readme, gitignore, head } = setupExistingRepo(dir);
+    process.chdir(dir);
+
+    await createApp(".", { template: "headless" });
+
+    // Pre-existing user files are untouched.
+    expect(fs.readFileSync(path.join(dir, "README.md"), "utf-8")).toBe(readme);
+    expect(fs.readFileSync(path.join(dir, ".gitignore"), "utf-8")).toBe(
+      gitignore,
+    );
+    expect(fs.existsSync(path.join(dir, ".git"))).toBe(true);
+
+    // The scaffold landed in the current directory.
+    expect(fs.existsSync(path.join(dir, "actions", "hello.ts"))).toBe(true);
+    expect(readPkg(dir).name).toBe("in-place-app");
+
+    // No commit was written into the user's repo: HEAD is unchanged and the
+    // scaffolded files are left untracked for the user to review.
+    expect(git(dir, ["rev-parse", "HEAD"])).toBe(head);
+    // git collapses an untracked directory to its top-level path.
+    expect(git(dir, ["status", "--porcelain"])).toContain("?? actions/");
+  });
+
+  it("leaves the current directory intact and removes staging on failure", async () => {
+    const dir = path.join(tmpDir, "in-place-fail");
+    const { readme, head } = setupExistingRepo(dir);
+    process.chdir(dir);
+
+    // Fail the scaffold mid-flight by rejecting writes into the staging dir,
+    // and capture the staging path so we can assert it was cleaned up.
+    let stagingDir: string | undefined;
+    const realMkdtemp = fs.mkdtempSync.bind(fs);
+    const realWrite = fs.writeFileSync.bind(fs);
+    const mkdtempSpy = vi.spyOn(fs, "mkdtempSync").mockImplementation(((
+      prefix: any,
+      ...rest: any[]
+    ) => {
+      const created = (realMkdtemp as any)(prefix, ...rest);
+      if (String(prefix).includes("agent-native-create-")) {
+        stagingDir = created;
+      }
+      return created;
+    }) as any);
+    const writeSpy = vi.spyOn(fs, "writeFileSync").mockImplementation(((
+      file: any,
+      ...rest: any[]
+    ) => {
+      if (
+        typeof file === "string" &&
+        stagingDir &&
+        file.startsWith(stagingDir)
+      ) {
+        throw new Error("injected scaffold failure");
+      }
+      return (realWrite as any)(file, ...rest);
+    }) as any);
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((
+      code?: number,
+    ) => {
+      throw new Error(`process.exit(${code})`);
+    }) as any);
+
+    try {
+      await expect(createApp(".", { template: "headless" })).rejects.toThrow(
+        "process.exit(1)",
+      );
+    } finally {
+      mkdtempSpy.mockRestore();
+      writeSpy.mockRestore();
+      exitSpy.mockRestore();
+    }
+
+    // The user's current directory and history are untouched...
+    expect(fs.readFileSync(path.join(dir, "README.md"), "utf-8")).toBe(readme);
+    expect(fs.existsSync(path.join(dir, ".git"))).toBe(true);
+    expect(git(dir, ["rev-parse", "HEAD"])).toBe(head);
+    // ...no partial scaffold leaked into it...
+    expect(fs.existsSync(path.join(dir, "actions"))).toBe(false);
+    // ...and the staging directory was removed.
+    expect(stagingDir).toBeDefined();
+    expect(fs.existsSync(stagingDir!)).toBe(false);
   });
 });
 
@@ -607,11 +767,10 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(fs.existsSync(path.join(schedDir, "package.json"))).toBe(true);
   });
 
-  it("scaffolds the pinpoint package when design is included", async () => {
+  it("does not scaffold the optional pinpoint package with design", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["chat", "design"]);
     const pinpointDir = path.join(wsDir, "packages", "pinpoint");
-    expect(fs.existsSync(pinpointDir)).toBe(true);
-    expect(fs.existsSync(path.join(pinpointDir, "package.json"))).toBe(true);
+    expect(fs.existsSync(pinpointDir)).toBe(false);
   });
 
   it("scaffolds the committed design bridge modules that DesignCanvas imports at module load", async () => {
@@ -868,6 +1027,29 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(wsYaml).toContain("tailwindcss");
   });
 
+  it("allows Tesseract builds in workspace settings", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat"]);
+    const wsYaml = fs.readFileSync(
+      path.join(wsDir, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(wsYaml).toContain("allowBuilds:");
+    expect(wsYaml).toContain("tesseract.js: true");
+  });
+
+  it("pins Tiptap transitive extensions to the tested workspace family", async () => {
+    const wsDir = await scaffoldWorkspace("my-ws", ["chat", "calendar"]);
+    const wsYaml = fs.readFileSync(
+      path.join(wsDir, "pnpm-workspace.yaml"),
+      "utf-8",
+    );
+
+    expect(wsYaml).toContain('"@tiptap/core": "3.28.0"');
+    expect(wsYaml).toContain('"@tiptap/extension-list": "3.28.0"');
+    expect(wsYaml).toContain('"@tiptap/extension-code-block": "3.28.0"');
+  });
+
   it("pins Better Auth in workspace roots until the latest Kysely adapter build is compatible", async () => {
     const wsDir = await scaffoldWorkspace("my-ws", ["calendar"]);
     const wsYaml = fs.readFileSync(
@@ -891,6 +1073,35 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
     expect(appPkg.displayName).toBe("Chat");
     expect(appPkg.description).toBe(
       "Minimal chat-first agent-native app template.",
+    );
+  });
+
+  it("installs the portable guard contract at the workspace and app roots", async () => {
+    await createApp("guarded-ws", { template: "chat,dispatch" });
+    const wsDir = path.join(tmpDir, "guarded-ws");
+    const rootPkg = readPkg(wsDir);
+    const appDir = path.join(wsDir, "apps", "chat");
+    const appPkg = readPkg(appDir);
+
+    expect(rootPkg.scripts.doctor).toBe("agent-native doctor");
+    expect(rootPkg.scripts.prebuild).toBe("agent-native doctor --strict");
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(wsDir, "agent-native.json"), "utf-8"),
+      ),
+    ).toMatchObject({ doctor: { failOnBuild: true } });
+    expect(fs.readFileSync(path.join(wsDir, "AGENTS.md"), "utf-8")).toContain(
+      "Guarded verification",
+    );
+    expect(appPkg.scripts.doctor).toBe("agent-native doctor");
+    expect(appPkg.scripts["agent-native:doctor"]).toBe("agent-native doctor");
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(appDir, "agent-native.json"), "utf-8"),
+      ),
+    ).toMatchObject({ doctor: { failOnBuild: false } });
+    expect(fs.readFileSync(path.join(appDir, "AGENTS.md"), "utf-8")).toContain(
+      "Guarded verification",
     );
   });
 
@@ -1401,6 +1612,36 @@ describe("workspace scaffold defaults", () => {
 });
 
 describe("Netlify scaffold rewrite", () => {
+  it("generates a release migration step so a new app never migrates on requests", () => {
+    // "Create an app, connect Netlify, it works" has to include schema. Without
+    // this step the app falls back to migrating at nitro plugin init, which on
+    // serverless means EVERY cold start — the shape that took analytics down
+    // for hours. Generated for every app rather than opt-in, because a flag you
+    // must remember is a flag half the fleet will not have.
+    const appDir = path.join(tmpDir, "standalone-release");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && NITRO_PRESET=netlify pnpm build"',
+        '  publish = "templates/chat/dist"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "my-app", "standalone");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain("migrate:production");
+    // Only on a real production deploy — previews must not migrate.
+    expect(netlify).toContain('if [ \\"${CONTEXT:-}\\" = \\"production\\" ]');
+    // ...and after the build, so the built app is what migrates.
+    expect(netlify.indexOf("pnpm build")).toBeLessThan(
+      netlify.indexOf("migrate:production"),
+    );
+  });
+
   it("preserves database env setup while removing template install commands", () => {
     const appDir = path.join(tmpDir, "app");
     fs.mkdirSync(appDir, { recursive: true });
@@ -1430,7 +1671,7 @@ describe("Netlify scaffold rewrite", () => {
     };
 
     expect(netlify).toContain(
-      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/dispatch VITE_APP_BASE_PATH=/dispatch NITRO_PRESET=netlify pnpm --filter dispatch build"',
+      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/dispatch VITE_APP_BASE_PATH=/dispatch NITRO_PRESET=netlify pnpm --filter dispatch build && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then pnpm --filter dispatch migrate:production; fi"',
     );
     expect(netlify).not.toContain("pnpm install");
     expect(netlify).toContain('publish = "apps/dispatch/dist"');
@@ -1470,11 +1711,37 @@ describe("Netlify scaffold rewrite", () => {
 
     const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
     expect(netlify).toContain(
-      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" NITRO_PRESET=netlify pnpm build"',
+      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" NITRO_PRESET=netlify pnpm build && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" pnpm migrate:production; fi"',
+    );
+    expect(netlify).toContain(
+      'then DATABASE_URL=\\"${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}\\" pnpm migrate:production; fi',
     );
     expect(netlify).not.toContain("pnpm install");
     expect(netlify).toContain('publish = "dist"');
     expect(netlify).toContain('functions = ".netlify/functions-internal"');
+  });
+
+  it("keeps the unpooled override when the template command already has escaped quotes", () => {
+    // Every template's build command now contains \" from the release-migration
+    // CONTEXT test. A naive [^"]* match stops at the first one, so the unpooled
+    // override silently vanished for the four templates that use it — and the
+    // app would come up pointed at the pooled URL for its build.
+    const appDir = path.join(tmpDir, "unpooled-escaped-quotes");
+    fs.mkdirSync(appDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(appDir, "netlify.toml"),
+      [
+        "[build]",
+        '  command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm --filter mail build && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then pnpm --filter mail migrate:production; fi"',
+        '  publish = "templates/mail/dist"',
+        "",
+      ].join("\n"),
+    );
+
+    _rewriteNetlifyToml(appDir, "mail", "standalone");
+
+    const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
+    expect(netlify).toContain("NETLIFY_DATABASE_URL_UNPOOLED");
   });
 
   it("keeps unpooled database overrides for unindented template netlify commands", () => {
@@ -1506,7 +1773,7 @@ describe("Netlify scaffold rewrite", () => {
       path.join(appDir, "netlify.toml"),
       [
         "[build]",
-        'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build"',
+        'command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then pnpm --filter chat migrate:production; fi"',
         'publish = "templates/chat/dist"',
         'functions = "templates/chat/.netlify/functions-internal"',
         "",
@@ -1540,7 +1807,7 @@ describe("Netlify scaffold rewrite", () => {
 
     const netlify = fs.readFileSync(path.join(appDir, "netlify.toml"), "utf-8");
     expect(netlify).toContain(
-      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/chat VITE_APP_BASE_PATH=/chat NITRO_PRESET=netlify pnpm --filter chat build"',
+      'command = "export DATABASE_URL=\\"${NETLIFY_DATABASE_URL:-$DATABASE_URL}\\" && APP_BASE_PATH=/chat VITE_APP_BASE_PATH=/chat NITRO_PRESET=netlify pnpm --filter chat build && if [ \\"${CONTEXT:-}\\" = \\"production\\" ]; then pnpm --filter chat migrate:production; fi"',
     );
     expect(netlify).toContain('  APP_BASE_PATH = "/chat"');
     expect(netlify).toContain('  VITE_APP_BASE_PATH = "/chat"');

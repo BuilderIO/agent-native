@@ -5,10 +5,12 @@ import {
 import { createH3SSRHandler } from "@agent-native/core/server/ssr-handler";
 import {
   buildAgentReadableResourceDiscovery,
+  injectDocumentMarkup,
   renderAgentReadableResourceDiscoveryScript,
 } from "@agent-native/core/shared";
 import {
   defineEventHandler,
+  getHeader,
   getQuery,
   getRequestURL,
   setResponseHeader,
@@ -48,11 +50,7 @@ function queryString(value: unknown): string {
 
 function injectScript(html: string, script: string): string {
   if (html.includes("agent-native-design-agent-context")) return html;
-  if (html.includes("</head>"))
-    return html.replace("</head>", `${script}</head>`);
-  if (html.includes("</body>"))
-    return html.replace("</body>", `${script}</body>`);
-  return `${html}${script}`;
+  return injectDocumentMarkup(html, script, { target: "head" });
 }
 
 export default defineEventHandler(async (event) => {

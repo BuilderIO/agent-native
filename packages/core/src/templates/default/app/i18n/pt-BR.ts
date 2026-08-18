@@ -74,6 +74,23 @@ const messages = {
       suggestionGrantKey: "Conceda minha chave OpenAI para este aplicativo",
     },
     pages: {
+      browserChatUnavailableTitle: "Sessão de chat do navegador indisponível",
+      browserChatUnavailableDescription:
+        "Reconecte pela extensão Agent-Native.",
+      browserChatPlaceholder: "Pergunte sobre esta página…",
+      browserChatAttachedPlaceholder: "Pergunte sobre {{page}}…",
+      browserConnectTitle: "Conectar chat do navegador",
+      browserConnectDescription:
+        "Permita que a extensão Agent-Native do Chrome abra esta sessão do Dispatch. A conexão usa um ticket único e de curta duração.",
+      browserConnectInvalid:
+        "Esta solicitação de conexão é inválida. Recomece pela extensão.",
+      browserConnectConnected:
+        "Chat do navegador conectado. Você pode fechar esta aba.",
+      browserConnectConnecting: "Conectando…",
+      browserConnectButton: "Conectar",
+      browserConnectOpenFromExtension:
+        "Abra esta página pela extensão Agent-Native do Chrome.",
+      browserConnectFailed: "A extensão do navegador não se conectou.",
       appsDescription:
         "Abra aplicativos de espaço de trabalho e inicie a criação de novos aplicativos em Dispatch.",
       appsDescriptionWithWorkspace:
@@ -217,6 +234,8 @@ const messages = {
     newTerminal: "Novo terminal",
     panelOptions: "Opções do painel do agente",
     collapseSidebar: "Recolher barra lateral",
+    widenChat: "Ampliar o chat",
+    returnChatToLayout: "Retornar o chat ao layout",
     hideChats: "Ocultar bate-papos",
     allChats: "Todos os bate-papos",
     settings: "Configurações",
@@ -263,6 +282,8 @@ const messages = {
     publicDescription: "Qualquer pessoa conectada com o link pode visualizar",
     viewer: "Viewer",
     viewerDescription: "Pode visualizar",
+    commenter: "Comentarista",
+    commenterDescription: "Pode visualizar e adicionar comentários",
     editor: "Editor",
     editorDescription: "Pode editar",
     admin: "Admin",
@@ -324,7 +345,7 @@ const messages = {
     codeChangeBadge: "Mudança de código",
     connectBuilderTitle: "Conectar Builder.io",
     connectBuilderDescription:
-      "Connect Builder para permitir alterações de código baseadas em nuvem deste aplicativo.",
+      "Connect Builder (nível gratuito disponível) para permitir alterações de código baseadas em nuvem deste aplicativo.",
     setupRequired: "Configuração necessária",
     branchCreated: "Filial criada",
     close: "Fechar",
@@ -366,6 +387,16 @@ const messages = {
     deleting: "Arquivando...",
     openFullView: "Abrir visualização completa",
     removeFromWidgetArea: "Remover desta área de widget",
+    customBlockSandboxed: "Bloco personalizado · isolado",
+    sandboxedCustomBlock: "Bloco SQL personalizado e isolado",
+    sandboxedCustomBlockCreatedBy:
+      "Bloco SQL personalizado e isolado criado por {{email}}",
+    promoteToAppCode: "Promover para código do aplicativo",
+    historyShowsSourceVersions: "O histórico mostra versões do código",
+    createdByHistoryShowsSourceVersions:
+      "Criado por {{email}}. O histórico mostra versões do código.",
+    createdByHistoryShowsSourceVersionsCompact:
+      "Criado por {{email}} · O histórico mostra versões do código",
     deleteExtensionEllipsis: "Arquivar extensão...",
     removeFromMyListEllipsis: "Remover da minha lista...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
@@ -451,6 +482,10 @@ const messages = {
     noMembers: "Ainda não há membros.",
     memberCount_one: "{{count}} member",
     memberCount_other: "{{count}} members",
+    memberPagination: "Paginação da lista de membros",
+    previousMemberPage: "Ir para a página anterior de membros",
+    nextMemberPage: "Ir para a próxima página de membros",
+    memberPageStatus: "Página {{page}} de {{totalPages}}",
     memberCount_many: "{{count}} members",
     youAreRole: "You are {{role}}",
     changeRole: "Mudar função",
@@ -480,7 +515,7 @@ const messages = {
     back: "Voltar",
     agentEngineRequired: "Mecanismo de agente necessário",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io (nível gratuito disponível) or an LLM key before {{platform}} can answer.",
     openLlm: "Abra LLM",
     setup: "Setup",
     shareDocumentsWith: "Compartilhe documentos com",

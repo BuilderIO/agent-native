@@ -1,3 +1,4 @@
+import { getDbExec, isPostgres } from "../db/client.js";
 import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
 import { getSetting, mutateSetting } from "../settings/store.js";
 import {
@@ -25,9 +26,94 @@ export interface FeatureFlagScope {
 }
 
 export const FEATURE_FLAG_SETTINGS_PREFIX = "feature-flag:";
+const FEATURE_FLAG_ROLLOUT_INDEX_PREFIX = "feature-flag-rollout-index:";
 
 function settingKey(key: string): string {
   return `${FEATURE_FLAG_SETTINGS_PREFIX}${key}`;
+}
+
+function rolloutIndexKey(key: string): string {
+  return `${FEATURE_FLAG_ROLLOUT_INDEX_PREFIX}${key}`;
+}
+
+function parseStoredRules(value: unknown): FeatureFlagRules {
+  if (typeof value === "string")
+    return normalizeFeatureFlagRules(JSON.parse(value));
+  return normalizeFeatureFlagRules(value);
+}
+
+function hasActiveRollout(rules: FeatureFlagRules): boolean {
+  return (
+    rules.mode === "on" ||
+    (rules.mode === "rules" &&
+      (rules.emails.length > 0 ||
+        rules.orgIds.length > 0 ||
+        rules.percentage > 0))
+  );
+}
+
+interface FeatureFlagRolloutIndex {
+  version: 1;
+  global: boolean;
+  orgIds: string[];
+}
+
+function normalizeFeatureFlagRolloutIndex(
+  value: unknown,
+): FeatureFlagRolloutIndex | null {
+  if (!value || typeof value !== "object") return null;
+  const raw = value as Record<string, unknown>;
+  const orgIds = Array.isArray(raw.orgIds)
+    ? [
+        ...new Set(
+          raw.orgIds.filter((item): item is string => typeof item === "string"),
+        ),
+      ]
+        .map((orgId) => orgId.trim())
+        .filter(Boolean)
+        .sort()
+    : [];
+  return {
+    version: 1,
+    global: raw.global === true,
+    orgIds,
+  };
+}
+
+function activeFeatureFlagRolloutIndex(
+  index: FeatureFlagRolloutIndex,
+): boolean {
+  return index.global || index.orgIds.length > 0;
+}
+
+async function syncFeatureFlagRolloutIndex(
+  key: string,
+  scope: Pick<FeatureFlagScope, "orgId">,
+  rules: FeatureFlagRules,
+): Promise<void> {
+  const indexKey = rolloutIndexKey(key);
+  await mutateSetting(indexKey, async (current) => {
+    const next = normalizeFeatureFlagRolloutIndex(current) ?? {
+      version: 1 as const,
+      global: false,
+      orgIds: [],
+    };
+    if (scope.orgId?.trim()) {
+      const orgId = scope.orgId.trim();
+      const active = hasActiveRollout(rules);
+      const orgIds = active
+        ? [...new Set([...next.orgIds, orgId])].sort()
+        : next.orgIds.filter((value) => value !== orgId);
+      return {
+        ...next,
+        orgIds,
+      };
+    }
+    return {
+      ...next,
+      global: hasActiveRollout(rules),
+    };
+  });
 }
 
 export function defaultFeatureFlagRules(): FeatureFlagRules {
@@ -89,11 +175,67 @@ export async function getFeatureFlagRules(
   if (!getFeatureFlagDefinition(key)) return defaultFeatureFlagRules();
   // An organization-specific rule overrides the global rule. The fallback is
   // what makes global exact-org targeting meaningful for callers in an org.
-  const stored = scope.orgId?.trim()
-    ? ((await getOrgSetting(scope.orgId, settingKey(key))) ??
-      (await getSetting(settingKey(key))))
-    : await getSetting(settingKey(key));
-  return normalizeFeatureFlagRules(stored);
+  // Most flags have no org override, so `??` made the common path two serial
+  // round trips; both settings rows are independent, so read them together.
+  const orgId = scope.orgId?.trim();
+  if (!orgId)
+    return normalizeFeatureFlagRules(await getSetting(settingKey(key)));
+  const [orgStored, globalStored] = await Promise.all([
+    getOrgSetting(orgId, settingKey(key)),
+    getSetting(settingKey(key)),
+  ]);
+  return normalizeFeatureFlagRules(orgStored ?? globalStored);
+}
+
+/**
+ * Anonymous discovery hint for a rollout that may be scoped to an org.
+ *
+ * This deliberately answers only whether some active rollout exists. It does
+ * not reveal the target email or organization, and callers must still run
+ * `evaluateFeatureFlag` with the authenticated scope before granting access.
+ * Without this separate hint, an org-only rollout is invisible to Desktop
+ * before the user has authenticated and the org can be resolved.
+ */
+export async function hasActiveFeatureFlagRollout(
+  key: string,
+): Promise<boolean> {
+  if (!getFeatureFlagDefinition(key)) return false;
+  const indexKey = rolloutIndexKey(key);
+  const storedIndex = normalizeFeatureFlagRolloutIndex(
+    await getSetting(indexKey),
+  );
+  if (storedIndex) return activeFeatureFlagRolloutIndex(storedIndex);
+
+  const globalStored = await getSetting(settingKey(key));
+  const globalActive = hasActiveRollout(parseStoredRules(globalStored));
+  if (globalActive) {
+    await mutateSetting(indexKey, async () => ({
+      version: 1,
+      global: true,
+      orgIds: [],
+    }));
+    return true;
+  }
+
+  const table = isPostgres() ? "public.settings" : "settings";
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT key, value FROM ${table} WHERE key LIKE ?`,
+    args: [`o:%:${settingKey(key)}`],
+  });
+  const orgIds = rows
+    .filter((row) => hasActiveRollout(parseStoredRules(row.value)))
+    .map((row) => {
+      const match = /^o:([^:]+):/.exec((row.key as string | undefined) ?? "");
+      return match?.[1] ?? null;
+    })
+    .filter((orgId): orgId is string => Boolean(orgId))
+    .sort();
+  await mutateSetting(indexKey, async () => ({
+    version: 1,
+    global: false,
+    orgIds,
+  }));
+  return orgIds.length > 0;
 }
 
 /**
@@ -122,7 +264,9 @@ export async function mutateFeatureFlagRules(
   const persisted = scope.orgId?.trim()
     ? await mutateOrgSetting(scope.orgId, settingKey(key), mutate)
     : await mutateSetting(settingKey(key), mutate);
-  return normalizeFeatureFlagRules(persisted);
+  const normalized = normalizeFeatureFlagRules(persisted);
+  await syncFeatureFlagRolloutIndex(key, scope, normalized);
+  return normalized;
 }
 
 function rolloutBucket(input: string): number {

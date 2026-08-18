@@ -19,10 +19,8 @@ import {
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import type {
-  AddContentDatabaseSourceFieldPropertyRequest,
   BindContentDatabaseSourceFieldRequest,
   ContentDatabaseResponse,
-  ContentDatabaseSourceFieldPropertyResponse,
   ContentDatabaseSource,
   DocumentProperty,
 } from "@shared/api";
@@ -73,6 +71,7 @@ import {
   IconPaperclip,
   IconPhone,
   IconPlus,
+  IconPlugConnected,
   IconSearch,
   IconSquareCheck,
   IconTrash,
@@ -130,8 +129,9 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
+import { useAddContentDatabaseSourceFieldProperty } from "@/hooks/use-content-database";
 import {
+  documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
   useDocumentProperties,
@@ -165,6 +165,7 @@ function tWithFallback(
 
 interface DocumentPropertiesProps {
   documentId: string;
+  databaseId: string;
   databaseDocumentId: string;
   canEdit: boolean;
   popoversPortalled?: boolean;
@@ -797,18 +798,23 @@ function scalarPlaceholder(type: DocumentPropertyType, t: TFunction) {
 
 export function DocumentProperties({
   documentId,
+  databaseId,
   databaseDocumentId,
   canEdit,
   popoversPortalled = true,
 }: DocumentPropertiesProps) {
   const t = useT();
-  const { data, isLoading } = useDocumentProperties(documentId);
+  const { data, isLoading } = useDocumentProperties(documentId, databaseId);
+  const loaded = documentPropertiesResponseMatchesScope(
+    documentId,
+    databaseId,
+    data,
+  );
   // Blocks fields are rendered as body content (below the database/title), not
   // as scalar property rows in this panel — exclude them here.
-  const properties = (data?.properties ?? []).filter(
+  const properties = (loaded ? data.properties : []).filter(
     (property) => property.definition.type !== "blocks",
   );
-  const databaseId = data?.databaseId ?? null;
   const visibleProperties = properties.filter(isPropertyVisible);
   const hiddenProperties = properties.filter(
     (property) => !isPropertyVisible(property),
@@ -816,7 +822,7 @@ export function DocumentProperties({
 
   return (
     <div className="mt-5 border-y border-transparent py-1">
-      {isLoading ? (
+      {isLoading || !loaded ? (
         <div className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
           <Spinner className="size-3.5" />
           {t("editor.properties.loadingProperties")}
@@ -837,17 +843,19 @@ export function DocumentProperties({
         </div>
       ) : null}
 
-      {canEdit && hiddenProperties.length > 0 ? (
+      {loaded && canEdit && hiddenProperties.length > 0 ? (
         <HiddenPropertiesMenu
           documentId={documentId}
+          databaseId={databaseId}
           properties={hiddenProperties}
           t={t}
         />
       ) : null}
 
-      {canEdit && databaseId ? (
+      {loaded && canEdit && databaseId ? (
         <AddProperty
           documentId={documentId}
+          databaseId={databaseId}
           popoversPortalled={popoversPortalled}
         />
       ) : null}
@@ -866,14 +874,16 @@ function isPropertyVisible(property: DocumentProperty) {
 
 function HiddenPropertiesMenu({
   documentId,
+  databaseId,
   properties,
   t,
 }: {
   documentId: string;
+  databaseId: string;
   properties: DocumentProperty[];
   t: TFunction;
 }) {
-  const configure = useConfigureDocumentProperty(documentId);
+  const configure = useConfigureDocumentProperty(documentId, databaseId);
 
   async function showProperty(property: DocumentProperty) {
     await configure.mutateAsync({
@@ -955,6 +965,7 @@ function PropertyRow({
         <PropertyManagementPopover
           property={property}
           documentId={documentId}
+          databaseId={property.definition.databaseId!}
           icon={Icon}
         />
       ) : (
@@ -1018,6 +1029,7 @@ export function propertyTypeForSourceFieldType(
 export function PropertyManagementPopover({
   property,
   documentId,
+  databaseId,
   icon: Icon,
   triggerClassName,
   onTriggerPointerDown,
@@ -1034,6 +1046,7 @@ export function PropertyManagementPopover({
 }: {
   property: DocumentProperty;
   documentId: string;
+  databaseId: string;
   icon: Icon;
   triggerClassName?: string;
   onTriggerPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
@@ -1064,10 +1077,13 @@ export function PropertyManagementPopover({
   const quickFilters = databaseQuickFilterOptionsForColumn(
     property.definition.type,
   );
-  const configure = useConfigureDocumentProperty(documentId);
-  const duplicate = useDuplicateDocumentProperty(documentId);
-  const remove = useDeleteDocumentProperty(documentId);
-  const { data: propertiesData } = useDocumentProperties(documentId);
+  const configure = useConfigureDocumentProperty(documentId, databaseId);
+  const duplicate = useDuplicateDocumentProperty(documentId, databaseId);
+  const remove = useDeleteDocumentProperty(documentId, databaseId);
+  const { data: propertiesData } = useDocumentProperties(
+    documentId,
+    databaseId,
+  );
   const bindQueryClient = useQueryClient();
   const bindSourceField = useActionMutation<
     ContentDatabaseResponse,
@@ -1078,7 +1094,11 @@ export function PropertyManagementPopover({
         queryKey: ["action", "get-content-database"],
       });
       bindQueryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
+        queryKey: [
+          "action",
+          "list-document-properties",
+          { documentId, databaseId },
+        ],
       });
     },
   });
@@ -2132,7 +2152,11 @@ function PersonValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
+  const mutation = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const { session } = useSession();
   const [people, setPeople] = useState(() => personItems(property.value));
   const [query, setQuery] = useState("");
@@ -2333,7 +2357,11 @@ function FilesMediaValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
+  const mutation = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const [items, setItems] = useState(() => filesMediaItems(property.value));
   const [linkValue, setLinkValue] = useState("");
   const [uploading, setUploading] = useState(false);
@@ -2536,7 +2564,11 @@ function DateValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
+  const mutation = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const [includeTime, setIncludeTime] = useState(
     documentPropertyDateIncludesTime(property.value),
   );
@@ -2765,7 +2797,11 @@ function ScalarValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
+  const mutation = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const type = property.definition.type;
   const inputType =
     type === "number"
@@ -2875,7 +2911,11 @@ function CheckboxValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const mutation = useSetDocumentProperty(documentId, databaseDocumentId);
+  const mutation = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const checked = Boolean(property.value);
 
   return (
@@ -2916,9 +2956,14 @@ function OptionValueEditor({
   onDone: () => void;
 }) {
   const t = useT();
-  const setValue = useSetDocumentProperty(documentId, databaseDocumentId);
+  const setValue = useSetDocumentProperty(
+    documentId,
+    property.definition.databaseId!,
+    databaseDocumentId,
+  );
   const configure = useConfigureDocumentProperty(
     documentId,
+    property.definition.databaseId!,
     databaseDocumentId,
   );
   const options = property.definition.options.options ?? [];
@@ -3085,43 +3130,43 @@ function OptionValueEditor({
 
 export function AddProperty({
   documentId,
+  databaseId,
   variant = "default",
   label,
   popoversPortalled = true,
   source,
   sources,
+  onConnectSource,
+  openRequestId = 0,
+  onOpenRequestHandled,
 }: {
   documentId: string;
+  databaseId: string;
   variant?: "default" | "header" | "icon";
   label?: string;
   popoversPortalled?: boolean;
   source?: ContentDatabaseSource | null;
   sources?: ContentDatabaseSource[];
+  onConnectSource?: () => void;
+  openRequestId?: number;
+  onOpenRequestHandled?: (requestId: number) => void;
 }) {
   const t = useT();
-  const configure = useConfigureDocumentProperty(documentId);
-  const queryClient = useQueryClient();
-  const addSourceFieldProperty = useActionMutation<
-    ContentDatabaseSourceFieldPropertyResponse,
-    AddContentDatabaseSourceFieldPropertyRequest
-  >("add-content-database-source-field-property", {
-    onSuccess: (data) => {
-      queryClient.setQueriesData<ContentDatabaseResponse>(
-        { queryKey: ["action", "get-content-database"] },
-        (current) => applySourceFieldPropertyToDatabaseResponse(current, data),
-      );
-      queryClient.invalidateQueries({
-        queryKey: ["action", "list-document-properties", { documentId }],
-      });
-    },
-  });
+  const configure = useConfigureDocumentProperty(documentId, databaseId);
+  const addSourceFieldProperty =
+    useAddContentDatabaseSourceFieldProperty(documentId);
   const [open, setOpen] = useState(false);
+  const [sourceHandoffClosing, setSourceHandoffClosing] = useState(false);
+  const handledOpenRequestId = useRef(0);
   const [typeQuery, setTypeQuery] = useState("");
   const filteredPropertyTypes = filterDocumentPropertyTypes(typeQuery);
   const firstFilteredPropertyType = filteredPropertyTypes[0] ?? null;
   const allSources =
     sources && sources.length > 0 ? sources : source ? [source] : [];
   const query = typeQuery.trim().toLowerCase();
+  const connectSourceLabel = t("editor.properties.connectASource");
+  const connectSourceMatches =
+    !!onConnectSource && matchesConnectSourceQuery(connectSourceLabel, query);
   const sourceFieldGroups = allSources
     .map((src) => ({
       source: src,
@@ -3166,11 +3211,33 @@ export function AddProperty({
     return () => cancelAnimationFrame(frame);
   }, [open]);
 
+  useEffect(() => {
+    if (openRequestId === 0 || openRequestId === handledOpenRequestId.current)
+      return;
+    handledOpenRequestId.current = openRequestId;
+    setTypeQuery("");
+    setAddPropertyError(null);
+    setSourceHandoffClosing(false);
+    setOpen(true);
+    onOpenRequestHandled?.(openRequestId);
+  }, [onOpenRequestHandled, openRequestId]);
+
   function closeAddPropertyPicker() {
     if (isAddingProperty) return;
     setTypeQuery("");
     setAddPropertyError(null);
     setOpen(false);
+  }
+
+  function connectSource() {
+    if (!onConnectSource || isAddingProperty) return;
+    setTypeQuery("");
+    setAddPropertyError(null);
+    // Radix keeps closing popovers mounted for their exit animation. Remove
+    // this one immediately so opening Sources cannot stack over it.
+    setSourceHandoffClosing(true);
+    setOpen(false);
+    onConnectSource();
   }
 
   async function add(type: DocumentPropertyType) {
@@ -3250,6 +3317,7 @@ export function AddProperty({
       open={open}
       onOpenChange={(nextOpen) => {
         if (nextOpen) {
+          setSourceHandoffClosing(false);
           setOpen(true);
         } else if (!isAddingProperty) {
           closeAddPropertyPicker();
@@ -3277,7 +3345,11 @@ export function AddProperty({
         align={variant === "default" ? "start" : "end"}
         collisionPadding={12}
         portalled={popoversPortalled}
-        className="relative z-[300] w-80 p-2"
+        className={cn(
+          "relative z-[300] w-80 p-2",
+          sourceHandoffClosing &&
+            "data-[state=closed]:hidden data-[state=closed]:animate-none",
+        )}
       >
         <div className="grid gap-2">
           <div className="flex h-8 items-center gap-1 rounded border border-border bg-background px-2">
@@ -3293,6 +3365,9 @@ export function AddProperty({
                 if (event.key === "Enter" && firstFilteredPropertyType) {
                   event.preventDefault();
                   void add(firstFilteredPropertyType);
+                } else if (event.key === "Enter" && connectSourceMatches) {
+                  event.preventDefault();
+                  connectSource();
                 }
                 if (event.key === "Escape") {
                   event.preventDefault();
@@ -3303,6 +3378,16 @@ export function AddProperty({
             />
           </div>
           <div className="max-h-80 overflow-auto rounded border p-1">
+            {connectSourceMatches ? (
+              <button
+                type="button"
+                className="mb-1 flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-sm hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={connectSource}
+              >
+                <IconPlugConnected className="size-4 shrink-0 text-muted-foreground" />
+                <span className="flex-1">{connectSourceLabel}</span>
+              </button>
+            ) : null}
             {sourceFieldGroups.map((group) => (
               <div
                 key={group.source.id}
@@ -3374,7 +3459,7 @@ export function AddProperty({
                 })}
               </div>
             ))}
-            {filteredPropertyTypes.length === 0 ? (
+            {filteredPropertyTypes.length === 0 && !connectSourceMatches ? (
               <div className="px-2 py-3 text-sm text-muted-foreground">
                 {t("editor.properties.noMatchingPropertyTypes")}
               </div>
@@ -3460,4 +3545,12 @@ export function filterDocumentPropertyTypes(
       aliases.some((alias) => alias.includes(normalizedQuery))
     );
   });
+}
+
+export function matchesConnectSourceQuery(label: string, query: string) {
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  return (
+    normalizedQuery.length === 0 ||
+    label.toLocaleLowerCase().includes(normalizedQuery)
+  );
 }

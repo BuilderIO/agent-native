@@ -3,6 +3,7 @@
  * Compatibility aggregation only; new code must not import this barrel.
  */
 export * from "./agent-chat/index.js";
+export * from "./desktop-local-code-change.js";
 export * from "./hooks/index.js";
 export * from "./navigation/index.js";
 export * from "./host/index.js";
@@ -57,6 +58,8 @@ export {
   getAgentSettingsSearchTabs,
   openBuilderConnectPopup,
   useAgentSettingsTabs,
+  type AgentSettingsTabFactory,
+  type AgentSettingsTabFactoryContext,
   useBuilderConnectFlow,
   useBuilderStatus,
   withBuilderConnectTrackingParams,
@@ -94,6 +97,8 @@ export {
   stopSessionReplay,
   getAnalyticsAnonymousId,
   getAnalyticsSessionId,
+  setAnalyticsSessionId,
+  clearAnalyticsSessionId,
   getFirstTouchAttribution,
   setSentryUser,
   setTrackingIdentity,

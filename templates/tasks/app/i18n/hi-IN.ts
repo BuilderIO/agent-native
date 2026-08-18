@@ -16,6 +16,7 @@ const messages = {
     navInbox: "इनबॉक्स",
     navTasks: "कार्य",
     navFields: "फ़ील्ड्स",
+    search: "खोजें",
     collapseSidebar: "साइडबार संक्षिप्त करें",
     expandSidebar: "साइडबार विस्तृत करें",
     navigationTitle: "नेविगेशन",
@@ -28,6 +29,11 @@ const messages = {
     pageTeam: "टीम",
     pageExtension: "एक्सटेंशन",
     pageExtensions: "एक्सटेंशन्स",
+  },
+  settings: {
+    languageTitle: "भाषा",
+    languageDescription: "इंटरफ़ेस भाषा चुनें। यह पसंद आपके खाते में सहेजी जाती है।",
+    languageLabel: "इंटरफ़ेस भाषा",
   },
   agent: {
     emptyState: "इस ऐप का निरीक्षण करने या इसे बदलने के लिए एजेंट से पूछें।",

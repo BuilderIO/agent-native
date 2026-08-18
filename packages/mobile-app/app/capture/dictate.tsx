@@ -308,7 +308,7 @@ export default function DictationCaptureScreen() {
               {text ? (
                 <View className="items-center bg-primary rounded-xl flex-row gap-1 px-2.25 py-1.5">
                   <IconCheck color="#0b0b0c" size={14} strokeWidth={2.5} />
-                  <Text className="text-background-dark text-xs font-bold">
+                  <Text className="text-primary-foreground text-xs font-bold">
                     Copied
                   </Text>
                 </View>
@@ -334,7 +334,7 @@ export default function DictationCaptureScreen() {
                 onChangeText={setText}
                 placeholder="Your transcript"
                 placeholderTextColor="#52525b"
-                selectionColor="#c7f36b"
+                selectionColor="#d4d4d8"
                 className="bg-card-dark border border-border-dark rounded-2xl text-text-light flex-1 text-lg leading-6 mt-3.5 p-4"
                 textAlignVertical="top"
                 value={text}
@@ -356,7 +356,7 @@ export default function DictationCaptureScreen() {
                   className="items-center bg-primary rounded-3xl flex-row gap-2 mt-4.5 h-11 px-4.5 active:opacity-75"
                 >
                   <IconRefresh color="#0b0b0c" size={19} />
-                  <Text className="text-background-dark text-sm font-bold">
+                  <Text className="text-primary-foreground text-sm font-bold">
                     Retry
                   </Text>
                 </Pressable>
@@ -390,7 +390,7 @@ export default function DictationCaptureScreen() {
                   ) : (
                     <IconClipboard color="#0b0b0c" size={20} />
                   )}
-                  <Text className="text-background-dark text-base font-bold">
+                  <Text className="text-primary-foreground text-base font-bold">
                     {needsHistoryRetry ? "Copy & Retry" : "Copy"}
                   </Text>
                 </Pressable>

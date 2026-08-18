@@ -158,7 +158,7 @@ export function BrandingEditor({
 
           <div className="space-y-1.5">
             <Label>{t("brandingEditor.brandColor")}</Label>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 type="color"
                 value={brandColor}
@@ -191,6 +191,9 @@ export function BrandingEditor({
 
           <div className="space-y-1.5">
             <Label>{t("brandingEditor.logo")}</Label>
+            <p className="text-xs text-muted-foreground">
+              {t("brandingEditor.logoUsage")}
+            </p>
             <div
               className={`rounded-md border border-dashed p-4 flex items-center gap-4 ${
                 dragging ? "bg-primary/5 border-primary" : ""
@@ -321,6 +324,28 @@ export function BrandingEditor({
               <div className="font-medium truncate">
                 {name || t("brandingEditor.organizationFallback")}
               </div>
+            </div>
+            <div className="text-xs uppercase tracking-wide text-muted-foreground mt-4 mb-2">
+              {t("brandingEditor.emailHeaderPreview")}
+            </div>
+            <div className="rounded-md border border-[#27272a] bg-[#0a0a0c] p-4 flex items-center justify-center gap-2">
+              {brandLogoUrl ? (
+                <img
+                  src={brandLogoUrl}
+                  alt=""
+                  className="h-7 w-7 object-contain"
+                />
+              ) : (
+                <div
+                  className="h-7 w-7 rounded bg-white/90 flex items-center justify-center font-semibold text-[12px]"
+                  style={{ color: brandColor }}
+                >
+                  {name.slice(0, 1).toUpperCase() || "C"}
+                </div>
+              )}
+              <span className="font-semibold text-[#fafafa] truncate">
+                {name || t("brandingEditor.organizationFallback")}
+              </span>
             </div>
           </div>
 

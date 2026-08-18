@@ -265,6 +265,9 @@ const enUS = {
     defaultDurationLabel: "Default event duration (minutes)",
     defaultDurationHelp:
       "Default length for new calendar events and booking slots. Booking links can override this per link.",
+    weekStartLabel: "Week starts on",
+    weekStartSunday: "Sunday - Saturday",
+    weekStartMonday: "Monday - Sunday",
   },
   eventDialog: {
     eventUpdated: "Event updated",
@@ -396,14 +399,6 @@ const enUS = {
     hideSetup: "Hide setup",
     followSteps:
       "Follow these steps to connect your Google account. Takes about 3 minutes.",
-    googleMayShowWarning: "Google may show a warning",
-    googleNotVerifiedTitle: "“Google hasn’t verified this app”",
-    googleWarningBeforeAdvanced:
-      "You’ll see this screen because the calendar connects through your own Google Cloud project, not a Google-reviewed public app. It’s safe to continue: click",
-    googleWarningAdvanced: "Advanced",
-    googleWarningBetweenActions: ", then",
-    googleWarningUnsafe: "“Go to … (unsafe)”",
-    googleWarningAfterUnsafe: "to finish connecting.",
     accountConnectedElsewhere: "This account is connected to another login",
     googleConnectionFailed: "Google connection failed",
     managedCredentialsUnavailable: "Google Calendar is unavailable",
@@ -669,6 +664,7 @@ const enUS = {
     },
   },
   calendarView: {
+    addWorkingLocation: "Add working location",
     addTitleBeforeCreate: "Add a title before creating the event",
     calendarSettingsLoading:
       "Calendar settings are still loading. Try again in a moment.",
@@ -697,6 +693,11 @@ const enUS = {
     updatingEvent: "Updating event...",
     updatingRecurringEvent: "Updating recurring event...",
     week: "Week",
+    timezoneSwitchTitle: "Use your browser timezone?",
+    timezoneSwitchDescription:
+      "Calendar is pinned to {{savedTimezone}}, but your browser is in {{browserTimezone}}. Switch the calendar timezone?",
+    timezoneSwitchKeep: "Keep {{timezone}}",
+    timezoneSwitchSwitch: "Switch to {{timezone}}",
   },
   eventForm: {
     addAttachment: "Add attachment",
@@ -762,8 +763,15 @@ const enUS = {
     end: "End",
     endDate: "End date",
     event: "Event",
+    eventUpdated: "Event updated",
+    updateFailed: "Failed to update event",
     eventAlerts: "Event alerts",
     eventOptions: "Event options",
+    autoDecline: "Automatically decline",
+    declineAllConflicts: "All conflicting meetings",
+    declineNewConflicts: "New conflicting meetings",
+    declineNone: "Do not decline",
+    declineMessage: "Decline message",
     eventTitlePlaceholder: "Event title",
     events: "Events",
     everyWeekday: "Every weekday",
@@ -1191,6 +1199,11 @@ const calendarSurfaceTranslations = {
       event: "活动",
       eventAlerts: "事件提醒",
       eventOptions: "活动选项",
+      autoDecline: "自动拒绝",
+      declineAllConflicts: "所有冲突的会议",
+      declineNewConflicts: "新的冲突会议",
+      declineNone: "不拒绝",
+      declineMessage: "拒绝消息",
       eventTitlePlaceholder: "活动标题",
       everyWeekday: "每个工作日",
       findTime: "找个时间",
@@ -1491,6 +1504,11 @@ const calendarSurfaceTranslations = {
       event: "Evento",
       eventAlerts: "Alertas de eventos",
       eventOptions: "Opciones de eventos",
+      autoDecline: "Rechazar automáticamente",
+      declineAllConflicts: "Todas las reuniones en conflicto",
+      declineNewConflicts: "Nuevas reuniones en conflicto",
+      declineNone: "No rechazar",
+      declineMessage: "Mensaje de rechazo",
       eventTitlePlaceholder: "Título del evento",
       everyWeekday: "todos los dias de la semana",
       findTime: "Encuentra un momento",
@@ -1801,6 +1819,11 @@ const calendarSurfaceTranslations = {
       event: "Événement",
       eventAlerts: "Alertes d'événements",
       eventOptions: "Options d'événement",
+      autoDecline: "Refuser automatiquement",
+      declineAllConflicts: "Toutes les réunions en conflit",
+      declineNewConflicts: "Nouvelles réunions en conflit",
+      declineNone: "Ne pas refuser",
+      declineMessage: "Message de refus",
       eventTitlePlaceholder: "Titre de l'événement",
       everyWeekday: "Chaque jour de la semaine",
       findTime: "Trouver une heure",
@@ -2111,6 +2134,11 @@ const calendarSurfaceTranslations = {
       event: "Veranstaltung",
       eventAlerts: "Ereigniswarnungen",
       eventOptions: "Event-Optionen",
+      autoDecline: "Automatisch ablehnen",
+      declineAllConflicts: "Alle kollidierenden Besprechungen",
+      declineNewConflicts: "Neue kollidierende Besprechungen",
+      declineNone: "Nicht ablehnen",
+      declineMessage: "Ablehnungsnachricht",
       eventTitlePlaceholder: "Veranstaltungstitel",
       everyWeekday: "Jeden Wochentag",
       findTime: "Finden Sie eine Zeit",
@@ -2414,6 +2442,11 @@ const calendarSurfaceTranslations = {
       event: "イベント",
       eventAlerts: "イベントアラート",
       eventOptions: "イベントオプション",
+      autoDecline: "自動的に辞退",
+      declineAllConflicts: "競合するすべての会議",
+      declineNewConflicts: "新しい競合する会議",
+      declineNone: "辞退しない",
+      declineMessage: "辞退メッセージ",
       eventTitlePlaceholder: "イベントタイトル",
       everyWeekday: "平日毎日",
       findTime: "時間を見つけてください",
@@ -2715,6 +2748,11 @@ const calendarSurfaceTranslations = {
       event: "이벤트",
       eventAlerts: "이벤트 알림",
       eventOptions: "이벤트 옵션",
+      autoDecline: "자동으로 거절",
+      declineAllConflicts: "충돌하는 모든 회의",
+      declineNewConflicts: "새로 충돌하는 회의",
+      declineNone: "거절하지 않음",
+      declineMessage: "거절 메시지",
       eventTitlePlaceholder: "이벤트 제목",
       everyWeekday: "평일마다",
       findTime: "시간 찾기",
@@ -3019,6 +3057,11 @@ const calendarSurfaceTranslations = {
       event: "Evento",
       eventAlerts: "Alertas de eventos",
       eventOptions: "Opções de evento",
+      autoDecline: "Recusar automaticamente",
+      declineAllConflicts: "Todas as reuniões conflitantes",
+      declineNewConflicts: "Novas reuniões conflitantes",
+      declineNone: "Não recusar",
+      declineMessage: "Mensagem de recusa",
       eventTitlePlaceholder: "Título do evento",
       everyWeekday: "Todos os dias da semana",
       findTime: "Encontre um horário",
@@ -3318,6 +3361,11 @@ const calendarSurfaceTranslations = {
       event: "घटना",
       eventAlerts: "घटना अलर्ट",
       eventOptions: "घटना विकल्प",
+      autoDecline: "अपने आप अस्वीकार करें",
+      declineAllConflicts: "सभी टकराने वाली मीटिंग",
+      declineNewConflicts: "नई टकराने वाली मीटिंग",
+      declineNone: "अस्वीकार न करें",
+      declineMessage: "अस्वीकार संदेश",
       eventTitlePlaceholder: "घटना का शीर्षक",
       everyWeekday: "हर कार्यदिवस",
       findTime: "एक समय खोजें",
@@ -3616,6 +3664,11 @@ const calendarSurfaceTranslations = {
       event: "حدث",
       eventAlerts: "تنبيهات الحدث",
       eventOptions: "خيارات الحدث",
+      autoDecline: "رفض تلقائي",
+      declineAllConflicts: "كل الاجتماعات المتعارضة",
+      declineNewConflicts: "الاجتماعات المتعارضة الجديدة",
+      declineNone: "عدم الرفض",
+      declineMessage: "رسالة الرفض",
       eventTitlePlaceholder: "عنوان الحدث",
       everyWeekday: "كل يوم من أيام الأسبوع",
       findTime: "جد وقتًا",
@@ -4259,6 +4312,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "默认事件时长（分钟）",
       defaultDurationHelp:
         "新日历事件和预约时段的默认长度。预约链接可按链接覆盖此设置。",
+      weekStartLabel: "每周从哪天开始",
+      weekStartSunday: "周日 - 周六",
+      weekStartMonday: "周一 - 周日",
     },
     eventDialog: {
       eventUpdated: "事件已更新",
@@ -4328,6 +4384,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "Duración predeterminada del evento (minutos)",
       defaultDurationHelp:
         "Duración predeterminada para eventos nuevos y franjas de reserva. Cada enlace de reserva puede anularla.",
+      weekStartLabel: "La semana empieza el",
+      weekStartSunday: "Domingo - sábado",
+      weekStartMonday: "Lunes - domingo",
     },
     eventDialog: {
       eventUpdated: "Evento actualizado",
@@ -4398,6 +4457,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "Durée d'événement par défaut (minutes)",
       defaultDurationHelp:
         "Durée par défaut des nouveaux événements et créneaux de réservation. Chaque lien de réservation peut la remplacer.",
+      weekStartLabel: "La semaine commence le",
+      weekStartSunday: "Dimanche - samedi",
+      weekStartMonday: "Lundi - dimanche",
     },
     eventDialog: {
       eventUpdated: "Événement mis à jour",
@@ -4468,6 +4530,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "Standarddauer für Ereignisse (Minuten)",
       defaultDurationHelp:
         "Standardlänge für neue Kalenderereignisse und Buchungsslots. Buchungslinks können sie pro Link überschreiben.",
+      weekStartLabel: "Wochenbeginn",
+      weekStartSunday: "Sonntag - Samstag",
+      weekStartMonday: "Montag - Sonntag",
     },
     eventDialog: {
       eventUpdated: "Ereignis aktualisiert",
@@ -4537,6 +4602,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "デフォルトのイベント時間（分）",
       defaultDurationHelp:
         "新しいカレンダーイベントと予約枠のデフォルト時間です。予約リンクごとに上書きできます。",
+      weekStartLabel: "週の開始日",
+      weekStartSunday: "日曜日 - 土曜日",
+      weekStartMonday: "月曜日 - 日曜日",
     },
     eventDialog: {
       eventUpdated: "イベントを更新しました",
@@ -4603,6 +4671,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "기본 이벤트 시간(분)",
       defaultDurationHelp:
         "새 캘린더 이벤트와 예약 슬롯의 기본 길이입니다. 예약 링크별로 재정의할 수 있습니다.",
+      weekStartLabel: "주 시작일",
+      weekStartSunday: "일요일 - 토요일",
+      weekStartMonday: "월요일 - 일요일",
     },
     eventDialog: {
       eventUpdated: "이벤트가 업데이트되었습니다",
@@ -4672,6 +4743,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "Duração padrão do evento (minutos)",
       defaultDurationHelp:
         "Duração padrão para novos eventos e horários de agendamento. Links de agendamento podem substituir isso por link.",
+      weekStartLabel: "A semana começa no",
+      weekStartSunday: "Domingo - sábado",
+      weekStartMonday: "Segunda-feira - domingo",
     },
     eventDialog: {
       eventUpdated: "Evento atualizado",
@@ -4740,6 +4814,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "डिफ़ॉल्ट इवेंट अवधि (मिनट)",
       defaultDurationHelp:
         "नए कैलेंडर इवेंट और बुकिंग स्लॉट की डिफ़ॉल्ट लंबाई। बुकिंग लिंक इसे प्रति लिंक बदल सकते हैं।",
+      weekStartLabel: "सप्ताह की शुरुआत",
+      weekStartSunday: "रविवार - शनिवार",
+      weekStartMonday: "सोमवार - रविवार",
     },
     eventDialog: {
       eventUpdated: "इवेंट अपडेट हो गया",
@@ -4807,6 +4884,9 @@ const translatedCalendarExtras = {
       defaultDurationLabel: "مدة الحدث الافتراضية (بالدقائق)",
       defaultDurationHelp:
         "المدة الافتراضية لأحداث التقويم الجديدة وفتحات الحجز. يمكن لروابط الحجز تجاوزها لكل رابط.",
+      weekStartLabel: "يبدأ الأسبوع يوم",
+      weekStartSunday: "الأحد - السبت",
+      weekStartMonday: "الاثنين - الأحد",
     },
     eventDialog: {
       eventUpdated: "تم تحديث الحدث",
@@ -4943,14 +5023,6 @@ const translatedCalendarDebtTranslations = {
       connectToSync: "连接 Google 同步您的日历",
       hideSetup: "隐藏设置",
       followSteps: "请按照以下步骤连接您的 Google 帐户。大约需要3分钟。",
-      googleMayShowWarning: "Google 可能会显示警告",
-      googleNotVerifiedTitle: "“Google尚未验证此应用程序”",
-      googleWarningBeforeAdvanced:
-        "您将看到此屏幕，因为日历是通过您自己的 Google Cloud 项目而不是经过 Google 审核的公共应用程序连接的。可以安全地继续：单击",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: "， 然后",
-      googleWarningUnsafe: "“Go to … (unsafe)”",
-      googleWarningAfterUnsafe: "完成连接。",
       accountConnectedElsewhere: "该帐户已连接到另一个登录帐户",
       googleConnectionFailed: "Google 连接失败",
       thatGoogleAccount: "那个Google账户",
@@ -5082,14 +5154,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "Ocultar configuración",
       followSteps:
         "Siga estos pasos para conectar su cuenta Google. Tarda unos 3 minutos.",
-      googleMayShowWarning: "Google puede mostrar una advertencia",
-      googleNotVerifiedTitle: '"Google no ha verificado esta aplicación"',
-      googleWarningBeforeAdvanced:
-        "Verá esta pantalla porque el calendario se conecta a través de su propio proyecto Google Cloud, no a través de una aplicación pública revisada por Google. Es seguro continuar: haga clic",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", entonces",
-      googleWarningUnsafe: "“Go to … (unsafe)”",
-      googleWarningAfterUnsafe: "para terminar de conectar.",
       accountConnectedElsewhere:
         "Esta cuenta está conectada a otro inicio de sesión.",
       googleConnectionFailed: "La conexión Google falló",
@@ -5226,14 +5290,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "Masquer la configuration",
       followSteps:
         "Suivez ces étapes pour connecter votre compte Google. Cela prend environ 3 minutes.",
-      googleMayShowWarning: "Le Google peut afficher un avertissement",
-      googleNotVerifiedTitle: '"Google n\'a pas vérifié cette application"',
-      googleWarningBeforeAdvanced:
-        "Vous verrez cet écran car le calendrier se connecte via votre propre projet Google Cloud, et non via une application publique révisée par Google. Vous pouvez continuer en toute sécurité : cliquez sur",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", alors",
-      googleWarningUnsafe: '"Go to … (unsafe)"',
-      googleWarningAfterUnsafe: "pour terminer la connexion.",
       accountConnectedElsewhere: "Ce compte est connecté à un autre login",
       googleConnectionFailed: "La connexion du Google a échoué",
       thatGoogleAccount: "ce compte Google",
@@ -5372,14 +5428,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "Setup ausblenden",
       followSteps:
         "Befolgen Sie diese Schritte, um Ihr Google-Konto zu verbinden. Dauert etwa 3 Minuten.",
-      googleMayShowWarning: "Google zeigt möglicherweise eine Warnung an",
-      googleNotVerifiedTitle: "„Google hat diese App nicht überprüft“",
-      googleWarningBeforeAdvanced:
-        "Sie sehen diesen Bildschirm, weil die Verbindung zum Kalender über Ihr eigenes Google Cloud-Projekt und nicht über eine von Google geprüfte öffentliche App hergestellt wird. Es ist sicher, fortzufahren: klicken",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", Dann",
-      googleWarningUnsafe: "„Go to … (unsafe)“",
-      googleWarningAfterUnsafe: "um die Verbindung abzuschließen.",
       accountConnectedElsewhere:
         "Dieses Konto ist mit einem anderen Login verbunden",
       googleConnectionFailed: "Google-Verbindung fehlgeschlagen",
@@ -5516,14 +5564,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "設定を隠す",
       followSteps:
         "次の手順に従って、Google アカウントを接続します。所要時間は約 3 分です。",
-      googleMayShowWarning: "Googleでは警告が表示される場合があります",
-      googleNotVerifiedTitle: "「Googleはこのアプリを検証していません」",
-      googleWarningBeforeAdvanced:
-        "この画面が表示されるのは、カレンダーが Google でレビューされた公開アプリではなく、独自の Google Cloud プロジェクトを介して接続しているためです。安全に続行できます: をクリックしてください",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: "、 それから",
-      googleWarningUnsafe: "「Go to … (unsafe)」",
-      googleWarningAfterUnsafe: "接続を終了します。",
       accountConnectedElsewhere:
         "このアカウントは別のログインに接続されています",
       googleConnectionFailed: "Google接続に失敗しました",
@@ -5657,14 +5697,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "설정 숨기기",
       followSteps:
         "Google 계정을 연결하려면 다음 단계를 따르세요. 약 3분 정도 소요됩니다.",
-      googleMayShowWarning: "Google에 경고가 표시될 수 있음",
-      googleNotVerifiedTitle: "“Google는 이 앱을 인증하지 않았습니다”",
-      googleWarningBeforeAdvanced:
-        "캘린더가 Google가 검토한 공개 앱이 아닌 자신의 Google Cloud 프로젝트를 통해 연결되기 때문에 이 화면이 표시됩니다. 계속해도 안전합니다. 클릭하세요",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", 그 다음에",
-      googleWarningUnsafe: "“Go to … (unsafe)”",
-      googleWarningAfterUnsafe: "연결을 완료합니다.",
       accountConnectedElsewhere: "이 계정은 다른 로그인에 연결되어 있습니다",
       googleConnectionFailed: "Google 연결 실패",
       thatGoogleAccount: "그 Google 계정",
@@ -5797,14 +5829,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "Ocultar configuração",
       followSteps:
         "Siga estas etapas para conectar sua conta Google. Demora cerca de 3 minutos.",
-      googleMayShowWarning: "Google pode mostrar um aviso",
-      googleNotVerifiedTitle: "“Google não verificou este aplicativo”",
-      googleWarningBeforeAdvanced:
-        "Você verá esta tela porque o calendário se conecta por meio de seu próprio projeto Google Cloud, não de um aplicativo público revisado pelo Google. É seguro continuar: clique",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", então",
-      googleWarningUnsafe: "“Go to … (unsafe)”",
-      googleWarningAfterUnsafe: "para terminar a conexão.",
       accountConnectedElsewhere: "Esta conta está conectada a outro login",
       googleConnectionFailed: "Falha na conexão Google",
       thatGoogleAccount: "aquela conta Google",
@@ -5935,14 +5959,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "सेटअप छिपाएँ",
       followSteps:
         "अपने Google खाते को कनेक्ट करने के लिए इन चरणों का पालन करें। लगभग 3 मिनट का समय लगता है.",
-      googleMayShowWarning: "Google एक चेतावनी दिखा सकता है",
-      googleNotVerifiedTitle: '"Google ने इस ऐप को सत्यापित नहीं किया है"',
-      googleWarningBeforeAdvanced:
-        "आपको यह स्क्रीन दिखाई देगी क्योंकि कैलेंडर आपके स्वयं के Google Cloud प्रोजेक्ट से जुड़ता है, Google-समीक्षित सार्वजनिक ऐप से नहीं। जारी रखना सुरक्षित है: क्लिक करें",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: ", तब",
-      googleWarningUnsafe: '"Go to … (unsafe)"',
-      googleWarningAfterUnsafe: "कनेक्ट करना समाप्त करने के लिए.",
       accountConnectedElsewhere: "यह खाता दूसरे लॉगिन से जुड़ा है",
       googleConnectionFailed: "Google कनेक्शन विफल",
       thatGoogleAccount: "वह Google खाता",
@@ -6075,14 +6091,6 @@ const translatedCalendarDebtTranslations = {
       hideSetup: "إخفاء الإعداد",
       followSteps:
         "اتبع هذه الخطوات لتوصيل حساب Google الخاص بك. يستغرق حوالي 3 دقائق.",
-      googleMayShowWarning: "قد يظهر Google تحذيرًا",
-      googleNotVerifiedTitle: '"لم يتحقق Google من هذا التطبيق"',
-      googleWarningBeforeAdvanced:
-        "ستشاهد هذه الشاشة لأن التقويم يتصل من خلال مشروع Google Cloud الخاص بك، وليس من خلال تطبيق عام تمت مراجعته بواسطة Google. من الآمن المتابعة: انقر",
-      googleWarningAdvanced: "Advanced",
-      googleWarningBetweenActions: "، ثم",
-      googleWarningUnsafe: '"Go to … (unsafe)"',
-      googleWarningAfterUnsafe: "لإنهاء الاتصال.",
       accountConnectedElsewhere: "هذا الحساب متصل بتسجيل دخول آخر",
       googleConnectionFailed: "فشل اتصال Google",
       thatGoogleAccount: "حساب Google هذا",
@@ -8012,6 +8020,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "你的信息",
     },
     calendarView: {
+      addWorkingLocation: "添加工作地点",
       addTitleBeforeCreate: "创建事件前请添加标题",
       calendarSettingsLoading: "日历设置仍在加载。请稍后再试。",
       day: "日",
@@ -8039,6 +8048,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "正在更新事件...",
       updatingRecurringEvent: "正在更新重复事件...",
       week: "周",
+      timezoneSwitchTitle: "使用浏览器时区？",
+      timezoneSwitchDescription:
+        "日历固定为 {{savedTimezone}}，但浏览器使用 {{browserTimezone}}。要切换日历时区吗？",
+      timezoneSwitchKeep: "保留 {{timezone}}",
+      timezoneSwitchSwitch: "切换到 {{timezone}}",
     },
     routeTitles: {
       bookingLinks: "预约链接 — Calendar",
@@ -8060,6 +8074,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "添加日历",
+      eventUpdated: "事件已更新",
+      updateFailed: "更新事件失败",
       addCalendarFailed: "添加日历失败",
       addCalendarFromUrl: "从 URL 添加日历",
       added: "已添加",
@@ -8179,6 +8195,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "Tu información",
     },
     calendarView: {
+      addWorkingLocation: "Añadir ubicación de trabajo",
       addTitleBeforeCreate: "Añade un título antes de crear el evento",
       calendarSettingsLoading:
         "La configuración del calendario aún se está cargando. Inténtalo de nuevo en un momento.",
@@ -8209,6 +8226,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "Actualizando evento...",
       updatingRecurringEvent: "Actualizando evento recurrente...",
       week: "Semana",
+      timezoneSwitchTitle: "¿Usar la zona horaria del navegador?",
+      timezoneSwitchDescription:
+        "El calendario está fijado en {{savedTimezone}}, pero tu navegador usa {{browserTimezone}}. ¿Cambiar la zona horaria del calendario?",
+      timezoneSwitchKeep: "Mantener {{timezone}}",
+      timezoneSwitchSwitch: "Cambiar a {{timezone}}",
     },
     routeTitles: {
       bookingLinks: "Enlaces de reserva — Calendar",
@@ -8231,6 +8253,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "Añadir calendario",
+      eventUpdated: "Evento actualizado",
+      updateFailed: "No se pudo actualizar el evento",
       addCalendarFailed: "No se pudo añadir el calendario",
       addCalendarFromUrl: "Añadir calendario desde URL",
       added: "Añadido",
@@ -8355,6 +8379,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "Vos informations",
     },
     calendarView: {
+      addWorkingLocation: "Ajouter un lieu de travail",
       addTitleBeforeCreate: "Ajoutez un titre avant de créer l'événement",
       calendarSettingsLoading:
         "Les paramètres du calendrier sont encore en cours de chargement. Réessayez dans un instant.",
@@ -8383,6 +8408,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "Mise à jour de l'événement...",
       updatingRecurringEvent: "Mise à jour de l'événement récurrent...",
       week: "Semaine",
+      timezoneSwitchTitle: "Utiliser le fuseau horaire du navigateur ?",
+      timezoneSwitchDescription:
+        "Le calendrier est fixé sur {{savedTimezone}}, mais votre navigateur utilise {{browserTimezone}}. Changer le fuseau horaire du calendrier ?",
+      timezoneSwitchKeep: "Conserver {{timezone}}",
+      timezoneSwitchSwitch: "Passer à {{timezone}}",
     },
     routeTitles: {
       bookingLinks: "Liens de réservation — Calendar",
@@ -8404,6 +8434,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "Ajouter un calendrier",
+      eventUpdated: "Événement mis à jour",
+      updateFailed: "Échec de la mise à jour de l'événement",
       addCalendarFailed: "Échec de l’ajout du calendrier",
       addCalendarFromUrl: "Ajouter un calendrier depuis une URL",
       added: "Ajouté",
@@ -8531,6 +8563,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "Deine Informationen",
     },
     calendarView: {
+      addWorkingLocation: "Arbeitsort hinzufügen",
       addTitleBeforeCreate:
         "Fügen Sie einen Titel hinzu, bevor Sie das Ereignis erstellen",
       calendarSettingsLoading:
@@ -8561,6 +8594,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "Ereignis wird aktualisiert...",
       updatingRecurringEvent: "Wiederkehrendes Ereignis wird aktualisiert...",
       week: "Woche",
+      timezoneSwitchTitle: "Browser-Zeitzone verwenden?",
+      timezoneSwitchDescription:
+        "Der Kalender ist auf {{savedTimezone}} festgelegt, aber Ihr Browser verwendet {{browserTimezone}}. Kalenderzeitzone wechseln?",
+      timezoneSwitchKeep: "{{timezone}} beibehalten",
+      timezoneSwitchSwitch: "Zu {{timezone}} wechseln",
     },
     routeTitles: {
       bookingLinks: "Buchungslinks — Calendar",
@@ -8583,6 +8621,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "Kalender hinzufügen",
+      eventUpdated: "Ereignis aktualisiert",
+      updateFailed: "Ereignis konnte nicht aktualisiert werden",
       addCalendarFailed: "Kalender konnte nicht hinzugefügt werden",
       addCalendarFromUrl: "Kalender per URL hinzufügen",
       added: "Hinzugefügt",
@@ -8708,6 +8748,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "あなたの情報",
     },
     calendarView: {
+      addWorkingLocation: "勤務場所を追加",
       addTitleBeforeCreate: "イベントを作成する前にタイトルを追加してください",
       calendarSettingsLoading:
         "カレンダー設定を読み込み中です。少し待ってからもう一度お試しください。",
@@ -8736,6 +8777,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "イベントを更新中...",
       updatingRecurringEvent: "繰り返しイベントを更新中...",
       week: "週",
+      timezoneSwitchTitle: "ブラウザのタイムゾーンを使用しますか？",
+      timezoneSwitchDescription:
+        "カレンダーは {{savedTimezone}} に固定されていますが、ブラウザは {{browserTimezone}} を使用しています。カレンダーのタイムゾーンを切り替えますか？",
+      timezoneSwitchKeep: "{{timezone}} を維持",
+      timezoneSwitchSwitch: "{{timezone}} に切り替え",
     },
     routeTitles: {
       bookingLinks: "予約リンク — Calendar",
@@ -8758,6 +8804,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "カレンダーを追加",
+      eventUpdated: "予定を更新しました",
+      updateFailed: "予定を更新できませんでした",
       addCalendarFailed: "カレンダーを追加できませんでした",
       addCalendarFromUrl: "URL からカレンダーを追加",
       added: "追加済み",
@@ -8878,6 +8926,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "내 정보",
     },
     calendarView: {
+      addWorkingLocation: "근무 위치 추가",
       addTitleBeforeCreate: "이벤트를 만들기 전에 제목을 추가하세요",
       calendarSettingsLoading:
         "캘린더 설정을 아직 불러오는 중입니다. 잠시 후 다시 시도하세요.",
@@ -8907,6 +8956,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "이벤트 업데이트 중...",
       updatingRecurringEvent: "반복 이벤트 업데이트 중...",
       week: "주",
+      timezoneSwitchTitle: "브라우저 시간대를 사용할까요?",
+      timezoneSwitchDescription:
+        "캘린더는 {{savedTimezone}}에 고정되어 있지만 브라우저는 {{browserTimezone}}을(를) 사용합니다. 캘린더 시간대를 전환할까요?",
+      timezoneSwitchKeep: "{{timezone}} 유지",
+      timezoneSwitchSwitch: "{{timezone}}(으)로 전환",
     },
     routeTitles: {
       bookingLinks: "예약 링크 — Calendar",
@@ -8928,6 +8982,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "캘린더 추가",
+      eventUpdated: "이벤트가 업데이트되었습니다",
+      updateFailed: "이벤트를 업데이트하지 못했습니다",
       addCalendarFailed: "캘린더를 추가하지 못했습니다",
       addCalendarFromUrl: "URL에서 캘린더 추가",
       added: "추가됨",
@@ -9051,6 +9107,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "Suas informações",
     },
     calendarView: {
+      addWorkingLocation: "Adicionar local de trabalho",
       addTitleBeforeCreate: "Adicione um título antes de criar o evento",
       calendarSettingsLoading:
         "As configurações do calendário ainda estão carregando. Tente novamente em instantes.",
@@ -9080,6 +9137,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "Atualizando evento...",
       updatingRecurringEvent: "Atualizando evento recorrente...",
       week: "Semana",
+      timezoneSwitchTitle: "Usar o fuso horário do navegador?",
+      timezoneSwitchDescription:
+        "O calendário está fixado em {{savedTimezone}}, mas o navegador usa {{browserTimezone}}. Mudar o fuso horário do calendário?",
+      timezoneSwitchKeep: "Manter {{timezone}}",
+      timezoneSwitchSwitch: "Mudar para {{timezone}}",
     },
     routeTitles: {
       bookingLinks: "Links de reserva — Calendar",
@@ -9101,6 +9163,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "Adicionar calendário",
+      eventUpdated: "Evento atualizado",
+      updateFailed: "Falha ao atualizar evento",
       addCalendarFailed: "Falha ao adicionar calendário",
       addCalendarFromUrl: "Adicionar calendário por URL",
       added: "Adicionado",
@@ -9224,6 +9288,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "आपकी जानकारी",
     },
     calendarView: {
+      addWorkingLocation: "कार्य स्थान जोड़ें",
       addTitleBeforeCreate: "इवेंट बनाने से पहले शीर्षक जोड़ें",
       calendarSettingsLoading:
         "कैलेंडर सेटिंग अभी लोड हो रही हैं। कृपया थोड़ी देर में फिर कोशिश करें।",
@@ -9252,6 +9317,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "इवेंट अपडेट हो रहा है...",
       updatingRecurringEvent: "दोहराया जाने वाला इवेंट अपडेट हो रहा है...",
       week: "सप्ताह",
+      timezoneSwitchTitle: "ब्राउज़र का टाइमज़ोन इस्तेमाल करें?",
+      timezoneSwitchDescription:
+        "कैलेंडर {{savedTimezone}} पर पिन है, लेकिन आपका ब्राउज़र {{browserTimezone}} पर है। कैलेंडर टाइमज़ोन बदलें?",
+      timezoneSwitchKeep: "{{timezone}} रखें",
+      timezoneSwitchSwitch: "{{timezone}} पर बदलें",
     },
     routeTitles: {
       bookingLinks: "बुकिंग लिंक — Calendar",
@@ -9273,6 +9343,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "कैलेंडर जोड़ें",
+      eventUpdated: "इवेंट अपडेट हो गया",
+      updateFailed: "इवेंट अपडेट नहीं हो सका",
       addCalendarFailed: "कैलेंडर जोड़ने में विफल",
       addCalendarFromUrl: "URL से कैलेंडर जोड़ें",
       added: "जोड़ा गया",
@@ -9395,6 +9467,7 @@ const translatedCalendarRawBurnDown = {
       yourInformation: "معلوماتك",
     },
     calendarView: {
+      addWorkingLocation: "إضافة موقع العمل",
       addTitleBeforeCreate: "أضف عنوانًا قبل إنشاء الحدث",
       calendarSettingsLoading:
         "لا تزال إعدادات التقويم قيد التحميل. حاول مرة أخرى بعد قليل.",
@@ -9423,6 +9496,11 @@ const translatedCalendarRawBurnDown = {
       updatingEvent: "جارٍ تحديث الحدث...",
       updatingRecurringEvent: "جارٍ تحديث الحدث المتكرر...",
       week: "الأسبوع",
+      timezoneSwitchTitle: "استخدام المنطقة الزمنية للمتصفح؟",
+      timezoneSwitchDescription:
+        "التقويم مثبت على {{savedTimezone}}، لكن متصفحك يستخدم {{browserTimezone}}. هل تريد تبديل المنطقة الزمنية للتقويم؟",
+      timezoneSwitchKeep: "الاحتفاظ بـ {{timezone}}",
+      timezoneSwitchSwitch: "التبديل إلى {{timezone}}",
     },
     routeTitles: {
       bookingLinks: "روابط الحجز — Calendar",
@@ -9444,6 +9522,8 @@ const translatedCalendarRawBurnDown = {
     },
     eventForm: {
       addCalendar: "إضافة تقويم",
+      eventUpdated: "تم تحديث الحدث",
+      updateFailed: "فشل تحديث الحدث",
       addCalendarFailed: "فشلت إضافة التقويم",
       addCalendarFromUrl: "إضافة تقويم من URL",
       added: "تمت الإضافة",

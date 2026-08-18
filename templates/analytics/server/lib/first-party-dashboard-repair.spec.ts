@@ -49,17 +49,24 @@ vi.mock("../db/index.js", () => ({
   schema,
 }));
 
-import { LEGACY_NEW_VS_RECURRING_USERS_SQL } from "./canonical-first-party-dashboard-repair";
+import {
+  DEPLOYED_NEW_VS_RECURRING_USERS_SQL,
+  LEGACY_NEW_VS_RECURRING_USERS_SQL,
+} from "./canonical-first-party-dashboard-repair";
 import {
   repairPersistedFirstPartyDashboardQueries,
   repairUnboundedFirstPartyPanelsAcrossDashboards,
 } from "./first-party-dashboard-repair";
 import {
+  DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_SQL,
+  DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
   FIRST_PARTY_DASHBOARD_ID,
   INTERMEDIATE_RECURRING_USERS_BY_TEMPLATE_SQL,
   LEGACY_RECURRING_USERS_BY_TEMPLATE_SQL,
   LEGACY_SEED_SIGNUPS_OVER_TIME_SQL,
   LEGACY_SIGNUPS_OVER_TIME_SQL,
+  MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
+  FIRST_PARTY_TEMPLATE_NAMES,
   buildPanel,
 } from "./first-party-metric-catalog";
 import { UNBOUNDED_FIRST_PARTY_PANEL_FIXES } from "./first-party-unbounded-panel-repair";
@@ -297,6 +304,88 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
     });
   });
 
+  it("repairs the deployed double-scan recurring panel during startup", async () => {
+    const daily = requiredFirstPartyPanel("recurring-users-by-template");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          {
+            ...daily,
+            sql: DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_SQL,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    const panel = JSON.parse(updateCalls[0]![0].config).panels[0];
+    expect(panel.sql.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(panel.sql).toContain("MIN(event_date) OVER");
+  });
+
+  it("repairs the deployed weekly double-scan recurring panel during startup", async () => {
+    const weekly = requiredFirstPartyPanel("recurring-users-by-template-bar");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          {
+            ...weekly,
+            sql: DOUBLE_SCAN_RECURRING_USERS_BY_TEMPLATE_WEEKLY_SQL,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    const panel = JSON.parse(updateCalls[0]![0].config).panels[0];
+    expect(panel.sql.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(panel.sql).toContain("MIN(event_date) OVER");
+  });
+
+  it("repairs the deployed materialized one-day retention panel during startup", async () => {
+    const retention = requiredFirstPartyPanel("one-day-retention-by-template");
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          {
+            ...retention,
+            sql: MATERIALIZED_ONE_DAY_RETENTION_BY_TEMPLATE_SQL,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    const panel = JSON.parse(updateCalls[0]![0].config).panels[0];
+    expect(panel.sql.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(panel.sql).toContain("FIRST_VALUE(template) OVER");
+    expect(panel.sql).not.toContain("JOIN base");
+  });
+
   it("repairs the exact legacy seeded signups date-fill query", async () => {
     const signups = requiredFirstPartyPanel("signups-over-time");
     const row = legacyRow({
@@ -345,10 +434,44 @@ describe("repairPersistedFirstPartyDashboardQueries", () => {
       [{ config: string }]
     >;
     const panel = JSON.parse(updateCalls[0]![0].config).panels[0];
-    expect(panel.sql).toContain("WITH first_seen AS");
-    expect(panel.sql).toContain("), activity AS");
-    expect(panel.sql.match(/365 days/g)).toHaveLength(3);
+    expect(panel.sql).toContain("WITH activity AS");
+    expect(panel.sql).toContain(
+      "MIN(event_date) OVER (PARTITION BY NULLIF(user_key, '')) AS first_date",
+    );
+    expect(panel.sql).not.toContain("first_seen AS");
+    expect(panel.sql.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(panel.sql.match(/365 days/g)).toHaveLength(2);
     expect(panel.config.description).toContain("previous 365 days");
+  });
+
+  it("repairs the exact deployed bounded new-vs-recurring query", async () => {
+    const allowList = `IN (${FIRST_PARTY_TEMPLATE_NAMES.map((name) => `'${name}'`).join(", ")})`;
+    expect(DEPLOYED_NEW_VS_RECURRING_USERS_SQL.split(allowList)).toHaveLength(
+      3,
+    );
+    const row = legacyRow({
+      config: JSON.stringify({
+        panels: [
+          {
+            id: "new-vs-recurring-users",
+            sql: DEPLOYED_NEW_VS_RECURRING_USERS_SQL,
+          },
+        ],
+      }),
+    });
+    const mocks = createDb(row);
+    dbMocks.getDb.mockReturnValue(mocks.db);
+
+    await expect(repairPersistedFirstPartyDashboardQueries()).resolves.toBe(
+      true,
+    );
+
+    const updateCalls = mocks.updateSet.mock.calls as unknown as Array<
+      [{ config: string }]
+    >;
+    const panel = JSON.parse(updateCalls[0]![0].config).panels[0];
+    expect(panel.sql.match(/FROM analytics_events/g)).toHaveLength(1);
+    expect(panel.sql).toContain("MIN(event_date) OVER");
   });
 
   it("does not write a revision or change when its optimistic update loses", async () => {

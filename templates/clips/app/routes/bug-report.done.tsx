@@ -1,5 +1,13 @@
 import { appBasePath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
+  BUG_REPORT_POPUP_RESPONSE_HEADERS,
+  bugReportSubmissionTargetOrigins,
+  createBugReportSubmissionMessage,
+  type BugReportAgentLink,
+} from "@shared/bug-report";
 import {
   IconArrowLeft,
   IconCheck,
@@ -16,18 +24,13 @@ export function meta() {
   return [{ title: enMessages.bugReportRoute.donePageTitle }];
 }
 
+export function headers() {
+  return BUG_REPORT_POPUP_RESPONSE_HEADERS;
+}
+
 function absoluteAppUrl(path: string) {
   if (typeof window === "undefined") return path;
   return new URL(`${appBasePath()}${path}`, window.location.origin).toString();
-}
-
-function targetOrigin(returnUrl: string | null) {
-  if (!returnUrl) return "*";
-  try {
-    return new URL(returnUrl).origin;
-  } catch {
-    return "*";
-  }
 }
 
 export default function BugReportDoneRoute() {
@@ -47,27 +50,45 @@ export default function BugReportDoneRoute() {
   const embedUrl = recordingId
     ? absoluteAppUrl(`/embed/${encodeURIComponent(recordingId)}`)
     : null;
-  const agentContextUrl = recordingId
-    ? absoluteAppUrl(
-        `/api/agent-context.json?id=${encodeURIComponent(recordingId)}`,
-      )
-    : null;
-
   useEffect(() => {
     if (!recordingId || !recordingUrl) return;
-    const message = {
-      type: "agent-native.clips.bug-report.submitted",
-      recordingId,
-      recordingUrl,
-      embedUrl,
-      agentContextUrl,
+    let cancelled = false;
+    void (async () => {
+      let agentLink: BugReportAgentLink | null = null;
+      try {
+        agentLink = (await callAction(
+          "create-recording-agent-link" as any,
+          {
+            recordingId,
+            ttlSeconds: BUG_REPORT_AGENT_ACCESS_TTL_SECONDS,
+          } as any,
+        )) as BugReportAgentLink;
+      } catch {
+        agentLink = null;
+      }
+      if (cancelled) return;
+
+      const message = createBugReportSubmissionMessage({
+        recordingId,
+        recordingUrl,
+        embedUrl: embedUrl ?? recordingUrl,
+        agentLink,
+      });
+
+      for (const origin of bugReportSubmissionTargetOrigins(
+        window.location.origin,
+        returnUrl,
+      )) {
+        window.opener?.postMessage(message, origin);
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage(message, origin);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
     };
-    const origin = targetOrigin(returnUrl);
-    window.opener?.postMessage(message, origin);
-    if (window.parent && window.parent !== window) {
-      window.parent.postMessage(message, origin);
-    }
-  }, [agentContextUrl, embedUrl, recordingId, recordingUrl, returnUrl]);
+  }, [embedUrl, recordingId, recordingUrl, returnUrl]);
 
   const copyRecordingUrl = async () => {
     if (!recordingUrl) return;

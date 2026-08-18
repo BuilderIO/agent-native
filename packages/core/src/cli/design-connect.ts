@@ -11,6 +11,8 @@ import http, {
 import https from "node:https";
 import path from "node:path";
 
+import { injectDocumentMarkup } from "../shared/html-document.js";
+
 const DEFAULT_BRIDGE_PORT = 7331;
 const ROUTE_MANIFEST_FILE = path.join(".agent-native", "design-routes.json");
 const DEFAULT_DEV_SERVER_CANDIDATES = [
@@ -1338,13 +1340,7 @@ function injectLiveEditBridge(
     targetPath,
   );
   if (!script) return withBase;
-  if (withBase.includes("</body>")) {
-    return withBase.replace("</body>", `${script}</body>`);
-  }
-  if (withBase.includes("</html>")) {
-    return withBase.replace("</html>", `${script}</html>`);
-  }
-  return `${withBase}${script}`;
+  return injectDocumentMarkup(withBase, script);
 }
 
 /** Read the full request body as a UTF-8 string. */

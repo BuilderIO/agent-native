@@ -481,6 +481,10 @@ const messages = {
     lastRun: "آخر تشغيل:",
     automationsDescription:
       "قواعد تعالج رسائل البريد الجديدة تلقائيًا باستخدام الذكاء الاصطناعي.",
+    allowAutomationSends: "السماح للأتمتات بإرسال رسائل البريد تلقائيًا",
+    allowAutomationSendsDescription:
+      "مغلق افتراضيًا. فعّله عندما تريد من الأتمتات إرسال الرسائل دون طلب موافقة في كل مرة.",
+    automationSendSettingSaveFailed: "تعذر حفظ إعداد إرسال البريد التلقائي.",
     loadingModels: "جارٍ تحميل النماذج",
     newRule: "قاعدة جديدة",
     noAutomationRules: "لا توجد قواعد أتمتة بعد.",
@@ -499,6 +503,8 @@ const messages = {
     importFromGmail: "استيراد من Gmail",
     signatureHelp:
       "تُضاف إلى المسودات الجديدة قبل سجل الرد المقتبس. تدعم روابط وصور Markdown.",
+    addSignatureImage: "إضافة صورة",
+    signatureImageUploadFailed: "فشل تحميل صورة التوقيع",
     writingStyle: "أسلوب الكتابة",
     writingStylePlaceholder: "قصير ومحدد ودافئ. تجنب الحشو الرسمي.",
     saveDraftingSettings: "حفظ إعدادات المسودات",

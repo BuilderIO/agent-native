@@ -17,6 +17,31 @@ permissions:
   contents: read
 
 jobs:
+  change-scope:
+    name: Determine change scope
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      docs_only: ${{ steps.scope.outputs.docs_only }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+
+      - name: Test change scope classifier
+        run: node --experimental-strip-types --test scripts/ci-change-scope.test.ts
+
+      - name: Classify changed paths
+        id: scope
+        env:
+          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          CI_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node --experimental-strip-types scripts/ci-change-scope.ts
+
   lint:
     name: Lint & format
     runs-on: ubuntu-latest
@@ -63,14 +88,18 @@ jobs:
       - name: Typecheck
         run: pnpm typecheck
 
-  # The full fast-test suite runs on every PR — nothing is change-selected, so a
-  # test can never be silently skipped. It's split into parallel lanes purely for
-  # wall-clock: @agent-native/core runs isolated and uncapped (test-core), and
-  # every other test package is partitioned across balanced lanes (test-rest) by
-  # scripts/ci-test-lanes.ts, which asserts every package lands in exactly one
-  # lane. Adding a package auto-assigns it; dropping one fails the discover job.
+  # Non-docs PRs run the full fast-test suite — nothing is change-selected, so a
+  # test can never be silently skipped. Docs-only PRs use the focused docs job
+  # below and the stable Fast tests gate records the intentional skip. The full
+  # suite is split into parallel lanes purely for wall-clock: @agent-native/core
+  # runs isolated and uncapped (test-core), and every other test package is
+  # partitioned across balanced lanes (test-rest) by scripts/ci-test-lanes.ts,
+  # which asserts every package lands in exactly one lane. Adding a package
+  # auto-assigns it; dropping one fails the discover job.
   discover-lanes:
     name: Plan test lanes
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
@@ -88,6 +117,8 @@ jobs:
 
   test-core:
     name: Fast tests core
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -139,7 +170,8 @@ jobs:
 
   test-rest:
     name: Fast tests ${{ matrix.lane }}
-    needs: discover-lanes
+    needs: [change-scope, discover-lanes]
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     # Cap the run so a hung test fails fast instead of pinning a runner for
     # GitHub's 6h default. Slow DB/integration/e2e specs run in separate jobs
@@ -197,16 +229,35 @@ jobs:
   # gate), not the per-lane jobs whose names vary with the matrix.
   fast-tests:
     name: Fast tests
-    needs: [discover-lanes, test-core, test-rest]
+    needs: [change-scope, docs, discover-lanes, test-core, test-rest]
     if: always()
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Gate on lane results
+        env:
+          CHANGE_SCOPE_RESULT: ${{ needs.change-scope.result }}
+          DOCS_ONLY: ${{ needs.change-scope.outputs.docs_only }}
+          DOCS_RESULT: ${{ needs.docs.result }}
+          DISCOVER_LANES_RESULT: ${{ needs.discover-lanes.result }}
+          TEST_CORE_RESULT: ${{ needs.test-core.result }}
+          TEST_REST_RESULT: ${{ needs.test-rest.result }}
         run: |
-          for dep in "discover-lanes:${{ needs.discover-lanes.result }}" \
-                     "test-core:${{ needs.test-core.result }}" \
-                     "test-rest:${{ needs.test-rest.result }}"; do
+          if [ "$CHANGE_SCOPE_RESULT" != "success" ]; then
+            echo "::error::change-scope did not succeed ($CHANGE_SCOPE_RESULT)"
+            exit 1
+          fi
+          if [ "$DOCS_ONLY" = "true" ]; then
+            if [ "$DOCS_RESULT" != "success" ]; then
+              echo "::error::docs checks did not succeed ($DOCS_RESULT)"
+              exit 1
+            fi
+            echo "Docs-only change: full fast-test lanes are not required."
+            exit 0
+          fi
+          for dep in "discover-lanes:$DISCOVER_LANES_RESULT" \
+                     "test-core:$TEST_CORE_RESULT" \
+                     "test-rest:$TEST_REST_RESULT"; do
             name="${dep%%:*}"; result="${dep##*:}"
             if [ "$result" != "success" ]; then
               echo "::error::$name did not succeed ($result)"
@@ -215,8 +266,37 @@ jobs:
           done
           echo "Full fast-test suite passed (core + all lanes)."
 
+  docs:
+    name: Docs checks
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run docs package tests
+        run: pnpm --filter @agent-native/docs test
+
+      - name: Typecheck docs package
+        run: pnpm --filter @agent-native/docs typecheck
+
   content-parity:
     name: Content parity
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -239,6 +319,8 @@ jobs:
 
   content-db-tests:
     name: Content DB tests
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -259,8 +341,63 @@ jobs:
       - name: Run Content DB tests
         run: pnpm test:content-db
 
+      - name: Install isolated PGlite test driver
+        run: >-
+          npm install --ignore-scripts --no-save
+          --prefix "$RUNNER_TEMP/s2573-pglite"
+          @electric-sql/pglite@0.5.4
+
+      - name: Run PGlite lock and migration action semantics tests
+        run: node scripts/test-content-database-lock-pglite.mjs
+        env:
+          S2573_PGLITE_INSTALL_PREFIX: ${{ runner.temp }}/s2573-pglite
+
+  content-db-postgres-tests:
+    name: Content DB PostgreSQL locking
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: content_migration_test
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d content_migration_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "22"
+          cache: "pnpm"
+
+      - name: Restore dist + tsBuildInfo cache
+        uses: ./.github/actions/restore-dist-cache
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Run Content PostgreSQL lock integration tests
+        run: |
+          pnpm test:content-db-postgres
+          pnpm --filter content exec vitest --run actions/upsert-database-item-by-key.db.test.ts --config vitest.config.ts
+        env:
+          CONTENT_MIGRATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+          CONTENT_ROW_MUTATION_POSTGRES_URL: postgres://postgres@127.0.0.1:5432/content_migration_test
+
   core-integration-tests:
     name: Core integration tests
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -293,6 +430,8 @@ jobs:
 
   plan-e2e-tests:
     name: Plan E2E tests
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -315,6 +454,8 @@ jobs:
 
   brain-evals:
     name: Brain evals
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     # Brain evals are offline action/fixture retrieval checks; live LLM evals
     # belong in the gated eval workflow.
@@ -339,6 +480,8 @@ jobs:
 
   brain-privacy-evals:
     name: Brain privacy leakage evals
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -361,6 +504,8 @@ jobs:
 
   build:
     name: Build
+    needs: change-scope
+    if: needs.change-scope.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -379,10 +524,17 @@ jobs:
       - run: pnpm install --frozen-lockfile
 
       - name: Build all packages
+        if: needs.change-scope.outputs.docs_only != 'true'
         run: pnpm build
+
+      - name: Build docs site
+        if: needs.change-scope.outputs.docs_only == 'true'
+        run: pnpm --filter @agent-native/docs build
 
   trusted-acceptance:
     name: Trusted acceptance substrate
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -414,10 +566,10 @@ jobs:
 
   scaffold-e2e:
     name: Scaffold E2E — create + pnpm install
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -454,9 +606,19 @@ jobs:
         # Guards the documented one-file headless onboarding: a fresh
         # `--headless` scaffold must `pnpm typecheck` (no inherited vite/client
         # types) and `pnpm action hello` (server-safe package root, no React /
-        # react-query in the load graph) out of the box. AGENT_NATIVE_CREATE_USE_LOCAL_CORE
-        # is set at the job level, so the gated heavyweight guard actually runs.
+        # react-query in the load graph) out of the box.
         run: pnpm --filter @agent-native/core exec vitest run src/cli/create-e2e.spec.ts
+
+      - name: Headless onboarding — local core install + typecheck + action
+        # Keep the local package-linking setup scoped to the heavyweight test.
+        # Applying it to the whole create-e2e file makes lightweight scaffold
+        # tests spend their timeout packing the local Core and Toolkit.
+        env:
+          AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
+        run: >-
+          pnpm --filter @agent-native/core exec vitest run
+          src/cli/create-e2e.spec.ts
+          -t "pnpm install, pnpm typecheck, and pnpm action hello all succeed"
 
       - name: Scaffold workspace (chat + calendar + dispatch) and verify pnpm install + build
         # Dispatch is in the combo because it exercises the
@@ -465,6 +627,10 @@ jobs:
         # workspace app). Calendar covers the requiredPackages →
         # packages/scheduling scaffold path. Together they guard the two
         # distinct ways a workspace template can break `pnpm install`.
+        env:
+          # The PR's core version may not be published to npm yet. Exercise
+          # the scaffold against the core build checked out by this job.
+          AGENT_NATIVE_CREATE_USE_LOCAL_CORE: "1"
         run: |
           cd "$(mktemp -d)"
           node "$GITHUB_WORKSPACE/packages/core/dist/cli/index.js" create test-workspace --template chat,calendar,dispatch
@@ -530,6 +696,8 @@ jobs:
 
   ssr-boot-smoke:
     name: SSR cold-start smoke
+    needs: change-scope
+    if: needs.change-scope.outputs.docs_only != 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -558,18 +726,22 @@ jobs:
       - name: Build Content template (Cloudflare Pages preset)
         run: NITRO_PRESET=cloudflare_pages pnpm --filter content build
 
-      # Plan covers diagram-heavy SSR and Clips covers public-share SSR. Build
-      # both real Netlify function artifacts so a core runtime dependency cannot
-      # be missing from either deployment's server bundle.
-      - name: Build Plan and Clips templates (netlify preset)
-        run: NITRO_PRESET=netlify pnpm --filter plan --filter clips build
+      # Three templates, one per size class, because building all 17 per PR is
+      # too slow: Plan covers diagram-heavy SSR, Clips covers public-share SSR,
+      # and Assets is the one that legitimately depends on creative-context — so
+      # it is the only build that exercises the browser-runtime size budget.
+      - name: Build Plan, Clips, and Assets templates (netlify preset)
+        run: NITRO_PRESET=netlify pnpm --filter plan --filter clips --filter assets build
 
       - name: Import SSR handler — must not crash at cold-start
         # External timeout is a backstop against a pathological synchronous hang;
         # the script itself races module eval against a 30s window and force-exits.
         # Match the deployed Netlify environment so failed best-effort local
         # SQLite setup cannot call process.exit during this import-only probe.
-        run: NETLIFY=true timeout 120 node scripts/ssr-boot-smoke.mjs plan clips
+        # This lane intentionally probes the three built representatives above.
+        # The smoke script's optional `--report-uncovered` mode is fail-closed;
+        # use it only when the caller intends to gate on full template coverage.
+        run: NETLIFY=true timeout 180 node scripts/ssr-boot-smoke.mjs plan clips assets
 
       # Exercise the two other Node serverless presets as well. These import
       # their generated handlers, so an unresolved bare runtime dependency
@@ -587,6 +759,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          # Diff-scoped guards resolve GITHUB_BASE_REF to origin/main.
+          fetch-depth: 0
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
 

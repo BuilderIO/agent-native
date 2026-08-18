@@ -5,7 +5,8 @@ import {
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
@@ -96,6 +97,10 @@ type SnoozeTarget = {
 };
 const COMPOSE_FULLSCREEN_PARAM = "composeFullscreen";
 const SIDEBAR_COLLAPSE_KEY = "mail-sidebar-collapsed";
+const ACCOUNT_POLL_INTERVAL_MS = 2000;
+// Bounds the account-status poll so a hung fetch can't leave the in-flight
+// guard stuck and stall the interval forever.
+const ACCOUNT_POLL_ABORT_MS = Math.max(10_000, ACCOUNT_POLL_INTERVAL_MS * 4);
 
 function AccountAvatar({
   email,
@@ -145,6 +150,7 @@ function AccountAvatar({
 function isStandardLayoutPath(pathname: string): boolean {
   return (
     pathname === "/settings" ||
+    pathname.startsWith("/settings/") ||
     pathname === "/agent" ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
@@ -197,7 +203,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     <AgentSidebar
       position="right"
       defaultOpen={false}
-      agentPageHref="/agent"
+      agentPageHref="/settings/agent"
       emptyStateText={t("agent.emptyState")}
       suggestions={[
         t("agent.suggestionSummarize"),
@@ -367,6 +373,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "true";
   });
+  const perAppChatOpen = usePerAppChatOpen();
   useEffect(() => {
     if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
     else localStorage.removeItem("mail-sidebar-pinned");
@@ -379,7 +386,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
   }, [sidebarCollapsed]);
   const showSidebar = sidebarOpen || (sidebarPinned && !isMobile);
-  const showCollapsedSidebar = sidebarPinned && sidebarCollapsed && !isMobile;
+  const showCollapsedSidebar =
+    !isMobile &&
+    showSidebar &&
+    (sidebarPinned ? sidebarCollapsed : perAppChatOpen);
   const closeSidebar = useCallback(() => {
     if (!sidebarPinned || isMobile) setSidebarOpen(false);
   }, [sidebarPinned, isMobile]);
@@ -426,9 +436,6 @@ function AppLayoutInner({ children }: AppLayoutProps) {
       </TooltipTrigger>
       <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
     </Tooltip>
-  );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
   );
   const feedbackButton = (
     <FeedbackButton
@@ -1052,10 +1059,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
   };
   const getTopBarCount = (viewId: string) => getTabCount(viewId, "total");
   const getUnreadCount = (viewId: string) => getTabCount(viewId, "unread");
-  const inboxSidebarUnreadCount =
-    labelThreadCounts.unread["__inboxTotal"] ??
-    labelThreadCounts.unread["inbox"] ??
-    0;
+  // The rail badge represents the whole inbox. The top-bar "Other" tab can
+  // only count loaded rows when pinned filters are active, but Gmail's label
+  // count covers the mailbox beyond the current page.
+  const inboxSidebarUnreadCount = getInboxCount("unread");
   const railNavItems = [
     {
       id: "inbox",
@@ -1801,10 +1808,8 @@ function AppLayoutInner({ children }: AppLayoutProps) {
               <SidebarFooterActions
                 collapsed={showCollapsedSidebar}
                 feedback={feedbackButton}
-                translate={translateButton}
                 search={searchButton}
                 collapse={collapseButton}
-                className={showCollapsedSidebar ? undefined : "px-0 py-0"}
               />
             </div>
           </>
@@ -2030,9 +2035,6 @@ function StandardLayout({ children }: AppLayoutProps) {
       <TooltipContent side="right">{t("mail.search.label")}</TooltipContent>
     </Tooltip>
   );
-  const translateButton = (
-    <LanguagePicker variant="ghost-icon" label={t("settings.languageLabel")} />
-  );
   const feedbackButton = (
     <FeedbackButton variant="sidebar" side="right" className="min-w-0" />
   );
@@ -2046,7 +2048,12 @@ function StandardLayout({ children }: AppLayoutProps) {
 
   const fallbackTitle = (() => {
     if (location.pathname === "/settings") return t("settings.title");
-    if (location.pathname === "/agent") return t("settings.agentTitle");
+    if (
+      location.pathname === "/agent" ||
+      location.pathname.startsWith("/settings/agent")
+    ) {
+      return t("settings.agentTitle");
+    }
     if (location.pathname === "/team") return t("mail.pages.team");
     if (location.pathname.startsWith("/draft-queue"))
       return t("mail.views.draftQueue");
@@ -2198,10 +2205,8 @@ function StandardLayout({ children }: AppLayoutProps) {
             </div>
             <SidebarFooterActions
               feedback={feedbackButton}
-              translate={translateButton}
               search={searchButton}
               collapse={collapseButton}
-              className="px-0 py-0"
             />
           </div>
         </div>
@@ -2501,18 +2506,36 @@ function AccountPopover({
     setWantAuthUrl(false);
     window.open(authUrl.data.url, "_blank");
 
+    let inFlight = false;
     const interval = setInterval(async () => {
-      const res = await fetch(
-        agentNativePath("/_agent-native/google/status"),
-      ).catch(() => null);
-      if (res?.ok) {
-        const data = await res.json();
-        if (data.accounts?.length > accounts.length) {
-          clearInterval(interval);
-          window.location.reload();
+      if (document.hidden || inFlight) return;
+      inFlight = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        ACCOUNT_POLL_ABORT_MS,
+      );
+      try {
+        const res = await fetch(
+          agentNativePath("/_agent-native/google/status"),
+          { signal: controller.signal },
+        )
+          // coercion-ok: a failed probe and a not-yet-added-account response
+          // both mean "keep waiting"; this loop only acts on an observed
+          // account-count increase.
+          .catch(() => null);
+        if (res?.ok) {
+          const data = await res.json();
+          if (data.accounts?.length > accounts.length) {
+            clearInterval(interval);
+            window.location.reload();
+          }
         }
+      } finally {
+        clearTimeout(abortTimer);
+        inFlight = false;
       }
-    }, 2000);
+    }, ACCOUNT_POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
   }, [wantAuthUrl, authUrl.data, accounts.length]);

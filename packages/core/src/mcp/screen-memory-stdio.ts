@@ -1170,396 +1170,418 @@ export async function runScreenMemoryMCPStdio(
   const env = opts.env ?? process.env;
   const storeDir = opts.storeDir ?? defaultStoreDir(env);
 
-  const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
-  const { StdioServerTransport } =
-    await import("@modelcontextprotocol/sdk/server/stdio.js");
-  const { CallToolRequestSchema, ListToolsRequestSchema } =
-    await import("@modelcontextprotocol/sdk/types.js");
+  const { Server } = await import("@modelcontextprotocol/server");
+  const { serveStdio } = await import("@modelcontextprotocol/server/stdio");
 
-  const server = new Server(
-    { name: "clips-screen-memory", version: "0.1.0" },
-    { capabilities: { tools: {} } },
+  const stdio = serveStdio(
+    () => {
+      const server = new Server(
+        { name: "clips-screen-memory", version: "0.1.0" },
+        { capabilities: { tools: {} } },
+      );
+
+      server.setRequestHandler(
+        "tools/list",
+        async () =>
+          ({
+            tools: screenMemoryMcpToolDefinitions(),
+          }) as any,
+      );
+
+      server.setRequestHandler("tools/call", async (request: any) => {
+        const name = request.params?.name;
+        const args = (request.params?.arguments ?? {}) as Record<
+          string,
+          unknown
+        >;
+        if (name === "screen_memory_status") {
+          const config = readFeatureConfig(storeDir);
+          const segments = recentSegments(storeDir, 24 * 60);
+          return textResult({
+            enabled: config.enabled === true,
+            paused: config.paused === true,
+            retentionHours: config.retentionHours ?? 24,
+            maxBytes: config.maxBytes ?? 20 * 1024 * 1024 * 1024,
+            segmentCount: segments.length,
+            totalBytes: segments.reduce(
+              (sum, segment) => sum + (segment.bytes || 0),
+              0,
+            ),
+            note: "The Screen Memory store is connected. Local archive paths are intentionally not exposed to agents.",
+          });
+        }
+        if (name === "screen_memory_recent_context") {
+          const result = await queryScreenMemoryContextForStore(
+            {
+              query: typeof args.query === "string" ? args.query : undefined,
+              sinceMinutes:
+                typeof args.minutes === "number" ? args.minutes : undefined,
+              limit: typeof args.limit === "number" ? args.limit : undefined,
+            },
+            storeDir,
+            env,
+          );
+          const sanitizedEvidence = result.evidence.map((item) => ({
+            ...item,
+            excerpt: redactCredentialText(item.excerpt),
+          }));
+          const sanitizedItems = result.items.map((item) => ({
+            ...item,
+            text: redactCredentialText(item.text),
+            sourceFile: "local-screen-memory",
+          }));
+          const requestId = `egress-mcp-${Date.now()}-${process.pid}`;
+          const packet = {
+            question:
+              typeof args.query === "string" && args.query.trim()
+                ? redactCredentialText(args.query.trim().slice(0, 4_000))
+                : "Recent Screen Memory context",
+            evidence: sanitizedEvidence.slice(0, 20).map((item) => ({
+              id: item.id,
+              momentId: item.momentId,
+              sourceType: item.sourceType,
+              capturedAt: item.capturedAt,
+              excerpt: item.excerpt.slice(0, 1_200),
+            })),
+          };
+          appendEgressReceipt(
+            storeDir,
+            requestId,
+            "recent-context",
+            packet.evidence,
+          );
+          return textResult(
+            // Keep the old MCP envelope available while adding the typed contract.
+            {
+              events: sanitizedItems,
+              ...result,
+              items: sanitizedItems,
+              evidence: sanitizedEvidence,
+              contextFiles: [],
+              egress: {
+                requestId,
+                packet,
+                note: "A content-free local activity receipt was recorded before this bounded text packet was returned.",
+              },
+            },
+          );
+        }
+        if (name === "screen_memory_recent_segments") {
+          const minutes = typeof args.minutes === "number" ? args.minutes : 30;
+          const segments = recentSegments(storeDir, minutes);
+          const requestId = `egress-mcp-${Date.now()}-${process.pid}`;
+          const packet = {
+            question: `List recent Rewind segment references from the previous ${Math.max(1, Math.min(minutes, 24 * 60))} minutes`,
+            evidence: segments.slice(0, 20).map((segment) => ({
+              id: segment.id,
+              momentId: `segment:${segment.id}`,
+              sourceType: "app-context",
+              capturedAt: segment.startedAt,
+              excerpt: `Local media segment reference from ${segment.startedAt} to ${segment.endedAt}; media path and bytes were not exposed.`,
+            })),
+          };
+          appendEgressReceipt(
+            storeDir,
+            requestId,
+            "recent-segments",
+            packet.evidence,
+          );
+          return textResult({
+            localOnly: true,
+            mediaApprovalRequired: true,
+            segments: segments.map((segment) => ({
+              id: segment.id,
+              startedAt: segment.startedAt,
+              endedAt: segment.endedAt,
+              mimeType: segment.mimeType,
+              durationMs: segment.durationMs,
+            })),
+            egress: {
+              requestId,
+              packet,
+              note: "A content-free local activity receipt was recorded before this bounded metadata packet was returned.",
+            },
+          });
+        }
+        if (name === "screen_memory_search_chapters") {
+          if (typeof args.query !== "string" || !args.query.trim())
+            throw new Error("query is required.");
+          const document = readScreenMemoryChapters(storeDir);
+          if (!document)
+            throw new Error(
+              "No valid local Rewind chapters index is available yet.",
+            );
+          const minutes =
+            typeof args.minutes === "number" && Number.isFinite(args.minutes)
+              ? Math.max(1, Math.min(Math.trunc(args.minutes), 24 * 60))
+              : null;
+          const cutoff = minutes ? Date.now() - minutes * 60_000 : null;
+          const boundedDocument = cutoff
+            ? {
+                ...document,
+                chapters: document.chapters.filter(
+                  (chapter) => Date.parse(chapter.endedAt) >= cutoff,
+                ),
+              }
+            : document;
+          const candidates = searchScreenMemoryChapters(
+            boundedDocument,
+            args.query.trim(),
+            typeof args.limit === "number" ? args.limit : 5,
+            typeof args.clientHint === "string" ? args.clientHint : undefined,
+          );
+          const ambiguous =
+            candidates.length > 1 &&
+            Math.abs(candidates[0].score - candidates[1].score) <= 0.05;
+          const packet = {
+            question: redactCredentialText(args.query.trim().slice(0, 4_000)),
+            evidence: candidates.map((chapter) => ({
+              id: chapter.id,
+              momentId: chapter.id,
+              sourceType: "chapter",
+              capturedAt: chapter.startedAt,
+              excerpt: redactCredentialText(
+                `${chapter.label}: ${chapter.summary}`,
+              ).slice(0, 1_200),
+            })),
+          };
+          const requestId = `egress-mcp-${Date.now()}-${process.pid}`;
+          appendEgressReceipt(
+            storeDir,
+            requestId,
+            "search-chapters",
+            packet.evidence,
+          );
+          return textResult({
+            localOnly: true,
+            generatedAt: document.generatedAt,
+            state: document.state,
+            coverage: document.coverage,
+            gaps:
+              isRecord(document.coverage) &&
+              Array.isArray(document.coverage.gaps)
+                ? document.coverage.gaps
+                : [],
+            indexState: candidates.some(
+              (candidate) => candidate.indexState === "pending",
+            )
+              ? "pending"
+              : candidates.some(
+                    (candidate) => candidate.indexState === "partial",
+                  )
+                ? "partial"
+                : "ready",
+            ambiguous,
+            candidates: candidates.map(projectScreenMemoryChapterCandidate),
+            egress: {
+              requestId,
+              packet,
+              note: "A content-free local activity receipt was recorded before this bounded chapter packet was returned.",
+            },
+          });
+        }
+        if (name === "screen_memory_frame_at") {
+          if (typeof args.timestamp !== "string")
+            throw new Error("timestamp is required.");
+          const frame = readScreenMemoryFrame(
+            storeDir,
+            args.timestamp,
+            opts.decodeFrame ?? decodeFrameWithFfmpeg,
+          );
+          appendLocalEvidenceReceipt(storeDir, "frame-at", [
+            { timestamp: frame.timestamp, segmentId: frame.segmentId },
+          ]);
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  localOnly: true,
+                  timestamp: frame.timestamp,
+                  segmentId: frame.segmentId,
+                  coverage: "retained clean segment",
+                  note: "This is a bounded local image read. Request screen_memory_request_clip for motion or audio.",
+                }),
+              },
+              frame.image,
+            ],
+          };
+        }
+        if (name === "screen_memory_contact_sheet") {
+          const document = readScreenMemoryChapters(storeDir);
+          const chapter =
+            typeof args.chapterId === "string"
+              ? document?.chapters.find(
+                  (candidate) => candidate.id === args.chapterId,
+                )
+              : undefined;
+          const startAt =
+            chapter?.startedAt ??
+            (typeof args.startAt === "string" ? args.startAt : null);
+          const endAt =
+            chapter?.endedAt ??
+            (typeof args.endAt === "string" ? args.endAt : null);
+          if (
+            !startAt ||
+            !endAt ||
+            !isTimestamp(startAt) ||
+            !isTimestamp(endAt)
+          )
+            throw new Error(
+              "Provide a valid chapterId or RFC3339 startAt and endAt.",
+            );
+          const durationMs = Date.parse(endAt) - Date.parse(startAt);
+          if (!contactSheetRangeIsValid(durationMs, Boolean(chapter)))
+            throw new Error(
+              "A contact sheet range must be between zero and five minutes.",
+            );
+          if (Date.parse(endAt) > Date.now() + 5_000)
+            throw new Error(
+              "A Rewind contact sheet cannot include future time.",
+            );
+          const count = Math.min(
+            Math.max(
+              Math.trunc(typeof args.count === "number" ? args.count : 4),
+              1,
+            ),
+            8,
+          );
+          const representative = (chapter?.representativeMoments ?? [])
+            .filter(
+              (moment) =>
+                Date.parse(moment.capturedAt) >= Date.parse(startAt) &&
+                Date.parse(moment.capturedAt) <= Date.parse(endAt),
+            )
+            .map((moment) => moment.capturedAt);
+          const timestamps = selectContactSheetTimestamps(
+            startAt,
+            endAt,
+            count,
+            representative,
+          );
+          const decoder = opts.decodeFrame ?? decodeFrameWithFfmpeg;
+          const frames = timestamps.flatMap((timestamp) => {
+            try {
+              return [readScreenMemoryFrame(storeDir, timestamp, decoder)];
+            } catch {
+              // A chapter may span a brief coverage gap. Keep the clean retained
+              // frames instead of failing the entire bounded contact sheet.
+              return [];
+            }
+          });
+          if (frames.length === 0) {
+            throw new Error(
+              "No clean retained Rewind frames cover the requested contact-sheet range.",
+            );
+          }
+          appendLocalEvidenceReceipt(
+            storeDir,
+            "contact-sheet",
+            frames.map(({ timestamp, segmentId }) => ({
+              timestamp,
+              segmentId,
+            })),
+          );
+          return {
+            content: [
+              {
+                type: "text" as const,
+                text: JSON.stringify({
+                  localOnly: true,
+                  chapterId: chapter?.id ?? null,
+                  startAt: new Date(Date.parse(startAt)).toISOString(),
+                  endAt: new Date(Date.parse(endAt)).toISOString(),
+                  frameCount: frames.length,
+                  selection: representative.length
+                    ? "representative moments then even coverage"
+                    : "even temporal coverage",
+                  frames: frames.map(({ timestamp, segmentId }) => ({
+                    timestamp,
+                    segmentId,
+                  })),
+                }),
+              },
+              ...frames.map((frame) => frame.image),
+            ],
+          };
+        }
+        if (name === "screen_memory_request_clip") {
+          const range = parseHandoffRange(args);
+          const config = readFeatureConfig(storeDir);
+          const requestId = `handoff-${randomUUID()}`;
+          const reason =
+            typeof args.reason === "string"
+              ? redactCredentialText(args.reason.trim().slice(0, 500))
+              : "Visual or audio context requested by the agent";
+          const request = {
+            requestId,
+            status: "pending",
+            requestedAt: new Date().toISOString(),
+            ...range,
+            reason,
+            includeMicrophone: args.includeMicrophone !== false,
+            includeSystemAudio: args.includeSystemAudio !== false,
+            reviewRequired: config.reviewBeforeSending !== false,
+            agentClipRetention: config.agentClipRetention ?? "forever",
+          };
+          writePrivateJson(handoffPath(storeDir, requestId), request);
+          appendEgressEvent(storeDir, {
+            requestId,
+            occurredAt: request.requestedAt,
+            state: "handoff-requested",
+            operation: "request-clip",
+            receipt: {
+              mediaInterval: { startAt: range.startAt, endAt: range.endAt },
+              reviewRequired: request.reviewRequired,
+            },
+            evidenceCount: 0,
+            packetBytes: 0,
+            error: null,
+          });
+          return textResult({
+            requestId,
+            status: "pending",
+            startAt: range.startAt,
+            endAt: range.endAt,
+            reviewRequired: request.reviewRequired,
+            note: request.reviewRequired
+              ? "Clips is waiting for the user to review this bounded range. Poll screen_memory_handoff_status."
+              : "Clips is processing the explicitly requested bounded range. Poll screen_memory_handoff_status.",
+          });
+        }
+        if (name === "screen_memory_handoff_status") {
+          if (typeof args.requestId !== "string") {
+            throw new Error("requestId is required.");
+          }
+          const parsed = JSON.parse(
+            fs.readFileSync(handoffPath(storeDir, args.requestId), "utf-8"),
+          ) as Record<string, unknown>;
+          return textResult({
+            requestId: parsed.requestId,
+            status: parsed.status,
+            startAt: parsed.startAt,
+            endAt: parsed.endAt,
+            recordingId: parsed.recordingId,
+            agentUrl: parsed.agentUrl,
+            contextUrl: parsed.contextUrl,
+            expiresAt: parsed.expiresAt,
+            autoDeleteAt: parsed.autoDeleteAt,
+            autoDeletedAt: parsed.autoDeletedAt,
+            error: parsed.error,
+          });
+        }
+        throw new Error(`Unknown Screen Memory tool: ${name}`);
+      });
+      return server;
+    },
+    { legacy: "serve" },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: screenMemoryMcpToolDefinitions(),
-  }));
-
-  server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
-    const name = request.params?.name;
-    const args = (request.params?.arguments ?? {}) as Record<string, unknown>;
-    if (name === "screen_memory_status") {
-      const config = readFeatureConfig(storeDir);
-      const segments = recentSegments(storeDir, 24 * 60);
-      return textResult({
-        enabled: config.enabled === true,
-        paused: config.paused === true,
-        retentionHours: config.retentionHours ?? 24,
-        maxBytes: config.maxBytes ?? 20 * 1024 * 1024 * 1024,
-        segmentCount: segments.length,
-        totalBytes: segments.reduce(
-          (sum, segment) => sum + (segment.bytes || 0),
-          0,
-        ),
-        note: "The Screen Memory store is connected. Local archive paths are intentionally not exposed to agents.",
-      });
-    }
-    if (name === "screen_memory_recent_context") {
-      const result = await queryScreenMemoryContextForStore(
-        {
-          query: typeof args.query === "string" ? args.query : undefined,
-          sinceMinutes:
-            typeof args.minutes === "number" ? args.minutes : undefined,
-          limit: typeof args.limit === "number" ? args.limit : undefined,
-        },
-        storeDir,
-        env,
-      );
-      const sanitizedEvidence = result.evidence.map((item) => ({
-        ...item,
-        excerpt: redactCredentialText(item.excerpt),
-      }));
-      const sanitizedItems = result.items.map((item) => ({
-        ...item,
-        text: redactCredentialText(item.text),
-        sourceFile: "local-screen-memory",
-      }));
-      const requestId = `egress-mcp-${Date.now()}-${process.pid}`;
-      const packet = {
-        question:
-          typeof args.query === "string" && args.query.trim()
-            ? redactCredentialText(args.query.trim().slice(0, 4_000))
-            : "Recent Screen Memory context",
-        evidence: sanitizedEvidence.slice(0, 20).map((item) => ({
-          id: item.id,
-          momentId: item.momentId,
-          sourceType: item.sourceType,
-          capturedAt: item.capturedAt,
-          excerpt: item.excerpt.slice(0, 1_200),
-        })),
-      };
-      appendEgressReceipt(
-        storeDir,
-        requestId,
-        "recent-context",
-        packet.evidence,
-      );
-      return textResult(
-        // Keep the old MCP envelope available while adding the typed contract.
-        {
-          events: sanitizedItems,
-          ...result,
-          items: sanitizedItems,
-          evidence: sanitizedEvidence,
-          contextFiles: [],
-          egress: {
-            requestId,
-            packet,
-            note: "A content-free local activity receipt was recorded before this bounded text packet was returned.",
-          },
-        },
-      );
-    }
-    if (name === "screen_memory_recent_segments") {
-      const minutes = typeof args.minutes === "number" ? args.minutes : 30;
-      const segments = recentSegments(storeDir, minutes);
-      const requestId = `egress-mcp-${Date.now()}-${process.pid}`;
-      const packet = {
-        question: `List recent Rewind segment references from the previous ${Math.max(1, Math.min(minutes, 24 * 60))} minutes`,
-        evidence: segments.slice(0, 20).map((segment) => ({
-          id: segment.id,
-          momentId: `segment:${segment.id}`,
-          sourceType: "app-context",
-          capturedAt: segment.startedAt,
-          excerpt: `Local media segment reference from ${segment.startedAt} to ${segment.endedAt}; media path and bytes were not exposed.`,
-        })),
-      };
-      appendEgressReceipt(
-        storeDir,
-        requestId,
-        "recent-segments",
-        packet.evidence,
-      );
-      return textResult({
-        localOnly: true,
-        mediaApprovalRequired: true,
-        segments: segments.map((segment) => ({
-          id: segment.id,
-          startedAt: segment.startedAt,
-          endedAt: segment.endedAt,
-          mimeType: segment.mimeType,
-          durationMs: segment.durationMs,
-        })),
-        egress: {
-          requestId,
-          packet,
-          note: "A content-free local activity receipt was recorded before this bounded metadata packet was returned.",
-        },
-      });
-    }
-    if (name === "screen_memory_search_chapters") {
-      if (typeof args.query !== "string" || !args.query.trim())
-        throw new Error("query is required.");
-      const document = readScreenMemoryChapters(storeDir);
-      if (!document)
-        throw new Error(
-          "No valid local Rewind chapters index is available yet.",
-        );
-      const minutes =
-        typeof args.minutes === "number" && Number.isFinite(args.minutes)
-          ? Math.max(1, Math.min(Math.trunc(args.minutes), 24 * 60))
-          : null;
-      const cutoff = minutes ? Date.now() - minutes * 60_000 : null;
-      const boundedDocument = cutoff
-        ? {
-            ...document,
-            chapters: document.chapters.filter(
-              (chapter) => Date.parse(chapter.endedAt) >= cutoff,
-            ),
-          }
-        : document;
-      const candidates = searchScreenMemoryChapters(
-        boundedDocument,
-        args.query.trim(),
-        typeof args.limit === "number" ? args.limit : 5,
-        typeof args.clientHint === "string" ? args.clientHint : undefined,
-      );
-      const ambiguous =
-        candidates.length > 1 &&
-        Math.abs(candidates[0].score - candidates[1].score) <= 0.05;
-      const packet = {
-        question: redactCredentialText(args.query.trim().slice(0, 4_000)),
-        evidence: candidates.map((chapter) => ({
-          id: chapter.id,
-          momentId: chapter.id,
-          sourceType: "chapter",
-          capturedAt: chapter.startedAt,
-          excerpt: redactCredentialText(
-            `${chapter.label}: ${chapter.summary}`,
-          ).slice(0, 1_200),
-        })),
-      };
-      const requestId = `egress-mcp-${Date.now()}-${process.pid}`;
-      appendEgressReceipt(
-        storeDir,
-        requestId,
-        "search-chapters",
-        packet.evidence,
-      );
-      return textResult({
-        localOnly: true,
-        generatedAt: document.generatedAt,
-        state: document.state,
-        coverage: document.coverage,
-        gaps:
-          isRecord(document.coverage) && Array.isArray(document.coverage.gaps)
-            ? document.coverage.gaps
-            : [],
-        indexState: candidates.some(
-          (candidate) => candidate.indexState === "pending",
-        )
-          ? "pending"
-          : candidates.some((candidate) => candidate.indexState === "partial")
-            ? "partial"
-            : "ready",
-        ambiguous,
-        candidates: candidates.map(projectScreenMemoryChapterCandidate),
-        egress: {
-          requestId,
-          packet,
-          note: "A content-free local activity receipt was recorded before this bounded chapter packet was returned.",
-        },
-      });
-    }
-    if (name === "screen_memory_frame_at") {
-      if (typeof args.timestamp !== "string")
-        throw new Error("timestamp is required.");
-      const frame = readScreenMemoryFrame(
-        storeDir,
-        args.timestamp,
-        opts.decodeFrame ?? decodeFrameWithFfmpeg,
-      );
-      appendLocalEvidenceReceipt(storeDir, "frame-at", [
-        { timestamp: frame.timestamp, segmentId: frame.segmentId },
-      ]);
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({
-              localOnly: true,
-              timestamp: frame.timestamp,
-              segmentId: frame.segmentId,
-              coverage: "retained clean segment",
-              note: "This is a bounded local image read. Request screen_memory_request_clip for motion or audio.",
-            }),
-          },
-          frame.image,
-        ],
-      };
-    }
-    if (name === "screen_memory_contact_sheet") {
-      const document = readScreenMemoryChapters(storeDir);
-      const chapter =
-        typeof args.chapterId === "string"
-          ? document?.chapters.find(
-              (candidate) => candidate.id === args.chapterId,
-            )
-          : undefined;
-      const startAt =
-        chapter?.startedAt ??
-        (typeof args.startAt === "string" ? args.startAt : null);
-      const endAt =
-        chapter?.endedAt ??
-        (typeof args.endAt === "string" ? args.endAt : null);
-      if (!startAt || !endAt || !isTimestamp(startAt) || !isTimestamp(endAt))
-        throw new Error(
-          "Provide a valid chapterId or RFC3339 startAt and endAt.",
-        );
-      const durationMs = Date.parse(endAt) - Date.parse(startAt);
-      if (!contactSheetRangeIsValid(durationMs, Boolean(chapter)))
-        throw new Error(
-          "A contact sheet range must be between zero and five minutes.",
-        );
-      if (Date.parse(endAt) > Date.now() + 5_000)
-        throw new Error("A Rewind contact sheet cannot include future time.");
-      const count = Math.min(
-        Math.max(
-          Math.trunc(typeof args.count === "number" ? args.count : 4),
-          1,
-        ),
-        8,
-      );
-      const representative = (chapter?.representativeMoments ?? [])
-        .filter(
-          (moment) =>
-            Date.parse(moment.capturedAt) >= Date.parse(startAt) &&
-            Date.parse(moment.capturedAt) <= Date.parse(endAt),
-        )
-        .map((moment) => moment.capturedAt);
-      const timestamps = selectContactSheetTimestamps(
-        startAt,
-        endAt,
-        count,
-        representative,
-      );
-      const decoder = opts.decodeFrame ?? decodeFrameWithFfmpeg;
-      const frames = timestamps.flatMap((timestamp) => {
-        try {
-          return [readScreenMemoryFrame(storeDir, timestamp, decoder)];
-        } catch {
-          // A chapter may span a brief coverage gap. Keep the clean retained
-          // frames instead of failing the entire bounded contact sheet.
-          return [];
-        }
-      });
-      if (frames.length === 0) {
-        throw new Error(
-          "No clean retained Rewind frames cover the requested contact-sheet range.",
-        );
-      }
-      appendLocalEvidenceReceipt(
-        storeDir,
-        "contact-sheet",
-        frames.map(({ timestamp, segmentId }) => ({ timestamp, segmentId })),
-      );
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify({
-              localOnly: true,
-              chapterId: chapter?.id ?? null,
-              startAt: new Date(Date.parse(startAt)).toISOString(),
-              endAt: new Date(Date.parse(endAt)).toISOString(),
-              frameCount: frames.length,
-              selection: representative.length
-                ? "representative moments then even coverage"
-                : "even temporal coverage",
-              frames: frames.map(({ timestamp, segmentId }) => ({
-                timestamp,
-                segmentId,
-              })),
-            }),
-          },
-          ...frames.map((frame) => frame.image),
-        ],
-      };
-    }
-    if (name === "screen_memory_request_clip") {
-      const range = parseHandoffRange(args);
-      const config = readFeatureConfig(storeDir);
-      const requestId = `handoff-${randomUUID()}`;
-      const reason =
-        typeof args.reason === "string"
-          ? redactCredentialText(args.reason.trim().slice(0, 500))
-          : "Visual or audio context requested by the agent";
-      const request = {
-        requestId,
-        status: "pending",
-        requestedAt: new Date().toISOString(),
-        ...range,
-        reason,
-        includeMicrophone: args.includeMicrophone !== false,
-        includeSystemAudio: args.includeSystemAudio !== false,
-        reviewRequired: config.reviewBeforeSending !== false,
-        agentClipRetention: config.agentClipRetention ?? "forever",
-      };
-      writePrivateJson(handoffPath(storeDir, requestId), request);
-      appendEgressEvent(storeDir, {
-        requestId,
-        occurredAt: request.requestedAt,
-        state: "handoff-requested",
-        operation: "request-clip",
-        receipt: {
-          mediaInterval: { startAt: range.startAt, endAt: range.endAt },
-          reviewRequired: request.reviewRequired,
-        },
-        evidenceCount: 0,
-        packetBytes: 0,
-        error: null,
-      });
-      return textResult({
-        requestId,
-        status: "pending",
-        startAt: range.startAt,
-        endAt: range.endAt,
-        reviewRequired: request.reviewRequired,
-        note: request.reviewRequired
-          ? "Clips is waiting for the user to review this bounded range. Poll screen_memory_handoff_status."
-          : "Clips is processing the explicitly requested bounded range. Poll screen_memory_handoff_status.",
-      });
-    }
-    if (name === "screen_memory_handoff_status") {
-      if (typeof args.requestId !== "string") {
-        throw new Error("requestId is required.");
-      }
-      const parsed = JSON.parse(
-        fs.readFileSync(handoffPath(storeDir, args.requestId), "utf-8"),
-      ) as Record<string, unknown>;
-      return textResult({
-        requestId: parsed.requestId,
-        status: parsed.status,
-        startAt: parsed.startAt,
-        endAt: parsed.endAt,
-        recordingId: parsed.recordingId,
-        agentUrl: parsed.agentUrl,
-        contextUrl: parsed.contextUrl,
-        expiresAt: parsed.expiresAt,
-        autoDeleteAt: parsed.autoDeleteAt,
-        autoDeletedAt: parsed.autoDeletedAt,
-        error: parsed.error,
-      });
-    }
-    throw new Error(`Unknown Screen Memory tool: ${name}`);
-  });
-
   log(`Serving local Screen Memory from ${storeDir}`);
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
   await new Promise<void>((resolve) => {
-    transport.onclose = resolve;
+    process.stdin.once("end", resolve);
     process.once("SIGINT", resolve);
     process.once("SIGTERM", resolve);
   });
+  await stdio.close();
 }

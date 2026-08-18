@@ -17,6 +17,7 @@ import {
   readAppState,
   writeAppState,
 } from "@agent-native/core/application-state";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
 import { normalizeChunkUploadNumber } from "@shared/recording-core.js";
@@ -34,6 +35,7 @@ import {
 } from "h3";
 
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
+import { UPLOAD_RETRY_RESUME_FLAG } from "../../../../../shared/feature-flags.js";
 import { getDb, schema } from "../../../../db/index.js";
 import { debugLog } from "../../../../lib/debug.js";
 import {
@@ -45,10 +47,12 @@ import {
   ownerEmailMatches,
 } from "../../../../lib/recordings.js";
 import {
+  deleteResumableSession,
   getResumableSession,
   setResumableSession,
   type StoredResumableSession,
 } from "../../../../lib/resumable-session.js";
+import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import { renewUploadLease } from "../../../../lib/upload-lease.js";
@@ -166,6 +170,26 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const query = getQuery(event);
+  const attemptIdValue = Array.isArray(query.attemptId)
+    ? query.attemptId[0]
+    : query.attemptId;
+  const attemptId =
+    typeof attemptIdValue === "string" &&
+    attemptIdValue.length > 0 &&
+    attemptIdValue.length <= 128 &&
+    !/[\r\n]/.test(attemptIdValue)
+      ? attemptIdValue
+      : null;
+  const uploadGenerationIdValue = Array.isArray(query.uploadGenerationId)
+    ? query.uploadGenerationId[0]
+    : query.uploadGenerationId;
+  const uploadGenerationId =
+    typeof uploadGenerationIdValue === "string" &&
+    uploadGenerationIdValue.length > 0 &&
+    uploadGenerationIdValue.length <= 128 &&
+    !/[\r\n]/.test(uploadGenerationIdValue)
+      ? uploadGenerationIdValue
+      : null;
   const index = Number(query.index ?? 0);
   const total = Number(query.total ?? 0);
   const isFinal = query.isFinal === "1" || query.isFinal === "true";
@@ -188,7 +212,12 @@ export default defineEventHandler(async (event: H3Event) => {
     mimeType,
   });
 
-  if (!Number.isFinite(index) || !Number.isInteger(index) || index < 0) {
+  if (
+    !Number.isFinite(index) ||
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index > 999_999
+  ) {
     throw createError({ statusCode: 400, message: "Invalid chunk index" });
   }
 
@@ -210,6 +239,23 @@ export default defineEventHandler(async (event: H3Event) => {
   }
   debugLog("[chunk] resolved owner:", ownerEmail);
 
+  if (
+    attemptId !== null &&
+    !(await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
+      userEmail: ownerEmail,
+      userKey: ownerEmail,
+      orgId,
+    }))
+  ) {
+    setResponseStatus(event, 409);
+    return {
+      ok: false,
+      error: "Resumable upload retry is disabled.",
+      restartRequired: true,
+      recoveryEnabled: false,
+    };
+  }
+
   return runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
     const db = getDb();
 
@@ -219,6 +265,7 @@ export default defineEventHandler(async (event: H3Event) => {
       .select({
         id: schema.recordings.id,
         status: schema.recordings.status,
+        uploadGenerationId: schema.recordings.uploadGenerationId,
       })
       .from(schema.recordings)
       .where(
@@ -252,13 +299,31 @@ export default defineEventHandler(async (event: H3Event) => {
     // The first renewal admits the request. Later renewals immediately before
     // every durable write/finalization boundary close the body-read/provider
     // gap where /abort can otherwise commit while this request is in flight.
+    if ((existing.uploadGenerationId ?? null) !== uploadGenerationId) {
+      setResponseStatus(event, 409);
+      return {
+        ok: false,
+        error: "A newer upload generation is already active.",
+        staleAttempt: true,
+      };
+    }
     const lease = await renewUploadLease(recordingId, {
+      attemptId,
+      generationId: uploadGenerationId,
       uploadProgress:
         total > 0
           ? Math.min(100, Math.round(((index + 1) / total) * 100))
           : undefined,
     });
     if (!lease.held) {
+      if (lease.staleAttempt) {
+        setResponseStatus(event, 409);
+        return {
+          ok: false,
+          error: "A newer upload retry is already active.",
+          staleAttempt: true,
+        };
+      }
       if (lease.status === "ready") {
         const readyState = await readAppState(
           `recording-upload-${recordingId}`,
@@ -273,7 +338,11 @@ export default defineEventHandler(async (event: H3Event) => {
           sourceSizeBytes: stateNumber(readyState, "sourceSizeBytes"),
         };
       }
-      await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+      await deleteRecordingChunks(
+        ownerEmail,
+        recordingId,
+        uploadGenerationId,
+      ).catch((err) => {
         console.warn("[chunk] failed upload chunk cleanup failed:", {
           recordingId,
           err: err instanceof Error ? err.message : String(err),
@@ -285,9 +354,16 @@ export default defineEventHandler(async (event: H3Event) => {
     }
 
     const rejectIfLeaseLost = async () => {
-      const current = await renewUploadLease(recordingId);
+      const current = await renewUploadLease(recordingId, {
+        attemptId,
+        generationId: uploadGenerationId,
+      });
       if (current.held) return null;
-      await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+      await deleteRecordingChunks(
+        ownerEmail,
+        recordingId,
+        uploadGenerationId,
+      ).catch((err) => {
         console.warn("[chunk] failed upload chunk cleanup failed:", {
           recordingId,
           err: err instanceof Error ? err.message : String(err),
@@ -308,7 +384,10 @@ export default defineEventHandler(async (event: H3Event) => {
     }
 
     // Resumable streaming path — forward chunks directly to the provider.
-    const resumableSession = await getResumableSession(recordingId);
+    const resumableSession = await getResumableSession(
+      recordingId,
+      uploadGenerationId,
+    );
     if (resumableSession && isStreamingUploadDisabled()) {
       console.warn(
         `[chunk] streaming uploads are disabled, but preserving existing resumable session for in-flight recording: ${recordingId}`,
@@ -324,6 +403,8 @@ export default defineEventHandler(async (event: H3Event) => {
         mimeType,
         query,
         ownerEmail,
+        attemptId,
+        uploadGenerationId,
       );
     }
 
@@ -418,7 +499,11 @@ export default defineEventHandler(async (event: H3Event) => {
         maxBytes: MAX_RECORDING_UPLOAD_BYTES,
         updatedAt: now,
       });
-      await deleteRecordingChunks(ownerEmail, recordingId).catch((err) => {
+      await deleteRecordingChunks(
+        ownerEmail,
+        recordingId,
+        uploadGenerationId,
+      ).catch((err) => {
         console.warn("[chunk] oversized upload chunk cleanup failed:", {
           recordingId,
           err: err instanceof Error ? err.message : String(err),
@@ -439,12 +524,13 @@ export default defineEventHandler(async (event: H3Event) => {
       // Pad index to 6 digits so string-sort order matches numeric order if the
       // finalize path ever sorts lexically. (finalize also parses back to a number.)
       const paddedIndex = String(index).padStart(6, "0");
-      const chunkKey = `recording-chunks-${recordingId}-${paddedIndex}`;
+      const chunkKey = `recording-chunks-${recordingId}${uploadGenerationId ? `-${uploadGenerationId}` : ""}-${paddedIndex}`;
       const previousChunk = await readAppState(chunkKey);
       const previousBytes = stateNumber(previousChunk, "bytes") ?? 0;
       const persistedBytesBefore = await sumRecordingChunkBytes(
         ownerEmail,
         recordingId,
+        uploadGenerationId,
       );
       const nextBytes =
         Math.max(0, persistedBytesBefore - previousBytes) + bytes.byteLength;
@@ -463,7 +549,11 @@ export default defineEventHandler(async (event: H3Event) => {
         data: toBase64(bytes),
         createdAt: new Date().toISOString(),
       });
-      bytesReceived = await sumRecordingChunkBytes(ownerEmail, recordingId);
+      bytesReceived = await sumRecordingChunkBytes(
+        ownerEmail,
+        recordingId,
+        uploadGenerationId,
+      );
       if (bytesReceived > MAX_RECORDING_UPLOAD_BYTES) {
         return failRecordingTooLarge(bytesReceived);
       }
@@ -487,6 +577,7 @@ export default defineEventHandler(async (event: H3Event) => {
       if (leaseFailure) return leaseFailure;
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
+        uploadGenerationId,
         status: isFinal ? "processing" : "uploading",
         progress,
         chunksReceived,
@@ -508,6 +599,7 @@ export default defineEventHandler(async (event: H3Event) => {
       if (leaseFailure) return leaseFailure;
       await writeAppState(`recording-upload-${recordingId}`, {
         recordingId,
+        uploadGenerationId,
         status: isFinal ? "processing" : "uploading",
         chunksReceived: Math.max(
           stateNumber(uploadState, "chunksReceived") ?? 0,
@@ -532,7 +624,11 @@ export default defineEventHandler(async (event: H3Event) => {
     if (isFinal) {
       const leaseFailure = await rejectIfLeaseLost();
       if (leaseFailure) return leaseFailure;
-      bytesReceived = await sumRecordingChunkBytes(ownerEmail, recordingId);
+      bytesReceived = await sumRecordingChunkBytes(
+        ownerEmail,
+        recordingId,
+        uploadGenerationId,
+      );
       if (bytesReceived > MAX_RECORDING_UPLOAD_BYTES) {
         return failRecordingTooLarge(bytesReceived);
       }
@@ -541,7 +637,7 @@ export default defineEventHandler(async (event: H3Event) => {
       debugLog("[chunk] isFinal — invoking finalize", { recordingId });
       try {
         const result = await finalizeRecording.run(
-          buildFinalizeArgs(recordingId, mimeType, query),
+          buildFinalizeArgs(recordingId, mimeType, query, uploadGenerationId),
         );
         debugLog("[chunk] finalize ok", {
           recordingId,
@@ -713,6 +809,7 @@ function buildFinalizeArgs(
   recordingId: string,
   mimeType: string,
   query: Record<string, unknown>,
+  uploadGenerationId: string | null,
 ) {
   const queryBoolean = (value: unknown): boolean | undefined => {
     if (value === undefined) return undefined;
@@ -729,6 +826,7 @@ function buildFinalizeArgs(
     hasCamera: queryBoolean(query.hasCamera),
     locallyTranscoded: queryBoolean(query.locallyTranscoded),
     mimeType,
+    ...(uploadGenerationId ? { uploadGenerationId } : {}),
   };
 }
 
@@ -743,6 +841,8 @@ async function handleResumableChunk(
   mimeType: string,
   query: Record<string, unknown>,
   ownerEmail: string,
+  attemptId: string | null,
+  uploadGenerationId: string | null,
 ) {
   const uploadProvider = await resolveResumableUploadProvider(
     session.providerId,
@@ -754,6 +854,23 @@ async function handleResumableChunk(
   console.log(
     `[resumable-chunk-${recordingId}] resumable session exists - bytesUploaded=${session.bytesUploaded} index=${index} isFinal=${isFinal}`,
   );
+
+  const cleanupFailedFinalSession = async () => {
+    const cleaned = await abortResumableUploadSession(session, {
+      provider: uploadProvider,
+      label: `resumable-final-${recordingId}`,
+    });
+    if (cleaned) {
+      await deleteResumableSession(recordingId, uploadGenerationId).catch(
+        (error) =>
+          console.warn(
+            `[resumable-chunk-${recordingId}] failed to retire aborted session:`,
+            error,
+          ),
+      );
+    }
+    return !cleaned;
+  };
 
   const raw = await readRawBody(event, false);
   const bytes: Uint8Array = raw ?? new Uint8Array(0);
@@ -771,7 +888,10 @@ async function handleResumableChunk(
         error: "Cannot finalize an empty resumable upload",
       };
     }
-    const lease = await renewUploadLease(recordingId);
+    const lease = await renewUploadLease(recordingId, {
+      attemptId,
+      generationId: uploadGenerationId,
+    });
     if (!lease.held) {
       setResponseStatus(event, 409);
       return {
@@ -782,23 +902,44 @@ async function handleResumableChunk(
     // 0-byte sentinel from the recorder after stop(). All data chunks have
     // already been PUT to the provider; send Content-Range: bytes */<total>
     // to close the session before handing off to finalize-recording.
-    const closeRes = await uploadProvider.resumable.relayChunk(
-      { sessionId: session.sessionId, meta: session.meta },
-      `bytes */${session.bytesUploaded}`,
-      new Uint8Array(0),
-    );
-    if (!closeRes.ok || closeRes.status === 308) {
+    let closeRes;
+    try {
+      closeRes = await uploadProvider.resumable.relayChunk(
+        { sessionId: session.sessionId, meta: session.meta },
+        `bytes */${session.bytesUploaded}`,
+        new Uint8Array(0),
+      );
+    } catch (error) {
+      const cleanupFailed = await cleanupFailedFinalSession();
+      const detail = error instanceof Error ? error.message : String(error);
       console.error(
-        `[resumable-chunk-${recordingId}] session close failed (${closeRes.status})`,
+        `[resumable-chunk-${recordingId}] session close threw:`,
+        error,
       );
       setResponseStatus(event, 502);
       return {
         ok: false,
+        error: `Resumable session close failed: ${detail}`,
+        ...(cleanupFailed ? { cleanupFailed: true } : {}),
+      };
+    }
+    if (!closeRes.ok || closeRes.status === 308) {
+      console.error(
+        `[resumable-chunk-${recordingId}] session close failed (${closeRes.status})`,
+      );
+      const cleanupFailed = await cleanupFailedFinalSession();
+      setResponseStatus(event, 502);
+      return {
+        ok: false,
         error: `Resumable session close failed (${closeRes.status})`,
+        ...(cleanupFailed ? { cleanupFailed: true } : {}),
       };
     }
     if (closeRes.updatedMeta) {
-      const postCloseLease = await renewUploadLease(recordingId);
+      const postCloseLease = await renewUploadLease(recordingId, {
+        attemptId,
+        generationId: uploadGenerationId,
+      });
       if (!postCloseLease.held) {
         setResponseStatus(event, 409);
         return {
@@ -808,10 +949,14 @@ async function handleResumableChunk(
             "Recording upload has already failed.",
         };
       }
-      await setResumableSession(recordingId, {
-        ...session,
-        meta: { ...session.meta, ...closeRes.updatedMeta },
-      });
+      await setResumableSession(
+        recordingId,
+        {
+          ...session,
+          meta: { ...session.meta, ...closeRes.updatedMeta },
+        },
+        uploadGenerationId,
+      );
     }
   } else {
     // Idempotent replay guard: a client retry (after a lost response) can
@@ -835,7 +980,10 @@ async function handleResumableChunk(
         };
       }
     } else {
-      const lease = await renewUploadLease(recordingId);
+      const lease = await renewUploadLease(recordingId, {
+        attemptId,
+        generationId: uploadGenerationId,
+      });
       if (!lease.held) {
         setResponseStatus(event, 409);
         return {
@@ -852,12 +1000,31 @@ async function handleResumableChunk(
         : `bytes ${start}-${end}/*`;
 
       const putT0 = Date.now();
-      const putResult = await uploadProvider.resumable.relayChunk(
-        { sessionId: session.sessionId, meta: session.meta },
-        contentRange,
-        bytes,
-        { mimeType: mimeType.split(";")[0].trim() },
-      );
+      let putResult;
+      try {
+        putResult = await uploadProvider.resumable.relayChunk(
+          { sessionId: session.sessionId, meta: session.meta },
+          contentRange,
+          bytes,
+          { mimeType: mimeType.split(";")[0].trim() },
+        );
+      } catch (error) {
+        if (isFinal) {
+          const cleanupFailed = await cleanupFailedFinalSession();
+          const detail = error instanceof Error ? error.message : String(error);
+          console.error(
+            `[resumable-chunk-${recordingId}] final chunk upload threw:`,
+            error,
+          );
+          setResponseStatus(event, 502);
+          return {
+            ok: false,
+            error: `Final chunk upload failed: ${detail}`,
+            ...(cleanupFailed ? { cleanupFailed: true } : {}),
+          };
+        }
+        throw error;
+      }
       console.log(
         `[resumable-chunk-${recordingId}] PUT ${Date.now() - putT0}ms status=${putResult.status} range="${contentRange}"`,
       );
@@ -866,14 +1033,29 @@ async function handleResumableChunk(
         ? putResult.ok && putResult.status !== 308
         : putResult.ok;
       if (!resultOk) {
-        setResponseStatus(event, 502);
+        const restartRequired =
+          putResult.status === 404 || putResult.status === 410;
+        const cleanupFailed = isFinal
+          ? await cleanupFailedFinalSession()
+          : false;
+        if (restartRequired && !cleanupFailed) {
+          await deleteResumableSession(recordingId, uploadGenerationId).catch(
+            () => {},
+          );
+        }
+        setResponseStatus(event, restartRequired ? 409 : 502);
         return {
           ok: false,
           error: `Chunk upload failed (${putResult.status})`,
+          ...(restartRequired ? { restartRequired: true } : {}),
+          ...(cleanupFailed ? { cleanupFailed: true } : {}),
         };
       }
 
-      const postUploadLease = await renewUploadLease(recordingId);
+      const postUploadLease = await renewUploadLease(recordingId, {
+        attemptId,
+        generationId: uploadGenerationId,
+      });
       if (!postUploadLease.held) {
         setResponseStatus(event, 409);
         return {
@@ -883,14 +1065,18 @@ async function handleResumableChunk(
             "Recording upload has already failed.",
         };
       }
-      await setResumableSession(recordingId, {
-        ...session,
-        ...(putResult.updatedMeta
-          ? { meta: { ...session.meta, ...putResult.updatedMeta } }
-          : {}),
-        bytesUploaded: start + bytes.byteLength,
-        lastCommittedIndex: index,
-      });
+      await setResumableSession(
+        recordingId,
+        {
+          ...session,
+          ...(putResult.updatedMeta
+            ? { meta: { ...session.meta, ...putResult.updatedMeta } }
+            : {}),
+          bytesUploaded: start + bytes.byteLength,
+          lastCommittedIndex: index,
+        },
+        uploadGenerationId,
+      );
       finalizedSourceSizeBytes = start + bytes.byteLength;
 
       if (!isFinal) {
@@ -901,7 +1087,10 @@ async function handleResumableChunk(
 
   // isFinal — delegate to finalize-recording, which reads the resumable
   // session and calls provider.resumable.completeSession.
-  const finalLease = await renewUploadLease(recordingId);
+  const finalLease = await renewUploadLease(recordingId, {
+    attemptId,
+    generationId: uploadGenerationId,
+  });
   if (!finalLease.held) {
     setResponseStatus(event, 409);
     return {
@@ -911,7 +1100,7 @@ async function handleResumableChunk(
   }
   try {
     const result = await finalizeRecording.run(
-      buildFinalizeArgs(recordingId, mimeType, query),
+      buildFinalizeArgs(recordingId, mimeType, query, uploadGenerationId),
     );
     if ((result as any)?.status === "failed") {
       setResponseStatus(event, 409);

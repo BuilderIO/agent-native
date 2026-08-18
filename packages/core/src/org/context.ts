@@ -1,12 +1,20 @@
 import type { H3Event } from "h3";
 
 import { warnAgent } from "../agent/action-warnings.js";
+import { appStatePut } from "../application-state/store.js";
 import { getDbExec, isTransientDatabaseError } from "../db/client.js";
 import { getSession } from "../server/auth.js";
 import { getSetting } from "../settings/store.js";
 import { getUserSetting } from "../settings/user-settings.js";
+import { FIRST_RUN_ONBOARDING_ELIGIBLE_KEY } from "../shared/first-run-onboarding.js";
 import { setActiveOrgId } from "./active-org.js";
 import { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
+import { isFreeEmailProvider } from "./free-email-providers.js";
+import {
+  cachedMemberships,
+  invalidateMemberOrgCaches,
+  requestMemberOrgIds,
+} from "./request-org-cache.js";
 import type { OrgContext, OrgRole } from "./types.js";
 
 const EMPTY_CONTEXT: OrgContext = {
@@ -210,6 +218,12 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 
   const exec = getDbExec();
 
+  // Started before the memberships await so the two round trips overlap; the
+  // `catch` only covers the early returns below, the later `await` still
+  // propagates a real failure.
+  const activeOrgSettingPromise = loadActiveOrgSettingForEvent(event, email);
+  activeOrgSettingPromise.catch(() => {});
+
   let memberships: MembershipRow[] | null;
   try {
     memberships = await loadMembershipsForEvent(event, email);
@@ -238,7 +252,7 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
     return { email, orgId: null, orgName: null, role: null };
   }
 
-  const activeOrgSetting = await loadActiveOrgSettingForEvent(event, email);
+  const activeOrgSetting = await activeOrgSettingPromise;
   const explicitPersonal = activeOrgSetting?.orgId === null;
 
   const emailDomain = emailDomainOf(email);
@@ -246,9 +260,14 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
   // signal. Recognizing the personal workspace by its *name* instead breaks the
   // moment the provider display name or the workspace name changes, which
   // strands an existing user in Personal with no way into their company org.
+  // `isFreeEmailProvider` short-circuits before the round trip rather than
+  // relying on the negative cache inside `autoJoinDomainMatchingOrgs`: a
+  // consumer-email domain can NEVER match (see `org/handlers.ts`, which refuses
+  // to set `allowed_domain` to a free provider), so it needs no TTL at all.
   const shouldTryDomainAutoJoin =
     !explicitPersonal &&
     emailDomain !== null &&
+    !isFreeEmailProvider(emailDomain) &&
     !memberships.some((m) => m.allowedDomain?.toLowerCase() === emailDomain);
 
   if (
@@ -378,6 +397,12 @@ async function resolveOrgContextUncached(event: H3Event): Promise<OrgContext> {
 const MEMBERSHIP_FALLBACK_ORDER_BY = `ORDER BY joined_at ASC, org_id ASC`;
 
 async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
+  return cachedMemberships(email, () => loadMembershipsUncached(email));
+}
+
+async function loadMembershipsUncached(
+  email: string,
+): Promise<MembershipRow[] | null> {
   const rows = await queryOrgMembers({
     sql: `SELECT m.org_id AS "orgId", m.role AS role, o.name AS "orgName",
                  o.allowed_domain AS "allowedDomain"
@@ -410,17 +435,26 @@ async function loadMemberships(email: string): Promise<MembershipRow[] | null> {
 export async function resolveOrgIdForEmail(
   email: string,
 ): Promise<string | null> {
-  const rows = await queryOrgMembers({
-    sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?
-          ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
-    args: [email.toLowerCase()],
+  const idsPromise = requestMemberOrgIds(email, async () => {
+    const rows = await queryOrgMembers({
+      sql: `SELECT org_id FROM org_members WHERE LOWER(email) = ?
+            ${MEMBERSHIP_FALLBACK_ORDER_BY}`,
+      args: [email.toLowerCase()],
+    });
+    return rows?.map((r: any) => String(r.org_id)) ?? null;
   });
-  if (!rows?.length) return null;
-  const ids = rows.map((r: any) => String(r.org_id));
-  const activeOrgSetting = (await getUserSetting(
+  // Both reads depend only on the email, so they overlap instead of queueing.
+  // The `catch` only keeps the early return below from surfacing an unhandled
+  // rejection; the `await` further down still propagates the failure.
+  const settingPromise = getUserSetting(
     email,
     "active-org-id",
-  )) as ActiveOrgSetting;
+  ) as Promise<ActiveOrgSetting>;
+  settingPromise.catch(() => {});
+
+  const ids = await idsPromise;
+  if (!ids?.length) return null;
+  const activeOrgSetting = await settingPromise;
   if (activeOrgSetting?.orgId === null) return null;
   if (activeOrgSetting?.orgId && ids.includes(activeOrgSetting.orgId)) {
     return activeOrgSetting.orgId;
@@ -438,9 +472,13 @@ export async function resolveOrgIdForEmailViaEvent(
   event: H3Event,
   email: string,
 ): Promise<string | null> {
+  // Overlapped, not queued: each is a separate round trip and this pair runs
+  // on the session-backfill path of every authenticated request.
+  const settingPromise = loadActiveOrgSettingForEvent(event, email);
+  settingPromise.catch(() => {});
   const memberships = await loadMembershipsForEvent(event, email);
   if (!memberships || memberships.length === 0) return null;
-  const activeOrgSetting = await loadActiveOrgSettingForEvent(event, email);
+  const activeOrgSetting = await settingPromise;
   if (activeOrgSetting?.orgId === null) return null;
   if (
     activeOrgSetting?.orgId &&
@@ -485,6 +523,7 @@ export async function createOrganization(
     sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
     args: [nanoid(), id, email, role, createdAt],
   });
+  invalidateMemberOrgCaches();
 
   await warnOnAdditionalOrganization(exec, email, id, trimmedName);
 
@@ -669,8 +708,28 @@ async function tryCreateDefaultOrg(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), orgId, email, "owner", now],
     });
+    invalidateMemberOrgCaches();
 
     await setActiveOrgId(email, orgId, "auto-created default organization");
+    try {
+      await appStatePut(
+        email,
+        FIRST_RUN_ONBOARDING_ELIGIBLE_KEY,
+        { orgId, at: new Date(now).toISOString() },
+        { requestSource: "org-auto-create" },
+      );
+    } catch (error) {
+      // The safe failure mode is to omit first-run onboarding. The org itself
+      // already exists, so do not turn a marker-write failure into a false
+      // zero-membership result or retry that creates another org.
+      warnAgent({
+        severity: "advisory",
+        code: "first-run-onboarding-eligibility-unreadable",
+        message:
+          `Auto-created organization ${orgId} for ${email}, but could not persist ` +
+          `the first-run onboarding eligibility marker: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
 
     return { email, orgId, orgName, role: "owner" };
   } catch {

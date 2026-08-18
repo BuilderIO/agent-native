@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
 import {
+  getAllCalls,
   getCalls,
   getCallTranscript,
   getCallTranscripts,
@@ -62,7 +63,7 @@ interface TranscriptSearchError {
 
 function callLimitGuidance(limit: number, truncated: boolean): string {
   return truncated
-    ? `Returned the ${limit} most recent matching calls. If this coverage is insufficient for the analysis, increase the limit and page through more calls; for very large datasets prefer chunked background processing.`
+    ? `Coverage is incomplete: returned the ${limit} most recent matching calls and more Gong pages remain. Do not increase the limit or page this action for broad or exhaustive analysis. Switch to tracker staging with provider-api-request plus query-staged-dataset or a Data Program, or use provider-corpus-job when raw transcript bodies are required.`
     : `Returned ${limit} or fewer matching calls. Answer from these calls; expand limit if broader coverage is needed.`;
 }
 
@@ -202,12 +203,20 @@ function transcriptRowsByCallId(payload: unknown): Map<string, unknown> {
   return rows;
 }
 
-async function fetchTranscriptBatch(calls: GongCall[]): Promise<{
+async function fetchTranscriptBatch(
+  calls: GongCall[],
+  signal?: AbortSignal,
+): Promise<{
   payloads: Map<string, unknown>;
   errors: TranscriptSearchError[];
 }> {
   try {
-    const payload = await getCallTranscripts(calls.map((call) => call.id));
+    const payload = signal
+      ? await getCallTranscripts(
+          calls.map((call) => call.id),
+          { signal },
+        )
+      : await getCallTranscripts(calls.map((call) => call.id));
     const payloads = transcriptRowsByCallId(payload);
     const errors: TranscriptSearchError[] = [];
     for (const call of calls) {
@@ -222,6 +231,7 @@ async function fetchTranscriptBatch(calls: GongCall[]): Promise<{
     }
     return { payloads, errors };
   } catch (err) {
+    if (signal?.aborted) throw err;
     return {
       payloads: new Map(),
       errors: calls.map((call) => ({
@@ -234,7 +244,10 @@ async function fetchTranscriptBatch(calls: GongCall[]): Promise<{
   }
 }
 
-async function fetchTranscriptBatches(calls: GongCall[]): Promise<
+async function fetchTranscriptBatches(
+  calls: GongCall[],
+  signal?: AbortSignal,
+): Promise<
   Array<{
     calls: GongCall[];
     result: Awaited<ReturnType<typeof fetchTranscriptBatch>>;
@@ -256,7 +269,7 @@ async function fetchTranscriptBatches(calls: GongCall[]): Promise<
           .slice(index, index + TRANSCRIPT_BATCH_CONCURRENCY)
           .map(async (batch) => ({
             calls: batch,
-            result: await fetchTranscriptBatch(batch),
+            result: await fetchTranscriptBatch(batch, signal),
           })),
       )),
     );
@@ -269,6 +282,7 @@ async function searchTranscriptEvidence(
   query: string,
   scanLimit: number,
   maxChars: number,
+  signal?: AbortSignal,
 ): Promise<{
   inspectedCalls: number;
   matches: TranscriptSearchMatch[];
@@ -283,7 +297,7 @@ async function searchTranscriptEvidence(
   for (const {
     calls: batch,
     result: batchResult,
-  } of await fetchTranscriptBatches(callsToScan)) {
+  } of await fetchTranscriptBatches(callsToScan, signal)) {
     errors.push(...batchResult.errors);
 
     for (const call of batch) {
@@ -419,13 +433,14 @@ async function loadTranscriptEvidence(
   calls: GongCall[],
   limit: number,
   maxChars: number,
+  signal?: AbortSignal,
 ): Promise<TranscriptEvidence[]> {
   const evidence: TranscriptEvidence[] = [];
   const callsToLoad = calls.slice(0, limit);
   for (const {
     calls: batch,
     result: batchResult,
-  } of await fetchTranscriptBatches(callsToLoad)) {
+  } of await fetchTranscriptBatches(callsToLoad, signal)) {
     const errorByCallId = new Map(
       batchResult.errors.map((error) => [error.callId, error.error]),
     );
@@ -485,7 +500,7 @@ export default defineAction({
   // model round trips while still staying well below the model context limit.
   maxResultChars: 100_000,
   description:
-    "Query Gong sales calls, transcripts, and users. Pass --users for user list, --transcript for one transcript, --company to search by company/domain/person/email. For bounded account-level transcript mention/search questions, set transcriptQuery to search matching transcripts server-side and return coverage counts plus snippets instead of large transcript blobs. For deal, customer, objection, next-step, or deep-dive analysis, set includeTranscripts=true only when you need broad qualitative context rather than a specific term search. For an 'all calls' transcript review in a bounded account/date window, use exhaustive=true with after/before and includeTranscripts=true; the action batches transcript retrieval and reports complete/partial coverage instead of forcing one tool call per transcript. For very broad cohorts or defensible absence searches, use provider-api-catalog(provider='gong') and provider-corpus-job mode='batch-search' against /calls/transcript after call-id discovery.",
+    "Query bounded Gong sales-call evidence. Pass --users for the user list, --transcript for one transcript, or --company for a bounded search by company/domain/person/email. Without --company, the action lists calls in the date window; set exhaustive=true only for a small bounded cohort of fewer than 500 records, not a broad org-wide export. For account-level transcript mention questions, transcriptQuery performs a case-insensitive local scan after batched transcript retrieval and returns coverage counts plus snippets; it is not Gong's server-side keyword search. Use includeTranscripts=true for bounded qualitative context. For broad keyword, tracker, cross-account, or absence-sensitive work, use provider-api-catalog/provider-api-docs, stage the raw Gong API response, then use query-staged-dataset or a Data Program; use provider-corpus-job only when raw transcript bodies are required.",
   schema: z.object({
     users: cliBoolean.optional().describe("Set to true to list Gong users"),
     transcript: z.string().optional().describe("Call ID to get transcript"),
@@ -538,7 +553,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Case-insensitive phrase to search inside matching call transcripts. Use this for bounded account/call searches where the matching set is already small. For broad cohort or exhaustive absence research, stage Gong calls/transcripts through provider-api-request and run-code instead. Returns coverage counts and short snippets only, not full transcripts.",
+        "Case-insensitive phrase to search inside matching call transcripts after batched retrieval. Use only for bounded account/call searches where the matching set is already small. For broad cohort or exhaustive absence research, use the raw Gong API tracker/staging path plus query-staged-dataset or a Data Program, or provider-corpus-job when raw transcript bodies are required. Returns coverage counts and short snippets only, not full transcripts.",
       ),
     transcriptScanLimit: z.coerce
       .number()
@@ -552,7 +567,7 @@ export default defineAction({
     exhaustive: cliBoolean
       .optional()
       .describe(
-        "Return EVERY matching call in the window instead of stopping at `limit` — use this for complete cohort/account coverage when 'how many' or absence matters. By default this is metadata-only. With includeTranscripts=true, transcripts are fetched in batches up to transcriptLimit (all matched calls by default when there are 50 or fewer) and explicit coverage is returned. Always bound it with after/before or a small days window: an unbounded exhaustive scan pages the whole Gong org and can hit the function timeout.",
+        "Return EVERY matching call in the window instead of stopping at `limit`; without company, return every call page only for a small bounded cohort of fewer than 500 records. Cohorts at or above 500 fail closed with guidance to use provider-api-request staging and query-staged-dataset or a Data Program. By default this is metadata-only. With includeTranscripts=true, transcripts are fetched in batches and explicit coverage is returned. For broad or absence-sensitive work, prefer the raw Gong API tracker/staging path plus query-staged-dataset or a Data Program; use provider-corpus-job for durable raw-transcript scans. Always bound this with after/before or a small days window.",
       ),
     after: z
       .string()
@@ -568,12 +583,16 @@ export default defineAction({
       ),
   }),
   http: { method: "GET" },
-  run: async (args) => {
+  grounding: true,
+  run: async (args, ctx) => {
+    const requestOptions = ctx?.signal ? { signal: ctx.signal } : undefined;
     if (args.users) {
       const users = await getUsers();
       return { users, total: users.length };
     } else if (args.transcript) {
-      const transcript = await getCallTranscript(args.transcript);
+      const transcript = requestOptions
+        ? await getCallTranscript(args.transcript, requestOptions)
+        : await getCallTranscript(args.transcript);
       const transcriptText = extractTranscriptText(
         transcript,
         args.transcriptMaxChars,
@@ -599,6 +618,7 @@ export default defineAction({
         exhaustive,
         ...(fromDateTime ? { fromDateTime } : {}),
         ...(toDateTime ? { toDateTime } : {}),
+        ...(requestOptions ?? {}),
       });
       const shouldLoadTranscripts = Boolean(args.includeTranscripts);
       const transcriptLimit = normalizeBoundedInt(
@@ -643,6 +663,7 @@ export default defineAction({
             transcriptQuery,
             transcriptScanLimit,
             transcriptSearchMaxChars,
+            requestOptions?.signal,
           )
         : undefined;
       const transcripts = shouldLoadTranscripts
@@ -650,6 +671,7 @@ export default defineAction({
             result.calls,
             transcriptLimit,
             boundedTranscriptExcerptMaxChars,
+            requestOptions?.signal,
           )
         : undefined;
       const transcriptErrors =
@@ -698,7 +720,7 @@ export default defineAction({
           : {}),
         guidance: [
           transcriptSearch
-            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${result.calls.length} matching call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; increase transcriptScanLimit or narrow the window if coverage is incomplete.`
+            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${result.calls.length} matching call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; if coverage is incomplete, keep any retry bounded by narrowing the window, or switch broad/exhaustive work to tracker staging or provider-corpus-job.`
             : "",
           exhaustive
             ? shouldLoadTranscripts
@@ -719,11 +741,40 @@ export default defineAction({
       const limit = normalizeGongCallLimit(
         args.limit ?? DEFAULT_GONG_CALL_LIMIT,
       );
-      const fromDateTime = new Date(
-        Date.now() - days * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      const result = await getCalls({ fromDateTime });
+      const exhaustive = Boolean(args.exhaustive);
+      const fromDateTime =
+        normalizeGongDate(args.after) ??
+        new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+      const toDateTime = normalizeGongDate(args.before, "end");
+      const result = exhaustive
+        ? requestOptions
+          ? await getAllCalls(
+              {
+                fromDateTime,
+                ...(toDateTime ? { toDateTime } : {}),
+              },
+              requestOptions,
+            )
+          : await getAllCalls({
+              fromDateTime,
+              ...(toDateTime ? { toDateTime } : {}),
+            })
+        : requestOptions
+          ? await getCalls(
+              {
+                fromDateTime,
+                ...(toDateTime ? { toDateTime } : {}),
+              },
+              requestOptions,
+            )
+          : await getCalls({
+              fromDateTime,
+              ...(toDateTime ? { toDateTime } : {}),
+            });
       const limited = limitGongCalls(result.calls, limit);
+      const returnedCalls = exhaustive ? result.calls : limited.calls;
+      const truncated =
+        Boolean(result.cursor) || (!exhaustive && limited.truncated);
       const shouldLoadTranscripts = Boolean(args.includeTranscripts);
       const transcriptLimit = normalizeBoundedInt(
         args.transcriptLimit,
@@ -740,7 +791,7 @@ export default defineAction({
       );
       const boundedTranscriptExcerptMaxChars = boundedTranscriptExcerptChars(
         transcriptExcerptMaxChars,
-        Math.min(transcriptLimit, limited.calls.length),
+        Math.min(transcriptLimit, returnedCalls.length),
       );
       const transcriptSearchMaxChars = normalizeBoundedInt(
         args.transcriptMaxChars,
@@ -758,37 +809,43 @@ export default defineAction({
       );
       const transcriptSearch = transcriptQuery
         ? await searchTranscriptEvidence(
-            limited.calls,
+            returnedCalls,
             transcriptQuery,
             transcriptScanLimit,
             transcriptSearchMaxChars,
+            requestOptions?.signal,
           )
         : undefined;
       const transcripts = shouldLoadTranscripts
         ? await loadTranscriptEvidence(
-            limited.calls,
+            returnedCalls,
             transcriptLimit,
             boundedTranscriptExcerptMaxChars,
+            requestOptions?.signal,
           )
         : undefined;
 
       return {
-        ...limited,
-        total: limited.calls.length,
+        calls: returnedCalls,
+        limit: exhaustive ? returnedCalls.length : limited.limit,
+        pages: "pages" in result ? result.pages : 1,
+        truncated,
+        coverageTruncated: truncated,
+        total: returnedCalls.length,
         ...(transcriptSearch
           ? {
               transcriptSearch: {
                 query: transcriptQuery,
                 matchingCalls: transcriptSearch.matches.length,
                 inspectedCalls: transcriptSearch.inspectedCalls,
-                availableCalls: limited.calls.length,
+                availableCalls: returnedCalls.length,
                 coverageComplete:
-                  !limited.truncated &&
-                  transcriptSearch.inspectedCalls >= limited.calls.length &&
+                  !truncated &&
+                  transcriptSearch.inspectedCalls >= returnedCalls.length &&
                   transcriptSearch.errors.length === 0 &&
                   transcriptSearch.truncatedTranscripts === 0,
                 scanLimited:
-                  transcriptSearch.inspectedCalls < limited.calls.length,
+                  transcriptSearch.inspectedCalls < returnedCalls.length,
                 truncatedTranscripts: transcriptSearch.truncatedTranscripts,
                 matches: transcriptSearch.matches,
                 errors: transcriptSearch.errors,
@@ -798,9 +855,11 @@ export default defineAction({
         ...(transcripts ? { transcripts } : {}),
         guidance: [
           transcriptSearch
-            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${limited.calls.length} returned call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; increase limit/transcriptScanLimit or narrow the window if coverage is incomplete.`
+            ? `Transcript search inspected ${transcriptSearch.inspectedCalls} of ${returnedCalls.length} returned call(s) for "${transcriptQuery}" and found ${transcriptSearch.matches.length} matching call(s). Use coverageComplete/errors before making absence claims; if coverage is incomplete, keep any retry bounded by narrowing the window, or switch broad/exhaustive work to tracker staging or provider-corpus-job.`
             : "",
-          callLimitGuidance(limited.limit, limited.truncated),
+          exhaustive
+            ? `Exhaustive discovery returned ${returnedCalls.length} call(s) from the date window${truncated ? ", but Gong has more pages than this request covered" : ""}.`
+            : callLimitGuidance(limited.limit, truncated),
           shouldLoadTranscripts
             ? `Loaded transcript excerpts for ${transcripts?.length ?? 0} call(s). Ground qualitative claims in the transcript text and cite the inspected call count.`
             : "For deep-dive or qualitative analysis, call this action again with includeTranscripts=true before drawing conclusions from call content.",

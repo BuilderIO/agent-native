@@ -30,9 +30,6 @@ export interface SourcedTranscriptSegment extends TranscriptSegment {
   source: TranscriptSource;
 }
 
-const DUPLICATE_TOKEN_OVERLAP = 0.72;
-const DUPLICATE_TIME_OVERLAP = 0.35;
-
 export interface FinalTranscriptEvent {
   /** Raw text (not trimmed); callers decide whether to skip empties. */
   text: string;
@@ -86,133 +83,249 @@ function transcriptWords(text: string): string[] {
   return normalized ? normalized.split(/\s+/) : [];
 }
 
-function tokenOverlap(left: string[], right: string[]): number {
-  if (left.length === 0 || right.length === 0) return 0;
+// ---------------------------------------------------------------------------
+// Echo de-duplication
+// ---------------------------------------------------------------------------
+//
+// Without headphones the microphone re-records whatever the speakers play, so
+// the remote side can reach the transcript twice: cleanly on the system stream
+// and, whenever the acoustic guard in `echo_guard.rs` was not confident enough
+// to drop it, again on the mic. The leak only ever runs one way, because a call
+// app never plays the local user back. So when both streams carry the same
+// words at the same time, the system copy is the real one and the mic copy is
+// echo — no matter which stream happened to finalize first.
 
-  const rightWords = new Set(right);
-  const sharedWords = new Set(left.filter((word) => rightWords.has(word)));
-  return sharedWords.size / Math.min(new Set(left).size, new Set(right).size);
-}
+/** Share of the *longer* of the two word lists that has to match. Scoring the
+ *  longer side is what keeps a brief interjection ("yeah, I think so") alive
+ *  next to a long remote passage that happens to contain those words in order:
+ *  echo repeats a whole utterance, it does not sprinkle a few words into one. */
+const ECHO_MATCH_RATIO = 0.65;
+/** Fewer matched words than this is coincidence, not evidence. */
+const ECHO_MIN_WORDS = 4;
+/** Words that have to agree before a long in-order run counts as echo on its
+ *  own. Two people do not independently say eight of the same words, in the
+ *  same order, at the same moment. */
+const ECHO_LONG_MATCH_WORDS = 8;
+/** How many recently appended lines count as "at the same time".
+ *
+ *  Arrival order, not timestamps: each stream's Whisper timestamps are
+ *  estimates against its own rolling buffer, and the two streams cut those
+ *  buffers at their own silences, so the same words routinely carry stamps
+ *  seconds apart. Both finals still *arrive* within a second or two of each
+ *  other, because they are transcribed from the same sound. Finalized lines also
+ *  get a loose timestamp bound below to reject much later deliberate repeats. */
+const ECHO_RECENT_LINES = 6;
+/** Cross-stream timestamps are approximate, but echo finals should still begin
+ *  within this loose bound of each other. */
+const ECHO_MAX_START_DELTA_MS = 15_000;
 
-function timeOverlapRatio(
-  left: SourcedTranscriptSegment,
-  right: SourcedTranscriptSegment,
-): number {
-  const overlapStart = Math.max(left.startMs, right.startMs);
-  const overlapEnd = Math.min(left.endMs, right.endMs);
-  const overlapMs = Math.max(0, overlapEnd - overlapStart);
-  const shorterDuration = Math.max(
-    1,
-    Math.min(left.endMs - left.startMs, right.endMs - right.startMs),
-  );
-
-  return overlapMs / shorterDuration;
-}
-
-function isDuplicateTranscriptSegment(
-  existing: SourcedTranscriptSegment,
-  incoming: SourcedTranscriptSegment,
-): boolean {
-  if (existing.source === incoming.source) return false;
-
-  const existingText = normalizedTranscriptText(existing.text);
-  const incomingText = normalizedTranscriptText(incoming.text);
-  const existingWords = transcriptWords(existing.text);
-  const incomingWords = transcriptWords(incoming.text);
-
-  if (
-    !existingText ||
-    !incomingText ||
-    existingWords.length < 3 ||
-    incomingWords.length < 3
-  ) {
-    return false;
+/** Length of the longest common subsequence of two word lists. Subsequence
+ *  rather than set intersection because echo repeats the words *in order*,
+ *  while two people using the same vocabulary do not — and rather than exact
+ *  equality because Whisper mangles echo with dropped and substituted words. */
+function commonWordRun(left: string[], right: string[]): number {
+  let previous = new Array<number>(right.length + 1).fill(0);
+  let current = new Array<number>(right.length + 1).fill(0);
+  for (const word of left) {
+    for (let index = 0; index < right.length; index++) {
+      current[index + 1] =
+        word === right[index]
+          ? previous[index] + 1
+          : Math.max(current[index], previous[index + 1]);
+    }
+    [previous, current] = [current, previous];
   }
-
-  if (timeOverlapRatio(existing, incoming) < DUPLICATE_TIME_OVERLAP) {
-    return false;
-  }
-
-  return (
-    existingText === incomingText ||
-    tokenOverlap(existingWords, incomingWords) >= DUPLICATE_TOKEN_OVERLAP
-  );
+  return previous[right.length];
 }
 
-function isDuplicateTranscriptLine(
-  lines: string[],
-  source: TranscriptSource,
+/** Whether `text` heard on the mic is the speakers bleeding back into it.
+ *
+ *  Exported because the live overlay has to make the same call on in-flight
+ *  partials, which never reach `appendFinalTranscript`.
+ *
+ *  Scored against every contiguous run of the recent system lines, not against
+ *  all of them glued together: the two streams cut speech at different points,
+ *  so one mic line can echo a single system line or straddle two, and gluing an
+ *  unrelated third one in would bury the match. */
+export function isMicEcho(
   text: string,
+  lines: TranscriptLine[],
+  startMs: number | null = null,
 ): boolean {
   const words = transcriptWords(text);
-  if (words.length < 4) return false;
+  if (words.length < ECHO_MIN_WORDS) return false;
 
-  const speaker = speakerFor(source);
-  return lines.some((line) => {
-    const separatorIndex = line.indexOf(":");
-    if (separatorIndex === -1 || line.slice(0, separatorIndex) === speaker) {
-      return false;
+  const nearby = lines
+    .slice(-ECHO_RECENT_LINES)
+    .filter(
+      (line) =>
+        line.source === "system" &&
+        !line.historical &&
+        (startMs === null ||
+          line.startMs === null ||
+          Math.abs(startMs - line.startMs) <= ECHO_MAX_START_DELTA_MS),
+    )
+    .map((line) => transcriptWords(line.text));
+
+  for (let start = 0; start < nearby.length; start++) {
+    const run: string[] = [];
+    for (let end = start; end < nearby.length; end++) {
+      run.push(...nearby[end]);
+      const matched = commonWordRun(words, run);
+      if (matched < ECHO_MIN_WORDS) continue;
+      // Either the two are the same length and mostly agree, or they agree on
+      // a stretch long enough that nothing but echo explains it.
+      const sameUtterance =
+        matched / Math.max(words.length, run.length) >= ECHO_MATCH_RATIO;
+      const longRun =
+        matched >= ECHO_LONG_MATCH_WORDS &&
+        matched / words.length >= ECHO_MATCH_RATIO;
+      if (sameUtterance || longRun) return true;
     }
+  }
+  return false;
+}
 
-    const existingText = line.slice(separatorIndex + 1);
-    const existingWords = transcriptWords(existingText);
-    return (
-      normalizedTranscriptText(existingText) ===
-        normalizedTranscriptText(text) ||
-      tokenOverlap(existingWords, words) >= DUPLICATE_TOKEN_OVERLAP
-    );
-  });
+/** Drop the recent mic lines that a just-appended system line exposes as echo. */
+function retractMicEcho(lines: TranscriptLine[]): void {
+  const snapshot = [...lines];
+  const oldest = Math.max(0, snapshot.length - ECHO_RECENT_LINES);
+  const removals: number[] = [];
+  for (let index = snapshot.length - 1; index >= oldest; index--) {
+    const line = snapshot[index];
+    if (line.source !== "mic" || line.historical) continue;
+    const evidence = snapshot.slice(index, index + ECHO_RECENT_LINES);
+    if (isMicEcho(line.text, evidence, line.startMs)) removals.push(index);
+  }
+  for (const index of removals) lines.splice(index, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Transcript lines
+// ---------------------------------------------------------------------------
+
+/** One speaker-labelled transcript line. `segments` carries the verbatim
+ *  Whisper timings behind the line and is empty for the mic-only fallback
+ *  engines, which report no timestamps. */
+export interface TranscriptLine {
+  source: TranscriptSource;
+  /** Preloaded lines are display/persistence data, not live echo evidence. */
+  historical?: boolean;
+  /** Meeting-timeline position, or null from an engine that reports none.
+   *  Not 0 — the overlay renders a timestamp for every line that has one, and
+   *  "start of the meeting" is a different claim from "unknown". */
+  startMs: number | null;
+  text: string;
+  segments: SourcedTranscriptSegment[];
+}
+
+function lineFromSegments(
+  segments: SourcedTranscriptSegment[],
+): TranscriptLine {
+  return {
+    source: segments[0].source,
+    startMs: segments[0].startMs,
+    text: segments.map((segment) => segment.text).join(" "),
+    segments,
+  };
+}
+
+/** Rebuild a line from a stored segment, for preloaded transcript history. */
+export function transcriptLineFromSegment(
+  segment: SourcedTranscriptSegment,
+): TranscriptLine {
+  return { ...lineFromSegments([segment]), historical: true };
+}
+
+/** Speaker-labelled text, as persisted by `save-browser-transcript`. */
+export function transcriptFullText(lines: TranscriptLine[]): string {
+  return lines
+    .map((line) => `${speakerFor(line.source)}: ${line.text}`)
+    .join("\n\n")
+    .trim();
+}
+
+/** Rough duration estimate for a line with no verbatim timing, matching the
+ *  pacing `buildCaptionSegmentsFromText` uses server-side. */
+function estimatedLineDurationMs(text: string): number {
+  const words = text.split(/\s+/).filter(Boolean).length || 1;
+  return Math.max(900, words * 420);
+}
+
+/** Flattened verbatim segments, as persisted alongside the text.
+ *
+ *  A line with no verbatim timings still contributes one synthesized segment
+ *  rather than being dropped: the mic-only fallback engines report no
+ *  timestamps at all, and dropping the line loses its text and its `source`
+ *  — and a `source`-less stored segment silently renders as "Them". Those
+ *  engines report `startMs: null` on *every* line, so a synthesized segment
+ *  continues from the previous line's end; anchoring each at its own
+ *  null-coalesced 0 would stack the whole transcript on one instant and break
+ *  ordering and timestamp seeking. */
+export function transcriptSegments(
+  lines: TranscriptLine[],
+): SourcedTranscriptSegment[] {
+  const segments: SourcedTranscriptSegment[] = [];
+  let cursorMs = 0;
+  for (const line of lines) {
+    if (line.segments.length) {
+      segments.push(...line.segments);
+      cursorMs = line.segments.reduce(
+        (latest, segment) => Math.max(latest, segment.endMs),
+        cursorMs,
+      );
+      continue;
+    }
+    // `appendFinalTranscript` is the only path that yields an untimed line and
+    // it always pairs `segments: []` with `startMs: null`, so today this reads
+    // as `cursorMs`. Honouring a line's own stamp is for the shape the type
+    // still permits (see `historyLine` in overlays/live-transcript.tsx), and
+    // clamping to the cursor keeps a stale stamp from reordering the transcript.
+    const startMs = Math.max(line.startMs ?? cursorMs, cursorMs);
+    const endMs = startMs + estimatedLineDurationMs(line.text);
+    segments.push({ startMs, endMs, text: line.text, source: line.source });
+    cursorMs = endMs;
+  }
+  return segments;
 }
 
 /**
- * Fold a final-transcript event into a running transcript: appends a
- * speaker-labelled line and the event's (non-empty) segments tagged with the
- * event source. Mutates `lines`/`segments` in place. Returns true if anything
- * was appended (i.e. the event had non-empty text).
+ * Fold a final-transcript event into a running transcript, dropping mic speech
+ * that only echoes the system audio and retracting mic lines that a later
+ * system line exposes as echo. Mutates `lines` in place; returns whether the
+ * transcript changed.
  */
 export function appendFinalTranscript(
   event: FinalTranscriptEvent,
-  lines: string[],
-  segments: SourcedTranscriptSegment[],
+  lines: TranscriptLine[],
 ): boolean {
   const text = event.text.trim();
   if (!text) return false;
 
-  if (event.segments.length === 0) {
-    if (isDuplicateTranscriptLine(lines, event.source, text)) return false;
+  const segments: SourcedTranscriptSegment[] = event.segments
+    .map((segment) => ({
+      startMs: segment.startMs,
+      endMs: segment.endMs,
+      text: segment.text?.trim() ?? "",
+      source: event.source,
+    }))
+    .filter((segment) => segment.text.length > 0);
 
-    lines.push(`${speakerFor(event.source)}: ${text}`);
+  // One event is one stream's take on one utterance, so the whole line is the
+  // unit that is or is not echo. Engines without timestamps still produce a
+  // line, just one carrying no segments behind it.
+  const line: TranscriptLine = segments.length
+    ? lineFromSegments(segments)
+    : { source: event.source, startMs: null, text, segments: [] };
+
+  if (line.source === "mic") {
+    if (isMicEcho(line.text, lines, line.startMs)) return false;
+    lines.push(line);
     return true;
   }
 
-  const uniqueSegments = event.segments.filter((segment) => {
-    const segText = segment.text?.trim();
-    if (!segText) return false;
-
-    return !segments.some((existing) =>
-      isDuplicateTranscriptSegment(existing, {
-        ...segment,
-        text: segText,
-        source: event.source,
-      }),
-    );
-  });
-
-  if (uniqueSegments.length === 0) return false;
-
-  lines.push(
-    `${speakerFor(event.source)}: ${uniqueSegments
-      .map((segment) => segment.text.trim())
-      .join(" ")}`,
-  );
-  for (const seg of uniqueSegments) {
-    segments.push({
-      startMs: seg.startMs,
-      endMs: seg.endMs,
-      text: seg.text.trim(),
-      source: event.source,
-    });
-  }
+  lines.push(line);
+  retractMicEcho(lines);
   return true;
 }
 

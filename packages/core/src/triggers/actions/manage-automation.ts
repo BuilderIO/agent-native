@@ -1,78 +1,87 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { isValidCron, nextOccurrence } from "../../jobs/cron.js";
 import {
-  resourceDelete,
-  resourceGetByPath,
-  resourcePut,
-} from "../../resources/store.js";
-import {
-  buildTriggerContent,
-  parseTriggerFrontmatter,
-  refreshEventSubscriptions,
-} from "../dispatcher.js";
+  deleteAutomation,
+  updateAutomation,
+} from "../../automations/service.js";
+import { refreshEventSubscriptions } from "../dispatcher.js";
 
 export default defineAction({
   description:
-    "Enable, disable, or delete a personal automation from the Agent Jobs page.",
+    "Enable, disable, or delete a personal or organization automation from the Agent Automations page.",
   agentTool: false,
   schema: z.object({
     operation: z.enum(["update", "delete"]),
     name: z.string().min(1),
     scope: z.enum(["personal", "organization"]).default("personal"),
     enabled: z.boolean().optional(),
+    schedule: z.string().min(1).optional(),
+    timezone: z.string().min(1).optional(),
+    executionHostId: z.string().min(1).nullable().optional(),
+    executionEngine: z.string().min(1).nullable().optional(),
+    executionCwd: z.string().min(1).nullable().optional(),
   }),
-  run: async ({ operation, name, scope, enabled }, ctx) => {
+  run: async (
+    {
+      operation,
+      name,
+      scope,
+      enabled,
+      schedule,
+      timezone,
+      executionHostId,
+      executionEngine,
+      executionCwd,
+    },
+    ctx,
+  ) => {
     const userEmail = ctx?.userEmail;
     if (!userEmail) throw new Error("Not authenticated.");
-    if (scope === "organization") {
-      throw Object.assign(new Error("Automations are personal today."), {
-        statusCode: 400,
-      });
-    }
-
-    const path = `jobs/${name}.md`;
-    const resource = await resourceGetByPath(userEmail, path);
-    if (!resource) {
-      throw Object.assign(new Error(`Automation "${name}" not found.`), {
-        statusCode: 404,
-      });
-    }
-    const { meta, body } = parseTriggerFrontmatter(resource.content);
-    const header = resource.content.match(/^---\n([\s\S]*?)\n---/m)?.[1] ?? "";
-    if (!/^triggerType\s*:/m.test(header)) {
-      throw Object.assign(new Error(`Automation "${name}" not found.`), {
-        statusCode: 404,
-      });
-    }
+    const actor = {
+      userEmail,
+      orgId: ctx?.orgId,
+      appId: ctx?.appId,
+    };
 
     if (operation === "delete") {
-      await resourceDelete(resource.id);
+      await deleteAutomation(actor, scope, name);
       await refreshEventSubscriptions();
       return { deleted: true, name };
     }
-    if (enabled === undefined) {
-      throw Object.assign(new Error("enabled is required for update."), {
-        statusCode: 400,
-      });
-    }
-
-    meta.enabled = enabled;
     if (
-      enabled &&
-      meta.triggerType === "schedule" &&
-      meta.schedule &&
-      isValidCron(meta.schedule)
+      enabled === undefined &&
+      schedule === undefined &&
+      timezone === undefined &&
+      executionHostId === undefined &&
+      executionEngine === undefined &&
+      executionCwd === undefined
     ) {
-      meta.nextRun = nextOccurrence(meta.schedule).toISOString();
+      throw Object.assign(
+        new Error("enabled, schedule, or timezone is required for update."),
+        { statusCode: 400 },
+      );
     }
-    await resourcePut(
-      resource.owner,
-      resource.path,
-      buildTriggerContent(meta, body),
-    );
+    const definition = await updateAutomation(actor, {
+      name,
+      scope,
+      ...(enabled === undefined ? {} : { enabled }),
+      ...(schedule === undefined ? {} : { schedule }),
+      ...(timezone === undefined ? {} : { timezone }),
+      ...(executionHostId === undefined ? {} : { executionHostId }),
+      ...(executionEngine === undefined ? {} : { executionEngine }),
+      ...(executionCwd === undefined ? {} : { executionCwd }),
+    });
     await refreshEventSubscriptions();
-    return { name, enabled: meta.enabled, nextRun: meta.nextRun ?? null };
+    return {
+      name,
+      enabled: definition.meta.enabled,
+      schedule: definition.meta.schedule || null,
+      timezone: definition.meta.timezone ?? null,
+      executionHostId: definition.meta.executionHostId ?? null,
+      executionEngine: definition.meta.executionEngine ?? null,
+      executionCwd: definition.meta.executionCwd ?? null,
+      nextRun: definition.meta.nextRun ?? null,
+    };
   },
 });

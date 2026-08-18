@@ -6,11 +6,14 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
+import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { emitChatFirstOpenApp } from "./chat-first.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
   humanizeToolName,
+  isToolCallActive,
   runningToolLabel,
 } from "./tool-display.js";
 
@@ -34,6 +37,13 @@ export type ContentPart =
       args: Record<string, string>;
       result?: string;
       isError?: boolean;
+      /**
+       * Set when the stream ended while this tool was still in flight. We know
+       * it started and NOT whether its side effect landed, so it is deliberately
+       * separate from `isError` — an email that WAS delivered must never render
+       * as a failure just because the transport dropped before `tool_done`.
+       */
+      outcome?: "unknown";
       completedSideEffect?: boolean;
       mcpApp?: AgentMcpAppPayload;
       chatUI?: ActionChatUIConfig;
@@ -71,6 +81,8 @@ export interface SSEEvent {
   /** Stable key the client echoes back in `approvedToolCalls` to approve a
    *  paused `needsApproval` tool call. Present on `approval_required` events. */
   approvalKey?: string;
+  /** Model-side tool-call id for `approval_required` (mirrors AgentChatEvent). */
+  toolCallId?: string;
   error?: string;
   seq?: number;
   agent?: string;
@@ -95,6 +107,8 @@ export interface SSEEvent {
   upgradeUrl?: string;
   details?: string;
   recoverable?: boolean;
+  /** The engine said another attempt may succeed — see `AgentChatEvent`. */
+  providerRetryable?: boolean;
   maxIterations?: number;
 }
 
@@ -121,23 +135,35 @@ export interface AgentAutoContinueErrorInfo {
   upgradeUrl?: string;
 }
 
-const INTERRUPTED_TOOL_RESULT =
+/**
+ * Kept verbatim in sync with `INTERRUPTED_TOOL_RESULT_MARKER`
+ * (agent/production-agent.ts): the server matches this substring in replayed
+ * history to count how many times a write tool was interrupted, which is the
+ * only thing that tells "we do not know if it landed" apart from "it failed".
+ */
+export const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
 /**
  * Maximum number of assistant-ui repository updates we deliver in one browser
  * event-loop turn. Durable-run replay can put hundreds of SSE frames into the
- * stream queue before the client attaches; draining all of them through
- * assistant-ui without a macrotask boundary synchronously nests React external
- * store notifications until React throws "Maximum update depth exceeded."
+ * stream queue before the client attaches; allowing even a small burst through
+ * assistant-ui can synchronously nest React external-store notifications until
+ * React throws "Maximum update depth exceeded."
  *
- * A timer scheduled on the first result resets the count when the stream is
+ * A task scheduled on the first result resets the count when the stream is
  * naturally idle between network chunks. We only await it when results are
  * arriving densely enough to hit this bound, so normal live token streaming
  * keeps its existing latency while replay bursts yield cooperatively.
  */
-const SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN = 20;
+const SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN = 1;
+
+function waitForNextEventLoopTurn(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
 
 export function settleInterruptedToolCalls(
   content: ContentPart[],
@@ -155,7 +181,10 @@ export function settleInterruptedToolCalls(
         part.activity === true
           ? (options?.activityResult ?? INTERRUPTED_ACTIVITY_RESULT)
           : result;
-      part.isError = true;
+      // Interrupted is not failed: the side effect may well have landed. Never
+      // set `isError` here — that is reserved for a result the server told us
+      // failed.
+      part.outcome = "unknown";
       changed = true;
     }
   }
@@ -223,7 +252,12 @@ export function sseInFlightWorkDelta(ev: SSEEvent): number {
   if (ev.type === "tool_done") return -1;
   if (ev.type === "agent_call") {
     if (ev.status === "start") return 1;
-    if (ev.status === "done" || ev.status === "error") return -1;
+    if (
+      ev.status === "done" ||
+      ev.status === "pending" ||
+      ev.status === "error"
+    )
+      return -1;
   }
   return 0;
 }
@@ -244,18 +278,30 @@ export function sseInFlightWorkDelta(ev: SSEEvent): number {
 export const SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS = 13 * 60_000;
 export const SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 13 * 60_000;
 
+function sseTimeoutOverrideMs(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0
+    ? value
+    : undefined;
+}
+
 export function sseNoProgressTimeoutMs(options?: SSEStreamOptions): number {
-  return options?.durableBackgroundRun === true
-    ? SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS
-    : SSE_NO_PROGRESS_TIMEOUT_MS;
+  return (
+    sseTimeoutOverrideMs(options?.noProgressTimeoutMs) ??
+    (options?.durableBackgroundRun === true
+      ? SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS
+      : SSE_NO_PROGRESS_TIMEOUT_MS)
+  );
 }
 
 function sseActionPreparationStallTimeoutMs(
   options?: SSEStreamOptions,
 ): number {
-  return options?.durableBackgroundRun === true
-    ? SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS
-    : SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS;
+  return (
+    sseTimeoutOverrideMs(options?.actionPreparationStallTimeoutMs) ??
+    (options?.durableBackgroundRun === true
+      ? SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS
+      : SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS)
+  );
 }
 
 export interface SSEStreamOptions {
@@ -269,6 +315,16 @@ export interface SSEStreamOptions {
    * the tight foreground 75s/90s windows.
    */
   durableBackgroundRun?: boolean;
+  /**
+   * Optional reader-local watchdog override. A background follow reader can
+   * use a shorter value because a timeout only detaches that read; the follow
+   * loop immediately re-checks the server-owned run state.
+   */
+  noProgressTimeoutMs?: number;
+  /** Reader-local counterpart to `noProgressTimeoutMs` for action preparation. */
+  actionPreparationStallTimeoutMs?: number;
+  /** Mark the adapter's final `done` snapshot terminal before it is yielded. */
+  markTerminalResults?: boolean;
   /**
    * Optional caller-owned preparation watchdog state. Passing the same object
    * across reconnect reads keeps a stuck action preparation from getting a
@@ -324,6 +380,23 @@ function isMeaningfulProgressEvent(
   }
   if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     if (options?.durableBackgroundRun === true) return true;
+    return actionPreparationProgress === true;
+  }
+  return true;
+}
+
+/**
+ * The browser's durable liveness cursor must mirror the server's
+ * `last_progress_at` predicate. The stream watchdog intentionally has a
+ * broader background policy, so it cannot be reused for this cursor: raw
+ * keepalives and repeated zero-byte preparation are not proof of real work.
+ */
+function isDurableProgressEvent(
+  ev: SSEEvent,
+  actionPreparationProgress?: boolean,
+): boolean {
+  if (ev.type === "stream_keepalive" || ev.type === "clear") return false;
+  if (ev.type === "activity" && isPreparingActionActivity(ev)) {
     return actionPreparationProgress === true;
   }
   return true;
@@ -399,6 +472,47 @@ function findPendingToolCallIndexById(
     }
   }
   return -1;
+}
+
+/**
+ * Locate the tool call an `approval_required` event refers to.
+ *
+ * Stricter than `findPendingToolCallIndex`: when the server supplies a call id
+ * we never fall back to "newest pending call with this name". A paused
+ * `tool_done` resolves the call right after the gate fires, so a replayed or
+ * reordered approval would otherwise miss on id and silently attach this call's
+ * approvalKey to a *different* in-flight call of the same action — putting the
+ * wrong key behind a visible Approve button.
+ *
+ * The only tolerated fallback mirrors `findPendingActivityToolCallIndex`: a
+ * single unambiguous reader-local (`tc_N`) placeholder, which is how a call
+ * looks when an older server omitted the id on `tool_start`.
+ */
+function findApprovalToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+  toolCallId?: string,
+): number {
+  if (!toolCallId) {
+    return findPendingToolCallIndex(content, toolName);
+  }
+
+  const exactIndex = findPendingToolCallIndexById(content, toolCallId);
+  if (exactIndex >= 0) return exactIndex;
+
+  const readerLocalCandidates: number[] = [];
+  for (let i = 0; i < content.length; i += 1) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.result === undefined &&
+      /^tc_\d+$/.test(part.toolCallId)
+    ) {
+      readerLocalCandidates.push(i);
+    }
+  }
+  return readerLocalCandidates.length === 1 ? readerLocalCandidates[0]! : -1;
 }
 
 function findOldestPendingActivityToolCallIndex(
@@ -662,6 +776,17 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   const code = String(ev.errorCode ?? "").toLowerCase();
   const msg = errMsg.toLowerCase();
 
+  // An explicit `recoverable: false` outranks EVERY inference below — the code
+  // list as well as the message sniff — matching the server's own precedence in
+  // `isRecoverableContinuationError`. The repeat guards stop a turn with a
+  // message that names the looping tool, so a stop on
+  // `list-workspace-connections` matched the "connection" sniff and
+  // auto-continued the very loop it was emitted to break; the background
+  // no-progress breaker stops one while PRESERVING the underlying transient
+  // code (so the failure stays diagnosable), so reading the code instead of the
+  // flag re-POSTs the exact chain the server just refused to continue.
+  if (ev.recoverable === false) return false;
+
   if (
     code === "context_length_exceeded" ||
     code === "input_too_long" ||
@@ -723,12 +848,20 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "http_408" ||
     code === "http_429" ||
     code === "http_500" ||
+    // The gateway's unhandled-500 envelope delivered in-stream instead of as a
+    // status. Recoverable for the same reason `http_500` is.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
     code === "rate_limited" ||
     code === "too_many_concurrent_requests" ||
-    code === "overloaded_error"
+    code === "overloaded_error" ||
+    // A gateway stream that ended without a stop event. The partial turn is
+    // real, so this continues rather than retrying: the code carries what the
+    // message used to (`msg.includes("stream ended")` below), which a
+    // Builder-credits deployment replaces with its one visitor line.
+    code === "builder_gateway_stream_ended"
   ) {
     return true;
   }
@@ -736,6 +869,12 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   if (ev.recoverable === true) return true;
 
   if (msg.includes("daily gateway request cap")) return false;
+
+  // The engine's structural verdict, checked after every terminal code above so
+  // it can never revive a quota or auth rejection. It is the only retry signal
+  // left once the message is one visitor line: an upstream "Overloaded" carries
+  // no code, and its text is what the rewrite removed.
+  if (ev.providerRetryable === true) return true;
 
   // "gateway error" intentionally absent — that's the no-detail Builder
   // gateway fallback and the production-agent already retries it
@@ -943,6 +1082,7 @@ function coalesceJournalRecoveredTool(
       }
       if (current.mcpApp) prior.mcpApp = current.mcpApp;
       if (current.chatUI) prior.chatUI = current.chatUI;
+      if (current.approval) prior.approval = { ...current.approval };
     }
     content.splice(completedIndex, 1);
     return true;
@@ -1029,7 +1169,8 @@ function completedToolNamesAfterLastAssistantText(
       part.type === "tool-call" &&
       part.activity !== true &&
       part.result !== undefined &&
-      part.isError !== true
+      part.isError !== true &&
+      part.outcome !== "unknown"
     ) {
       names.add(part.toolName);
     }
@@ -1053,7 +1194,8 @@ function hasCompletedCustomUi(content: ContentPart[]): boolean {
       part?.type !== "tool-call" ||
       part.activity === true ||
       part.result === undefined ||
-      part.isError === true
+      part.isError === true ||
+      part.outcome === "unknown"
     ) {
       continue;
     }
@@ -1068,6 +1210,7 @@ export function appendMissingFinalResponseWarning(
   content: ContentPart[],
   completedToolNames?: Iterable<string>,
 ): { message: string; errorCode: string; recoverable: true } | null {
+  if (content.some((part) => isToolCallActive(part))) return null;
   const lastTextIndex = lastAssistantTextIndex(content);
   const successfulToolNames = [
     ...new Set(
@@ -1144,6 +1287,51 @@ function shouldDispatchStreamProgress(
   if (state?.streamProgressDispatched) return false;
   if (state) state.streamProgressDispatched = true;
   return true;
+}
+
+function emitFirstPartyOpenAppHandoff(ev: SSEEvent): void {
+  if (ev.type !== "tool_done" || (ev.tool ?? "unknown") !== "open_app") {
+    return;
+  }
+  if (ev.isError === true) return;
+  if (!ev.result?.trim()) {
+    console.warn(
+      "[chat-first] open_app completed without a readable result; no app pane opened",
+    );
+    return;
+  }
+
+  let result: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(ev.result);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      console.warn(
+        "[chat-first] open_app completed without a readable result; no app pane opened",
+      );
+      return;
+    }
+    result = parsed as Record<string, unknown>;
+  } catch {
+    // coercion-ok: unreadable tool output must not be treated as a successful handoff.
+    console.warn(
+      "[chat-first] open_app completed without a readable result; no app pane opened",
+    );
+    return;
+  }
+
+  const readString = (value: unknown): string | undefined =>
+    typeof value === "string" && value.trim() ? value : undefined;
+  const delivery = emitChatFirstOpenApp({
+    app: readString(result.app ?? result.appId ?? result.application),
+    path: readString(result.path ?? result.targetPath),
+    url: readString(result.url ?? result.href),
+    view: readString(result.view),
+  });
+  if (!delivery.delivered) {
+    console.warn(
+      `[chat-first] open_app was completed but not delivered (${delivery.reason ?? "unknown"})`,
+    );
+  }
 }
 
 /**
@@ -1287,6 +1475,68 @@ export function processEvent(
     };
   }
 
+  if (ev.type === "tool_input_start" || ev.type === "tool_input_delta") {
+    const tool = ev.tool?.trim() || "unknown";
+    const pendingToolCallIndex = findPendingActivityToolCallIndex(
+      content,
+      tool,
+      ev.id,
+    );
+    let toolCallIndex = pendingToolCallIndex;
+
+    if (toolCallIndex < 0) {
+      const hasCompletedSameTool = content.some(
+        (part) =>
+          part.type === "tool-call" &&
+          part.toolName === tool &&
+          part.result !== undefined &&
+          (!ev.id || part.toolCallId === ev.id),
+      );
+      if (!hasCompletedSameTool) {
+        content.push({
+          type: "tool-call",
+          toolCallId: ev.id ?? `tc_${++toolCallCounter.value}`,
+          toolName: tool,
+          argsText: "",
+          args: {},
+          activity: true,
+        });
+        toolCallIndex = content.length - 1;
+      }
+    }
+
+    const pending = toolCallIndex >= 0 ? content[toolCallIndex] : undefined;
+    if (pending?.type === "tool-call") {
+      if (ev.id && pending.toolCallId !== ev.id) {
+        pending.toolCallId = ev.id;
+      }
+      if (ev.type === "tool_input_delta" && ev.text) {
+        pending.argsText += ev.text;
+      }
+    }
+
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(
+        new CustomEvent("agent-native:tool-input", {
+          detail: {
+            phase: ev.type === "tool_input_start" ? "start" : "delta",
+            tool,
+            ...(ev.id ? { id: ev.id } : {}),
+            argsText:
+              pending?.type === "tool-call" ? pending.argsText : undefined,
+            ...(ev.type === "tool_input_delta" ? { text: ev.text ?? "" } : {}),
+            tabId,
+          },
+        }),
+      );
+    }
+
+    return {
+      action: "yield",
+      result: { content: contentSnapshot(content) } as ChatModelRunResult,
+    };
+  }
+
   if (ev.type === "tool_start") {
     const args = (ev.input ?? {}) as Record<string, string>;
     const tool = ev.tool ?? "unknown";
@@ -1319,8 +1569,7 @@ export function processEvent(
     const pendingIsActivityPlaceholder =
       pendingToolCall?.type === "tool-call" &&
       pendingToolCall.activity === true &&
-      pendingToolCall.argsText === "" &&
-      Object.keys(pendingToolCall.args).length === 0;
+      pendingToolCall.result === undefined;
     // A re-emitted start for the SAME id — a retry/auto-continue clear that
     // keeps the in-flight card mounted, or a reconnect replay — must update the
     // existing card in place instead of pushing a duplicate. Matching on id
@@ -1368,7 +1617,14 @@ export function processEvent(
     const approvalTool = ev.tool ?? "unknown";
     const approvalKey = ev.approvalKey;
     if (approvalKey) {
-      const idx = findPendingToolCallIndex(content, approvalTool, ev.id);
+      // `toolCallId` is the model-side id in the `approval_required` contract;
+      // `id` is only carried by older frames. Same precedence as the runtime
+      // path so both processors resolve an event to the same call.
+      const idx = findApprovalToolCallIndex(
+        content,
+        approvalTool,
+        ev.toolCallId ?? ev.id,
+      );
       if (idx >= 0) {
         const part = content[idx];
         if (part.type === "tool-call") {
@@ -1390,6 +1646,7 @@ export function processEvent(
     if (findCompletedToolCallIndex(content, ev.id) >= 0) {
       return { action: "continue" };
     }
+    emitFirstPartyOpenAppHandoff(ev);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
@@ -1443,7 +1700,11 @@ export function processEvent(
         args: {},
         activity: true,
       });
-    } else if (ev.status === "done" || ev.status === "error") {
+    } else if (
+      ev.status === "done" ||
+      ev.status === "pending" ||
+      ev.status === "error"
+    ) {
       for (let i = content.length - 1; i >= 0; i--) {
         const part = content[i];
         if (
@@ -1452,9 +1713,15 @@ export function processEvent(
           (!ev.agentCallId || part.toolCallId === ev.agentCallId) &&
           part.result === undefined
         ) {
-          part.result = ev.status === "error" ? "Error calling agent" : "Done";
+          part.result =
+            ev.status === "error"
+              ? "Error calling agent"
+              : ev.status === "pending"
+                ? "Remote agent task is still pending"
+                : "Done";
           part.structuredMeta = {
             ...part.structuredMeta,
+            ...(ev.status === "pending" ? { agentPending: true } : {}),
             ...(ev.durationMs != null
               ? { agentDurationMs: ev.durationMs }
               : {}),
@@ -1583,6 +1850,9 @@ export function processEvent(
         }),
       );
     }
+    // This event is terminal. There may be no visible text or tool_done after
+    // the last preparation activity, so do not leave its label mounted.
+    dispatchActivityClear(tabId);
     settleInterruptedToolCalls(content, undefined, { includeActivity: true });
     content.push({
       type: "text",
@@ -1686,6 +1956,9 @@ export function processEvent(
       ...(ev.errorCode ? { errorCode: ev.errorCode } : {}),
       ...(ev.recoverable ? { recoverable: ev.recoverable } : {}),
     };
+    // Non-recoverable errors end the turn. Recoverable errors return above as
+    // auto-continue signals and must keep their activity state alive.
+    dispatchActivityClear(tabId);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-chat:run-error", {
@@ -1709,6 +1982,11 @@ export function processEvent(
   }
 
   if (ev.type === "done") {
+    // `done` is authoritative even when the final model chunk contains only
+    // a wrap-up marker. Clear any preparation label before inspecting pending
+    // tools so both success and interrupted-terminal paths settle the UI.
+    dispatchActivityClear(tabId);
+    const userStoppedRun = ev.reason === "user";
     const interruptedTools = pendingToolNames(content);
     const allInterruptedTools = [
       ...interruptedTools.running,
@@ -1716,6 +1994,16 @@ export function processEvent(
     ];
     if (allInterruptedTools.length > 0) {
       settleInterruptedToolCalls(content, undefined, { includeActivity: true });
+      if (userStoppedRun) {
+        return {
+          action: "done",
+          result: {
+            content: contentSnapshot(content),
+            status: { type: "complete" as const, reason: "stop" as const },
+            metadata: { custom: { userStopped: true } },
+          } as ChatModelRunResult,
+        };
+      }
       const message = interruptedToolMessage(interruptedTools);
       const runError = {
         message,
@@ -1740,6 +2028,16 @@ export function processEvent(
           content: contentSnapshot(content),
           status: { type: "incomplete" as const, reason: "error" as const },
           metadata: { custom: { runError } },
+        } as ChatModelRunResult,
+      };
+    }
+    if (userStoppedRun) {
+      return {
+        action: "done",
+        result: {
+          content: contentSnapshot(content),
+          status: { type: "complete" as const, reason: "stop" as const },
+          metadata: { custom: { userStopped: true } },
         } as ChatModelRunResult,
       };
     }
@@ -1770,10 +2068,26 @@ export function processEvent(
   return { action: "continue" };
 }
 
+/**
+ * Drop the draft the server is about to re-emit — the narration since the last
+ * completed tool, not the whole turn. A `clear` arrives on a final-answer-guard
+ * retry or a continuation, both of which resume AFTER the last completed tool
+ * call, so anything before that boundary is settled multi-step narration the
+ * retry will never re-send. Wiping it read to users as "it deleted its reply
+ * and started over", and `thread-data-builder` replays this same scoping on
+ * rebuild, so the loss survived a reload.
+ */
 function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined
+    ) {
+      return;
+    }
     if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
       continue;
@@ -1805,7 +2119,7 @@ export async function* readSSEStream(
   content: ContentPart[],
   toolCallCounter: { value: number },
   tabId: string | undefined,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   runId?: string | null,
   options?: SSEStreamOptions,
 ): AsyncGenerator<ChatModelRunResult> {
@@ -1830,15 +2144,20 @@ export async function* readSSEStream(
       ? Math.max(noProgressTimeoutMs, SSE_IN_FLIGHT_WORK_TIMEOUT_MS)
       : noProgressTimeoutMs;
 
-  const paceRenderUpdate = async (): Promise<void> => {
+  const paceRenderUpdate = async (hasBufferedEvent: boolean): Promise<void> => {
+    // A single event in a network chunk already has a natural read boundary.
+    // Avoid inserting a task into quiet streams so watchdogs and fake-clock
+    // consumers can continue to observe their own timers normally.
+    if (!hasBufferedEvent) {
+      renderUpdatesThisTurn = 0;
+      return;
+    }
+
     renderUpdatesThisTurn += 1;
     if (!nextEventLoopTurn) {
-      nextEventLoopTurn = new Promise<void>((resolve) => {
-        setTimeout(() => {
-          renderUpdatesThisTurn = 0;
-          nextEventLoopTurn = null;
-          resolve();
-        }, 0);
+      nextEventLoopTurn = waitForNextEventLoopTurn().then(() => {
+        renderUpdatesThisTurn = 0;
+        nextEventLoopTurn = null;
       });
     }
     if (renderUpdatesThisTurn >= SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN) {
@@ -1904,11 +2223,22 @@ export async function* readSSEStream(
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       let sawProgressEvent = false;
+      let bufferedDataEvents = lines.reduce(
+        (count, pendingLine) =>
+          count +
+          (pendingLine.startsWith("data: ") &&
+          pendingLine.slice(6).trim().length > 0
+            ? 1
+            : 0),
+        0,
+      );
 
-      for (const line of lines) {
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex]!;
         if (!line.startsWith("data: ")) continue;
         const raw = line.slice(6).trim();
         if (!raw) continue;
+        bufferedDataEvents -= 1;
 
         let ev: SSEEvent;
         try {
@@ -1923,14 +2253,23 @@ export async function* readSSEStream(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         // Track sequence number for reconnection
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {
@@ -1964,9 +2303,23 @@ export async function* readSSEStream(
           processEventState,
         );
 
-        if (result) {
-          await paceRenderUpdate();
-          yield withStreamMetadata(result);
+        const terminalResult =
+          result &&
+          options?.markTerminalResults === true &&
+          action === "done" &&
+          result.status == null
+            ? {
+                ...result,
+                status: {
+                  type: "complete" as const,
+                  reason: "stop" as const,
+                },
+              }
+            : result;
+        if (terminalResult) {
+          const hasBufferedEvent = bufferedDataEvents > 0;
+          await paceRenderUpdate(hasBufferedEvent);
+          yield withStreamMetadata(terminalResult);
         }
         if (
           hasStalledPreparingAction(
@@ -2040,7 +2393,7 @@ export async function readSSEStreamRaw(
   toolCallCounter: { value: number },
   tabId: string | undefined,
   onUpdate: (content: ContentPart[]) => void,
-  onSeq?: (seq: number) => void,
+  onSeq?: (seq: number, isProgress?: boolean) => void,
   options?: SSEStreamOptions,
 ): Promise<void> {
   const reader = body.getReader();
@@ -2114,13 +2467,22 @@ export async function readSSEStreamRaw(
           ev,
           now,
         );
-        if (isMeaningfulProgressEvent(ev, actionPreparationProgress, options)) {
+        const meaningfulProgress = isMeaningfulProgressEvent(
+          ev,
+          actionPreparationProgress,
+          options,
+        );
+        const durableProgress = isDurableProgressEvent(
+          ev,
+          actionPreparationProgress,
+        );
+        if (meaningfulProgress) {
           sawProgressEvent = true;
           lastMeaningfulEventAt = now;
         }
 
         if (ev.seq !== undefined && onSeq) {
-          onSeq(ev.seq);
+          onSeq(ev.seq, durableProgress);
         }
 
         if (ev.type === "clear") {

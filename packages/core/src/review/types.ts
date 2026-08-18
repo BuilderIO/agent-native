@@ -1,6 +1,11 @@
 import type { Visibility } from "../sharing/schema.js";
 
-export type ReviewResourceRole = "viewer" | "editor" | "admin" | "owner";
+export type ReviewResourceRole =
+  | "viewer"
+  | "commenter"
+  | "editor"
+  | "admin"
+  | "owner";
 export type ReviewCommentKind =
   | "comment"
   | "annotation"
@@ -36,6 +41,13 @@ export interface ReviewResourceContext {
 export interface ReviewableResourceRegistration {
   type: string;
   displayName?: string;
+  /**
+   * Deep link to the resource, used by review notification emails. Without it
+   * an email can only link to the app root.
+   */
+  resolveUrl?: (
+    resourceId: string,
+  ) => Promise<string | null | undefined> | string | null | undefined;
   resolveAccess?: (
     resourceId: string,
     ctx?: ReviewResourceContext,

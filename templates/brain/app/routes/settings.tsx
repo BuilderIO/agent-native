@@ -7,6 +7,8 @@ import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
 import { TeamPage } from "@agent-native/core/client/org";
 import {
   AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
   type SettingsSearchEntry,
@@ -510,7 +512,7 @@ export default function SettingsRoute() {
   const t = useT();
   const agentSettingsTabs = useAgentSettingsTabs();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [activeSection, setActiveSection] = useState("general");
+  const [activeSection, setActiveSection] = useState("integrations");
   const localizedToneOptions = useMemo(() => toneOptions(t), [t]);
   const localizedSourcePolicyOptions = useMemo(
     () => sourcePolicyOptions(t),
@@ -717,21 +719,19 @@ export default function SettingsRoute() {
             </main>
 
             <aside className="grid content-start gap-5">
-              <Card id="language" className="scroll-mt-4">
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2 text-base">
-                    <IconAdjustments className="size-4 text-primary" />
-                    {t("settings.languageTitle")}
-                  </CardTitle>
-                  <CardDescription>
-                    {t("settings.languageDescription")}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-1.5">
-                  <Label>{t("settings.languageLabel")}</Label>
-                  <LanguagePicker label={t("settings.languageLabel")} />
-                </CardContent>
-              </Card>
+              <SettingsGroup className="scroll-mt-4">
+                <SettingsRow
+                  id="language"
+                  icon={<IconAdjustments className="text-primary" />}
+                  label={t("settings.languageTitle")}
+                  description={t("settings.languageDescription")}
+                  control={
+                    <div className="w-48">
+                      <LanguagePicker label={t("settings.languageLabel")} />
+                    </div>
+                  }
+                />
+              </SettingsGroup>
 
               <Card>
                 <CardHeader>

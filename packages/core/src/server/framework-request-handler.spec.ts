@@ -80,6 +80,7 @@ describe("framework request handler", () => {
   afterEach(() => {
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
+    delete process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS;
     vi.restoreAllMocks();
   });
 
@@ -377,6 +378,22 @@ describe("framework request handler", () => {
     release();
   });
 
+  it("does not hold the static speculation-rules route on plugin bootstrap", async () => {
+    const nitroApp = createNitroApp();
+    process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS = "10";
+    getH3App(nitroApp).use("/_agent-native/speculation-rules.json", () => ({
+      prefetch: [],
+      prerender: [],
+    }));
+    trackPluginInit(nitroApp, new Promise<void>(() => {}), {
+      paths: ["/_agent-native"],
+    });
+
+    await expect(
+      dispatch(nitroApp, "/_agent-native/speculation-rules.json"),
+    ).resolves.toEqual({ prefetch: [], prerender: [] });
+  });
+
   it("waits for matching route-scoped plugin init", async () => {
     const nitroApp = createNitroApp();
     let release!: () => void;
@@ -405,6 +422,27 @@ describe("framework request handler", () => {
     release();
 
     await expect(pending).resolves.toEqual({ ok: true });
+  });
+
+  it("answers with a retryable 503 when plugin init outlives the ready deadline", async () => {
+    const nitroApp = createNitroApp();
+    process.env.AGENT_NATIVE_ROUTE_READY_TIMEOUT_MS = "10";
+
+    // Never resolves — a cold boot still running when the budget runs out.
+    trackPluginInit(nitroApp, new Promise<void>(() => {}), {
+      paths: ["/_agent-native/agent-chat"],
+    });
+
+    const event: any = {};
+    await expect(
+      dispatch(nitroApp, "/_agent-native/agent-chat", (e) => {
+        Object.assign(event, e);
+      }),
+    ).resolves.toEqual({
+      error: "agent-native routes are still initializing",
+    });
+    expect(event.res.status).toBe(503);
+    expect(event.res.headers.get("retry-after")).toBe("5");
   });
 
   it("installs the readiness gate when async plugin init is tracked first", async () => {

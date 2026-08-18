@@ -21,6 +21,23 @@ export interface BuildChatModelGroupsOptions {
   currentModel?: string;
 }
 
+/**
+ * A loaded provider-backed catalog can confirm that setup is missing before
+ * the slower canonical readiness request resolves. An empty catalog is a
+ * failed lookup, not evidence that no provider is configured.
+ */
+export function modelCatalogConfirmsMissing(
+  groups: readonly Pick<EngineModelGroup, "configured">[] | undefined,
+  loading: boolean | undefined,
+): boolean {
+  return (
+    loading === false &&
+    groups !== undefined &&
+    groups.length > 0 &&
+    groups.every((group) => !group.configured)
+  );
+}
+
 const HIDDEN_CHAT_MODEL_ENGINES = new Set([
   "ai-sdk:groq",
   "ai-sdk:mistral",
@@ -40,6 +57,9 @@ function addCurrentModel(
   return next;
 }
 
+// Cheapest → most expensive. The composer mirrors these tokens for the `$`
+// cost labels on picker rows (packages/toolkit/src/composer/TiptapComposer.tsx);
+// the toolkit cannot import core, so a new family must be added in both lists.
 const MODEL_COST_ORDER = [
   "luna",
   "terra",

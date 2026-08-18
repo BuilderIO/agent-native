@@ -1,5 +1,7 @@
 import type { ActionEntry } from "../agent/production-agent.js";
+import { DEFAULT_AUTOMATION_SCHEDULE } from "../automations/service.js";
 import { getDbExec } from "../db/client.js";
+import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import {
   resourcePut,
   resourceGetByPath,
@@ -14,13 +16,22 @@ import {
   getRequestOrgId,
   getIntegrationRequestContext,
 } from "../server/request-context.js";
-import { isValidCron, nextOccurrence, describeCron } from "./cron.js";
+import {
+  isValidCron,
+  nextOccurrence,
+  describeCron,
+  effectiveTimezone,
+  isValidTimezone,
+} from "./cron.js";
+import { classifyJobResource, jobBelongsToApp } from "./frontmatter.js";
 import {
   parseJobFrontmatter,
   buildJobContent,
   normalizeJobMcpTools,
   type JobFrontmatter,
 } from "./scheduler.js";
+
+export { jobBelongsToApp } from "./frontmatter.js";
 
 function getOwner(): string {
   const email = getRequestUserEmail();
@@ -72,7 +83,11 @@ async function isCurrentUserOrgAdmin(
 export async function authorizeJobMutation(
   resourceOwner: string,
   meta: JobFrontmatter,
+  appId?: string,
 ): Promise<string | null> {
+  if (!jobBelongsToApp(meta, appId)) {
+    return "This job belongs to another app and cannot be changed here.";
+  }
   const resourceOrgId = organizationIdFromResourceOwner(resourceOwner);
   if (resourceOwner !== SHARED_OWNER && !resourceOrgId) {
     // Personal-scope job — owner is the request's user. resourceGetByPath is
@@ -92,12 +107,29 @@ export async function authorizeJobMutation(
   return "Only the job's creator (or an org admin) can update or delete it.";
 }
 
-async function runCreate(args: Record<string, any>): Promise<string> {
-  const { name, schedule, instructions, scope, runAs, model } = args;
+async function runCreate(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
+  const {
+    name,
+    instructions,
+    scope,
+    runAs,
+    model,
+    executionHostId,
+    executionEngine,
+    executionCwd,
+  } = args;
+  const schedule =
+    typeof args.schedule === "string" && args.schedule.trim()
+      ? args.schedule.trim()
+      : DEFAULT_AUTOMATION_SCHEDULE;
+  const requestedTimezone = args.timezone;
 
-  if (!name || !schedule || !instructions) {
+  if (!name || !instructions) {
     return JSON.stringify({
-      error: "name, schedule, and instructions are required",
+      error: "name and instructions are required",
     });
   }
 
@@ -117,16 +149,28 @@ async function runCreate(args: Record<string, any>): Promise<string> {
   const owner = scope === "personal" ? getOwner() : getSharedOwner();
   const path = `jobs/${name}.md`;
   const now = new Date();
-  const next = nextOccurrence(schedule, now);
+  // A cron time with no zone silently means the host's zone, which is how an
+  // "8am" job ends up firing at 4am for the person who asked for it.
+  if (requestedTimezone && !isValidTimezone(requestedTimezone)) {
+    return JSON.stringify({
+      error: `Unknown timezone: "${requestedTimezone}". Use an IANA zone such as America/New_York.`,
+    });
+  }
+  const timezone =
+    requestedTimezone ||
+    (await resolveUserSchedulingTimezone(getRequestUserEmail()));
+  const next = nextOccurrence(schedule, now, timezone);
   const integration = getIntegrationRequestContext();
   const channelId = integration?.incoming.platformContext.channelId;
   const threadRef = integration?.incoming.threadRef;
 
   const meta: JobFrontmatter = {
     schedule,
+    timezone,
     enabled: true,
     createdBy: getOwner(),
     orgId: getRequestOrgId() || undefined,
+    appId: appId?.trim() || undefined,
     runAs: runAs === "shared" ? "shared" : "creator",
     nextRun: next.toISOString(),
     ...(integration?.scopeId ? { originScopeId: integration.scopeId } : {}),
@@ -143,6 +187,15 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     ...(typeof model === "string" && model.trim()
       ? { model: model.trim() }
       : {}),
+    ...(typeof executionHostId === "string" && executionHostId.trim()
+      ? { executionHostId: executionHostId.trim() }
+      : {}),
+    ...(typeof executionEngine === "string" && executionEngine.trim()
+      ? { executionEngine: executionEngine.trim() }
+      : {}),
+    ...(typeof executionCwd === "string" && executionCwd.trim()
+      ? { executionCwd: executionCwd.trim() }
+      : {}),
     ...(mcpTools?.length ? { mcpTools } : {}),
   };
 
@@ -154,14 +207,18 @@ async function runCreate(args: Record<string, any>): Promise<string> {
     name,
     path,
     schedule,
-    scheduleDescription: describeCron(schedule),
+    timezone,
+    scheduleDescription: describeCron(schedule, timezone),
     nextRun: next.toISOString(),
     scope: scope || "shared",
     ...(mcpTools?.length ? { mcpTools } : {}),
   });
 }
 
-async function runList(args: Record<string, any>): Promise<string> {
+async function runList(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const owner = getOwner();
   const sharedOwner = getSharedOwner();
   // Fetch only current user's and shared jobs (not other users')
@@ -178,13 +235,19 @@ async function runList(args: Record<string, any>): Promise<string> {
   const jobs = await Promise.all(
     metas.map(async (r) => {
       const full = await resourceGetByPath(r.owner, r.path);
-      const { meta } = parseJobFrontmatter(full?.content || "");
+      if (!full) return null;
+      if (classifyJobResource(full.content).kind === "automation") return null;
+      const { meta } = parseJobFrontmatter(full.content);
+      if (!jobBelongsToApp(meta, appId)) return null;
       return {
         name: r.path.replace(/^jobs\//, "").replace(/\.md$/, ""),
         path: r.path,
         scope: r.owner === sharedOwner ? "shared" : "personal",
         schedule: meta.schedule,
-        scheduleDescription: meta.schedule ? describeCron(meta.schedule) : "",
+        timezone: effectiveTimezone(meta.timezone),
+        scheduleDescription: meta.schedule
+          ? describeCron(meta.schedule, effectiveTimezone(meta.timezone))
+          : "",
         enabled: meta.enabled,
         lastRun: meta.lastRun || null,
         lastStatus: meta.lastStatus || null,
@@ -194,20 +257,38 @@ async function runList(args: Record<string, any>): Promise<string> {
         deliveryPlatform: meta.deliveryPlatform || null,
         deliveryDestination: meta.deliveryDestination || null,
         model: meta.model || null,
+        executionHostId: meta.executionHostId || null,
+        executionEngine: meta.executionEngine || null,
+        executionCwd: meta.executionCwd || null,
         mcpTools: meta.mcpTools || [],
       };
     }),
   );
+  const scheduledJobs = jobs.filter((job) => job !== null);
 
-  if (jobs.length === 0) {
+  if (scheduledJobs.length === 0) {
     return "No recurring jobs configured. Use manage-jobs with action 'create' to create one.";
   }
 
-  return JSON.stringify(jobs, null, 2);
+  return JSON.stringify(scheduledJobs, null, 2);
 }
 
-async function runUpdate(args: Record<string, any>): Promise<string> {
-  const { name, schedule, instructions, enabled, scope, runAs, model } = args;
+async function runUpdate(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
+  const {
+    name,
+    schedule,
+    instructions,
+    enabled,
+    scope,
+    runAs,
+    model,
+    executionHostId,
+    executionEngine,
+    executionCwd,
+  } = args;
   const path = `jobs/${name}.md`;
 
   // Try to find the resource
@@ -221,16 +302,23 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
   }
 
   const { meta, body } = parseJobFrontmatter(resource.content);
+  if (classifyJobResource(resource.content).kind === "automation") {
+    return JSON.stringify({
+      error: `"${name}" is an automation. Use manage-automations to update it.`,
+    });
+  }
 
   // Reject when the caller doesn't own the shared job and isn't an org
   // admin. Without this check, any user could rewrite a shared job whose
   // `createdBy` is alice@…, and the next cron tick would run the
   // attacker's instructions as alice (creator-runAs schedules in
   // jobs/scheduler.ts line 273-278).
-  const denied = await authorizeJobMutation(resource.owner, meta);
+  const denied = await authorizeJobMutation(resource.owner, meta, appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
+
+  if (!meta.appId && appId?.trim()) meta.appId = appId.trim();
 
   if (schedule) {
     if (!isValidCron(schedule)) {
@@ -239,7 +327,23 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
       });
     }
     meta.schedule = schedule;
-    meta.nextRun = nextOccurrence(schedule).toISOString();
+  }
+
+  if (args.timezone !== undefined) {
+    if (!isValidTimezone(args.timezone)) {
+      return JSON.stringify({
+        error: `Unknown timezone: "${args.timezone}".`,
+      });
+    }
+    meta.timezone = args.timezone;
+  }
+
+  if (schedule || args.timezone !== undefined) {
+    meta.nextRun = nextOccurrence(
+      meta.schedule,
+      undefined,
+      meta.timezone,
+    ).toISOString();
   }
 
   if (enabled !== undefined) {
@@ -253,6 +357,24 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
     meta.runAs = runAs;
   }
   if (typeof model === "string" && model.trim()) meta.model = model.trim();
+  if (executionHostId !== undefined) {
+    meta.executionHostId =
+      typeof executionHostId === "string" && executionHostId.trim()
+        ? executionHostId.trim()
+        : undefined;
+  }
+  if (executionEngine !== undefined) {
+    meta.executionEngine =
+      typeof executionEngine === "string" && executionEngine.trim()
+        ? executionEngine.trim()
+        : undefined;
+  }
+  if (executionCwd !== undefined) {
+    meta.executionCwd =
+      typeof executionCwd === "string" && executionCwd.trim()
+        ? executionCwd.trim()
+        : undefined;
+  }
 
   if (args.mcpTools !== undefined) {
     try {
@@ -272,14 +394,24 @@ async function runUpdate(args: Record<string, any>): Promise<string> {
     updated: true,
     name,
     schedule: meta.schedule,
-    scheduleDescription: describeCron(meta.schedule),
+    timezone: effectiveTimezone(meta.timezone),
+    scheduleDescription: describeCron(
+      meta.schedule,
+      effectiveTimezone(meta.timezone),
+    ),
     enabled: meta.enabled,
     nextRun: meta.nextRun,
     mcpTools: meta.mcpTools || [],
+    executionHostId: meta.executionHostId || null,
+    executionEngine: meta.executionEngine || null,
+    executionCwd: meta.executionCwd || null,
   });
 }
 
-async function runDelete(args: Record<string, any>): Promise<string> {
+async function runDelete(
+  args: Record<string, any>,
+  appId?: string,
+): Promise<string> {
   const { name, scope } = args;
   const path = `jobs/${name}.md`;
 
@@ -296,7 +428,12 @@ async function runDelete(args: Record<string, any>): Promise<string> {
   // remove a shared job. Otherwise any user could break another tenant's
   // recurring schedule.
   const { meta } = parseJobFrontmatter(resource.content);
-  const denied = await authorizeJobMutation(resource.owner, meta);
+  if (classifyJobResource(resource.content).kind === "automation") {
+    return JSON.stringify({
+      error: `"${name}" is an automation. Use manage-automations to delete it.`,
+    });
+  }
+  const denied = await authorizeJobMutation(resource.owner, meta, appId);
   if (denied) {
     return JSON.stringify({ error: denied });
   }
@@ -305,21 +442,23 @@ async function runDelete(args: Record<string, any>): Promise<string> {
   return JSON.stringify({ deleted: true, name });
 }
 
-export function createJobTools(): Record<string, ActionEntry> {
+export function createJobTools(appId?: string): Record<string, ActionEntry> {
   return {
     "manage-jobs": {
       tool: {
         description: `Manage recurring jobs that run on a cron schedule.
 
 Actions:
-- "create": Create a new recurring job. Requires name, schedule, and instructions.
+- "create": Create a new recurring job. Requires name and instructions; an omitted schedule defaults to once per hour.
 - "list": List all recurring jobs and their status (schedule, enabled, last run, next run).
 - "update": Update a job's schedule, instructions, or enabled state. Requires name.
 - "delete": Delete a recurring job. Requires name. Always confirm with the user first.
 
 Cron format is 5 fields: minute hour day-of-month month day-of-week. Common patterns: '0 9 * * *' (daily 9am), '0 9 * * 1-5' (weekdays 9am), '0 * * * *' (every hour), '0 9 * * 1' (Mondays 9am), '*/30 * * * *' (every 30 min).
 
-For jobs that use a connected MCP, pass the exact tool names in mcpTools. This binds only those tools to the background run; OAuth credentials remain in the connector and are resolved for the job's user/org context.`,
+For jobs that use a connected MCP, pass the exact tool names in mcpTools. This binds only those tools to the background run; OAuth credentials remain in the connector and are resolved for the job's user/org context.
+
+To run code-agent work on a paired always-on computer, pass executionHostId (from manage-automations action=list-hosts), and optionally executionEngine and executionCwd. The selected host is explicit and never silently replaced.`,
         parameters: {
           type: "object",
           properties: {
@@ -333,10 +472,15 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
               description:
                 "Job name (hyphen-case, e.g. 'daily-scorecard-check'). Required for create and update.",
             },
+            timezone: {
+              type: "string",
+              description:
+                "IANA timezone the schedule's clock time is read in, e.g. 'America/New_York'. Optional; defaults to the user's saved scheduling timezone, then the caller's browser zone. Always pass this when the user names a time of day, so '8am' means 8am where they are rather than on the server.",
+            },
             schedule: {
               type: "string",
               description:
-                "Cron expression (5 fields: minute hour day-of-month month day-of-week). Required for create, optional for update.",
+                "Cron expression (5 fields: minute hour day-of-month month day-of-week). Defaults to once per hour (0 * * * *) for create; optional for update.",
             },
             instructions: {
               type: "string",
@@ -366,6 +510,21 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
               description:
                 "Optional model id for this routine. The channel/app/engine default is used when omitted.",
             },
+            executionHostId: {
+              type: "string",
+              description:
+                "Optional exact paired execution host id. Use manage-automations action=list-hosts first.",
+            },
+            executionEngine: {
+              type: "string",
+              description:
+                "Optional host engine id, for example codex-cli or claude-cli.",
+            },
+            executionCwd: {
+              type: "string",
+              description:
+                "Optional workspace path on the selected host; otherwise the connector's configured workspace is used.",
+            },
             mcpTools: {
               type: "array",
               items: { type: "string" },
@@ -376,16 +535,21 @@ For jobs that use a connected MCP, pass the exact tool names in mcpTools. This b
           required: ["action"],
         },
       },
+      planMode: {
+        effect: (args) => (args.action === "list" ? "read" : "write"),
+        allowedValues: { action: ["list"] },
+        description: "Plan mode allows listing recurring jobs.",
+      },
       run: async (args) => {
         switch (args.action) {
           case "create":
-            return runCreate(args);
+            return runCreate(args, appId);
           case "list":
-            return runList(args);
+            return runList(args, appId);
           case "update":
-            return runUpdate(args);
+            return runUpdate(args, appId);
           case "delete":
-            return runDelete(args);
+            return runDelete(args, appId);
           default:
             return JSON.stringify({
               error: `Unknown action "${args.action}". Use "create", "list", or "update".`,

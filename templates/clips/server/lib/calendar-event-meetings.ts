@@ -17,6 +17,7 @@ import {
 import {
   getActiveOrganizationId,
   getCurrentOwnerEmail,
+  getDefaultRecordingVisibility,
   nanoid,
 } from "./recordings.js";
 
@@ -423,6 +424,10 @@ export async function materializeCalendarMeetingFromVirtualId(
   const db = getDb();
   const ownerEmail = getCurrentOwnerEmail();
   const orgId = (await getActiveOrganizationId().catch(() => null)) ?? null;
+  const defaultVisibility = await getDefaultRecordingVisibility(
+    orgId ?? live.account.orgId,
+    ownerEmail,
+  );
   const joinUrl = pickJoinUrl(live.event);
   const meetingId = nanoid();
   const nowIso = new Date().toISOString();
@@ -499,6 +504,7 @@ export async function materializeCalendarMeetingFromVirtualId(
         calendarEventId: snapshot.id,
         recordingId: null,
         transcriptStatus: "idle",
+        shareTranscript: false,
         summaryMd: "",
         bulletsJson: "[]",
         actionItemsJson: "[]",
@@ -508,7 +514,7 @@ export async function materializeCalendarMeetingFromVirtualId(
         updatedAt: nowIso,
         ownerEmail,
         orgId,
-        visibility: "private",
+        visibility: defaultVisibility,
       } as any);
 
       const participants = calendarEventParticipants(live.event).filter(

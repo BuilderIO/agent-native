@@ -31,12 +31,12 @@ being rebuilt in slightly different ways every time.
   />
 </WireframeBlock>
 
-<Diagram id="doc-block-toolkits-boundary" title="Comment les kits s’articulent" summary={"Le runtime du framework fournit des garanties durables. Toolkit les transforme en systèmes de produit réutilisables. Les apps ajoutent données métier, routes et identité visuelle."}>
+<Diagram id="doc-block-toolkits-boundary" title="Comment les trois couches s’articulent" summary={"Core est la base du framework. Toolkit fournit une infrastructure et une UI réutilisables facultatives. Templates regroupe des apps facultatives bâties sur Core, souvent avec Toolkit."}>
 
 ```html
 <div class="diagram-row">
   <div class="diagram-card">
-    <span class="diagram-pill accent">Runtime</span><br />
+    <span class="diagram-pill accent">Core</span><br />
     actions, SQL, authentification, état d’app, contrôles d’accès, transport
     temps réel
   </div>
@@ -47,7 +47,7 @@ being rebuilt in slightly different ways every time.
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-card">
-    <span class="diagram-pill accent">Apps</span><br />
+    <span class="diagram-pill accent">Templates</span><br />
     schéma métier, routes, actions, marque, flux spécialisés
   </div>
 </div>
@@ -72,6 +72,8 @@ being rebuilt in slightly different ways every time.
 
 </Diagram>
 
+Core est le framework. Toolkit est un ensemble facultatif d’éléments réutilisables pour le framework. Templates regroupe des apps facultatives bâties sur Core ; elles peuvent utiliser Toolkit et être forkées comme points de départ complets. Une app peut aussi utiliser Core directement sans Toolkit ni template.
+
 ## Catalogue {#catalog}
 
 | Domaine                        | Commencer ici                                                | Ce que cela couvre                                                                           |
@@ -86,19 +88,19 @@ being rebuilt in slightly different ways every time.
 
 ## Kits produit {#product-kits}
 
-| Kit                                                      | À utiliser pour                                                                                       |
-| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| [Sharing](/docs/toolkit-sharing)                         | Ressources possédables, dialogues/actions de partage, badges de visibilité et accès public/privé/org. |
-| [Collaboration](/docs/toolkit-collaboration)             | Édition temps réel, présence, curseurs actifs, changements récents et annulation collaborative.       |
-| [Settings](/docs/toolkit-settings)                       | Pages et onglets standard pour les réglages d’app et d’agent/fournisseur au même endroit.             |
-| [Org & Team](/docs/toolkit-org-team)                     | Équipes, changement d’organisation, invitations, domaines, rôles et changement d’app.                 |
-| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, connexions d’espace, OAuth/préparation fournisseur et Builder connect.           |
-| [Command & Navigation](/docs/toolkit-command-navigation) | Menu de commande, liens profonds, routes standard, patterns de barre latérale et de shell.            |
-| [Resources](/docs/toolkit-resources)                     | Arborescences et éditeurs, sélection/recherche de fichiers, pièces jointes et mode fichiers local.    |
-| [Agent UX](/docs/toolkit-agent-ux)                       | Composeur, modèle, puces de contexte, approbations, reprise et tiroir des exécutions.                 |
-| [History](/docs/toolkit-history)                         | Ressources versionnées, snapshots, historique, audit, annuler/rétablir, restauration et changements.  |
-| [Comments & Review](/docs/toolkit-comments-review)       | Ressources révisables, commentaires, feedback, fils, mentions, résolution et statut de revue.         |
-| [Observability](/docs/toolkit-observability)             | Usage, dépenses, feedback, replay, erreurs et diagnostics d’exécution.                                |
+| Kit                                                      | À utiliser pour                                                                                                         |
+| -------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| [Sharing](/docs/toolkit-sharing)                         | Ressources possédables, dialogues/actions de partage, badges de visibilité et accès public/privé/org.                   |
+| [Collaboration](/docs/toolkit-collaboration)             | Édition temps réel, présence, curseurs actifs, changements récents et annulation collaborative.                         |
+| [Settings](/docs/toolkit-settings)                       | Pages et onglets standard pour les réglages d’app et d’agent/fournisseur au même endroit.                               |
+| [Org & Team](/docs/toolkit-org-team)                     | Équipes, changement d’organisation, invitations, domaines, rôles et changement d’app.                                   |
+| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, connexions d’espace, OAuth/préparation fournisseur et Builder connect (offre gratuite disponible). |
+| [Command & Navigation](/docs/toolkit-command-navigation) | Menu de commande, liens profonds, routes standard, patterns de barre latérale et de shell.                              |
+| [Resources](/docs/toolkit-resources)                     | Arborescences et éditeurs, sélection/recherche de fichiers, pièces jointes et mode fichiers local.                      |
+| [Agent UX](/docs/toolkit-agent-ux)                       | Composeur, modèle, puces de contexte, approbations, reprise et tiroir des exécutions.                                   |
+| [History](/docs/toolkit-history)                         | Ressources versionnées, snapshots, historique, audit, annuler/rétablir, restauration et changements.                    |
+| [Comments & Review](/docs/toolkit-comments-review)       | Ressources révisables, commentaires, feedback, fils, mentions, résolution et statut de revue.                           |
+| [Observability](/docs/toolkit-observability)             | Usage, dépenses, feedback, replay, erreurs et diagnostics d’exécution.                                                  |
 
 ## Maturité et propriété des paquets {#package-maturity-and-ownership}
 

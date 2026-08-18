@@ -11,6 +11,8 @@ description: "agent-native template 使用針對純淨基線的、真正逐檔�
 
 `agent-native template` 是缺少的另一半。它以較新的版本重新取得範本，重新套用 `create` 所套用的確切轉換，並將結果逐檔案合併到您的應用程式中。
 
+社群範本刻意不包含在此同步流程中。`agent-native.communityTemplate` 中繼資料只記錄安裝來源；`agent-native template sync` 不會從該儲存庫拉取變更。需要穩定起點時請安裝固定版本，後續上游變更應在審查後手動移植。
+
 ## 快速入門 {#quick-start}
 
 ```bash

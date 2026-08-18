@@ -17,6 +17,10 @@ import { useOptionalLocale } from "./i18n.js";
 import { useSession } from "./use-session.js";
 import { cn } from "./utils.js";
 
+const FIRST_PARTY_FEEDBACK_URL =
+  "https://forms.agent-native.com/f/agent-native-feedback/_16ewV";
+const FIRST_PARTY_HOSTNAME = "agent-native.com";
+
 function isSyntheticAgentNativeAnonymousEmail(
   value: string | null | undefined,
 ): boolean {
@@ -58,7 +62,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "Invalid feedback URL",
     emptyError: "Please write something first",
     sendError: "Couldn't send feedback",
-    keyboardHint: "{{shortcut}}+Enter to send",
+    keyboardHint: "{{shortcut}} Enter to send",
   },
   "zh-CN": {
     label: "反馈",
@@ -70,7 +74,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "反馈 URL 无效",
     emptyError: "请先写点内容",
     sendError: "无法发送反馈",
-    keyboardHint: "{{shortcut}}+Enter 发送",
+    keyboardHint: "{{shortcut}} Enter 发送",
   },
   "zh-TW": {
     label: "意見回饋",
@@ -82,7 +86,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "意見回饋 URL 無效",
     emptyError: "請先輸入內容",
     sendError: "無法送出意見回饋",
-    keyboardHint: "{{shortcut}}+Enter 送出",
+    keyboardHint: "{{shortcut}} Enter 送出",
   },
   "es-ES": {
     label: "Comentarios",
@@ -94,7 +98,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "URL de comentarios no válida",
     emptyError: "Escribe algo primero",
     sendError: "No se pudieron enviar los comentarios",
-    keyboardHint: "{{shortcut}}+Enter para enviar",
+    keyboardHint: "{{shortcut}} Enter para enviar",
   },
   "fr-FR": {
     label: "Retour",
@@ -106,7 +110,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "URL de retour invalide",
     emptyError: "Écrivez quelque chose d'abord",
     sendError: "Impossible d'envoyer le retour",
-    keyboardHint: "{{shortcut}}+Entrée pour envoyer",
+    keyboardHint: "{{shortcut}} Entrée pour envoyer",
   },
   "de-DE": {
     label: "Feedback",
@@ -118,7 +122,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "Ungültige Feedback-URL",
     emptyError: "Bitte zuerst etwas schreiben",
     sendError: "Feedback konnte nicht gesendet werden",
-    keyboardHint: "{{shortcut}}+Enter zum Senden",
+    keyboardHint: "{{shortcut}} Enter zum Senden",
   },
   "ja-JP": {
     label: "フィードバック",
@@ -130,7 +134,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "フィードバック URL が無効です",
     emptyError: "先に内容を入力してください",
     sendError: "送信できませんでした",
-    keyboardHint: "{{shortcut}}+Enter で送信",
+    keyboardHint: "{{shortcut}} Enter で送信",
   },
   "ko-KR": {
     label: "피드백",
@@ -142,7 +146,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "피드백 URL이 올바르지 않습니다",
     emptyError: "먼저 내용을 입력해 주세요",
     sendError: "피드백을 보낼 수 없습니다",
-    keyboardHint: "{{shortcut}}+Enter로 보내기",
+    keyboardHint: "{{shortcut}} Enter로 보내기",
   },
   "pt-BR": {
     label: "Feedback",
@@ -154,7 +158,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "URL de feedback inválida",
     emptyError: "Escreva algo primeiro",
     sendError: "Não foi possível enviar o feedback",
-    keyboardHint: "{{shortcut}}+Enter para enviar",
+    keyboardHint: "{{shortcut}} Enter para enviar",
   },
   "hi-IN": {
     label: "फ़ीडबैक",
@@ -166,7 +170,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "फ़ीडबैक URL अमान्य है",
     emptyError: "पहले कुछ लिखें",
     sendError: "फ़ीडबैक भेजा नहीं जा सका",
-    keyboardHint: "भेजने के लिए {{shortcut}}+Enter",
+    keyboardHint: "भेजने के लिए {{shortcut}} Enter",
   },
   "ar-SA": {
     label: "ملاحظات",
@@ -178,7 +182,7 @@ const FEEDBACK_COPY: Record<
     invalidUrl: "رابط الملاحظات غير صالح",
     emptyError: "اكتب شيئا أولا",
     sendError: "تعذر إرسال الملاحظات",
-    keyboardHint: "{{shortcut}}+Enter للإرسال",
+    keyboardHint: "{{shortcut}} Enter للإرسال",
   },
 };
 
@@ -231,7 +235,11 @@ export interface FeedbackButtonProps {
    */
   variant?: "sidebar" | "icon" | "outlined";
   label?: string;
-  /** Defaults to VITE_AGENT_NATIVE_FEEDBACK_URL. Missing, blank, or null hides the control. */
+  /**
+   * Defaults to VITE_AGENT_NATIVE_FEEDBACK_URL. First-party agent-native.com
+   * apps fall back to the Agent Native feedback form; other apps stay hidden.
+   * Pass null to explicitly hide the control.
+   */
   url?: string | null;
   className?: string;
   /** Which side the popover opens on. Defaults match the variant. */
@@ -281,14 +289,58 @@ function clientEnv(): Record<string, string | boolean | undefined> | undefined {
   return importMetaEnv ?? processEnv;
 }
 
-export function resolveFeedbackUrl(url?: string | null): string | null {
+function clientHostname(): string | undefined {
+  const location = (
+    globalThis as typeof globalThis & {
+      location?: { hostname?: string };
+    }
+  ).location;
+  return location?.hostname;
+}
+
+function isFirstPartyHostname(hostname: string | null | undefined): boolean {
+  const normalized = hostname?.trim().toLowerCase();
+  return (
+    normalized === FIRST_PARTY_HOSTNAME ||
+    normalized?.endsWith(`.${FIRST_PARTY_HOSTNAME}`) === true
+  );
+}
+
+function isLegacyFeedbackPageUrl(
+  value: string,
+  hostname: string | null | undefined,
+): boolean | null {
+  const hasScheme = /^[a-z][a-z\d+.-]*:/i.test(value);
+  const base = hasScheme || !hostname ? undefined : `https://${hostname}`;
+  if (!URL.canParse(value, base)) return null;
+  const parsed = new URL(value, base);
+  return (
+    parsed.pathname === "/feedback" && isFirstPartyHostname(parsed.hostname)
+  );
+}
+
+export function resolveFeedbackUrl(
+  url?: string | null,
+  hostname: string | null | undefined = clientHostname(),
+): string | null {
   const value =
     url === undefined ? clientEnv()?.VITE_AGENT_NATIVE_FEEDBACK_URL : url;
-  return typeof value === "string" && value.trim() ? value.trim() : null;
+  if (typeof value === "string" && value.trim()) {
+    const normalized = value.trim();
+    if (isLegacyFeedbackPageUrl(normalized, hostname) === true) {
+      return FIRST_PARTY_FEEDBACK_URL;
+    }
+    return parseTarget(normalized) ? normalized : null;
+  }
+  if (url !== undefined) return null;
+  return isFirstPartyHostname(hostname) ? FIRST_PARTY_FEEDBACK_URL : null;
 }
 
 export function FeedbackButton(props: FeedbackButtonProps) {
-  const url = resolveFeedbackUrl(props.url);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+
+  const url = resolveFeedbackUrl(props.url, mounted ? undefined : null);
   if (!url) return null;
   return <FeedbackPopoverButton {...props} url={url} />;
 }
@@ -558,7 +610,7 @@ function FeedbackPopoverButton({
                     copy.keyboardHint.replace(
                       "{{shortcut}}",
                       /Mac|iPhone|iPad/.test(navigator.userAgent)
-                        ? "⌘"
+                        ? "Cmd"
                         : "Ctrl",
                     )}
                 </div>

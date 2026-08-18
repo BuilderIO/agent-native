@@ -58,6 +58,11 @@ import {
   type EditsJson,
 } from "@/lib/timestamp-mapping";
 import { cn } from "@/lib/utils";
+import {
+  extractFilmstripThumbnails,
+  type FilmstripFrame,
+  type FilmstripSprite,
+} from "@/lib/video-filmstrip";
 import { computePeaks, type WaveformPeaks } from "@/lib/waveform-peaks";
 
 import { ChaptersEditor } from "./chapters-editor";
@@ -67,6 +72,7 @@ import { RewindExtensionDialog } from "./rewind-extension-dialog";
 import { StitchManager } from "./stitch-manager";
 import { ThumbnailPicker } from "./thumbnail-picker";
 import { Timeline } from "./timeline";
+import { getTimelineTotalWidth } from "./timeline-geometry";
 import { TranscriptEditor } from "./transcript-editor";
 import { TrimHandles } from "./trim-handles";
 import { Waveform } from "./waveform";
@@ -76,7 +82,7 @@ export interface EditorLayoutProps {
   className?: string;
 }
 
-const WAVEFORM_HEIGHT = 120;
+const WAVEFORM_HEIGHT = 100;
 const MIN_TIMELINE_ZOOM = 1;
 const MAX_TIMELINE_ZOOM = 50;
 
@@ -244,9 +250,14 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     return () => ro.disconnect();
   }, []);
 
-  const totalWidth = Math.max(
-    viewportWidth,
-    Math.floor(viewportWidth * Math.max(1, zoom)),
+  const totalWidth = useMemo(
+    () => getTimelineTotalWidth(viewportWidth, zoom),
+    [viewportWidth, zoom],
+  );
+
+  const clampedScrollLeft = Math.min(
+    scrollLeft,
+    Math.max(0, totalWidth - viewportWidth),
   );
 
   const calculateAnchoredScrollLeft = useCallback(
@@ -254,10 +265,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       nextZoom: number,
       anchor?: { anchorRatio?: number; viewportX?: number },
     ) => {
-      const nextTotalWidth = Math.max(
-        viewportWidth,
-        Math.floor(viewportWidth * Math.max(1, nextZoom)),
-      );
+      const nextTotalWidth = getTimelineTotalWidth(viewportWidth, nextZoom);
       const maxScrollLeft = Math.max(0, nextTotalWidth - viewportWidth);
       const anchorMs = selectionRange
         ? (selectionRange.startMs + selectionRange.endMs) / 2
@@ -318,10 +326,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       sourceScrollLeft: number,
       viewportX: number,
     ) => {
-      const sourceTotalWidth = Math.max(
-        viewportWidth,
-        Math.floor(viewportWidth * Math.max(1, sourceZoom)),
-      );
+      const sourceTotalWidth = getTimelineTotalWidth(viewportWidth, sourceZoom);
       return Math.max(
         0,
         Math.min(
@@ -498,6 +503,96 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     };
   }, [recordingId, waveformMediaUrl]);
 
+  // Filmstrip drawn behind the waveform. A server-generated sprite is one
+  // cached image request and is preferred; browser extraction is the fallback
+  // for hosts without ffmpeg and for local/dev media the server can't fetch.
+  const filmstripSprite = useMemo<FilmstripSprite | null>(() => {
+    const url = recording?.filmstripUrl;
+    const frameCount = Number(recording?.filmstripFrameCount ?? 0);
+    const columns = Number(recording?.filmstripColumns ?? 0);
+    if (!url || frameCount <= 0 || columns <= 0) return null;
+    return {
+      url,
+      frameCount,
+      columns,
+      rows: Number(recording?.filmstripRows ?? 1) || 1,
+      frameWidth: Number(recording?.filmstripFrameWidth ?? 0) || 160,
+      frameHeight: Number(recording?.filmstripFrameHeight ?? 0) || 90,
+    };
+  }, [
+    recording?.filmstripUrl,
+    recording?.filmstripFrameCount,
+    recording?.filmstripColumns,
+    recording?.filmstripRows,
+    recording?.filmstripFrameWidth,
+    recording?.filmstripFrameHeight,
+  ]);
+
+  const [filmstripFrames, setFilmstripFrames] = useState<FilmstripFrame[]>([]);
+
+  useEffect(() => {
+    setFilmstripFrames([]);
+  }, [recordingId]);
+
+  // Cells should read as video frames, so aim for one per `height * aspect` of
+  // track. Bucketed so ordinary window resizing does not re-extract, and based
+  // on the unzoomed width — a zoomed fallback strip stretches, which is one of
+  // the reasons the server sprite is the preferred path.
+  const filmstripFrameCount = useMemo(() => {
+    const bucketedWidth = Math.max(240, Math.round(viewportWidth / 120) * 120);
+    const cellWidth = WAVEFORM_HEIGHT * (16 / 9);
+    return Math.min(48, Math.max(6, Math.round(bucketedWidth / cellWidth)));
+  }, [viewportWidth]);
+
+  useEffect(() => {
+    // A sprite already covers the whole clip — don't decode the video again.
+    if (filmstripSprite) {
+      setFilmstripFrames([]);
+      return;
+    }
+    if (!waveformMediaUrl || durationMs <= 0) {
+      setFilmstripFrames([]);
+      return;
+    }
+    setFilmstripFrames([]);
+    let cancelled = false;
+    // `waveformMediaUrl`, not `videoUrl`: reading frames back out of a
+    // cross-origin video taints the canvas, so provider media must come
+    // through the same-origin proxy first.
+    extractFilmstripThumbnails({
+      videoUrl: waveformMediaUrl,
+      durationMs,
+      frameCount: filmstripFrameCount,
+    })
+      .then((result) => {
+        if (cancelled) return;
+        if (result.status !== "ok") {
+          console.warn("[editor] filmstrip extraction failed", {
+            recordingId,
+            status: result.status,
+            detail: result.detail,
+          });
+        }
+        setFilmstripFrames(result.frames);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        console.warn("[editor] filmstrip extraction threw", {
+          recordingId,
+          error: err instanceof Error ? err.message : String(err),
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    recordingId,
+    waveformMediaUrl,
+    durationMs,
+    filmstripFrameCount,
+    filmstripSprite,
+  ]);
+
   // --- actions ------------------------------------------------------------
   const trim = useActionMutation("trim-recording");
   const split = useActionMutation("split-recording");
@@ -550,12 +645,22 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
       ) {
         e.preventDefault();
         undo.mutate({ recordingId });
-      } else if (e.key.toLowerCase() === "i") {
+      } else if (
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "i"
+      ) {
         setSelectionRange((r) => ({
           startMs: playheadMs,
           endMs: r?.endMs && r.endMs > playheadMs ? r.endMs : playheadMs + 1000,
         }));
-      } else if (e.key.toLowerCase() === "o") {
+      } else if (
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "o"
+      ) {
         setSelectionRange((r) => ({
           startMs:
             r?.startMs && r.startMs < playheadMs
@@ -563,7 +668,12 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               : Math.max(0, playheadMs - 1000),
           endMs: playheadMs,
         }));
-      } else if (e.key.toLowerCase() === "x") {
+      } else if (
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "x"
+      ) {
         // Cut: trim the current selection range
         const range = selectionRange;
         if (range) {
@@ -582,7 +692,12 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
               toast.error(err?.message ?? t("editorLayout.cutFailed")),
             );
         }
-      } else if (e.key.toLowerCase() === "s") {
+      } else if (
+        !e.ctrlKey &&
+        !e.metaKey &&
+        !e.altKey &&
+        e.key.toLowerCase() === "s"
+      ) {
         // Split at playhead
         e.preventDefault();
         split
@@ -666,7 +781,6 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 onPlay={() => setPlaying(true)}
                 onPause={() => setPlaying(false)}
                 controls={false}
-                crossOrigin="anonymous"
               />
             ) : (
               <div className="text-sm text-muted-foreground">
@@ -694,6 +808,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
             <div className="relative min-w-0 overflow-hidden">
               <Waveform
                 peaks={peaks}
+                sprite={filmstripSprite}
+                frames={filmstripFrames}
                 width={viewportWidth}
                 height={WAVEFORM_HEIGHT}
                 zoom={zoom}
@@ -704,7 +820,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                 splitPoints={splitPoints}
                 activityRanges={transcriptSegments}
                 onSeek={seek}
-                scrollLeft={scrollLeft}
+                scrollLeft={clampedScrollLeft}
                 onScroll={(s) => setScrollLeft(s)}
               />
               <div
@@ -715,17 +831,19 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
                   className="relative h-full"
                   style={{
                     width: totalWidth,
-                    transform: `translateX(${-scrollLeft}px)`,
+                    transform: `translateX(${-clampedScrollLeft}px)`,
                   }}
                 >
-                  <TrimHandles
-                    width={totalWidth}
-                    height={WAVEFORM_HEIGHT}
-                    value={effectiveSelection}
-                    onChange={setSelectionRange}
-                    durationMs={durationMs}
-                    splitPoints={splitPoints}
-                  />
+                  {durationMs > 0 && (
+                    <TrimHandles
+                      width={totalWidth}
+                      height={WAVEFORM_HEIGHT}
+                      value={effectiveSelection}
+                      onChange={setSelectionRange}
+                      durationMs={durationMs}
+                      splitPoints={splitPoints}
+                    />
+                  )}
                 </div>
               </div>
             </div>
@@ -736,7 +854,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
             >
               <div
                 style={{
-                  transform: `translateX(${-scrollLeft}px)`,
+                  transform: `translateX(${-clampedScrollLeft}px)`,
                   width: totalWidth,
                 }}
               >
@@ -789,6 +907,7 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
         durationMs={durationMs}
         currentThumbnailUrl={recording.thumbnailUrl}
         currentAnimatedUrl={recording.animatedThumbnailUrl}
+        currentThumbnail={edits.thumbnail}
       />
       <StitchManager
         open={stitchOpen}

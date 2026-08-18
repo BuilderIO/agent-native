@@ -5,24 +5,17 @@ import {
   IconBuilding,
   IconHome,
   IconMapPin,
+  IconPlus,
 } from "@tabler/icons-react";
 import {
   startOfWeek,
   endOfWeek,
   eachDayOfInterval,
   eachHourOfInterval,
-  isSameDay,
-  isToday,
   format,
-  parseISO,
-  differenceInMinutes,
-  startOfDay,
   set,
-  addDays,
   addMinutes,
-  min,
 } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
 import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 
 import { useCalendarSetters } from "@/components/layout/AppLayout";
@@ -43,10 +36,22 @@ import {
   layoutAllDayEvents,
   partitionAllDayEvents,
 } from "@/lib/all-day-layout";
+import {
+  dateToCalendarDateKey,
+  getBrowserTimezone,
+  getDateKeyInTimezone,
+  getEventDateKey,
+  getEventSegmentForCalendarDay,
+} from "@/lib/calendar-timezone";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
+import {
+  computeTimedEventLayout,
+  type TimedEventLayout,
+} from "@/lib/event-layout";
 import {
   getFirstVisibleOutOfOfficeDayIndex,
   getOutOfOfficeSegment,
+  isFullDayOutOfOfficeEvent,
   isOutOfOfficeEvent,
 } from "@/lib/out-of-office";
 import {
@@ -67,8 +72,8 @@ import { shouldRenderWeekDragSegment } from "./week-drag-segment";
 
 interface WeekViewProps {
   events: CalendarEvent[];
-  timezone: string;
   selectedDate: Date;
+  timezone?: string;
   onDateSelect: (date: Date) => void;
   onDeleteEvent: (eventId: string) => void;
   onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
@@ -78,6 +83,7 @@ interface WeekViewProps {
     endTime: string,
     options?: { explicitDuration?: boolean },
   ) => void;
+  onCreateWorkingLocation?: (date: Date) => void;
   quickEditEventId?: string | null;
   onQuickEditSave?: (
     eventId: string,
@@ -104,6 +110,7 @@ interface WeekViewProps {
   ) => void;
   onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
+  weekStartsOn?: 0 | 1;
 }
 
 // [startHour, startMin, durationMin, widthPct] per day column (Sun–Sat)
@@ -144,7 +151,7 @@ function minutesToTimeString(totalMinutes: number): string {
 /** Convert minutes-from-START_HOUR on a given day into a Date, for ghost label formatting */
 function minutesToDate(day: Date, totalMinutes: number): Date {
   return addMinutes(
-    set(startOfDay(day), { hours: START_HOUR, minutes: 0, seconds: 0 }),
+    set(day, { hours: START_HOUR, minutes: 0, seconds: 0 }),
     totalMinutes,
   );
 }
@@ -169,79 +176,10 @@ function formatEventTime(start: Date, end: Date): string {
   return `${startWithAmPm}\u2013${endStr}`;
 }
 
-interface LayoutInfo {
-  left: number; // percentage 0-100
-  width: number; // percentage 0-100
-  col: number;
-  totalCols: number;
-}
-
-/**
- * Stacking layout — like the user's drawing and Google Cal.
- *
- * Every event is nearly full width. Overlapping events get a small left
- * indent per nesting depth and stack on top with opaque backgrounds.
- * Text at the top stays readable; the card beneath is covered.
- */
-function computeLayout(
-  dayEvents: CalendarEvent[],
-  day: Date,
-): Map<string, LayoutInfo> {
-  const result = new Map<string, LayoutInfo>();
-  if (dayEvents.length === 0) return result;
-
-  const dayStartMs = startOfDay(day).getTime();
-  const dayEndMs = addDays(startOfDay(day), 1).getTime();
-
-  // Cap each event's times to this day's boundaries once, reuse in sort + overlap
-  const times = new Map(
-    dayEvents.map((ev) => [
-      ev.id,
-      {
-        start: Math.max(parseISO(ev.start).getTime(), dayStartMs),
-        end: Math.min(parseISO(ev.end).getTime(), dayEndMs),
-      },
-    ]),
-  );
-
-  const sorted = [...dayEvents].sort((a, b) => {
-    const ta = times.get(a.id)!;
-    const tb = times.get(b.id)!;
-    if (ta.start !== tb.start) return ta.start - tb.start;
-    return tb.end - ta.end; // later end first when starts are equal
-  });
-
-  const INDENT_PX = 16;
-
-  for (const ev of sorted) {
-    let depth = 0;
-    for (const other of sorted) {
-      if (other.id === ev.id) break;
-      const ta = times.get(other.id)!;
-      const tb = times.get(ev.id)!;
-      if (ta.start < tb.end && tb.start < ta.end) depth++;
-    }
-
-    result.set(ev.id, {
-      left: depth * INDENT_PX,
-      width: 0,
-      col: depth,
-      totalCols: depth + 1,
-    });
-  }
-
-  return result;
-}
-
 function getSegmentStyle(event: CalendarEvent, day: Date, timezone: string) {
-  const evStart = toZonedTime(event.start, timezone);
-  const evEnd = toZonedTime(event.end, timezone);
-  const dayBase = set(startOfDay(day), { hours: START_HOUR });
-  const dayEnd = addDays(dayBase, 1);
-  const segStart = evStart > dayBase ? evStart : dayBase;
-  const segEnd = min([evEnd, dayEnd]);
-  const topMinutes = Math.max(0, differenceInMinutes(segStart, dayBase));
-  const durationMinutes = Math.max(15, differenceInMinutes(segEnd, segStart));
+  const segment = getEventSegmentForCalendarDay(event, day, timezone);
+  const topMinutes = segment?.topMinutes ?? 0;
+  const durationMinutes = Math.max(15, segment?.durationMinutes ?? 15);
   return {
     top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
     height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
@@ -250,10 +188,10 @@ function getSegmentStyle(event: CalendarEvent, day: Date, timezone: string) {
 
 interface WeekEventCardProps {
   event: CalendarEvent;
-  timezone: string;
   day: Date;
   dayIndex: number;
-  layout: Map<string, LayoutInfo>;
+  timezone: string;
+  layout: Map<string, TimedEventLayout>;
   now: Date;
   prefs: ViewPreferences;
   focusedEventId: string | null;
@@ -305,9 +243,9 @@ interface WeekEventCardProps {
  */
 const WeekEventCard = memo(function WeekEventCard({
   event,
-  timezone,
   day,
   dayIndex,
+  timezone,
   layout,
   now,
   prefs,
@@ -334,22 +272,25 @@ const WeekEventCard = memo(function WeekEventCard({
   onPopoverOpenChange,
 }: WeekEventCardProps) {
   const t = useT();
+  const workingLocationLabels = createWorkingLocationDisplayLabels(t);
+  const title = getWorkingLocationChipLabel(event, workingLocationLabels);
+  const ariaTitle = getWorkingLocationTitle(event, workingLocationLabels);
   const li = layout.get(event.id) ?? {
     left: 0,
-    width: 0,
+    width: 100,
+    indent: 0,
     col: 0,
     totalCols: 1,
+    stackOrder: 0,
   };
   const overrides =
     overrideTop !== null && overrideHeight !== null && overrideDayIndex !== null
       ? { top: overrideTop, height: overrideHeight, dayIndex: overrideDayIndex }
       : null;
-  const start = toZonedTime(event.start, timezone);
-  const end = toZonedTime(event.end, timezone);
-  const dayBase = startOfDay(day);
-  const segDayEnd = addDays(dayBase, 1);
-  const isStart = isSameDay(start, day);
-  const isEnd = end <= segDayEnd;
+  const segment = getEventSegmentForCalendarDay(event, day, timezone);
+  const isStart =
+    getEventDateKey(event, timezone) === dateToCalendarDateKey(day);
+  const isEnd = segment?.endsOnDay ?? true;
   const isDragPreviewSegment =
     isBeingDragged && overrides?.dayIndex === dayIndex;
   const segmentStartsHere = isStart || isDragPreviewSegment;
@@ -383,24 +324,17 @@ const WeekEventCard = memo(function WeekEventCard({
       }
     : getSegmentStyle(event, day, timezone);
   const color = getEventDisplayColor(event, prefs);
-  const segStart = isStart ? start : dayBase;
-  const segEnd = min([end, segDayEnd]);
   const durationMin = overrides
     ? (overrides.height / HOUR_HEIGHT) * 60
-    : differenceInMinutes(segEnd, segStart);
+    : (segment?.durationMinutes ?? 15);
   // Compute display times (use drag overrides if active)
   const displayStart = overrides
-    ? addMinutes(
-        set(startOfDay(day), {
-          hours: START_HOUR,
-          minutes: 0,
-          seconds: 0,
-        }),
-        (overrides.top / HOUR_HEIGHT) * 60,
-      )
-    : start;
-  const displayEnd = overrides ? addMinutes(displayStart, durationMin) : end;
-  const isPast = end < now;
+    ? minutesToDate(day, START_HOUR * 60 + (overrides.top / HOUR_HEIGHT) * 60)
+    : minutesToDate(day, segment?.startMinutes ?? 0);
+  const displayEnd = overrides
+    ? addMinutes(displayStart, durationMin)
+    : minutesToDate(day, segment?.endMinutes ?? durationMin);
+  const isPast = new Date(event.end) < now;
   const isDeclined = event.responseStatus === "declined";
   const allOthersOut = allOtherDeclined(event);
 
@@ -427,21 +361,19 @@ const WeekEventCard = memo(function WeekEventCard({
       )}
       aria-label={
         event.ownerName || event.overlayEmail
-          ? `${event.title}, ${
-              event.ownerName || event.overlayEmail
-            }'s calendar`
-          : event.title
+          ? `${ariaTitle}, ${event.ownerName || event.overlayEmail}'s calendar`
+          : ariaTitle
       }
       style={{
         ...style,
-        left: `${li.left}px`,
-        width: `calc(min(85%, 100% - ${li.left + 2}px))`,
+        left: `calc(${li.left}% + ${li.indent}px)`,
+        width: `calc(${li.width}% - ${li.indent * 2 + 2}px)`,
         zIndex:
           isBeingDragged && isDragging
             ? 100
             : focusedEventId === event.id
               ? 50
-              : li.col + 1,
+              : li.stackOrder + 1,
         backgroundColor: color
           ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
           : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
@@ -489,7 +421,7 @@ const WeekEventCard = memo(function WeekEventCard({
               !isPast && !isDeclined && "font-semibold",
             )}
           >
-            {event.title}
+            {title}
           </span>
         </div>
       ) : (
@@ -511,7 +443,7 @@ const WeekEventCard = memo(function WeekEventCard({
               />
             )}
             <EventStatusIcon event={event} className="shrink-0" />
-            <span className="truncate">{event.title}</span>
+            <span className="truncate">{title}</span>
           </div>
           {segmentStartsHere && (
             <div
@@ -562,6 +494,7 @@ const WeekEventCard = memo(function WeekEventCard({
   return (
     <EventDetailPopover
       event={event}
+      timezone={timezone}
       onDelete={onDeleteEvent}
       isDraft={isDraft}
       defaultOpen={defaultOpen}
@@ -607,12 +540,13 @@ const WeekCreateGhost = memo(function WeekCreateGhost({
 
 export const WeekView = memo(function WeekView({
   events,
-  timezone,
   selectedDate,
+  timezone = getBrowserTimezone(),
   onDateSelect,
   onDeleteEvent,
   onEventTimeChange,
   onClickTimeSlot,
+  onCreateWorkingLocation,
   quickEditEventId,
   onQuickEditSave,
   onQuickEditCancel,
@@ -621,6 +555,7 @@ export const WeekView = memo(function WeekView({
   onDraftCreate,
   onDraftDiscard,
   isLoading = false,
+  weekStartsOn = 0,
 }: WeekViewProps) {
   const t = useT();
   const workingLocationLabels = useMemo(
@@ -668,8 +603,14 @@ export const WeekView = memo(function WeekView({
   }, []);
 
   const { prefs } = useViewPreferences();
-  const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
-  const weekEnd = useMemo(() => endOfWeek(selectedDate), [selectedDate]);
+  const weekStart = useMemo(
+    () => startOfWeek(selectedDate, { weekStartsOn }),
+    [selectedDate, weekStartsOn],
+  );
+  const weekEnd = useMemo(
+    () => endOfWeek(selectedDate, { weekStartsOn }),
+    [selectedDate, weekStartsOn],
+  );
   // Stable day/hour arrays — recomputed only when the week or weekend
   // visibility actually changes, so memoized children (event buttons) don't
   // see a new array identity on every drag/focus re-render.
@@ -689,10 +630,22 @@ export const WeekView = memo(function WeekView({
   );
 
   // Separate all-day and timed events
-  const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
+  const allDayEvents = useMemo(
+    () =>
+      events.filter(
+        (event) => event.allDay || isFullDayOutOfOfficeEvent(event),
+      ),
+    [events],
+  );
 
   const outOfOfficeEvents = useMemo(
-    () => events.filter((event) => !event.allDay && isOutOfOfficeEvent(event)),
+    () =>
+      events.filter(
+        (event) =>
+          !event.allDay &&
+          isOutOfOfficeEvent(event) &&
+          !isFullDayOutOfOfficeEvent(event),
+      ),
     [events],
   );
 
@@ -706,8 +659,8 @@ export const WeekView = memo(function WeekView({
     [allDayEvents],
   );
   const workingLocationLayout = useMemo(
-    () => layoutAllDayEvents(workingLocations, days),
-    [days, workingLocations],
+    () => layoutAllDayEvents(workingLocations, days, timezone),
+    [days, timezone, workingLocations],
   );
   const workingLocationGroups = useMemo(
     () =>
@@ -726,29 +679,45 @@ export const WeekView = memo(function WeekView({
     [prefs, workingLocationLabels, workingLocationLayout.placements],
   );
   const regularAllDayLayout = useMemo(() => {
-    return layoutAllDayEvents(regularEvents, days);
-  }, [days, regularEvents]);
+    return layoutAllDayEvents(regularEvents, days, timezone);
+  }, [days, regularEvents, timezone]);
 
   // Pre-compute timed events per day with layout — include events spanning into this day
   const dayData = useMemo(() => {
     return days.map((day) => {
-      const dayStart = startOfDay(day);
-      const dayEnd = addDays(dayStart, 1);
-      const dayEvents = timedEvents.filter((e) => {
-        const evStart = parseISO(e.start);
-        const evEnd = parseISO(e.end);
-        return evStart < dayEnd && evEnd > dayStart;
-      });
-      const layout = computeLayout(dayEvents, day);
+      const dayEvents = timedEvents.filter((event) =>
+        getEventSegmentForCalendarDay(event, day, timezone),
+      );
+      const layout = computeTimedEventLayout(dayEvents, day, timezone);
       return { day, events: dayEvents, layout };
     });
-  }, [days, timedEvents]);
+  }, [days, timedEvents, timezone]);
 
   // Current time indicator
-  const nowMinutes = (now.getHours() - START_HOUR) * 60 + now.getMinutes();
+  const nowParts = getDateKeyInTimezone(now, timezone)
+    ? new Intl.DateTimeFormat("en-US", {
+        timeZone: timezone,
+        hourCycle: "h23",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+        .formatToParts(now)
+        .reduce(
+          (parts, part) => {
+            if (part.type === "hour") parts.hour = Number(part.value);
+            if (part.type === "minute") parts.minute = Number(part.value);
+            return parts;
+          },
+          { hour: 0, minute: 0 },
+        )
+    : null;
+  const nowMinutes = nowParts
+    ? (nowParts.hour - START_HOUR) * 60 + nowParts.minute
+    : -1;
   const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
   const showNowIndicator =
     nowMinutes >= 0 && nowMinutes <= (END_HOUR - START_HOUR) * 60;
+  const currentDateKey = getDateKeyInTimezone(now, timezone);
 
   const hasWorkingLocations = workingLocationLayout.rowCount > 0;
   const hasRegularAllDayEvents = regularAllDayLayout.rowCount > 0;
@@ -828,10 +797,7 @@ export const WeekView = memo(function WeekView({
       }
     }
 
-    let iana = "";
-    try {
-      iana = timezone;
-    } catch {}
+    const iana = timezone;
 
     const longGeneric = nameForToken("longGeneric");
     let shortGeneric = nameForToken("shortGeneric");
@@ -980,30 +946,53 @@ export const WeekView = memo(function WeekView({
           </div>
 
           {/* Day columns */}
-          {days.map((day) => (
-            <div
-              key={day.toISOString()}
-              onClick={() => onDateSelect(day)}
-              className={cn(
-                "flex flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 border-r border-border py-1.5 sm:flex-row sm:gap-1.5 sm:py-2.5 last:border-r-0",
-                isToday(day) ? "bg-primary/5" : "hover:bg-accent/40",
-              )}
-            >
-              <span className="text-[10px] font-medium text-muted-foreground sm:text-xs">
-                {isMobile ? format(day, "EEEEE") : format(day, "EEE")}
-              </span>
-              <span
+          {days.map((day) => {
+            const isCurrentDay = dateToCalendarDateKey(day) === currentDateKey;
+            return (
+              <div
+                key={day.toISOString()}
+                onClick={() => onDateSelect(day)}
                 className={cn(
-                  "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold sm:h-7 sm:w-7 sm:text-sm",
-                  isToday(day)
-                    ? "bg-foreground text-background"
-                    : "text-foreground",
+                  "group/day relative flex flex-1 cursor-pointer flex-col items-center justify-center gap-0.5 border-r border-border py-1.5 sm:flex-row sm:gap-1.5 sm:py-2.5 last:border-r-0",
+                  isCurrentDay ? "bg-primary/5" : "hover:bg-accent/40",
                 )}
               >
-                {format(day, "d")}
-              </span>
-            </div>
-          ))}
+                <span className="text-[10px] font-medium text-muted-foreground sm:text-xs">
+                  {isMobile ? format(day, "EEEEE") : format(day, "EEE")}
+                </span>
+                <span
+                  className={cn(
+                    "flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold sm:h-7 sm:w-7 sm:text-sm",
+                    isCurrentDay
+                      ? "bg-foreground text-background"
+                      : "text-foreground",
+                  )}
+                >
+                  {format(day, "d")}
+                </span>
+                {onCreateWorkingLocation && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("calendarView.addWorkingLocation")}
+                        className="absolute right-1 top-1 flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/day:opacity-100"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onCreateWorkingLocation(day);
+                        }}
+                      >
+                        <IconPlus aria-hidden="true" className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="bottom">
+                      {t("calendarView.addWorkingLocation")}
+                    </TooltipContent>
+                  </Tooltip>
+                )}
+              </div>
+            );
+          })}
           {timeGridScrollbarWidth > 0 && (
             <div
               aria-hidden="true"
@@ -1111,6 +1100,7 @@ export const WeekView = memo(function WeekView({
                           <EventDetailPopover
                             key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
                             event={event}
+                            timezone={timezone}
                             onDelete={onDeleteEvent}
                             isDraft={draftEventIds.includes(event.id)}
                             defaultOpen={quickEditEventId === event.id}
@@ -1191,6 +1181,7 @@ export const WeekView = memo(function WeekView({
                       <EventDetailPopover
                         key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
                         event={event}
+                        timezone={timezone}
                         onDelete={onDeleteEvent}
                         isDraft={draftEventIds.includes(event.id)}
                         defaultOpen={quickEditEventId === event.id}
@@ -1291,7 +1282,7 @@ export const WeekView = memo(function WeekView({
 
           {/* Day columns */}
           {dayData.map(({ day, events: dayEvents, layout }, dayIndex) => {
-            const isCurrentDay = isToday(day);
+            const isCurrentDay = dateToCalendarDateKey(day) === currentDateKey;
 
             // Collect events that were dragged into this column from another day
             const draggedInEvents: CalendarEvent[] = [];
@@ -1311,7 +1302,7 @@ export const WeekView = memo(function WeekView({
               (event) => {
                 const overrides = getDragOverrides(event.id);
                 return (
-                  getOutOfOfficeSegment(event, day) !== null ||
+                  getOutOfOfficeSegment(event, day, timezone) !== null ||
                   (dragEventId === event.id && overrides?.dayIndex === dayIndex)
                 );
               },
@@ -1399,12 +1390,13 @@ export const WeekView = memo(function WeekView({
                     const isBeingDragged = dragEventId === event.id;
                     const overrides = getDragOverrides(event.id);
                     const canonicalDayIndex =
-                      getFirstVisibleOutOfOfficeDayIndex(event, days);
+                      getFirstVisibleOutOfOfficeDayIndex(event, days, timezone);
                     return (
                       <OutOfOfficeEvent
                         key={`${event._tempId ?? event.id}:${day.toISOString()}`}
                         event={event}
                         day={day}
+                        timezone={timezone}
                         hourHeight={HOUR_HEIGHT}
                         color={
                           getEventDisplayColor(event, prefs) ??
@@ -1462,7 +1454,7 @@ export const WeekView = memo(function WeekView({
 
                 {/* Skeleton events when loading */}
                 {isLoading &&
-                  WEEK_SKELETONS[dayIndex]?.map(
+                  WEEK_SKELETONS[day.getDay()]?.map(
                     ([startHour, startMin, duration, widthPct], i) => {
                       const topPx =
                         ((startHour - START_HOUR) * 60 + startMin) *
@@ -1495,9 +1487,9 @@ export const WeekView = memo(function WeekView({
                       <WeekEventCard
                         key={event._tempId ?? event.id}
                         event={event}
-                        timezone={timezone}
                         day={day}
                         dayIndex={dayIndex}
+                        timezone={timezone}
                         layout={layout}
                         now={now}
                         prefs={prefs}

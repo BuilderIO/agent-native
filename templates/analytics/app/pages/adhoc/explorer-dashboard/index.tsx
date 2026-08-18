@@ -209,6 +209,8 @@ export default function ExplorerDashboardPage() {
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
+  const [openDeleteAfterMenuClose, setOpenDeleteAfterMenuClose] =
+    useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
   const [activeDragChartId, setActiveDragChartId] = useState<string | null>(
@@ -216,6 +218,20 @@ export default function ExplorerDashboardPage() {
   );
   const canEdit = resourceCanEdit(resourceAccess);
   const canManage = resourceCanManage(resourceAccess);
+  useEffect(() => {
+    if (dashboardActionsOpen || !openDeleteAfterMenuClose) return;
+    const frame = requestAnimationFrame(() => {
+      setOpenDeleteAfterMenuClose(false);
+      setConfirmDeleteOpen(true);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [dashboardActionsOpen, openDeleteAfterMenuClose]);
+
+  const requestDashboardDelete = useCallback(() => {
+    setOpenDeleteAfterMenuClose(true);
+    setDashboardActionsOpen(false);
+  }, []);
+
   const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
     id: dashboardId,
     kind: "explorer",
@@ -722,8 +738,7 @@ export default function ExplorerDashboardPage() {
                   <DropdownMenuItem
                     onSelect={(event) => {
                       event.preventDefault();
-                      setDashboardActionsOpen(false);
-                      setConfirmDeleteOpen(true);
+                      requestDashboardDelete();
                     }}
                     className="text-destructive focus:text-destructive"
                   >

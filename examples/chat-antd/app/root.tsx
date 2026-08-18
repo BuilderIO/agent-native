@@ -72,7 +72,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#18181B" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -137,7 +136,7 @@ function AppContent() {
             {t("root.commandSearch")}
           </CommandMenu.Item>
           <CommandMenu.Item
-            onSelect={() => navigate("/agent")}
+            onSelect={() => navigate("/settings/agent")}
             keywords={[
               "agent",
               "context",

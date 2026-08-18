@@ -2,6 +2,15 @@ import safeRegex from "safe-regex2";
 
 export type SearchMatchMode = "allTerms" | "anyTerm" | "phrase" | "regex";
 
+export type TextSearchMode = "substring" | "glob" | "sql-like" | "regex";
+
+export interface TextMatcher {
+  matches(value: string): boolean;
+  error?: string;
+}
+
+const MAX_TEXT_SEARCH_PATTERN_LENGTH = 240;
+
 const STOPWORDS = new Set([
   "about",
   "and",
@@ -61,6 +70,86 @@ export function matchesSearchMode(
   return mode === "allTerms"
     ? tokens.every((term) => normalizedValue.includes(term))
     : tokens.some((term) => normalizedValue.includes(term));
+}
+
+/**
+ * Build a bounded, case-insensitive matcher for agent-facing text search.
+ * Regexes are deliberately constrained because these matchers may scan a
+ * packaged source corpus during a single agent turn.
+ */
+export function createTextMatcher(
+  pattern: string,
+  mode: TextSearchMode = "substring",
+): TextMatcher {
+  if (!pattern) {
+    return { matches: () => false, error: "Search pattern cannot be empty." };
+  }
+  if (pattern.length > MAX_TEXT_SEARCH_PATTERN_LENGTH) {
+    return {
+      matches: () => false,
+      error: `Search pattern is limited to ${MAX_TEXT_SEARCH_PATTERN_LENGTH} characters.`,
+    };
+  }
+
+  if (mode === "substring") {
+    const normalized = pattern.toLowerCase();
+    return {
+      matches: (value) => value.toLowerCase().includes(normalized),
+    };
+  }
+
+  const regexSource =
+    mode === "regex" ? pattern : wildcardPatternToRegex(pattern, mode);
+  try {
+    const matcher = new RegExp(regexSource, "isu");
+    if (mode === "regex" && !safeRegex(pattern)) {
+      return {
+        matches: () => false,
+        error: "Regex pattern is too complex for a bounded source search.",
+      };
+    }
+    return { matches: (value) => matcher.test(value) };
+  } catch {
+    return {
+      matches: () => false,
+      error: `Invalid ${mode} search pattern.`,
+    };
+  }
+}
+
+function wildcardPatternToRegex(
+  pattern: string,
+  mode: Exclude<TextSearchMode, "substring" | "regex">,
+): string {
+  let source = "";
+  let escaped = false;
+  for (const character of pattern) {
+    if (escaped) {
+      source += escapeRegexCharacter(character);
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    const isMany = mode === "glob" ? character === "*" : character === "%";
+    const isOne = mode === "glob" ? character === "?" : character === "_";
+    if (isMany) {
+      source += "[\\s\\S]*";
+    } else if (isOne) {
+      source += "[\\s\\S]";
+    } else {
+      source += escapeRegexCharacter(character);
+    }
+  }
+  if (escaped) source += "\\\\";
+  return source;
+}
+
+function escapeRegexCharacter(value: string): string {
+  return value.replace(/[\\^$.*+?()[\]{}|]/g, "\\$&");
 }
 
 export function buildSearchSnippet(

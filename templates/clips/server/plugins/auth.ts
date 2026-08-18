@@ -1,8 +1,13 @@
 import { createAuthPlugin } from "@agent-native/core/server";
 
+import { PRERENDERED_PUBLIC_PAGE_PATHS } from "../../shared/prerendered-public-paths.js";
+
 // Clips has public share pages, embeds, and view-event tracking that must
 // reach unauthenticated viewers. Everything else sits behind auth.
 export default createAuthPlugin({
+  // Keep the native tray token and the Better Auth cookie useful between
+  // infrequent recording sessions without making them permanent.
+  maxAge: 60 * 60 * 24 * 90,
   // Clips owns `/_agent-native/google/*` so the same registered Google
   // callback can handle both normal sign-in and the Calendar connect flow.
   mountGoogleOAuthRoutes: false,
@@ -21,7 +26,10 @@ export default createAuthPlugin({
     "/share",
     "/r",
     "/embed",
-    "/download",
+    // Prerendered to static HTML, so the CDN answers without ever reaching this
+    // middleware. Sharing the constant keeps "prerendered" a strict subset of
+    // "public" instead of two lists that can drift into an auth bypass.
+    ...PRERENDERED_PUBLIC_PAGE_PATHS,
     "/bug-report",
     // React Router's lazy route-discovery endpoint. If this is gated by
     // auth it returns an HTML login page; the client tries to parse it
@@ -45,6 +53,15 @@ export default createAuthPlugin({
     "/api/video",
     "/api/thumbnail",
     "/api/auth/google-calendar",
+    // Internal post-finalize worker (media verification, seekable remux,
+    // transcript, brain-export, loom-import retries). It's a server-to-server
+    // self-dispatch with no session cookie — its own scoped, short-lived
+    // signed token (verifyScopedAgentAccessToken) is the real auth check, so
+    // it must bypass the session gate to ever reach that check. Exact path
+    // only, not the whole `_agent-native-background` namespace — a future
+    // route added under that prefix without its own auth check must not
+    // become silently public by inheriting this bypass.
+    "/api/_agent-native-background/post-finalize-worker",
     "/_agent-native/google/auth-url",
     "/_agent-native/google/callback",
   ],

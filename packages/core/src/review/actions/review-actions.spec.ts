@@ -22,6 +22,8 @@ const rawClient = {
 vi.mock("../../db/client.js", () => ({
   getDbExec: () => rawClient,
   isPostgres: () => false,
+  getDialect: () => "sqlite",
+  intType: () => "INTEGER",
 }));
 
 const createReviewCommentAction = (await import("./create-review-comment.js"))
@@ -51,6 +53,7 @@ const {
 
 const OWNER_EMAIL = "owner@example.com";
 const EDITOR_EMAIL = "editor@example.com";
+const COMMENTER_EMAIL = "commenter@example.com";
 
 beforeEach(async () => {
   sqlite = new Database(":memory:");
@@ -71,6 +74,14 @@ beforeEach(async () => {
               : resourceId === "org"
                 ? "org"
                 : "private",
+        };
+      }
+      if (ctx?.userEmail === COMMENTER_EMAIL) {
+        return {
+          role: "commenter",
+          ownerEmail: OWNER_EMAIL,
+          orgId: "owner-org",
+          visibility: "public",
         };
       }
       if (resourceId === "public") {
@@ -189,6 +200,20 @@ describe("review actions", () => {
       canDelete: false,
     });
 
+    await expect(
+      createReviewCommentAction.run(
+        {
+          resourceType: "doc",
+          resourceId: "public",
+          body: "Viewer feedback must be rejected",
+        },
+        {
+          userEmail: "public-viewer@example.com",
+          caller: "frontend",
+        },
+      ),
+    ).rejects.toThrow();
+
     const ownPublicComment = await createReviewCommentAction.run(
       {
         resourceType: "doc",
@@ -196,21 +221,21 @@ describe("review actions", () => {
         body: "My public feedback",
       },
       {
-        userEmail: "public-viewer@example.com",
+        userEmail: COMMENTER_EMAIL,
         userName: "Public Reviewer",
         caller: "frontend",
       },
     );
     const ownPublicResult = await listReviewCommentsAction.run(
       { resourceType: "doc", resourceId: "public" },
-      { userEmail: "public-viewer@example.com", caller: "frontend" },
+      { userEmail: COMMENTER_EMAIL, caller: "frontend" },
     );
     expect(
       ownPublicResult.comments.find(
         (comment) => comment.id === ownPublicComment.id,
       ),
     ).toMatchObject({
-      authorEmail: null,
+      authorEmail: COMMENTER_EMAIL,
       authorName: "Public Reviewer",
       canDelete: true,
     });

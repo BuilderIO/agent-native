@@ -1,24 +1,27 @@
-import { IconTrash, IconX } from "@tabler/icons-react-native";
+import { IconPlus, IconTrash, IconX } from "@tabler/icons-react-native";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
-  Modal,
   Pressable,
   ScrollView,
   Text,
+  useWindowDimensions,
   View,
 } from "react-native";
 
 import { AppIcon } from "@/components/AppCard";
+import { MobileSheet } from "@/components/MobileSheet";
 import { SafeAreaView } from "@/components/uniwind-interop";
 import {
   chatCapableApps,
   deleteChatThread,
+  listAllThreadsWithStatus,
   listThreadsForApp,
 } from "@/lib/agent-chat/api";
-import { groupThreadsByApp, threadKey } from "@/lib/agent-chat/thread-grouping";
+import { threadKey } from "@/lib/agent-chat/thread-grouping";
 import type { ChatThreadSummary } from "@/lib/agent-chat/types";
+import { useMobileThemeColors } from "@/lib/mobile-colors";
 
 function formatWhen(timestamp: number): string {
   if (!timestamp) return "";
@@ -47,11 +50,12 @@ function AppFilterChip({
   selected: boolean;
   onPress: () => void;
 }) {
+  const { mutedForeground, primaryForeground } = useMobileThemeColors();
   return (
     <Pressable
       onPress={onPress}
-      className={`flex-row items-center gap-1.5 rounded-full px-3 py-1.5 active:opacity-75 ${
-        selected ? "bg-white" : "bg-card-dark border border-border-dark"
+      className={`flex-row items-center gap-1.5 rounded-full px-3 py-1.5 active:bg-accent ${
+        selected ? "bg-primary" : "bg-popover border border-border"
       }`}
       accessibilityRole="button"
       accessibilityState={{ selected }}
@@ -61,12 +65,12 @@ function AppFilterChip({
         <AppIcon
           iconName={icon}
           size={13}
-          color={selected ? "#18181b" : "#a1a1aa"}
+          color={selected ? primaryForeground : mutedForeground}
         />
       ) : null}
       <Text
         className={`text-[13px] font-semibold ${
-          selected ? "text-background-dark" : "text-text-light"
+          selected ? "text-primary-foreground" : "text-popover-foreground"
         }`}
       >
         {label}
@@ -80,22 +84,28 @@ export function ThreadHistorySheet({
   activeThreadId,
   activeBaseUrl,
   onSelect,
+  onNewChat,
   onClose,
 }: {
   visible: boolean;
   activeThreadId: string;
   activeBaseUrl: string;
   onSelect: (threadId: string, baseUrl?: string) => void;
+  onNewChat: (baseUrl?: string) => void;
   onClose: () => void;
 }) {
+  const { mutedForeground, primaryForeground, border, destructive } =
+    useMobileThemeColors();
   const [threads, setThreads] = useState<ChatThreadSummary[]>([]);
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [confirmingDeleteKey, setConfirmingDeleteKey] = useState<string | null>(
     null,
   );
-  // History shows one app at a time, defaulting to Chat.
-  const [selectedAppId, setSelectedAppId] = useState<string>("chat");
+  const { width } = useWindowDimensions();
+  const drawerWidth = Math.min(380, width * 0.88);
+  // Start with the complete workspace history, then let the user narrow it.
+  const [selectedAppId, setSelectedAppId] = useState<"all" | string>("all");
   // Discards results from a superseded app-filter request.
   const requestIdRef = useRef(0);
 
@@ -112,9 +122,17 @@ export function ThreadHistorySheet({
     const requestId = ++requestIdRef.current;
     setLoading(true);
     setLoadError(null);
-    listThreadsForApp(selectedAppId)
+    const resultPromise =
+      selectedAppId === "all"
+        ? listAllThreadsWithStatus()
+        : listThreadsForApp(selectedAppId).then((result) => ({
+            threads: result,
+            failedAppIds: [],
+          }));
+    resultPromise
       .then((result) => {
-        if (requestIdRef.current === requestId) setThreads(result);
+        if (requestIdRef.current !== requestId) return;
+        setThreads(result.threads);
       })
       .catch((error) => {
         if (requestIdRef.current !== requestId) return;
@@ -137,9 +155,16 @@ export function ThreadHistorySheet({
   // The chip row already names the app, so the per-app section header is
   // redundant — keep only the thread rows.
   const rows = useMemo(
-    () => groupThreadsByApp(threads).filter((r) => r.type !== "header"),
+    () =>
+      threads.map((thread) => ({
+        type: "thread" as const,
+        thread,
+        key: threadKey(thread),
+      })),
     [threads],
   );
+
+  const selectedApp = apps.find((app) => app.id === selectedAppId);
 
   const handleDelete = (thread: ChatThreadSummary) => {
     const key = threadKey(thread);
@@ -153,27 +178,55 @@ export function ThreadHistorySheet({
   };
 
   return (
-    <Modal
+    <MobileSheet
       visible={visible}
-      animationType="slide"
-      presentationStyle="formSheet"
-      onRequestClose={onClose}
+      onClose={onClose}
+      side="left"
+      motion="sheet"
+      motionOffset={drawerWidth}
+      contentClassName="bg-background border-r border-border"
+      contentStyle={{
+        width: drawerWidth,
+        borderRightColor: border,
+        borderRightWidth: 1,
+        elevation: 18,
+        shadowColor: "#000000",
+        shadowOffset: { width: 8, height: 0 },
+        shadowOpacity: 0.26,
+        shadowRadius: 18,
+      }}
+      overlayClassName="bg-black/55"
+      accessibilityLabel="Close chat history"
     >
-      <SafeAreaView
-        edges={["top", "bottom"]}
-        className="flex-1 bg-background-dark"
-      >
+      <SafeAreaView edges={["top", "bottom"]} className="flex-1">
         <View className="flex-row items-center justify-between px-4 pt-3 pb-2 border-b border-border-dark">
-          <Text className="text-white text-lg font-bold">Chats</Text>
+          <Text className="text-foreground text-lg font-bold">Chats</Text>
           <Pressable
             className="p-1.5 active:opacity-75"
             onPress={onClose}
             accessibilityRole="button"
             accessibilityLabel="Close chat history"
           >
-            <IconX color="#71717a" size={20} strokeWidth={2} />
+            <IconX color={mutedForeground} size={20} strokeWidth={2} />
           </Pressable>
         </View>
+
+        <Pressable
+          className="flex-row items-center gap-3 px-4 py-3.5 border-b border-border-dark active:opacity-75"
+          onPress={() => {
+            onNewChat(selectedApp?.url);
+            onClose();
+          }}
+          accessibilityRole="button"
+          accessibilityLabel="Start a new chat"
+        >
+          <View className="h-8 w-8 items-center justify-center rounded-lg bg-primary">
+            <IconPlus color={primaryForeground} size={18} strokeWidth={2.2} />
+          </View>
+          <Text className="text-foreground text-[15px] font-semibold">
+            New chat
+          </Text>
+        </Pressable>
 
         <View className="border-b border-border-dark">
           <ScrollView
@@ -181,6 +234,11 @@ export function ThreadHistorySheet({
             showsHorizontalScrollIndicator={false}
             contentContainerClassName="flex-row items-center gap-2 px-3 py-3"
           >
+            <AppFilterChip
+              label="All"
+              selected={selectedAppId === "all"}
+              onPress={() => setSelectedAppId("all")}
+            />
             {apps.map((app) => (
               <AppFilterChip
                 key={app.id}
@@ -195,7 +253,7 @@ export function ThreadHistorySheet({
 
         {loading && threads.length === 0 ? (
           <View className="flex-1 items-center justify-center">
-            <ActivityIndicator color="#c7f36b" />
+            <ActivityIndicator color={mutedForeground} />
           </View>
         ) : loadError ? (
           <View className="flex-1 items-center justify-center px-8 gap-3">
@@ -214,7 +272,9 @@ export function ThreadHistorySheet({
         ) : threads.length === 0 ? (
           <View className="flex-1 items-center justify-center px-8">
             <Text className="text-status-gray text-sm text-center">
-              {`No ${apps.find((a) => a.id === selectedAppId)?.name ?? "app"} chats yet. Start a conversation there and it will show up here.`}
+              {selectedAppId === "all"
+                ? "No chats yet. Start a conversation and it will show up here."
+                : `No ${selectedApp?.name ?? "app"} chats yet. Start a conversation there and it will show up here.`}
             </Text>
           </View>
         ) : (
@@ -228,36 +288,52 @@ export function ThreadHistorySheet({
                 (thread.baseUrl ?? "") === activeBaseUrl;
               const confirming = confirmingDeleteKey === item.key;
               return (
-                <Pressable
+                <View
                   className={`flex-row items-center gap-3 px-4 py-3 border-b border-border-dark active:opacity-75 ${
                     isActive ? "bg-card-dark" : ""
                   }`}
-                  onPress={() => {
-                    onSelect(thread.id, thread.baseUrl);
-                    onClose();
-                  }}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Open chat ${thread.title}`}
                 >
-                  <View className="flex-1">
-                    <Text
-                      className="text-white text-[15px] font-medium"
-                      numberOfLines={1}
-                    >
-                      {thread.title}
-                    </Text>
-                    {thread.preview ? (
+                  <Pressable
+                    className="flex-1 flex-row items-center gap-3 active:opacity-75"
+                    onPress={() => {
+                      onSelect(thread.id, thread.baseUrl);
+                      onClose();
+                    }}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Open chat ${thread.title}`}
+                  >
+                    <View className="flex-1">
+                      {selectedAppId === "all" && thread.appName ? (
+                        <View className="flex-row items-center gap-1.5 mb-0.5">
+                          <AppIcon
+                            iconName={thread.appIcon ?? "MessageSquare"}
+                            size={12}
+                            color={mutedForeground}
+                          />
+                          <Text className="text-status-gray text-[11px]">
+                            {thread.appName}
+                          </Text>
+                        </View>
+                      ) : null}
                       <Text
-                        className="text-status-gray text-[13px] mt-0.5"
+                        className="text-foreground text-[15px] font-medium"
                         numberOfLines={1}
                       >
-                        {thread.preview}
+                        {thread.title}
                       </Text>
-                    ) : null}
-                  </View>
-                  <Text className="text-status-gray text-xs">
-                    {formatWhen(thread.updatedAt)}
-                  </Text>
+                      {thread.preview ? (
+                        <Text
+                          className="text-status-gray text-[13px] mt-0.5"
+                          numberOfLines={1}
+                        >
+                          {thread.preview}
+                        </Text>
+                      ) : null}
+                    </View>
+                    <Text className="text-status-gray text-xs">
+                      {formatWhen(thread.updatedAt)}
+                    </Text>
+                  </Pressable>
                   <Pressable
                     className="p-1.5 active:opacity-75"
                     onPress={() => handleDelete(thread)}
@@ -269,17 +345,17 @@ export function ThreadHistorySheet({
                     }
                   >
                     <IconTrash
-                      color={confirming ? "#fb7185" : "#71717a"}
+                      color={confirming ? destructive : mutedForeground}
                       size={17}
                       strokeWidth={1.8}
                     />
                   </Pressable>
-                </Pressable>
+                </View>
               );
             }}
           />
         )}
       </SafeAreaView>
-    </Modal>
+    </MobileSheet>
   );
 }

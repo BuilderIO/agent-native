@@ -7,7 +7,12 @@ import {
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { useBuilderConnectFlow } from "@agent-native/core/client/settings/useBuilderStatus";
-import { getWorkspaceAppIdValidationError } from "@agent-native/core/shared";
+import {
+  buildChatFirstAppCreationPrompt,
+  docsUrl,
+  getWorkspaceAppIdValidationError,
+  titleFromChatFirstAppPrompt,
+} from "@agent-native/core/shared";
 import {
   IconAlertTriangle,
   IconArrowLeft,
@@ -55,87 +60,10 @@ interface CreateAppPopoverProps {
    * Override the popover alignment. Defaults to "center" with a 10px offset.
    */
   align?: "start" | "center" | "end";
-}
-
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .replace(/^[^a-z]+/, "")
-    .slice(0, 48);
-}
-
-function titleFromPrompt(prompt: string): string {
-  const cleaned = prompt
-    .replace(/\b(build|create|make|an?|the|app|tool|dashboard)\b/gi, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-  return slugify(cleaned || "new-app") || "new-app";
-}
-
-function buildAppCreationPrompt(input: {
-  appId: string;
-  prompt: string;
-  selectedKeys: string[];
-  selectedResources: WorkspaceResourceOption[];
-  vaultAccessMode: VaultAccessMode;
-}): string {
-  const keyList = input.selectedKeys.join(", ");
-  const grantRequest =
-    input.vaultAccessMode === "all-apps"
-      ? `Dispatch vault access: all saved vault keys are available to every workspace app by default. No per-app vault grants are needed.`
-      : keyList
-        ? `Requested Dispatch vault key grants for this app: ${keyList}`
-        : `Requested Dispatch vault key grants for this app: none`;
-  const resourceList = input.selectedResources.length
-    ? input.selectedResources
-        .map(
-          (resource) =>
-            `- ${resource.name} (${resource.kind}, ${resource.path})`,
-        )
-        .join("\n")
-    : "none";
-
-  return [
-    `Create a new agent-native app in this workspace.`,
-    `This is a new workspace app request, not a feature request for the current app.`,
-    ``,
-    `Suggested app name: ${input.appId} (you may adjust the slug if it conflicts)`,
-    `User prompt: ${input.prompt.trim()}`,
-    `Generate a concise one-sentence app description from the user prompt before coding; save it in apps/${input.appId}/package.json "description" so Dispatch and A2A can describe the app.`,
-    `If the user mentions a product or company such as Granola, Loom, Superhuman, Linear, or Notion, treat it as product inspiration unless they explicitly ask to connect to that service. Do not invent or require third-party API keys like GRANOLA_API_KEY just because a product is named.`,
-    grantRequest,
-    `Requested Dispatch workspace resources for this app:\n${resourceList}`,
-    `Dispatch workspace resources with scope=all are inherited workspace context. Do not copy or sync them into the new app; every workspace app reads them at runtime and may override with app shared or personal resources.`,
-    ``,
-    `Pick a UI template that fits the user's prompt — analytics, assets, brain, calendar, chat, content, design, dispatch, forms, mail, slides, or clips when none of the others fit.`,
-    `If you use the chat template, treat it as scaffolding only: the finished app must use the requested app's real name, home screen, navigation, package metadata, and manifest, and it must not leave visible "Chat", "Starter", "Blank app", or "New app" UI behind.`,
-    `Use the workspace app layout: create it under apps/${input.appId}, mount it at /${input.appId}, keep it on the shared workspace database/hosting model, and avoid table-name collisions by namespacing any new domain tables to the app.`,
-    `Important routing rule: from outside the app, link to /${input.appId}; inside apps/${input.appId}, React Router routes are app-local. Use <Link to="/review"> and navigate("/review"), not "/${input.appId}/review"; APP_BASE_PATH supplies the mounted prefix, and hardcoding it causes doubled URLs like /${input.appId}/${input.appId}/review.`,
-    `Prefer useActionQuery/useActionMutation for actions. If you must raw-fetch framework endpoints, wrap them with agentNativePath("/_agent-native/actions/<name>") so mounted apps call the right URL.`,
-    `Use relative workspace links like /${input.appId}. Do not hardcode localhost, 127.0.0.1, 8080, 8100, or any dev port; the active workspace gateway/browser origin owns the port.`,
-    `Use the framework/template UI stack: shadcn/ui components and @tabler/icons-react. Do not add lucide-react or another icon library for standard UI.`,
-    `Existing first-party apps are neighbors, not implementation details for this app. If the user's prompt mentions Mail, Calendar, Analytics, Brain, Assets, Dispatch, or other templates, treat them as existing hosted/connected apps that this app can link to or call through A2A/default connected agents. For example, Mail, Calendar, Analytics, Brain, and Assets already exist at https://mail.agent-native.com, https://calendar.agent-native.com, https://analytics.agent-native.com, https://brain.agent-native.com, and https://assets.agent-native.com.`,
-    `Do not create wrapper apps or scaffold child apps/routes for Mail, Calendar, Analytics, Brain, Assets, etc. inside apps/${input.appId} just so this app can access them. If the request is a cross-app dashboard or overview, build only the new dashboard/overview app and delegate to the existing apps for domain work.`,
-    `Only create another first-party app when the user explicitly asks for a customized app from that template; otherwise keep using the hosted/shared app so improvements to the base app keep flowing to users.`,
-    `Do not satisfy this by adding a route, page, component, or file inside apps/chat or another existing app unless the user explicitly asks to modify that existing app.`,
-    input.vaultAccessMode === "all-apps"
-      ? `Do not create per-app Dispatch vault grants unless the workspace switches vault access to manual or the user explicitly asks for manual grants.`
-      : keyList
-        ? `After the app exists, grant the selected Dispatch vault keys to appId "${input.appId}" and sync them once the app server is available. Treat these as requested grants, not active grants before creation succeeds.`
-        : `Do not grant any Dispatch vault keys unless the user asks later.`,
-    input.selectedResources.length
-      ? `After the app exists, grant the selected Dispatch workspace resources to appId "${input.appId}". Do not sync All-app workspace resources; they are inherited.`
-      : `Do not grant any selected-only Dispatch workspace resources unless the user asks later.`,
-    ``,
-    `App readiness requirements before handing off:`,
-    `- Ensure apps/${input.appId}/package.json exists with displayName/name and a concise description; Dispatch discovers workspace apps from apps/<app-id>/package.json, not a separate app registry.`,
-    `- Update the app manifest/package/deploy metadata needed by the existing workspace deployment model.`,
-    `- Ensure the React Router client entry preserves APP_BASE_PATH/VITE_APP_BASE_PATH via appBasePath() so /${input.appId} hydrates correctly.`,
-    `- Verify the app's agent card/A2A metadata is ready so Dispatch can discover and delegate to the app after deployment. Every sibling workspace app is available over A2A by default through call-agent, with names and descriptions from the workspace app registry.`,
-    `When it is ready, start or update the workspace dev server and navigate the user to the absolute path /${input.appId} on the workspace origin. Do not prefix with /dispatch/, /apps/, /workspace/, or any other Dispatch tab — the new app is mounted at the workspace root, not under Dispatch. If you have a navigate tool available, pass /${input.appId} verbatim; if you only have a window.location-style escape hatch, set it to /${input.appId}.`,
-  ].join("\n");
+  /**
+   * Called after the server accepts a Builder app creation request.
+   */
+  onCreated?: () => void;
 }
 
 async function fetchJson(url: string, init?: RequestInit): Promise<any> {
@@ -166,7 +94,11 @@ const ERROR_FAILURE_REASONS = new Set([
   "builder-error",
   "builder-not-connected",
   "credential-store-unavailable",
+  "settings-management-required",
 ]);
+const LOCAL_APP_DOCS_URL = docsUrl("multi-app-workspace", {
+  hash: "adding-a-new-app",
+});
 
 function isErrorFailureReason(reason: string | null): boolean {
   return !!reason && ERROR_FAILURE_REASONS.has(reason);
@@ -179,9 +111,11 @@ function isErrorFailureReason(reason: string | null): boolean {
  */
 export function CreateAppFlow({
   onClose,
+  onCreated,
   className = "",
 }: {
   onClose?: () => void;
+  onCreated?: () => void;
   className?: string;
 }) {
   const [step, setStep] = useState<"prompt" | "access">("prompt");
@@ -291,14 +225,14 @@ export function CreateAppFlow({
   async function submit(rawPrompt: string) {
     const trimmed = rawPrompt.trim();
     if (!trimmed || isSubmitting) return;
-    const appId = titleFromPrompt(trimmed);
+    const appId = titleFromChatFirstAppPrompt(trimmed);
     const validationError = getWorkspaceAppIdValidationError(appId);
     if (validationError) {
       setStatusMessage(validationError);
       return;
     }
 
-    const message = buildAppCreationPrompt({
+    const message = buildChatFirstAppCreationPrompt({
       appId,
       prompt: trimmed,
       selectedKeys:
@@ -319,7 +253,13 @@ export function CreateAppFlow({
         setStatusMessage("Sent to Builder chat.");
         onClose?.();
       } else if (isDevMode) {
-        sendToAgentChat({ message, submit: true, type: "code", newTab: true });
+        sendToAgentChat({
+          message,
+          submit: true,
+          type: "code",
+          newTab: true,
+          reuseEmptyTab: true,
+        });
         setStatusMessage("Sent to the local agent.");
         onClose?.();
       } else {
@@ -341,8 +281,19 @@ export function CreateAppFlow({
           },
         );
         if (result?.mode === "builder") {
+          onCreated?.();
           setBranchUrl(result?.url || null);
           setStatusMessage("Builder branch created.");
+        } else if (result?.mode === "local-agent") {
+          sendToAgentChat({
+            message: result.prompt ?? message,
+            submit: true,
+            type: "code",
+            newTab: true,
+            reuseEmptyTab: true,
+          });
+          setStatusMessage("Sent to the local agent.");
+          onClose?.();
         } else {
           setStatusMessage(
             result?.message ||
@@ -362,6 +313,55 @@ export function CreateAppFlow({
   }
 
   const submitWithSelectedAccess = () => submit(prompt);
+  const isCreatingBuilderBranch =
+    isSubmitting && !isInBuilderFrame() && !isDevMode;
+
+  if (branchUrl) {
+    return (
+      <div
+        className={`flex min-h-[260px] flex-col items-center justify-center gap-5 px-6 py-8 text-center ${className}`}
+      >
+        <span className="flex size-11 items-center justify-center rounded-full bg-primary/10 text-primary">
+          <IconCheck className="size-5" aria-hidden="true" />
+        </span>
+        <div className="space-y-2">
+          <h2 className="text-base font-semibold text-foreground">
+            Your Builder branch is ready
+          </h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            Continue building and editing your app in Builder.
+          </p>
+        </div>
+        <Button asChild className="w-full sm:w-auto">
+          <a href={branchUrl} target="_blank" rel="noreferrer">
+            Open in Builder <IconArrowUpRight aria-hidden="true" />
+          </a>
+        </Button>
+      </div>
+    );
+  }
+
+  if (isCreatingBuilderBranch) {
+    return (
+      <div
+        className={`flex min-h-[260px] flex-col items-center justify-center gap-4 px-6 py-8 text-center ${className}`}
+        aria-live="polite"
+      >
+        <IconLoader2
+          className="size-7 animate-spin text-muted-foreground"
+          aria-hidden="true"
+        />
+        <div className="space-y-2">
+          <h2 className="text-base font-semibold text-foreground">
+            Creating your Builder branch
+          </h2>
+          <p className="text-sm leading-6 text-muted-foreground">
+            This usually takes a few seconds.
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`flex flex-col gap-3 ${className}`}>
@@ -598,21 +598,32 @@ export function CreateAppFlow({
                 rel="noreferrer"
                 className="inline-flex items-center gap-1 font-medium text-foreground underline"
               >
-                Open branch <IconArrowUpRight className="h-3 w-3" />
+                Open in Builder <IconArrowUpRight className="h-3 w-3" />
               </a>
             ) : null}
           </div>
           {failureReason === "builder-not-connected" ? (
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              onClick={() => connectFlow.start()}
-              disabled={connectFlow.connecting}
-              className="w-fit"
-            >
-              {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
-            </Button>
+            <div className="flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => connectFlow.start()}
+                disabled={connectFlow.connecting}
+                className="w-fit"
+              >
+                {connectFlow.connecting ? "Connecting..." : "Connect Builder"}
+              </Button>
+              <a
+                href={LOCAL_APP_DOCS_URL}
+                target="_blank"
+                rel="noreferrer"
+                data-create-app-local-link
+                className="inline-flex items-center gap-1 text-xs font-medium text-foreground underline underline-offset-2"
+              >
+                Create locally <IconArrowUpRight className="h-3 w-3" />
+              </a>
+            </div>
           ) : null}
           {failureReason === "credential-store-unavailable" ||
           failureReason === "builder-error" ? (
@@ -636,6 +647,7 @@ export function CreateAppFlow({
 export function CreateAppPopover({
   trigger,
   align = "center",
+  onCreated,
 }: CreateAppPopoverProps) {
   const [open, setOpen] = useState(false);
   return (
@@ -658,7 +670,7 @@ export function CreateAppPopover({
         sideOffset={10}
         className="w-[calc(100vw-2rem)] rounded-xl p-3 shadow-xl sm:w-[460px]"
       >
-        <CreateAppFlow onClose={() => setOpen(false)} />
+        <CreateAppFlow onClose={() => setOpen(false)} onCreated={onCreated} />
       </PopoverContent>
     </Popover>
   );

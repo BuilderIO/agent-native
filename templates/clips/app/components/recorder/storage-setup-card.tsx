@@ -4,7 +4,6 @@ import { openBuilderConnectPopup } from "@agent-native/core/client/settings";
 import {
   IconCheck,
   IconCloud,
-  IconExternalLink,
   IconLoader2,
   IconServer,
 } from "@tabler/icons-react";
@@ -61,6 +60,18 @@ export function StorageSetupCard({
   const [err, setErr] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const mountedRef = useRef(true);
+  const inFlightRef = useRef(false);
+  const visibilityHandlerRef = useRef<(() => void) | null>(null);
+
+  const stopVisibilityHandler = useCallback(() => {
+    if (visibilityHandlerRef.current) {
+      document.removeEventListener(
+        "visibilitychange",
+        visibilityHandlerRef.current,
+      );
+      visibilityHandlerRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -70,14 +81,17 @@ export function StorageSetupCard({
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
+      stopVisibilityHandler();
     };
-  }, []);
+  }, [stopVisibilityHandler]);
 
   const handleConnect = useCallback(() => {
     if (pollRef.current) {
       clearInterval(pollRef.current);
       pollRef.current = null;
     }
+    stopVisibilityHandler();
+    inFlightRef.current = false;
     setConnecting(true);
     setErr(null);
 
@@ -93,14 +107,23 @@ export function StorageSetupCard({
         clearInterval(pollRef.current);
         pollRef.current = null;
       }
+      stopVisibilityHandler();
     };
-    pollRef.current = setInterval(async () => {
+    const tick = async () => {
+      if (document.hidden || inFlightRef.current) return;
+      inFlightRef.current = true;
+      const controller = new AbortController();
+      const abortTimer = setTimeout(
+        () => controller.abort(),
+        Math.max(10_000, 2000 * 4),
+      );
       try {
         const r = await fetch(
           new URL(
             agentNativePath("/_agent-native/builder/status"),
             window.location.origin,
           ).toString(),
+          { signal: controller.signal },
         );
         if (!r.ok) return;
         const s = (await r.json()) as { configured: boolean };
@@ -119,10 +142,19 @@ export function StorageSetupCard({
           setErr(t("storageSetup.builderTimeout"));
         }
       } catch {
-        // transient poll error
+        // coercion-ok: a transient poll error keeps the loop running; the
+        // timeoutMs bound above surfaces builderTimeout if it never succeeds.
+      } finally {
+        clearTimeout(abortTimer);
+        inFlightRef.current = false;
       }
-    }, 2000);
-  }, [onConfigured, connectSource, connectFlow]);
+    };
+    pollRef.current = setInterval(() => void tick(), 2000);
+    visibilityHandlerRef.current = () => {
+      if (!document.hidden) void tick();
+    };
+    document.addEventListener("visibilitychange", visibilityHandlerRef.current);
+  }, [onConfigured, connectSource, connectFlow, stopVisibilityHandler, t]);
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-5 rounded-2xl border border-border bg-card p-6 shadow-lg">
@@ -140,13 +172,20 @@ export function StorageSetupCard({
         onClick={handleConnect}
         disabled={connecting || connected}
         className={
-          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start " +
+          "flex items-start gap-3 rounded-xl border px-4 py-3.5 text-start transition-colors " +
           (connected
             ? "border-primary/50 bg-primary/5"
-            : "border-border bg-background hover:border-foreground/30")
+            : "border-primary bg-primary text-primary-foreground hover:bg-primary/90")
         }
       >
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-foreground text-background">
+        <div
+          className={
+            "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg " +
+            (connected
+              ? "bg-foreground text-background"
+              : "bg-primary-foreground/15 text-primary-foreground")
+          }
+        >
           {connected ? (
             <IconCheck className="h-5 w-5" />
           ) : connecting ? (
@@ -164,16 +203,15 @@ export function StorageSetupCard({
                   ? t("storageSetup.waitingForBuilder")
                   : t("storageSetup.connectBuilder")}
             </span>
-            {!connected && !connecting && (
-              <>
-                <span className="rounded-sm bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary">
-                  {t("storageSetup.free")}
-                </span>
-                <IconExternalLink className="h-3.5 w-3.5 text-muted-foreground" />
-              </>
-            )}
           </div>
-          <span className="mt-0.5 block text-xs text-muted-foreground">
+          <span
+            className={
+              "mt-0.5 block text-xs " +
+              (connected
+                ? "text-muted-foreground"
+                : "text-primary-foreground/80")
+            }
+          >
             {connected ? connectedDescription : connectDescription}
           </span>
         </div>
@@ -190,7 +228,7 @@ export function StorageSetupCard({
               <span className="text-sm text-muted-foreground">
                 Or{" "}
                 <a
-                  href={appPath("/settings#video-storage")}
+                  href={appPath("/settings/general#video-storage")}
                   className="font-medium text-foreground underline underline-offset-2 hover:text-foreground/80"
                 >
                   {t("storageSetup.configureS3")}

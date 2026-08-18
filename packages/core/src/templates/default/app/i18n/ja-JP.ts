@@ -71,6 +71,23 @@ const messages = {
       suggestionGrantKey: "このアプリに OpenAI キーを付与します",
     },
     pages: {
+      browserChatUnavailableTitle: "ブラウザーチャットを利用できません",
+      browserChatUnavailableDescription:
+        "Agent-Native ブラウザー拡張機能から再接続してください。",
+      browserChatPlaceholder: "このページについて質問…",
+      browserChatAttachedPlaceholder: "{{page}} について質問…",
+      browserConnectTitle: "ブラウザーチャットを接続",
+      browserConnectDescription:
+        "Agent-Native Chrome 拡張機能がこの Dispatch チャットを開くことを許可します。接続には一度だけ使える短期チケットを使用します。",
+      browserConnectInvalid:
+        "この接続リクエストは無効です。拡張機能からやり直してください。",
+      browserConnectConnected:
+        "ブラウザーチャットに接続しました。このタブを閉じられます。",
+      browserConnectConnecting: "接続中…",
+      browserConnectButton: "接続",
+      browserConnectOpenFromExtension:
+        "Agent-Native Chrome 拡張機能からこのページを開いてください。",
+      browserConnectFailed: "ブラウザー拡張機能に接続できませんでした。",
       appsDescription:
         "ワークスペース アプリを開き、Dispatch から新しいアプリの作成を開始します。",
       appsDescriptionWithWorkspace:
@@ -213,6 +230,8 @@ const messages = {
     newTerminal: "新しいターミナル",
     panelOptions: "エージェントパネルのオプション",
     collapseSidebar: "サイドバーを折りたたむ",
+    widenChat: "チャットを広げる",
+    returnChatToLayout: "チャットをレイアウトに戻す",
     hideChats: "チャットを非表示にする",
     allChats: "すべてのチャット",
     settings: "設定",
@@ -259,6 +278,8 @@ const messages = {
       "リンクを使用してサインインしている人は誰でも閲覧できます",
     viewer: "Viewer",
     viewerDescription: "閲覧可能",
+    commenter: "コメント投稿者",
+    commenterDescription: "閲覧してコメントを追加できます",
     editor: "Editor",
     editorDescription: "編集可能",
     admin: "管理者",
@@ -314,7 +335,7 @@ const messages = {
     codeChangeBadge: "コード変更",
     connectBuilderTitle: "Builder.io に接続",
     connectBuilderDescription:
-      "Builder に接続すると、このアプリからクラウドベースのコード変更が可能になります。",
+      "Builder（無料プランあり）に接続すると、このアプリからクラウドベースのコード変更が可能になります。",
     setupRequired: "セットアップが必要です",
     branchCreated: "ブランチが作成されました",
     close: "閉じる",
@@ -357,6 +378,16 @@ const messages = {
     deleting: "アーカイブ中...",
     openFullView: "フルビューを開く",
     removeFromWidgetArea: "このウィジェット領域から削除する",
+    customBlockSandboxed: "カスタムブロック · サンドボックス",
+    sandboxedCustomBlock: "サンドボックス化された SQL カスタムブロック",
+    sandboxedCustomBlockCreatedBy:
+      "{{email}} が作成したサンドボックス SQL カスタムブロック",
+    promoteToAppCode: "アプリコードに昇格",
+    historyShowsSourceVersions: "履歴でソースのバージョンを確認できます",
+    createdByHistoryShowsSourceVersions:
+      "{{email}} が作成。履歴でソースのバージョンを確認できます。",
+    createdByHistoryShowsSourceVersionsCompact:
+      "{{email}} が作成 · 履歴でソースのバージョンを確認できます",
     deleteExtensionEllipsis: "拡張機能をアーカイブ...",
     removeFromMyListEllipsis: "リストから削除...",
     removeFromWidgetAreaForMe: "Remove from this widget area (for me)",
@@ -439,6 +470,10 @@ const messages = {
     actions: "操作",
     noMembers: "メンバーはまだいません。",
     memberCount_other: "{{count}} members",
+    memberPagination: "メンバー一覧のページネーション",
+    previousMemberPage: "前のメンバーページへ移動",
+    nextMemberPage: "次のメンバーページへ移動",
+    memberPageStatus: "{{totalPages}}ページ中{{page}}ページ",
     youAreRole: "You are {{role}}",
     changeRole: "役割を変更する",
     removeMember: "メンバーの削除",
@@ -467,7 +502,7 @@ const messages = {
     back: "戻る",
     agentEngineRequired: "エージェント エンジンが必要です",
     agentEngineDescription:
-      "Connect Builder.io or an LLM key before {{platform}} can answer.",
+      "Connect Builder.io（無料プランあり）or an LLM key before {{platform}} can answer.",
     openLlm: "LLM を開く",
     setup: "Setup",
     shareDocumentsWith: "ドキュメントを共有する",
