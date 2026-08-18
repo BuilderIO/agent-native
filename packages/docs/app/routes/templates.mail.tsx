@@ -125,7 +125,7 @@ export default function MailTemplate() {
         }
         media={
           <img
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa687bc2aba5f4a609f284a91be01ddad?format=webp&width=800&height=1200"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fca8fa0f39f1c4b03ad60ba27e90f5522?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.mail.s001")}
             loading="lazy"
@@ -135,13 +135,7 @@ export default function MailTemplate() {
         }
       />
 
-      <TemplateActivationFrame
-        heading={
-          <h2 className="m-0 text-2xl font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-            {t("templateLanding.mail.s008")}
-          </h2>
-        }
-      >
+      <TemplateActivationFrame>
         <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
           <a
             href="https://mail.agent-native.com"
