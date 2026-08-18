@@ -337,7 +337,7 @@ export function buildStatusEventFields(args: {
 
 const DATE_ONLY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 
-function isValidDateOnly(value: string): boolean {
+export function isValidDateOnly(value: string): boolean {
   if (!DATE_ONLY_PATTERN.test(value)) return false;
   const [year, month, day] = value.split("-").map(Number);
   const parsed = new Date(Date.UTC(year, month - 1, day));

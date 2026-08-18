@@ -382,7 +382,10 @@ resolves each event's day in the timezone the calendar is pinned to (the saved
 `timezone` setting, then the browser's) — a Sunday 5pm America/Los_Angeles
 meeting is Monday in UTC, so a UTC comparison deletes the wrong day. Pass
 `--timezone` to override; an invalid zone is rejected, never silently treated as
-UTC. `--to` is exclusive: an event starting exactly on that bound is left alone.
+UTC. Events are selected by where they **start**: `--from` inclusive, `--to`
+exclusive, so an event starting exactly on the end bound, or a multi-day event
+that began before `--from`, is left alone. Both bounds must be real dates; a
+blank or impossible date (`2026-02-30`) is rejected rather than rolled forward.
 
 A filtered selection only ever removes the matched occurrences, so it accepts
 `--scope single`. `all` and `thisAndFollowing` act on a whole recurring series —

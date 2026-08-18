@@ -14,6 +14,7 @@ import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import {
   cliBoolean,
+  isValidDateOnly,
   normalizeGoogleEventId,
   requireActionUserEmail,
   resolveOwnedAccountEmail,
@@ -76,22 +77,46 @@ function undeletableReason(
 const DATE_ONLY_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * `to` is documented and treated as exclusive, but the shared calendar read
- * post-filters starts with `<= to` so the UI can show an event that begins on
- * the boundary. Re-checking strictly here keeps a destructive filter inside the
- * range the caller actually named. An all-day start carries no instant, so it is
- * anchored to local midnight in the range's own timezone: parsing it as a UTC
- * date would sort it before the zone's midnight, and comparing it as a date
- * string would drop a same-day all-day event from a range ending at midday.
+ * Whether an event *starts* inside the requested range: `from` inclusive, `to`
+ * exclusive.
+ *
+ * The shared calendar read deliberately returns anything that overlaps the range
+ * so the UI can draw a multi-day event and an event beginning on the boundary.
+ * Neither is what a caller naming a range for a delete means, and the reported
+ * `weekday` comes from the start, so an event starting outside the range would be
+ * previewed under a day the caller never queried. Re-checking both bounds here
+ * keeps the delete inside the dates the caller actually named.
+ *
+ * An all-day start carries no instant, so it is anchored to local midnight in the
+ * range's own timezone: parsing it as a UTC date would sort it before the zone's
+ * midnight, and comparing it as a date string would drop a same-day all-day event
+ * from a range ending at midday.
  */
-function startsBeforeExclusiveEnd(
+function startsWithinRange(
   start: string,
-  range: { to: string; timezone: string },
+  range: { from: string; to: string; timezone: string },
 ): boolean {
   const startMs = DATE_ONLY_RE.test(start)
     ? new Date(zonedDateTimeToUtcIso(start, "00:00", range.timezone)).getTime()
     : new Date(start).getTime();
-  return startMs < new Date(range.to).getTime();
+  return (
+    startMs >= new Date(range.from).getTime() &&
+    startMs < new Date(range.to).getTime()
+  );
+}
+
+/**
+ * Reject a bound the shared resolver would silently reinterpret. A date-only
+ * value like `2026-02-30` rolls forward into March during normalization, which
+ * on a destructive filter widens the range past the dates the caller stated.
+ */
+function requireExplicitBound(value: string, label: "from" | "to"): string {
+  const trimmed = value.trim();
+  if (!trimmed) throw new Error(`${label} cannot be blank.`);
+  if (DATE_ONLY_RE.test(trimmed) && !isValidDateOnly(trimmed)) {
+    throw new Error(`${label} is not a real calendar date: ${trimmed}`);
+  }
+  return trimmed;
 }
 
 async function mapWithConcurrency<T, R>(
@@ -224,7 +249,14 @@ export default defineAction({
     // Both bounds, not one: a lone `to` would silently start the range at today
     // and a lone `from` would silently shrink it to a single day, so an
     // incomplete destructive request would delete a range nobody asked for.
-    if (!hasIds && !(args.from && args.to)) {
+    // Trim and validate first, because the shared resolver trims its own inputs
+    // and a whitespace-only bound would pass a truthiness check here and then
+    // resolve to today's range.
+    const from = args.from
+      ? requireExplicitBound(args.from, "from")
+      : undefined;
+    const to = args.to ? requireExplicitBound(args.to, "to") : undefined;
+    if (!hasIds && !(from && to)) {
       throw new Error("A bulk delete needs both from and to, or explicit ids.");
     }
     // Google expands a recurring series into instances, so a weekend filter can
@@ -250,8 +282,8 @@ export default defineAction({
     }
 
     const range = resolveCalendarEventRange({
-      from: args.from,
-      to: args.to,
+      from,
+      to,
       timezone: await resolveFilterTimezone(args.timezone, ownerEmail),
     });
 
@@ -270,7 +302,12 @@ export default defineAction({
         args.accountEmail,
         ownerEmail,
       );
-      const requested = args.ids!.map(normalizeGoogleEventId);
+      // Two spellings of one id ("google-a" and "a") would otherwise enqueue two
+      // writes for the same event: one succeeds, the other 404s, and the report
+      // claims a failure that never happened.
+      const requested = Array.from(
+        new Set(args.ids!.map(normalizeGoogleEventId)),
+      );
       // Explicit ids get the same booking protection as a filtered selection:
       // naming the event directly does not make leaving its booking confirmed
       // any less of a silent inconsistency.
@@ -317,7 +354,7 @@ export default defineAction({
 
       const matched = listed.events.filter(
         (event) =>
-          startsBeforeExclusiveEnd(event.start, range) &&
+          startsWithinRange(event.start, range) &&
           matchesWeekdays(event.start, range.timezone, weekdays),
       );
       if (matched.length > MAX_MATCHED_EVENTS) {

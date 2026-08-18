@@ -766,6 +766,75 @@ describe("delete-events", () => {
     expect(result.unreadableSources).toBeUndefined();
   });
 
+  it("collapses two spellings of the same id into one delete", async () => {
+    const result = await run({
+      ids: ["google-a", "a", "google-b"],
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(deleteEventMock.mock.calls.map((call) => call[0])).toEqual([
+      "a",
+      "b",
+    ]);
+    expect(result.deleted).toBe(2);
+    expect(result.failed).toBe(0);
+  });
+
+  it("leaves an event that started before the range even if it ends inside it", async () => {
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        googleEvent({
+          id: "spans-in",
+          start: "2026-04-04T18:00:00.000Z",
+          end: "2026-04-12T18:00:00.000Z",
+        }),
+        googleEvent({ id: "inside", start: "2026-04-11T18:00:00.000Z" }),
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-04-06",
+      to: "2026-04-20",
+      daysOfWeek: "saturday",
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(deleteEventMock.mock.calls.map((call) => call[0])).toEqual([
+      "inside",
+    ]);
+    expect(result.deleted).toBe(1);
+  });
+
+  it("rejects a date that does not exist rather than rolling it forward", async () => {
+    await expect(
+      run({
+        from: "2026-02-01",
+        to: "2026-02-30",
+        daysOfWeek: "weekend",
+        scope: "single",
+        sendUpdates: "none",
+      }),
+    ).rejects.toThrow(/not a real calendar date: 2026-02-30/i);
+    expect(listGoogleEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects whitespace-only bounds instead of falling back to today", async () => {
+    await expect(
+      run({
+        from: " ",
+        to: " ",
+        daysOfWeek: "weekend",
+        scope: "single",
+        sendUpdates: "none",
+      }),
+    ).rejects.toThrow(/cannot be blank/i);
+    expect(listGoogleEventsMock).not.toHaveBeenCalled();
+    expect(deleteEventMock).not.toHaveBeenCalled();
+  });
+
   it("refuses a match set larger than one bulk delete may commit", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: Array.from({ length: 201 }, (_, index) =>
