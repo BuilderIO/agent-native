@@ -52,7 +52,9 @@ describe("infinite filtered pagination", () => {
         isFetchingNextPage,
         fetchNextPage,
       });
-      return FakeIntersectionObserver.instances.at(-1);
+      return FakeIntersectionObserver.instances[
+        FakeIntersectionObserver.instances.length - 1
+      ];
     };
 
     rearm(true)?.emit(true);
