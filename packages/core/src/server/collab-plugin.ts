@@ -489,9 +489,14 @@ export function createCollabPlugin(
       // Run in background so it doesn't block startup
       setTimeout(async () => {
         try {
+          // The plugin is initialized once per serverless cold start. Without
+          // this filter every new instance streamed every source document,
+          // even after its collab state had already been seeded. That turns a
+          // cold-start burst into a database-wide content-query stampede.
+          await hasCollabState("__agent_native_auto_seed_probe__");
           const client = getDbExec();
           const { rows } = await client.execute(
-            `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
+            `SELECT ${idColumn}, ${seedColumn} FROM ${table} WHERE NOT EXISTS (SELECT 1 FROM _collab_docs WHERE _collab_docs.doc_id = ${table}.${idColumn})`,
           );
           for (const row of rows) {
             const docId = row[idColumn] as string;
