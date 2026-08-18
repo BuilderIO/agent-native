@@ -67,12 +67,14 @@ function controllerIsDirty(controller: PreviewDocumentSaveController): boolean {
 export function acquirePreviewDocumentSaveController(
   documentId: string,
   factory: () => PreviewDocumentSaveController,
+  refreshAdapter?: (controller: PreviewDocumentSaveController) => void,
 ): PreviewDocumentSaveController {
   let entry = registry.get(documentId);
   if (!entry) {
     entry = { controller: factory(), refCount: 0, evicting: false };
     registry.set(documentId, entry);
   }
+  refreshAdapter?.(entry.controller);
   entry.refCount += 1;
   // A reopen before a pending eviction settled: keep the instance alive.
   entry.evicting = false;

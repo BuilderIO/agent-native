@@ -224,7 +224,7 @@ export default defineAction({
             : ("make-it-real" as const),
         ctaMessage:
           sourceType === "fusion"
-            ? "Builder is not yet connected. Connect Builder.io to view branch diffs."
+            ? "Builder is not yet connected. Connect Builder.io (free tier available) to view branch diffs."
             : "Branch diffs require a Builder-hosted app. Use 'Make it real' to upgrade " +
               "this inline design to a real-app source.",
         branch: null,

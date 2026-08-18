@@ -1,6 +1,6 @@
 import { IconPlus } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
@@ -49,6 +49,8 @@ export interface ExtensionSlotProps {
   className?: string;
   /** Optional className applied to each EmbeddedExtension. */
   toolClassName?: string;
+  /** Fires once when the slot query and all installed extensions are ready. */
+  onReady?: () => void;
 }
 
 /**
@@ -70,8 +72,11 @@ export function ExtensionSlot({
   showEmptyAffordance,
   className,
   toolClassName,
+  onReady,
 }: ExtensionSlotProps) {
   const t = useT();
+  const readyInstallIds = useRef(new Set<string>());
+  const readyNotified = useRef(false);
   const installsQuery = useQuery<SlotInstall[]>({
     queryKey: ["slot-installs", id],
     queryFn: async () => {
@@ -86,6 +91,35 @@ export function ExtensionSlot({
     },
   });
   const installs = installsQuery.data ?? [];
+
+  useEffect(() => {
+    readyInstallIds.current.clear();
+    readyNotified.current = false;
+  }, [id]);
+
+  useEffect(() => {
+    if (readyNotified.current || installsQuery.isLoading) return;
+    if (
+      installsQuery.isError ||
+      installs.length === 0 ||
+      readyInstallIds.current.size >= installs.length
+    ) {
+      readyNotified.current = true;
+      onReady?.();
+    }
+  }, [installs, installsQuery.isError, installsQuery.isLoading, onReady]);
+
+  const markInstallReady = (installId: string) => {
+    readyInstallIds.current.add(installId);
+    if (
+      !readyNotified.current &&
+      !installsQuery.isLoading &&
+      readyInstallIds.current.size >= installs.length
+    ) {
+      readyNotified.current = true;
+      onReady?.();
+    }
+  };
 
   if (installsQuery.isLoading) {
     return null;
@@ -121,6 +155,8 @@ export function ExtensionSlot({
           slotId={id}
           context={context}
           className={toolClassName}
+          onReady={() => markInstallReady(install.installId)}
+          onUnavailable={() => markInstallReady(install.installId)}
         />
       ))}
     </div>

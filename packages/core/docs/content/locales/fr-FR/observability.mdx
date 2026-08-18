@@ -96,8 +96,7 @@ Ajoutez le tableau de bord à n'importe quel modèle avec un seul itinéraire :
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client";
-
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -385,5 +384,5 @@ Les champs d'identité explicitement définis via `setUser({ id, email, username
 ## Quelle est la prochaine étape
 
 - [**Tracking**](/docs/tracking) – analyses de produits (PostHog, Mixpanel, Amplitude) pour les propres événements de votre application
-- [**Actions**](/docs/actions) — les opérations qui apparaissent sous forme d'appels d'outils dans les traces
+- [**Actions**](/docs/actions-overview) — les opérations qui apparaissent sous forme d'appels d'outils dans les traces
 - [**Security**](/docs/security) – Portée des données et gestion des informations d'identification

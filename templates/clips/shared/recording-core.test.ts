@@ -27,6 +27,7 @@ describe("recording upload URL helpers", () => {
         height: 2954.7,
         hasAudio: true,
         hasCamera: false,
+        uploadGenerationId: "generation-1",
       }),
     );
 
@@ -35,6 +36,7 @@ describe("recording upload URL helpers", () => {
     expect(params.get("height")).toBe("2955");
     expect(params.get("hasAudio")).toBe("1");
     expect(params.get("hasCamera")).toBe("0");
+    expect(params.get("uploadGenerationId")).toBe("generation-1");
   });
 
   it("omits null, empty, and non-finite upload metadata", () => {
@@ -54,6 +56,7 @@ describe("recording upload URL helpers", () => {
         height: null,
         hasAudio: true,
         hasCamera: false,
+        uploadGenerationId: "",
       }),
     );
 
@@ -62,5 +65,6 @@ describe("recording upload URL helpers", () => {
     expect(params.get("height")).toBeNull();
     expect(params.get("hasAudio")).toBe("1");
     expect(params.get("hasCamera")).toBe("0");
+    expect(params.get("uploadGenerationId")).toBeNull();
   });
 });

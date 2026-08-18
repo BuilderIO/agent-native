@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   parseCssColor,
   rgbaToCss,
@@ -162,7 +162,11 @@ function StrokeLayerControl({
         <div className="min-w-0 flex-1">
           <ColorInput
             label=""
-            value={cssColorOrFallback(color, "#000000")}
+            value={cssColorOrFallback(
+              color,
+              /* guard:allow-raw-color - ColorInput needs a concrete swatch fallback. */
+              "#000000",
+            )}
             onChange={(value, meta) =>
               onStyleChange(`${prefix}Color`, value, meta)
             }
@@ -352,7 +356,7 @@ export function StrokeProperties({
       title={t("editPanel.sections.stroke")}
       actions={
         <SectionIconButton
-          label={t("editPanel.labels.addLayer")}
+          label={t("editPanel.labels.addStroke")}
           onClick={() => {
             if (strokeIsMixed) {
               commitStylePatch(
@@ -449,7 +453,11 @@ export function StrokeProperties({
             <StrokeLayerControl
               kind="border"
               visible={borderVisible}
-              color={styles.borderColor || "#000000"}
+              color={
+                styles.borderColor ||
+                /* guard:allow-raw-color - a new stroke needs a concrete color. */
+                "#000000"
+              }
               width={styles.borderWidth || "0px"}
               styleValue={styles.borderStyle || "none"}
               onStyleChange={onStyleChange}
@@ -470,7 +478,12 @@ export function StrokeProperties({
             <StrokeLayerControl
               kind="outline"
               visible={outlineVisible}
-              color={styles.outlineColor || styles.borderColor || "#000000"}
+              color={
+                styles.outlineColor ||
+                styles.borderColor ||
+                /* guard:allow-raw-color - a new stroke needs a concrete color. */
+                "#000000"
+              }
               width={styles.outlineWidth || "0px"}
               styleValue={styles.outlineStyle || "solid"}
               outlineOffset={styles.outlineOffset || "0px"}
@@ -537,7 +550,7 @@ function TextStrokeProperties({
       title={t("editPanel.sections.stroke")}
       actions={
         <SectionIconButton
-          label={t("editPanel.labels.addLayer")}
+          label={t("editPanel.labels.addStroke")}
           onClick={() => {
             // Kebab-case keys required: camelCase webkit props get mangled by
             // normalizeStyleProperty (camel→kebab drops the leading dash) and

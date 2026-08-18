@@ -1,10 +1,10 @@
-import { appPath } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 import { Spinner } from "../../components/ui/spinner";
 
 const SEO_TITLE =
-  "Agent-Native Dispatch - Open Source workspace control plane for AI agents";
+  "Dispatch - Open Source workspace control plane for AI agents";
 const SEO_DESCRIPTION =
   "Open Source workspace control plane for AI agents to manage apps, secrets, approvals, messages, jobs, and cross-app delegation.";
 

@@ -1,60 +1,18 @@
 import { defineAction } from "@agent-native/core";
-import { resolveSecret } from "@agent-native/core/server";
+import { collectBuilderDesignSystemGitHubFiles } from "@agent-native/core/server";
 import {
-  validateUrl,
-  parseOwnerRepo,
-  fetchGitHubJson,
-  fetchGitHubJsonResult,
-  fetchGitHubRaw,
   parseTailwindConfig,
   parseCss,
   detectStylingFramework,
-  MAX_FILES,
-  MAX_FILE_SIZE,
-  ROOT_PATTERNS,
-  SECONDARY_PATHS,
   COLOR_VAR_PATTERN,
 } from "@agent-native/core/server/design-token-utils";
 import { z } from "zod";
-
-function githubAccessError(
-  owner: string,
-  repo: string,
-  status: number,
-  hasToken: boolean,
-  message?: string,
-): Error {
-  const repoLabel = `${owner}/${repo}`;
-  const suffix = message ? ` GitHub said: ${message}` : "";
-
-  if (!hasToken && (status === 401 || status === 403 || status === 404)) {
-    return new Error(
-      `Could not access ${repoLabel}. Public repositories work without setup; private repositories require a fine-grained GitHub personal access token saved as GITHUB_TOKEN in Settings > Secrets. Limit the token to this repository and grant Repository permissions > Contents: Read-only.${suffix}`,
-    );
-  }
-
-  if (hasToken && (status === 401 || status === 403 || status === 404)) {
-    return new Error(
-      `Could not access ${repoLabel} with the saved GITHUB_TOKEN. Check that the token is not expired, the repository is selected for the token, organization SSO/approval is complete, and Repository permissions > Contents is set to Read-only.${suffix}`,
-    );
-  }
-
-  if (status === 429) {
-    return new Error(
-      `GitHub rate-limited requests for ${repoLabel}. Save a GITHUB_TOKEN in Settings > Secrets or try again after the rate limit resets.${suffix}`,
-    );
-  }
-
-  return new Error(
-    `Could not list repository contents for ${repoLabel} (GitHub returned ${status || "an error"}).${suffix}`,
-  );
-}
 
 export default defineAction({
   description:
     "Import design tokens from a GitHub repository. " +
     "Reads Tailwind configs, CSS files, theme/token files, and package.json " +
-    "to extract colors, fonts, spacing, and CSS custom properties. " +
+    "to extract colors, fonts, spacing, and CSS custom properties. Supports a pinned ref and file/folder scope. " +
     "Private repositories require a saved GITHUB_TOKEN secret; never ask users to paste a token into chat.",
   schema: z.object({
     repoUrl: z
@@ -62,103 +20,36 @@ export default defineAction({
       .describe(
         'GitHub repository URL (e.g. "https://github.com/org/repo" or "org/repo")',
       ),
+    ref: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe("Optional branch, tag, or commit"),
+    include: z
+      .array(z.string().trim().min(1))
+      .optional()
+      .describe("Optional repository-relative files or folders to include"),
+    exclude: z
+      .array(z.string().trim().min(1))
+      .optional()
+      .describe("Optional repository-relative files or folders to exclude"),
   }),
   readOnly: true,
   http: { method: "GET" },
-  run: async ({ repoUrl }) => {
-    const { owner, repo } = parseOwnerRepo(repoUrl.trim());
-    const githubToken = await resolveSecret("GITHUB_TOKEN");
-    const githubOptions = { token: githubToken };
+  run: async ({ repoUrl, ref, include, exclude }) => {
+    const collection = await collectBuilderDesignSystemGitHubFiles({
+      repoUrl: repoUrl.trim(),
+      ...(ref ? { ref } : {}),
+      ...(include ? { include } : {}),
+      ...(exclude ? { exclude } : {}),
+    });
+    const { source } = collection;
+    const rawFiles = Object.fromEntries(
+      collection.files.map(({ path, content }) => [path, content]),
+    );
 
-    validateUrl(`https://api.github.com/repos/${owner}/${repo}`);
-
-    const rawFiles: Record<string, string> = {};
-    let fetchedCount = 0;
-
-    async function collectFile(path: string): Promise<void> {
-      if (fetchedCount >= MAX_FILES) return;
-      const content = await fetchGitHubRaw(owner, repo, path, githubOptions);
-      if (content) {
-        rawFiles[path] = content;
-        fetchedCount++;
-      }
-    }
-
-    // 1. List repository root
-    const rootResult = await fetchGitHubJsonResult<
-      Array<{
-        name: string;
-        type: string;
-        size?: number;
-      }>
-    >(owner, repo, "", githubOptions);
-    const rootListing = rootResult.data;
-
-    if (!rootResult.ok || !Array.isArray(rootListing)) {
-      throw githubAccessError(
-        owner,
-        repo,
-        rootResult.status,
-        !!githubToken,
-        rootResult.message,
-      );
-    }
-
-    // 2. Fetch root-level files matching patterns
-    const rootFilePromises: Promise<void>[] = [];
-    for (const entry of rootListing) {
-      if (entry.type !== "file") continue;
-      if (entry.size && entry.size > MAX_FILE_SIZE) continue;
-      const matches = ROOT_PATTERNS.some((p) => p.test(entry.name));
-      if (matches && fetchedCount < MAX_FILES) {
-        rootFilePromises.push(collectFile(entry.name));
-      }
-    }
-    await Promise.all(rootFilePromises);
-
-    // 3. Fetch secondary paths (files and directories)
-    const secondaryPromises: Promise<void>[] = [];
-    for (const path of SECONDARY_PATHS) {
-      if (fetchedCount >= MAX_FILES) break;
-
-      if (/\.\w+$/.test(path)) {
-        secondaryPromises.push(collectFile(path));
-      } else {
-        secondaryPromises.push(
-          (async () => {
-            const listing = (await fetchGitHubJson(
-              owner,
-              repo,
-              path,
-              githubOptions,
-            )) as Array<{
-              name: string;
-              type: string;
-              path: string;
-              size?: number;
-            }> | null;
-            if (!listing || !Array.isArray(listing)) return;
-            const innerPromises: Promise<void>[] = [];
-            for (const entry of listing) {
-              if (fetchedCount >= MAX_FILES) break;
-              if (entry.type !== "file") continue;
-              if (entry.size && entry.size > MAX_FILE_SIZE) continue;
-              if (
-                /\.(css|scss|less)$/.test(entry.name) ||
-                /theme/i.test(entry.name) ||
-                /tokens?/i.test(entry.name)
-              ) {
-                innerPromises.push(collectFile(entry.path));
-              }
-            }
-            await Promise.all(innerPromises);
-          })(),
-        );
-      }
-    }
-    await Promise.all(secondaryPromises);
-
-    // 4. Parse collected files
+    // Parse collected files
     let colors: Record<string, unknown> = {};
     let fonts: string[] = [];
     let spacing: Record<string, string> = {};
@@ -210,7 +101,10 @@ export default defineAction({
 
     return {
       source: "github" as const,
-      repoUrl: `https://github.com/${owner}/${repo}`,
+      repoUrl: source.repoUrl,
+      ...(source.ref ? { ref: source.ref } : {}),
+      ...(source.include?.length ? { include: source.include } : {}),
+      ...(source.exclude?.length ? { exclude: source.exclude } : {}),
       colors: Object.keys(colors).length > 0 ? colors : undefined,
       fonts: fonts.length > 0 ? fonts : undefined,
       spacing: Object.keys(spacing).length > 0 ? spacing : undefined,

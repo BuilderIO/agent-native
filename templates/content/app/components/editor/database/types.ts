@@ -42,6 +42,7 @@ export const DATABASE_VIEW_TYPES: ContentDatabaseViewType[] = [
   "list",
   "timeline",
   "calendar",
+  "sidebar",
 ];
 
 export const DATABASE_OPEN_PAGES_IN: ContentDatabaseOpenPagesIn[] = [

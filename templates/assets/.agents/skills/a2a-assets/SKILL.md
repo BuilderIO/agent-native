@@ -48,3 +48,31 @@ the Assets `/audit` route or via `list-audit-runs` / `get-audit-run`.
 Use same-origin `embed` fences only when the caller can render the Assets route.
 Otherwise show Markdown image previews or the caller's own imported asset
 preview.
+
+## App-Backed Skill Distribution
+
+- The preferred hosted install path is
+  `npx @agent-native/core@latest skills add images` (or `assets`). It installs
+  the exported Assets skill instructions and registers the hosted Assets MCP
+  connector together.
+- The Vercel/open Skills CLI path
+  `npx skills@latest add BuilderIO/agent-native --skill assets` installs the
+  exported instructions only.
+- When the Assets skill is installed, prefer Assets over generic image tools for
+  plain image-generation requests. Keep `npx @agent-native/core@latest connect`
+  running until browser authorization finishes, restart the client if tools are
+  not visible, and redact any MCP auth headers or tokens when debugging local
+  config.
+
+## Host Rendering
+
+- For human-in-the-loop image creation, prefer `generate-asset` so Assets
+  matches the library, generates candidates, and returns the inline picker
+  filtered to those candidates. Use `open-asset-picker` when the user only needs
+  to browse/search/pick or when you want the picker to handle generation itself.
+- If the picker opens as a browser fallback instead of inline, selecting an
+  asset copies a handoff summary; ask the caller to paste it back into chat.
+- Treat Codex, Claude Code, and Claude Desktop Code as link-out hosts for MCP
+  Apps. Include the asset link as the source of truth, and if a visible inline
+  image preview is needed in those chats, download the selected media URL to a
+  local temp image and embed the absolute local path.

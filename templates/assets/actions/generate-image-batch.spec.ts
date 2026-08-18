@@ -14,6 +14,16 @@ vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: assertAccessMock,
 }));
 
+vi.mock("@agent-native/creative-context/server", () => ({
+  recordGenerationCreativeContext: vi.fn(async () => undefined),
+  resolveGenerationCreativeContext: vi.fn(async () => ({
+    contextMode: "off",
+    contextPackId: null,
+    reuseLabels: [],
+    results: [],
+  })),
+}));
+
 vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
 }));
@@ -64,6 +74,17 @@ describe("generate-image-batch", () => {
     generateImageRunMock.mockResolvedValue({ assetId: "asset-1" });
     upsertVariantSlotMock.mockResolvedValue(undefined);
     getDbMock.mockReturnValue(createDb());
+  });
+
+  it("advertises only the compact agent-facing generation contract", () => {
+    const fullShape = (action.schema as any).shape;
+    const agentShape = (action.agentInputSchema as any).shape;
+
+    expect(fullShape.libraryId.isOptional()).toBe(false);
+    expect(agentShape.libraryId.isOptional()).toBe(false);
+    expect(agentShape).not.toHaveProperty("variantScopeId");
+    expect(agentShape).not.toHaveProperty("creativeContextRequestId");
+    expect(agentShape).not.toHaveProperty("callerAppId");
   });
 
   it("validates sessionId before spawning slot generations", async () => {

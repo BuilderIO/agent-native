@@ -14,7 +14,7 @@ import { notify } from "@agent-native/core/notifications";
 
 await notify(
   { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
@@ -235,14 +235,14 @@ import {
   deleteNotification,
 } from "@agent-native/core/notifications";
 
-const rows = await listNotifications("steve@builder.io", {
+const rows = await listNotifications("user@example.com", {
   unreadOnly: true,
   limit: 50,
 });
-const unread = await countUnread("steve@builder.io");
-await markNotificationRead(rows[0].id, "steve@builder.io");
-await markAllNotificationsRead("steve@builder.io");
-await deleteNotification(rows[0].id, "steve@builder.io");
+const unread = await countUnread("user@example.com");
+await markNotificationRead(rows[0].id, "user@example.com");
+await markAllNotificationsRead("user@example.com");
+await deleteNotification(rows[0].id, "user@example.com");
 ```
 
 Jede Funktion unterliegt dem Eigentümerbereich – keine benutzerübergreifenden Lesevorgänge und keine benutzerübergreifenden Schreibvorgänge.
@@ -363,7 +363,7 @@ Automatisierungen können dies verketten – z.B. _"Wenn eine kritische Benachri
 ## Wie es funktioniert {#internals}
 
 - **Owner Scoping** – jede Zeile hat eine `owner`-Spalte; jede Abfrage filtert danach; Jede Route verwendet die E-Mail-Adresse der authentifizierten Sitzung. Benutzer sehen nie die Benachrichtigungen der anderen.
-- **Umfrageintegration** – jede Mutation ruft `recordChange()` auf, sodass Vorlagen, die [`useDbSync`](/docs/client) verwenden, ohne zusätzliche Verkabelung automatisch ungültig werden.
+- **Umfrageintegration** – jede Mutation ruft `recordChange()` auf, sodass Vorlagen, die [`useDbSync`](/docs/client-data#usedbsync) verwenden, ohne zusätzliche Verkabelung automatisch ungültig werden.
 - **Best-Effort-Fanout** – Kanalfehler werden abgefangen und protokolliert; Ein ausgefallener Kanal blockiert nicht andere oder das Schreiben in den Posteingang.
 - **Fire-and-Forget** – `notify()` kehrt zurück, nachdem der Posteingangsschreibvorgang abgeschlossen ist; Benutzerdefinierte Kanäle werden im Hintergrund ausgeführt.
 
@@ -371,4 +371,4 @@ Automatisierungen können dies verketten – z.B. _"Wenn eine kritische Benachri
 
 - [**Automations**](/docs/automations) – der häufigste Aufrufer von `notify()`
 - [**Security**](/docs/security) – der `${keys.NAME}`-Ersatz, der den Webhook-Kanal betreibt
-- [**Server plugins**](/docs/server) – wo benutzerdefinierte Kanäle beim Start registriert werden
+- [**Server plugins**](/docs/server-overview) – wo benutzerdefinierte Kanäle beim Start registriert werden

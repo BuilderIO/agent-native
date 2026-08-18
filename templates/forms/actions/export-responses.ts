@@ -1,6 +1,6 @@
-import fs from "fs";
-
 import { defineAction } from "@agent-native/core";
+import { uploadFile } from "@agent-native/core/file-upload";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq, desc } from "drizzle-orm";
 import { z } from "zod";
@@ -12,7 +12,6 @@ export default defineAction({
   description: "Export form responses to CSV or JSON file.",
   schema: z.object({
     form: z.string().describe("Form ID (required)"),
-    output: z.string().optional().describe("Output file path"),
     format: z.enum(["csv", "json"]).optional().describe("Export format"),
   }),
   http: false,
@@ -28,10 +27,10 @@ export default defineAction({
       .orderBy(desc(schema.responses.submittedAt));
 
     const fields = JSON.parse(form.fields);
-    const fmt =
-      args.format || (args.output?.endsWith(".json") ? "json" : "csv");
-    const outputPath =
-      args.output || `data/export-${formId}.${fmt === "json" ? "json" : "csv"}`;
+    const fmt = args.format || "csv";
+    const filename = `export-${formId}.${fmt === "json" ? "json" : "csv"}`;
+    const ownerEmail = getRequestUserEmail() ?? undefined;
+    let fileBody: string;
 
     if (fmt === "json") {
       const data = responses.map((r) => ({
@@ -42,7 +41,7 @@ export default defineAction({
         clientSurface: r.clientSurface ?? null,
         ...JSON.parse(r.data),
       }));
-      fs.writeFileSync(outputPath, JSON.stringify(data, null, 2));
+      fileBody = JSON.stringify(data, null, 2);
     } else {
       const headers = [
         "ID",
@@ -74,17 +73,29 @@ export default defineAction({
       // with a single quote so spreadsheets treat it as literal text.
       const neutralize = (cell: string) =>
         /^[=+\-@\t\r]/.test(cell) ? `'${cell}` : cell;
-      const csv = [headers, ...rows]
+      fileBody = [headers, ...rows]
         .map((row) =>
           row
             .map((cell: string) => `"${neutralize(cell).replace(/"/g, '""')}"`)
             .join(","),
         )
         .join("\n");
-
-      fs.writeFileSync(outputPath, csv);
     }
 
-    return `Exported ${responses.length} responses to ${outputPath}`;
+    const uploaded = await uploadFile({
+      data: Buffer.from(fileBody, "utf8"),
+      mimeType: fmt === "json" ? "application/json" : "text/csv",
+      filename,
+      ownerEmail,
+    }).catch(() => null);
+
+    if (!uploaded) {
+      throw new Error(
+        "Export was generated but not saved because file storage is not configured. " +
+          "Connect or reconnect Builder.io (free tier available) in Settings → File uploads, or register a custom provider.",
+      );
+    }
+
+    return `Exported ${responses.length} responses to ${uploaded.url}`;
   },
 });

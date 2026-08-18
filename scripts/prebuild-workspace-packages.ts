@@ -95,6 +95,16 @@ function exportedDistOutputs(packageDir: string): string[] {
 
 const targets: PackageTarget[] = [
   {
+    id: "recap-cli",
+    name: "@agent-native/recap-cli",
+    dir: "packages/recap-cli",
+    expectedOutputs: [
+      ...exportedDistOutputs("packages/recap-cli"),
+      "dist/cli.js",
+    ],
+    tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/recap-cli.tsbuildinfo"],
+  },
+  {
     id: "shared-app-config",
     name: "@agent-native/shared-app-config",
     dir: "packages/shared-app-config",
@@ -121,6 +131,15 @@ const targets: PackageTarget[] = [
     tsBuildInfoFiles: [
       "node_modules/.cache/tsbuildinfo/core.tsbuildinfo",
       "node_modules/.cache/tsbuildinfo/core-cli.tsbuildinfo",
+    ],
+  },
+  {
+    id: "creative-context",
+    name: "@agent-native/creative-context",
+    dir: "packages/creative-context",
+    expectedOutputs: exportedDistOutputs("packages/creative-context"),
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/creative-context.tsbuildinfo",
     ],
   },
   {
@@ -172,18 +191,22 @@ const targets: PackageTarget[] = [
 
 const modeTargets: Record<PrebuildMode, string[]> = {
   dev: [
+    "recap-cli",
     "shared-app-config",
     "toolkit",
     "core",
+    "creative-context",
     "code-agents-ui",
     "scheduling",
     "dispatch",
     "pinpoint",
   ],
   postinstall: [
+    "recap-cli",
     "shared-app-config",
     "toolkit",
     "core",
+    "creative-context",
     "code-agents-ui",
     "migrate",
     "pinpoint",
@@ -257,4 +280,17 @@ execFileSync(pnpmExecutable(), [...filters, "run", "build"], {
   stdio: "inherit",
   // .cmd files on Windows require shell:true to be found by execFileSync.
   shell: process.platform === "win32",
+});
+
+const nativeRepairScript = path.resolve(
+  "packages/core/dist/cli/native-dependencies.js",
+);
+if (!existsSync(nativeRepairScript)) {
+  throw new Error(
+    `[prebuild-workspace-packages] Missing native dependency repair script at ${nativeRepairScript}`,
+  );
+}
+execFileSync(process.execPath, [nativeRepairScript, "--repair"], {
+  cwd: process.cwd(),
+  stdio: "inherit",
 });

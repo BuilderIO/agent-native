@@ -1,21 +1,31 @@
-import { getBrowserTabId, useDbSync } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
+import { DevOverlay } from "@agent-native/core/client/dev-overlay";
+import { getBrowserTabId, useDbSync } from "@agent-native/core/client/hooks";
 import {
   AppProviders,
-  CommandMenu,
-  DevOverlay,
-  appPath,
   createAgentNativeQueryClient,
+} from "@agent-native/core/client/hooks";
+import {
   getLocaleInitScript,
-  getThemeInitScript,
   type LocaleCode,
   type LocaleMessages,
   type LocalizationPreference,
-  useCommandMenuShortcut,
   useT,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
+import { docsUrl } from "@agent-native/core/shared";
+import {
+  IconHierarchy2,
+  IconCheck,
+  IconSun,
+  IconMoon,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -27,6 +37,7 @@ import {
   ScrollRestoration,
   useLoaderData,
   useLocation,
+  useNavigate,
   useRouteLoaderData,
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
@@ -43,6 +54,7 @@ import {
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
+import { SEARCH_FOCUS_PATH } from "@/lib/search-focus";
 
 import { i18nCatalog, loadI18nMessages } from "./i18n";
 
@@ -120,7 +132,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const localeInitScript = getHydrationStableLocaleInitScript({
     locale: loaderData.locale,
     preference: loaderData.preference,
-    messages: loaderData.messages,
   });
 
   return (
@@ -146,7 +157,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: localeInitScript }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#18181B" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -217,7 +227,9 @@ const CLIPS_COMMAND_DOCS = [
     title: "Use the Chrome extension for browser logs",
     description:
       "Record a browser tab with redacted console logs, JavaScript exceptions, and fetch/XHR diagnostics.",
-    href: "https://www.agent-native.com/docs/template-clips#browser-logs-and-developer-diagnostics",
+    href: docsUrl("template-clips-capture-everywhere", {
+      hash: "browser-logs-with-the-chrome-extension",
+    }),
     keywords: [
       "logs",
       "browser logs",
@@ -336,6 +348,7 @@ function isStandalonePublicPath(pathname: string): boolean {
 
 function AppContent() {
   const location = useLocation();
+  const navigate = useNavigate();
   const t = useT();
   const standalonePublic = isStandalonePublicPath(location.pathname);
   const [cmdkOpen, setCmdkOpen] = useState(false);
@@ -358,7 +371,11 @@ function AppContent() {
           changelogKey="clips"
         >
           <CommandMenu.Group heading={t("root.commandActions")}>
-            <CommandMenu.Item onSelect={() => {}}>
+            <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
+              <IconHierarchy2 size={16} />
+              {t("root.openAgent")}
+            </CommandMenu.Item>
+            <CommandMenu.Item onSelect={() => navigate(SEARCH_FOCUS_PATH)}>
               {t("root.commandSearch")}
             </CommandMenu.Item>
           </CommandMenu.Group>
@@ -404,4 +421,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

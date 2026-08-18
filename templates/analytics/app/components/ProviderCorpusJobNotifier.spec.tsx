@@ -9,7 +9,7 @@ const mocks = vi.hoisted(() => ({
   queryOptions: null as Record<string, unknown> | null,
 }));
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: (
     _name: string,
     _params: unknown,
@@ -18,6 +18,9 @@ vi.mock("@agent-native/core/client", () => ({
     mocks.queryOptions = options;
     return { data: { jobs: [], total: 0 }, refetch: mocks.refetch };
   },
+}));
+
+vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
@@ -39,7 +42,10 @@ vi.mock("sonner", () => ({
 
 import { notifyProviderCorpusJobSyncEvent } from "@/lib/provider-corpus-job-sync";
 
-import { ProviderCorpusJobNotifier } from "./ProviderCorpusJobNotifier";
+import {
+  ProviderCorpusJobNotifier,
+  providerCorpusJobIsIncomplete,
+} from "./ProviderCorpusJobNotifier";
 
 describe("ProviderCorpusJobNotifier request cadence", () => {
   let container: HTMLDivElement;
@@ -104,5 +110,33 @@ describe("ProviderCorpusJobNotifier request cadence", () => {
       key: "provider-corpus-job",
     });
     expect(mocks.refetch).toHaveBeenCalledOnce();
+  });
+
+  it("treats a completed page-cap job as incomplete", () => {
+    expect(
+      providerCorpusJobIsIncomplete({
+        job: {
+          id: "job-1",
+          name: "Gong scan",
+          mode: "paginated-search",
+          status: "completed",
+          provider: "gong",
+          updatedAt: new Date().toISOString(),
+        },
+        coverage: {
+          pagesProcessed: 1,
+          batchesProcessed: 0,
+          itemsProcessed: 100,
+          matchedItems: 2,
+          totalHits: 2,
+          storedHits: 2,
+          truncatedHits: false,
+          paginationComplete: false,
+          paginationStopReason: "max-pages",
+        },
+        error: null,
+        nextResumeAt: null,
+      }),
+    ).toBe(true);
   });
 });

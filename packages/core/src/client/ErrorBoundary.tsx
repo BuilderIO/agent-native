@@ -304,6 +304,8 @@ function ErrorScreen({ error }: { error: unknown }) {
     console.error("[ErrorBoundary]", error);
   }
 
+  const isNotFound = status === 404;
+
   return (
     <main className="flex items-center justify-center min-h-screen p-4 bg-background text-foreground">
       <div className="flex flex-col items-center text-center max-w-md">
@@ -318,25 +320,29 @@ function ErrorScreen({ error }: { error: unknown }) {
           <a href={appPath("/")} className={primaryActionClassName}>
             {copy.goHome}
           </a>
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className={secondaryActionClassName}
-          >
-            {copy.reload}
-          </button>
-          <ErrorReportActions
-            appName="Agent Native"
-            title={title}
-            details={details}
-            status={status}
-            issueTitle={`Error screen: ${title}`}
-            feedbackLabel={copy.sendFeedback}
-            feedbackPlaceholder={copy.feedbackPlaceholder}
-            githubLabel={copy.openGitHubIssue}
-            feedbackClassName="h-9"
-            githubClassName="h-9"
-          />
+          {!isNotFound && (
+            <>
+              <button
+                type="button"
+                onClick={() => window.location.reload()}
+                className={secondaryActionClassName}
+              >
+                {copy.reload}
+              </button>
+              <ErrorReportActions
+                appName="Agent Native"
+                title={title}
+                details={details}
+                status={status}
+                issueTitle={`Error screen: ${title}`}
+                feedbackLabel={copy.sendFeedback}
+                feedbackPlaceholder={copy.feedbackPlaceholder}
+                githubLabel={copy.openGitHubIssue}
+                feedbackClassName="h-9"
+                githubClassName="h-9"
+              />
+            </>
+          )}
         </div>
         {stack && (
           <pre className="mt-6 w-full text-start text-xs overflow-auto p-4 bg-muted rounded">

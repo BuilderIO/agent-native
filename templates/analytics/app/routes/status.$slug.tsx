@@ -1,16 +1,5 @@
-/**
- * Public, unauthenticated uptime status page: `/status/<slug>`.
- *
- * SSR-first: the loader resolves the sanitized, PUBLISHED-only status view on
- * the server so crawlers and first-time visitors get real markup (framework
- * rule: public/SEO pages SSR real content). The client then lightly
- * auto-refreshes via the same `get-public-status-page` action (whitelisted in
- * server/plugins/auth.ts). Unknown or unpublished slugs render a branded 404.
- *
- * This route is rendered without the authenticated app chrome — see the
- * `/status/` public branch in app/root.tsx.
- */
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { IconActivity } from "@tabler/icons-react";
 import { useMemo } from "react";
 import { data, useLoaderData, useParams } from "react-router";
@@ -55,15 +44,16 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
       { name: "robots", content: "noindex" },
     ];
   }
+  const pageTitle = normalizeDocumentTitle(page.title, "Status page");
   const description =
     page.description ||
     (page.overall === "operational"
       ? "All systems operational."
       : "Current service status.");
   return [
-    { title: `${page.title} · Status` },
+    { title: `${pageTitle} · Status` },
     { name: "description", content: description },
-    { property: "og:title", content: `${page.title} · Status` },
+    { property: "og:title", content: `${pageTitle} · Status` },
     { property: "og:description", content: description },
     { property: "og:type", content: "website" },
   ];

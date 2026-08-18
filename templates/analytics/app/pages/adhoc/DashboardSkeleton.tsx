@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
+import { DashboardPanelSkeleton } from "@/components/dashboard/DashboardPanelSkeleton";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
-import { Skeleton } from "@/components/ui/skeleton";
 
 interface DashboardSkeletonProps {
   columns?: number;
@@ -22,10 +22,10 @@ export function DashboardSkeleton({
           <div key={i} className="dashboard-grid-cell h-full">
             <Card className="flex h-full flex-col overflow-visible">
               <CardHeader className="pb-2 shrink-0">
-                <Skeleton className="h-4 w-32" />
+                <DashboardPanelSkeleton className="h-4 w-32" />
               </CardHeader>
               <CardContent className="flex flex-1 flex-col pt-0">
-                <Skeleton className="w-full flex-1 min-h-[250px]" />
+                <DashboardPanelSkeleton className="w-full flex-1 min-h-[250px]" />
               </CardContent>
             </Card>
           </div>

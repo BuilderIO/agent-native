@@ -1,28 +1,32 @@
-# Neon preview branches — per-PR database isolation
+# Neon preview branches - disabled
 
 Preview deploys share the prod `DATABASE_URL` by default, so any server
-cold-start that touches the database writes to prod. To isolate preview
-deploys, we use Neon's copy-on-write branching via GitHub Actions.
+Preview deploys use the shared Netlify database configuration. The workflow
+below only cleans up branch resources left by the former isolation flow.
 
 ## How it works
 
-1. **PR opened/updated** — `.github/workflows/neon-preview-branches.yml`
-   creates a Neon branch (`preview/pr-<number>`) for each hosted template's
-   Neon project, then sets `NETLIFY_DATABASE_URL` on the corresponding
-   Netlify site's deploy-preview context.
+1. **PR opened/updated** - no Neon branch or Netlify database override is
+   created. Netlify's normal deploy-preview flow runs unchanged.
 
-2. **Netlify auto-deploys** — each template's `netlify.toml` build command
-   starts with `export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL}`.
-   When `NETLIFY_DATABASE_URL` is set (preview), the build and runtime use
-   the branch DB. When unset (prod), they fall through to the real
-   `DATABASE_URL`.
+2. **Netlify auto-deploys** - the normal deploy-preview configuration is used.
 
-3. **PR closed** — the workflow deletes the Neon branches and removes the
-   `NETLIFY_DATABASE_URL` env overrides.
+3. **PR closed** - the workflow deletes any matching
+   `preview-schema-only/pr-*` or legacy `preview/pr-*` Neon branches and
+   removes old branch-scoped `DATABASE_URL` env overrides.
 
 `@agent-native/core` stays provider-agnostic — it only reads `DATABASE_URL`.
 The Neon/Netlify specifics live in the workflow and each template's
-`netlify.toml`.
+`netlify.toml`. Factory is intentionally excluded from this workflow because
+its production Netlify site is manually deployed and is not Git-connected,
+so it does not support branch deploy previews.
+
+## Preview access requirements
+
+Because previews use the shared database, they must not be treated as isolated
+or safe-to-write environments. Keep public preview access gated with Netlify
+team login, SSO, or an equivalent visitor gate, and do not use previews for
+workflows that can create real external side effects.
 
 ## Required GitHub secrets
 

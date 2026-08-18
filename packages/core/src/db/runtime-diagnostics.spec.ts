@@ -1,6 +1,15 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+
+const mockExecute = vi.hoisted(() => vi.fn());
+
+vi.mock("./client.js", () => ({
+  getDatabaseUrl: () => "postgres://localhost/test",
+  getDialect: () => "postgres",
+  getDbExec: () => ({ execute: mockExecute }),
+}));
 
 import {
+  DEFAULT_REQUIRED_SCHEMA,
   formatRuntimeDebugFingerprint,
   runDatabaseSchemaHealthCheck,
   type RuntimeDebugFingerprint,
@@ -67,5 +76,38 @@ describe("runtime diagnostics", () => {
       missingTables: ["chat_threads"],
       missingColumns: [{ table: "agent_runs", column: "worker_stage" }],
     });
+  });
+
+  it("memoizes a healthy default probe but never an unhealthy one", async () => {
+    // Unhealthy first: a probe that reports a problem must be re-run, or the
+    // migration that fixes it stays invisible for the memo window.
+    mockExecute.mockReset();
+    mockExecute.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    expect((await runDatabaseSchemaHealthCheck()).ok).toBe(false);
+    const afterMissing = mockExecute.mock.calls.length;
+    expect(afterMissing).toBeGreaterThan(0);
+
+    expect((await runDatabaseSchemaHealthCheck()).ok).toBe(false);
+    expect(mockExecute.mock.calls.length).toBe(afterMissing * 2);
+
+    // Healthy: answer every column probe, then the second call must not query.
+    mockExecute.mockImplementation(async (query: unknown) => {
+      const table =
+        typeof query === "string" ? "" : String((query as any).args?.[0] ?? "");
+      const required =
+        DEFAULT_REQUIRED_SCHEMA.find((r) => r.table === table)?.columns ?? [];
+      return {
+        rows: required.map((column) => ({ column_name: column })),
+        rowsAffected: 0,
+      };
+    });
+    mockExecute.mockClear();
+    expect((await runDatabaseSchemaHealthCheck()).ok).toBe(true);
+    const probes = mockExecute.mock.calls.length;
+    expect(probes).toBeGreaterThan(0);
+
+    mockExecute.mockClear();
+    expect((await runDatabaseSchemaHealthCheck()).ok).toBe(true);
+    expect(mockExecute).not.toHaveBeenCalled();
   });
 });

@@ -1,20 +1,4 @@
-/**
- * Granola-style auto-start notes prompt banner.
- *
- * Appears at the top of the meeting detail page when the meeting's
- * `scheduledStart` is within ±2 minutes of now and `actualStart` is null.
- *
- * Behavior (matches Granola: "starts at calendar time if you're viewing the
- * event"):
- *   1. Banner appears — primary "Start notes" button.
- *   2. After 30 seconds of no interaction, transcription auto-starts.
- *   3. For the first 5 seconds after auto-fire, a "Cancel" link is visible
- *      so the user can abort if they didn't notice.
- *
- * The banner does not auto-start when the user has manually dismissed it.
- */
-
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconClock, IconPlayerPlayFilled, IconX } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 

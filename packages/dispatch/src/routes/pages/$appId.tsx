@@ -1,4 +1,7 @@
-import { useActionQuery, appPath, useT } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
+import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 import {
   IconArrowLeft,
   IconArrowUpRight,
@@ -146,7 +149,7 @@ export default function WorkspaceAppCatchAllRoute() {
       title={app?.name || t("dispatch.pages.pageNotFound")}
       description={t("dispatch.pages.pageNotFoundDescription")}
     >
-      <div className="max-w-2xl rounded-lg border bg-card p-5">
+      <div className="max-w-2xl rounded-lg bg-card p-5">
         <Button asChild size="sm" variant="ghost" className="-ml-2 mb-4">
           <Link to={appPath("/overview")}>
             <IconArrowLeft size={15} className="mr-1.5" />
@@ -173,15 +176,19 @@ export default function WorkspaceAppCatchAllRoute() {
               <span className="font-mono text-foreground">{app.path}</span>{" "}
               {t("dispatch.pages.appBuildingSuffix")}
             </p>
-            {app.branchName ? (
-              <p className="text-xs text-muted-foreground">
-                {t("dispatch.pages.branch", { branch: app.branchName })}
-              </p>
-            ) : null}
             {app.builderUrl ? (
               <Button asChild>
-                <a href={app.builderUrl} target="_blank" rel="noreferrer">
-                  {t("dispatch.pages.openBuilderBranch")}
+                <a
+                  href={withBuilderUtmTrackingParams(app.builderUrl, {
+                    campaign: "product",
+                    content: "dispatch_branch",
+                  })}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  {t("dispatch.pages.openBuilderBranch", {
+                    defaultValue: "Open in Builder",
+                  })}
                   <IconArrowUpRight size={15} className="ml-1.5" />
                 </a>
               </Button>

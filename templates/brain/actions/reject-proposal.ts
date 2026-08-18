@@ -5,7 +5,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { nowIso, serializeProposal } from "../server/lib/brain.js";
+import {
+  assertDerivedAudienceAccess,
+  nowIso,
+  serializeProposal,
+} from "../server/lib/brain.js";
 
 export default defineAction({
   description: "Reject a pending Brain proposal with optional reviewer notes.",
@@ -15,6 +19,7 @@ export default defineAction({
   }),
   run: async ({ proposalId, reviewerNotes }) => {
     const access = await assertAccess("brain-proposal", proposalId, "editor");
+    await assertDerivedAudienceAccess(access.resource);
     if (access.resource.status !== "pending") {
       throw new Error(
         `Proposal ${proposalId} is already ${access.resource.status}`,

@@ -13,7 +13,7 @@ Se você deseja um runtime automation-first sem navegador UI, comece com [Automa
   <Screen
     surface="desktop"
     html={
-      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Como posso ajudar?</h1><p class='wf-muted' style='margin:10px 0 0'>Converse sobre qualquer coisa. Adicione ações, componentes, páginas, jobs ou seu próprio backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Envie mensagem ao agente...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>Sonnet 5 · Padrão</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
+      "<div style='min-height:560px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding:56px 40px'><div style='display:flex;flex-direction:column;align-items:center;justify-content:center;gap:28px;width:min(700px,92%);min-height:430px'><div style='height:34px'></div><div style='text-align:center'><h1 style='margin:0'>Como posso ajudar?</h1><p class='wf-muted' style='margin:10px 0 0'>Converse sobre qualquer coisa. Adicione ações, componentes, páginas, jobs ou seu próprio backend.</p></div><div class='wf-card' style='width:100%;min-height:150px;display:flex;flex-direction:column;gap:18px'><span class='wf-muted'>Envie mensagem ao agente...</span><div style='flex:1'></div><div style='display:flex;align-items:center;gap:10px'><span data-icon='plus' aria-label='Attach'></span><div style='flex:1'></div><span class='wf-pill'>GPT-5.6 Luna · Alto</span><span class='wf-pill'>Act</span><button class='primary'>↑</button></div></div><div style='height:34px'></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -125,79 +125,11 @@ npx @agent-native/core@latest create my-agent --headless
 
 A partir daí, copie a rota `/` do modelo de bate-papo e a lista de tópicos da barra lateral em seu aplicativo ou crie um aplicativo de bate-papo e mova o actions de seu agente headless para seu diretório `actions/`. A chave invariante permanece a mesma: actions é a superfície compartilhada para bate-papo, UI, HTTP, MCP, A2A e CLI.
 
-## Primeiro código a ser inspecionado {#first-code}
-
-- `actions/hello.ts` é o comportamento inicial que o agente pode chamar. Substitua-o ou
-  adicione actions ao lado dele.
-- `app/routes/_index.tsx` renderiza a superfície de chat de página inteira. Ajuste o
-  sugestões, estado vazio, compositor ou layout circundante aqui.
-- `AGENTS.md` informa ao agente integrado como trabalhar dentro deste aplicativo.
-
-<FileTree
-  id="doc-block-hy56z3"
-  title="Layout do template Chat"
-  entries={[
-    {
-      path: "actions/hello.ts",
-      note: "A action de exemplo; substitua ou adicione actions ao lado dela",
-    },
-    {
-      path: "actions/view-screen.ts",
-      note: "Action de contexto padrão que o agente lê",
-    },
-    {
-      path: "actions/navigate.ts",
-      note: "Action de navegação padrão",
-    },
-    {
-      path: "app/routes/_index.tsx",
-      note: "Renderiza a superfície de chat em página inteira; edite sugestões, estado vazio e composer",
-    },
-    {
-      path: "AGENTS.md",
-      note: "Orientação centrada em chat que o agente integrado lê",
-    },
-  ]}
-/>
-
-A página de bate-papo é intencionalmente estreita:
-
-```tsx
-// app/routes/_index.tsx
-import { AgentChatSurface } from "@agent-native/core/client";
-
-export default function ChatRoute() {
-  return (
-    <AgentChatSurface
-      mode="page"
-      suggestions={[
-        "What can you do?",
-        "Help me customize this chat app",
-        "Show me the actions and pages I can add",
-      ]}
-    />
-  );
-}
-```
-
-## Use seu próprio back-end de agente {#own-agent-backend}
-
-O modelo usa o loop de agente de aplicativo integrado por padrão. Para conectar um back-end personalizado, troque o tempo de execução do chat pelo plug-in de chat do agente em vez de reescrever o UI. A rota de bate-papo deve permanecer como um renderizador fino em torno da superfície de bate-papo compartilhada; a escolha de back-end pertence ao plug-in do servidor/adaptador de tempo de execução.
-
-Use isso quando a orquestração do seu modelo já estiver em outro lugar, mas você ainda quiser um aplicativo com autenticação, threads, estado actions, UI e páginas implantáveis.
-
-## Primeiras edições {#first-edits}
-
-Após o andaime, pergunte ao agente:
-
-> Adicione um modelo de dados para `notes`. Uma nota possui id, título, corpo e proprietário. Renderize uma página de notas em `/notes`, adicione criar/listar actions e mantenha o chat capaz de criar notas.
-
-O agente deve adicionar um esquema Drizzle, actions, rota, navegação e instruções. Depois, você pode usar o recurso de notas do UI ou do chat.
-
 ## O que vem a seguir
 
+- [**Seu primeiro recurso no Chat**](/docs/template-chat-first-edits) — a rota de chat inicial, anotada, além de um passo a passo completo para adicionar um recurso real
 - [**Getting Started**](/docs) — escolha entre modelos headless, chat e domínio
 - [**Agent Surfaces**](/docs/agent-surfaces) — padrões headless, chat, incorporados e de aplicativo completo
-- [**Actions**](/docs/actions) — o bate-papo do sistema de ação e UI chamam
+- [**Actions**](/docs/actions-overview) — o bate-papo do sistema de ação e UI chamam
 - [**Native Interface de chat**](/docs/native-chat-ui) — primitivas da superfície de bate-papo e opções de tempo de execução
 - [**Automation-First Apps**](/docs/pure-agent-apps): automações, filas, scripts e workflows de agents externos sem UI de navegador

@@ -34,7 +34,10 @@ import http from "node:http";
 
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
-import { getRequestUserEmail } from "../server/request-context.js";
+import {
+  getRequestRunContext,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import {
   failExpiredSandboxExecution,
   getSandboxExecutionForOwner,
@@ -56,8 +59,13 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const MAX_TIMEOUT_MS = 600_000;
 const DEFAULT_MAX_OUTPUT_CHARS = 50_000;
 const MAX_OUTPUT_CHARS = 200_000;
+const TOOL_ORCHESTRATION_DEFAULT_MAX_CALLS = 32;
+const TOOL_ORCHESTRATION_MAX_CALLS = 128;
+const TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES = 20;
 /** Hard cap on bridge request bodies so sandboxed code can't exhaust parent memory. */
 const BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024;
+
+export type SandboxCodeMode = "run-code" | "tool-orchestration";
 
 /** Tools callable via the sandbox bridge by default. */
 const DEFAULT_BRIDGE_TOOLS = new Set([
@@ -139,7 +147,7 @@ export function createRunCodeEntry(
         "  - `workspaceList(prefix?)` — list workspace files, returns [{ path, sizeBytes, contentType, updatedAt }].",
         "Print results with `console.log()`; only stdout+stderr are returned.",
         "Timeout defaults to 120 s (max 600 s). Output is truncated to 50 000 chars by default (max 200 000).",
-        'For LONG compute — big cross-source joins, corpus-wide sweeps, scripts that could exceed ~30 s, or anything at risk of dying with the current chat run — pass `background: true`. That enqueues a durable execution and returns `{ executionId, status: "queued" }` immediately; the code runs out-of-band with a generous budget (default 10 min) and its result survives run timeouts. Continue other work, then poll by calling run-code again with just `{ executionId }` to get status and, once finished, the output. Keep quick scripts in the default foreground mode.',
+        'For LONG compute — big cross-source joins, corpus-wide sweeps, scripts that could exceed ~30 s, or anything at risk of dying with the current chat run — pass `background: true`. That enqueues a durable execution and returns `{ executionId, status: "queued" }` immediately; the code runs out-of-band with a generous budget (default 10 min) and its result survives run timeouts. Continue other work, then poll with `get-code-execution` when that dedicated tool is available; legacy hosts can call run-code again with just `{ executionId }`. Keep quick scripts in the default foreground mode.',
       ].join(" "),
       parameters: {
         type: "object",
@@ -160,12 +168,12 @@ export function createRunCodeEntry(
           background: {
             type: "boolean",
             description:
-              'Run as a durable background execution: returns { executionId, status: "queued" } immediately and the code executes out-of-band, surviving chat-run timeouts. Use for long compute (large joins, multi-page provider sweeps, heavy analysis). Poll with executionId for the result.',
+              'Run as a durable background execution: returns { executionId, status: "queued" } immediately and the code executes out-of-band, surviving chat-run timeouts. Use for long compute (large joins, multi-page provider sweeps, heavy analysis). Poll with get-code-execution when available.',
           },
           executionId: {
             type: "string",
             description:
-              "Poll a background execution started earlier: pass the executionId alone (no code) to get its status and, once finished, its output.",
+              "Legacy polling fallback for hosts without get-code-execution: pass the executionId alone (no code) to get status and output.",
           },
         },
         required: [],
@@ -256,6 +264,10 @@ export interface ExecuteSandboxCodeOptions {
   getActions: () => Record<string, ActionEntry>;
   /** Extra bridge tool names beyond the defaults. */
   extraBridgeTools?: Set<string>;
+  /** Host policy and helper surface to use inside the sandbox. */
+  mode?: SandboxCodeMode;
+  /** Maximum number of bridged child-tool calls for orchestration mode. */
+  maxToolCalls?: number;
   /** Request context (owner/org) applied to bridged tool calls. */
   context?: ActionRunContext;
 }
@@ -281,6 +293,7 @@ export async function executeSandboxCode(
 ): Promise<ExecuteSandboxCodeResult> {
   const actions = options.getActions();
   const bridgeToken = crypto.randomBytes(32).toString("hex");
+  const mode = options.mode ?? "run-code";
 
   // Start bridge server — resolves once the server is listening.
   const {
@@ -293,6 +306,8 @@ export async function executeSandboxCode(
     options.context,
     DEFAULT_BRIDGE_TOOLS,
     options.extraBridgeTools ?? new Set(),
+    mode,
+    options.maxToolCalls,
   );
 
   try {
@@ -319,7 +334,12 @@ export async function executeSandboxCode(
     // regardless of adapter.
     const { stdout, stderr, exitCode, timedOut } =
       await resolveExecutionSandboxAdapter().run({
-        moduleSource: buildSandboxModule(options.code, bridgePort, bridgeToken),
+        moduleSource: buildSandboxModule(
+          options.code,
+          bridgePort,
+          bridgeToken,
+          mode,
+        ),
         env: safeEnv,
         timeoutMs: options.timeoutMs,
         bridgePort,
@@ -401,6 +421,7 @@ async function enqueueBackgroundRunCode(input: {
     owner,
     orgId: input.context?.orgId ?? null,
     threadId: input.context?.threadId ?? null,
+    allowedActionNames: getRequestRunContext()?.allowedActionNames,
   });
 
   const hasGetTool = Boolean(input.getActions()["get-code-execution"]);
@@ -582,12 +603,18 @@ function formatTerminalSandboxExecution(row: SandboxExecutionRow): string {
 /**
  * Standalone, access-scoped poll tool for background executions. Behaviorally
  * identical to calling `run-code` with only `executionId`; hosts that register
- * it as `get-code-execution` give the model a dedicated read tool (and the
- * enqueue guidance automatically points at it when present in the registry).
+ * it as `get-code-execution` give the model a dedicated volatile read tool (and
+ * the enqueue guidance automatically points at it when present in the
+ * registry). Keep the opt-out here rather than on `run-code`: repeated normal
+ * run-code calls may execute writes or outbound requests and must retain the
+ * agent loop's default duplicate-call protection.
  */
 export function createGetCodeExecutionEntry(): ActionEntry {
   return {
     readOnly: true,
+    // Polling with an identical executionId is the intended usage — the
+    // status changes over time, so this must not be deduped.
+    dedupe: false,
     tool: {
       description:
         "Check a background run-code execution: returns its status (queued | running | succeeded | failed | timed_out) and, once finished, its stdout/stderr output. Executions are scoped to the user who started them. While one is queued or running, continue other useful work and poll every ~15-30 seconds instead of busy-waiting.",
@@ -636,8 +663,17 @@ async function startBridgeServer(
   context: ActionRunContext | undefined,
   defaultTools: Set<string>,
   extraTools: Set<string>,
+  mode: SandboxCodeMode,
+  maxToolCalls: number | undefined,
 ): Promise<BridgeResult> {
   const usedTools = new Set<string>();
+  const callBudget =
+    mode === "tool-orchestration"
+      ? {
+          count: 0,
+          max: normalizeToolCallBudget(maxToolCalls),
+        }
+      : undefined;
   const server = http.createServer((req, res) => {
     if (req.method !== "POST" || req.url !== "/tool") {
       res.writeHead(404);
@@ -676,6 +712,8 @@ async function startBridgeServer(
         defaultTools,
         extraTools,
         usedTools,
+        mode,
+        callBudget,
         res,
       );
     });
@@ -714,9 +752,11 @@ function handleBridgeRequest(
   defaultTools: Set<string>,
   extraTools: Set<string>,
   usedTools: Set<string>,
+  mode: SandboxCodeMode,
+  callBudget: { count: number; max: number } | undefined,
   res: http.ServerResponse,
 ): void {
-  let parsed: { tool?: string; args?: Record<string, string> };
+  let parsed: { tool?: string; args?: Record<string, unknown> };
   try {
     parsed = JSON.parse(rawBody);
   } catch {
@@ -734,36 +774,74 @@ function handleBridgeRequest(
 
   // Enforce allowlist.
   const entry = actions[toolName];
-  const isReadOnlyAction =
-    entry?.readOnly === true &&
-    entry.agentTool !== false &&
-    entry.toolCallable !== false;
-  if (
-    !defaultTools.has(toolName) &&
-    !extraTools.has(toolName) &&
-    !isReadOnlyAction
-  ) {
-    res.writeHead(403, { "Content-Type": "application/json" });
-    res.end(
-      JSON.stringify({
-        error: `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
-      }),
-    );
-    return;
-  }
-
+  // Unknown/mistyped tool: report "not registered" (404) before the
+  // access-control branch below. Otherwise an undefined `entry` falls into the
+  // allowlist 403 and returns a misleading access error for a tool that simply
+  // does not exist. (Bridge-allowlisted tools always have an entry, so this
+  // cannot mask a legitimate allowlisted call.)
   if (!entry) {
     res.writeHead(404, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ error: `Tool "${toolName}" is not registered.` }));
     return;
   }
-
+  const isReadOnlyAction =
+    entry.readOnly === true &&
+    entry.agentTool !== false &&
+    entry.toolCallable !== false;
   const toolArgs = parsed.args ?? {};
+  const childArgs =
+    mode === "tool-orchestration"
+      ? boundToolOrchestrationArgs(toolName, toolArgs)
+      : toolArgs;
+
+  if (mode === "tool-orchestration") {
+    if (callBudget && callBudget.count >= callBudget.max) {
+      res.writeHead(429, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error: `Tool-orchestration child-call budget exceeded (${callBudget.max}). Aggregate the current results or increase maxToolCalls within its limit.`,
+        }),
+      );
+      return;
+    }
+    if (!isAllowedToolOrchestrationCall(toolName, childArgs, entry)) {
+      res.writeHead(403, { "Content-Type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error: `Tool "${toolName}" is not permitted by tool-orchestration. Only read-only tools and GET/HEAD provider or web reads without staging or saving files are allowed; call mutating tools directly.`,
+        }),
+      );
+      return;
+    }
+  } else if (
+    !defaultTools.has(toolName) &&
+    !extraTools.has(toolName) &&
+    !isReadOnlyAction
+  ) {
+    // A registered, agent-exposed action that isn't read-only is a mutation.
+    // (Unknown tools already returned 404 above, so `entry` is defined here.)
+    // Point the caller at the native tool path instead of leaving them to guess
+    // (the common trap: retrying create-extension/update-extension through
+    // appAction, which cannot work).
+    const isMutatingAction =
+      entry.agentTool !== false && entry.readOnly !== true;
+    res.writeHead(403, { "Content-Type": "application/json" });
+    res.end(
+      JSON.stringify({
+        error: isMutatingAction
+          ? `Tool "${toolName}" is a mutating action and cannot be called from run-code (appAction only exposes read-only actions). Call "${toolName}" directly as a native tool. For large content bodies, stage the content and pass "contentFromAttachment" instead of an inline string rather than routing it through run-code.`
+          : `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
+      }),
+    );
+    return;
+  }
+
+  if (callBudget) callBudget.count += 1;
   usedTools.add(toolName);
   // Run the tool with the parent request context so auth/org/owner resolution
   // works exactly as it does in the normal agent loop.
   entry
-    .run(toolArgs, context)
+    .run(childArgs, context)
     .then((result: unknown) => {
       const body =
         typeof result === "string" ? result : JSON.stringify(result, null, 2);
@@ -775,6 +853,155 @@ function handleBridgeRequest(
       res.writeHead(500, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ error: message }));
     });
+}
+
+function normalizeToolCallBudget(value: number | undefined): number {
+  if (!Number.isFinite(value) || !value || value <= 0) {
+    return TOOL_ORCHESTRATION_DEFAULT_MAX_CALLS;
+  }
+  return Math.min(Math.floor(value), TOOL_ORCHESTRATION_MAX_CALLS);
+}
+
+function isAllowedToolOrchestrationCall(
+  toolName: string,
+  args: Record<string, unknown>,
+  entry: ActionEntry,
+): boolean {
+  if (toolName === "workspace-files") {
+    // This is an internal bridge action by design, so agentTool/toolCallable
+    // are intentionally not required here. Its operation enum is the policy
+    // boundary for the read-only workspace surface.
+    return isCallableWithoutApproval(entry) && isReadOnlyWorkspaceRequest(args);
+  }
+  if (toolName === "provider-api-request") {
+    return isReadOnlyProviderApiRequest(args, entry);
+  }
+  return isReadOnlyOrchestrationAction(args, entry);
+}
+
+function isCallableWithoutApproval(entry: ActionEntry): boolean {
+  // The bridge calls ActionEntry.run directly for child reads. A predicate
+  // approval gate must therefore fail closed rather than being silently
+  // bypassed by this bounded path.
+  return entry.needsApproval === undefined || entry.needsApproval === false;
+}
+
+function isReadOnlyWorkspaceRequest(args: Record<string, unknown>): boolean {
+  const action = typeof args.action === "string" ? args.action : "";
+  return action === "read" || action === "list" || action === "grep";
+}
+
+function isReadOnlyProviderApiRequest(
+  args: Record<string, unknown>,
+  entry: ActionEntry,
+): boolean {
+  if (
+    !entry.tool ||
+    !isCallableWithoutApproval(entry) ||
+    entry.agentTool === false ||
+    entry.allowInPlanMode === false
+  ) {
+    return false;
+  }
+  const method = String(args.method ?? "GET").toUpperCase();
+  return (
+    (method === "GET" || method === "HEAD") &&
+    args.stageAs == null &&
+    args.saveToFile == null
+  );
+}
+
+function isReadOnlyOrchestrationAction(
+  args: Record<string, unknown>,
+  entry: ActionEntry,
+): boolean {
+  if (
+    !entry.tool ||
+    !isCallableWithoutApproval(entry) ||
+    entry.agentTool === false ||
+    entry.toolCallable === false ||
+    entry.allowInPlanMode === false
+  ) {
+    return false;
+  }
+
+  const planMode = entry.planMode;
+  if (!planMode) return entry.readOnly === true;
+
+  const input = args as any;
+  if (
+    planMode.allowedProperties &&
+    Object.keys(args).some((key) => !planMode.allowedProperties!.includes(key))
+  ) {
+    return false;
+  }
+  if (
+    planMode.omittedProperties?.some((key) =>
+      Object.prototype.hasOwnProperty.call(args, key),
+    )
+  ) {
+    return false;
+  }
+  if (
+    Object.entries(planMode.allowedValues ?? {}).some(([key, allowed]) => {
+      const value = args[key];
+      return (
+        value !== null &&
+        value !== undefined &&
+        (typeof value !== "string" || !allowed.includes(value))
+      );
+    })
+  ) {
+    return false;
+  }
+
+  try {
+    const effect =
+      typeof planMode.effect === "function"
+        ? planMode.effect(input)
+        : planMode.effect;
+    return effect === "read";
+  } catch (error) {
+    console.warn(
+      "[run-code] tool-orchestration read-only policy classifier failed closed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return false;
+  }
+}
+
+function boundToolOrchestrationArgs(
+  toolName: string,
+  args: Record<string, unknown>,
+): Record<string, unknown> {
+  if (toolName !== "provider-api-request") return args;
+  const fetchAllPages = args.fetchAllPages;
+  if (
+    !fetchAllPages ||
+    typeof fetchAllPages !== "object" ||
+    Array.isArray(fetchAllPages)
+  ) {
+    return args;
+  }
+
+  const requestedMaxPages = Number(
+    (fetchAllPages as Record<string, unknown>).maxPages,
+  );
+  const maxPages =
+    Number.isInteger(requestedMaxPages) && requestedMaxPages > 0
+      ? Math.min(
+          Math.floor(requestedMaxPages),
+          TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES,
+        )
+      : TOOL_ORCHESTRATION_MAX_PROVIDER_PAGES;
+
+  return {
+    ...args,
+    fetchAllPages: {
+      ...(fetchAllPages as Record<string, unknown>),
+      maxPages,
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -791,7 +1018,64 @@ function buildSandboxModule(
   userCode: string,
   bridgePort: number,
   bridgeToken: string,
+  mode: SandboxCodeMode = "run-code",
 ): string {
+  const orchestrationHelpers =
+    mode === "tool-orchestration"
+      ? `
+/**
+ * Search the live registry for read-only or conditionally read-only tools, then call one
+ * of the returned names with toolCall(). The parent host enforces the same
+ * policy again, so this is discovery guidance rather than an authorization
+ * boundary.
+ */
+async function toolSearch(query = "", options = {}) {
+  const rawResult = await _bridgeCall("tool-search", {
+    ...(query ? { query } : {}),
+    ...(options.limit !== undefined ? { limit: options.limit } : {}),
+    includeSchemas: true,
+    readOnlyOnly: true,
+  });
+  return _parseBridgeResult(rawResult);
+}
+
+async function toolCall(name, args = {}) {
+  return _parseBridgeResult(await _bridgeCall(name, args));
+}
+`
+      : "";
+  const workspaceMutationHelpers =
+    mode === "run-code"
+      ? `
+/**
+ * Write (create or overwrite) a workspace file. Use \`scratch/...\` for
+ * temporary staging files.
+ * \`content\` must be a string. Returns metadata
+ * { resourceId, path, contentType, sizeBytes, updatedAt }.
+ */
+async function workspaceWrite(path, content, contentType = "text/plain") {
+  const rawResult = await _bridgeCall("workspace-files", {
+    action: "write",
+    path,
+    content: typeof content === "string" ? content : JSON.stringify(content),
+    contentType,
+  });
+  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
+}
+
+/**
+ * Append text to a workspace file (creates if absent).
+ */
+async function workspaceAppend(path, content) {
+  const rawResult = await _bridgeCall("workspace-files", {
+    action: "append",
+    path,
+    content: typeof content === "string" ? content : JSON.stringify(content),
+  });
+  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
+}
+`
+      : "";
   return `
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
@@ -847,6 +1131,8 @@ function _parseBridgeResult(rawResult) {
 async function appAction(name, args = {}) {
   return _parseBridgeResult(await _bridgeCall(name, args));
 }
+
+${orchestrationHelpers}
 
 async function providerRequest(provider, apiPath, init = {}) {
   const method = (init.method || "GET").toUpperCase();
@@ -1528,12 +1814,52 @@ async function webRead(url, init = {}) {
 /**
  * Read a Resources-backed workspace file by path. Returns the file content as
  * a string, or null if not found.
- * Supports optional offset and maxChars for paging large files.
+ *
+ * By default this returns the WHOLE file: the underlying store caps a single
+ * read at 100k chars, so this auto-pages across chunks and concatenates them,
+ * so callers never get a silently truncated body. Pass an explicit \`offset\`
+ * or \`maxChars\` to take manual control of a single page instead.
  */
 async function workspaceRead(path, opts = {}) {
-  const parsed = await workspaceReadMeta(path, opts);
-  if (parsed && parsed.ok === false) return null;
-  return parsed && typeof parsed.content === "string" ? parsed.content : null;
+  // Explicit paging requested → single read, caller owns the window.
+  if (opts.offset !== undefined || opts.maxChars !== undefined) {
+    const parsed = await workspaceReadMeta(path, opts);
+    if (parsed && parsed.ok === false) return null;
+    return parsed && typeof parsed.content === "string" ? parsed.content : null;
+  }
+  // Default → assemble the full file by paging until the store reports no more.
+  let offset = 0;
+  let out = "";
+  let found = false;
+  let complete = false;
+  // Bounded loop (files cap at 2 MB / 100k-char reads) so a misbehaving store
+  // can never spin forever.
+  for (let i = 0; i < 512; i++) {
+    const parsed = await workspaceReadMeta(path, { offset, maxChars: 100000 });
+    // A failed/missing page aborts. If it failed before the first page we never
+    // found the file (return null below); if it failed part-way through a
+    // truncated read, complete stays false and we return null rather than a
+    // silently truncated body.
+    if (!parsed || parsed.ok === false) break;
+    found = true;
+    const chunk = typeof parsed.content === "string" ? parsed.content : "";
+    out += chunk;
+    if (!parsed.truncated) {
+      complete = true;
+      break;
+    }
+    const next =
+      typeof parsed.nextOffset === "number"
+        ? parsed.nextOffset
+        : offset + chunk.length;
+    if (next <= offset) break; // no forward progress; stop rather than loop
+    offset = next;
+  }
+  if (!found) return null;
+  // Only hand back a body we know is whole. A truncated read followed by a
+  // failed/stalled page would otherwise corrupt a large clone with a partial
+  // prefix and no error signal.
+  return complete ? out : null;
 }
 
 /**
@@ -1550,32 +1876,7 @@ async function workspaceReadMeta(path, opts = {}) {
   return _parseBridgeResult(rawResult);
 }
 
-/**
- * Write (create or overwrite) a workspace file. Use \`scratch/...\` for
- * temporary staging files.
- * \`content\` must be a string. Returns metadata { path, sizeBytes, updatedAt }.
- */
-async function workspaceWrite(path, content, contentType = "text/plain") {
-  const rawResult = await _bridgeCall("workspace-files", {
-    action: "write",
-    path,
-    content: typeof content === "string" ? content : JSON.stringify(content),
-    contentType,
-  });
-  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
-}
-
-/**
- * Append text to a workspace file (creates if absent).
- */
-async function workspaceAppend(path, content) {
-  const rawResult = await _bridgeCall("workspace-files", {
-    action: "append",
-    path,
-    content: typeof content === "string" ? content : JSON.stringify(content),
-  });
-  try { return typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult; } catch { return rawResult; }
-}
+${workspaceMutationHelpers}
 
 /**
  * List workspace files, optionally filtered by path prefix.

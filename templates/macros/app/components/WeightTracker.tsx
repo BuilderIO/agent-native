@@ -1,8 +1,8 @@
 import {
   useActionQuery,
   useActionMutation,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import type { Weight } from "@shared/types";
 import { IconScale } from "@tabler/icons-react";
 import { useState } from "react";

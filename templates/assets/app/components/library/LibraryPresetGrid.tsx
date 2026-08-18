@@ -1,4 +1,4 @@
-import { appPath } from "@agent-native/core/client";
+import { appPath } from "@agent-native/core/client/api-path";
 import { IconBox, IconBrush, IconLayersIntersect } from "@tabler/icons-react";
 
 import { Badge } from "@/components/ui/badge";

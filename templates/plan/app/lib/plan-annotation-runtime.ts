@@ -1,3 +1,5 @@
+import { injectDocumentMarkup } from "@agent-native/core/shared";
+
 import type { PlanAnnotationAnchor } from "@/lib/plan-native-anchors";
 
 export type PreferredEditor =
@@ -1418,10 +1420,7 @@ export function injectAnnotationRuntime(input: {
       }, true);
     })();
   </script>`;
-  if (html.includes("</body>")) {
-    return html.replace("</body>", `${runtime}</body>`);
-  }
-  return `${html}${runtime}`;
+  return injectDocumentMarkup(html, runtime);
 }
 
 function escapeRuntimeJsString(value: string) {

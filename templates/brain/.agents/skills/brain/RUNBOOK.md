@@ -15,6 +15,42 @@ in the public `template-brain.md` overview and previously sat inline in
 intentionally not in the public docs. Read it when you are operating, rolling
 out, or debugging Brain internals rather than answering an ordinary question.
 
+## Privacy, Evidence Audiences, And Search
+
+Brain applies the deterministic hard-category screen before any privacy model.
+It blocks performance/discipline, layoffs or termination, compensation,
+recruiting, health/accommodation, investigation, privileged legal, credentials,
+and personal data. An approved privacy classifier may make handling stricter;
+it cannot override a deterministic hit. When no classifier is configured,
+Brain is in degraded deterministic-only mode: clearly clean company material
+may be allowed, while uncertainty is quarantined and `get-brain-health` reports
+the missing configuration.
+
+Quarantined re-fetchable material from Slack, GitHub, or Granola keeps only a
+metadata receipt because the content can be re-fetched during an authorized
+review. Push-only generic and Clips payloads instead use an encrypted,
+short-TTL private side store that no search, agent, source editor, log,
+citation, or distillation surface can read; expiry converts it to a suppression
+receipt. Review records policy metadata, never a shortcut to raw sensitive
+content. HR-blocked evidence is never declassifiable: write a new,
+non-identifying reviewed statement if it has durable organizational value.
+
+Every allowed capture and derived row has an audience id and ACL hash. Public
+and organization material use the trivial organization audience. Private Slack
+material uses its channel membership audience, and meeting material uses its
+attendee audience. Retrieval prefilters by audience before FTS/vector ranking;
+answers spanning multiple sources may only cite the intersection of their
+evidence audiences. Private Slack audiences fail closed when membership has not
+been refreshed for 15 minutes, so removal upstream cannot leave indefinite
+Brain access.
+
+Semantic indexing starts when a capture is `allowed`, rather than waiting for
+distillation. A derived row is current only when its staleness key matches
+`contentHash + BRAIN_SEARCH_INDEX_VERSION + sensitivityPolicyVersion + aclHash`.
+Changing content, policy, or membership invalidates indexed artifacts,
+knowledge/proposal evidence, and mirrored canonical resources before they can
+be served.
+
 ## Search model layers
 
 Brain search has three layers:
@@ -60,8 +96,11 @@ pnpm --filter brain action create-source \
 ```
 
 The connector verifies each configured conversation before reading history and
-rejects DMs and MPIMs. Cursor state is stored on the source so each sync can
-pick up where the last one stopped, including after Slack rate limiting.
+rejects DMs and MPIMs. Public discovery is opt-in and exclusion patterns are
+applied before capture. Private channels are never silently joined: an operator
+must manually invite the Slack app before validation and membership sync. Cursor
+state is stored on the source so each sync can pick up where the last one
+stopped, including after Slack rate limiting.
 
 Use `test-slack-connection` before a production backfill. It validates the Slack
 bot token with `auth.test` and, when channel refs are provided, checks channel
@@ -121,7 +160,8 @@ recommended rollout steps without returning raw capture bodies.
 
 Recommended production rollout:
 
-1. Start with one or two high-signal channels and channel IDs.
+1. Start with one or two high-signal public channels and explicitly invited
+   private channels; never use discovery as implicit private-channel consent.
 2. Keep `autoSync: false` until review quality is proven.
 3. Run `test-slack-connection`, then `run-slack-pilot` without history.
 4. Run one explicit `run-slack-pilot --readHistory true` sample when the report
@@ -246,18 +286,22 @@ with `mode: "retrieval"`.
 
 The repository-level `pnpm test` command includes `pnpm test:brain-evals`, which
 runs Brain's product-demo and retrieval action evals against a disposable local
-SQLite database. The CI/prep eval path is fully seeded and offline; it does not
-require production Slack, Granola, Clips, or any external workspace data.
+SQLite database. `pnpm test:brain-privacy-evals` is a separate CI lane with
+must-block sensitive fixtures and must-allow benign false-positive fixtures
+(such as API-limit raises, bonus features, and medical-device customers). Both
+paths are fully seeded and offline; neither requires production Slack, Granola,
+Clips, or external workspace data.
 
 ## Generic ingest payload validation
 
 The signed ingest webhook at `/api/_agent-native/brain/ingest` accepts a
-`RawCapturePayload`. Create a source with a `sourceKey` to receive a bearer
-token, set `Authorization: Bearer <ingestToken>` on the request, and send the
-payload shape below. Clips can export to that endpoint without Brain reading the
-Clips database directly. Generic sources use the same payload shape for call
-transcripts, customer research, imported notes, or any other source that can
-produce a bounded capture.
+normalized capture envelope. Create a source with a `sourceKey` to receive a
+bearer token, set `Authorization: Bearer <ingestToken>` on the request, and
+send one of the payload shapes below. Clips can export to that endpoint without
+Brain reading the Clips database directly. Generic sources use the same
+contract for call transcripts, customer research, approved FAQs/docs, imported
+notes, or any other source that can produce a bounded capture. Successful
+creates and updates automatically create or reuse a distillation queue item.
 
 ```json
 {
@@ -272,3 +316,50 @@ produce a bounded capture.
   "raw": {}
 }
 ```
+
+For a blessed document publisher, create a generic source with an explicit
+answer policy:
+
+```bash
+pnpm --filter brain action create-source \
+  --title "Blessed Agent Native docs" \
+  --provider generic \
+  --sourceKey agent-native-docs \
+  --policy '{"trustTier":"blessed","answerEligible":true,"authority":100,"freshnessWindowDays":null,"reviewRequired":false,"conflictBehavior":"prefer-higher-authority"}' \
+  --visibility org
+```
+
+Then publish one stable upstream record per `externalId`:
+
+```json
+{
+  "sourceKey": "agent-native-docs",
+  "externalId": "what-is-agent-native",
+  "title": "What is Agent Native?",
+  "kind": "document",
+  "content": "Agent Native is ...",
+  "capturedAt": "2026-07-30T12:00:00.000Z",
+  "sourceUrl": "https://docs.example.com/what-is-agent-native",
+  "tags": ["faq", "agent-native"],
+  "metadata": {
+    "slug": "what-is-agent-native",
+    "owner": "product"
+  }
+}
+```
+
+Reusing the same `sourceKey` and `externalId` updates the capture and
+invalidates its derived knowledge/search artifacts before re-distillation.
+When the upstream record is deleted or unblessed, send a content-free
+tombstone:
+
+```json
+{
+  "sourceKey": "agent-native-docs",
+  "externalId": "what-is-agent-native",
+  "deleted": true
+}
+```
+
+Tombstones retire the capture, remove its derived knowledge and published
+canonical resource, and prevent a stale retry from silently recreating it.

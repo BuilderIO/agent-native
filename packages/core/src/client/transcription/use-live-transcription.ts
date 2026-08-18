@@ -6,15 +6,17 @@
  * stop when the user hits stop. The accumulated transcript is available
  * immediately — no round-trip to Whisper needed.
  *
- * Higher-quality backends (Groq Whisper, OpenAI Whisper, Deepgram) can
- * refine the result afterward, but this gives users something useful
- * from second zero even without an API key.
+ * Builder can transcribe the original recording afterward if native capture
+ * produces no text, but this gives users something useful from second zero
+ * without a cloud transcription request.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
 const NETWORK_RESTART_BASE_MS = 1_000;
 const NETWORK_RESTART_MAX_MS = 30_000;
+const RESTART_RETRY_BASE_MS = 400;
+const MAX_RESTART_ATTEMPTS = 8;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function getSpeechRecognitionCtor(): any {
@@ -42,6 +44,14 @@ export interface LiveTranscriptionApi {
   stopAndWait: (timeoutMs?: number) => Promise<string>;
   pause: () => void;
   resume: () => void;
+  /**
+   * Non-null when recognition died before the caller asked it to stop, so the
+   * returned transcript covers only part of the session. Callers must pass it
+   * along rather than storing a partial transcript as a finished one. Read
+   * through a getter (not state) so a stop handler can never observe a stale
+   * "everything was fine" value from an earlier render.
+   */
+  getIncompleteReason: () => string | null;
 }
 
 export function useLiveTranscription(
@@ -58,11 +68,34 @@ export function useLiveTranscription(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const recognitionRef = useRef<any>(null);
   const transcriptRef = useRef("");
+  const interimRef = useRef("");
   const stoppedManuallyRef = useRef(false);
   const stopWaiterRef = useRef<((text: string) => void) | null>(null);
   const restartTimerRef = useRef<number | null>(null);
   const networkErrorCountRef = useRef(0);
   const restartDelayRef = useRef(0);
+  const restartFailureCountRef = useRef(0);
+  const incompleteReasonRef = useRef<string | null>(null);
+
+  // First reason wins: it names what actually broke the capture, and later
+  // teardown noise must not overwrite it.
+  const markIncomplete = useCallback((reason: string) => {
+    if (incompleteReasonRef.current) return;
+    incompleteReasonRef.current = reason;
+  }, []);
+
+  const getIncompleteReason = useCallback(
+    () => incompleteReasonRef.current,
+    [],
+  );
+
+  const currentTranscript = useCallback(
+    () =>
+      [transcriptRef.current.trim(), interimRef.current.trim()]
+        .filter(Boolean)
+        .join(" "),
+    [],
+  );
 
   const supported = !!getSpeechRecognitionCtor();
 
@@ -89,9 +122,12 @@ export function useLiveTranscription(
     recognition.lang = lang;
     recognitionRef.current = recognition;
     transcriptRef.current = "";
+    interimRef.current = "";
     stoppedManuallyRef.current = false;
     networkErrorCountRef.current = 0;
     restartDelayRef.current = 0;
+    restartFailureCountRef.current = 0;
+    incompleteReasonRef.current = null;
     setTranscript("");
     setInterimText("");
 
@@ -107,10 +143,12 @@ export function useLiveTranscription(
           interim += text;
         }
       }
+      interimRef.current = interim;
       setInterimText(interim);
       if (event.results.length > 0) {
         networkErrorCountRef.current = 0;
         restartDelayRef.current = 0;
+        restartFailureCountRef.current = 0;
       }
     };
 
@@ -122,6 +160,9 @@ export function useLiveTranscription(
         event.error === "audio-capture"
       ) {
         stoppedManuallyRef.current = true;
+        markIncomplete(
+          `Browser speech recognition stopped mid-recording (${event.error}).`,
+        );
         setIsActive(false);
         return;
       }
@@ -152,39 +193,62 @@ export function useLiveTranscription(
           }
           try {
             recognition.start();
+            restartFailureCountRef.current = 0;
           } catch {
-            setIsActive(false);
+            // Chrome throws InvalidStateError while the previous session is
+            // still releasing. `onend` has already fired and will not fire
+            // again, so this timer is the only thing left that can revive
+            // recognition — giving up here freezes the transcript mid-recording
+            // and the partial text then looks like the whole recording.
+            const attempt = ++restartFailureCountRef.current;
+            if (attempt >= MAX_RESTART_ATTEMPTS) {
+              markIncomplete(
+                "Browser speech recognition stopped mid-recording and could not be restarted.",
+              );
+              setIsActive(false);
+              return;
+            }
+            restartTimerRef.current = window.setTimeout(
+              restart,
+              RESTART_RETRY_BASE_MS * attempt,
+            );
           }
         };
-        const delayMs = restartDelayRef.current;
+        // Never call start() synchronously from inside onend — Chrome still
+        // has the session marked as running during dispatch and throws.
+        restartTimerRef.current = window.setTimeout(
+          restart,
+          restartDelayRef.current,
+        );
         restartDelayRef.current = 0;
-        if (delayMs > 0) {
-          restartTimerRef.current = window.setTimeout(restart, delayMs);
-        } else {
-          restart();
-        }
         return;
       }
       setIsActive(false);
       if (stopWaiterRef.current) {
-        stopWaiterRef.current(transcriptRef.current);
+        stopWaiterRef.current(currentTranscript());
       }
     };
 
     try {
       recognition.start();
       setIsActive(true);
-    } catch {
-      /* browser may block without user gesture */
+    } catch (err) {
+      // Browser may block without user gesture. Nothing was captured, and the
+      // caller must not treat the resulting empty text as "no speech".
+      markIncomplete(
+        `Browser speech recognition could not start (${(err as Error)?.message || "unknown error"}).`,
+      );
     }
-  }, [lang]);
+  }, [currentTranscript, lang, markIncomplete]);
 
   const stop = useCallback((): string => {
+    const text = currentTranscript();
     stoppedManuallyRef.current = true;
     if (restartTimerRef.current !== null) {
       window.clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
+    interimRef.current = "";
     setInterimText("");
     if (recognitionRef.current) {
       try {
@@ -195,51 +259,57 @@ export function useLiveTranscription(
       recognitionRef.current = null;
     }
     setIsActive(false);
-    return transcriptRef.current;
-  }, []);
+    return text;
+  }, [currentTranscript]);
 
-  const stopAndWait = useCallback((timeoutMs = 1200): Promise<string> => {
-    stoppedManuallyRef.current = true;
-    if (restartTimerRef.current !== null) {
-      window.clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
-    setInterimText("");
-
-    const recognition = recognitionRef.current;
-    if (!recognition) {
-      setIsActive(false);
-      return Promise.resolve(transcriptRef.current);
-    }
-
-    return new Promise((resolve) => {
-      let settled = false;
-      const finish = (text: string) => {
-        if (settled) return;
-        settled = true;
-        window.clearTimeout(timeout);
-        if (stopWaiterRef.current === finish) {
-          stopWaiterRef.current = null;
-        }
-        if (recognitionRef.current === recognition) {
-          recognitionRef.current = null;
-        }
-        setIsActive(false);
-        resolve(text);
-      };
-
-      const timeout = window.setTimeout(() => {
-        finish(transcriptRef.current);
-      }, timeoutMs);
-
-      stopWaiterRef.current = finish;
-      try {
-        recognition.stop();
-      } catch {
-        finish(transcriptRef.current);
+  const stopAndWait = useCallback(
+    (timeoutMs = 1200): Promise<string> => {
+      stoppedManuallyRef.current = true;
+      if (restartTimerRef.current !== null) {
+        window.clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = null;
       }
-    });
-  }, []);
+      setInterimText("");
+
+      const recognition = recognitionRef.current;
+      if (!recognition) {
+        const text = currentTranscript();
+        interimRef.current = "";
+        setIsActive(false);
+        return Promise.resolve(text);
+      }
+
+      return new Promise((resolve) => {
+        let settled = false;
+        const finish = (text: string) => {
+          if (settled) return;
+          settled = true;
+          window.clearTimeout(timeout);
+          if (stopWaiterRef.current === finish) {
+            stopWaiterRef.current = null;
+          }
+          if (recognitionRef.current === recognition) {
+            recognitionRef.current = null;
+          }
+          interimRef.current = "";
+          setIsActive(false);
+          resolve(text);
+        };
+
+        const timeout = window.setTimeout(() => {
+          finish(currentTranscript());
+        }, timeoutMs);
+
+        stopWaiterRef.current = finish;
+        try {
+          recognition.stop();
+        } catch {
+          finish(currentTranscript());
+        }
+      });
+    },
+    [currentTranscript],
+  );
 
   const pause = useCallback(() => {
     if (!recognitionRef.current) return;
@@ -288,5 +358,6 @@ export function useLiveTranscription(
     stopAndWait,
     pause,
     resume,
+    getIncompleteReason,
   };
 }

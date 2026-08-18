@@ -8,6 +8,11 @@ const agentNativePlugins = agentNative as unknown as (
 ) => any[];
 
 export default defineConfig({
+  server: {
+    watch: {
+      ignored: ["**/data/**", "**/plans/**"],
+    },
+  },
   plugins: [
     ...reactRouterPlugins(),
     ...agentNativePlugins({

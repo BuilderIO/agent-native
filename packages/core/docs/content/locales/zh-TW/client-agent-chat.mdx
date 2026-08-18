@@ -1,0 +1,310 @@
+---
+title: "Agent 聊天"
+description: "進入代理聊天的用戶端進入點：sendToAgentChat、openAgentSettings、askUserQuestion、動態建議、useAgentChatGenerating，以及暫存的代理聊天脈絡狀態。"
+---
+
+# Agent 聊天
+
+您應用程式的用戶端可以透過一小組用戶端輔助函式與代理對話。這些涵蓋傳送提示、暫存隱藏脈絡、向使用者提出阻塞式問題，以及開啟代理面板。
+
+在下方的範例中，一個**草擬回覆**按鈕會提示代理向使用者提出問題。使用者回答後，代理會在記住目前頁面脈絡與使用者回覆的情況下開始草擬回覆。
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcc3c9ccac6c6404f99fc27336b78a6d8?alt=media&token=d7aa0f72-eec3-4495-99c2-0d9bea11022e&apiKey=YJIGb4i01jvw0SRdL5Bt"
+  alt="Dispatch 應用程式截圖，顯示執行歷史側邊欄"
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="Dispatch 的執行歷史側邊欄。"
+/>
+
+## 運作方式
+
+透過使用 Agent-Native 提供的用戶端輔助方法，您的 UI 可以提示代理以多種方式與使用者互動。下方的圖表展示了使用者點選「草擬回覆」按鈕後，如何提示代理在產生回覆之前與使用者互動。
+
+<Image
+  src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F59e297f868244e39ba5ad9c62a32281e?width=500&height=500"
+  alt="標題為「每個步驟由誰負責」的序列圖，顯示三條生命線：App Code、UI 和 Agent。使用者點選「草擬回覆」，觸發 askUserQuestion()。一則註記說明這會在代理面板中以行內方式呈現。使用者回覆後，會在 Agent 上呼叫 sendDraftRequest()，此函式呼叫 draft-ticket-reply 並將草擬的回覆回傳給 UI 的編輯器。"
+  align="full"
+  width={600}
+  caption="視覺化「草擬回覆」按鈕流程的序列圖。"
+/>
+
+使用者體驗如下：
+
+1. 使用者點選**草擬回覆**按鈕，觸發 `askUserQuestion()` 函式的呼叫。問題會在代理面板中以行內方式獲得回答。
+
+1. 使用者選取**提供退款**，觸發 `sendDraftRequest()` 將提示與工單脈絡傳送給代理。
+
+1. 代理呼叫 `draft-ticket-reply` [action](/docs/actions-overview)，草擬的回覆會出現在回覆編輯器中。
+
+## askUserQuestion(opts) {#ask-user-question}
+
+<Signature
+  id="doc-block-client-agent-chat-3"
+  name="askUserQuestion"
+  params={[
+    {
+      name: "input",
+      type: "AskUserQuestionInput",
+      description: "問題、選項，以及它應如何運作。",
+      fields: [
+        {
+          name: "question",
+          type: "string",
+          description: "完整的問題。清楚、具體，以問號結尾。",
+        },
+        {
+          name: "header",
+          type: "string",
+          optional: true,
+          description: '極短的標籤/標題，約 12 個字元，例如 `"Response"`。',
+        },
+        {
+          name: "options",
+          type: "AskUserQuestionOption[]",
+          description:
+            "2 到 4 個不同的選項。每個選項為 `{ label, value?, description?, preview?, recommended? }`。`value` 預設為 `label`。",
+        },
+        {
+          name: "allowFreeText",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description: "新增一個自由文字的「其他」選項，供使用者輸入。",
+        },
+        {
+          name: "allowMultiple",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description: "多選而非單選。",
+        },
+        {
+          name: "stateKey",
+          type: "string",
+          optional: true,
+          default: '"guided-questions"',
+          description: "代理面板輪詢的應用程式狀態鍵。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<AskUserQuestionResult>",
+    description:
+      "所選的 `value`（或 `allowMultiple` 時的 `value[]`）、使用者輸入的「其他」文字，或若他們跳過則為 `null`。在他們回答之前保持待定狀態。需要代理面板已掛載，而每個範本中都已掛載。",
+  }}
+/>
+
+此函式從應用程式碼向使用者提出多選問題，將其以行內方式渲染在代理面板中，並等待他們的回答。當 UI 需要在啟動代理工作之前先做出一個包含兩到四個選項的小決定時使用它，而不是建置一個自訂彈出視窗。
+
+在下方的範例中，工單頁面上的「草擬回覆」按鈕會在向代理傳送任何內容之前，先詢問代表想如何回應：
+
+```ts
+import { askUserQuestion } from "@agent-native/core/client/agent-chat";
+
+const answer = await askUserQuestion({
+  question: "How would you like to respond to this ticket?",
+  header: "Response", // optional short chip/heading (≈12 chars)
+  options: [
+    { label: "Offer a refund", value: "refund" },
+    { label: "Offer a reprint", value: "reprint" },
+  ],
+});
+```
+
+## useAgentChatGenerating() {#useagentchatgenerating}
+
+<Signature
+  id="doc-block-client-agent-chat-4"
+  name="useAgentChatGenerating"
+  params={[]}
+  returns={{
+    type: "[boolean, (opts: AgentChatMessage) => string]",
+    description:
+      "一個 `[isGenerating, send]` 二元組。`isGenerating` 從呼叫 `send()` 的那一刻起為 `true`，直到代理聊天執行回報已停止為止。`send(opts)` 與 `sendToAgentChat()` 的簽章相同，並回傳它所派送到的分頁 id。",
+  }}
+/>
+
+此 React 掛鉤以載入狀態追蹤包裝 `sendToAgentChat()`。
+
+1. 第一個引數 `isGenerating`，在您呼叫它時變為 true，然後在代理完成生成後重設為 false。
+
+2. 第二個引數 `send()`，其行為與 `sendToAgentChat()` 函式相同。
+
+`isGenerating` 只有在一次執行實際開始並回報已停止後才會重設。`submit: false` 的呼叫只會預填一份草稿而不啟動執行，因此在這種呼叫之後 `isGenerating` 會永遠保持 `true`。只在 `submit: true` 的傳送上使用此掛鉤；針對僅預填的呼叫請直接呼叫 `sendToAgentChat()`。
+
+將此掛鉤與上方的 `askUserQuestion()` 範例結合，即可完成此按鈕的處理常式：
+
+<AnnotatedCode
+  id="doc-block-client-agent-chat-2"
+  title="完成草擬回覆處理常式"
+  language="tsx"
+  code={
+    'import {\n  askUserQuestion,\n  useAgentChatGenerating,\n} from "@agent-native/core/client/agent-chat";\n\nfunction useDraftResponseButton(ticket: { id: string; subject: string }) {\n  const [isDrafting, sendDraftRequest] = useAgentChatGenerating();\n\n  async function requestDraft() {\n    const answer = await askUserQuestion({\n      question: "How would you like to respond to this ticket?",\n      header: "Response",\n      options: [\n        { label: "Offer a refund", value: "refund" },\n        { label: "Offer a reprint", value: "reprint" },\n      ],\n    });\n    if (!answer || Array.isArray(answer)) return;\n\n    const intent =\n      answer === "refund"\n        ? "offering a refund"\n        : answer === "reprint"\n          ? "offering a reprint"\n          : `taking this direction from the rep: "${answer}"`;\n\n    sendDraftRequest({\n      message: `Draft a reply to this ticket ${intent}. Place it in the reply composer with draft-ticket-reply for ticket ${ticket.id}, don\'t send it.`,\n      context: `Ticket ${ticket.id}: "${ticket.subject}"`,\n      submit: true,\n      openSidebar: true,\n    });\n  }\n\n  return { isDrafting, requestDraft };\n}\n\nfunction DraftResponseButton({\n  ticket,\n}: {\n  ticket: { id: string; subject: string };\n}) {\n  const { isDrafting, requestDraft } = useDraftResponseButton(ticket);\n\n  return (\n    <button disabled={isDrafting} onClick={requestDraft}>\n      {isDrafting ? "Drafting..." : "Draft Response"}\n    </button>\n  );\n}'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "載入狀態 + 傳送，合而為一",
+      note: "`useAgentChatGenerating()` 回傳與純粹呼叫 `sendToAgentChat()` 相同形狀的二元組，但加上了 `isDrafting`，讓按鈕在請求進行中時可以停用自己。",
+    },
+    {
+      lines: "10-17",
+      label: "重複使用詢問步驟",
+      note: "這正是上方章節中的 `askUserQuestion()` 呼叫，現在放在按鈕自己的處理常式中。",
+    },
+    {
+      lines: "18",
+      label: "在使用答案之前先做窄化",
+      note: "回傳型別總是允許 `allowMultiple` 帶來的 `string[]`，因此即使此呼叫從未設定它，這個檢查仍是必要的。",
+    },
+    {
+      lines: "20-25",
+      label: "把選擇變成一句話",
+      note: "將選定的值，或代表自己輸入的文字，映射成下方提示可以自然閱讀的措辭。",
+    },
+    {
+      lines: "27-32",
+      label: "點出 action 名稱與意圖",
+      note: "此訊息告訴代理確切要呼叫哪個 action（`draft-ticket-reply`），並提醒它不要直接把回覆傳送出去。`openSidebar: true` 確保即使側邊欄原本是關閉的，草擬的回覆仍能被看見。",
+    },
+    {
+      lines: "46-48",
+      label: "isDrafting 驅動按鈕",
+      note: "只在 `sendDraftRequest()` 進行中時才停用並重新標示。按鈕在 `askUserQuestion()` 等待代表回答時仍保持可點選，因為這發生在 `sendDraftRequest()` 被呼叫之前。",
+    },
+  ]}
+/>
+
+## sendToAgentChat(opts) {#sendtoagentchat}
+
+透過 `postMessage` 向代理聊天傳送一則訊息。這是 `useAgentChatGenerating()` 在上方包裝的較低階原語，適用於不需要自己的載入狀態追蹤的 UI 互動。傳入 `context` 以提供模型應該看到但使用者不應該看到的額外細節。它會被附加到傳送給代理的訊息上，並用 `<context>` 標籤包裹，在訊息呈現於聊天介面之前會被移除。傳入 `submit: true` 立即傳送，或傳入 `submit: false` 預填一份草稿供使用者先審閱。
+
+```ts
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+// 使用隱藏內容自動提交提示
+sendToAgentChat({
+  message: "Generate alt text for this image",
+  context: "Image path: /api/projects/hero.jpg",
+  submit: true,
+});
+
+// Prefill without submitting (user reviews first)
+sendToAgentChat({
+  message: "Rewrite this in a conversational tone",
+  context: selectedText,
+  submit: false,
+});
+```
+
+### AgentChatMessage {#agentchatmessage}
+
+| 選項          | 型別       | 描述                                                     |
+| ------------- | ---------- | -------------------------------------------------------- |
+| `message`     | `string`   | 傳送到聊天的提示，也是聊天介面中唯一顯示的部分           |
+| `context`     | `string?`  | 傳送前附加到訊息中的模型可見內容。會從聊天介面顯示中移除 |
+| `submit`      | `boolean?` | true = 自動提交，false = 僅預填                          |
+| `newTab`      | `boolean?` | 為此提示建立一個獨立的聊天對話串                         |
+| `openSidebar` | `boolean?` | 設為 false 可在不開啟側邊欄的情況下提交/預填             |
+
+從 MCP App 嵌入內部執行此操作，或在不開啟側邊欄的情況下將執行放到背景，這兩者都在[進階](/docs/client-advanced#background-send)中涵蓋。
+
+## 動態建議 {#dynamic-suggestions}
+
+在對話開始之前，`<AgentSidebar>`、`<AgentPanel>` 和 `<AssistantChat>` 會在空白聊天上顯示提示標籤。預設情況下，這些標籤不只是您固定的 `suggestions` 清單：框架會從應用程式狀態讀取 `navigation`、`selection`、`pending-selection-context` 與目前的 URL，並合併進符合畫面實際內容的標籤。
+
+它透過兩項檢查來完成這件事。若有內容被選取，它會加入通用標籤，例如「總結此選取範圍」。另外，它會查看 `navigation` 中現有應用程式已在使用的常見欄位名稱，例如電子郵件對話串的 `threadId`/`emailId`，或圖表的 `dashboardId`/`chartId`，並加入針對該類畫面的標籤，例如對話串的「草擬回覆」，或圖表的「在此資料中找出異常」。它產生的結果會與您的靜態 `suggestions` 合併、去除重複，並限制在 `max` 之內。
+
+```tsx
+<AgentSidebar
+  suggestions={["Summarize my inbox"]}
+  dynamicSuggestions={{ max: 4 }}
+>
+  <App />
+</AgentSidebar>
+```
+
+若目前畫面不符合此啟發式方法所認得的任何內容，且沒有任何內容被選取，它就不會提供任何標籤，空白聊天會回退為只顯示您的靜態 `suggestions`。設定 `dynamicSuggestions={false}` 可只保留靜態標籤。若您應用程式的導覽結構不符合內建的啟發式方法，或您想要完全確定性的應用專屬標籤，請參閱[進階](/docs/client-advanced#custom-suggestions)。
+
+## openAgentSettings(section?) {#openagentsettings}
+
+當應用程式設定頁面或設定卡應該開啟代理側邊欄的「設定」分頁時，使用 `openAgentSettings()`。傳入一個區段 id，例如 `"llm"`、`"secrets"`、
+`"automations"`、`"voice"` 或 `"limits"`，以開啟特定區段。
+
+```ts
+import { openAgentSettings } from "@agent-native/core/client/navigation";
+openAgentSettings();
+openAgentSettings("secrets");
+```
+
+優先使用此輔助函式，而不是直接派送 `agent-panel:open-settings`。
+
+## 代理聊天脈絡狀態 {#agent-chat-context-state}
+
+脈絡狀態 API 是選用的管道，適用於需要與暫存脈絡標籤雙向同步的 UI：在編輯器之外渲染目前暫存的項目、反映某個項目是否已附加，或提供明確的移除/清除控制項。
+
+對於單純的「將此傳送給代理」或「預填此草稿供審閱」流程，不要使用這些輔助函式。請針對這類情況使用搭配 `context` 和 `submit` 的 [`sendToAgentChat()`](#sendtoagentchat)。
+
+| API                               | 使用時機                                        |
+| --------------------------------- | ----------------------------------------------- |
+| `useAgentChatContext()`           | React 元件需要即時的暫存脈絡清單                |
+| `setAgentChatContextItem(item)`   | 指令式程式碼應暫存或替換一個具鍵的脈絡項目      |
+| `listAgentChatContext()`          | 非 React 程式碼需要暫存脈絡的一次性快照         |
+| `removeAgentChatContextItem(key)` | UI 應透過其穩定的 `key` 移除一個暫存脈絡項目    |
+| `clearAgentChatContext()`         | UI 應清除所有暫存脈絡，例如在檢視或模式重設之後 |
+| `refreshAgentChatContext()`       | 指令式程式碼應重新讀取最新的持久化脈絡快照      |
+
+`useAgentChatContext()` 回傳 `{ items, set, remove, clear, refresh }`。
+
+```tsx
+import { useAgentChatContext } from "@agent-native/core/client/agent-chat";
+
+function SelectedTicketContextButton({ ticket }: { ticket: { id: string } }) {
+  const chatContext = useAgentChatContext();
+  const contextKey = `selected-ticket:${ticket.id}`;
+  const isAttached = chatContext.items.some((item) => item.key === contextKey);
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (isAttached) {
+          chatContext.remove(contextKey);
+          return;
+        }
+
+        chatContext.set({
+          key: contextKey,
+          title: "Selected Ticket",
+          context: JSON.stringify(ticket, null, 2),
+          openSidebar: false,
+        });
+      }}
+    >
+      {isAttached ? "Remove from prompt context" : "Add to prompt context"}
+    </button>
+  );
+}
+```
+
+`listAgentChatContext()` 適用於只需要檢查一次目前暫存項目的指令式程式碼。`clearAgentChatContext()` 刻意設計得較為廣泛。當只有一項選取內容改變時，使用 `removeAgentChatContextItem(key)`。
+
+### AgentChatContextSetOptions {#agentchatcontextsetoptions}
+
+| 選項          | 型別       | 描述                                   |
+| ------------- | ---------- | -------------------------------------- |
+| `key`         | `string`   | 用於替換現有項目的穩定識別碼           |
+| `title`       | `string`   | 在編輯器標籤中顯示的短標籤             |
+| `context`     | `string`   | 隨下一則提交的提示一起附上的隱藏脈絡   |
+| `openSidebar` | `boolean?` | 預設為 true。傳入 false 可靜默暫存脈絡 |
+
+## 下一步是什麼
+
+- [**總覽**](/docs/client-overview) — 這些輔助函式在 `app/` 中的位置
+- [**資料與同步**](/docs/client-data) — 讓 UI 自身保持最新的 action 掛鉤與 `useDbSync`
+- [**臨時代理**](/docs/drop-in-agent) — 掛載 `<AgentSidebar>`/`<AgentPanel>`，讓這些輔助函式有地方可以渲染
+- [**進階**](/docs/client-advanced) — 背景傳送、自訂建議標籤，以及 MCP App 主機橋接
+- [**Generative UI**](/docs/generative-ui) — 在應用內聊天中建置超越 `askUserQuestion` 的更豐富行內控制項

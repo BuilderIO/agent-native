@@ -1,10 +1,16 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import os from "node:os";
 
+import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
+
 const guards = [
   "guard:no-drizzle-push",
+  "guard:no-pnpm-patches",
+  "guard:chat-first-shared-ui",
+  "guard:no-empty-migrations",
   "guard:no-unscoped-queries",
   "guard:no-env-credentials",
+  "guard:env-documentation",
   "guard:no-unscoped-credentials",
   "guard:no-env-mutation",
   "guard:no-localhost-fallback",
@@ -12,8 +18,19 @@ const guards = [
   "guard:db-tool-scoping",
   "guard:template-list",
   "guard:netlify-private-env",
+  "guard:trusted-acceptance",
+  "guard:content-product-conformance",
+  "guard:content-product-docs",
   "guard:workspace-skills",
+  "guard:template-standard",
   "guard:public-packages",
+  "guard:shared-ui-singletons",
+  "guard:no-core-client-barrel-imports",
+  "guard:toolkit-must-not-import-core",
+  "guard:template-ui-imports",
+  "guard:controller-boundaries",
+  "guard:migration-manifest",
+  "guard:eject-manifests",
   "guard:no-generated-artifacts",
   "guard:extension-no-public",
   "guard:no-one-off-mcp-app-html",
@@ -22,8 +39,26 @@ const guards = [
   "guard:plan-marketplace",
   "guard:no-error-string-returns",
   "guard:no-action-twin-routes",
+  "guard:provider-action-factories",
   "guard:agent-chat-context",
   "guard:request-storms",
+  "guard:ssr-cache-shell",
+  "guard:route-chunk-recovery",
+  "guard:one-sign-in",
+  "guard:no-secret-literals",
+  "guard:additive-migrations",
+  "guard:config-docs",
+  "guard:no-legacy-config",
+  "guard:no-silent-coercion",
+  "guard:no-raw-colors",
+  "guard:persistent-compositing",
+  "guard:help-icon-scale",
+  "guard:no-default-chrome",
+  "guard:no-boot-data-work",
+  "guard:no-heavy-dashboard-list-reads",
+  "guard:dead-settings-keys",
+  "guard:serverless-function-payload",
+  "guard:hooks-registered",
 ] as const;
 
 type GuardName = (typeof guards)[number];
@@ -56,6 +91,9 @@ if (args.unknown.length > 0) {
 
 const concurrency = resolveConcurrency(args.concurrency);
 
+/** Skips are tolerable on a shallow local clone; in CI they mean nothing was reviewed. */
+const strictSkips = Boolean(process.env.CI) && !process.env.GUARD_ALLOW_SKIPS;
+
 if (args.dryRun) {
   console.log(
     `[guards] ${guards.length} checks, concurrency=${formatConcurrency(
@@ -63,7 +101,7 @@ if (args.dryRun) {
     )}`,
   );
   for (const guard of guards) {
-    console.log(`${pnpmCommand()} run ${guard}`);
+    console.log(formatCommand(guardCommand(guard)));
   }
   process.exit(0);
 }
@@ -92,18 +130,9 @@ console.error(
 );
 
 const results = await runAll(numericConcurrency);
-const failures = results.filter((result) => result.code !== 0 || result.signal);
-
-if (failures.length > 0) {
-  console.error(
-    `[guards] ${failures.length} check(s) failed: ${failures
-      .map((failure) => failure.name)
-      .join(", ")}`,
-  );
-  process.exit(1);
-}
-
-console.error("[guards] All checks passed");
+const summary = summarizeGuardRun(results, { strictSkips });
+console.error(summary.message);
+process.exit(summary.exitCode);
 
 async function runAll(concurrency: number): Promise<GuardResult[]> {
   const queue = [...guards];
@@ -126,7 +155,8 @@ async function runAll(concurrency: number): Promise<GuardResult[]> {
 
 function runGuard(name: GuardName): Promise<GuardResult> {
   const startedAt = Date.now();
-  const child = spawn(pnpmCommand(), ["run", name], {
+  const [command, args] = guardCommand(name);
+  const child = spawn(command, args, {
     cwd: process.cwd(),
     env: process.env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -157,7 +187,7 @@ function runGuard(name: GuardName): Promise<GuardResult> {
 }
 
 function printResult(result: GuardResult) {
-  const status = result.code === 0 && !result.signal ? "PASS" : "FAIL";
+  const status = resultStatus(result);
   const elapsed = formatElapsed(result.elapsedMs);
 
   if (result.output.trim().length > 0) {
@@ -181,6 +211,17 @@ Options:
 Environment overrides:
   GUARD_CONCURRENCY / AGENT_NATIVE_GUARD_CONCURRENCY
 `);
+}
+
+function guardCommand(name: GuardName): [string, string[]] {
+  if (name === "guard:no-heavy-dashboard-list-reads") {
+    return ["node", ["scripts/guard-no-heavy-dashboard-list-reads.mjs"]];
+  }
+  return [pnpmCommand(), ["run", name]];
+}
+
+function formatCommand([command, args]: [string, string[]]): string {
+  return [command, ...args].join(" ");
 }
 
 function parseArgs(rawArgs: string[]): {

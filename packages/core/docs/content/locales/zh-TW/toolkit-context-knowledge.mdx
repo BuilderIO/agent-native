@@ -1,0 +1,12 @@
+---
+title: "脈絡與知識"
+description: "在引擎、資料存取和可重用呈現之間維持正確邊界，建立面向智慧代理的脈絡表面。"
+---
+
+# 脈絡與知識
+
+Core 負責應用程式狀態、範圍受限存取與 Context X-Ray 引擎。Toolkit 提供可重用呈現；應用程式負責領域記錄、分類與選擇規則。
+
+Context X-Ray 引擎仍歸 Core。可用 Toolkit 統一呈現脈絡，但狀態和存取決策應保留在 Core 與 actions 中。[Context awareness](/docs/context-awareness) 讓導覽、選取和聚焦物件對智慧代理可見；[Resources](/docs/toolkit-resources) 處理檔案與附件。
+
+脈絡不能取代存取控制。擷取提供者知識前必須保留資源與憑證檢查。

@@ -1,4 +1,4 @@
-import { callAction } from "@agent-native/core/client";
+import { callAction } from "@agent-native/core/client/hooks";
 import { IconDeviceFloppy, IconFolderOpen } from "@tabler/icons-react";
 import { useState } from "react";
 

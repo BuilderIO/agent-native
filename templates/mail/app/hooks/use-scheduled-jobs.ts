@@ -1,5 +1,5 @@
-import { callAction } from "@agent-native/core/client";
-import { appApiPath } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
 import type { ComposeAttachment } from "@shared/types";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -37,11 +37,7 @@ function assertActionSuccess<T>(result: T): T {
 export function useScheduledJobs() {
   return useQuery<ScheduledJob[]>({
     queryKey: ["scheduled-jobs"],
-    queryFn: async () => {
-      const res = await fetch(appApiPath("/api/scheduled-jobs"));
-      if (!res.ok) throw new Error("Failed to fetch scheduled jobs");
-      return res.json();
-    },
+    queryFn: () => callAction("list-scheduled-jobs", {}, { method: "GET" }),
     refetchInterval: 30_000, // Refresh every 30s
   });
 }
@@ -49,20 +45,21 @@ export function useScheduledJobs() {
 export function useCreateScheduledJob() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async (data: {
+    mutationFn: (data: {
       type: "snooze" | "send_later";
       emailId?: string;
       payload?: Record<string, unknown>;
       runAt: number;
-    }) => {
-      const res = await fetch(appApiPath("/api/scheduled-jobs"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to create job");
-      return res.json() as Promise<ScheduledJob>;
-    },
+    }) => callAction("create-scheduled-job", data) as Promise<ScheduledJob>,
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["scheduled-jobs"] }),
+  });
+}
+
+export function useUpdateScheduledJob() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (data: { id: string; runAt: number }) =>
+      callAction("update-scheduled-job", data) as Promise<ScheduledJob>,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["scheduled-jobs"] }),
   });
 }

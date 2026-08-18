@@ -1,14 +1,12 @@
 /**
  * Thin analytics re-export of the core delete-staged-dataset action.
  */
-import { defineAction } from "@agent-native/core";
-import { deleteStagedDataset } from "@agent-native/core/provider-api/staged-datasets-store";
-import { getCredentialContext } from "@agent-native/core/server/request-context";
+import { createDeleteStagedDatasetAction } from "@agent-native/core/provider-api/actions/staged-datasets";
 import { z } from "zod";
 
 import { ANALYTICS_APP_ID } from "../server/lib/provider-credentials";
 
-export default defineAction({
+export default createDeleteStagedDatasetAction({
   description:
     "Delete a staged dataset by id, freeing its scratch storage. " +
     "Use after analysis is complete or before re-staging under the same name. " +
@@ -22,23 +20,5 @@ export default defineAction({
       ),
   }),
   http: false,
-  run: async (args) => {
-    const ctx = getCredentialContext();
-    if (!ctx)
-      throw new Error("No authenticated context for delete-staged-dataset.");
-
-    const deleted = await deleteStagedDataset({
-      id: args.datasetId,
-      appId: ANALYTICS_APP_ID,
-      ownerEmail: ctx.userEmail,
-    });
-
-    if (!deleted) {
-      throw new Error(
-        `Dataset ${args.datasetId} not found (or belongs to a different owner/app).`,
-      );
-    }
-
-    return { deleted: true, datasetId: args.datasetId };
-  },
+  appId: ANALYTICS_APP_ID,
 });

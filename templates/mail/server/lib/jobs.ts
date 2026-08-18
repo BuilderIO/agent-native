@@ -5,7 +5,6 @@ import {
   listOAuthAccountsByOwner,
   setOAuthDisplayName,
 } from "@agent-native/core/oauth-tokens";
-import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import { markdownPreviewSnippet } from "@shared/markdown.js";
 import type { ComposeAttachment, EmailMessage } from "@shared/types.js";
 import { and, eq, inArray, isNull, lte, or } from "drizzle-orm";
@@ -28,6 +27,11 @@ import {
   getOAuth2Credentials,
   setAccountDisplayName,
 } from "./google-auth.js";
+import {
+  readLocalEmails as readEmails,
+  withLocalEmailMutationLock,
+  writeLocalEmails as writeEmails,
+} from "./local-email-store.js";
 import {
   bodyToHtml as outgoingBodyToHtml,
   buildRawEmail as buildOutgoingRawEmail,
@@ -135,21 +139,6 @@ async function getFirstAccountToken(
   return null;
 }
 
-async function readEmails(ownerEmail: string): Promise<EmailMessage[]> {
-  const data = await getUserSetting(ownerEmail, "local-emails");
-  if (data && Array.isArray((data as any).emails)) {
-    return (data as any).emails;
-  }
-  return [];
-}
-
-async function writeEmails(
-  ownerEmail: string,
-  emails: EmailMessage[],
-): Promise<void> {
-  await putUserSetting(ownerEmail, "local-emails", { emails });
-}
-
 async function fetchLabelMap(
   accessToken: string,
 ): Promise<Map<string, string>> {
@@ -211,18 +200,20 @@ async function archiveThreadForSnooze(
     }
   }
 
-  const emails = await readEmails(ownerEmail);
-  for (let i = 0; i < emails.length; i++) {
-    const currentThreadId = emails[i].threadId || emails[i].id;
-    if (currentThreadId === threadId) {
-      emails[i] = {
-        ...emails[i],
-        isArchived: true,
-        labelIds: emails[i].labelIds.filter((label) => label !== "inbox"),
-      };
+  await withLocalEmailMutationLock(ownerEmail, async () => {
+    const emails = await readEmails(ownerEmail);
+    for (let i = 0; i < emails.length; i++) {
+      const currentThreadId = emails[i].threadId || emails[i].id;
+      if (currentThreadId === threadId) {
+        emails[i] = {
+          ...emails[i],
+          isArchived: true,
+          labelIds: emails[i].labelIds.filter((label) => label !== "inbox"),
+        };
+      }
     }
-  }
-  await writeEmails(ownerEmail, emails);
+    await writeEmails(ownerEmail, emails);
+  });
 }
 
 async function threadHasReplySinceSnooze(
@@ -326,6 +317,40 @@ export async function createScheduledJobRecord(input: {
   return job;
 }
 
+export async function updateScheduledJobForOwner(
+  ownerEmail: string,
+  id: string,
+  runAt: number,
+): Promise<ScheduledJobRecord | null> {
+  const [existing] = await db
+    .select()
+    .from(schema.scheduledJobs)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
+
+  if (!existing) return null;
+
+  await db
+    .update(schema.scheduledJobs)
+    .set({ runAt, status: "pending" } as any)
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.ownerEmail, ownerEmail),
+      ),
+    );
+
+  return {
+    ...(existing as ScheduledJobRecord),
+    runAt,
+    status: "pending",
+  };
+}
+
 export async function scheduleSnooze(input: {
   ownerEmail: string;
   emailId: string;
@@ -396,22 +421,24 @@ export async function resurfaceEmail(
     }
   }
 
-  const emails = await readEmails(ownerEmail);
-  const targetThreadId = threadId || emailId;
-  for (let i = 0; i < emails.length; i++) {
-    const currentThreadId = emails[i].threadId || emails[i].id;
-    if (currentThreadId === targetThreadId) {
-      emails[i] = {
-        ...emails[i],
-        isArchived: false,
-        isRead: false,
-        labelIds: emails[i].labelIds.includes("inbox")
-          ? emails[i].labelIds
-          : ["inbox", ...emails[i].labelIds],
-      };
+  await withLocalEmailMutationLock(ownerEmail, async () => {
+    const emails = await readEmails(ownerEmail);
+    const targetThreadId = threadId || emailId;
+    for (let i = 0; i < emails.length; i++) {
+      const currentThreadId = emails[i].threadId || emails[i].id;
+      if (currentThreadId === targetThreadId) {
+        emails[i] = {
+          ...emails[i],
+          isArchived: false,
+          isRead: false,
+          labelIds: emails[i].labelIds.includes("inbox")
+            ? emails[i].labelIds
+            : ["inbox", ...emails[i].labelIds],
+        };
+      }
     }
-  }
-  await writeEmails(ownerEmail, emails);
+    await writeEmails(ownerEmail, emails);
+  });
 }
 
 /**
@@ -638,39 +665,41 @@ export async function sendScheduledEmail(
   if (!fallbackOwner) {
     throw new Error("scheduleEmail: no owner email available");
   }
-  const emails = await readEmails(fallbackOwner);
-  emails.push({
-    id: `msg-${nanoid(8)}`,
-    threadId: threadId || `thread-${nanoid(8)}`,
-    from: { name: fallbackOwner, email: fallbackOwner },
-    to: to.split(",").map((item) => {
-      const email = item.trim();
-      return { name: email, email };
-    }),
-    subject,
-    snippet: markdownPreviewSnippet(body),
-    body,
-    bodyHtml: outgoingBodyToHtml(body),
-    date: new Date().toISOString(),
-    isRead: true,
-    isStarred: false,
-    isSent: true,
-    isArchived: false,
-    isTrashed: false,
-    labelIds: ["sent"],
-    ...(attachments.length > 0
-      ? {
-          attachments: attachments.map((att) => ({
-            id: att.filename,
-            filename: att.originalName,
-            mimeType: att.mimeType,
-            size: att.size,
-            url: att.url,
-          })),
-        }
-      : {}),
+  await withLocalEmailMutationLock(fallbackOwner, async () => {
+    const emails = await readEmails(fallbackOwner);
+    emails.push({
+      id: `msg-${nanoid(8)}`,
+      threadId: threadId || `thread-${nanoid(8)}`,
+      from: { name: fallbackOwner, email: fallbackOwner },
+      to: to.split(",").map((item) => {
+        const email = item.trim();
+        return { name: email, email };
+      }),
+      subject,
+      snippet: markdownPreviewSnippet(body),
+      body,
+      bodyHtml: outgoingBodyToHtml(body),
+      date: new Date().toISOString(),
+      isRead: true,
+      isStarred: false,
+      isSent: true,
+      isArchived: false,
+      isTrashed: false,
+      labelIds: ["sent"],
+      ...(attachments.length > 0
+        ? {
+            attachments: attachments.map((att) => ({
+              id: att.filename,
+              filename: att.originalName,
+              mimeType: att.mimeType,
+              size: att.size,
+              url: att.url,
+            })),
+          }
+        : {}),
+    });
+    await writeEmails(fallbackOwner, emails);
   });
-  await writeEmails(fallbackOwner, emails);
 }
 
 export async function cancelScheduledJobForOwner(
@@ -727,7 +756,7 @@ export async function sendScheduledJobNowForOwner(
     throw new Error(`Scheduled email is already ${job.status}`);
   }
 
-  await db
+  const claim = await db
     .update(schema.scheduledJobs)
     .set({ status: "processing" } as any)
     .where(
@@ -737,6 +766,9 @@ export async function sendScheduledJobNowForOwner(
         eq(schema.scheduledJobs.status, "pending"),
       ),
     );
+  if (claim.rowsAffected === 0) {
+    throw new Error("Scheduled email is already processing");
+  }
 
   try {
     await sendScheduledEmail(
@@ -774,11 +806,17 @@ export async function markJobDone(id: string): Promise<void> {
     .where(eq(schema.scheduledJobs.id, id));
 }
 
-export async function markJobProcessing(id: string): Promise<void> {
-  await db
+export async function markJobProcessing(id: string): Promise<boolean> {
+  const result = await db
     .update(schema.scheduledJobs)
     .set({ status: "processing" } as any)
-    .where(eq(schema.scheduledJobs.id, id));
+    .where(
+      and(
+        eq(schema.scheduledJobs.id, id),
+        eq(schema.scheduledJobs.status, "pending"),
+      ),
+    );
+  return result.rowsAffected > 0;
 }
 
 export async function getDuePendingJobs(

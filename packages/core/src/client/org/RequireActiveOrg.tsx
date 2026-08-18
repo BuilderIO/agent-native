@@ -1,5 +1,6 @@
 import {
   IconAlertTriangle,
+  IconKey,
   IconLoader2,
   IconUserPlus,
   IconAt,
@@ -288,6 +289,12 @@ function CreateOrgPane({
             }}
             className="space-y-3"
           >
+            {(hasDomainMatches || hasInvites) && (
+              <p className="flex items-start gap-2 text-xs text-muted-foreground">
+                <IconKey className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>{t("org.createOrgVaultNotice")}</span>
+              </p>
+            )}
             <label className="block">
               <span className="mb-1 block text-xs font-medium text-foreground">
                 {t("org.organizationName")}

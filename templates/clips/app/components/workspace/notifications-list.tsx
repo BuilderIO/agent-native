@@ -1,4 +1,5 @@
-import { useFormatters, useT } from "@agent-native/core/client";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { InlineMarkdown } from "@agent-native/core/client/markdown";
 import {
   IconMessage,
   IconMoodSmile,
@@ -87,9 +88,16 @@ export function NotificationsList({ items, onReply }: NotificationsListProps) {
               </span>
             </div>
             {item.preview ? (
-              <div className="mt-1 text-sm text-muted-foreground line-clamp-2">
-                {item.preview}
-              </div>
+              item.kind === "comment" || item.kind === "mention" ? (
+                <InlineMarkdown
+                  content={item.preview}
+                  className="mt-1 line-clamp-2 text-sm text-muted-foreground"
+                />
+              ) : (
+                <div className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                  {item.preview}
+                </div>
+              )
             ) : null}
             <div className="mt-1.5 flex items-center gap-3 text-xs">
               <Link

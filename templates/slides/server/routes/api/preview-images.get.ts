@@ -6,7 +6,10 @@ import { streamFile } from "@agent-native/core/server";
 import { defineEventHandler, setResponseStatus } from "h3";
 
 export default defineEventHandler(async (event) => {
-  const filepath = path.join(process.cwd(), "public/generated/preview.html");
+  const filepath = path.join(
+    process.cwd(),
+    "public/assets/generated/preview.html",
+  );
   try {
     await stat(filepath);
     return streamFile(createReadStream(filepath));
