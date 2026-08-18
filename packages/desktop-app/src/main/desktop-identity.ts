@@ -1364,6 +1364,10 @@ export class DesktopIdentityBroker {
     // matching session in place instead of minting another one-time ticket
     // and reloading the same WebView forever.
     if (await this.hasMatchingIdentitySession(app)) {
+      // The OAuth callback can install the child cookie before its WebView is
+      // mounted. Reload once when the broker first adopts that session so the
+      // WebView cannot remain on the pre-auth document.
+      this.reloadAppSafely(app);
       return true;
     }
     if (await this.hasAppSession(app)) {
