@@ -25,6 +25,7 @@ let previousNetlify: string | undefined;
 let previousNetlifyLocal: string | undefined;
 let previousIntegrationDurableDispatch: string | undefined;
 let previousDisableRecurringJobs: string | undefined;
+let previousEnableRecurringJobs: string | undefined;
 let previousNitroPreset: string | undefined;
 let previousVercel: string | undefined;
 let previousViteWorkspaceAppsJson: string | undefined;
@@ -69,6 +70,7 @@ beforeEach(() => {
     process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
   previousDisableRecurringJobs =
     process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
+  previousEnableRecurringJobs = process.env.AGENT_NATIVE_ENABLE_RECURRING_JOBS;
   previousNitroPreset = process.env.NITRO_PRESET;
   previousVercel = process.env.VERCEL;
   previousViteWorkspaceAppsJson =
@@ -102,6 +104,7 @@ beforeEach(() => {
   delete process.env.NETLIFY_LOCAL;
   delete process.env.AGENT_INTEGRATION_DURABLE_DISPATCH;
   delete process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
+  delete process.env.AGENT_NATIVE_ENABLE_RECURRING_JOBS;
   delete process.env.NITRO_PRESET;
   delete process.env.VERCEL;
   delete process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
@@ -136,6 +139,10 @@ afterEach(() => {
   restoreEnv(
     "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
     previousDisableRecurringJobs,
+  );
+  restoreEnv(
+    "AGENT_NATIVE_ENABLE_RECURRING_JOBS",
+    previousEnableRecurringJobs,
   );
   restoreEnv("NITRO_PRESET", previousNitroPreset);
   restoreEnv("VERCEL", previousVercel);
@@ -1314,6 +1321,12 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
     // Default-on: the flag is unset (deleted in beforeEach) and the 15-min
     // `-background` function MUST still be emitted so the worker gets the real
     // long budget instead of overshooting the ~60s synchronous wall.
+    //
+    // Recurring jobs are opted IN explicitly here only so this test can also
+    // assert the shape of the emitted sweep entry. The `-background` default-on
+    // claim above does not depend on it — durable background is default-on on
+    // its own flag (see the recurring-jobs-off-by-default test below).
+    process.env.AGENT_NATIVE_ENABLE_RECURRING_JOBS = "1";
     makeWorkspaceApp(tmpDir, "dispatch");
     makeWorkspaceApp(tmpDir, "starter");
 
@@ -1418,6 +1431,26 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
         ),
       ),
     ).toBe(true);
+  });
+
+  it("emits NO recurring-jobs cron BY DEFAULT (opt-in), for any app", async () => {
+    // The emitted sweep fires once a minute for the life of the deploy whether
+    // or not the app has a job defined, so it must not ship unasked.
+    makeWorkspaceApp(tmpDir, "dispatch");
+    makeWorkspaceApp(tmpDir, "starter");
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+    });
+
+    for (const app of ["dispatch", "starter"]) {
+      expect(fs.existsSync(recurringFuncDir(app))).toBe(false);
+    }
+    // ...while the durable background function is untouched by the change: it is
+    // default-on under its own flag.
+    expect(fs.existsSync(backgroundFuncDir("starter"))).toBe(true);
   });
 });
 

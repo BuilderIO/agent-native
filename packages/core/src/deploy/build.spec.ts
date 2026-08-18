@@ -52,6 +52,7 @@ import {
   isIntegrationDurableDispatchDeployEnabled,
   isKeepWarmBackgroundDeployEnabled,
   isKeepWarmDeployEnabled,
+  isRecurringJobsDeployEnabled,
   resolveKeepWarmSchedule,
   NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
   NITRO_RUNTIME_IGNORE_PATTERNS,
@@ -1954,6 +1955,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
   let previousWorkspaceFlag: string | undefined;
   let previousViteWorkspaceFlag: string | undefined;
   let previousDisableRecurringJobs: string | undefined;
+  let previousEnableRecurringJobs: string | undefined;
   let previousEnableKeepWarm: string | undefined;
   let previousAppBasePath: string | undefined;
   let previousViteAppBasePath: string | undefined;
@@ -1964,6 +1966,8 @@ describe("durable-background Netlify function emit (single-template, default-on)
     previousViteWorkspaceFlag = process.env.VITE_AGENT_NATIVE_WORKSPACE;
     previousDisableRecurringJobs =
       process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
+    previousEnableRecurringJobs =
+      process.env.AGENT_NATIVE_ENABLE_RECURRING_JOBS;
     previousEnableKeepWarm = process.env.AGENT_NATIVE_ENABLE_KEEP_WARM;
     previousAppBasePath = process.env.APP_BASE_PATH;
     previousViteAppBasePath = process.env.VITE_APP_BASE_PATH;
@@ -1971,6 +1975,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
     delete process.env.AGENT_NATIVE_WORKSPACE;
     delete process.env.VITE_AGENT_NATIVE_WORKSPACE;
     delete process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS;
+    delete process.env.AGENT_NATIVE_ENABLE_RECURRING_JOBS;
     delete process.env.AGENT_NATIVE_ENABLE_KEEP_WARM;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
@@ -1987,6 +1992,10 @@ describe("durable-background Netlify function emit (single-template, default-on)
     restoreEnv(
       "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
       previousDisableRecurringJobs,
+    );
+    restoreEnv(
+      "AGENT_NATIVE_ENABLE_RECURRING_JOBS",
+      previousEnableRecurringJobs,
     );
     restoreEnv("AGENT_NATIVE_ENABLE_KEEP_WARM", previousEnableKeepWarm);
     restoreEnv("APP_BASE_PATH", previousAppBasePath);
@@ -2145,6 +2154,7 @@ describe("durable-background Netlify function emit (single-template, default-on)
   });
 
   it("emits a durable recurring-job handoff beside the background worker", () => {
+    process.env.AGENT_NATIVE_ENABLE_RECURRING_JOBS = "1";
     const cwd = setupNetlifyOutput();
 
     emitSingleTemplateNetlifyBackgroundFunction(cwd);
@@ -2173,6 +2183,53 @@ describe("durable-background Netlify function emit (single-template, default-on)
     // includedFiles is declared.
     expect(entry).toContain('import { createHmac } from "node:crypto"');
     expect(entry).toContain('includedFiles: ["**"]');
+  });
+
+  describe("recurring-jobs opt-in", () => {
+    function recurringJobsDir(cwd: string): string {
+      return path.join(
+        cwd,
+        ".netlify",
+        "functions-internal",
+        NETLIFY_RECURRING_JOBS_FUNCTION_NAME,
+      );
+    }
+
+    it("is OFF BY DEFAULT so a deploy with no jobs gets no once-a-minute cron", () => {
+      expect(isRecurringJobsDeployEnabled()).toBe(false);
+    });
+
+    it("requires a truthy explicit opt-in flag", () => {
+      for (const value of ["", "0", "false", "no", "off", "maybe"]) {
+        process.env.AGENT_NATIVE_ENABLE_RECURRING_JOBS = value;
+        expect(isRecurringJobsDeployEnabled()).toBe(false);
+      }
+      for (const value of ["1", "true", "TRUE", " yes ", "on"]) {
+        process.env.AGENT_NATIVE_ENABLE_RECURRING_JOBS = value;
+        expect(isRecurringJobsDeployEnabled()).toBe(true);
+      }
+    });
+
+    it("emits nothing until recurring jobs are explicitly enabled", () => {
+      const cwd = setupNetlifyOutput();
+
+      emitSingleTemplateNetlifyBackgroundFunction(cwd);
+      emitSingleTemplateNetlifyRecurringJobsFunction(cwd);
+
+      expect(fs.existsSync(recurringJobsDir(cwd))).toBe(false);
+    });
+
+    it("keeps the compatibility disable flag winning over the opt-in", () => {
+      process.env.AGENT_NATIVE_ENABLE_RECURRING_JOBS = "1";
+      process.env.AGENT_NATIVE_DISABLE_RECURRING_JOBS = "1";
+      expect(isRecurringJobsDeployEnabled()).toBe(false);
+
+      const cwd = setupNetlifyOutput();
+      emitSingleTemplateNetlifyBackgroundFunction(cwd);
+      emitSingleTemplateNetlifyRecurringJobsFunction(cwd);
+
+      expect(fs.existsSync(recurringJobsDir(cwd))).toBe(false);
+    });
   });
 
   describe("keep-warm opt-in and cadence", () => {

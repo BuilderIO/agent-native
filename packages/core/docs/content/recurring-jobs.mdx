@@ -233,6 +233,19 @@ The scheduler is a framework plugin (the internal `processRecurringJobs()` routi
 
 </Callout>
 
+<Callout id="doc-block-rj3" tone="warning">
+
+**Opt-in on hosted Netlify deploys.** The build emits a Netlify scheduled function that wakes a background sweep once a minute for the life of the deploy — whether or not the app defines a single job. Because that cost is paid even by apps with no recurring work, it ships only when you ask for it: set **`AGENT_NATIVE_ENABLE_RECURRING_JOBS=true`**. Without it, no cron is registered and scheduled jobs never fire on Netlify. `AGENT_NATIVE_DISABLE_RECURRING_JOBS=1` remains a kill switch and wins if both are set.
+
+This flag is read **while the build runs**, not at runtime — it decides whether the scheduled function is emitted at all. Set it wherever your build environment lives:
+
+- **Builder-hosted (Fusion) projects** — Project Settings → Hosting → **Build environment variables**, or `hosting.environment.build` in `builder.config.json`. The build runs in Builder's deploy pod and Netlify only receives finished artifacts, so a **Production** environment variable arrives too late to have any effect.
+- **Git-connected Netlify sites** (Netlify runs the build itself) — a site environment variable scoped to builds, or `[build.environment]` in `netlify.toml`.
+
+The function's runtime still needs `A2A_SECRET` to sign the sweep handoff; that one belongs in the production/runtime environment.
+
+</Callout>
+
 ## Debugging a job {#debugging}
 
 - Open the automation's details in **Automations**, or inspect

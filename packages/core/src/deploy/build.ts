@@ -2857,8 +2857,25 @@ function isDisabledByEnv(name: string): boolean {
   return isTruthyEnv(name);
 }
 
+/**
+ * Recurring jobs are opt-in because the emitted Netlify scheduled function
+ * fires once a minute for the lifetime of the deploy whether or not the app has
+ * a single job defined. A deploy with no recurring jobs was paying ~1,440
+ * wake-ups a day — each one a background-function invocation — for a sweep that
+ * had nothing to scan. `AGENT_NATIVE_DISABLE_RECURRING_JOBS` remains a
+ * compatibility kill switch and wins when both flags are set.
+ *
+ * This gate is read while the BUILD runs, not at runtime. On Builder-hosted
+ * (Fusion) projects the build happens in the deploy pod and Netlify only
+ * receives finished artifacts, so the flag belongs in the project's *build*
+ * environment variables — a production/runtime env var arrives too late to
+ * affect whether the scheduled function was emitted.
+ */
 export function isRecurringJobsDeployEnabled(): boolean {
-  return !isDisabledByEnv("AGENT_NATIVE_DISABLE_RECURRING_JOBS");
+  return (
+    isTruthyEnv("AGENT_NATIVE_ENABLE_RECURRING_JOBS") &&
+    !isDisabledByEnv("AGENT_NATIVE_DISABLE_RECURRING_JOBS")
+  );
 }
 
 /**
