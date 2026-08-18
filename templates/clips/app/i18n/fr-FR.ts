@@ -356,6 +356,9 @@ const messages = {
     aiNotes: "Notes sur l'IA",
     summary: "Résumé",
     actionItems: "Éléments d'action",
+    addActionItem: "Ajouter une action",
+    removeActionItem: "Supprimer l'action",
+    actionItemPlaceholder: "Que faut-il faire ?",
     working: "Fonctionnement…",
     noActionItems:
       "Aucune action pour l'instant. Ils apparaissent ici après la génération des notes à partir d'une transcription.",
@@ -1043,6 +1046,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
       "La transcription en direct apparaîtra ici lorsque les notes commenceront.",
     me: "Moi",
     them: "Eux",
+    unknownSpeaker: "Interlocuteur",
     searchTranscript: "Rechercher dans la transcription",
     searchPlaceholder: "Rechercher dans la transcription…",
     searchMatchCount: "{{current}} sur {{total}}",

@@ -33,6 +33,7 @@
     "h3": "catalog:",
     "isbot": "^5",
     "postgres": "^3.4.9",
+    "yjs": "^13.6.32",
     "zod": "^4.3.6"
   },
   "devDependencies": {

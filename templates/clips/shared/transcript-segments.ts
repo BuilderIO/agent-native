@@ -3,6 +3,8 @@ export interface TranscriptSegment {
   endMs: number;
   text: string;
   source?: "mic" | "system";
+  /** A durable diarization or provider-supplied speaker label, when known. */
+  speaker?: string;
 }
 
 const MAX_WORDS_PER_CAPTION = 7;
@@ -26,6 +28,10 @@ export function parseTranscriptSegments(
         source:
           segment?.source === "mic" || segment?.source === "system"
             ? segment.source
+            : undefined,
+        speaker:
+          typeof segment?.speaker === "string" && segment.speaker.trim()
+            ? segment.speaker.trim()
             : undefined,
       }))
       .filter(
@@ -98,6 +104,13 @@ export function normalizeTranscriptSegments({
       .join(" ")
       .trim();
   if (validSegments.length <= 1) {
+    const onlySegment = validSegments[0];
+    if (onlySegment) {
+      return splitTimedSegmentIntoCaptions({
+        ...onlySegment,
+        text: sourceText,
+      });
+    }
     return buildCaptionSegmentsFromText(sourceText, durationMs);
   }
 
@@ -160,7 +173,12 @@ function splitTimedSegmentIntoCaptions(
           latestEndMs,
           Math.max(cursorMs + minChunkMs, cursorMs + rawDuration),
         );
-    const next = { startMs: cursorMs, endMs, text: chunk };
+    const next = {
+      ...segment,
+      startMs: cursorMs,
+      endMs,
+      text: chunk,
+    };
     cursorMs = endMs;
     return next;
   });

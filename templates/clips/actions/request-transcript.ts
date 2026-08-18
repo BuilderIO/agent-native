@@ -721,13 +721,32 @@ async function cleanupNativeTranscript({
 
     const now = new Date().toISOString();
     const language = await resolveStoredLanguage(db, recordingId);
+    const [currentTranscript] = await db
+      .select({ segmentsJson: schema.recordingTranscripts.segmentsJson })
+      .from(schema.recordingTranscripts)
+      .where(eq(schema.recordingTranscripts.recordingId, recordingId))
+      .limit(1);
+    const existingSegments = parseTranscriptSegments(
+      currentTranscript?.segmentsJson,
+    );
+    const hasSpeakerAttribution = existingSegments.some(
+      (segment) => segment.source || segment.speaker,
+    );
+
+    // Native meeting capture tags each segment with its audio source (and may
+    // carry a diarized speaker). Keep those timestamps/labels when AI cleanup
+    // rewrites the full text; rebuilding captions from cleaned text would drop
+    // the attribution and make every segment fall back to "Them" in the UI.
+    const cleanedSegmentsJson = hasSpeakerAttribution
+      ? JSON.stringify(existingSegments)
+      : fullTextSegmentJson(cleanedText, durationMs);
     await upsertTranscriptRow(db, {
       recordingId,
       ownerEmail,
       status: "ready",
       failureReason: null,
       language,
-      segmentsJson: fullTextSegmentJson(cleanedText, durationMs),
+      segmentsJson: cleanedSegmentsJson,
       fullText: cleanedText,
       now,
     });

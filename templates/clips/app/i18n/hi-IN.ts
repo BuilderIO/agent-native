@@ -343,6 +343,9 @@ const messages = {
     aiNotes: "एआई नोट्स",
     summary: "सारांश",
     actionItems: "एक्शन आइटम्स",
+    addActionItem: "एक्शन आइटम जोड़ें",
+    removeActionItem: "एक्शन आइटम हटाएं",
+    actionItemPlaceholder: "क्या करना है?",
     working: "कार्यरत…",
     noActionItems:
       "अभी तक कोई कार्रवाई आइटम नहीं. प्रतिलेख से नोट्स तैयार होने के बाद वे यहां दिखाई देते हैं।",
@@ -1008,6 +1011,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     liveTranscriptDescription: "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
     me: "मैं",
     them: "वे",
+    unknownSpeaker: "वक्ता",
     searchTranscript: "प्रतिलेख में खोजें",
     searchPlaceholder: "प्रतिलेख में खोजें…",
     searchMatchCount: "{{total}} में से {{current}}",

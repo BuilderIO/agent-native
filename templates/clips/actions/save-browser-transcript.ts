@@ -45,6 +45,9 @@ const segmentSchema = z
     text: z.string(),
     // Stream the segment came from; the transcript UI maps mic→"Me", system→"Them".
     source: z.enum(["mic", "system"]).optional(),
+    // Preserve provider/diarization labels when a transcription engine has
+    // more identity information than the mic/system stream heuristic.
+    speaker: z.string().trim().min(1).max(160).optional(),
   })
   .transform((s) => {
     if (s.endMs < s.startMs) {

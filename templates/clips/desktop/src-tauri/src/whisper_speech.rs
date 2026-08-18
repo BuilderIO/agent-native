@@ -546,6 +546,7 @@ mod macos {
             "thank you very much",
             "thanks for watching",
             "thank you for watching",
+            "ご視聴ありがとうございました",
             "please subscribe",
         ];
         if HALLUCINATIONS.contains(&normalized.as_str()) {
@@ -863,7 +864,10 @@ mod macos {
 
     #[cfg(test)]
     mod tests {
-        use super::{should_use_combined_sck_capture, split_mic_capture_options, SessionOwner};
+        use super::{
+            clean_transcript, should_use_combined_sck_capture, split_mic_capture_options,
+            SessionOwner,
+        };
         use crate::native_speech::macos::MicVoiceProcessingMode;
 
         #[test]
@@ -919,6 +923,15 @@ mod macos {
                     voice_processing: MicVoiceProcessingMode::Enabled,
                     reuse_voice_processing_engine: false,
                 }
+            );
+        }
+
+        #[test]
+        fn filters_multilingual_caption_hallucinations() {
+            assert_eq!(clean_transcript("ご視聴ありがとうございました"), None);
+            assert_eq!(
+                clean_transcript("Thanks for the update"),
+                Some("Thanks for the update".to_string())
             );
         }
     }

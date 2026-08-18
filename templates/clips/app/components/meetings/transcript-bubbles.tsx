@@ -31,6 +31,12 @@ interface TranscriptBubblesProps {
   isLive: boolean;
   recordingId?: string | null;
   onSeek: (ms: number) => void;
+  /** Labels resolved from durable diarization or the meeting attendee list. */
+  speakerLabels?: {
+    mic: string;
+    system: string;
+    unknown: string;
+  };
   /**
    * Imperative ref hook: parent can scroll a particular segment into view.
    * Receives a function (segmentIndex) => void.
@@ -46,7 +52,8 @@ function formatTimestamp(ms: number): string {
 }
 
 interface BubbleGroup {
-  source: "mic" | "system";
+  source: "mic" | "system" | "unknown";
+  label: string;
   segments: { seg: TranscriptSegment; index: number }[];
 }
 
@@ -75,16 +82,33 @@ function highlightRuns(
   return runs.length ? runs : [{ text, match: false }];
 }
 
-function groupConsecutive(segments: TranscriptSegment[]): BubbleGroup[] {
+function groupConsecutive(
+  segments: TranscriptSegment[],
+  labels: { mic: string; system: string; unknown: string },
+): BubbleGroup[] {
   const groups: BubbleGroup[] = [];
   segments.forEach((seg, index) => {
-    // Default unknown source to "system" (Them) — Granola convention.
-    const source: "mic" | "system" = seg.source === "mic" ? "mic" : "system";
+    // Unknown source is intentionally kept distinct. Treating it as system
+    // silently misattributes source-less segments as "Them" after cleanup or
+    // when an older transcript row is read.
+    const source: BubbleGroup["source"] =
+      seg.source === "mic"
+        ? "mic"
+        : seg.source === "system"
+          ? "system"
+          : "unknown";
+    const label =
+      seg.speaker?.trim() ||
+      (source === "mic"
+        ? labels.mic
+        : source === "system"
+          ? labels.system
+          : labels.unknown);
     const last = groups[groups.length - 1];
-    if (last && last.source === source) {
+    if (last && last.source === source && last.label === label) {
       last.segments.push({ seg, index });
     } else {
-      groups.push({ source, segments: [{ seg, index }] });
+      groups.push({ source, label, segments: [{ seg, index }] });
     }
   });
   return groups;
@@ -95,6 +119,7 @@ export function TranscriptBubbles({
   isLive,
   recordingId,
   onSeek,
+  speakerLabels,
   registerScrollTo,
 }: TranscriptBubblesProps) {
   const t = useT();
@@ -109,7 +134,15 @@ export function TranscriptBubbles({
   const [searchQuery, setSearchQuery] = useState("");
   const [matchCursor, setMatchCursor] = useState(0);
 
-  const groups = useMemo(() => groupConsecutive(segments), [segments]);
+  const labels = speakerLabels ?? {
+    mic: t("transcriptBubbles.me"),
+    system: t("transcriptBubbles.them"),
+    unknown: t("transcriptBubbles.unknownSpeaker"),
+  };
+  const groups = useMemo(
+    () => groupConsecutive(segments, labels),
+    [labels.mic, labels.system, labels.unknown, segments],
+  );
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
   const matchIndexes = useMemo(() => {
@@ -326,9 +359,7 @@ export function TranscriptBubbles({
                     "text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 px-1",
                   )}
                 >
-                  {isMe
-                    ? t("transcriptBubbles.me")
-                    : t("transcriptBubbles.them")}
+                  {group.label}
                 </div>
                 {group.segments.map(({ seg, index }) => {
                   const clickable = !!recordingId;
@@ -359,11 +390,6 @@ export function TranscriptBubbles({
                             clickable && "cursor-pointer hover:opacity-90",
                           )}
                         >
-                          {seg.speaker && !isMe && (
-                            <div className="text-[10px] font-medium opacity-70 mb-0.5">
-                              {seg.speaker}
-                            </div>
-                          )}
                           <p className="whitespace-pre-wrap">
                             {normalizedQuery
                               ? highlightRuns(seg.text, normalizedQuery).map(

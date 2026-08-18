@@ -343,6 +343,9 @@ const messages = {
     aiNotes: "تلاحظ منظمة العفو الدولية",
     summary: "الملخص",
     actionItems: "عناصر العمل",
+    addActionItem: "إضافة عنصر عمل",
+    removeActionItem: "إزالة عنصر العمل",
+    actionItemPlaceholder: "ما الذي يجب فعله؟",
     working: "عمل…",
     noActionItems:
       "لا توجد عناصر عمل حتى الآن. تظهر هنا بعد إنشاء الملاحظات من النص.",
@@ -1021,6 +1024,7 @@ const messages = {
     liveTranscriptDescription: "سيظهر النص المباشر هنا عند بدء الملاحظات.",
     me: "أنا",
     them: "هم",
+    unknownSpeaker: "المتحدث",
     searchTranscript: "البحث في النص",
     searchPlaceholder: "البحث في النص…",
     searchMatchCount: "{{current}} من {{total}}",

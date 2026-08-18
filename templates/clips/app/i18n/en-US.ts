@@ -345,6 +345,9 @@ const messages = {
     aiNotes: "AI notes",
     summary: "Summary",
     actionItems: "Action items",
+    addActionItem: "Add action item",
+    removeActionItem: "Remove action item",
+    actionItemPlaceholder: "What needs to happen?",
     working: "Working…",
     noActionItems:
       "No action items yet. They appear here after notes are generated from a transcript.",
@@ -1017,6 +1020,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "The live transcript will appear here once notes start.",
     me: "Me",
     them: "Them",
+    unknownSpeaker: "Speaker",
     searchTranscript: "Search transcript",
     searchPlaceholder: "Search transcript…",
     searchMatchCount: "{{current}} of {{total}}",

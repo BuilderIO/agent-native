@@ -14,6 +14,7 @@ import {
   IconExternalLink,
   IconLoader2,
   IconNotes,
+  IconPlus,
   IconPlayerStop,
   IconRefresh,
   IconShare3,
@@ -59,6 +60,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
@@ -212,31 +214,41 @@ function TitleEditor({
 function ActionItemsByPerson({
   items,
   onToggle,
+  onChange,
+  onRemove,
+  onAdd,
+  emptyLabel,
   readOnly = false,
 }: {
   items: ActionItem[];
   onToggle: (index: number, completed: boolean) => void;
+  onChange: (index: number, text: string) => void;
+  onRemove: (index: number) => void;
+  onAdd: (text: string) => void;
+  emptyLabel: string;
   readOnly?: boolean;
 }) {
+  const t = useT();
+  const [adding, setAdding] = useState(false);
+
   // Preserve original index for toggle callback while grouping.
   const grouped = useMemo(() => {
     const map = new Map<string, Array<{ item: ActionItem; index: number }>>();
     items.forEach((it, index) => {
-      const key = it.assigneeEmail || "Unassigned";
+      const key = it.assigneeEmail || "";
       const arr = map.get(key) ?? [];
       arr.push({ item: it, index });
       map.set(key, arr);
     });
     const entries = Array.from(map.entries());
     entries.sort(([a], [b]) => {
-      if (a === "Unassigned") return 1;
-      if (b === "Unassigned") return -1;
+      if (!a) return 1;
+      if (!b) return -1;
       return a.localeCompare(b);
     });
     return entries;
   }, [items]);
 
-  if (items.length === 0) return null;
   return (
     <div className="space-y-3">
       {grouped.map(([who, list]) => (
@@ -245,10 +257,12 @@ function ActionItemsByPerson({
             <Avatar className="h-5 w-5">
               <AvatarImage alt={who} />
               <AvatarFallback className="text-[9px]">
-                {attendeeInitials(who)}
+                {attendeeInitials(who || t("meetingDetail.unassigned"))}
               </AvatarFallback>
             </Avatar>
-            <span className="text-xs font-medium">{who}</span>
+            <span className="text-xs font-medium">
+              {who || t("meetingDetail.unassigned")}
+            </span>
             <span className="text-[10px] text-muted-foreground">
               {list.filter((x) => x.item.completedAt).length}/{list.length}
             </span>
@@ -285,21 +299,150 @@ function ActionItemsByPerson({
                       <IconCheck className="h-2.5 w-2.5 text-background" />
                     )}
                   </button>
-                  <span
-                    className={cn(
-                      "flex-1",
-                      done && "line-through text-muted-foreground",
-                    )}
-                  >
-                    {it.text}
-                  </span>
+                  {readOnly ? (
+                    <span
+                      className={cn(
+                        "flex-1",
+                        done && "line-through text-muted-foreground",
+                      )}
+                    >
+                      {it.text}
+                    </span>
+                  ) : (
+                    <ActionItemTextEditor
+                      value={it.text}
+                      done={done}
+                      placeholder={t("meetingDetail.actionItemPlaceholder")}
+                      onCommit={(text) => onChange(index, text)}
+                      onCancel={() => {}}
+                    />
+                  )}
+                  {!readOnly && (
+                    <Button
+                      type="button"
+                      size="icon"
+                      variant="ghost"
+                      className="h-6 w-6 shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label={t("meetingDetail.removeActionItem")}
+                      onClick={() => onRemove(index)}
+                    >
+                      <IconTrash className="h-3.5 w-3.5" />
+                    </Button>
+                  )}
                 </li>
               );
             })}
           </ul>
         </div>
       ))}
+
+      {grouped.length === 0 && (
+        <p className="text-sm leading-relaxed text-muted-foreground/50 italic">
+          {emptyLabel}
+        </p>
+      )}
+
+      {adding && (
+        <div className="flex items-start gap-2 pl-7 text-xs leading-relaxed">
+          <span className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded border border-border" />
+          <ActionItemTextEditor
+            value=""
+            isNew
+            autoFocus
+            placeholder={t("meetingDetail.actionItemPlaceholder")}
+            onCommit={(text) => {
+              onAdd(text);
+              setAdding(false);
+            }}
+            onCancel={() => setAdding(false)}
+          />
+        </div>
+      )}
+
+      {!readOnly && (
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="ml-7 h-7 px-1.5 text-xs text-muted-foreground hover:text-foreground"
+          disabled={adding}
+          onClick={() => setAdding(true)}
+        >
+          <IconPlus className="mr-1.5 h-3.5 w-3.5" />
+          {t("meetingDetail.addActionItem")}
+        </Button>
+      )}
     </div>
+  );
+}
+
+function ActionItemTextEditor({
+  value,
+  done = false,
+  isNew = false,
+  autoFocus = false,
+  placeholder,
+  onCommit,
+  onCancel,
+}: {
+  value: string;
+  done?: boolean;
+  isNew?: boolean;
+  autoFocus?: boolean;
+  placeholder: string;
+  onCommit: (text: string) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const committedRef = useRef(false);
+
+  useEffect(() => {
+    setDraft(value);
+    committedRef.current = false;
+  }, [value]);
+
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
+
+  const commit = () => {
+    if (committedRef.current) return;
+    const next = draft.trim();
+    if (!next) {
+      setDraft(value);
+      onCancel();
+      return;
+    }
+    if (isNew || next !== value) {
+      committedRef.current = true;
+      onCommit(next);
+    }
+  };
+
+  return (
+    <Input
+      ref={inputRef}
+      value={draft}
+      placeholder={placeholder}
+      onChange={(event) => setDraft(event.target.value)}
+      onBlur={commit}
+      onKeyDown={(event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          commit();
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setDraft(value);
+          onCancel();
+        }
+      }}
+      className={cn(
+        "h-auto min-h-0 flex-1 border-0 bg-transparent px-0 py-0 text-xs shadow-none focus-visible:ring-0",
+        done && "line-through text-muted-foreground",
+      )}
+    />
   );
 }
 
@@ -473,6 +616,18 @@ export default function MeetingDetailRoute() {
     updateMeeting.mutate({ id: meeting.id, summaryMd: next });
   };
 
+  const handleUserNotesChange = (next: string) => {
+    if (!meeting) return;
+    patchCachedMeeting({ userNotesMd: next });
+    updateMeeting.mutate({ id: meeting.id, userNotesMd: next });
+  };
+
+  const persistActionItems = (next: ActionItem[]) => {
+    if (!meeting) return;
+    patchCachedMeeting({ actionItemsJson: next });
+    updateMeeting.mutate({ id: meeting.id, actionItems: next });
+  };
+
   const handleToggleActionItem = (index: number, completed: boolean) => {
     if (!meeting) return;
     const items = meeting.actionItemsJson ?? [];
@@ -481,11 +636,36 @@ export default function MeetingDetailRoute() {
         ? { ...it, completedAt: completed ? new Date().toISOString() : null }
         : it,
     );
-    patchCachedMeeting({ actionItemsJson: next });
-    updateMeeting.mutate({
-      id: meeting.id,
-      actionItemsJson: JSON.stringify(next),
-    });
+    persistActionItems(next);
+  };
+
+  const handleActionItemChange = (index: number, text: string) => {
+    if (!meeting) return;
+    const items = meeting.actionItemsJson ?? [];
+    persistActionItems(
+      items.map((item, itemIndex) =>
+        itemIndex === index ? { ...item, text } : item,
+      ),
+    );
+  };
+
+  const handleActionItemRemove = (index: number) => {
+    if (!meeting) return;
+    const items = meeting.actionItemsJson ?? [];
+    persistActionItems(items.filter((_, itemIndex) => itemIndex !== index));
+  };
+
+  const handleActionItemAdd = (text: string) => {
+    if (!meeting) return;
+    persistActionItems([
+      ...(meeting.actionItemsJson ?? []),
+      {
+        text,
+        assigneeEmail: null,
+        dueDate: null,
+        completedAt: null,
+      },
+    ]);
   };
 
   const handleSeek = (ms: number) => {
@@ -611,6 +791,23 @@ export default function MeetingDetailRoute() {
   const bullets = meeting.bulletsJson ?? [];
   const actionItems = meeting.actionItemsJson ?? [];
   const segments = meeting.segmentsJson ?? [];
+  const speakerLabels = useMemo(() => {
+    const remoteParticipants = (meeting.participants ?? [])
+      .filter((participant) => !participant.isOrganizer)
+      .map(
+        (participant) => participant.name?.trim() || participant.email.trim(),
+      )
+      .filter(Boolean);
+    const remoteLabel =
+      remoteParticipants.length === 1
+        ? remoteParticipants[0]!
+        : t("transcriptBubbles.them");
+    return {
+      mic: t("transcriptBubbles.me"),
+      system: remoteLabel,
+      unknown: t("transcriptBubbles.unknownSpeaker"),
+    };
+  }, [meeting.participants, t]);
   const hasSummary =
     !!meeting.summaryMd || bullets.length > 0 || actionItems.length > 0;
 
@@ -618,7 +815,13 @@ export default function MeetingDetailRoute() {
     if (!segments.length) return;
     const text = segments
       .map((s) => {
-        const label = s.speaker || (s.source === "system" ? "Them" : "Me");
+        const label =
+          s.speaker?.trim() ||
+          (s.source === "mic"
+            ? speakerLabels.mic
+            : s.source === "system"
+              ? speakerLabels.system
+              : speakerLabels.unknown);
         return `${label}: ${s.text}`;
       })
       .join("\n");
@@ -873,12 +1076,31 @@ export default function MeetingDetailRoute() {
           </div>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
+            <div className="max-w-2xl px-6 pt-5">
+              <div className="mb-2 text-xs font-medium">
+                {t("meetingDetail.myNotes")}
+              </div>
+              <CanvasEditor
+                view="user"
+                userNotesMd={meeting.userNotesMd ?? ""}
+                onUserNotesChange={handleUserNotesChange}
+                readOnly={!canEdit}
+                className="max-w-none px-0 py-0"
+              />
+            </div>
+
+            <div className="max-w-2xl px-6 pt-5">
+              <div className="mb-2 text-xs font-medium">
+                {t("meetingDetail.aiNotes")}
+              </div>
+            </div>
             <CanvasEditor
               view="ai"
               summaryMd={meeting.summaryMd ?? ""}
               bullets={bullets.map((b) => b.text)}
               onSummaryChange={handleSummaryChange}
               readOnly={!canEdit}
+              className="max-w-2xl px-6 pt-0 pb-0"
               renderBullet={(b) => (
                 <BulletLink
                   bullet={b}
@@ -897,17 +1119,15 @@ export default function MeetingDetailRoute() {
               <div className="mb-3 text-xs font-medium">
                 {t("meetingDetail.actionItems")}
               </div>
-              {actionItems.length > 0 ? (
-                <ActionItemsByPerson
-                  items={actionItems}
-                  onToggle={handleToggleActionItem}
-                  readOnly={!canEdit}
-                />
-              ) : (
-                <p className="text-sm leading-relaxed text-muted-foreground/50 italic">
-                  {t("meetingDetail.noActionItems")}
-                </p>
-              )}
+              <ActionItemsByPerson
+                items={actionItems}
+                onToggle={handleToggleActionItem}
+                onChange={handleActionItemChange}
+                onRemove={handleActionItemRemove}
+                onAdd={handleActionItemAdd}
+                emptyLabel={t("meetingDetail.noActionItems")}
+                readOnly={!canEdit}
+              />
             </div>
           </div>
         </div>
@@ -949,6 +1169,7 @@ export default function MeetingDetailRoute() {
             isLive={isLive}
             recordingId={meeting.recordingId}
             onSeek={handleSeek}
+            speakerLabels={speakerLabels}
             registerScrollTo={(fn) => {
               transcriptScrollToRef.current = fn;
             }}

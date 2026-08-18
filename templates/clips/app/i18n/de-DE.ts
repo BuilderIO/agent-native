@@ -360,6 +360,9 @@ const messages = {
     aiNotes: "KI-Notizen",
     summary: "Zusammenfassung",
     actionItems: "Aktionselemente",
+    addActionItem: "Aktion hinzufügen",
+    removeActionItem: "Aktion entfernen",
+    actionItemPlaceholder: "Was muss erledigt werden?",
     working: "Arbeiten…",
     noActionItems:
       "Noch keine Aktionspunkte. Sie erscheinen hier, nachdem Notizen aus einem Transkript generiert wurden.",
@@ -1048,6 +1051,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Das Live-Transkript erscheint hier, sobald Notizen starten.",
     me: "Ich",
     them: "Sie",
+    unknownSpeaker: "Sprecher",
     searchTranscript: "Transkript durchsuchen",
     searchPlaceholder: "Transkript durchsuchen…",
     searchMatchCount: "{{current}} von {{total}}",
