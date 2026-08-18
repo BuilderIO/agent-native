@@ -130,6 +130,12 @@ const requiredGeneratedGuidance = [
     message: "runtime-visible integration preflight",
   },
   {
+    rel: "packages/core/src/templates/headless/AGENTS.md",
+    pattern:
+      /For external integrations, inspect the workspace\/provider connection catalog\s+first\./,
+    message: "runtime-visible integration preflight",
+  },
+  {
     rel: "packages/core/src/templates/workspace-root/AGENTS.md",
     pattern: /Normal app data must flow through actions\./,
     message: "canonical action-first guidance",
@@ -138,6 +144,12 @@ const requiredGeneratedGuidance = [
     rel: "packages/core/src/templates/workspace-core/AGENTS.md",
     pattern: /Normal app data must flow through actions\./,
     message: "canonical action-first guidance",
+  },
+  {
+    rel: "templates/chat/AGENTS.md",
+    pattern:
+      /For external integrations, inspect the workspace\/provider connection catalog\s+first\./,
+    message: "runtime-visible integration preflight",
   },
   {
     rel: "registry/agent-native-app/AGENTS.md",
