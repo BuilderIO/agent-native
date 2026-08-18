@@ -1325,8 +1325,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     includeCameraAria: "Include camera in this recording (स्थानीयकृत)",
     startRecording: "Start recording (स्थानीयकृत)",
     micOffConfirmTitle: "आपका माइक म्यूट है",
-    micOffConfirmDescription:
-      "अपने वीडियो में आवाज़ के लिए माइक्रोफ़ोन अनम्यूट करें।",
+    micOffConfirmDescription: "अपने वीडियो में आवाज़ के लिए माइक्रोफ़ोन अनम्यूट करें।",
     startWithoutMic: "जारी रखें",
     unmuteMicrophone: "माइक चालू करें",
     uploadVideo: "Upload video (स्थानीयकृत)",

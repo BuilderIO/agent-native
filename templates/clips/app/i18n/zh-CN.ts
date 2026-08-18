@@ -1289,8 +1289,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     includeCameraAria: "Include camera in this recording (已本地化)",
     startRecording: "Start recording (已本地化)",
     micOffConfirmTitle: "你的麦克风已静音",
-    micOffConfirmDescription:
-      "要让视频有声音，请取消麦克风静音。",
+    micOffConfirmDescription: "要让视频有声音，请取消麦克风静音。",
     startWithoutMic: "继续",
     unmuteMicrophone: "取消静音",
     uploadVideo: "Upload video (已本地化)",

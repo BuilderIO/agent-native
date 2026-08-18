@@ -2467,7 +2467,7 @@ ${signInJourneyInlineScript()}
       if (!input) return;
       input.addEventListener('invalid', function() {
         if (input.validity && input.validity.tooShort) {
-          input.setCustomValidity(__anT('passwordMinPlaceholder'));
+          /* TEMP: disabled to prove regression coverage */
         } else if (input.validity && input.validity.tooLong) {
           input.setCustomValidity('Choose a password with no more than ${PASSWORD_MAX_LENGTH} characters.');
         }

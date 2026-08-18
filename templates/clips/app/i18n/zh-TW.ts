@@ -1274,8 +1274,7 @@ const messages = {
     includeCameraAria: "在此錄製中包含攝影機",
     startRecording: "開始錄製",
     micOffConfirmTitle: "您的麥克風已靜音",
-    micOffConfirmDescription:
-      "若要讓影片有聲音，請取消麥克風靜音。",
+    micOffConfirmDescription: "若要讓影片有聲音，請取消麥克風靜音。",
     startWithoutMic: "繼續",
     unmuteMicrophone: "取消靜音",
     uploadVideo: "上傳影片",
