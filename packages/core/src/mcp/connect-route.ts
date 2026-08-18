@@ -1,20 +1,21 @@
 /**
- * `/_agent-native/mcp/connect` — frictionless external-agent connection.
+ * `/mcp/connect` — frictionless external-agent connection. The legacy
+ * `/_agent-native/mcp/connect` alias is mounted by the core route plugin.
  *
  * A logged-in user on a deployed agent-native app (e.g. mail.agent-native.com)
  * mints a per-user, scoped, revocable MCP bearer token WITHOUT ever copying a
  * shared deployment secret. Two surfaces:
  *
- *   1. Browser  — `GET /connect` renders a minimal in-app page (same inline
+ *   1. Browser  — `GET /mcp/connect` renders a minimal in-app page (same inline
  *      HTML approach as the auth pages). The Authorize button POSTs to
  *      `/connect/token`, then shows the ready-to-paste `.mcp.json` entry, the
  *      `agent-native connect <origin>` one-liner, and the user's existing
  *      tokens with Revoke buttons.
  *   2. CLI      — an OAuth-2.0-device-authorization-style flow:
- *        POST /connect/device/start      (unauth)  → device_code + user_code
- *        GET  /connect?user_code=…       (browser) → user signs in & approves
- *        POST /connect/device/authorize  (session) → binds user to the code
- *        POST /connect/device/poll       (unauth)  → mints + returns the token
+ *        POST /mcp/connect/device/start      (unauth)  → device_code + user_code
+ *        GET  /mcp/connect?user_code=…       (browser) → user signs in & approves
+ *        POST /mcp/connect/device/authorize  (session) → binds user to the code
+ *        POST /mcp/connect/device/poll       (unauth)  → mints + returns the token
  *
  * When A2A_SECRET exists, the minted token reuses the existing A2A signer
  * (`signA2AToken`) and adds a random `jti` + `scope: "mcp-connect"` claim so
@@ -40,6 +41,12 @@ import {
 } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
 import {
+  MCP_CONNECT_GUIDES,
+  MCP_CONNECT_MCP_URL_TEMPLATE,
+  MCP_STATIC_TOKEN_FALLBACK,
+  interpolateMcpConnectTemplate,
+} from "../shared/mcp-connect-content.js";
+import {
   recordMintedToken,
   listTokens,
   revokeToken,
@@ -64,6 +71,7 @@ import {
   MCP_OAUTH_DEFAULT_SCOPE,
   signMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { MCP_PUBLIC_ROUTE_PREFIX } from "./route-paths.js";
 
 /** Device-flow poll interval hint (seconds). */
 const DEVICE_POLL_INTERVAL_S = 3;
@@ -383,7 +391,7 @@ function mcpResultPayload(
 }
 
 function mcpResourceUrl(appUrl: string): string {
-  return `${appUrl}/_agent-native/mcp`;
+  return `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -403,6 +411,42 @@ function agentNativeMarkSvg(className: string, gradientId: string): string {
 </svg>`;
 }
 
+function renderConnectGuide(
+  guide: (typeof MCP_CONNECT_GUIDES)[number],
+  values: Parameters<typeof interpolateMcpConnectTemplate>[1],
+): string {
+  const guideId = escapeHtml(guide.id);
+  const content = [
+    guide.steps?.length
+      ? `<ol>${guide.steps
+          .map(
+            (step) =>
+              `<li>${escapeHtml(interpolateMcpConnectTemplate(step, values))}</li>`,
+          )
+          .join("")}</ol>`
+      : "",
+    guide.intro
+      ? `<p>${escapeHtml(interpolateMcpConnectTemplate(guide.intro, values))}</p>`
+      : "",
+    guide.commandTemplate
+      ? `<pre id="${guideId}Command">${escapeHtml(interpolateMcpConnectTemplate(guide.commandTemplate, values))}</pre>
+        <button type="button" class="primary-link compact" data-copy="${guideId}Command">${escapeHtml(guide.action?.label ?? "Copy")}</button>`
+      : "",
+    guide.configTemplate
+      ? `<pre id="${guideId}Config">${escapeHtml(interpolateMcpConnectTemplate(guide.configTemplate, values))}</pre>
+        <button type="button" class="primary-link compact" data-copy="${guideId}Config">${escapeHtml(guide.action?.label ?? "Copy")}</button>`
+      : "",
+    guide.action?.kind === "link" && guide.action.href
+      ? `<a class="primary-link" href="${escapeHtml(guide.action.href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(guide.action.label)}</a>`
+      : "",
+    guide.note
+      ? `<p class="hint">${escapeHtml(interpolateMcpConnectTemplate(guide.note, values))}</p>`
+      : "",
+  ].join("\n");
+
+  return `<div class="tab-panel${guide.id === MCP_CONNECT_GUIDES[0]?.id ? " is-active" : ""}" role="tabpanel" data-panel="${guideId}">${content}</div>`;
+}
+
 function renderConnectPage(params: {
   connectBasePath: string;
   email: string;
@@ -415,28 +459,27 @@ function renderConnectPage(params: {
     params;
   const safeEmail = escapeHtml(email);
   const safeApp = escapeHtml(appName);
-  const mcpUrl = `${appUrl}/_agent-native/mcp`;
+  const mcpUrl = interpolateMcpConnectTemplate(MCP_CONNECT_MCP_URL_TEMPLATE, {
+    appName,
+    appUrl,
+    mcpUrl: "",
+    serverId,
+  });
   const safeMcpUrl = escapeHtml(mcpUrl);
-  const safeServerId = escapeHtml(serverId);
-  const safeClaudeCodeCmd = escapeHtml(
-    `claude mcp add --transport http ${serverId} ${mcpUrl}`,
-  );
-  const safeCodexCmd = escapeHtml(
-    `npx @agent-native/core@latest connect ${appUrl}`,
-  );
-  const safeGenericConfig = escapeHtml(
-    `{\n  "mcpServers": {\n    "${serverId}": {\n      "type": "http",\n      "url": "${mcpUrl}"\n    }\n  }\n}`,
-  );
-  const brandMarkSvg = agentNativeMarkSvg(
-    "brand-mark",
-    "agent-native-connect-brand-gradient",
-  );
+  const connectTemplateValues = { appName, appUrl, mcpUrl, serverId };
   const flowMarkSvg = agentNativeMarkSvg(
     "flow-mark",
     "agent-native-connect-flow-gradient",
   );
   const safeUserCode =
     userCode && USER_CODE_RE.test(userCode) ? escapeHtml(userCode) : "";
+  const guideTabsHtml = MCP_CONNECT_GUIDES.map(
+    (guide) =>
+      `<button type="button" class="tab${guide.id === MCP_CONNECT_GUIDES[0]?.id ? " is-active" : ""}" role="tab" data-tab="${escapeHtml(guide.id)}" aria-selected="${guide.id === MCP_CONNECT_GUIDES[0]?.id ? "true" : "false"}">${escapeHtml(guide.label)}</button>`,
+  ).join("\n");
+  const guidePanelsHtml = MCP_CONNECT_GUIDES.map((guide) =>
+    renderConnectGuide(guide, connectTemplateValues),
+  ).join("\n");
   const setupHtml = safeUserCode
     ? ""
     : `
@@ -457,57 +500,9 @@ function renderConnectPage(params: {
     <div class="hosts-body">
       <div class="section-label">Pick your AI assistant</div>
       <div class="tabs" role="tablist" aria-label="Choose your AI assistant">
-        <button type="button" class="tab is-active" role="tab" data-tab="claude" aria-selected="true">Claude</button>
-        <button type="button" class="tab" role="tab" data-tab="chatgpt" aria-selected="false">ChatGPT</button>
-        <button type="button" class="tab" role="tab" data-tab="cursor" aria-selected="false">Cursor</button>
-        <button type="button" class="tab" role="tab" data-tab="claude-code" aria-selected="false">Claude Code</button>
-        <button type="button" class="tab" role="tab" data-tab="codex" aria-selected="false">Codex</button>
-        <button type="button" class="tab" role="tab" data-tab="other" aria-selected="false">Other</button>
+        ${guideTabsHtml}
       </div>
-      <div class="tab-panel is-active" role="tabpanel" data-panel="claude">
-        <ol>
-          <li>Open <strong>Customize → Connectors</strong> in Claude.</li>
-          <li>Click the <strong>+</strong> button → <strong>Add custom connector</strong>.</li>
-          <li>Paste the MCP URL above, name it <strong>${safeApp}</strong>, click <strong>Connect</strong>.</li>
-          <li>On the consent page, click <strong>Authorize</strong> to approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
-        </ol>
-        <a class="primary-link" href="https://claude.ai/customize/connectors" target="_blank" rel="noopener noreferrer">Open Claude → Connectors</a>
-        <p class="hint">Works in Claude web and Claude Desktop. Inline MCP Apps (charts, dashboards, drafts) render automatically inside the chat.</p>
-      </div>
-      <div class="tab-panel" role="tabpanel" data-panel="chatgpt">
-        <ol>
-          <li>In ChatGPT, open <strong>Settings → Apps</strong> (Business/Enterprise/Edu workspaces with developer mode enabled).</li>
-          <li>Scroll to <strong>Advanced settings → Create app</strong>, paste the MCP URL above, name it <strong>${safeApp}</strong>.</li>
-          <li>Click <strong>Connect</strong>, sign in with your Agent-Native account, and approve <code>mcp:read</code>, <code>mcp:write</code>, <code>mcp:apps</code>.</li>
-        </ol>
-        <a class="primary-link" href="https://chatgpt.com/" target="_blank" rel="noopener noreferrer">Open ChatGPT</a>
-        <p class="hint"><strong>Got "Connector name already exists" but don't see it under Enabled apps?</strong> ChatGPT saves a hidden draft the moment you click Create — even if you closed the OAuth popup before approving. In <strong>Settings → Apps</strong>, scroll past Enabled apps to the <strong>Drafts</strong> section ("Private apps you've created in developer mode"). Click the draft and either press <strong>Connect</strong> to finish OAuth, or use the <strong>⋯ → Delete</strong> menu and re-create. Workspace admins may also need to enable custom connectors under org settings; each member still authorizes their own account.</p>
-      </div>
-      <div class="tab-panel" role="tabpanel" data-panel="cursor">
-        <ol>
-          <li>Open <strong>Cursor → Settings → MCP</strong>.</li>
-          <li>Click <strong>Add MCP Server</strong>, paste the MCP URL above, save.</li>
-          <li>When prompted, sign in with your Agent-Native account and approve the MCP scopes.</li>
-        </ol>
-        <p class="hint">Cursor supports remote-OAuth MCP servers, same paste-URL flow as Claude — no terminal needed.</p>
-      </div>
-      <div class="tab-panel" role="tabpanel" data-panel="claude-code">
-        <p>In your terminal, run:</p>
-        <pre id="claudeCodeCmd">${safeClaudeCodeCmd}</pre>
-        <button type="button" class="primary-link compact" data-copy="claudeCodeCmd">Copy command</button>
-        <p class="hint">Then inside Claude Code type <code>/mcp</code>, choose <strong>${safeServerId}</strong>, and click <strong>Authenticate</strong>. Claude completes the OAuth flow itself — no static token needed.</p>
-      </div>
-      <div class="tab-panel" role="tabpanel" data-panel="codex">
-        <p>In your terminal, run:</p>
-        <pre id="codexCmd">${safeCodexCmd}</pre>
-        <button type="button" class="primary-link compact" data-copy="codexCmd">Copy command</button>
-        <p class="hint">Opens this page in your browser and writes Codex's <code>~/.codex/config.toml</code> automatically. The same command works for Claude Cowork and Goose.</p>
-      </div>
-      <div class="tab-panel" role="tabpanel" data-panel="other">
-        <p>Any MCP-compatible client with remote-OAuth support: paste the MCP URL above. For clients without OAuth, paste this <code>.mcp.json</code> snippet and generate a static bearer below:</p>
-        <pre id="genericConfig">${safeGenericConfig}</pre>
-        <button type="button" class="primary-link compact" data-copy="genericConfig">Copy config</button>
-      </div>
+      ${guidePanelsHtml}
     </div>
   </details>`;
   const tokenAdvancedOptionsHtml = safeUserCode
@@ -562,21 +557,6 @@ function renderConnectPage(params: {
       0 30px 90px rgba(0,0,0,0.5);
     padding: 1.25rem;
   }
-  .topbar {
-    display: flex; align-items: center; justify-content: space-between;
-    gap: 0.75rem; margin-bottom: 1.75rem;
-  }
-  .brand-lockup {
-    display: flex; align-items: center; gap: 0.55rem;
-    color: var(--muted); font-size: 0.78rem; font-weight: 600;
-  }
-  .brand-mark { width: 18px; height: auto; display: block; }
-  .app-pill {
-    max-width: 50%; border: 1px solid var(--border);
-    border-radius: 999px; padding: 0.28rem 0.55rem;
-    color: var(--subtle); font-size: 0.72rem; line-height: 1;
-    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-  }
   .hero { padding: 0 0.75rem; text-align: center; }
   .flow {
     display: flex; align-items: center; justify-content: center;
@@ -597,11 +577,6 @@ function renderConnectPage(params: {
     width: 30px; height: 1px; flex-shrink: 0;
     background: linear-gradient(90deg, transparent, var(--border-strong), transparent);
     background-position: center;
-  }
-  .eyebrow {
-    text-align: center; font-size: 0.72rem; font-weight: 600;
-    letter-spacing: 0.08em; text-transform: uppercase;
-    color: var(--subtle); margin-bottom: 0.55rem;
   }
   h1 {
     text-align: center; font-size: 1.45rem; font-weight: 680;
@@ -715,8 +690,7 @@ function renderConnectPage(params: {
   .connections-title { font-weight: 600; color: var(--muted); }
   .connections-state {
     margin-left: auto; color: var(--subtle); font-size: 0.73rem;
-    border: 1px solid var(--border); border-radius: 999px;
-    padding: 0.18rem 0.45rem; line-height: 1;
+    line-height: 1;
   }
   .connections .chev {
     width: 7px; height: 7px; border-right: 1.5px solid currentColor;
@@ -739,8 +713,16 @@ function renderConnectPage(params: {
     margin-bottom: 0.9rem; display: none; line-height: 1.4; }
   .msg.err { display: block; color: var(--error); background: var(--error-bg);
     border: 1px solid rgba(252,165,165,0.16); }
-  .msg.ok { display: block; color: var(--ok); background: var(--ok-bg);
+  .msg.ok { display: block; background: var(--ok-bg);
     border: 1px solid var(--ok-border); }
+  .msg-title {
+    display: block; color: var(--ok); font-size: 0.95rem;
+    font-weight: 700; line-height: 1.25;
+  }
+  .msg-copy {
+    display: block; color: rgba(134,239,172,0.72); font-size: 0.78rem;
+    line-height: 1.4; margin-top: 0.2rem;
+  }
   .result-panel { padding-top: 0.15rem; }
   .result-title {
     color: var(--text); font-size: 0.95rem; font-weight: 650;
@@ -758,9 +740,7 @@ function renderConnectPage(params: {
     body { align-items: flex-start; padding: 0.75rem; }
     .card { padding: 1rem; }
     .hero { padding: 0; }
-    .topbar { margin-bottom: 1.35rem; }
     h1 { font-size: 1.3rem; }
-    .app-pill { max-width: 46%; }
     pre { font-size: 0.72rem; }
   }
   /* MCP URL display + per-host tabs (the non-dev path). */
@@ -862,9 +842,6 @@ function renderConnectPage(params: {
     border-color: var(--ok-border) !important;
   }
   .static-token-mint .static-token-body { padding-top: 0.5rem; }
-  .static-token-mint > summary .connections-state {
-    font-style: normal;
-  }
   @media (min-width: 560px) {
     .card { max-width: 580px; }
   }
@@ -873,17 +850,8 @@ function renderConnectPage(params: {
 </head>
 <body>
 <div class="card">
-  <div class="topbar">
-    <div class="brand-lockup">
-      ${brandMarkSvg}
-      <span>Agent Native</span>
-    </div>
-    <div class="app-pill" title="${safeApp}">${safeApp}</div>
-  </div>
-
   <div class="hero">
-    <!-- "Connect an external agent" is kept as the accessible consent label. -->
-    <div class="flow" role="img" aria-label="Connect an external agent to ${safeApp}">
+    <div class="flow" role="img" aria-label="Authorize ${safeApp}">
       <span class="tile" aria-hidden="true">
         ${flowMarkSvg}
       </span>
@@ -893,7 +861,6 @@ function renderConnectPage(params: {
       </span>
     </div>
 
-    <div class="eyebrow">Connect an external agent</div>
     <h1>${safeUserCode ? `Authorize ${safeApp} from your terminal?` : `Use ${safeApp} from your AI assistant`}</h1>
     <p class="identity">
       <span>Signed in as <strong>${safeEmail}</strong></span>
@@ -909,8 +876,7 @@ function renderConnectPage(params: {
 
   <details id="staticTokenMint" class="connections static-token-mint"${safeUserCode ? " open" : ""}>
     <summary>
-      <span class="connections-title">${safeUserCode ? "Authorize this device" : "Generate a static token"}</span>
-      <span class="connections-state">${safeUserCode ? "From your terminal" : "Advanced — clients without OAuth"}</span>
+      <span class="connections-title">${safeUserCode ? "Authorize this device" : MCP_STATIC_TOKEN_FALLBACK.title}</span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div class="static-token-body">
@@ -920,8 +886,8 @@ function renderConnectPage(params: {
         ${tokenAdvancedOptionsHtml}
       </div>
       <div id="result" class="result-panel hidden">
-        <div class="result-title">Connection token created</div>
-        <p class="result-copy" id="resultMsg">Paste this into your agent's MCP config. The token is shown only once.</p>
+        <div class="result-title">${MCP_STATIC_TOKEN_FALLBACK.resultTitle}</div>
+        <p class="result-copy" id="resultMsg">${MCP_STATIC_TOKEN_FALLBACK.resultCopy}</p>
         <div class="section-label">MCP config</div>
         <pre id="mcpJson"></pre>
         <details class="advanced">
@@ -940,7 +906,7 @@ function renderConnectPage(params: {
   <details id="connections" class="connections">
     <summary>
       <span class="connections-title">Existing connections</span>
-      <span id="connectionsState" class="connections-state">Checking</span>
+      <span id="connectionsState" class="connections-state hidden" aria-live="polite"></span>
       <span class="chev" aria-hidden="true"></span>
     </summary>
     <div id="tokenList" class="token-list"><div class="empty-state">Checking connections...</div></div>
@@ -948,7 +914,7 @@ function renderConnectPage(params: {
 </div>
 <script>
 (function () {
-  var BASE = ${JSON.stringify(joinAppPath(connectBasePath, "/_agent-native/mcp/connect"))};
+  var BASE = ${JSON.stringify(joinAppPath(connectBasePath, MCP_PUBLIC_ROUTE_PREFIX + "/connect"))};
   var USER_CODE = ${JSON.stringify(safeUserCode || null)};
   var msgEl = document.getElementById("msg");
   var connectionsEl = document.getElementById("connections");
@@ -991,8 +957,20 @@ function renderConnectPage(params: {
       }, 1400);
     });
   });
-  function showMsg(text, kind) {
-    msgEl.textContent = text;
+  function showMsg(text, kind, title) {
+    msgEl.textContent = "";
+    if (title) {
+      var titleEl = document.createElement("strong");
+      titleEl.className = "msg-title";
+      titleEl.textContent = title;
+      msgEl.appendChild(titleEl);
+      var copyEl = document.createElement("span");
+      copyEl.className = "msg-copy";
+      copyEl.textContent = text;
+      msgEl.appendChild(copyEl);
+    } else {
+      msgEl.textContent = text;
+    }
     msgEl.className = "msg " + (kind || "err");
   }
   function clearMsg() { msgEl.className = "msg"; msgEl.textContent = ""; }
@@ -1040,19 +1018,22 @@ function renderConnectPage(params: {
       var res = await fetch(BASE + "/tokens", { credentials: "same-origin" });
       if (!res.ok) {
         connectionsStateEl.textContent = "Unavailable";
+        connectionsStateEl.classList.remove("hidden");
         listEl.innerHTML = '<div class="empty-state">Could not load connections.</div>';
         return;
       }
       var data = await res.json();
       var tokens = (data && data.tokens) || [];
       if (!tokens.length) {
-        connectionsStateEl.textContent = "None";
+        connectionsStateEl.textContent = "";
+        connectionsStateEl.classList.add("hidden");
         connectionsEl.open = false;
         listEl.innerHTML = '<div class="empty-state">Created connections will appear here for revoking later.</div>';
         return;
       }
       var activeCount = tokens.filter(function (t) { return !t.revokedAt; }).length;
-      connectionsStateEl.textContent = activeCount === 1 ? "1 active" : activeCount + " active";
+      connectionsStateEl.textContent = activeCount ? String(activeCount) : "";
+      connectionsStateEl.classList.toggle("hidden", activeCount === 0);
       listEl.innerHTML = "";
       tokens.forEach(function (t) {
         var div = document.createElement("div");
@@ -1083,6 +1064,7 @@ function renderConnectPage(params: {
       });
     } catch (e) {
       connectionsStateEl.textContent = "Unavailable";
+      connectionsStateEl.classList.remove("hidden");
       listEl.innerHTML = '<div class="empty-state">Could not load connections.</div>';
     }
   }
@@ -1099,7 +1081,7 @@ function renderConnectPage(params: {
           showMsg((a.data && a.data.error) || "Could not authorize this device code.");
           return;
         }
-        showMsg("Device authorized — finishing connection… you can return to your terminal.", "ok");
+        showMsg("Finishing connection… you can return to your terminal.", "ok", "Device authorized");
         btn.classList.add("hidden");
         document.getElementById("mintForm").classList.add("hidden");
         var cc = document.getElementById("codeCallout");
@@ -1134,7 +1116,7 @@ function renderConnectPage(params: {
               });
               if (fresh.length > 0) {
                 clearInterval(iv);
-                showMsg("Connected. This device can now act as you — manage or revoke it below.", "ok");
+                showMsg("This device can now act as you — manage or revoke it below.", "ok", "Connected");
                 loadTokens();
                 return;
               }
@@ -1182,10 +1164,11 @@ function renderConnectPage(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * Handle a `/_agent-native/mcp/connect[...]` request. `subpath` is the part
- * after `/connect` (empty string = the page itself, otherwise e.g.
- * `/token`, `/device/start`). The core-routes-plugin computes it from the
- * stripped event path so this module stays mount-agnostic.
+ * Handle a `/mcp/connect[...]` request. The legacy
+ * `/_agent-native/mcp/connect` alias is mounted too. `subpath` is the part
+ * after `/connect` (empty string = the page itself, otherwise e.g. `/token`,
+ * `/device/start`). The core-routes-plugin computes it from the stripped event
+ * path so this module stays mount-agnostic.
  */
 export async function handleMcpConnect(
   event: H3Event,
@@ -1291,7 +1274,7 @@ export async function handleMcpConnect(
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     try {
       const row = await createDeviceCode();
-      const verificationUri = `${appUrl}/_agent-native/mcp/connect`;
+      const verificationUri = `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}/connect`;
       return json({
         device_code: row.deviceCode,
         user_code: row.userCode,

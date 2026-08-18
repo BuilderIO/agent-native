@@ -7,9 +7,15 @@ description: "Cron 调度提示代理自行运行 - 每日摘要、每周报告�
 
 **重复作业**是按 cron 计划运行的提示。这就是代理自己做事的方式：“每天早上 7 点总结我隔夜收到的电子邮件”，“每周一将上周的注册号码发布到 Slack”，“每小时清理陈旧的草稿并将其删除。”
 
+<Callout tone="info">
+
+**Recurring Jobs** 是 **Scheduled** 自动化的旧称。**Automations** 是 **Scheduled** 和 **Event** 的总称。`jobs/` 和 `manage-jobs` 为旧 schedule-only 集成保留。新的个人或组织工作（包括模型和 MCP 允许列表）请使用 `manage-automations` 和 `/agent#jobs` 中的 **Automations**。
+
+</Callout>
+
 重复性工作按时进行。要对*事件*（创建的预订、收到的电子邮件）做出反应 - 相同的 `jobs/` 文件格式加上条件 - 请参阅 [Automations](/docs/automations)。
 
-作业位于 `jobs/<name>.md` 的 [workspace](/docs/workspace) 中 — 只是一个带有 YAML frontmatter 的 Markdown 文件。无需注册，无需接线。将文件放入，框架就会拾取它。
+作业位于 `jobs/<name>.md` 的 [代理资源](/docs/agent-resources) 中 — 只是一个带有 YAML frontmatter 的 Markdown 文件。无需注册，无需接线。将文件放入，框架就会拾取它。
 
 ## 作业文件 {#job-file}
 
@@ -40,12 +46,12 @@ description: "Cron 调度提示代理自行运行 - 每日摘要、每周报告�
     {
       lines: "7-12",
       label: "提示",
-      note: "主体只是一个提示 - 代理在每次触发时使用其所有常规工具和工作区上下文运行它。",
+      note: "主体只是一个提示 - 代理在每次触发时使用其所有常规工具和代理上下文运行它。",
     },
   ]}
 />
 
-就是这样。正文是代理在每次计划触发时运行的提示。代理可以访问其在交互式聊天中拥有的所有相同工具和工作区上下文 - actions、skills、内存、连接的 MCP 服务器、子代理。
+就是这样。正文是代理在每次计划触发时运行的提示。代理可以访问其在交互式聊天中拥有的所有相同工具和代理上下文 - actions、skills、内存、连接的 MCP 服务器、子代理。
 
 ## 前线 {#frontmatter}
 
@@ -54,14 +60,32 @@ description: "Cron 调度提示代理自行运行 - 每日摘要、每周报告�
 | `schedule`   | cron 表达式                   | _（必填）_  | 标准 5 字段 cron。 `"0 7 * * *"` = 每天 07:00； `"0 */4 * * *"` = 每 4 小时一次。       |
 | `enabled`    | 布尔值                        | `true`      | 翻转到 `false` 以暂停而不删除作业。                                                     |
 | `runAs`      | `"creator"` \| `"shared"`     | `"creator"` | `"creator"` 以作业所有者的身份和 `ANTHROPIC_API_KEY` 运行。 `"shared"` 使用组织的密钥。 |
-| `createdBy`  | 电子邮件                      | _（自动）_  | 当通过工作区 UI 或代理创建作业时填充。                                                  |
+| `createdBy`  | 电子邮件                      | _（自动）_  | 当通过代理资源 UI 或代理创建作业时填充。                                                |
 | `orgId`      | 字符串                        | _（自动）_  | 组织范围；从创建者的活动组织继承。                                                      |
 | `lastRun`    | ISO时间戳                     | _（托管）_  | 由调度程序在每次运行后写入。                                                            |
 | `lastStatus` | `"success"` \| `"error"` \| … | _（托管）_  | 最新结果。                                                                              |
 | `lastError`  | 字符串                        | _（托管）_  | 如果上次运行失败，则会出现错误消息。                                                    |
 | `nextRun`    | ISO时间戳                     | _（托管）_  | 由`schedule`计算得出；由调度程序用来决定下次何时触发。                                  |
+| `mcpTools`   | MCP 工具名称数组              | _（无）_    | 可选的显式允许列表，例如 `mcp__server__tool`；凭据仍保留在已连接的 MCP 授权中。         |
 
 `last*` 和 `nextRun` 字段由调度程序写入。您可以阅读它们以查看历史记录，但不要手动编辑它们 - 下次运行将覆盖它们。
+
+## 将 MCP 工具连接到作业 {#connected-mcps}
+
+定期作业可以使用已连接到应用的远程或本地 MCP 工具。请让代理先使用 `tool-search` 发现准确名称，然后仅通过 `mcpTools` 绑定该作业所需的工具：
+
+```md
+---
+schedule: "0 * * * *"
+enabled: true
+mcpTools:
+  ["mcp__meeting-notes__list_recordings", "mcp__meeting-notes__get_transcript"]
+---
+
+查找自上次成功运行以来的新录音。仅提取可执行的后续事项，然后使用稳定的来源和外部 ID、简短引用及录音 URL，一次调用应用受限的导入 action。不要导入完整的转录文本。
+```
+
+作业存储的是工具名称，而不是 MCP URL、访问令牌或 OAuth 刷新令牌。运行时，框架会在作业创建者或组织的请求上下文中解析已连接的授权，并且只公开允许列表中的工具。请保持列表精简，并对最终导入使用幂等的应用 action，以避免重叠运行产生重复项。有关连接和 OAuth 设置，请参阅 [MCP Clients](/docs/mcp-clients)。
 
 ## cron 语法 {#cron}
 
@@ -81,9 +105,9 @@ description: "Cron 调度提示代理自行运行 - 每日摘要、每周报告�
 
 ## 创建作业 {#creating}
 
-### 从“工作区”选项卡
+### 从“代理资源”选项卡
 
-`+` → **工作区面板中的计划任务**。填写提示和时间表。另存为 `jobs/<slug>.md` 并在下一个匹配的刻度处开始运行。
+`+` → **代理资源面板中的计划任务**。填写提示和时间表。另存为 `jobs/<slug>.md` 并在下一个匹配的刻度处开始运行。
 
 ### 通过询问代理
 
@@ -136,8 +160,7 @@ Summarize overnight emails.`,
   <div class="diagram-card accent">
     <span class="diagram-pill accent">3 &middot; run</span
     ><small class="diagram-muted"
-      >fresh agent thread, job body as the user message &mdash; actions, SQL,
-      A2A, email</small
+      >共享运行器验证身份并解析模型、MCP 允许列表、继续执行、 交付和用量</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -183,7 +206,7 @@ Summarize overnight emails.`,
 
 ## 调试作业 {#debugging}
 
-- 在工作区中打开 `jobs/<name>.md` — frontmatter 显示 `lastRun`、`lastStatus`、`lastError`、`nextRun`。
+- 在代理资源中打开 `jobs/<name>.md` — frontmatter 显示 `lastRun`、`lastStatus`、`lastError`、`nextRun`。
 - **无需等待即可测试：**没有强制发射工具。要按需执行相同的工作，可以将作业的提示粘贴到代理聊天中并让它在那里运行，或者暂时将计划设置为下一分钟，以便调度程序在下一个时间点上选择它（然后恢复真正的 cron）。
 - **暂停：**翻转`enabled: false`。文件保持不变，只是停止运行。
 
@@ -191,20 +214,20 @@ Summarize overnight emails.`,
 
 每个模板中都会注册一个 `manage-jobs` 工具。 `action`参数选择操作：
 
-| 行动     | 参数                                                            | 目的                                              |
-| -------- | --------------------------------------------------------------- | ------------------------------------------------- |
-| `create` | `name`、`schedule`、`instructions`（必填）； `scope`、`runAs`   | 创建新的定期作业                                  |
-| `list`   | `scope`（`personal`、`shared` 或全部）                          | 列出所有作业的状态（计划、已启用、上次/下次运行） |
-| `update` | `name`（必填）； `schedule`、`instructions`、`enabled`、`runAs` | 编辑现有作业                                      |
-| `delete` | `name`（必填）                                                  | 删除作业 - 始终先与用户确认                       |
+| 行动     | 参数                                                                        | 目的                                              |
+| -------- | --------------------------------------------------------------------------- | ------------------------------------------------- |
+| `create` | `name`、`schedule`、`instructions`（必填）； `scope`、`runAs`、`mcpTools`   | 创建新的定期作业                                  |
+| `list`   | `scope`（`personal`、`shared` 或全部）                                      | 列出所有作业的状态（计划、已启用、上次/下次运行） |
+| `update` | `name`（必填）； `schedule`、`instructions`、`enabled`、`runAs`、`mcpTools` | 编辑现有作业                                      |
+| `delete` | `name`（必填）                                                              | 删除作业 - 始终先与用户确认                       |
 
-**个人与共享范围。**每个作业都位于个人范围（作为创建者运行且仅对创建者可见）或共享/组织范围（代表创建者运行但对组织成员可见）。 `scope` 和 `runAs` 参数在创建时对此进行控制。组织管理员可以更新或删除任何共享作业；非管理员成员只能管理自己的成员。
+**个人与共享范围。**每个自动化都位于个人或组织范围，并以创建者身份运行。管理员可以管理共享定义，但不能更改创建者身份。每次组织运行前，框架都会验证创建者仍然存在且仍是组织成员。
 
 ## 与调度包不同 {#vs-scheduling-package}
 
 不要将重复性作业与 `@agent-native/scheduling` 混淆：
 
-- **重复作业（本页）** — cron 计划*提示*代理在后台运行。框架级别。住在工作区。在任何代理本机应用程序上运行。
+- **重复作业（本页）** — cron 计划*提示*代理在后台运行。框架级别。住在代理资源。在任何代理本机应用程序上运行。
 - **`@agent-native/scheduling`** — 用于构建日历/预订功能（事件类型、可用窗口、预订）的可重用域包。为 `calendar` 模板和自定义调度界面提供支持。
 
 重复性工作是“如何让代理自行行动？”日程安排包是“如何构建日历应用程序？”不同的关注点。
@@ -212,6 +235,6 @@ Summarize overnight emails.`,
 ## 下一步是什么
 
 - [**Automations**](/docs/automations) — 将事件触发器和条件添加到相同的 `jobs/` 格式
-- [**Workspace**](/docs/workspace) — 作业与 skills、内存和自定义代理一起存在
-- [**Actions**](/docs/actions) — 工作调用的工具
+- [**代理资源**](/docs/agent-resources) — 作业与 skills、内存和自定义代理一起存在
+- [**Actions**](/docs/actions-overview) — 工作调用的工具
 - [**Agent Teams**](/docs/agent-teams) - 作业通常会产生子代理来执行并行工作

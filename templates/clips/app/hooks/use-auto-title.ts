@@ -1,23 +1,11 @@
-/**
- * Clips AI request bridge
- *
- * Polls the `list-ai-requests` action — a single access-scoped call that returns
- * every pending `clips-ai-request-*` entry for recordings the user can access.
- * The bridge sends queued recording work to the agent chat exactly once per
- * (recordingId, kind, requestedAt).
- *
- * Once handled we DELETE the request entry so the next page load / tab switch
- * doesn't re-fire. The polling layer flips UI back to ready when the requested
- * action lands its writes.
- */
-
 import {
-  agentNativePath,
-  callAction,
+  generateTabId,
   sendToAgentChat,
+  sendToAgentChatAndConfirm,
   type AgentChatMessage,
-  useChangeVersions,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { callAction, useChangeVersions } from "@agent-native/core/client/hooks";
 import { fullVideoAiModelSelection } from "@shared/clips-ai-prefs";
 import { useEffect, useRef } from "react";
 
@@ -25,6 +13,8 @@ import { useRecordings, type RecordingSummary } from "./use-library";
 
 const DEFAULT_TITLE = "Untitled recording";
 const TWO_MINUTES_MS = 2 * 60 * 1000;
+export const WORKFLOW_ACTION_MAX_ATTEMPTS = 5;
+const WORKFLOW_ACTION_RETRY_DELAY_MS = 1000;
 
 /** True when `title` is blank or equal to the server-seeded default. */
 export function isDefaultTitle(title: string | null | undefined): boolean {
@@ -59,6 +49,8 @@ interface AiRequest {
   message?: string;
   includeFullVideoInAi?: boolean;
   openInChat?: boolean;
+  deliveredAt?: string;
+  deliveredTabId?: string;
 }
 
 const DISPATCHABLE_REQUESTS = new Set([
@@ -113,6 +105,36 @@ export function useAutoTitleBridge(): void {
   const dispatched = useRef<Set<string>>(new Set());
   const inflight = useRef<boolean>(false);
 
+  useEffect(() => {
+    const handleChatRunning = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (
+        detail?.isRunning !== false ||
+        (detail.reason !== "stopped" && detail.reason !== "failed") ||
+        typeof detail.tabId !== "string"
+      )
+        return;
+
+      const recordingId = recordingIdFromTab(detail.tabId);
+      const requestedAt = requestedAtFromTab(detail.tabId);
+      if (!recordingId || !requestedAt) return;
+
+      void retryWorkflowAction(
+        {
+          operation: "stop",
+          recordingId,
+          requestedAt,
+          tabId: detail.tabId,
+        },
+        "reconciled",
+      );
+    };
+
+    window.addEventListener("agentNative.chatRunning", handleChatRunning);
+    return () =>
+      window.removeEventListener("agentNative.chatRunning", handleChatRunning);
+  }, []);
+
   const readyRecordings = recordings.filter((r) => r.status === "ready");
   const readyRecordingsKey = readyRecordings
     .map(
@@ -158,7 +180,6 @@ export function useAutoTitleBridge(): void {
               request.requestedAt ?? "0"
             }`;
             if (dispatched.current.has(dispatchKey)) continue;
-            dispatched.current.add(dispatchKey);
             if (
               request.kind === "generate-metadata" ||
               request.kind === "regenerate-title"
@@ -169,8 +190,67 @@ export function useAutoTitleBridge(): void {
               dispatched.current.add(`${rec.id}:fallback`);
             }
 
-            dispatchAiRequest(rec, request);
+            if (
+              request.kind === "generate-workflow" &&
+              typeof request.requestedAt === "string"
+            ) {
+              if (request.deliveredTabId) {
+                dispatched.current.add(dispatchKey);
+                void consumeWorkflowRequest({
+                  recordingId: rec.id,
+                  requestedAt: request.requestedAt,
+                  tabId: request.deliveredTabId,
+                });
+                continue;
+              }
 
+              const tabId = workflowTabId(rec.id, request.requestedAt);
+              try {
+                const result = (await callAction(
+                  "reconcile-workflow-generation" as any,
+                  {
+                    operation: "track",
+                    recordingId: rec.id,
+                    requestedAt: request.requestedAt,
+                    tabId,
+                  } as any,
+                )) as { tracked?: boolean };
+                if (result.tracked !== true) {
+                  fallbackTimer = setTimeout(() => void tick(), 1000);
+                  continue;
+                }
+              } catch {
+                fallbackTimer = setTimeout(() => void tick(), 1000);
+                continue;
+              }
+              const delivery = await sendToAgentChatAndConfirm({
+                ...buildAiRequestChatOptions(rec, request),
+                tabId,
+                chatTarget: "local",
+              });
+              if (!delivery.delivered) {
+                await retryWorkflowAction(
+                  {
+                    operation: "release",
+                    recordingId: rec.id,
+                    requestedAt: request.requestedAt,
+                    tabId,
+                  },
+                  "released",
+                );
+                fallbackTimer = setTimeout(() => void tick(), 1000);
+                continue;
+              }
+              dispatched.current.add(dispatchKey);
+              void persistAndConsumeWorkflowRequest({
+                recordingId: rec.id,
+                requestedAt: request.requestedAt,
+                tabId,
+              });
+              continue;
+            }
+            dispatchAiRequest(rec, request);
+            dispatched.current.add(dispatchKey);
             void clearRequest(rec.id);
           } else if (isAutoTitleReplaceable(rec.title, rec.titleSource)) {
             // No server-queued delegation. Only dispatch the fallback for
@@ -308,8 +388,76 @@ export function buildAiRequestChatOptions(
   };
 }
 
-function dispatchAiRequest(rec: RecordingSummary, request: AiRequest) {
-  sendToAgentChat(buildAiRequestChatOptions(rec, request));
+interface WorkflowRunRequest {
+  recordingId: string;
+  requestedAt: string;
+  tabId: string;
+}
+
+export async function retryWorkflowAction(
+  request: WorkflowRunRequest & { operation: string },
+  successKey: string,
+): Promise<boolean> {
+  for (let attempt = 0; attempt < WORKFLOW_ACTION_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const result = (await callAction(
+        "reconcile-workflow-generation" as any,
+        request as any,
+      )) as Record<string, unknown>;
+      if (result[successKey] === true) return true;
+      if (typeof result.reason === "string" && result.reason !== "stale") {
+        return false;
+      }
+    } catch {}
+
+    if (attempt === WORKFLOW_ACTION_MAX_ATTEMPTS - 1) return false;
+    await new Promise((resolve) =>
+      setTimeout(resolve, WORKFLOW_ACTION_RETRY_DELAY_MS * 2 ** attempt),
+    );
+  }
+
+  return false;
+}
+
+async function consumeWorkflowRequest(
+  request: WorkflowRunRequest,
+): Promise<boolean> {
+  return retryWorkflowAction({ ...request, operation: "consume" }, "consumed");
+}
+
+async function persistAndConsumeWorkflowRequest(
+  request: WorkflowRunRequest,
+): Promise<void> {
+  const delivered = await retryWorkflowAction(
+    { ...request, operation: "mark-delivered" },
+    "delivered",
+  );
+  if (delivered) await consumeWorkflowRequest(request);
+}
+
+function workflowTabId(recordingId: string, requestedAt: string) {
+  return `clips-workflow:${recordingId}:${encodeURIComponent(requestedAt)}:${generateTabId()}`;
+}
+
+function recordingIdFromTab(tabId: string) {
+  const match = /^clips-workflow:([^:]+):/.exec(tabId);
+  return match?.[1];
+}
+
+function requestedAtFromTab(tabId: string) {
+  const match = /^clips-workflow:[^:]+:([^:]+):/.exec(tabId);
+  return match ? decodeURIComponent(match[1]) : undefined;
+}
+
+function dispatchAiRequest(
+  rec: RecordingSummary,
+  request: AiRequest,
+  tabId?: string,
+) {
+  return sendToAgentChat({
+    ...buildAiRequestChatOptions(rec, request),
+    ...(tabId ? { tabId } : {}),
+  });
 }
 
 function parseJsonArray(raw: string | undefined): unknown[] {

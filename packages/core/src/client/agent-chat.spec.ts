@@ -67,11 +67,13 @@ const {
   claimAgentChatSubmit,
   clearAgentChatContext,
   drainBufferedAgentChatSubmits,
+  filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
   insertAgentComposerReference,
   listAgentChatContext,
   normalizeAgentComposerReference,
+  parseSubmitChatMessage,
   removeAgentChatContextItem,
   reportAgentChatSubmitResult,
   sendToAgentChat,
@@ -163,6 +165,29 @@ describe("sendToAgentChat", () => {
     expect(parentPostMessageSpy).toHaveBeenCalledOnce();
     const payload = parentPostMessageSpy.mock.calls[0][0];
     expect(payload.data.images).toEqual(["data:image/png;base64,abc"]);
+  });
+
+  it("rehydrates hosted reference images into the submitted image sources", () => {
+    const parsed = parseSubmitChatMessage({
+      data: {
+        type: "agentNative.submitChat",
+        data: {
+          message: "use these references",
+          images: ["https://cdn.example.test/first.png"],
+          referenceImagePaths: [
+            "https://cdn.example.test/first.png",
+            "https://cdn.example.test/second.png",
+          ],
+          uploadedReferenceImages: ["data:image/png;base64,abc"],
+        },
+      },
+    } as MessageEvent);
+
+    expect(parsed?.images).toEqual([
+      "https://cdn.example.test/first.png",
+      "https://cdn.example.test/second.png",
+      "data:image/png;base64,abc",
+    ]);
   });
 
   it("snapshots stored plan mode into the postMessage payload", () => {
@@ -834,5 +859,30 @@ describe("formatAgentChatContextItemsForPrompt", () => {
         { key: "b", title: "Cart", context: "2 items" },
       ]),
     ).toBe("## Selected Element\n<button>Buy</button>\n\n## Cart\n2 items");
+  });
+});
+
+describe("filterAgentChatContextItems", () => {
+  it("keeps unscoped context and only the active surface namespace", () => {
+    const items = [
+      { key: "selection", title: "Selection", context: "A row" },
+      {
+        key: "desktop-app:mail",
+        title: "Mail",
+        context: "Mail context",
+        contextNamespace: "desktop-app:mail",
+      },
+      {
+        key: "desktop-app:calendar",
+        title: "Calendar",
+        context: "Calendar context",
+        contextNamespace: "desktop-app:calendar",
+      },
+    ];
+
+    expect(filterAgentChatContextItems(items, "desktop-app:calendar")).toEqual([
+      items[0],
+      items[2],
+    ]);
   });
 });

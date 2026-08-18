@@ -1,11 +1,12 @@
 import { CodeSurface } from "@agent-native/core/blocks";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
-  agentNativePath,
-  useActionQuery,
   useBuilderConnectFlow,
   useBuilderStatus,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/settings";
+import { docsUrl } from "@agent-native/core/shared";
 import {
   IconCheck,
   IconChevronDown,
@@ -21,8 +22,8 @@ import {
   IconSettings,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -58,8 +59,9 @@ import { cn } from "@/lib/utils";
 
 type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
-const SESSION_REPLAY_DOCS_URL =
-  "https://www.agent-native.com/docs/tracking#session-replay";
+const SESSION_REPLAY_DOCS_URL = docsUrl("tracking", {
+  hash: "session-replay",
+});
 
 const S3_STORAGE_FIELDS = [
   {
@@ -167,15 +169,78 @@ type SessionRecordingIdentity = Pick<
 type SessionRecordingDevice = Pick<SessionRecordingSummary, "metadata">;
 
 const RANGE_OPTIONS: ReplayRange[] = ["24h", "7d", "30d", "90d", "all"];
+const SESSION_QUERY_DEBOUNCE_MS = 250;
+
+/**
+ * Local input state for a URL-backed filter, debounced into the URL.
+ *
+ * `urlValue` only resyncs local state when it changes for a reason other
+ * than this hook's own debounced write (back/forward navigation, an agent
+ * driven URL change, etc). React Router commits `setSearchParams` inside a
+ * transition, so without this guard the echo of our own write can land
+ * after a newer keystroke and clobber it.
+ */
+export function useDebouncedUrlFilter(
+  urlValue: string,
+  onCommit: (value: string) => void,
+): [string, (value: string) => void] {
+  const [input, setInput] = useState(urlValue);
+  const lastPushedRef = useRef(urlValue);
+
+  useEffect(() => {
+    if (urlValue === lastPushedRef.current) return;
+    lastPushedRef.current = urlValue;
+    setInput(urlValue);
+  }, [urlValue]);
+
+  useEffect(() => {
+    if (input === urlValue) return;
+    const timeout = window.setTimeout(() => {
+      lastPushedRef.current = input;
+      onCommit(input);
+    }, SESSION_QUERY_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [input, urlValue, onCommit]);
+
+  return [input, setInput];
+}
 
 export default function SessionsPage() {
   const t = useT();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const range = readRange(searchParams.get("range"));
   const app = searchParams.get("app") ?? "";
   const query = searchParams.get("q") ?? "";
   const from = useMemo(() => rangeToFrom(range), [range]);
+
+  const updateFilter = useCallback(
+    (key: string, value: string) => {
+      setSearchParams(
+        (current) => {
+          const next = new URLSearchParams(current);
+          const emptyDefault =
+            (key === "range" && value === "30d") || value.trim() === "";
+          if (emptyDefault) next.delete(key);
+          else next.set(key, value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const commitQuery = useCallback(
+    (value: string) => updateFilter("q", value),
+    [updateFilter],
+  );
+  const [queryInput, setQueryInput] = useDebouncedUrlFilter(query, commitQuery);
+
+  const commitApp = useCallback(
+    (value: string) => updateFilter("app", value),
+    [updateFilter],
+  );
+  const [appInput, setAppInput] = useDebouncedUrlFilter(app, commitApp);
 
   const { data, isLoading, isFetching, refetch, error } = useActionQuery<
     SessionRecordingSummary[]
@@ -192,15 +257,6 @@ export default function SessionsPage() {
 
   const recordings = data ?? [];
 
-  function updateFilter(key: string, value: string) {
-    const next = new URLSearchParams(searchParams);
-    const emptyDefault =
-      (key === "range" && value === "30d") || value.trim() === "";
-    if (emptyDefault) next.delete(key);
-    else next.set(key, value);
-    setSearchParams(next, { replace: true });
-  }
-
   return (
     <div className="analytics-sessions-page mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5">
       <Card>
@@ -213,8 +269,8 @@ export default function SessionsPage() {
             <div className="analytics-sessions-filter-search relative min-w-0">
               <IconSearch className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
-                value={query}
-                onChange={(event) => updateFilter("q", event.target.value)}
+                value={queryInput}
+                onChange={(event) => setQueryInput(event.target.value)}
                 placeholder={t("sessions.searchPlaceholder")}
                 className="h-9 ps-9"
               />
@@ -269,10 +325,8 @@ export default function SessionsPage() {
                       {t("sessions.userFilters")}
                     </div>
                     <Input
-                      value={app}
-                      onChange={(event) =>
-                        updateFilter("app", event.target.value)
-                      }
+                      value={appInput}
+                      onChange={(event) => setAppInput(event.target.value)}
                       placeholder={t("sessions.appPlaceholder")}
                       className="h-9"
                     />
@@ -336,11 +390,10 @@ export default function SessionsPage() {
                     recording.startedAt;
                   const deviceLabel = sessionDeviceLabel(recording);
                   return (
-                    <button
+                    <Link
                       key={recording.id}
-                      type="button"
+                      to={href}
                       className="analytics-session-row grid w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none"
-                      onClick={() => navigate(href)}
                       aria-label={t("sessions.watchReplay")}
                     >
                       <span className="inline-flex h-10 w-[92px] items-center justify-center gap-2 rounded-md bg-primary/10 font-medium text-primary">
@@ -393,7 +446,7 @@ export default function SessionsPage() {
                           </span>
                         ) : null}
                       </span>
-                    </button>
+                    </Link>
                   );
                 })}
               </div>
@@ -570,9 +623,7 @@ export function ReplayStorageHint({
                 <IconLoader2 className="h-4 w-4 animate-spin" />
               ) : builderConnected ? (
                 <IconCheck className="h-4 w-4" />
-              ) : (
-                <IconExternalLink className="h-4 w-4" />
-              )}
+              ) : null}
               {builderConnected
                 ? t("sessions.storageConnected")
                 : t("sessions.connectBuilder")}
@@ -830,7 +881,7 @@ function formatPageCount(value: number, t: ReturnType<typeof useT>): string {
 }
 
 const SESSION_REPLAY_SNIPPET = `// Agent Native templates already call configureTracking().
-import { configureTracking } from "@agent-native/core/client";
+import { configureTracking } from "@agent-native/core/client/observability";
 
 configureTracking({
   key: "anpk_...",

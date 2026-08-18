@@ -32,7 +32,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the analytics template's v75-v83 incident
 // (packages/core/src/db/migrations.ts and templates/analytics/server/plugins/db.ts).
-const runCalendarMigrations = runMigrations(
+export const runCalendarMigrations = runMigrations(
   [
     {
       version: 1,

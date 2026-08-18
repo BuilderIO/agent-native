@@ -7,7 +7,14 @@ const MAX_PAGES = 10;
 const CACHE_FRESH_MS = 5 * 60_000;
 
 export const DESKTOP_RELEASE_CACHE_CONTROL =
-  "public, max-age=300, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400";
+  "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400";
+
+export const DESKTOP_RELEASE_CACHE_HEADERS = {
+  "cache-control": DESKTOP_RELEASE_CACHE_CONTROL,
+  "cdn-cache-control": DESKTOP_RELEASE_CACHE_CONTROL,
+  "netlify-cdn-cache-control":
+    "public, durable, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400",
+} as const;
 
 const DESKTOP_UPDATE_METADATA = new Set([
   "latest-mac.yml",
@@ -171,6 +178,9 @@ async function findLatestDesktopRelease(): Promise<GhRelease | null> {
         best = release;
       }
     }
+    // GitHub returns releases newest-first. Once this page has a published
+    // desktop release, older pages cannot contain a newer candidate.
+    if (best) return best;
     if (batch.length < PER_PAGE) break;
   }
   return best;

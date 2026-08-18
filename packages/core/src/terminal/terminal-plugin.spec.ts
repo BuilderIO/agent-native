@@ -69,7 +69,7 @@ describe("createTerminalPlugin", () => {
 
     const result = await route(app, "/_agent-native/available-clis")({});
     expect(result.map((entry: any) => entry.command)).toEqual(
-      expect.arrayContaining(["builder", "claude", "codex"]),
+      expect.arrayContaining(["builder", "claude", "codex", "pi"]),
     );
     expect(createPtyWebSocketServer).not.toHaveBeenCalled();
   });

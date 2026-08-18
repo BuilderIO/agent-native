@@ -24,7 +24,7 @@
  *
  * APP-LIST SOURCE — Dispatch's existing connected-apps registry.
  * -------------------------------------------------------------
- * Dispatch already has a connected-apps concept: `discoverAgents("dispatch")`
+ * Dispatch already has a connected-apps concept: `discoverAgents()`
  * from `@agent-native/core/server/agent-discovery` (the same source
  * `list-connected-agents` and the `call-agent` delegation path use). It
  * returns the allow-listed first-party apps with their prod URLs PLUS any
@@ -37,9 +37,9 @@
  * Auth-guard reachability: `/_agent-native/*` is 401'd by the core auth
  * guard when there is no session. This route is authenticated by the A2A
  * JWT, not a cookie, so — exactly like the identity-sso plugin's authorize
- * route — it registers its exact path as a `publicPath` via a second
- * additive `createAuthPlugin({ publicPaths })` call. "Public path" only
- * means "the guard does not pre-empt with a 401"; the handler still performs
+ * route — Dispatch's primary auth plugin receives its exact `publicPath`
+ * from `setupDispatch`. "Public path" only means "the guard does not pre-empt
+ * with a 401"; the handler still performs
  * the full A2A JWT + same-org check itself (defense in depth). The path is
  * matched exactly, so no other `/_agent-native/org/*` route is affected.
  *
@@ -51,11 +51,7 @@ import {
   getOrgDomain,
   resolveOrgByDomain,
 } from "@agent-native/core/org";
-import {
-  createAuthPlugin,
-  getH3App,
-  runWithRequestContext,
-} from "@agent-native/core/server";
+import { getH3App, runWithRequestContext } from "@agent-native/core/server";
 import { discoverAgents } from "@agent-native/core/server/agent-discovery";
 import { defineEventHandler, getMethod, getRequestHeader } from "h3";
 import type { H3Event } from "h3";
@@ -147,7 +143,16 @@ const orgAppsHandler = defineEventHandler(
     const apps: DiscoveredAppLike[] = await runWithRequestContext(
       { userEmail: verified.email, orgId: localOrg.orgId },
       async () => {
-        const discovered = await discoverAgents(SELF_APP_ID);
+        const includeDirectoryApp =
+          getRequestHeader(event, "x-agent-native-include-directory-app") ===
+          "1";
+        const discovered = await discoverAgents(
+          includeDirectoryApp ? undefined : SELF_APP_ID,
+          {
+            preferLocalUrls:
+              process.env.AGENT_NATIVE_PREFER_LOCAL_APP_URLS === "1",
+          },
+        );
         return discovered.map((a) => ({
           id: a.id,
           name: a.name,
@@ -169,7 +174,10 @@ const orgAppsHandler = defineEventHandler(
     const body = buildOrgAppsResponse({
       org: orgLabel,
       apps,
-      selfId: SELF_APP_ID,
+      selfId:
+        getRequestHeader(event, "x-agent-native-include-directory-app") === "1"
+          ? undefined
+          : SELF_APP_ID,
     });
 
     // Short, cacheable, read-only. Private (per-org) so shared caches must
@@ -181,14 +189,10 @@ const orgAppsHandler = defineEventHandler(
 );
 
 /**
- * Dispatch org-app-directory plugin. Mounts the directory route and
- * registers its exact path as a public path so the core auth guard does not
- * 401 the A2A peer call before our own JWT + same-org check runs. The
- * `createAuthPlugin({ publicPaths })` call is additive — it appends to the
- * live guard config without disturbing Dispatch's primary auth plugin
- * (same mechanism the identity-sso plugin relies on).
+ * Dispatch org-app-directory plugin. The primary Dispatch auth plugin owns
+ * the exact public-path registration so this handler can perform its own JWT
+ * and same-org checks without racing a second auth initializer.
  */
 export default async (nitroApp: any) => {
   getH3App(nitroApp).use(ORG_APPS_PATH, orgAppsHandler);
-  return createAuthPlugin({ publicPaths: [ORG_APPS_PATH] })(nitroApp);
 };

@@ -6,9 +6,15 @@ search: "data program emit rows schema providerFetch dashboard panel program sou
 
 # Data Programs
 
+<Callout tone="info">
+
+**Developer page.** This page is for developers who want to understand or extend how the agent turns an ad-hoc analysis into a live dashboard panel. End users just ask the agent for a live view and see the resulting chart or table — no code required.
+
+</Callout>
+
 A **data program** is a named, stored, agent-authored JS script that fetches, joins, filters, or aggregates data — provider APIs via `providerFetch` / `providerFetchAll` / `providerSearchAll`, app data via `appAction`, or Resources-backed workspace files — and calls `emit(rows, schema)` exactly once with the result. The result is cached in SQL and any chart/table component can render it, refreshed on a policy you choose instead of on every page view.
 
-It ships automatically wherever [`run-code`](/docs/actions) is available — there is nothing to mount or configure per app. If your app already has run-code enabled, `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program`, and `delete-data-program` are already registered actions.
+It ships automatically wherever [`run-code`](/docs/actions-overview) is available — there is nothing to mount or configure per app. If your app already has run-code enabled, `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program`, and `delete-data-program` are already registered actions.
 
 <Diagram id="doc-block-dp-overview" title="From ad-hoc query to live panel" summary="A run-code script becomes a stored program once it calls emit(); any dashboard panel can bind to it and the cache/refresh policy takes over from there.">
 
@@ -324,6 +330,6 @@ Any app can implement the same adoption for its own dashboards/tables: call `run
 ## What's next {#whats-next}
 
 - [Extensions](/docs/extensions) — the sandboxed mini-app primitive data programs share a security posture and sharing model with, but with a UI of its own.
-- [Actions](/docs/actions) — the `run-code` conventions and sandbox globals (`providerFetch`, `appAction`, etc.) data programs are built on.
+- [Actions](/docs/actions-overview) — the `run-code` conventions and sandbox globals (`providerFetch`, `appAction`, etc.) data programs are built on.
 - [Sharing & Privacy](/docs/sharing) — the org-internal, never-public sharing model data programs use.
 - [Security](/docs/security) — the framework's credential-handling and access-scoping invariants.

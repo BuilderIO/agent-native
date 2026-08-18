@@ -1,10 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
+  getInitializedDataProgramsAppId: vi.fn(() => "analytics"),
   runDataProgram: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/data-programs", () => ({
+  getInitializedDataProgramsAppId: mocks.getInitializedDataProgramsAppId,
   runDataProgram: mocks.runDataProgram,
   registerDataProgramsShareable: vi.fn(),
 }));
@@ -23,6 +25,8 @@ import {
 describe("dashboard-panel-query: program source", () => {
   beforeEach(() => {
     mocks.runDataProgram.mockReset();
+    mocks.getInitializedDataProgramsAppId.mockReset();
+    mocks.getInitializedDataProgramsAppId.mockReturnValue("analytics");
   });
 
   it("is a recognized dashboard panel source", () => {
@@ -64,7 +68,23 @@ describe("dashboard-panel-query: program source", () => {
     it("throws on a non-object, non-string descriptor", () => {
       expect(() =>
         serializeProgramDescriptorInput(["not", "an", "object"]),
-      ).toThrow(/JSON string or object/);
+      ).toThrow(/program id or a JSON object/);
+    });
+
+    it("accepts a bare program id and stores it as a descriptor", () => {
+      // Production: a panel saved as `dp_01c5e3d...` threw `is not valid JSON`
+      // on every render because the writer passed any string through untouched
+      // while the reader required JSON. With no params the id IS the whole
+      // descriptor, so both sides have to accept it.
+      expect(normalizeDashboardPanelQuery("program", "dp_01c5e3d")).toBe(
+        JSON.stringify({ programId: "dp_01c5e3d" }),
+      );
+    });
+
+    it("still rejects a string that is neither a program id nor JSON", () => {
+      expect(() => normalizeDashboardPanelQuery("program", "not json")).toThrow(
+        /program id or a JSON object/,
+      );
     });
   });
 
@@ -111,6 +131,32 @@ describe("dashboard-panel-query: program source", () => {
         ctx: { userEmail: "alice@example.com", orgId: "org_1" },
         triggeredBy: "panel_view",
       });
+    });
+
+    it("uses the app scope that registered the data-program actions", async () => {
+      mocks.getInitializedDataProgramsAppId.mockReturnValue("app");
+      mocks.runDataProgram.mockResolvedValue({
+        ok: true,
+        rows: [{ id: 1 }],
+        schema: [{ name: "id", type: "number" }],
+        truncated: false,
+      });
+
+      const query = normalizeDashboardPanelQuery("program", {
+        programId: "dp_custom_api",
+      });
+      await runDashboardPanelQuery({
+        source: "program",
+        query,
+        ctx,
+      });
+
+      expect(mocks.runDataProgram).toHaveBeenCalledWith(
+        expect.objectContaining({
+          appId: "app",
+          programId: "dp_custom_api",
+        }),
+      );
     });
 
     it("stale-serves lastGoodRun when ok:false but a prior good run exists", async () => {
@@ -219,8 +265,30 @@ describe("dashboard-panel-query: program source", () => {
           query: "not json",
           ctx,
         }),
-      ).rejects.toThrow(/program panel sql must be a JSON object/);
+      ).rejects.toThrow(
+        /program panel sql must be a program id or a JSON object/,
+      );
       expect(mocks.runDataProgram).not.toHaveBeenCalled();
+    });
+
+    it("resolves a panel whose sql is a bare program id", async () => {
+      mocks.runDataProgram.mockResolvedValue({
+        ok: true,
+        rows: [{ n: 1 }],
+        schema: [{ name: "n", type: "number" }],
+        stale: false,
+        cacheHit: false,
+        asOfMs: Date.now(),
+      });
+      const result = await runDashboardPanelQuery({
+        source: "program",
+        query: "dp_01c5e3d",
+        ctx,
+      });
+      expect(result).toMatchObject({ rows: [{ n: 1 }] });
+      expect(mocks.runDataProgram).toHaveBeenCalledWith(
+        expect.objectContaining({ programId: "dp_01c5e3d" }),
+      );
     });
 
     it("throws a clear error when the descriptor is missing programId", async () => {

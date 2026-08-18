@@ -21,6 +21,7 @@
  * the server normalizes + groups it. That keeps one tested source of truth for
  * grouping instead of duplicating parser logic across the wire.
  */
+import { isDynamicImportFailureMessage } from "./route-chunk-recovery.js";
 import { scrubUrl } from "./url-scrub.js";
 
 export type ExceptionLevel = "fatal" | "error" | "warning" | "info" | "debug";
@@ -355,6 +356,13 @@ function shouldIgnoreAutoCapturedError(normalized: {
     return true;
   }
 
+  // Route-chunk recovery reloads the current page after stale lazy chunks or
+  // module scripts fail. Browser-level failures have no useful stack, so do
+  // not retain the transient loader noise as an application issue.
+  if (!stack && isDynamicImportFailureMessage(message)) {
+    return true;
+  }
+
   if (
     normalized.type === "InvalidStateError" &&
     /^Transition was aborted because of invalid state$/i.test(message)
@@ -375,7 +383,7 @@ function shouldIgnoreAutoCapturedError(normalized: {
     /\binjectScriptAdjust\.js\b/i.test(stack);
   if (
     hasExtensionFrame &&
-    /^(?:TypeError:\s*)?Failed to fetch$/i.test(message)
+    /^(?:TypeError:\s*)?Failed to fetch(?:\s*\([^)]*\))?$/i.test(message)
   ) {
     return true;
   }
@@ -606,6 +614,10 @@ export function installErrorCapture(
   if (runtime.config.captureGlobalErrors) {
     const onError = (event: ErrorEvent) => {
       try {
+        // Route-chunk recovery and other host listeners may intentionally
+        // prevent a browser error after handling it. Respect that decision so
+        // the same transient failure is not stored as an application issue.
+        if (event.defaultPrevented) return;
         const normalized = normalizeGlobalErrorEvent(event);
         if (shouldIgnoreAutoCapturedError(normalized)) return;
         // Global errors are already logged by the session replay recorder, so
@@ -631,6 +643,7 @@ export function installErrorCapture(
   if (runtime.config.captureUnhandledRejections) {
     const onRejection = (event: PromiseRejectionEvent) => {
       try {
+        if (event.defaultPrevented) return;
         const reason = event?.reason;
         const normalized = normalizeCapturedError(reason);
         if (!normalized.type || normalized.type === "Error") {

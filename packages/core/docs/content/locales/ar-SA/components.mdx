@@ -13,7 +13,7 @@ description: "العناصر الأساسية العامة React للوكيل ا
 استيراد المتصفح UI من مسارات العميل الفرعية المركزة:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -177,8 +177,10 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 ## حقل الدردشة والملحن {#composer}
 
-استخدم `@agent-native/core/client/composer` عندما تحتاج إلى إجراء نفس الدردشة
-الحقل الذي يستخدمه الشريط الجانبي داخل UI المخصص.
+استخدم `@agent-native/core/client/composer` عندما تحتاج إلى حقل الدردشة نفسه
+الذي يستخدمه الشريط الجانبي داخل UI مخصص. توفّر `@agent-native/toolkit/composer`
+واجهة Tiptap ومكوّنات UI المحمولة المجردة؛ وعند استخدامها مع خدمات إطار العمل، غلّفها
+بـ `ComposerRuntimeAdaptersProvider` وقدّم الخدمات. Core هو الغلاف الموصّل للمرفقات والإشارات والمهارات والصوت واختيار النموذج.
 
 | API                               | استخدم عندما                                                                                                                                                     |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -214,7 +216,6 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 | `<AgentConversation>`                           | عرض قائمة برسائل الوكيل التي تمت تسويتها.                |
 | `<AgentConversationMessageView>`                | عرض رسالة واحدة تمت تسويتها.                             |
 | `normalizeCodeAgentTranscriptForConversation()` | تحويل أحداث نص وكيل التعليمات البرمجية إلى رسائل محادثة. |
-| `useNearBottomAutoscroll()`                     | احتفظ بنص مخصص مثبتًا في الأسفل أثناء البث.              |
 
 تعتمد هذه الطبقة على البيانات أولاً عمدًا: فأنت تملك المكان الذي تأتي منه الرسائل، و
 يمتلك العارض تخفيضًا ثابتًا، ومرفقات، وإشعارات، وعناصر، و
@@ -497,6 +498,6 @@ export default defineAction({
 
 - [**Drop-in Agent**](/docs/drop-in-agent) — ثبّت `<AgentSidebar>` و`<AgentPanel>` مع شرح إرشادي يبدأ بالبرنامج التعليمي
 - [**Native Chat UI**](/docs/native-chat-ui) — عقد نتيجة الإجراء وراء عناصر واجهة البيانات وأدوات العرض المخصصة
-- [**Actions**](/docs/actions) — ‏`defineAction()` والمخططات وسطح الإجراءات الذي تستدعيه هذه المكونات
+- [**Actions**](/docs/actions-overview) — ‏`defineAction()` والمخططات وسطح الإجراءات الذي تستدعيه هذه المكونات
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — تفاصيل ربط التعاون ومكونات الحضور
 - [**Sharing**](/docs/sharing) — توصيل `<ShareButton>` و`<ShareDialog>` للموارد القابلة للامتلاك

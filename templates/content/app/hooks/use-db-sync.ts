@@ -1,4 +1,4 @@
-import { useDbSync as useCoreDbSync } from "@agent-native/core/client";
+import { useDbSync as useCoreDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function useDbSync() {

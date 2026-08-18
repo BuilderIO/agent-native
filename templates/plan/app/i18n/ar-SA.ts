@@ -29,10 +29,10 @@ const messages = {
       "إدارة أعضاء الفريق ووصول المؤسسة وتفضيلات مساحة العمل المشتركة.",
     openTeamSettings: "فتح إعدادات الفريق",
     openResourceSettings: "فتح إعدادات الموارد",
-    agentTitle: "إعدادات الوكيل",
+    agentTitle: "إدارة الوكيل",
     agentDescription:
-      "افتح إعدادات الوكيل في الشريط الجانبي لإدارة النموذج ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
-    openAgentSettings: "فتح إعدادات الوكيل",
+      "أدر نموذج الوكيل ومفاتيح API والأتمتة والصوت وعناصر التحكم الأخرى.",
+    openAgentSettings: "إدارة الوكيل",
     editorTitle: "إضافة VS Code",
     editorDescription:
       "افتح الخطط وراجعها في لوحة جانبية داخل VS Code بدلاً من علامة تبويب منفصلة في المتصفح.",
@@ -44,6 +44,10 @@ const messages = {
     suggestionShipped: "ما الذي تم شحنه في الأسبوع الماضي؟",
     suggestionUi: "كيف تبدو هذه الواجهة؟",
     suggestionApi: "ما شكل واجهة API هذه؟",
+  },
+  contextXray: {
+    panelTitle: "الأشعة السينية للسياق",
+    snapshotsTitle: "اللقطات",
   },
   sidebar: {
     openNavigation: "فتح التنقل",
@@ -151,6 +155,7 @@ const messages = {
       artboardCanvas: "لوحة عمل Plan",
       zoomIn: "تكبير",
       zoomOut: "تصغير",
+      zoomHint: "اضغط مع الاستمرار على ⌘/Ctrl ومرّر للتكبير",
       markupSaveFailed: "تعذر حفظ الترميز. حاول مرة أخرى.",
     },
     document: {
@@ -374,6 +379,8 @@ const messages = {
         'خاصة بشكل افتراضي. قم بدعوة الأشخاص أو المشاركة مع مؤسستك أو قم بتعيين "عام" لمراجعة أي شخص لديه رابط.',
       peopleAccess: "الأشخاص الذين لديهم حق الوصول {{noun}}",
       generalAccess: "الوصول العام {{noun}}",
+      commenterRoleLabel: "معلّق",
+      commenterRoleDescription: "يمكنه العرض وإضافة التعليقات",
       shareAria: "مشاركة {{noun}}",
       share: "مشاركة {{noun}}",
       shareThis: "شارك هذا {{noun}}",
@@ -572,6 +579,10 @@ const messages = {
           label: "UI عملية",
           description: "UI العملية - الإطارات السلكية والحالات",
         },
+        design: {
+          label: "تصميم عالي الدقة",
+          description: "تصميم عالي الدقة - شاشات مصقولة تحمل هوية العلامة",
+        },
         questions: {
           label: "مشكلة التصور",
           description: "تصور المشكلة - اجمع المتطلبات بوضوح",
@@ -595,6 +606,8 @@ const messages = {
           "# خطة التنفيذ\n\nالصق خطة Codex أو Claude Code الحالية هنا وحولها إلى مستند مراجعة مرئي.",
       },
       assessment: {
+        design:
+          "تم اكتشاف طلب عالي الدقة تلقائيًا؛ سينشئ الوكيل شاشات مصقولة تحمل هوية العلامة.",
         ui: "يتم اكتشاف حالة أو عملية UI تلقائيًا؛ سيقوم الوكيل بإنشاء خطة سلكية أولاً.",
         visual:
           "يتيح للوكلاء تلقائيًا إنشاء خطط فنية غنية باستخدام المخططات وتفاصيل التنفيذ.",

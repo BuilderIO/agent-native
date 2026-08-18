@@ -16,7 +16,8 @@
     "recording-pill",
     "region-guides",
     "region-guide-editor",
-    "region-record-border"
+    "region-record-border",
+    "monitor-picker-*"
   ],
   "permissions": [
     "core:default",
@@ -28,6 +29,7 @@
     "core:window:allow-close",
     "core:window:allow-start-dragging",
     "shell:allow-open",
+    "deep-link:default",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
     "global-shortcut:allow-is-registered",
@@ -36,6 +38,7 @@
     "autostart:default",
     "process:allow-restart",
     "notification:default",
+    "clipboard-manager:allow-write-text",
     "fs:allow-video-write-recursive",
     "fs:allow-video-read-recursive"
   ]

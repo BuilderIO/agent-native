@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   EMBED_TARGET_HEADER,
+  EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
@@ -301,7 +302,7 @@ describe("embed auth client", () => {
     expect(originalFetch).toHaveBeenCalledTimes(1);
     const [input, init] = originalFetch.mock.calls[0]!;
     expect(String(input)).toBe(
-      "http://localhost:3000/_agent-native/poll?since=100&__an_embed_token=stored-token",
+      `http://localhost:3000/_agent-native/poll?since=100&__an_embed_token=stored-token&${EMBED_TARGET_QUERY_PARAM}=%2Finbox%3Fembedded%3D1`,
     );
     const headers = new Headers(init?.headers);
     expect(headers.has("Authorization")).toBe(false);
@@ -328,7 +329,7 @@ describe("embed auth client", () => {
     expect(originalFetch).toHaveBeenCalledTimes(1);
     const [input, init] = originalFetch.mock.calls[0]!;
     expect(String(input)).toBe(
-      "http://localhost:3000/slides/_agent-native/agent-chat/runs/active?threadId=t1&__an_embed_token=stored-token",
+      `http://localhost:3000/slides/_agent-native/agent-chat/runs/active?threadId=t1&__an_embed_token=stored-token&${EMBED_TARGET_QUERY_PARAM}=%2Fslides%2Fdeck%2F1%3Fembedded%3D1`,
     );
     const headers = new Headers(init?.headers);
     expect(headers.has("Authorization")).toBe(false);

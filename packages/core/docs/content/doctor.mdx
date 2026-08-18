@@ -1,11 +1,20 @@
 ---
 title: "Doctor (Code Checks)"
-description: "agent-native doctor scans a generated app's source for the framework's security and architecture invariants — the same code-safety guards this monorepo enforces on itself, ported to run against a single app root."
+description: "agent-native doctor scans generated app and workspace source for the framework's security and architecture invariants — the portable code-safety guards shared outside the monorepo CI suite."
 ---
 
 # Doctor (Code Checks)
 
-The agent can write this app's own source code. `agent-native doctor` is the automated check for that: it scans app source for the framework's security-critical code-safety invariants — the same class of check that lives in this framework's own CI as `scripts/guard-*.mjs` — ported to run against a single generated app instead of the framework's multi-template monorepo layout. It's read-only: doctor never edits your code, it only reports.
+Generated apps and workspaces contain source code that can be changed through the repository's
+development workflow, including by an agent frame intentionally granted
+workspace and write tooling. `agent-native doctor` is the automated check for that: it
+scans app source for the framework's security-critical code-safety invariants —
+the same class of check that lives in this framework's own CI as
+`scripts/guard-*.mjs` — ported to run against generated projects instead of
+the framework's multi-template monorepo layout. A workspace-root run scans each
+`apps/<name>` project and the workspace's `packages/shared` package when present,
+prefixing findings with the project path. It's read-only: doctor never edits
+your code, it only reports.
 
 ## Quick start {#quick-start}
 
@@ -13,17 +22,22 @@ The agent can write this app's own source code. `agent-native doctor` is the aut
 agent-native doctor
 ```
 
-Every scaffolded app also gets a `pnpm doctor` script that runs the same command:
+Every scaffolded app and workspace gets the collision-free
+`pnpm agent-native:doctor` command. When a template does not already define its
+own `doctor` script, the CLI also adds the shorter `pnpm doctor` alias:
 
 ```bash
 pnpm doctor
 ```
 
+The full framework-repository `pnpm guards` suite remains a monorepo check;
+generated projects use this version-matched portable Doctor surface instead.
+
 A clean run:
 
 ```
 agent-native doctor: /path/to/app
-Guards run: no-drizzle-push, no-unscoped-credentials, no-unscoped-queries, no-env-credentials, db-tool-scoping, no-env-mutation, no-localhost-fallback
+Guards run: no-drizzle-push, no-unscoped-credentials, no-unscoped-queries, no-env-credentials, db-tool-scoping, no-env-mutation, no-localhost-fallback, explicit-collab-access, migration-manifest
 Clean — no findings.
 ```
 
@@ -37,9 +51,9 @@ A run with findings prints one line per finding and exits `1`:
 agent-native doctor found issues above. Fix them, or add a `// guard:allow-<check> — reason` opt-out with reviewer approval.
 ```
 
-## The seven guards {#guards}
+## The nine guards {#guards}
 
-v1 ships 7 guards. Each is a pure scan over the app's source tree — `node_modules`, `.git`, `dist`, `build`, and other build-output directories are always skipped.
+v1 ships 9 guards. Each is a pure scan over the app's source tree — `node_modules`, `.git`, `dist`, `build`, and other build-output directories are always skipped.
 
 | Guard                     | What it catches                                                                                                                                                                                                                            | Why it matters                                                                                                                                                                                                                                                                             |
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -50,8 +64,25 @@ v1 ships 7 guards. Each is a pure scan over the app's source tree — `node_modu
 | `db-tool-scoping`         | A table in `server/db/schema.ts` with no `owner_email` / `org_id` column and no matching entry in `agent-native.json`'s `doctor.dbToolScopingDenylist`                                                                                     | The agent's raw `db-query` / `db-exec` / `db-patch` tools can only safely expose tenant-scoped tables; an unscoped table needs an explicit, reviewed exception.                                                                                                                            |
 | `no-env-mutation`         | Production code assigning to, or `delete`-ing, `process.env.KEY`                                                                                                                                                                           | `process.env` is process-scoped, not request-scoped. A warm serverless container handles many concurrent requests in one process, so mutating `process.env` in a request handler leaks state across users. Use `runWithRequestContext` instead.                                            |
 | `no-localhost-fallback`   | The literal `"local@localhost"`, or `?? DEV_MODE_USER_EMAIL` / `\|\| DEV_MODE_USER_EMAIL`, used as a fallback identity                                                                                                                     | Falling back to a sentinel identity when there's no session pools every unauthenticated request onto one shared tenant. Throw or return 401 instead.                                                                                                                                       |
+| `explicit-collab-access`  | A `createCollabPlugin(...)` call with no explicit `access` — must declare `access: { mode: "resource", resourceType }` or `access: { mode: "all-authenticated" }` (legacy `resourceType` is still accepted during migration)               | An implicit config can silently scope real-time collaboration delivery wrong — for example broadcasting deployment-wide when only one resource's viewers should see the edits.                                                                                                             |
+| `migration-manifest`      | Imports listed in an installed package's `migration-manifest.json`                                                                                                                                                                         | The import is scheduled to move or disappear. Preview and apply the supported codemod before the upgrade makes it a hard error.                                                                                                                                                            |
 
 Guard names are stable identifiers — the same strings work in `--only`, `agent-native.json`'s `doctor.disabledGuards`, and every finding's `guard` field.
+
+Use the migration preflight directly:
+
+```bash
+agent-native doctor --only migration-manifest
+npx @agent-native/core@latest upgrade --codemods
+npx @agent-native/core@latest upgrade --codemods --yes
+```
+
+The first command reports a preview of imports that match the shipped manifest;
+the codemod command previews its diff by default, and `--yes` applies the
+reviewed rewrite. `migration-manifest` has no opt-out and cannot be disabled.
+Entries marked `planned` are warnings only and are not rewritten. Active entries
+are findings, and the codemod rewrites them only when the destination export is
+installed.
 
 ## Flags and exit codes {#flags}
 
@@ -59,7 +90,7 @@ Guard names are stable identifiers — the same strings work in `--only`, `agent
 agent-native doctor                        Scan app source for security-critical guard violations
 agent-native doctor --json                 Machine-readable report: { ok, findings, guardsRun, strict }
 agent-native doctor --only <guard,guard>   Run only the named guard(s)
-agent-native doctor --strict               Escalate findings to a hard failure when used by `agent-native build --strict`
+agent-native doctor --strict               Keep the build gate explicit when invoked by `agent-native build`
 agent-native doctor --cwd <dir>            Run against a project root other than the current directory
 agent-native doctor --fix                  Not implemented in this version
 agent-native doctor --help                 Show this help
@@ -73,16 +104,16 @@ Exit codes: **`0`** clean, **`1`** findings present, **`2`** usage or execution 
 
 ## The build hook {#build-hook}
 
-`agent-native build` always runs doctor as a pre-step before the real build. It's **warn-only by default**: findings print to stderr prefixed `[doctor]`, and the build continues. It only turns findings into a hard failure — `process.exit(1)` before the build runs — when:
+`agent-native build` always runs doctor as a pre-step before the real build. It is a **hard gate by default**: findings print to stderr prefixed `[doctor]`, and the build exits before publishing. A project using `agent-native build` can explicitly opt out with `failOnBuild: false`, but `--strict` always keeps the gate enabled. Community templates that use another build command receive a strict `prebuild` hook instead:
 
-- `agent-native build --strict` was passed, or
-- `agent-native.json` sets `{ "doctor": { "failOnBuild": true } }`.
+- `agent-native.json` sets `{ "doctor": { "failOnBuild": false } }` only when that exception has been reviewed.
 
-If the doctor pre-step itself throws — an unreadable file, a bug in a guard — the build step catches it, logs a warning, and continues. A doctor bug never blocks a deploy on its own.
+If the doctor pre-step itself throws — for example, because a source file is unreadable or a guard crashes — the build is blocked. A partial security scan must never look like a clean result.
 
 ## Per-app configuration {#config}
 
-`agent-native.json`'s optional `"doctor"` key. Every field is optional with an empty/false default, so a fresh app runs every v1 guard with zero config:
+`agent-native.json`'s optional `"doctor"` key. A fresh app runs every v1 guard
+with zero config and fails builds on findings by default:
 
 ```json
 {
@@ -100,11 +131,11 @@ If the doctor pre-step itself throws — an unreadable file, a bug in a guard �
 | ----------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `disabledGuards`        | `string[]`              | Guard names (from the table above) to skip — excluded from the default run and from the build hook. An explicit `--only` list overrides this and runs even a disabled guard.                                                               |
 | `dbToolScopingDenylist` | `Record<table, reason>` | Bare table name (the SQL name, not template-prefixed) → reviewer-readable reason. Used only by `db-tool-scoping`. A denylist entry with no matching table in `server/db/schema.ts` itself becomes a finding — "stale … entry — remove it." |
-| `failOnBuild`           | `boolean`               | See [The build hook](#build-hook). Default `false`.                                                                                                                                                                                        |
+| `failOnBuild`           | `boolean`               | See [The build hook](#build-hook). Default `true`; set `false` only for a reviewed exception.                                                                                                                                              |
 
 ## Opt-out markers {#opt-out}
 
-Five of the seven guards support a per-line comment marker with a required short reason after an em dash or hyphen:
+Five guards support a per-line comment marker with a required short reason after an em dash or hyphen:
 
 ```ts
 // guard:allow-unscoped-credential — support tool reads any user's key by design, gated on admin role
@@ -138,6 +169,7 @@ The actual `--json` payload also carries a `strict` field reflecting whether `--
       "message": "process.env mutated in production code: process.env.AGENT_USER_EMAIL = userEmail. process.env is process-scoped, not request-scoped — use runWithRequestContext instead."
     }
   ],
+  "warnings": [],
   "guardsRun": [
     "no-drizzle-push",
     "no-unscoped-credentials",
@@ -145,13 +177,19 @@ The actual `--json` payload also carries a `strict` field reflecting whether `--
     "no-env-credentials",
     "db-tool-scoping",
     "no-env-mutation",
-    "no-localhost-fallback"
+    "no-localhost-fallback",
+    "explicit-collab-access",
+    "migration-manifest"
   ],
+  "workspaceApps": ["apps/mail", "apps/tasks"],
   "strict": false
 }
 ```
 
-`ok` is `true` only when `findings` is empty. `guardsRun` lists every guard that actually ran (after `--only` / `disabledGuards` filtering) — useful for confirming a guard wasn't silently skipped.
+`ok` is `true` when `findings` is empty; planned migration entries are listed
+under `warnings` and do not make the command fail. `guardsRun` lists every guard
+that actually ran (after `--only` / `disabledGuards` filtering) — useful for
+confirming a guard wasn't silently skipped.
 
 The JSON report always writes to **stdout**, whether the run is clean or has findings — the exit code (`0` clean, `1` findings present) is the signal for pass/fail, not which stream the report landed on. A plain `agent-native doctor --json > report.json` captures the full report in every case, including a non-clean run; no stream redirection tricks needed. (Usage/execution errors — a bad `--cwd`, an unknown `--only` guard — still print their own JSON error payload to stderr and exit `2`; those aren't the report.)
 

@@ -450,6 +450,6 @@ pnpm dev
 
 `templates/slides/AGENTS.md` वह छोटा राउटर है जिसे एजेंट हर बातचीत पर पढ़ता है। यह `.agents/skills/` के अंतर्गत skills को इंगित करता है और मुख्य नियम, एप्लिकेशन-स्टेट अनुबंध और कौशल सूचकांक बताता है। हर लेआउट के लिए सटीक स्लाइड HTML टेम्पलेट `.agents/skills/create-deck/SKILL.md` में रहते हैं - जब भी आप स्लाइड लेआउट पैटर्न जोड़ते या बदलते हैं तो उस कौशल को अपडेट करें।
 
-#### API मार्ग
+#### Actions और API मार्ग
 
-ऐसे मामलों के लिए जहां actions सही फिट नहीं है (फ़ाइल अपलोड, स्ट्रीमिंग), टेम्पलेट REST एंडपॉइंट के एक छोटे सेट को उजागर करता है: `GET/POST /api/decks`, `GET/PUT/DELETE /api/decks/:id`। `templates/slides/server/routes/api/` देखें.
+डेक और स्लाइड बनाने, संपादित करने और हटाने के लिए `create-deck`, `add-slide`, `update-slide` और `delete-deck` जैसे साझा actions का उपयोग करें; इन्हें एजेंट और UI दोनों चला सकते हैं। `templates/slides/server/routes/api/` के REST मार्ग अपलोड, स्ट्रीमिंग, एक्सपोर्ट और अन्य मार्ग-विशिष्ट प्रवाहों के लिए आरक्षित हैं।

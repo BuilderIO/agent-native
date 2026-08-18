@@ -1,33 +1,4 @@
-/**
- * MotionKeyframeDiamond — the small ◆ affordance Figma places to the right
- * of a keyframeable property's field/label once a timeline exists on the
- * layer. Two states:
- *   - outline (muted): the property has a timeline but no keyframes yet for
- *     it — clicking adds one at the current playhead position.
- *   - filled accent: the property already has one or more keyframes —
- *     rendered solid so a glance across the panel shows which fields are
- *     currently animated.
- *
- * This component owns ONLY the affordance's rendering + click wiring. It has
- * no opinion on how keyframes are stored or how the timeline UI reacts to a
- * toggle — see `EditPanel`'s `motionKeyframeState`/`onToggleMotionKeyframe`
- * props for that contract. The CSS property name passed in `cssProperty`
- * must be one of the identifiers `MOTION_PROPERTY_PRESETS` in
- * `shared/motion-timeline.ts` already uses (`translate` / `scale` /
- * `rotate` / `opacity` / `border-radius` / `background-color` /
- * `border-color` / `border-width` / `box-shadow`) so the motion machinery
- * that owns the timeline can resolve the click to the right track.
- *
- * Visibility: hidden entirely when there's no timeline for the selected
- * layer (`hasTimeline: false` or the state prop is omitted) — Figma only
- * shows the diamond rail once a layer has been added to a timeline/scroll
- * animation.  When a timeline exists, the diamond is always in the DOM but
- * stays visually muted (low-opacity outline) until the row is hovered, or is
- * always visible once the property already carries a keyframe (filled),
- * matching Figma's "quiet until relevant" treatment.
- */
-
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 
 import {
   Tooltip,

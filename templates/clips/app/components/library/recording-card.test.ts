@@ -14,7 +14,9 @@ describe("library recording cards", () => {
     expect(source).not.toContain("canRenameTitle");
     expect(source).not.toContain("onRename");
     expect(source).not.toContain("IconEdit");
-    expect(source).toContain("navigate(recordingPath)");
+    expect(source).toContain("<Link");
+    expect(source).toContain("to={recordingPath}");
+    expect(source).toContain("handleLinkClick");
     expect(source).toContain("select-none text-sm font-medium");
   });
 
@@ -27,5 +29,38 @@ describe("library recording cards", () => {
     expect(source).not.toContain("renameInputRef");
     expect(source).not.toContain("canRenameTitle");
     expect(source).not.toContain("onRename");
+  });
+
+  it("offers folder creation from the move menu", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain("IconFolderPlus");
+    expect(source).toContain('t(\"navigation.newFolder\")');
+    expect(source).toContain("setTimeout(() => onCreateFolder?.(), 0)");
+  });
+
+  it("opens the desktop app for locally saved native uploads", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain("attemptOpenDesktopApp");
+    expect(source).toContain("captureInstall.openDesktopApp");
+    expect(source).toContain("nativeUploadPaused");
+  });
+
+  it("keeps sharing available on read-only cards", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain(
+      "const showActions = Boolean(onShare || onMove || onArchive || onTrash);",
+    );
+    expect(source).toContain("{onShare && (");
+  });
+
+  it("shows the creator and creation time beneath the title", () => {
+    const source = readSource("./recording-card.tsx");
+
+    expect(source).toContain("alt={recording.ownerEmail}");
+    expect(source).toContain("{recording.ownerEmail}");
+    expect(source).toContain("{relative}");
   });
 });

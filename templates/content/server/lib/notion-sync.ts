@@ -5,6 +5,7 @@ import crypto from "node:crypto";
 import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 
+import { ensureDocumentFilesMembership } from "../../actions/_content-files.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
 import { canonicalizeNfm, nfmToDoc, type PMNode } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
@@ -492,11 +493,15 @@ async function createLinkedChildDocument(args: {
   const db = getDb();
   const now = nowIso();
   const id = nanoid();
+  if (!args.parent.spaceId) {
+    throw new Error("Parent document does not belong to a Content space.");
+  }
 
   let inserted = false;
   try {
     await db.insert(schema.documents).values({
       id,
+      spaceId: args.parent.spaceId,
       ownerEmail: args.parent.ownerEmail,
       orgId: args.parent.orgId,
       parentId: args.parent.id,
@@ -511,6 +516,7 @@ async function createLinkedChildDocument(args: {
       updatedAt: now,
     });
     inserted = true;
+    await ensureDocumentFilesMembership(db, id, now);
     await inheritShares(args.parent.id, id, now);
     await upsertSyncLink({
       owner: args.owner,

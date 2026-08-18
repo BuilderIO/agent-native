@@ -33,6 +33,17 @@ async function ensureTable(): Promise<void> {
   return _initPromise;
 }
 
+/**
+ * Bumped on every in-process config write. Pollers that back off while their
+ * integration is disabled watch this so enabling one takes effect on the next
+ * tick instead of at the end of their backoff window.
+ */
+let _configWriteEpoch = 0;
+
+export function integrationConfigWriteEpoch(): number {
+  return _configWriteEpoch;
+}
+
 export interface IntegrationConfig {
   platform: string;
   configKey: string;
@@ -88,6 +99,7 @@ export async function saveIntegrationConfig(
       Date.now(),
     ],
   });
+  _configWriteEpoch += 1;
 }
 
 /**
@@ -103,6 +115,7 @@ export async function deleteIntegrationConfig(
     sql: `DELETE FROM integration_configs WHERE platform = ? AND config_key = ?`,
     args: [platform, configKey],
   });
+  _configWriteEpoch += 1;
 }
 
 /**

@@ -17,6 +17,7 @@ export default defineAction({
     endLine: z.number().optional().describe("Stop reading at this line number"),
   }),
   http: false,
+  readOnly: true,
   run: async ({ path, startLine, endLine }) => {
     const { readFile } = await import("node:fs/promises");
     const { join } = await import("node:path");

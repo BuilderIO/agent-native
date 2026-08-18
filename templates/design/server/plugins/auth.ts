@@ -2,12 +2,12 @@ import { createAuthPlugin } from "@agent-native/core/server";
 
 export default createAuthPlugin({
   workspaceAppAudience: "internal",
-  // The visual-edit entry route and public design editor links can load without
-  // a session. Creating, mutating, generating, and sharing designs still go
-  // through authenticated actions.
-  workspaceAppPublicPaths: ["/visual-edit", "/design"],
+  // Visual-edit, public design editor links, and presentation links can load
+  // without a session. Creating, mutating, generating, and sharing designs
+  // still go through authenticated actions.
+  workspaceAppPublicPaths: ["/visual-edit", "/design", "/present"],
   marketing: {
-    appName: "Agent-Native Design",
+    appName: "Design",
     tagline:
       "Design and prototype by describing what you want. The AI agent turns your ideas into interactive, fully responsive designs in seconds.",
     features: [
@@ -23,11 +23,13 @@ export default createAuthPlugin({
   // server/routes/api/design-handoff/[id].get.ts — verifyShortLivedToken).
   // publicPaths uses prefix matching, so this covers
   // /api/design-handoff/<id>?token=... while keeping every other /api/* and
-  // /_agent-native/* route behind auth.
+  // /_agent-native/* route behind auth. The listed action routes are read-only;
+  // review comment mutations remain protected by action auth and resource ACLs.
   publicPaths: [
     "/api/design-handoff",
     "/__manifest",
     "/_agent-native/actions/get-design",
     "/_agent-native/actions/list-design-native-assets",
+    "/_agent-native/actions/list-review-comments",
   ],
 });

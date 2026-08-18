@@ -4,13 +4,18 @@ description: >-
   How to keep each app's user-facing changelog. Use when you ship a change a
   user would notice (a new feature, a visible improvement, a bug fix), when
   wiring the in-app "What's new" surface into a template, or when releasing
-  pending changelog entries.
+  pending changelog entries. Apps opt in with
+  `changelog.enabled: true` in `agent-native.config.ts`.
 scope: dev
 metadata:
   internal: true
 ---
 
-# Changelog — user-facing "What's new"
+# Changelog — optional user-facing "What's new"
+
+Changelog generation is off by default. Read this skill only when the app's
+`agent-native.config.ts` enables `changelog.enabled`; otherwise do not create
+pending entries for ordinary app changes.
 
 Every template app keeps a `CHANGELOG.md` of **user-facing** changes that
 renders in-app via the command menu (Cmd+K → "What's new") and on the settings
@@ -96,7 +101,7 @@ expose it in an app:
 2. **Settings** (optional) — drop the card on the settings page:
 
    ```tsx
-   import { ChangelogSettingsCard } from "@agent-native/core/client";
+   import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
    import changelog from "../CHANGELOG.md?raw";
    // ...
    <ChangelogSettingsCard markdown={changelog} />
@@ -107,7 +112,8 @@ host with no server route or runtime file access.
 
 ## Checklist
 
-- [ ] Shipped a user-visible change? Run `agent-native changelog add "…"`.
+- [ ] `changelog.enabled` is true and the change is user-visible? Run
+      `agent-native changelog add "…"`.
 - [ ] New template UI? Pass `changelog` to its `CommandMenu` and seed a
       `CHANGELOG.md`.
 - [ ] Releasing/deploying? Optional: `agent-native changelog release` rolls

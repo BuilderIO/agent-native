@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockVerifySessionReplayAgentAccess = vi.hoisted(() => vi.fn());
+const mockResolveSessionReplayAgentAccess = vi.hoisted(() => vi.fn());
 const mockGetSessionReplayTokenizedEvents = vi.hoisted(() => vi.fn());
 const mockSetResponseHeader = vi.hoisted(() => vi.fn());
 const mockSetResponseStatus = vi.hoisted(() => vi.fn());
@@ -18,8 +18,8 @@ vi.mock("../../../lib/session-replay-agent-context.js", async () => {
   >("../../../lib/session-replay-agent-context.js");
   return {
     ...actual,
-    verifySessionReplayAgentAccess: (...args: unknown[]) =>
-      mockVerifySessionReplayAgentAccess(...args),
+    resolveSessionReplayAgentAccess: (...args: unknown[]) =>
+      mockResolveSessionReplayAgentAccess(...args),
   };
 });
 
@@ -80,7 +80,9 @@ const failedNetworkEvent = {
 describe("session replay agent diagnostics route", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockVerifySessionReplayAgentAccess.mockReturnValue(true);
+    mockResolveSessionReplayAgentAccess.mockReturnValue({
+      viewerEmail: "owner@example.com",
+    });
     mockReplayEvents([
       { type: 4, timestamp: 1000, data: { href: "https://app.example.com" } },
       consoleErrorEvent,
@@ -95,11 +97,11 @@ describe("session replay agent diagnostics route", () => {
   });
 
   it("rejects invalid agent access tokens with 401", async () => {
-    mockVerifySessionReplayAgentAccess.mockReturnValue(false);
+    mockResolveSessionReplayAgentAccess.mockReturnValue(null);
     const result = await (handler as any)(
       makeEvent({ id: "sr_1", agent_access: "bad" }),
     );
-    expect(mockVerifySessionReplayAgentAccess).toHaveBeenCalledWith(
+    expect(mockResolveSessionReplayAgentAccess).toHaveBeenCalledWith(
       "sr_1",
       "bad",
     );
@@ -127,9 +129,11 @@ describe("session replay agent diagnostics route", () => {
     const result = await (handler as any)(
       makeEvent({ id: "sr_1", agent_access: "tok" }),
     );
-    expect(mockGetSessionReplayTokenizedEvents).toHaveBeenCalledWith("sr_1", {
-      limit: 10_000,
-    });
+    expect(mockGetSessionReplayTokenizedEvents).toHaveBeenCalledWith(
+      "sr_1",
+      "owner@example.com",
+      { limit: 10_000 },
+    );
     expect(result).toMatchObject({
       recordingId: "sr_1",
       kind: "all",
@@ -278,6 +282,7 @@ describe("session replay agent diagnostics route", () => {
 
       expect(mockGetSessionReplayTokenizedEvents).toHaveBeenLastCalledWith(
         "sr_1",
+        "owner@example.com",
         { limit: 12010 },
       );
     });
@@ -305,6 +310,7 @@ describe("session replay agent diagnostics route", () => {
       expect(result.console.hasMore).toBe(false);
       expect(mockGetSessionReplayTokenizedEvents).toHaveBeenLastCalledWith(
         "sr_1",
+        "owner@example.com",
         { limit: 100_000 },
       );
     });

@@ -55,7 +55,7 @@ of using a generic image generator.
 
 ## Cross-App Use
 
-- Hosted default: connect \`https://assets.agent-native.com/_agent-native/mcp\`.
+- Hosted default: connect \`https://assets.agent-native.com/mcp\`.
   Do not put shared secrets in skill files.
 - For CLI/code-editor clients, keep any \`npx @agent-native/core@latest connect\` command
   running until browser authorization finishes. Stopping it early can leave the

@@ -5,7 +5,7 @@ description: "공유 인증, RBAC, 지침, skills, 구성 요소 및 자격 증�
 
 # 다중 앱 작업 공간
 
-> **어떤 작업공간 문서입니까?** 이 페이지에서는 하나의 단일 저장소, 여러 앱, 공유 인증 및 통합 배포 등 **배포 형태**를 다룹니다. 작업공간이 무엇인지에 대해서는(사용자 정의 레이어: `AGENTS.md`, `LEARNINGS.md`, 개인 메모리, skills, 사용자 정의 에이전트) [Workspace](/docs/workspace)를 참조하세요. 거버넌스(누가 무엇을 검토하고, 승인하고, 소유하는지)에 대해서는 [Workspace Governance](/docs/workspace-management)를 참조하세요.
+> **어떤 작업공간 문서입니까?** 이 페이지에서는 하나의 단일 저장소, 여러 앱, 공유 인증 및 통합 배포 등 **배포 형태**를 다룹니다. 에이전트 사용자 정의 레이어(에이전트 리소스: `AGENTS.md`, 메모리, skills, 사용자 정의 에이전트)에 대해서는 [에이전트 리소스](/docs/agent-resources)를 참조하세요. 거버넌스(누가 무엇을 검토하고, 승인하고, 소유하는지)에 대해서는 [Workspace Governance](/docs/workspace-management)를 참조하세요.
 
 내부 도구의 바이브 코딩에 오후가 걸리면 한시에 멈추지 않습니다. 팀은 CRM, 지원 받은 편지함, 대시보드, 운영 콘솔(각각 독립적으로 스캐폴드된 10개의 작은 앱)로 끝납니다. 모든 항목에서 무언가를 변경해야 할 때까지는 좋습니다.
 
@@ -218,7 +218,7 @@ pnpm dev
 
 저장소와 함께 제공되어야 하는 코드 수준 기본값(플러그인, 공유 actions, 공유 React 코드, 파일 시스템 `AGENTS.md` 및 파일 시스템 skills)에는 `packages/shared`를 사용합니다. 관리자가 코드 변경 없이 관리하려는 런타임 편집 가능 전역 컨텍스트에 Dispatch 작업공간 리소스를 사용하세요.
 
-디스패치 리소스의 범위는 **모든 앱**(모든 앱이 런타임 시 복사 또는 동기화 단계 없이 상속됨) 또는 **선택한 앱**(앱별 컨텍스트에 대해 앱별로 부여됨)으로 지정됩니다. 전체 리소스 모델 테이블, 경로 규칙 및 권장 스타터 팩은 [Workspace](/docs/workspace#global-resources)를 참조하세요.
+디스패치 리소스의 범위는 **모든 앱**(모든 앱이 런타임 시 복사 또는 동기화 단계 없이 상속됨) 또는 **선택한 앱**(앱별 컨텍스트에 대해 앱별로 부여됨)으로 지정됩니다. 전체 리소스 모델 테이블, 경로 규칙 및 권장 스타터 팩은 [에이전트 리소스](/docs/agent-resources#global-resources)를 참조하세요.
 
 ## 인증 및 RBAC {#auth-and-rbac}
 
@@ -256,7 +256,7 @@ my-company-platform/
 
 몇 가지 온보딩 흐름은 기본적으로 작업공간을 인식합니다.
 
-- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Builder `/cli-auth`**: clicking "Connect Builder" (free tier available) from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
 - **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## 공유 자격 증명 {#shared-credentials}
@@ -415,7 +415,7 @@ Workspace 앱은 기본적으로 내부용입니다. 로그인 전용 관리 페
 
 ## 참조 {#see-also}
 
-- [Workspace](/docs/workspace) — 작업 공간의 모든 앱이 공유하는 사용자 정의 레이어(`AGENTS.md`, `LEARNINGS.md`, 개인 메모리, skills, 사용자 정의 에이전트)
+- [에이전트 리소스](/docs/agent-resources) — 작업 공간의 모든 앱이 공유하는 사용자 정의 레이어(`AGENTS.md`, `LEARNINGS.md`, 개인 메모리, skills, 사용자 정의 에이전트)
 - [Workspace Governance](/docs/workspace-management) — 하나의 저장소에 있는 여러 앱에 대한 분기, CODEOWNERS, PR 검토.
 - [Multi-Tenancy](/docs/multi-tenancy) — 조직, 역할 및 조직별 데이터 격리.
 - [Cross-App SSO](/docs/cross-app-sso) — 별도 도메인 배포를 위한 ID 페더레이션.

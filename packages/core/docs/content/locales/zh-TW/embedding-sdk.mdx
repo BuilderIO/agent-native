@@ -116,8 +116,7 @@ export default createAgentNativeEmbeddedPlugin({
 import {
   AgentNativeEmbedded,
   defineClientAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 export function BuilderAppShell({ children, content, editor }) {
   return (
     <AgentNativeEmbedded
@@ -295,8 +294,10 @@ for await (const chunk of sendMessage(
 對於獨立的 sidecar 應用程式或跨來源 iframe，請使用較低階別的 `<AgentNative />`。它將 iframe sidecar 和連線頁面脈絡、即時用戶端 actions 以及主機重新整理/導覽指令呈現在一個位置：
 
 ```tsx
-import { AgentNative, defineClientAction } from "@agent-native/core/client";
-
+import {
+  AgentNative,
+  defineClientAction,
+} from "@agent-native/core/client/host";
 export function AssistantDock({ customer, sessionToken }) {
   return (
     <AgentNative
@@ -383,8 +384,7 @@ import {
   requestAgentNativeHostContext,
   runAgentNativeHostAction,
   sendAgentNativeHostCommand,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 announceAgentNativeFrameReady({ hostOrigin: "https://app.example.com" });
 
 const context = await requestAgentNativeHostContext({
@@ -459,8 +459,7 @@ const hostTools = createAgentNativeHostTools({
 
 ```tsx
 import { useEffect } from "react";
-import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client";
-
+import { startAgentNativeBrowserSessionBridge } from "@agent-native/core/client/host";
 export function SidecarRuntime() {
   useEffect(() => {
     const bridge = startAgentNativeBrowserSessionBridge({
@@ -512,8 +511,7 @@ import {
   AgentNativeExtensionSlot,
   createHttpAgentNativeExtensionStorage,
   defineClientAction,
-} from "@agent-native/core/client";
-
+} from "@agent-native/core/client/host";
 const storage = createHttpAgentNativeExtensionStorage({
   endpoint: "/api/agent-native/extensions/storage",
   headers: () => ({ Authorization: `Bearer ${sessionToken()}` }),

@@ -14,6 +14,7 @@ export default defineAction({
     id: z.string().describe("Monitor id."),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async ({ id }) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

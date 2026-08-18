@@ -247,6 +247,11 @@ export default defineAction({
 将此用于第一方应用程序 UI。在`mcpApp`中保留跨主机iframe UI，并保留
 在聊天中键入读取 actions 而不是原始 SQL 后执行任意查询。
 
+渲染器请使用绝对单位而非百分比来设置尺寸。聊天记录会随消息增长，因此渲染器的容器
+没有可供百分比参照的确定高度——图表柱条上的 `height: 40%` 不会报错，而是塌陷为零，
+看起来就像渲染器没有画出来。请为图表及其他依赖高度的视觉元素设置像素（或 `rem`）
+基准；宽度使用百分比没有问题，因为聊天记录列确实有确定的宽度。
+
 ## BYO 代理运行时 {#byo-agent-runtimes}
 
 `AgentChatRuntime` 是聊天 shell 的自带代理合约，并且
@@ -408,7 +413,7 @@ OpenAI、AG-UI、Claude Agent SDK 和 Vercel AI SDK 流可以使用标准
 
 ## 相关文档 {#related-docs}
 
-- [Actions](/docs/actions) — 定义返回本机小部件数据的操作。
+- [Actions](/docs/actions-overview) — 定义返回本机小部件数据的操作。
 - [Agent Surfaces](/docs/agent-surfaces) — 决定您是否需要无头、聊天、边车或完整应用程序。
 - [Drop-in Agent](/docs/drop-in-agent) — 安装标准聊天运行时的教程。
 - [Component API](/docs/components) — 用于聊天层、运行时和工具渲染器的每次导出 API 映射。

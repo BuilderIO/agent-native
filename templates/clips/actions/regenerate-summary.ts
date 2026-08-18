@@ -15,6 +15,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
+import cleanupTranscript from "./cleanup-transcript.js";
 import { readIncludeFullVideoInAi } from "./lib/clips-ai-prefs.js";
 
 export default defineAction({
@@ -22,6 +23,12 @@ export default defineAction({
     "Ask the agent to regenerate this recording's description/summary based on its transcript (and the full video when Include full video is enabled).",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
+    openInChat: z
+      .boolean()
+      .optional()
+      .describe(
+        "When true, focus the queued generation request in the agent chat instead of keeping it hidden.",
+      ),
   }),
   run: async (args) => {
     await assertAccess("recording", args.recordingId, "editor");
@@ -59,11 +66,46 @@ export default defineAction({
       };
     }
 
+    if (!includeFullVideoInAi) {
+      const result = await cleanupTranscript.run({
+        transcript: transcript?.fullText ?? "",
+        task: "summary",
+        context: `Clip title: ${rec.title}`,
+      });
+      const description = result.summaryMd?.trim();
+      if (!description) {
+        return {
+          updated: false,
+          skipped: true,
+          reason: "summary_empty",
+          recordingId: args.recordingId,
+          provider: result.provider,
+        };
+      }
+
+      await db
+        .update(schema.recordings)
+        .set({ description, updatedAt: new Date().toISOString() })
+        .where(eq(schema.recordings.id, args.recordingId));
+      await writeAppState("refresh-signal", { ts: Date.now() });
+
+      return {
+        updated: true,
+        recordingId: args.recordingId,
+        description,
+        provider: result.provider,
+      };
+    }
+
     const baseMessage =
       `Regenerate the description for recording ${args.recordingId}. ` +
       `Read the transcript in this request's context and call ` +
       `\`update-recording --id=${args.recordingId} --description="..."\` with a 2–4 ` +
-      `sentence summary of what the recording covers. Title: "${rec.title}".`;
+      `sentence summary of what the recording covers. Title: "${rec.title}". ` +
+      `Write the description the way the person who made this recording would ` +
+      `describe it themselves: lead with the subject matter, and never use ` +
+      `outside-narrator framing like "the speaker", "the presenter", "the video", ` +
+      `"this recording", or "this clip".`;
 
     const request = {
       kind: "regenerate-summary" as const,
@@ -74,6 +116,7 @@ export default defineAction({
       transcriptStatus: transcript?.status ?? "pending",
       transcriptText: transcript?.fullText ?? "",
       includeFullVideoInAi,
+      openInChat: args.openInChat === true,
       message: withFullVideoAiInstructions(
         baseMessage,
         args.recordingId,

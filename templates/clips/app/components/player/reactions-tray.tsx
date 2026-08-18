@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
-const EMOJIS = ["👍", "❤️", "🔥", "👏", "🎉", "😂", "🤯"] as const;
+import { REACTION_EMOJIS } from "./reaction-emojis";
 
 export interface ReactionsTrayProps {
   onReact: (emoji: string) => void;
@@ -38,7 +38,7 @@ export function ReactionsTray({ onReact, disabled }: ReactionsTrayProps) {
 
   return (
     <div className="relative flex w-fit max-w-full items-center gap-0.5 rounded-full border border-border bg-card px-1.5 py-1 shadow-sm sm:gap-1 sm:px-2">
-      {EMOJIS.map((emoji) => (
+      {REACTION_EMOJIS.map((emoji) => (
         <Tooltip key={emoji}>
           <TooltipTrigger asChild>
             <button

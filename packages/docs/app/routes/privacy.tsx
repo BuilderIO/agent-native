@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { ReactNode } from "react";
 
 import { withDefaultSocialImage } from "../seo";
@@ -62,7 +62,7 @@ function Section({
 function ScopeCard({ title, body }: { title: string; body: string }) {
   return (
     <div className="rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-      <h3 className="mb-2 text-sm font-semibold uppercase tracking-[0.12em] text-[var(--fg)]">
+      <h3 className="mb-2 font-mono text-sm font-semibold uppercase tracking-[0.12em] text-[var(--fg)]">
         {title}
       </h3>
       <p className="m-0 text-sm leading-6 text-[var(--fg-secondary)]">{body}</p>
@@ -76,7 +76,7 @@ export default function PrivacyPage() {
   return (
     <main className="mx-auto w-full max-w-[980px] px-6 py-14 sm:py-20">
       <header className="mb-10">
-        <p className="mb-3 text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
+        <p className="mb-3 font-mono text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
           {t("legal.privacy.eyebrow")}
         </p>
         <h1 className="mb-5 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-[var(--fg)] sm:text-5xl">
@@ -110,7 +110,7 @@ export default function PrivacyPage() {
         <p>
           {t("legal.privacy.paragraphs.scope2Prefix")}{" "}
           <a
-            href="https://www.builder.io/legal/privacy"
+            href="https://www.builder.io/legal/privacy?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=privacy"
             className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
           >
             {t("legal.privacy.links.builderPrivacy")}
@@ -183,7 +183,7 @@ export default function PrivacyPage() {
         <p>
           {t("legal.privacy.paragraphs.changes2Prefix")}{" "}
           <a
-            href="https://www.builder.io/legal/privacy"
+            href="https://www.builder.io/legal/privacy?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=privacy"
             className="font-medium text-[var(--fg)] underline decoration-[var(--docs-border)] underline-offset-4 transition hover:text-[var(--docs-accent)]"
           >
             {t("legal.privacy.links.builderPrivacyFull")}

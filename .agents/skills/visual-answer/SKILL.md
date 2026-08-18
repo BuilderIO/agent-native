@@ -3,6 +3,7 @@ name: visual-answer
 description: >-
   Answer code/product questions as visual Plan artifacts using repo, bridge, or
   GitHub context; use for API specs, UI look, schema models, and architecture.
+scope: dev
 metadata:
   visibility: exported
 ---

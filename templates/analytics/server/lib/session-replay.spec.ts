@@ -7,7 +7,6 @@ const putPrivateBlobMock = vi.hoisted(() => vi.fn());
 const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
 const readPrivateBlobMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
-const readAppStateMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -22,10 +21,6 @@ vi.mock("@agent-native/core/private-blob", () => ({
   deletePrivateBlob: deletePrivateBlobMock,
   putPrivateBlob: putPrivateBlobMock,
   readPrivateBlob: readPrivateBlobMock,
-}));
-
-vi.mock("@agent-native/core/application-state", () => ({
-  readAppState: readAppStateMock,
 }));
 
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
@@ -47,6 +42,7 @@ import {
   compactSessionRecordingSummary,
   getSessionReplaySummary,
   getSessionReplayTokenizedEvents,
+  getSessionReplayTokenizedSummary,
   listSessionRecordings,
   MAX_REPLAY_CHUNK_READ_BATCH_BYTES,
   MAX_REPLAY_CHUNK_READ_BATCH_SIZE,
@@ -203,7 +199,6 @@ describe("session replay ingest parsing", () => {
     deletePrivateBlobMock.mockReset();
     readPrivateBlobMock.mockReset();
     resolveAccessMock.mockReset();
-    readAppStateMock.mockReset();
   });
 
   it("normalizes recorder payloads into session recording chunks", () => {
@@ -342,6 +337,59 @@ describe("session replay ingest parsing", () => {
 
     expect(parsed.errorCount).toBe(2);
     expect(parsed.networkErrorCount).toBe(0);
+  });
+
+  it("detects rage clicks from repeated clicks on one target", () => {
+    const click = (timestamp: number, id: number) => ({
+      type: 3,
+      timestamp,
+      data: { source: 2, type: 2, id, x: 10, y: 10 },
+    });
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      events: [
+        click(1_000, 7),
+        click(1_002, 7),
+        click(1_400, 7),
+        // Different target and a long gap: neither extends the burst.
+        click(9_000, 8),
+        click(30_000, 8),
+      ],
+    });
+
+    expect(parsed.rageClickCount).toBe(1);
+  });
+
+  it("does not count deliberate, spread-out clicks as rage clicks", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      events: [
+        { type: 3, timestamp: 1_000, data: { source: 2, type: 2, id: 7 } },
+        { type: 3, timestamp: 4_000, data: { source: 2, type: 2, id: 7 } },
+        { type: 3, timestamp: 7_000, data: { source: 2, type: 2, id: 7 } },
+      ],
+    });
+
+    expect(parsed.rageClickCount).toBe(0);
+  });
+
+  it("keeps a client-reported rage click count when the recorder sends one", () => {
+    const parsed = parseSessionReplayIngestPayload({
+      publicKey: "anpk_test",
+      replayId: "recording_1",
+      sessionId: "session_1",
+      sequence: 0,
+      rageClickCount: 4,
+      events: [{ type: 3, timestamp: 1, data: { source: 2, type: 2, id: 7 } }],
+    });
+
+    expect(parsed.rageClickCount).toBe(4);
   });
 
   it("accepts full snapshot chunks larger than the SQL inline fallback cap", () => {
@@ -567,9 +615,11 @@ describe("session replay ingest parsing", () => {
     ]);
     getDbMock.mockReturnValue(db);
 
-    const result = await getSessionReplayTokenizedEvents("sr_agent", {
-      limit: 10,
-    });
+    const result = await getSessionReplayTokenizedEvents(
+      "sr_agent",
+      "owner@example.com",
+      { limit: 10 },
+    );
 
     expect(result.eventCount).toBe(1);
     expect(result.chunks[0]?.events).toEqual([
@@ -966,8 +1016,7 @@ describe("session replay ingest parsing", () => {
     expect(listCondition).not.toContain("nullif(trim(coalesce");
   });
 
-  it("filters demo-mode session lists to builder emails and anonymizes identities", async () => {
-    readAppStateMock.mockResolvedValue({ enabled: true });
+  it("keeps all authorized session identities in browser-demo mode", async () => {
     const listDb = createSessionReplayListDbMock([
       {
         id: "sr_builder_one",
@@ -1060,30 +1109,28 @@ describe("session replay ingest parsing", () => {
 
     expect(rows.map((row) => row.id)).toEqual([
       "sr_builder_one",
+      "sr_external",
       "sr_builder_two",
     ]);
     expect(rows[0]).toMatchObject({
-      userId: "anonymized-1@builder.io",
-      userKey: "anonymized-1@builder.io",
-      ownerEmail: "anonymized-2@builder.io",
+      userId: "alice@builder.io",
+      userKey: "alice@builder.io",
+      ownerEmail: "owner@builder.io",
       metadata: {
-        accountEmail: "anonymized-1@builder.io",
-        note: "Viewed by anonymized-1@builder.io",
+        accountEmail: "alice@builder.io",
+        note: "Viewed by alice@builder.io",
       },
     });
     expect(rows[1]).toMatchObject({
-      userId: "anonymized-3@builder.io",
-      userKey: "anonymized-3@builder.io",
-      ownerEmail: "anonymized-2@builder.io",
+      userId: "customer@example.com",
+      userKey: "customer@example.com",
+      ownerEmail: "owner@builder.io",
     });
-    expect(JSON.stringify(rows)).not.toContain("alice@builder.io");
-    expect(JSON.stringify(rows)).not.toContain("customer@example.com");
     const listCondition = conditionText(listDb.whereCondition);
-    expect(listCondition).toContain("%@builder.io");
+    expect(listCondition).not.toContain("%@builder.io");
   });
 
-  it("anonymizes demo-mode direct summaries used by detail and action surfaces", async () => {
-    readAppStateMock.mockResolvedValue({ enabled: true });
+  it("keeps real identities in direct summaries", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -1102,22 +1149,45 @@ describe("session replay ingest parsing", () => {
     const compact = compactSessionRecordingSummary(summary);
 
     expect(summary).toMatchObject({
-      userId: "anonymized-1@builder.io",
-      userKey: "anonymized-1@builder.io",
-      ownerEmail: "anonymized-2@builder.io",
-      metadata: { actorEmail: "anonymized-1@builder.io" },
+      userId: "detail@builder.io",
+      userKey: "detail@builder.io",
+      ownerEmail: "owner@builder.io",
+      metadata: { actorEmail: "detail@builder.io" },
     });
     expect(compact).toMatchObject({
-      userId: "anonymized-1@builder.io",
-      userKey: "anonymized-1@builder.io",
+      userId: "detail@builder.io",
+      userKey: "detail@builder.io",
     });
-    expect(JSON.stringify({ summary, compact })).not.toContain(
-      "detail@builder.io",
-    );
   });
 
-  it("hides non-builder sessions from demo-mode direct summary reads", async () => {
-    readAppStateMock.mockResolvedValue({ enabled: true });
+  it("keeps real identities in tokenized summaries", async () => {
+    const { db } = createReplayDbMock([
+      [
+        {
+          ...playableRecordingResource("sr_builder_agent_link"),
+          userId: "detail@builder.io",
+          userKey: "detail@builder.io",
+          ownerEmail: "owner@builder.io",
+          metadata: JSON.stringify({ actorEmail: "detail@builder.io" }),
+        },
+      ],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    const summary = await getSessionReplayTokenizedSummary(
+      "sr_builder_agent_link",
+      "owner@builder.io",
+    );
+
+    expect(summary).toMatchObject({
+      userId: "detail@builder.io",
+      userKey: "detail@builder.io",
+      ownerEmail: "owner@builder.io",
+      metadata: { actorEmail: "detail@builder.io" },
+    });
+  });
+
+  it("returns external identities from authorized direct summary reads", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -1132,9 +1202,9 @@ describe("session replay ingest parsing", () => {
         userEmail: "owner@builder.io",
         orgId: "org_123",
       }),
-    ).rejects.toMatchObject({
-      statusCode: 404,
-      message: "Session recording not found",
+    ).resolves.toMatchObject({
+      userId: "customer@example.com",
+      userKey: "customer@example.com",
     });
   });
 

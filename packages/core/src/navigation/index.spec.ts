@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildOpenRouteLink,
   buildOpenRoutePath,
+  buildLegacyAgentSettingsRoute,
   buildResourceRoute,
   buildSettingsRoute,
   buildStandardAppRoute,
@@ -12,13 +13,16 @@ import {
 describe("navigation kit helpers", () => {
   it("builds standard app and settings routes", () => {
     expect(buildStandardAppRoute("home")).toBe("/");
-    expect(buildStandardAppRoute("settings")).toBe("/settings");
+    expect(buildStandardAppRoute("settings")).toBe("/settings/general");
     expect(buildStandardAppRoute("settings", { settingsTab: "secrets" })).toBe(
-      "/settings#secrets",
+      "/settings/secrets",
     );
-    expect(buildSettingsRoute("what's new")).toBe("/settings#whats-new");
+    expect(buildSettingsRoute("what's new")).toBe("/settings/whats-new");
     expect(buildStandardAppRoute("team", { teamInSettings: true })).toBe(
-      "/settings#organization",
+      "/settings/organization",
+    );
+    expect(buildSettingsRoute("agent:resources:files")).toBe(
+      "/settings/agent/resources/files",
     );
   });
 
@@ -29,6 +33,26 @@ describe("navigation kit helpers", () => {
     expect(
       buildResourceRoute("content/pages", "home", { basePath: "/admin" }),
     ).toBe("/admin/content/pages/home");
+  });
+
+  it.each([
+    ["", "/settings/agent"],
+    ["#files", "/settings/agent/resources/files"],
+    ["#instructions", "/settings/agent/resources/instructions"],
+    ["#remote-agents", "/settings/agent/agents"],
+    ["#connections", "/settings/integrations"],
+    ["#jobs", "/settings/agent/automations"],
+    ["#library", "/settings/library"],
+    ["#voice", "/settings/agent/voice"],
+    ["#unknown", "/settings/agent"],
+  ])("maps legacy agent hash %s", (hash, expected) => {
+    expect(buildLegacyAgentSettingsRoute(hash)).toBe(expected);
+  });
+
+  it("preserves the query string while consuming the legacy hash", () => {
+    expect(
+      buildLegacyAgentSettingsRoute("#connections", "?return=/agent"),
+    ).toBe("/settings/integrations?return=/agent");
   });
 
   it("builds open-route links with sidebar collapsed", () => {

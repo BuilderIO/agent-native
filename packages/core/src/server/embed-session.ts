@@ -9,20 +9,24 @@ import {
   setResponseHeader,
 } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, intType, isPostgres } from "../db/client.js";
 import { ensureTableExists } from "../db/ddl-guard.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
   EMBED_TARGET_HEADER,
+  EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import { normalizeAppPath } from "../shared/sign-in-journey.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 
 const TOKEN_KIND = "agent-native-embed-session";
 const DEFAULT_TOKEN_TTL_SECONDS = 60 * 60;
 const DEFAULT_TICKET_TTL_SECONDS = 5 * 60;
+const EMBED_CAPABILITY_SCOPE_PREFIX = "capability:";
 const CONTROL_CHARS = new RegExp("[\\u0000-\\u001f\\u007f]");
 const OPEN_ROUTE_PATH = "/_agent-native/open";
 const OPEN_ROUTE_VIEW_PATHS: Record<string, string> = {
@@ -79,8 +83,33 @@ export interface EmbedSessionTicket {
   expiresAt: number;
 }
 
+export type EmbedSessionTicketConsumeOutcome =
+  | "missing-ticket"
+  | "not-found"
+  | "already-consumed"
+  | "expired"
+  | "identity-mismatch"
+  | "org-mismatch"
+  | "consumption-race"
+  | "invalid-row"
+  | "consumed";
+
+export interface EmbedSessionTicketConsumeDiagnostic {
+  outcome: EmbedSessionTicketConsumeOutcome;
+  ticketKey: string | null;
+  ticketRowFound: boolean;
+  consumed: boolean;
+  expired: boolean;
+  expectedOwnerKey: string | null;
+  ticketOwnerKey: string | null;
+  expectedOrgKey: string | null;
+  ticketOrgKey: string | null;
+}
+
 export interface ConsumeEmbedSessionTicketOptions {
+  expectedOwnerEmail?: string | null;
   expectedOrgId?: string | null;
+  onResult?: (result: EmbedSessionTicketConsumeDiagnostic) => void;
 }
 
 export interface ConsumedEmbedSessionTicket {
@@ -112,6 +141,34 @@ export type ResolvedEmbedSession = {
   targetPath: string;
   scope?: string;
 };
+
+/**
+ * Capability embed scopes authorize one narrow, non-identity operation. They
+ * must never be promoted into the ticket owner's authenticated browser
+ * session: the owner claim only records who minted the capability.
+ */
+export function isEmbedCapabilityScope(
+  scope: string | undefined | null,
+): boolean {
+  return (
+    typeof scope === "string" && scope.startsWith(EMBED_CAPABILITY_SCOPE_PREFIX)
+  );
+}
+
+export function resolvedEmbedCapabilityScope(
+  session: ResolvedEmbedSession | null,
+): string | undefined {
+  const scope = session?.scope;
+  if (
+    !isEmbedCapabilityScope(scope) ||
+    !scope ||
+    scope.length > 512 ||
+    CONTROL_CHARS.test(scope)
+  ) {
+    return undefined;
+  }
+  return scope;
+}
 
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
@@ -192,6 +249,16 @@ function signPayload(payload: string): string {
 
 function hashTicket(ticket: string): string {
   return crypto.createHash("sha256").update(ticket).digest("hex");
+}
+
+function redactedIdentifier(value: string | null | undefined): string | null {
+  if (!value) return null;
+  return crypto.createHash("sha256").update(value).digest("hex").slice(0, 12);
+}
+
+function normalizedEmail(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized || null;
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -393,7 +460,12 @@ function headerTargetPathname(event: H3Event): string | null {
   if (typeof direct === "string") return pathnameFromPath(direct);
   try {
     const raw = getHeader(event, EMBED_TARGET_HEADER);
-    return typeof raw === "string" ? pathnameFromPath(raw) : null;
+    if (typeof raw === "string") return pathnameFromPath(raw);
+    const queryValue = getQuery(event)?.[EMBED_TARGET_QUERY_PARAM];
+    const queryTarget = Array.isArray(queryValue) ? queryValue[0] : queryValue;
+    return typeof queryTarget === "string"
+      ? pathnameFromPath(queryTarget)
+      : null;
   } catch {
     return null;
   }
@@ -473,6 +545,17 @@ function isEmbedRuntimeRequest(event: H3Event): boolean {
   );
 }
 
+function isEmbedStaticRuntimeRequest(event: H3Event): boolean {
+  const pathname = requestPathname(event);
+  return (
+    !!pathname &&
+    (pathname.startsWith("/@") ||
+      pathname.startsWith("/app/") ||
+      pathname.startsWith("/node_modules/") ||
+      pathname.startsWith("/packages/"))
+  );
+}
+
 export function normalizeEmbedTargetPath(
   raw: string | undefined | null,
   requestOrigin?: string,
@@ -505,6 +588,15 @@ export function normalizeEmbedTargetPath(
   if (!path.startsWith("/")) path = `/${path}`;
   if (path.startsWith("//") || path.startsWith("/\\")) return null;
   if (/^\/[a-z][a-z0-9+.-]*:/i.test(path)) return null;
+  // A ticket minted for an auth entry path used to be honoured, redirecting
+  // the embed straight at a login form. Fails closed on the existing
+  // "Invalid embed target." 400 instead.
+  const base = getConfiguredAppBasePath();
+  const pathForValidation =
+    base && (path === base || path.startsWith(`${base}/`))
+      ? path
+      : `${base}${path}`;
+  if (normalizeAppPath(pathForValidation, base) === null) return null;
   return stripConfiguredBasePath(path);
 }
 
@@ -546,9 +638,26 @@ export async function consumeEmbedSessionTicket(
   ticket: string | undefined | null,
   options: ConsumeEmbedSessionTicketOptions = {},
 ): Promise<ConsumedEmbedSessionTicket | null> {
-  if (!ticket) return null;
+  const expectedOwnerEmail = normalizedEmail(options.expectedOwnerEmail);
+  const expectedOwnerKey = redactedIdentifier(expectedOwnerEmail);
+  const expectedOrgKey = redactedIdentifier(options.expectedOrgId);
+  if (!ticket) {
+    options.onResult?.({
+      outcome: "missing-ticket",
+      ticketKey: null,
+      ticketRowFound: false,
+      consumed: false,
+      expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey: null,
+      expectedOrgKey,
+      ticketOrgKey: null,
+    });
+    return null;
+  }
   await ensureTable();
   const ticketHash = hashTicket(ticket);
+  const ticketKey = ticketHash.slice(0, 12);
   const now = Date.now();
   const { rows } = await getDbExec().execute({
     sql:
@@ -556,14 +665,85 @@ export async function consumeEmbedSessionTicket(
       "FROM agent_native_embed_tickets WHERE ticket_hash = ?",
     args: [ticketHash],
   });
-  if (rows.length === 0) return null;
+  if (rows.length === 0) {
+    options.onResult?.({
+      outcome: "not-found",
+      ticketKey,
+      ticketRowFound: false,
+      consumed: false,
+      expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey: null,
+      expectedOrgKey,
+      ticketOrgKey: null,
+    });
+    return null;
+  }
   const row: any = rows[0];
   const expiresAt = numberOrNull(row.expires_at ?? row.expiresAt);
   const consumedAt = numberOrNull(row.consumed_at ?? row.consumedAt);
+  const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
+  const ticketOwnerKey = redactedIdentifier(normalizedEmail(ownerEmail));
   const orgId = stringOrUndefined(row.org_id ?? row.orgId);
-  if (consumedAt != null) return null;
-  if (expiresAt != null && expiresAt < now) return null;
+  const ticketOrgKey = redactedIdentifier(orgId);
+  if (consumedAt != null) {
+    options.onResult?.({
+      outcome: "already-consumed",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: true,
+      expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
+  if (expiresAt != null && expiresAt < now) {
+    options.onResult?.({
+      outcome: "expired",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: false,
+      expired: true,
+      expectedOwnerKey,
+      ticketOwnerKey,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
+  if (
+    expectedOwnerEmail &&
+    ownerEmail &&
+    normalizedEmail(ownerEmail) !== expectedOwnerEmail
+  ) {
+    options.onResult?.({
+      outcome: "identity-mismatch",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: false,
+      expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
   if (options.expectedOrgId && orgId && orgId !== options.expectedOrgId) {
+    options.onResult?.({
+      outcome: "org-mismatch",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: false,
+      expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
     return null;
   }
 
@@ -573,13 +753,50 @@ export async function consumeEmbedSessionTicket(
       "WHERE ticket_hash = ? AND consumed_at IS NULL",
     args: [now, ticketHash],
   });
-  if (result.rowsAffected === 0) return null;
+  if (result.rowsAffected === 0) {
+    options.onResult?.({
+      outcome: "consumption-race",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: false,
+      expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
 
   const targetPath = normalizeEmbedTargetPath(
     stringOrUndefined(row.target_path ?? row.targetPath),
   );
-  const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
-  if (!targetPath || !ownerEmail || expiresAt == null) return null;
+  if (!targetPath || !ownerEmail || expiresAt == null) {
+    options.onResult?.({
+      outcome: "invalid-row",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: true,
+      expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
+
+  options.onResult?.({
+    outcome: "consumed",
+    ticketKey,
+    ticketRowFound: true,
+    consumed: true,
+    expired: false,
+    expectedOwnerKey,
+    ticketOwnerKey,
+    expectedOrgKey,
+    ticketOrgKey,
+  });
 
   return {
     ownerEmail,
@@ -665,7 +882,7 @@ function isHttpsRequest(event: H3Event): boolean {
     }
     const url = event.url?.toString?.() ?? "";
     if (url.startsWith("https://")) return true;
-    const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
+    const appUrl = getAppConfig().app.url ?? "";
     if (appUrl.startsWith("https://")) return true;
   } catch {
     // ignore
@@ -741,7 +958,14 @@ export async function resolveEmbedSessionFromRequest(
       candidate.source === "cookie" && isRuntimeRequest;
     const isRuntimeQueryRequest =
       candidate.source === "query" && isRuntimeRequest;
-    if (!matchesTarget && !isRuntimeCookieRequest && !isRuntimeQueryRequest) {
+    const capabilityScope = isEmbedCapabilityScope(verified.claims.scope);
+    const allowsUnboundRuntimeRequest =
+      !capabilityScope || isEmbedStaticRuntimeRequest(event);
+    if (
+      !matchesTarget &&
+      (!allowsUnboundRuntimeRequest ||
+        (!isRuntimeCookieRequest && !isRuntimeQueryRequest))
+    ) {
       continue;
     }
     if (candidate.source === "query" && candidate.token) {
@@ -779,10 +1003,16 @@ export function requestHasEmbedAuthMarker(event: H3Event): boolean {
     const runtimeRequest = isEmbedRuntimeRequest(event);
     for (const candidate of candidates) {
       const verified = verifyEmbedSessionToken(candidate.token);
+      const allowsUnboundRuntimeRequest =
+        verified.ok &&
+        (!isEmbedCapabilityScope(verified.claims.scope) ||
+          isEmbedStaticRuntimeRequest(event));
       if (
         verified.ok &&
         (requestMatchesEmbedTarget(event, verified.claims.targetPath) ||
-          (candidate.allowRuntime && runtimeRequest))
+          (candidate.allowRuntime &&
+            runtimeRequest &&
+            allowsUnboundRuntimeRequest))
       ) {
         return true;
       }

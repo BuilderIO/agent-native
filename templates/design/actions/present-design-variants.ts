@@ -16,10 +16,16 @@ import { getDb, schema } from "../server/db/index.js";
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   mergeCanvasFramePlacements,
+  nextFreeCanvasRowY,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
 import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
+import { assertDesignHtmlWellFormed } from "../shared/html-integrity.js";
 import { widthToPrefix } from "../shared/responsive-classes.js";
+import {
+  getResponsiveGroupWidth,
+  visibleBreakpointWidths,
+} from "../shared/responsive-frame-layout.js";
 import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 const VARIANT_GAP = 96;
@@ -29,20 +35,79 @@ const MOBILE_HEIGHT = 844;
 const TABLET_WIDTH = 768;
 const TABLET_HEIGHT = 1024;
 const DESKTOP_WIDTH = 1440;
-const DESKTOP_HEIGHT = 1024;
-const DEFAULT_RESPONSIVE_BREAKPOINTS = [390, 768, 1440].map((widthPx) => ({
+const DESKTOP_HEIGHT = 900;
+// Desktop-base default: the primary/base frame is Desktop (1440), so the
+// breakpoint set is Mobile only. The primary width is never included and no
+// tablet is auto-added, matching generate-design's device derivation.
+const DEFAULT_RESPONSIVE_BREAKPOINTS = [MOBILE_WIDTH].map((widthPx) => ({
   id: `generated-${widthPx}`,
-  label: widthPx === 390 ? "Mobile" : widthPx === 768 ? "Tablet" : "Desktop",
+  label: "Mobile",
   widthPx,
   prefix: widthToPrefix(widthPx),
 }));
 
-function hasBreakpointSet(value: unknown): boolean {
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return false;
-  }
+const SPECIFICATION_SIGNAL_PATTERNS = [
+  /\b(?:attached|uploaded|reference|mockup|screenshot|wireframe|source of truth|source-of-truth)\b/i,
+  /\b(?:\d+\s*[- ]\s*col(?:umn)?|grid spec|layout spec|section order|feature list)\b/i,
+  /\b(?:design system|brand system|brand kit|visual language|tokens?)\b/i,
+] as const;
+
+/**
+ * Direction summaries are useful for genuinely open-ended exploration, but
+ * the fallback renderer cannot reproduce a supplied layout or system. Keep a
+ * complete-HTML requirement at the action boundary so a model cannot turn a
+ * detailed screen brief into generic cards just by omitting `content`.
+ *
+ * The weakest of the two signals, and never the only one: `prompt` is the chat
+ * caption this same model writes for the picker, so an agent that has just
+ * decided to explore writes an exploration-flavored caption and clears the
+ * check for free. `hasLinkedDesignSystem` below is the fact the server owns.
+ */
+export function hasSpecifiedDesignPrompt(prompt?: string): boolean {
+  const value = prompt?.trim() ?? "";
+  if (!value) return false;
+  return SPECIFICATION_SIGNAL_PATTERNS.some((pattern) => pattern.test(value));
+}
+
+/**
+ * The one specification signal that survives an intake round-trip. Attachments
+ * are turn-scoped (see `ActionRunContext.attachments`), so by the time the
+ * agent asks its questions and comes back to present variants, the reference
+ * screenshot the user supplied is no longer visible to this action — but the
+ * design system they linked still is.
+ */
+async function hasLinkedDesignSystem(designId: string): Promise<boolean> {
+  const [design] = await getDb()
+    .select({ designSystemId: schema.designs.designSystemId })
+    .from(schema.designs)
+    .where(
+      and(
+        eq(schema.designs.id, designId),
+        accessFilter(schema.designs, schema.designShares),
+      ),
+    );
+  return Boolean(design?.designSystemId?.trim());
+}
+
+/**
+ * Absent, or present but unreadable — the caller must not treat these alike.
+ * A malformed set is still the user's data: overwriting it with the generated
+ * default silently discards breakpoints they configured, so it reports
+ * `"malformed"` and the install is skipped rather than clobbering it.
+ */
+function classifyBreakpointSet(
+  value: unknown,
+): "absent" | "malformed" | "present" {
+  if (value === null || value === undefined) return "absent";
+  if (typeof value !== "object" || Array.isArray(value)) return "malformed";
   const breakpoints = (value as { breakpoints?: unknown }).breakpoints;
-  return Array.isArray(breakpoints) && breakpoints.length > 0;
+  if (breakpoints === undefined) return "malformed";
+  if (!Array.isArray(breakpoints)) return "malformed";
+  return breakpoints.length > 0 ? "present" : "malformed";
+}
+
+function hasBreakpointSet(value: unknown): boolean {
+  return classifyBreakpointSet(value) === "present";
 }
 
 function designDeepLink(designId: string): string {
@@ -105,7 +170,7 @@ const variantSchema = z.object({
     .string()
     .optional()
     .describe(
-      "Optional complete self-contained HTML document for this variant. Keep it compact: one representative screen or directional snapshot, not a full multi-screen app. For faster exploration, omit this and provide label/description/features; Design will generate a compact representative screen.",
+      "Complete self-contained HTML document for this variant. Keep it compact: one representative screen or directional snapshot, not a full multi-screen app. Omit it ONLY for genuinely open-ended exploration, where Design renders a generic direction card from label/description/features — that card ignores any supplied reference, layout, or design system, so omitting content is rejected when the design has a linked design system or the prompt specifies one.",
     ),
   width: z
     .number()
@@ -731,10 +796,24 @@ ${compact ? ".sidebar { padding: 16px; } .nav { grid-template-columns: repeat(2,
 </html>`;
 }
 
-function placeVariantScreens(screens: VariantScreen[]) {
+/**
+ * Lays the generated directions out in rows of up to three.
+ *
+ * Each cell reserves the screen's WHOLE painted footprint, not just its
+ * primary frame: this action also installs a design-wide breakpoint set, and
+ * the overview paints one preview per breakpoint to the right of every primary
+ * frame. Spacing by `width + VARIANT_GAP` alone drops the next direction on top
+ * of the previous one's breakpoint row.
+ */
+function placeVariantScreens(
+  screens: VariantScreen[],
+  breakpointWidths: readonly number[],
+  /** Y to start the lineup at, so an additional set clears the existing one. */
+  originY = 0,
+) {
   const placements: CanvasFramePlacement[] = [];
   const columns = Math.min(MAX_COLUMNS, Math.max(1, screens.length));
-  let rowY = 0;
+  let rowY = originY;
 
   for (let rowStart = 0; rowStart < screens.length; rowStart += columns) {
     const row = screens.slice(rowStart, rowStart + columns);
@@ -751,7 +830,17 @@ function placeVariantScreens(screens: VariantScreen[]) {
         height: screen.height,
         z: rowStart + offset,
       });
-      x += screen.width + VARIANT_GAP;
+      x +=
+        getResponsiveGroupWidth({
+          primaryWidth: screen.width,
+          // Frames are placed at their natural device width, so the breakpoint
+          // previews beside them are drawn unscaled.
+          scale: 1,
+          visibleWidths: visibleBreakpointWidths(
+            breakpointWidths,
+            screen.width,
+          ),
+        }) + VARIANT_GAP;
       rowHeight = Math.max(rowHeight, screen.height);
     }
 
@@ -759,6 +848,22 @@ function placeVariantScreens(screens: VariantScreen[]) {
   }
 
   return placements;
+}
+
+/** Widths the overview will paint beside each primary frame once this call
+ * settles: the design's own set when it has one, otherwise the set this action
+ * is about to install. */
+function effectiveBreakpointWidths(currentBreakpointSet: unknown): number[] {
+  const breakpoints = hasBreakpointSet(currentBreakpointSet)
+    ? ((currentBreakpointSet as { breakpoints: Array<{ widthPx?: unknown }> })
+        .breakpoints ?? [])
+    : DEFAULT_RESPONSIVE_BREAKPOINTS;
+  return breakpoints
+    .map((breakpoint) => breakpoint.widthPx)
+    .filter(
+      (widthPx): widthPx is number =>
+        typeof widthPx === "number" && Number.isFinite(widthPx) && widthPx > 0,
+    );
 }
 
 export default defineAction({
@@ -776,9 +881,12 @@ export default defineAction({
     "complex apps, " +
     "make each variant a " +
     "compact representative screen; pass concise labels/descriptions/features " +
-    "and omit content when full HTML would be too large. Design will render " +
-    "compact screens from the direction data. Expand the chosen direction " +
-    "after the user picks. Screens from an earlier variant set are never " +
+    "and omit content only for open-ended exploration. For a prompt with a " +
+    "specific product surface, reference, layout, or design system, provide " +
+    "complete self-contained HTML for every variant; the generic fallback is " +
+    "blocked there. Design will render compact screens from direction data only " +
+    "for open-ended exploration. Expand the chosen direction after the user " +
+    "picks. Screens from an earlier variant set are never " +
     "deleted automatically: if you are knowingly replacing your own earlier " +
     "set that the user never picked from or discussed, pass its set id in " +
     "deleteSupersededSetIds; otherwise leave old sets in place.",
@@ -822,6 +930,39 @@ export default defineAction({
   },
   run: async ({ designId, prompt, variants, deleteSupersededSetIds }) => {
     await assertAccess("design", designId, "editor");
+
+    const omittedContent = variants.filter(
+      (variant) => !variant.content?.trim(),
+    );
+    if (
+      omittedContent.length > 0 &&
+      (hasSpecifiedDesignPrompt(prompt) ||
+        (await hasLinkedDesignSystem(designId)))
+    ) {
+      throw new Error(
+        "present-design-variants requires complete self-contained HTML for " +
+          "every variant when the design has a linked design system, or the " +
+          "prompt specifies a layout, reference, or product surface. The " +
+          "generic direction fallback ignores the brief and the system's " +
+          "tokens; use generate-design, or provide each variant's complete " +
+          "content.",
+      );
+    }
+
+    // Before any mutation. These are model-authored screens created by raw
+    // insert, so they need the same well-formedness gate as generate-design —
+    // though not its document-shape rules, since a variant may be a sketch with
+    // `<html>`/`<body>` implied. Ordering is the load-bearing part: the
+    // supersession and deletion below are irreversible, so throwing after them
+    // would destroy existing variant sets and create nothing to replace them.
+    for (const variant of variants) {
+      const candidate = variant.content?.trim();
+      if (!candidate) continue;
+      assertDesignHtmlWellFormed({
+        content: annotateScreenHtmlForPersist(candidate, "html"),
+        filename: `variant-${slugify(variant.label.trim(), "option")}.html`,
+      });
+    }
 
     // Non-destructive bookkeeping: flag earlier still-complete variant sets
     // as superseded. Files are NEVER deleted automatically — a user's pick
@@ -914,13 +1055,32 @@ export default defineAction({
       });
     }
 
-    const placements = placeVariantScreens(screens);
+    // Presenting options should not silently reconfigure the design. When it
+    // does, the overview paints an extra preview beside EVERY primary frame
+    // from then on — including screens created later — so the caller is told.
+    let installedBreakpointSet = false;
+
     await mutateDesignData({
       designId,
       mutate: (current, { updatedAt }) => {
+        installedBreakpointSet =
+          classifyBreakpointSet(current.breakpointSet) === "absent";
+        // Placement depends on the breakpoint set in effect after this call, so
+        // it is resolved here (inside the compare-and-set body) rather than
+        // against a design snapshot that a concurrent write may have moved on
+        // from.
         const mergedFrames = mergeCanvasFramePlacements({
           existing: current.canvasFrames,
-          placements,
+          placements: placeVariantScreens(
+            screens,
+            effectiveBreakpointWidths(current.breakpointSet),
+            // Start below what is already on the board. The set being written is
+            // excluded so re-running the same set lands where it was instead of
+            // marching further down each time.
+            nextFreeCanvasRowY(current.canvasFrames, VARIANT_GAP, {
+              ignoreFileIds: screens.map((screen) => screen.id),
+            }),
+          ),
           resolveFileId: (placement) => placement.fileId,
         });
         const previousMetadata = isRecord(current.screenMetadata)
@@ -966,7 +1126,9 @@ export default defineAction({
           canvasFrames: mergedFrames.canvasFrames,
           screenMetadata: previousMetadata,
           designVariantSets: previousVariantSets,
-          ...(hasBreakpointSet(current.breakpointSet)
+          // Only when genuinely absent. A malformed set is the user's data in
+          // a shape this action cannot read, not a blank slate to overwrite.
+          ...(classifyBreakpointSet(current.breakpointSet) !== "absent"
             ? {}
             : {
                 breakpointSet: {
@@ -1013,7 +1175,32 @@ export default defineAction({
       editorView: "overview",
       path: `/design/${encodeURIComponent(designId)}?view=overview`,
     });
+    // The pick opens a continuation turn that inherits nothing from this one,
+    // and that turn is what expands the kept placeholder into the real screen.
+    // Without this, the expansion is design-system-blind even though the user
+    // linked one before generating.
+    const [linkedDesign] = await db
+      .select({ designSystemId: schema.designs.designSystemId })
+      .from(schema.designs)
+      .where(
+        and(
+          eq(schema.designs.id, designId),
+          accessFilter(schema.designs, schema.designShares),
+        ),
+      );
+    const variantPickContext = [
+      prompt?.trim()
+        ? `The user's original request for this design: "${prompt.trim()}". Expand the kept direction into that, not into a generic version of it.`
+        : "",
+      linkedDesign?.designSystemId
+        ? `This design is linked to design system "${linkedDesign.designSystemId}". Call \`get-design-system\` for that id and apply its tokens, typography, and usage notes while expanding the kept screen — do not substitute a generic palette or font.`
+        : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
     await writeAppStateForCurrentTab("guided-questions", {
+      ...(variantPickContext ? { submitContext: variantPickContext } : {}),
       title: prompt ?? "Pick a direction",
       description:
         "All options are on the board. Choose one to keep; I will delete the others, read only the kept screen, and turn that direction into the final requested screen.",
@@ -1062,6 +1249,13 @@ export default defineAction({
       embed: true,
       cleanedUpPreviousVariantScreens: variantSetCleanup.removedFileIds.length,
       deletedSupersededSetIds: variantSetCleanup.removedSetIds,
+      ...(installedBreakpointSet
+        ? {
+            installedBreakpointSet: DEFAULT_RESPONSIVE_BREAKPOINTS.map(
+              (breakpoint) => breakpoint.widthPx,
+            ),
+          }
+        : {}),
       fallbackInstructions: FALLBACK_INSTRUCTIONS,
       nextRequiredAction:
         'Wait for the user to pick a screen in chat. Then delete each unchosen variant screen with delete-file at most once, call get-design-snapshot exactly once with fileId for the chosen screen, and call edit-design with that same fileId in a bounded pass. Use mode "replace-file" to replace the representative direction screen with a complete but compact requested app/product UI in the chosen visual style. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the full feature list is too large for one reliable edit. Do not leave a direction board, variant brief, or summary card as the final result. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save.',

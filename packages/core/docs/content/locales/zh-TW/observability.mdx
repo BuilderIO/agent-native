@@ -94,8 +94,7 @@ description: "代理跟蹤、評估、意見回饋、A/B 實驗和內建儀表�
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client";
-
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -383,5 +382,5 @@ CLI 的硬編碼 DSN 是有意為之的 - 發布的二進制檔案需要通知�
 ## 下一步是什麼
 
 - [**Tracking**](/docs/tracking) - 針對您的應用自身事件的產品分析（PostHog、Mixpanel、Amplitude）
-- [**Actions**](/docs/actions) - 在跟蹤中顯示為工具呼叫的操作
+- [**Actions**](/docs/actions-overview) - 在跟蹤中顯示為工具呼叫的操作
 - [**Security**](/docs/security) — 資料範圍和憑證處理

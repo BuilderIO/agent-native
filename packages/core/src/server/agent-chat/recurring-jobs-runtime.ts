@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
 // Recurring-jobs runtime gating: decide whether this process should run the
-// local recurring-job scheduler loop (disabled by default on hosted runtimes
-// that already run a dedicated sweep, enabled by default for local/dev).
+// local recurring-job scheduler loop (disabled by default on hosted/serverless
+// runtimes, enabled by default for local/dev).
 // ---------------------------------------------------------------------------
 
 type RecurringJobsRuntimeEnvKey =
@@ -9,9 +9,17 @@ type RecurringJobsRuntimeEnvKey =
   | "AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS"
   | "APP_URL"
   | "BETTER_AUTH_URL"
+  | "CF_PAGES"
   | "DEPLOY_URL"
+  | "AWS_EXECUTION_ENV"
+  | "AWS_LAMBDA_FUNCTION_NAME"
+  | "NETLIFY"
+  | "NETLIFY_LOCAL"
+  | "NITRO_PRESET"
   | "NODE_ENV"
+  | "SITE_ID"
   | "URL"
+  | "VERCEL"
   | "VITE_APP_URL"
   | "VITE_WORKSPACE_GATEWAY_URL"
   | "WORKSPACE_GATEWAY_URL";
@@ -56,6 +64,19 @@ export function shouldDisableRecurringJobsRuntime(
 ): boolean {
   if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) return true;
 
+  // A serverless isolate is not a durable scheduler. Keep this check separate
+  // from the platform-specific scheduler branch below so a new sweep cannot
+  // accidentally start an in-process timer before its platform trigger exists.
+  const isServerlessRuntime =
+    env.NETLIFY_LOCAL !== "true" &&
+    (isTruthyEnv(env.NETLIFY) ||
+      env.NITRO_PRESET === "netlify" ||
+      Boolean(env.AWS_LAMBDA_FUNCTION_NAME) ||
+      env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
+      isTruthyEnv(env.CF_PAGES) ||
+      isTruthyEnv(env.VERCEL));
+  if (isServerlessRuntime) return true;
+
   const isLocalRuntime =
     env.NODE_ENV === "development" ||
     env.NODE_ENV === "test" ||
@@ -77,4 +98,17 @@ export function shouldDisableRecurringJobsRuntime(
   }
 
   return isLocalRuntime;
+}
+
+/**
+ * Hosted Netlify deploys get a durable scheduled sweep emitted by the build.
+ * The in-process timer must stay off there: a scale-to-zero recycle destroys
+ * that timer, which is exactly the failure mode the emitted sweep fixes.
+ */
+export function isNetlifyRecurringJobsRuntime(
+  env: RecurringJobsRuntimeEnv = process.env,
+): boolean {
+  if (env.NETLIFY_LOCAL === "true") return false;
+  if (env.NETLIFY === "false") return false;
+  return Boolean((env.NETLIFY && env.NETLIFY !== "false") || env.SITE_ID);
 }

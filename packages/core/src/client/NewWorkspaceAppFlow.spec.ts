@@ -11,6 +11,19 @@ const devState = vi.hoisted(() => ({ isDevMode: false }));
 const vaultState = vi.hoisted<{ mode: "all-apps" | "manual" }>(() => ({
   mode: "manual",
 }));
+const builderConnectFlowState = vi.hoisted(() => ({
+  connecting: false,
+  start: vi.fn(),
+}));
+const startWorkspaceAppCreationResponse = vi.hoisted<{ result: unknown }>(
+  () => ({
+    result: {
+      mode: "builder",
+      appId: "qa-dashboard",
+      url: "https://branch.example.test",
+    },
+  }),
+);
 
 vi.mock("./agent-chat.js", () => ({
   sendToAgentChat: sendToAgentChatMock,
@@ -24,7 +37,16 @@ vi.mock("./use-dev-mode.js", () => ({
   useDevMode: () => ({ isDevMode: devState.isDevMode }),
 }));
 
-vi.mock("./composer/PromptComposer.js", async () => {
+vi.mock("./settings/useBuilderStatus.js", () => ({
+  useBuilderConnectFlow: () => ({
+    configured: false,
+    connecting: builderConnectFlowState.connecting,
+    error: null,
+    start: builderConnectFlowState.start,
+  }),
+}));
+
+vi.mock("./composer/index.js", async () => {
   const React = await import("react");
   return {
     PromptComposer: ({
@@ -119,6 +141,13 @@ describe("NewWorkspaceAppFlow", () => {
     frameState.inBuilderFrame = false;
     devState.isDevMode = false;
     vaultState.mode = "manual";
+    builderConnectFlowState.connecting = false;
+    builderConnectFlowState.start.mockReset();
+    startWorkspaceAppCreationResponse.result = {
+      mode: "builder",
+      appId: "qa-dashboard",
+      url: "https://branch.example.test",
+    };
     sendToAgentChatMock.mockReset();
     fetchSpy = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
@@ -132,11 +161,7 @@ describe("NewWorkspaceAppFlow", () => {
         return jsonResponse(workspaceResources);
       }
       if (url.includes("start-workspace-app-creation")) {
-        return jsonResponse({
-          mode: "builder",
-          appId: "qa-dashboard",
-          url: "https://branch.example.test",
-        });
+        return jsonResponse(startWorkspaceAppCreationResponse.result);
       }
       if (url.includes("grant-vault-secrets-to-app")) {
         return jsonResponse({ ok: true });
@@ -211,6 +236,9 @@ describe("NewWorkspaceAppFlow", () => {
       "Requested Dispatch vault key grants for this app: OPENAI_API_KEY",
     );
     expect(message).toContain(
+      "Do not ask a non-admin builder to add keys to local project settings or .env",
+    );
+    expect(message).toContain(
       "Requested Dispatch workspace resources for this app:",
     );
     expect(message).toContain(
@@ -264,6 +292,7 @@ describe("NewWorkspaceAppFlow", () => {
       submit: true,
       type: "code",
       newTab: true,
+      reuseEmptyTab: true,
     });
     expect(payload.message).toContain(
       "Requested Dispatch vault key grants for this app: OPENAI_API_KEY",
@@ -277,6 +306,27 @@ describe("NewWorkspaceAppFlow", () => {
         String(url).includes("grant-vault-secrets-to-app"),
       ),
     ).toBe(false);
+  });
+
+  it("opens a fresh local chat when the server hands off app creation", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "local-agent",
+      appId: "quality-dashboard",
+      prompt: "Create the quality dashboard in the new workspace app.",
+      message: "Starting the local coding chat.",
+    };
+    await renderAndSelectAccess();
+    await submitForm();
+
+    expect(sendToAgentChatMock).toHaveBeenCalledTimes(1);
+    expect(sendToAgentChatMock).toHaveBeenCalledWith({
+      message: "Create the quality dashboard in the new workspace app.",
+      submit: true,
+      type: "code",
+      newTab: true,
+      reuseEmptyTab: true,
+    });
+    expect(container.textContent).toContain("Sent to the local agent.");
   });
 
   it("passes selected key ids to the server action as a pending request", async () => {
@@ -353,5 +403,88 @@ describe("NewWorkspaceAppFlow", () => {
     expect(payload.message).not.toContain(
       "Requested Dispatch vault key grants for this app: OPENAI_API_KEY",
     );
+  });
+
+  it("renders a Connect Builder control when Builder is not connected", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "builder-unavailable",
+      reason: "builder-not-connected",
+      message: "Connect Builder for this user",
+      appId: "quality",
+    };
+    await renderAndSelectAccess();
+    await submitForm();
+
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain(
+          "Connect Builder for this user",
+        ),
+      );
+    });
+
+    const connectButton = findButton(container, "Connect Builder");
+    act(() => {
+      connectButton.click();
+    });
+    expect(builderConnectFlowState.start).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the error affordance and a Try again control for builder-error, without a Connect Builder control", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "builder-unavailable",
+      reason: "builder-error",
+      message: "Builder rejected the request.",
+      appId: "quality",
+      detail: "500 from Builder",
+      projectId: "proj_1",
+    };
+    await renderAndSelectAccess();
+    await submitForm();
+
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain(
+          "Builder rejected the request.",
+        ),
+      );
+    });
+
+    const matchingDivs = Array.from(container.querySelectorAll("div")).filter(
+      (el) => el.textContent?.includes("Builder rejected the request."),
+    );
+    expect(
+      matchingDivs.some((el) => el.className.includes("border-destructive")),
+    ).toBe(true);
+
+    expect(() => findButton(container, "Connect Builder")).toThrow();
+    expect(findButton(container, "Try again")).toBeTruthy();
+  });
+
+  it("renders coming-soon messages neutrally with no Connect Builder control", async () => {
+    startWorkspaceAppCreationResponse.result = {
+      mode: "coming-soon",
+      message: "This template is coming soon.",
+      appId: "quality",
+    };
+    await renderAndSelectAccess();
+    await submitForm();
+
+    await act(async () => {
+      await vi.waitFor(() =>
+        expect(container.textContent).toContain(
+          "This template is coming soon.",
+        ),
+      );
+    });
+
+    const matchingDivs = Array.from(container.querySelectorAll("div")).filter(
+      (el) => el.textContent?.includes("This template is coming soon."),
+    );
+    expect(
+      matchingDivs.some((el) => el.className.includes("border-destructive")),
+    ).toBe(false);
+    expect(() => findButton(container, "Connect Builder")).toThrow();
+    expect(() => findButton(container, "Try again")).toThrow();
   });
 });

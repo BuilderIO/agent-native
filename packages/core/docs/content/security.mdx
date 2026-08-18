@@ -320,7 +320,7 @@ pnpm action db-check-scoping --require-org  # Also require org_id
 | OAuth tokens (Google, GitHub)      | `oauth_tokens` store via `saveOAuthTokens()`               |
 | Session tokens                     | Automatic (Better Auth handles this)                       |
 
-Per-user/per-org credentials and the vault are encrypted at rest with AES-256-GCM, keyed by `SECRETS_ENCRYPTION_KEY` (falling back to `BETTER_AUTH_SECRET`); production refuses to start without one. To encrypt any pre-existing plaintext credential rows in place, run `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive).
+Per-user/per-org credentials and the vault are encrypted at rest with AES-256-GCM. For a per-user/per-org credential, the key precedence is `<APP_NAME>_SECRETS_ENCRYPTION_KEY` (app-scoped — useful in a multi-app workspace where apps shouldn't share one key) → `SECRETS_ENCRYPTION_KEY` → `BETTER_AUTH_SECRET`; production refuses to start without one of these set. The shared workspace vault (`app_secrets`, meant to decrypt the same in sibling apps) prefers `WORKSPACE_SECRETS_ENCRYPTION_KEY`, then the legacy combined `SECRETS_ENCRYPTION_KEY`, then material derived from `A2A_SECRET`, with `BETTER_AUTH_SECRET` and the app-scoped key retained as compatibility candidates. Successful fallback reads compare-and-swap re-encrypt the shared column under the preferred key. During a workspace-key rotation, set `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` to the old value until reads have migrated existing rows. To encrypt any pre-existing plaintext credential rows in place, run `pnpm action db-migrate-encrypt-credentials` (idempotent, non-destructive).
 
 Never store secrets in `settings`, `application_state`, source code, or action responses. Use the credential / vault APIs above — they handle both encryption and per-user scoping.
 
@@ -352,9 +352,11 @@ Without `A2A_SECRET` in production, every A2A endpoint and the `/_agent-native/i
 
 ## Inbound Webhooks {#webhooks}
 
-Inbound webhook handlers (Resend, SendGrid, Slack, Telegram, WhatsApp, Recall.ai, Deepgram, Zoom, Google Docs Pub/Sub) refuse forged requests by default in production: when the corresponding signing secret env var is missing, the handler returns 401 instead of accepting and dispatching.
+Inbound webhook handlers (Resend, SendGrid, Slack, Telegram, WhatsApp) refuse forged requests by default in production: when the corresponding signing secret env var is missing, the handler returns 401 instead of accepting and dispatching.
 
 This was previously a "warn and accept" stance — set the secret you'd otherwise be missing, or opt back into the old behavior with `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` for local dev only. See [Messaging](/docs/messaging#env-vars) for the per-integration signing-secret variables.
+
+Google Docs Pub/Sub push notifications don't go through that generic adapter gate — they're a separate code path that verifies an OIDC bearer token against `GOOGLE_DOCS_PUSH_AUDIENCE`. When that audience variable is unset in production, the endpoint fails closed with **503** (not 401); when it's set but the token doesn't verify, it returns 401.
 
 ## Production Checklist {#production-checklist}
 
@@ -363,7 +365,7 @@ This was previously a "warn and accept" stance — set the secret you'd otherwis
 - [ ] `BETTER_AUTH_SECRET` set to a random 32+ char string (`openssl rand -hex 32`), unless this is a hosted workspace deploy deriving it from `A2A_SECRET`
 - [ ] `OAUTH_STATE_SECRET` set to a separate random 32+ char string (don't reuse `BETTER_AUTH_SECRET`) — see [OAuth State Signing](#oauth-state)
 - [ ] `A2A_SECRET` set on every app that calls or receives A2A traffic — see [A2A Identity Verification](#a2a-identity)
-- [ ] `SECRETS_ENCRYPTION_KEY` set (or rely on the `BETTER_AUTH_SECRET` fallback) — see [Secrets Management](#secrets)
+- [ ] `WORKSPACE_SECRETS_ENCRYPTION_KEY` set consistently for multi-app shared vaults; app-local encryption still has `SECRETS_ENCRYPTION_KEY` / `BETTER_AUTH_SECRET` fallbacks — see [Secrets Management](#secrets)
 - [ ] `AUTH_SKIP_EMAIL_VERIFICATION` is **not** set in production (or set only on QA preview deploys)
 
 ### Webhook secrets (set the ones for integrations you use)
@@ -422,6 +424,7 @@ Workspace-scope secret writes still require org owner/admin role regardless of t
 
 - [**Authentication**](/docs/authentication) — auth modes, cookie realms, and session details this page builds on
 - [**Multi-Tenancy**](/docs/multi-tenancy) — the org-membership model behind `org_id` scoping
+- [**Organizations, Teams & Permissions**](/docs/organizations-teams-permissions) — the org-role vs. resource-role RBAC distinction and the org REST route table
 - [**Sharing**](/docs/sharing) — the `ownableColumns()` and access-guard pattern applied to shareable resources
 - [**Messaging**](/docs/messaging#env-vars) — per-integration webhook signing secrets referenced in the checklist above
 - [**Deployment**](/docs/deployment) — the production environment variables this checklist assumes are set

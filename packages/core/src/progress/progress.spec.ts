@@ -239,6 +239,20 @@ describe("progress action entries", () => {
     });
   });
 
+  it("allows only list in Plan mode", () => {
+    const tool = createProgressToolEntries(() => "boni@local")[
+      "manage-progress"
+    ];
+    const effect = tool.planMode?.effect;
+    expect(typeof effect).toBe("function");
+    if (typeof effect !== "function") throw new Error("Missing classifier");
+
+    expect(effect({ action: "list" })).toBe("read");
+    expect(effect({ action: "start" })).toBe("write");
+    expect(effect({ action: "update" })).toBe("write");
+    expect(effect({ action: "complete" })).toBe("write");
+  });
+
   it("rejects invalid terminal statuses at runtime", async () => {
     const tool = createProgressToolEntries(() => "boni@local")[
       "manage-progress"
@@ -249,5 +263,21 @@ describe("progress action entries", () => {
     ).resolves.toMatch(/status must be/);
 
     expect(mockUpdateRun).not.toHaveBeenCalled();
+  });
+
+  it("allows blank optional status fields on non-terminal calls", async () => {
+    mockInsertRun.mockResolvedValue(stubRun({ title: "Triage inbox" }));
+    const tool = createProgressToolEntries(() => "boni@local")[
+      "manage-progress"
+    ];
+
+    await expect(
+      tool.run({
+        action: "start",
+        title: "Triage inbox",
+        status: "",
+      }),
+    ).resolves.toContain("Run started");
+    expect(tool.tool.parameters.properties.status.enum).toContain("");
   });
 });
