@@ -79,6 +79,23 @@ code/config fix and ship that follow-up until production is live.
    preserve those paths, but do not stage or push them automatically. If you
    cannot establish ownership, leave the path out of this ship.
 
+   Then confirm the base is current, before validating or pushing anything. A
+   worktree can be created from a stale ref, and its local `main` ref is stale
+   too, so `git log main..HEAD` comes back empty and the branch reports itself
+   current while being weeks behind. The fetch is required: without it the
+   count reads a stale remote ref and returns 0, which is the same
+   confidently-wrong clean answer this check exists to catch.
+
+   ```bash
+   git fetch origin main --quiet
+   git rev-list --count HEAD..origin/main
+   ```
+
+   Non-zero means reapply the work onto current `origin/main` before pushing —
+   shipping from a stale base conflicts with or reverts whatever landed in the
+   gap. Measured 2026-08-18: four live Codex worktrees sat 1,144 commits behind
+   `origin/main` while reporting themselves clean from the inside.
+
 3. **Validate enough to avoid obvious breakage**: run focused tests for the
    changed area. Push the first safe slice before running `pnpm run prep` or
    another long validation. Run prep when it is practical, but if prep is slow,
