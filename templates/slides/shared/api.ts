@@ -126,6 +126,11 @@ export interface SharedDeckSlide {
   splitByParagraph?: boolean;
 }
 
+export interface SharedDeckSlideOptions {
+  /** Include presenter-only notes for an authenticated internal read. */
+  includeNotes?: boolean;
+}
+
 const SHARED_SLIDE_TRANSITIONS = new Set<SharedSlideTransition>([
   "instant",
   "none",
@@ -216,12 +221,13 @@ function normalizeSlideAnimation(
 export function toSharedDeckSlide(
   value: unknown,
   index: number,
+  options: SharedDeckSlideOptions = {},
 ): SharedDeckSlide {
   const slide = isRecord(value) ? value : {};
   const shared: SharedDeckSlide = {
     id: normalizeString(slide.id, `slide-${index + 1}`),
     content: normalizeString(slide.content, ""),
-    notes: normalizeString(slide.notes, ""),
+    notes: options.includeNotes ? normalizeString(slide.notes, "") : "",
     layout: normalizeString(slide.layout, "content"),
   };
 

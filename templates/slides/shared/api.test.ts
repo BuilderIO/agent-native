@@ -3,7 +3,20 @@ import { describe, expect, it } from "vitest";
 import { toSharedDeckSlide } from "./api";
 
 describe("toSharedDeckSlide speaker notes", () => {
-  it("preserves persisted speaker notes in the shared read model", () => {
+  it("redacts presenter notes by default", () => {
+    expect(
+      toSharedDeckSlide(
+        {
+          id: "slide-1",
+          content: '<div class="fmd-slide"><h1>Title</h1></div>',
+          notes: "Private presenter context.",
+        },
+        0,
+      ).notes,
+    ).toBe("");
+  });
+
+  it("preserves persisted speaker notes for an internal read", () => {
     expect(
       toSharedDeckSlide(
         {
@@ -12,6 +25,7 @@ describe("toSharedDeckSlide speaker notes", () => {
           notes: "Explain the decision before advancing.",
         },
         0,
+        { includeNotes: true },
       ),
     ).toMatchObject({
       id: "slide-1",
