@@ -1,5 +1,15 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const installationStoreMocks = vi.hoisted(() => ({
+  getActiveIntegrationInstallationByKey: vi.fn(),
+}));
+
+vi.mock("../installations-store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../installations-store.js")>()),
+  getActiveIntegrationInstallationByKey:
+    installationStoreMocks.getActiveIntegrationInstallationByKey,
+}));
+
 import { slackAdapter } from "./slack.js";
 
 const originalNodeEnv = process.env.NODE_ENV;
@@ -9,6 +19,7 @@ describe("slackAdapter", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+    installationStoreMocks.getActiveIntegrationInstallationByKey.mockReset();
     process.env.NODE_ENV = originalNodeEnv;
     delete process.env.SLACK_BOT_TOKEN;
     delete process.env.SLACK_ALLOWED_TEAM_IDS;
@@ -293,6 +304,31 @@ describe("slackAdapter", () => {
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining("SLACK_ALLOWED_TEAM_IDS not set"),
     );
+  });
+
+  it("uses Enterprise Grid scope for the managed-install allowlist fallback", async () => {
+    process.env.NODE_ENV = "production";
+    installationStoreMocks.getActiveIntegrationInstallationByKey.mockResolvedValue(
+      { id: "installation-enterprise" },
+    );
+
+    await expect(
+      slackAdapter().parseIncomingMessage(
+        slackEvent({
+          enterprise_id: "E123",
+          authorizations: [
+            {
+              enterprise_id: "E123",
+              team_id: null,
+              is_enterprise_install: true,
+            },
+          ],
+        }),
+      ),
+    ).resolves.toBeTruthy();
+    expect(
+      installationStoreMocks.getActiveIntegrationInstallationByKey,
+    ).toHaveBeenCalledWith("slack", "enterprise:E123:app:A123");
   });
 
   it("uses workspace and app ids in the canonical thread key", async () => {

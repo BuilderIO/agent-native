@@ -154,40 +154,42 @@ function persistedArtifactLedgerFromMarker(
   secrets: readonly string[] = a2aSecrets(),
 ): PersistedArtifactLedger | null {
   if (secrets.length === 0) return null;
-  const match = result.match(
-    /<!--\s*agent-native:persisted-artifacts=([A-Za-z0-9_-]+)\.([a-f0-9]{64})\s*-->/,
+  const matches = result.matchAll(
+    /<!--\s*agent-native:persisted-artifacts=([A-Za-z0-9_-]+)\.([a-f0-9]{64})\s*-->/g,
   );
-  if (!match) return null;
-  try {
-    const payload = match[1];
-    const supplied = Buffer.from(match[2], "hex");
-    const verified = secrets.some((secret) => {
-      const expected = createHmac("sha256", secret).update(payload).digest();
-      return (
-        supplied.length === expected.length &&
-        timingSafeEqual(supplied, expected)
+  for (const match of matches) {
+    try {
+      const payload = match[1];
+      const supplied = Buffer.from(match[2], "hex");
+      const verified = secrets.some((secret) => {
+        const expected = createHmac("sha256", secret).update(payload).digest();
+        return (
+          supplied.length === expected.length &&
+          timingSafeEqual(supplied, expected)
+        );
+      });
+      if (!verified) continue;
+      const parsed: unknown = JSON.parse(
+        Buffer.from(payload, "base64url").toString(),
       );
-    });
-    if (!verified) return null;
-    const parsed: unknown = JSON.parse(
-      Buffer.from(payload, "base64url").toString(),
-    );
-    if (Array.isArray(parsed)) {
-      return { version: 1, identities: parsed, mutationReceipts: [] };
+      if (Array.isArray(parsed)) {
+        return { version: 1, identities: parsed, mutationReceipts: [] };
+      }
+      const ledger = asRecord(parsed);
+      if (!ledger || ledger.version !== 1) continue;
+      return {
+        version: 1,
+        identities: Array.isArray(ledger.identities) ? ledger.identities : [],
+        mutationReceipts: Array.isArray(ledger.mutationReceipts)
+          ? ledger.mutationReceipts
+          : [],
+      } as PersistedArtifactLedger;
+    } catch {
+      // coercion-ok: malformed signed-marker payloads are untrusted absence, never a successful receipt ledger
+      continue;
     }
-    const ledger = asRecord(parsed);
-    if (!ledger || ledger.version !== 1) return null;
-    return {
-      version: 1,
-      identities: Array.isArray(ledger.identities) ? ledger.identities : [],
-      mutationReceipts: Array.isArray(ledger.mutationReceipts)
-        ? ledger.mutationReceipts
-        : [],
-    } as PersistedArtifactLedger;
-  } catch {
-    // coercion-ok: malformed signed-marker payloads are untrusted absence, never a successful receipt ledger
-    return null;
   }
+  return null;
 }
 
 function persistedArtifactIdentitiesFromMarker(
