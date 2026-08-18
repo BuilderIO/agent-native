@@ -331,6 +331,36 @@ describe("slackAdapter", () => {
     ).toHaveBeenCalledWith("slack", "enterprise:E123:app:A123");
   });
 
+  it("prefers the event workspace authorization over an enterprise authorization", async () => {
+    process.env.NODE_ENV = "development";
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const parsed = await slackAdapter().parseIncomingMessage(
+      slackEvent({
+        team_id: "T123",
+        enterprise_id: "E123",
+        authorizations: [
+          {
+            enterprise_id: "E123",
+            team_id: null,
+            is_enterprise_install: true,
+          },
+          {
+            enterprise_id: "E123",
+            team_id: "T123",
+            is_enterprise_install: false,
+          },
+        ],
+      }),
+    );
+
+    expect(parsed?.platformContext).toMatchObject({
+      teamId: "T123",
+      enterpriseId: "E123",
+      isEnterpriseInstall: false,
+    });
+  });
+
   it("uses workspace and app ids in the canonical thread key", async () => {
     process.env.NODE_ENV = "development";
     vi.spyOn(console, "warn").mockImplementation(() => {});

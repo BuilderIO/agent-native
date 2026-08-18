@@ -235,6 +235,7 @@ async function resolveSlackSenderProfile(
         };
         is_restricted?: boolean;
         is_ultra_restricted?: boolean;
+        is_stranger?: boolean;
       };
     };
     const profile = data.ok
@@ -247,6 +248,7 @@ async function resolveSlackSenderProfile(
             data.user?.name?.trim() ||
             null,
           trust:
+            data.user?.is_stranger === true ||
             data.user?.is_ultra_restricted === true
               ? ("external_shared" as const)
               : data.user?.is_restricted === true

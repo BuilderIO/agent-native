@@ -888,6 +888,50 @@ describe("managed Slack execution identity", () => {
     );
   });
 
+  it("denies a Slack Connect stranger before linked-owner resolution", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.resolveLinkedOwner.mockResolvedValueOnce("member@example.test");
+    mocks.isOrgMember.mockResolvedValueOnce(true);
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: {
+            is_stranger: true,
+            profile: { email: "stranger@example.test" },
+          },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      senderId: "U-SLACK-CONNECT-STRANGER",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    const execution = await resolveDispatchExecutionContext(incoming);
+    expect(execution.orgId).toBeNull();
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "This assistant is only available to members of this workspace's organization.",
+      },
+    );
+    expect(mocks.resolveLinkedOwner).not.toHaveBeenCalled();
+    expect(mocks.isOrgMember).not.toHaveBeenCalled();
+  });
+
   it("keeps a managed channel on its service principal even when Alice is verified", async () => {
     mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
       managedSlackInstallation(),

@@ -614,6 +614,12 @@ describe("list-content-databases", () => {
       systemRole: "files",
       hideFromSearch: true,
     });
+    await createDatabaseDocument({
+      documentId: "archived-ordinary-document",
+      databaseId: "archived-ordinary-database",
+      title: "Archived ordinary database",
+      spaceId,
+    });
     await getDb()
       .update(schema.contentSpaces)
       .set({ archivedAt: new Date().toISOString() })
@@ -624,6 +630,7 @@ describe("list-content-databases", () => {
         spaceId,
         includeSystemCollections: true,
       });
+      expect(inventory.databases).toEqual([]);
       expect(inventory.systemCollections).toEqual([]);
     });
   });

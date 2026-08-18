@@ -2623,8 +2623,11 @@ export function createAgentChatPlugin(
               },
             );
 
+            const persistedArtifactSecret =
+              await resolveA2ARecoverableArtifactSecret();
             return assembleA2AFinalResponse(mcpEvents, mcpToolResults, {
               outcome: mcpOutcome,
+              persistedArtifactSecret,
             }).finalText;
           },
         });

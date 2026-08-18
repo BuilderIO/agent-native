@@ -172,6 +172,7 @@ export default defineAction({
         isNull(schema.documents.hideFromSearch),
       ),
       isNull(schema.contentDatabases.deletedAt),
+      isNull(schema.contentSpaces.archivedAt),
       isNull(schema.contentDatabases.systemRole),
       args.spaceId
         ? eq(schema.contentDatabases.spaceId, args.spaceId)
@@ -218,6 +219,10 @@ export default defineAction({
           schema.documents,
           eq(schema.contentDatabases.documentId, schema.documents.id),
         )
+        .leftJoin(
+          schema.contentSpaces,
+          eq(schema.contentDatabases.spaceId, schema.contentSpaces.id),
+        )
         .where(where)
         .orderBy(
           asc(schema.documents.position),
@@ -263,6 +268,10 @@ export default defineAction({
               .innerJoin(
                 schema.documents,
                 eq(schema.contentDatabases.documentId, schema.documents.id),
+              )
+              .leftJoin(
+                schema.contentSpaces,
+                eq(schema.contentDatabases.spaceId, schema.contentSpaces.id),
               )
               .where(where)
           )[0]?.count ?? 0,

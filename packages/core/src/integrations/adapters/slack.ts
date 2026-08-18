@@ -124,7 +124,7 @@ function slackEventInstallationScope(payload: any): {
   const teamAuthorization = authorizations.find(
     (authorization) => authorization.team_id === teamId,
   );
-  const authorization = enterpriseAuthorization ?? teamAuthorization;
+  const authorization = teamAuthorization ?? enterpriseAuthorization;
 
   return {
     enterpriseId:
