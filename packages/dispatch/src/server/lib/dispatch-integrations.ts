@@ -330,6 +330,7 @@ async function resolveManagedSlackDmExecutionContext(
     incoming.platformContext.identityLinkRequired = true;
     return deniedContext();
   }
+  incoming.platformContext.managedInstallationOrgId = installation.orgId;
 
   let linkedOwner: string | null;
   try {
@@ -662,11 +663,15 @@ export async function beforeDispatchProcess(
   }
 
   try {
+    const expectedOrgId = contextString(
+      incoming.platformContext.managedInstallationOrgId,
+    );
     const owner = await consumeLinkToken({
       platform: incoming.platform,
       token: match[1],
       externalUserId: identityKeyForIncoming(incoming),
       externalUserName: incoming.senderName || null,
+      ...(expectedOrgId ? { expectedOrgId } : {}),
     });
     return {
       handled: true,

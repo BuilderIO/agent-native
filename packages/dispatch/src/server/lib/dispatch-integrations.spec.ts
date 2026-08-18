@@ -448,6 +448,55 @@ describe("beforeDispatchProcess", () => {
       externalUserName: "U123",
     });
   });
+
+  it("scopes a managed Slack link claim to the installation organization", async () => {
+    mocks.getActiveIntegrationInstallationByKey.mockResolvedValueOnce(
+      managedSlackInstallation(),
+    );
+    mocks.resolveSlackBotTokenForIncoming.mockResolvedValueOnce(
+      "managed-token",
+    );
+    mocks.consumeLinkToken.mockRejectedValueOnce(
+      new Error(
+        "This link token belongs to a different organization. Create a token from this workspace and try again.",
+      ),
+    );
+    vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          ok: true,
+          user: { profile: { email: "outside@example.test" } },
+        }),
+      ),
+    );
+    const incoming = slackIncoming({
+      text: "/link token-other-org",
+      senderId: "U-MANAGED-LINK",
+      triggerKind: "dm",
+      conversationType: "dm",
+      platformContext: {
+        teamId: "T-MANAGED",
+        channelId: "D-MANAGED",
+        channelType: "im",
+      },
+    });
+
+    await resolveDispatchExecutionContext(incoming);
+    await expect(beforeDispatchProcess(incoming, noopAdapter)).resolves.toEqual(
+      {
+        handled: true,
+        responseText:
+          "This link token belongs to a different organization. Create a token from this workspace and try again.",
+      },
+    );
+    expect(mocks.consumeLinkToken).toHaveBeenCalledWith({
+      platform: "slack",
+      token: "token-other-org",
+      externalUserId: "T-MANAGED:U-MANAGED-LINK",
+      externalUserName: "U123",
+      expectedOrgId: "org-managed",
+    });
+  });
 });
 
 describe("managed Slack execution identity", () => {
