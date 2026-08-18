@@ -155,13 +155,16 @@ in the moment of agent use.
 ## Integration Setup Preflight
 
 Before building any setup, settings, credential, OAuth, or connection surface,
-search the framework and toolkit for an existing primitive and classify each
-provider value by its lifecycle and scope:
+search the workspace/provider connection catalog first. If the provider already
+has a reusable connection, use its catalog, app grant, and scoped credential
+resolver rather than registering a parallel secret. Only then classify fields
+that still need app-local setup by lifecycle and scope:
 
 | Need | Default primitive |
 | --- | --- |
 | Deploy- or app-level configuration | Runtime configuration or deployment env vars |
-| User-, workspace-, or org-scoped API/service key | `registerRequiredSecret({ kind: "api-key" })` and the vault |
+| Existing workspace/provider connection | Workspace-connection catalog/grant plus `resolveWorkspaceConnectionCredential(s)ForApp` |
+| App-local API/service key with no reusable connection | `registerRequiredSecret({ kind: "api-key" })` and the vault |
 | Authorization-code or refresh-token flow | `kind: "oauth"` with `@agent-native/core/oauth-tokens` |
 | Account, customer, or other non-secret identifiers | Scoped connection metadata or app data |
 | Provider-specific prerequisites, sequencing, or health | A thin app-local guide over the shared primitives |

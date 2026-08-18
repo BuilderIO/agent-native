@@ -26,8 +26,11 @@ encrypted `app_secrets` vault, `saveCredential` / `resolveCredential`, OAuth, or
 
 ## Credential Modeling Preflight
 
-Before registering a provider's fields, classify them instead of putting every
-value in the vault:
+Before registering a provider's fields, inspect the workspace/provider connection
+catalog first. If a reusable connection exists, use its app grant and scoped
+`resolveWorkspaceConnectionCredential(s)ForApp` path instead of registering a
+parallel secret. Only classify fields for app-local setup when no reusable
+connection exists:
 
 - **API or service key** - register it as `kind: "api-key"` with the narrowest
   correct `scope`, a human label, a description, a docs link, and a validator.

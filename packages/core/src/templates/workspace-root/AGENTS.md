@@ -165,11 +165,9 @@ an additional locale or changelog.
   available to every workspace app. Only create or request per-app vault grants
   when Dispatch's vault access setting is switched to manual mode.
 - Before implementing an app that connects to an external service, inspect the
-  framework and toolkit for existing settings, secrets/vault, OAuth,
-  workspace-connection, onboarding, and provider API primitives. Reuse the
-  strongest existing primitive by default. Use scoped vault entries for API and
-  service keys, native OAuth for authorization-code and refresh-token flows,
-  and ordinary connection metadata for non-secret identifiers.
+  workspace/provider connection catalog first. Reuse an existing connection and
+  its scoped credential resolver; only then use shared settings, vault, OAuth,
+  onboarding, and provider API primitives for app-local setup.
 - Keep custom setup UI only for provider-specific prerequisites, sequencing,
   readiness, or health checks. It must link to or call shared settings/OAuth and
   action surfaces, not duplicate credential storage or transport. Model one

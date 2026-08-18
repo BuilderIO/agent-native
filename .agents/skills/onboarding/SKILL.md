@@ -17,11 +17,12 @@ If a feature requires user-facing setup (API keys, OAuth, connecting a third-par
 
 Onboarding must point users to a secure credential path; it must never encode
 the credential value in source, docs, fixtures, prompts, or generated content.
-For API keys and service tokens, prefer `registerRequiredSecret()` from the
-`secrets` skill so the settings UI, encrypted storage, validation, and
-onboarding checklist stay in one place. For OAuth, check the scoped OAuth token
-store. Use deployment env vars only for deploy-level configuration, not
-per-user credentials.
+For a provider represented in the workspace connection catalog, check the
+connection readiness and app grant first, then resolve credentials through the
+scoped workspace-connection helper. Only when no reusable connection exists
+should API keys and service tokens use `registerRequiredSecret()` from the
+`secrets` skill. For OAuth, check the scoped OAuth token store. Use deployment
+env vars only for deploy-level configuration, not per-user credentials.
 
 Model onboarding around the logical connection outcome, not its individual
 fields. Because `registerRequiredSecret({ required: true })` auto-injects a
