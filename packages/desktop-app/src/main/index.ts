@@ -1291,6 +1291,8 @@ ipcMain.handle(IPC.IDENTITY_STATUS_GET, async (event) => {
   }
   if (!isDesktopSsoEnabled()) return "idle" satisfies DesktopIdentityStatus;
   const broker = ensureDesktopIdentityBroker();
+  const cachedStatus = broker?.getStatus() ?? "idle";
+  if (cachedStatus === "signed-in") return cachedStatus;
   await broker?.refreshStatus(resolveDesktopIdentityApp("dispatch"));
   return broker?.getStatus() ?? "idle";
 });

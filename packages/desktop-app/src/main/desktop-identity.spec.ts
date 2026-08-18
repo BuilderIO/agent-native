@@ -911,6 +911,7 @@ describe("DesktopIdentityBroker", () => {
 
     await broker.refreshStatus(authority);
     expect(broker.getStatus()).toBe("signed-in");
+    expect(identityFetch).toHaveBeenCalledOnce();
   });
 
   it("leaves ordinary per-app sign-out alone after rollout availability turns off", async () => {

@@ -28,6 +28,18 @@ describe("desktop passive-access regressions", () => {
     expect(handler).not.toContain("startRemoteCodeAgentConnector");
   });
 
+  it("does not revalidate a verified desktop identity on tab status reads", () => {
+    const main = source("./index.ts");
+    const handler = between(
+      main,
+      "ipcMain.handle(IPC.IDENTITY_STATUS_GET",
+      "ipcMain.handle(IPC.IDENTITY_AVAILABILITY_GET",
+    );
+
+    expect(handler).toContain("const cachedStatus = broker?.getStatus()");
+    expect(handler).toContain('if (cachedStatus === "signed-in")');
+  });
+
   it("keeps remembered Content folder discovery metadata-only", () => {
     const main = source("./index.ts");
     const normalization = between(

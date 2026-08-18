@@ -512,6 +512,11 @@ export class DesktopIdentityBroker {
   }
 
   async refreshStatus(authorityApp: DesktopIdentityApp | null): Promise<void> {
+    // A verified workspace session is the source of truth for the desktop
+    // shell. App tabs must not turn a normal navigation into another remote
+    // session check or strand the user behind a loading gate.
+    if (this.status === "signed-in") return;
+
     const observedStatus = this.status;
     const observedGeneration = this.ceremonyGeneration;
     if (
@@ -564,7 +569,7 @@ export class DesktopIdentityBroker {
       ) {
         return;
       }
-      if (observedStatus !== "signed-in") this.setStatus("sign-in-required");
+      this.setStatus("sign-in-required");
       return;
     }
     if (

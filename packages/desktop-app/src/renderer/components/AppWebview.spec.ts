@@ -13,6 +13,7 @@ import {
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
   resolveDesktopIdentityLazySyncStatus,
+  shouldReuseRememberedDesktopIdentitySession,
 } from "./AppWebview.js";
 
 describe("Desktop identity lazy child synchronization", () => {
@@ -23,6 +24,16 @@ describe("Desktop identity lazy child synchronization", () => {
     expect(resolveDesktopIdentityLazySyncStatus("signed-in", true)).toBe(
       "signed-in",
     );
+  });
+
+  it("reuses a verified workspace session when an app tab is activated", () => {
+    expect(shouldReuseRememberedDesktopIdentitySession("signed-in")).toBe(true);
+    expect(
+      shouldReuseRememberedDesktopIdentitySession("sign-in-required"),
+    ).toBe(false);
+    expect(
+      shouldReuseRememberedDesktopIdentitySession("signed-in", "signed-in"),
+    ).toBe(false);
   });
 });
 
