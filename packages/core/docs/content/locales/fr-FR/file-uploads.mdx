@@ -1,6 +1,6 @@
 ---
 title: "Téléchargements de fichiers"
-description: "Configurer le stockage de téléchargement de fichiers : solution de secours SQL pour le développement, Builder.io ou fournisseurs personnalisés pour la production."
+description: "Configurer un stockage objet durable pour les téléchargements : Builder.io ou un fournisseur S3 compatible personnalisé."
 ---
 
 # Téléchargements de fichiers
@@ -14,10 +14,10 @@ Les requêtes de téléchargement sont envoyées à `POST /_agent-native/file-up
 L'ordre de résolution du fournisseur est :
 
 1. **Fournisseurs enregistrés par l'utilisateur** : fournisseurs personnalisés enregistrés via `registerFileUploadProvider()`
-2. **Fournisseur Builder.io** — intégré, s'active automatiquement lorsque Builder.io est connecté
-3. **secours SQL** — stocke les fichiers en base64 dans la base de données (bien pour le développement, pas pour la production)
+2. **Fournisseur Builder.io** (offre gratuite disponible) — intégré, s'active automatiquement lorsque Builder.io est connecté
+3. **Stockage requis** — sans fournisseur, le téléchargement est refusé de manière sûre et une carte de configuration s’affiche ; les données binaires ne sont jamais stockées dans SQL
 
-<Diagram id="doc-block-1msczw9" title={"Ordre de résolution du fournisseur"} summary={"uploadFile() sélectionne le premier fournisseur configuré dans l'ordre. La solution de secours SQL existe toujours, donc les téléchargements fonctionnent sans configuration."}>
+<Diagram id="doc-block-1msczw9" title={"Ordre de résolution du fournisseur"} summary={"uploadFile() sélectionne le premier fournisseur configuré dans l'ordre. Sans fournisseur, le téléchargement est refusé de manière sûre et une carte de configuration s'affiche."}>
 
 ```html
 <div class="diagram-upload">
@@ -47,8 +47,8 @@ L'ordre de résolution du fournisseur est :
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        secours SQL<br /><small class="diagram-muted"
-          >base64 en BD — dev seulement</small
+        stockage requis<br /><small class="diagram-muted"
+          >configurer Builder.io ou un stockage S3 compatible</small
         >
       </div>
     </div>
@@ -94,15 +94,15 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 </Endpoint>
 
-## Par défaut : Retour SQL {#sql-fallback}
+## Stockage requis pour des téléchargements durables {#storage-required}
 
-Lorsqu'aucun fournisseur n'est configuré, les fichiers sont stockés sous forme de données base64 dans la base de données SQL via le système de ressources. Cela fonctionne immédiatement pour le développement local, mais n'est pas recommandé pour la production : les fichiers volumineux gonflent la base de données et il n'y a pas de CDN.
+Lorsqu'aucun fournisseur n'est configuré, le téléchargement est refusé de manière sûre et une carte permet de configurer Builder.io ou un fournisseur S3 compatible. Les données binaires ne sont pas stockées en base64 dans SQL.
 
-Un avertissement unique est enregistré lorsque la solution de secours est utilisée.
+Les octets peuvent uniquement être utilisés pour la requête actuelle et ne sont pas enregistrés dans l'historique du chat. Une fois le stockage configuré, les téléchargements renvoient une URL publique stable, réutilisable lors des tours suivants.
 
 ## Hébergement Builder.io {#builder-hosting}
 
-Lorsque votre application est connectée à Builder.io, les téléchargements de fichiers sont automatiquement acheminés vers l'hébergement d'actifs de Builder. Les fichiers sont servis à partir d'un CDN sans aucune configuration nécessaire. Il s'agit de la configuration de production recommandée.
+Lorsque votre application est connectée à Builder.io (offre gratuite disponible), les téléchargements de fichiers sont automatiquement acheminés vers l'hébergement d'actifs de Builder. Les fichiers sont servis à partir d'un CDN sans aucune configuration nécessaire. Il s'agit de la configuration de production recommandée.
 
 ## Fournisseurs personnalisés {#custom-providers}
 
@@ -142,7 +142,8 @@ L'interface `FileUploadProvider` :
 interface FileUploadProvider {
   id: string; // Unique id, e.g. "s3"
   name: string; // Human-readable name
-  isConfigured: () => boolean; // True when ready (env vars set, etc.)
+  isConfigured: () => boolean; // True when ready from sync runtime state
+  isConfiguredForRequest?: () => Promise<boolean>; // True from scoped DB secrets
   upload: (input: FileUploadInput) => Promise<FileUploadResult>;
 }
 
@@ -150,7 +151,7 @@ interface FileUploadInput {
   data: Uint8Array | Buffer; // File contents
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
-  ownerEmail?: string; // For per-user scoping in fallback
+  ownerEmail?: string; // For request-scoped provider credentials
 }
 
 interface FileUploadResult {
@@ -174,6 +175,6 @@ const result = await uploadFile({
 if (result) {
   // Provider handled it — result.url is the public URL
 } else {
-  // No provider configured — handle secours SQL yourself, or skip
+  // Configurer le stockage ou ignorer le téléchargement
 }
 ```

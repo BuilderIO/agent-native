@@ -293,6 +293,8 @@ describe("buildPublicAgentContext", () => {
       transcript: null,
       agentSegments: [],
       chapters: [{ startMs: 1000, title: "Chapter" }],
+      comments: [],
+      reactions: [],
       ctas: [],
     });
 
@@ -328,6 +330,8 @@ describe("buildPublicAgentContext", () => {
       transcript: null,
       agentSegments: [],
       chapters: [{ startMs: 1000, title: "Chapter" }],
+      comments: [],
+      reactions: [],
       ctas: [],
     });
 
@@ -359,6 +363,8 @@ describe("buildPublicAgentContext", () => {
       } as any,
       agentSegments: [],
       chapters: [],
+      comments: [],
+      reactions: [],
       ctas: [],
     });
 
@@ -369,6 +375,40 @@ describe("buildPublicAgentContext", () => {
     expect(context.instructions.join(" ")).toMatch(
       /fetch apis\.context\.url or apis\.transcript\.url again/i,
     );
+  });
+
+  it("does not advertise frames while the clip itself is still processing", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording({ status: "processing" }) as any,
+        viewerIsOwner: false,
+        apiToken: null,
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [],
+      comments: [],
+      reactions: [],
+      ctas: [],
+    });
+
+    expect(context.clip.status).toBe("processing");
+    expect(context.clip.agentReadiness).toMatchObject({
+      state: "preparing",
+      retryAfterSeconds: 15,
+    });
+    expect(context.instructions.join(" ")).toMatch(/still processing/i);
+    expect(context.instructions.join(" ")).toMatch(/wait 15 seconds/i);
+    expect(context.apis).not.toHaveProperty("frame");
+    expect(context.recommendedFrames).toEqual([]);
   });
 
   it("tells agents how to explain exhausted Builder transcription credits", () => {
@@ -395,6 +435,8 @@ describe("buildPublicAgentContext", () => {
       } as any,
       agentSegments: [],
       chapters: [],
+      comments: [],
+      reactions: [],
       ctas: [],
     });
 
@@ -404,11 +446,82 @@ describe("buildPublicAgentContext", () => {
       /Builder transcription credits are exhausted/i,
     );
     expect(context.instructions.join(" ")).toMatch(
-      /Groq key for backup speech-to-text/i,
+      /Builder transcription on the original recording/i,
     );
     expect(context.instructions.join(" ")).toMatch(
-      /OpenAI or Anthropic chat keys do not transcribe/i,
+      /browser\/macOS native transcript first/i,
     );
+  });
+
+  it("omits commenter and reaction email fields from the public payload", () => {
+    const context = buildPublicAgentContext({
+      event: {
+        url: new URL(
+          "https://clips.example.com/api/agent-context.json?id=rec-1",
+        ),
+        req: {
+          headers: new Headers(),
+        },
+      } as any,
+      access: {
+        recording: makeRecording() as any,
+        viewerIsOwner: false,
+        apiToken: null,
+      },
+      transcript: null,
+      agentSegments: [],
+      chapters: [],
+      comments: [
+        {
+          id: "comment-1",
+          recordingId: "rec-1",
+          threadId: "thread-1",
+          parentId: null,
+          authorEmail: "commenter@example.com",
+          authorName: "Commenter",
+          content: "Looks good",
+          videoTimestampMs: 1000,
+          emojiReactionsJson: '{"👍":["reactor@example.com"]}',
+          resolved: false,
+          createdAt: "2026-08-14T00:00:00.000Z",
+          updatedAt: "2026-08-14T00:00:00.000Z",
+        } as any,
+      ],
+      reactions: [
+        {
+          id: "reaction-1",
+          emoji: "👍",
+          videoTimestampMs: 1000,
+          viewerEmail: "reactor@example.com",
+          viewerName: "Reactor",
+          createdAt: "2026-08-14T00:00:00.000Z",
+        } as any,
+      ],
+      ctas: [],
+    });
+
+    expect(context.comments[0]).toEqual({
+      id: "comment-1",
+      recordingId: "rec-1",
+      threadId: "thread-1",
+      parentId: null,
+      authorName: "Commenter",
+      content: "Looks good",
+      videoTimestampMs: 1000,
+      resolved: false,
+      createdAt: "2026-08-14T00:00:00.000Z",
+      updatedAt: "2026-08-14T00:00:00.000Z",
+    });
+    expect(context.comments[0]).not.toHaveProperty("authorEmail");
+    expect(context.comments[0]).not.toHaveProperty("emojiReactionsJson");
+    expect(context.reactions[0]).toEqual({
+      id: "reaction-1",
+      emoji: "👍",
+      videoTimestampMs: 1000,
+      viewerName: "Reactor",
+      createdAt: "2026-08-14T00:00:00.000Z",
+    });
+    expect(context.reactions[0]).not.toHaveProperty("viewerEmail");
   });
 
   it("exposes compact redacted browser diagnostics in public agent context", () => {
@@ -429,6 +542,8 @@ describe("buildPublicAgentContext", () => {
       transcript: null,
       agentSegments: [],
       chapters: [],
+      comments: [],
+      reactions: [],
       ctas: [],
       browserDiagnostics: {
         pageUrl: "https://clips.example.com/record",

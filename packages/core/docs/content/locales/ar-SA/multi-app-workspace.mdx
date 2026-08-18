@@ -5,7 +5,7 @@ description: "يمكنك استضافة العديد من تطبيقات الو�
 
 # مساحات عمل متعددة التطبيقات
 
-> **ما هو مستند مساحة العمل؟** تغطي هذه الصفحة **شكل النشر** — monorepo واحد، والعديد من التطبيقات، والمصادقة المشتركة والنشر الموحد. لمعرفة ماهية مساحة العمل (طبقة التخصيص: `AGENTS.md`، `LEARNINGS.md`، الذاكرة الشخصية، skills، الوكلاء المخصصون) راجع [Workspace](/docs/workspace)؛ بالنسبة للحوكمة (من يراجع ويوافق ويمتلك ماذا) راجع [Workspace Governance](/docs/workspace-management).
+> **ما هو مستند مساحة العمل؟** تغطي هذه الصفحة **شكل النشر** — monorepo واحد، والعديد من التطبيقات، والمصادقة المشتركة والنشر الموحد. لمعرفة طبقة تخصيص الوكيل (موارد الوكيل: `AGENTS.md`، الذاكرة، skills، الوكلاء المخصصون) راجع [موارد الوكيل](/docs/agent-resources)؛ بالنسبة للحوكمة (من يراجع ويوافق ويمتلك ماذا) راجع [Workspace Governance](/docs/workspace-management).
 
 عندما تستغرق عملية الترميز الديناميكي لأداة داخلية فترة ما بعد الظهر، فلا تتوقف عند واحدة. ينتهي الأمر بالفريق بالحصول على CRM، وصندوق بريد وارد للدعم، ولوحة معلومات، ووحدة تحكم للعمليات - عشرة تطبيقات صغيرة، كل منها مدعوم بشكل مستقل. يعد هذا أمرًا رائعًا حتى تحتاج إلى تغيير شيء ما فيها جميعًا.
 
@@ -218,7 +218,7 @@ pnpm dev
 
 استخدم `packages/shared` للإعدادات الافتراضية على مستوى التعليمات البرمجية التي يجب أن تأتي مع الريبو: المكونات الإضافية، وactions المشتركة، ورمز React المشترك، ونظام الملفات `AGENTS.md`، ونظام الملفات skills. استخدم موارد مساحة عمل Dispatch للسياق العام القابل للتحرير في وقت التشغيل والذي يرغب المسؤولون في إدارته دون تغيير التعليمات البرمجية.
 
-يتم تحديد نطاق موارد الإرسال **جميع التطبيقات** (يرثها كل تطبيق في وقت التشغيل، بدون خطوة النسخ أو المزامنة) أو **التطبيقات المحددة** (تُمنح لكل تطبيق لسياق خاص بالتطبيق). راجع [Workspace](/docs/workspace#global-resources) للحصول على جدول نموذج الموارد الكامل واصطلاحات المسار وحزمة البداية الموصى بها.
+يتم تحديد نطاق موارد الإرسال **جميع التطبيقات** (يرثها كل تطبيق في وقت التشغيل، بدون خطوة النسخ أو المزامنة) أو **التطبيقات المحددة** (تُمنح لكل تطبيق لسياق خاص بالتطبيق). راجع [موارد الوكيل](/docs/agent-resources#global-resources) للحصول على جدول نموذج الموارد الكامل واصطلاحات المسار وحزمة البداية الموصى بها.
 
 ## المصادقة وRBAC {#auth-and-rbac}
 
@@ -256,7 +256,7 @@ my-company-platform/
 
 هناك عدد قليل من عمليات الإعداد التي تكون جاهزة للاستخدام في مساحة العمل:
 
-- **Builder `/cli-auth`**: clicking "Connect Builder" from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
+- **Builder `/cli-auth`**: clicking "Connect Builder" (free tier available) from any app writes `BUILDER_PRIVATE_KEY` and related metadata to scoped DB secrets, so every app can resolve the connection without sharing a deploy-global key.
 - **Compatibility key route** (`POST /_agent-native/env-vars`): older onboarding forms still call this route name, but it now saves values as scoped DB secrets. Pass `scope: "workspace"` to share with the active org, or omit it for a per-user key.
 
 ## بيانات الاعتماد المشتركة {#shared-credentials}
@@ -415,7 +415,7 @@ npx @agent-native/core@latest deploy --preset vercel --build-only
 
 ## انظر أيضًا {#see-also}
 
-- [Workspace](/docs/workspace) — طبقة التخصيص (`AGENTS.md`، `LEARNINGS.md`، الذاكرة الشخصية، skills، الوكلاء المخصصون) يشاركها كل تطبيق في مساحة العمل.
+- [موارد الوكيل](/docs/agent-resources) — طبقة التخصيص (`AGENTS.md`، `LEARNINGS.md`، الذاكرة الشخصية، skills، الوكلاء المخصصون) يشاركها كل تطبيق في مساحة العمل.
 - [Workspace Governance](/docs/workspace-management) — التفرع، CODEOWNERS، مراجعة العلاقات العامة عبر العديد من التطبيقات في مستودع واحد.
 - [Multi-Tenancy](/docs/multi-tenancy) — المؤسسات، والأدوار، وعزل البيانات لكل مؤسسة.
 - [Cross-App SSO](/docs/cross-app-sso) — اتحاد الهوية لعمليات نشر المجال المنفصل.

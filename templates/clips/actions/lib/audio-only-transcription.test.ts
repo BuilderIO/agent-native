@@ -5,6 +5,7 @@ import {
   audioExtractionTimeoutMs,
   audioExtensionForMimeType,
   assertAudioHasAudibleSignal,
+  isNoExtractableAudioError,
   isAudioMimeType,
   prepareAudioOnlyTranscriptionMedia,
 } from "./audio-only-transcription";
@@ -146,6 +147,17 @@ describe("audio-only transcription media", () => {
       message:
         "No speech was detected because this recording has no audio track.",
     });
+  });
+
+  it("treats recordings known to have no saved audio as terminal failures", () => {
+    expect(
+      isNoExtractableAudioError(
+        new AudioOnlyExtractionError(
+          "NO_AUDIO_SAVED",
+          "This recording has no audio track, so there was nothing to transcribe.",
+        ),
+      ),
+    ).toBe(true);
   });
 
   it("rejects silent audio before cloud transcription", async () => {

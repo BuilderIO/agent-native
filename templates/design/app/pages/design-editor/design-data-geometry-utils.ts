@@ -121,6 +121,26 @@ export function staleGeometryFrameIds(
   return stale;
 }
 
+/**
+ * Placement for a brand-new frame added alongside an existing canvas layout.
+ * add-localhost-screens falls back to (0, 0) for a new file with no explicit
+ * x/y, which lands it on top of whatever frame already occupies that spot —
+ * callers that add a single frame on demand (rather than laying out a whole
+ * canvas from empty) must supply an explicit position instead of relying on
+ * that fallback.
+ */
+export function nextLocalhostScreenPosition(
+  framesById: CanvasFrameGeometryById,
+): { x: number; y: number } {
+  const frames = Object.values(framesById);
+  if (frames.length === 0) return { x: 0, y: 0 };
+  const maxRight = Math.max(
+    ...frames.map((frame) => (frame.x ?? 0) + (frame.width ?? 0)),
+  );
+  const minTop = Math.min(...frames.map((frame) => frame.y ?? 0));
+  return { x: maxRight + 160, y: minTop };
+}
+
 export function viewportChangedFrameIds(
   before: CanvasFrameGeometryById,
   after: CanvasFrameGeometryById,

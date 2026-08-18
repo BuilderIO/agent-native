@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ Vários provedores podem estar ativos simultaneamente. Cada evento vai para todo
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 Dispare um evento de análise. Distribua para todos os fornecedores registrados.
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+`source` é o `ctx` de uma ação, repassado diretamente, ou um objeto meta `{ userId, anonymousId, sessionId }` para chamadas que não têm `ctx`.
+
+A sessão do navegador não precisa ser fornecida por quem chama: ela vem do contexto de requisição ambiente (`RequestContext.browserSessionId`, definido a partir do cabeçalho `X-Agent-Native-Session-Id` que o cliente de ações, o chat e o `track()` do navegador enviam), de modo que a mesma visita se correlaciona tanto se a interface quanto o agente disparou o evento. Cada provedor a mapeia para seu próprio campo de sessão: `$session_id` no PostHog, que liga o evento ao session replay; uma propriedade `session_id` no Mixpanel e no Amplitude; um `sessionId` de nível superior em webhooks e no Agent Native Analytics. Ela é ausente para chamadas sem navegador (cron, CLI, MCP, A2A), e um `sessionId` no objeto meta a sobrescreve.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ Identifique um usuário com características. Encaminhado para provedores que o 
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 Precisa de um back-end personalizado, o registro do provedor API ou os componentes internos de lote/singleton? Veja [Advanced: custom providers & internals](#advanced) no final.
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // Repasse ctx diretamente: o evento é atribuído a ctx.userEmail e se junta
+    // à sessão de navegador de onde veio a chamada.
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -176,8 +182,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import { track } from "@agent-native/core/client";
-
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -196,8 +201,7 @@ Isso é diferente da telemetria interna do navegador da estrutura (`trackEvent()
 Aplicativos Agent Native podem optar por um replay de sessão do navegador nativo sem adicionar um segundo SDK de análise. Chame `configureTracking()` uma vez na raiz do navegador e passe a chave pública do Analytics mais o endpoint do coletor:
 
 ```ts
-import { configureTracking } from "@agent-native/core/client";
-
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",
@@ -237,6 +241,8 @@ Os padrões de privacidade são intencionalmente conservadores, mas ainda úteis
 - Zonas sensíveis são bloqueadas com seletores como `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`, e campos do tipo cartão de crédito/senha/CPF.
 - As URLs são higienizadas com o mesmo auxiliar `scrubUrl()` usado pela análise do navegador.
 - A captura de replay é somente para web e opcional; ela não grava telas de desktop nativas.
+
+Os iframes gerenciados pelo framework, incluindo extensões e conteúdo de e-mail renderizado, são incluídos na captura de replay. Os mesmos seletores de mascaramento e bloqueio se aplicam dentro dos frames gravados. Um iframe de terceiros com origem diferente permanece opaco, a menos que seu próprio documento execute um gravador rrweb compatível com a gravação de iframes entre origens habilitada; a página principal não pode contornar os limites de origem do navegador.
 
 Durante a gravação, o replay de sessão também captura a saída do console do navegador (`log`, `info`, `warn`, `error`, `debug`, além dos eventos `error`/`unhandledrejection` da janela) e metadados de solicitações de rede (`fetch` e XHR) como eventos personalizados do rrweb marcados, para que agentes e o visualizador de replay possam depurar problemas relatados por usuários. A captura é ativada por padrão quando o replay está habilitado; ajuste ou desabilite-a com as opções `sessionReplay.console` e `sessionReplay.network`, cada uma aceitando um booleano ou um objeto de opções (`{ maxEvents?: number }`, sendo que `network` também aceita `captureErrorBodies` e `maxErrorBodyLength`). Corpos e cabeçalhos de solicitação nunca são capturados; corpos de resposta são capturados apenas como um trecho limitado e higienizado para respostas 5xx (erro de servidor) (`captureErrorBodies`, padrão `true`, limitado a `maxErrorBodyLength` caracteres, padrão 2048) — respostas que não sejam 5xx e falhas de rede (status 0) nunca carregam um corpo. As URLs são higienizadas, as mensagens são truncadas, o próprio tráfego de ingestão/rastreamento do gravador é excluído, e os orçamentos por sessão (1000 eventos de console / 2000 eventos de rede) adicionam um aviso de truncamento quando excedidos.
 
@@ -351,6 +357,6 @@ A estrutura também rastreia `builder connect clicked` de CTAs do Connect Builde
 
 ## O que vem a seguir
 
-- [**Actions**](/docs/actions) — onde se origina a maioria das chamadas de rastreamento
-- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` é executado no plugin core-routes na inicialização
+- [**Actions**](/docs/actions-overview) — onde se origina a maioria das chamadas de rastreamento
+- [**Server Plugins**](/docs/server-plugins) — `registerBuiltinProviders()` é executado no plugin core-routes na inicialização
 - [**Segurança — Gerenciamento de segredos**](/docs/security#secrets) — gerencie chaves API para provedores de rastreamento

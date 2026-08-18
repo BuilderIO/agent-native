@@ -25,7 +25,8 @@ These are mistakes other agents have made that stranded concurrent work:
 - The user said "fix the bug" / "open a PR" / "ship this" / "address review feedback" — those work on the **current** branch. PR and ship workflows in this repo push the current branch; they don't branch-then-push.
 - The current branch name looks unusual (`ai_*`, `claude/*`, `codex/*`, `changes-N`, `updates-N`, `pr-NNN`, `feat/...`). Those are platform-managed or other agents' branches; moving off looks like work-loss to whoever started them.
 - You're running inside Builder.io / Fusion / a project container. The platform tracks the user's work by the branch it assigned — leaving silently breaks their UI.
-- The working tree has uncommitted changes from work you didn't do. Branching stashes them, and orphaned stashes are how we've lost work in the past. Surface the changes to the user first, never stash silently.
+- The working tree has uncommitted changes. Checkpoint all nonignored local work
+  before branching; do not classify changes by authorship or stash them silently.
 - You think a fresh branch would be "tidier." Tidiness is not a goal here; concurrent-agent durability is.
 
 When in doubt: stay on the current branch. Ask the user before moving.
@@ -46,20 +47,27 @@ Compare the merge commit SHA. If `origin/main` doesn't include it yet, wait and 
 
 ## Steps
 
-Run as a single chained command to minimize time off-branch. The `git stash push` is gated so we **only pop a stash we just created** — never an old stash from a previous session. The stash name embeds the source branch so an orphan can be identified later (orphans are how we've lost work in the past — see "Post-flight check" below):
+Run as a single chained command to minimize time off-branch. Resolve the
+authenticated GitHub username before choosing the branch name so concurrent
+users have separate branch namespaces. The `git stash push` is gated so we
+**only pop a stash we just created** — never an old stash from a previous
+session. The stash name embeds the source branch so an orphan can be identified
+later (orphans are how we've lost work in the past — see "Post-flight check"
+below):
 
 ```bash
-SOURCE=$(git branch --show-current); STASH_MSG="new-branch-from-${SOURCE:-detached}-$(date +%s)"; if git diff-index --quiet HEAD --; then CREATED=0; else git stash push -m "$STASH_MSG" && CREATED=1 || CREATED=0; fi; git checkout main && git pull origin main && git checkout -b <branch-name> && if [ "$CREATED" = "1" ]; then git stash pop; else echo "(no stash to pop)"; fi; echo "--- Done: $(git branch --show-current)"
+GITHUB_USER=$(gh api user --jq .login) && test -n "$GITHUB_USER" || { echo "Unable to resolve the authenticated GitHub username" >&2; exit 1; }; LATEST=$({ git for-each-ref --format='%(refname:short)' refs/heads refs/remotes/origin; git ls-remote --heads origin; } | sed -E -e 's#^[0-9a-f]+[[:space:]]+refs/heads/##' -e 's#^origin/##' | sed -nE 's#^([^/]+/)?changes-([0-9]+)$#\2#p' | awk '$1 >= 50 { print }' | sort -n | tail -1); NEXT=$(( ${LATEST:-49} + 1 )); BRANCH_NAME="${GITHUB_USER}/changes-${NEXT}"; SOURCE=$(git branch --show-current); STASH_MSG="new-branch-from-${SOURCE:-detached}-$(date +%s)"; if git diff-index --quiet HEAD --; then CREATED=0; else git stash push -m "$STASH_MSG" && CREATED=1 || CREATED=0; fi; git checkout main && git pull origin main && git checkout -b "$BRANCH_NAME" && if [ "$CREATED" = "1" ]; then git stash pop; else echo "(no stash to pop)"; fi; echo "--- Done: $(git branch --show-current)"
 ```
 
 Why the gate: `git stash push` exits 0 even when there are no local changes ("No local changes to save"), so chaining `&& CREATED=1` would always set CREATED=1 and an unconditional `git stash pop` would pop a *pre-existing* stash from earlier work, dumping unrelated files into the working tree. The `git diff-index --quiet HEAD --` pre-check exits 0 only when there are no differences against HEAD in **tracked** files — we skip stashing entirely in that case so there's nothing to pop. Untracked files are intentionally not part of the gate (and not stashed): for a fast new-branch flow, untracked files following the user across `git checkout` is the desired behaviour, and `git stash push` without `-u` already ignores them. We let `git stash pop` errors (e.g. merge conflicts) surface naturally rather than swallowing them with `2>/dev/null`, since the next section assumes you'll see and resolve them.
 
 ## Branch naming
 
-- Use the pattern `changes-N` where N is at least 50
-- Ignore older `changes-*` branches below 50 when choosing the next branch number
-- Check existing branches: `git branch | grep changes- | sort -t- -k2 -n | tail -1`
-- If no prior branch exists at 50 or above, start with `changes-50`
+- Use the pattern `<github-username>/changes-N`, for example `steve8708/changes-545`, where N is at least 50
+- Resolve `<github-username>` with `gh api user --jq .login`; do not substitute a display name or local git author name
+- Choose N from all local refs and current `origin` refs matching `changes-N`, whether legacy unprefixed or already username-prefixed, so the sequence does not reset
+- Ignore older numbers below 50 and unrelated branch names
+- If no matching branch exists at 50 or above, start with `<github-username>/changes-50`
 
 ## After creation
 

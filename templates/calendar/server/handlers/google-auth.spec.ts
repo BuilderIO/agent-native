@@ -32,6 +32,10 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  GOOGLE_PRIMARY_PROVIDER_CREDENTIAL_KEYS: {
+    clientIdKey: "GOOGLE_CLIENT_ID",
+    clientSecretKey: "GOOGLE_CLIENT_SECRET",
+  },
   createOAuthSession: mocks.createOAuthSession,
   decodeOAuthState: mocks.decodeOAuthState,
   encodeOAuthState: mocks.encodeOAuthState,
@@ -51,6 +55,25 @@ vi.mock("@agent-native/core/server", () => ({
     return fallbackClientId && fallbackClientSecret
       ? { clientId: fallbackClientId, clientSecret: fallbackClientSecret }
       : null;
+  },
+  resolveGoogleProviderCredentialCandidatesWithReader: async ({
+    readCredential,
+    fallbackReadCredential,
+    credentialKeyPairs,
+  }: any) => {
+    const [keys] = credentialKeyPairs;
+    const [clientId, clientSecret] = await Promise.all([
+      readCredential(keys.clientIdKey),
+      readCredential(keys.clientSecretKey),
+    ]);
+    if (clientId && clientSecret) return [{ clientId, clientSecret }];
+    const [fallbackClientId, fallbackClientSecret] = await Promise.all([
+      fallbackReadCredential?.(keys.clientIdKey),
+      fallbackReadCredential?.(keys.clientSecretKey),
+    ]);
+    return fallbackClientId && fallbackClientSecret
+      ? [{ clientId: fallbackClientId, clientSecret: fallbackClientSecret }]
+      : [];
   },
   resolveOAuthOwner: mocks.resolveOAuthOwner,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,
@@ -142,6 +165,16 @@ describe("Calendar Google auth-url handler", () => {
     );
     expect(scopes).not.toContain(
       "https://www.googleapis.com/auth/directory.readonly",
+    );
+  });
+
+  it("carries native mobile intent into the signed OAuth state", async () => {
+    mocks.getSession.mockResolvedValue(null);
+
+    await getGoogleAuthUrl(createEvent({ mobile: "1" }) as any);
+
+    expect(mocks.encodeOAuthState).toHaveBeenCalledWith(
+      expect.objectContaining({ mobile: true }),
     );
   });
 
@@ -276,6 +309,70 @@ describe("Calendar Google auth-url handler", () => {
         desktop: true,
         addAccount: true,
         flowId: "flow-456",
+      }),
+    );
+  });
+
+  it("does not disclose which login owns a conflicting Google account", async () => {
+    const event = createEvent({ code: "google-code", state: "encoded-state" });
+    mocks.getSession.mockResolvedValue(null);
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/add-account/callback",
+      owner: "second-login@example.com",
+      orgId: "org-123",
+    });
+    const conflict = Object.assign(new Error("owned by another user"), {
+      name: "OAuthAccountOwnedByOtherUserError",
+      accountId: "shared-calendar@gmail.com",
+      existingOwner: "first-login@example.com",
+      attemptedOwner: "second-login@example.com",
+    });
+    mocks.exchangeCode.mockRejectedValue(conflict);
+
+    await handleGoogleAddAccountCallback(event as any);
+
+    expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);
+    const [message] = mocks.oauthErrorPage.mock.calls[0];
+    expect(message).toContain("already connected to another login");
+    expect(message).not.toContain("first-login@example.com");
+    expect(message).not.toContain("second-login@example.com");
+  });
+
+  it("returns a mobile session when Calendar connect came from the native app", async () => {
+    const event = createEvent({
+      code: "google-code",
+      state: "encoded-state",
+    });
+    mocks.getSession.mockResolvedValue(null);
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/callback",
+      owner: "owner@example.com",
+      orgId: "org-123",
+      mobile: true,
+      addAccount: true,
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: "owner@example.com",
+      hasProductionSession: false,
+    });
+    mocks.exchangeCode.mockResolvedValue("steve@builder.io");
+    mocks.oauthCallbackResponse.mockReturnValue("ok");
+
+    await handleGoogleCallback(event as any);
+
+    expect(mocks.createOAuthSession).toHaveBeenCalledWith(
+      event,
+      "owner@example.com",
+      expect.objectContaining({ mobile: true }),
+    );
+    expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
+      event,
+      "steve@builder.io",
+      expect.objectContaining({
+        mobile: true,
+        sessionToken: "owner-session-token",
       }),
     );
   });

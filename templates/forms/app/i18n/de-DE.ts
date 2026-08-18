@@ -4,6 +4,7 @@ const messages = {
     searchForms: "Formulare suchen",
     appearance: "Darstellung",
     toggleTheme: "Design wechseln",
+    openAgent: "Agent öffnen",
   },
   header: {
     settings: "Einstellungen",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "Fragen Sie nach Formularen",
     allForms: "Alle Formulare",
     team: "Team",
+    agent: "Agent",
   },
   settings: {
     title: "Einstellungen",
@@ -32,10 +34,10 @@ const messages = {
       "Verwalte Teammitglieder, Organisationszugriff und gemeinsame Arbeitsbereichseinstellungen.",
     openTeamSettings: "Teameinstellungen öffnen",
     openResourceSettings: "Ressourceneinstellungen öffnen",
-    agentTitle: "Agent-Einstellungen",
+    agentTitle: "Agent verwalten",
     agentDescription:
-      "Öffne die Agent-Einstellungen in der Seitenleiste für Modell, API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen.",
-    openAgentSettings: "Agent-Einstellungen öffnen",
+      "Verwalte das Modell, die API-Schlüssel, Automatisierungen, Sprache und weitere Steuerungen des Agents.",
+    openAgentSettings: "Agent verwalten",
   },
   agent: {
     emptyState: "Frag mich alles zu deinen Formularen",
@@ -86,6 +88,16 @@ const messages = {
     addOption: "Option hinzufügen",
     min: "Min",
     max: "Max",
+    conditionalVisibility: "Bedingte Sichtbarkeit",
+    conditionalVisibilityDescription:
+      "Dieses Feld nur anzeigen, wenn eine frühere Antwort passt.",
+    conditionField: "Frühere Antwort",
+    conditionOperator: "Bedingung",
+    conditionEquals: "ist",
+    conditionNotEquals: "ist nicht",
+    conditionContains: "enthält",
+    conditionValue: "Antwort",
+    conditionValuePlaceholder: "Antwort eingeben...",
     fieldTypes: {
       text: "Kurzer Text",
       email: "E-Mail",
@@ -144,6 +156,7 @@ const messages = {
     integrationsTab: "Integrationen",
     settingsSaved: "Einstellungen gespeichert",
     integrationsSaved: "Integrationen gespeichert",
+    saveFailed: "Änderungen konnten nicht gespeichert werden",
     formTitlePlaceholder: "Formulartitel",
     addDescriptionPlaceholder: "Beschreibung hinzufügen...",
     dragToReorder: "Zum Sortieren ziehen",
@@ -194,6 +207,9 @@ const messages = {
       anonymousResponses: "Anonyme Antworten",
       anonymousResponsesDescription:
         "IP-Adressen, Identität der antwortenden Person und Quellmetadaten nicht speichern.",
+      emailNewResponses: "Bei neuen Antworten per E-Mail benachrichtigen",
+      emailNewResponsesDescription:
+        "Sendet bei jeder Antwort eine E-Mail an die Kontoadresse des Formulareigentümers.",
       saveSettings: "Einstellungen speichern",
     },
     integrations: {
@@ -211,7 +227,7 @@ const messages = {
       googleSheetsBlurb:
         "Jede Antwort in eine Tabelle spiegeln, die dein Team teilen kann.",
       googleSheetsHelp:
-        "Stelle eine Apps Script-Web-App bereit, die POST-Daten empfängt",
+        "Verwende eine bereitgestellte Apps-Script-/exec-URL, die JSON aus e.postData.contents liest und Zeilen anhängt.",
       slackLabel: "Slack",
       discordLabel: "Discord",
       webhookLabel: "Webhook",
@@ -263,6 +279,8 @@ const messages = {
     duplicated: "Formular dupliziert",
     duplicateFailed: "Formular konnte nicht dupliziert werden",
     movedToArchive: "Formular ins Archiv verschoben",
+    movingToArchive: "Formular wird ins Archiv verschoben …",
+    archiveFailed: "Formular konnte nicht ins Archiv verschoben werden",
     restored: "Form wiederhergestellt",
     permanentlyDeleted: "Formular endgültig gelöscht",
     bulkPermanentlyDeleted: "{{formattedCount}} forms permanently deleted",

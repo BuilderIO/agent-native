@@ -10,6 +10,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -21,7 +22,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import { FULL_APP_BUILDING_ENABLED } from "../shared/full-app.js";
+import { FULL_APP_BUILDING } from "../shared/full-app.js";
 
 const targetSchema = z.object({
   selector: z
@@ -63,8 +64,8 @@ export default defineAction({
       .optional()
       .describe("Optional target context for the element/screen being edited."),
   }),
-  run: async ({ designId, instruction, screenFileId, target }) => {
-    if (!FULL_APP_BUILDING_ENABLED) {
+  run: async ({ designId, instruction, screenFileId, target }, ctx) => {
+    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

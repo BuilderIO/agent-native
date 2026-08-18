@@ -1,4 +1,5 @@
-import { useReconciledState, useT } from "@agent-native/core/client";
+import { useReconciledState } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAlertTriangle,
   IconAlignLeft,
@@ -235,7 +236,7 @@ export function ViewSqlPopover({
           <p className="text-[11px] text-muted-foreground mt-1.5">
             {t("sqlDashboard.filterInterpolationHelp", {
               example: "{{varName}}",
-              shortcut: `${isMac ? "⌘" : "Ctrl"}+Enter`,
+              shortcut: `${isMac ? "Cmd" : "Ctrl"} Enter`,
             })}
           </p>
         ) : null}

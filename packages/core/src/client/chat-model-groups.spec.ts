@@ -1,6 +1,34 @@
 import { describe, expect, it } from "vitest";
 
-import { buildChatModelGroups } from "./chat-model-groups.js";
+import {
+  buildChatModelGroups,
+  modelCatalogConfirmsMissing,
+} from "./chat-model-groups.js";
+
+describe("modelCatalogConfirmsMissing", () => {
+  it("confirms missing setup only after a non-empty catalog has loaded", () => {
+    expect(
+      modelCatalogConfirmsMissing(
+        [{ configured: false }, { configured: false }],
+        false,
+      ),
+    ).toBe(true);
+    expect(modelCatalogConfirmsMissing([{ configured: false }], true)).toBe(
+      false,
+    );
+    expect(modelCatalogConfirmsMissing([], false)).toBe(false);
+    expect(modelCatalogConfirmsMissing(undefined, false)).toBe(false);
+  });
+
+  it("does not claim setup is missing when any provider is configured", () => {
+    expect(
+      modelCatalogConfirmsMissing(
+        [{ configured: false }, { configured: true }],
+        false,
+      ),
+    ).toBe(false);
+  });
+});
 
 describe("buildChatModelGroups", () => {
   it("groups every Builder gateway model family shown in the composer", () => {
@@ -13,7 +41,11 @@ describe("buildChatModelGroups", () => {
           supportedModels: [
             "auto",
             "claude-sonnet-5",
-            "gpt-5-5",
+            "claude-opus-4-8",
+            "claude-haiku-4-5",
+            "gpt-5-6-sol",
+            "gpt-5-6-luna",
+            "gpt-5-6-terra",
             "gemini-3-1-pro",
           ],
           requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
@@ -24,14 +56,14 @@ describe("buildChatModelGroups", () => {
     expect(groups).toEqual([
       {
         engine: "builder",
-        label: "Claude",
-        models: ["claude-sonnet-5"],
+        label: "OpenAI",
+        models: ["gpt-5-6-luna", "gpt-5-6-terra", "gpt-5-6-sol"],
         configured: true,
       },
       {
         engine: "builder",
-        label: "OpenAI",
-        models: ["gpt-5-5"],
+        label: "Claude",
+        models: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8"],
         configured: true,
       },
       {
@@ -61,7 +93,11 @@ describe("buildChatModelGroups", () => {
         {
           name: "anthropic",
           label: "Claude",
-          supportedModels: ["claude-sonnet-5"],
+          supportedModels: [
+            "claude-opus-4-8",
+            "claude-sonnet-5",
+            "claude-haiku-4-5",
+          ],
           requiredEnvVars: ["ANTHROPIC_API_KEY"],
         },
         {
@@ -73,7 +109,7 @@ describe("buildChatModelGroups", () => {
         {
           name: "ai-sdk:openai",
           label: "OpenAI",
-          supportedModels: ["gpt-5.5"],
+          supportedModels: ["gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.6-terra"],
           requiredEnvVars: ["OPENAI_API_KEY"],
         },
         {
@@ -116,8 +152,8 @@ describe("buildChatModelGroups", () => {
     });
 
     expect(groups.map((group) => group.label)).toEqual([
-      "Claude",
       "OpenAI",
+      "Claude",
       "Gemini",
       "OpenRouter",
     ]);
@@ -130,6 +166,10 @@ describe("buildChatModelGroups", () => {
     expect(groups.find((group) => group.label === "Cohere")).toBeUndefined();
     expect(groups.find((group) => group.label === "OpenAI")).toMatchObject({
       configured: false,
+      models: ["gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"],
+    });
+    expect(groups.find((group) => group.label === "Claude")).toMatchObject({
+      models: ["claude-haiku-4-5", "claude-sonnet-5", "claude-opus-4-8"],
     });
     expect(groups.find((group) => group.label === "OpenRouter")).toMatchObject({
       engine: "ai-sdk:openrouter",

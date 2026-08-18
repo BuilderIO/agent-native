@@ -1,20 +1,23 @@
+import { readFileSync } from "node:fs";
+
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   buildIdleSkipRanges,
   buildReplayMarkers,
   buildReplayViewportTimeline,
-  clampReplayDisplayDimensions,
   fetchSessionReplayPlayback,
   filterReplayMarkers,
   normalizeReplayEvents,
   partitionReplayChunkBatches,
+  REPLAY_OVERLAY_STYLE_RULES,
   replayDevToolsIssueCount,
-  replayInitialDisplayDimensions,
   replayInitialViewportDimensions,
   replayPayloadEvents,
   replayViewportDimensions,
   replayViewportDimensionsAtTime,
+  resolveReplayDisplayDimensions,
+  shouldPublishReplayClockUpdate,
 } from "./SessionDetailPage";
 
 const originalFetch = globalThis.fetch;
@@ -26,6 +29,64 @@ afterEach(() => {
 });
 
 describe("session replay event normalization", () => {
+  it("coalesces animation-frame clock updates before publishing React state", () => {
+    expect(shouldPublishReplayClockUpdate(null, 1_000, 0, 10)).toBe(true);
+    expect(shouldPublishReplayClockUpdate(1_000, 1_016, 10, 26)).toBe(false);
+    expect(shouldPublishReplayClockUpdate(1_000, 1_100, 10, 110)).toBe(true);
+    expect(shouldPublishReplayClockUpdate(1_000, 1_100, 110, 110)).toBe(false);
+    expect(shouldPublishReplayClockUpdate(1_000, 1_100, 110, NaN)).toBe(false);
+  });
+
+  it("keeps the high-contrast replay cursor visible while playing", () => {
+    const pageSource = readFileSync(
+      new URL("./SessionDetailPage.tsx", import.meta.url),
+      "utf8",
+    );
+    const globalStyles = readFileSync(
+      new URL("../../global.css", import.meta.url),
+      "utf8",
+    );
+    const cursorAsset = readFileSync(
+      new URL("../../assets/replay-cursor.svg", import.meta.url),
+      "utf8",
+    );
+
+    expect(pageSource).toContain('"cursor-pointer"');
+    expect(pageSource).not.toContain('"cursor-none"');
+    expect(globalStyles).toContain(
+      ".an-replay-stage-root .replayer-mouse::before",
+    );
+    expect(pageSource).toContain("hideReplayCursorUntilPosition");
+    expect(globalStyles).toContain(
+      ".an-replay-stage-root .replayer-mouse.has-position",
+    );
+    expect(globalStyles).toContain("visibility: hidden;");
+    expect(globalStyles).toContain("visibility: visible;");
+    expect(globalStyles).toContain('url("./assets/replay-cursor.svg")');
+    expect(globalStyles).toContain("drop-shadow(0 1px 1px");
+    expect(globalStyles).toContain("width: 1.44rem;");
+    expect(globalStyles).toContain("height: 1.92rem;");
+    expect(globalStyles).toContain(
+      "transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5))",
+    );
+    expect(pageSource).toContain(
+      '"--an-replay-cursor-scale": String(1 / fitScale)',
+    );
+    expect(cursorAsset).toContain('fill="#000000"');
+    expect(cursorAsset).toContain('stroke="#FFFFFF"');
+    expect(cursorAsset).toContain('stroke-width="4.35"');
+    expect(cursorAsset).toContain('stroke-linejoin="round"');
+    expect(cursorAsset).toContain('stroke-linecap="round"');
+    expect(cursorAsset).toContain('shape-rendering="geometricPrecision"');
+    expect(globalStyles).toContain(
+      ".an-replay-stage-root .replayer-mouse.active::after",
+    );
+  });
+
+  it("preserves captured product overlays, including Sonner toasts", () => {
+    expect(REPLAY_OVERLAY_STYLE_RULES).toEqual([]);
+  });
+
   it("passes captured rrweb URL and CSS payloads through untouched", () => {
     const events = [
       {
@@ -88,8 +149,13 @@ describe("session replay event normalization", () => {
       },
     ];
 
+    const serializedBeforeNormalization = JSON.stringify(events);
     const normalized = normalizeReplayEvents(events);
     expect(normalized).toEqual(events);
+    // Structural tripwire: playback normalization may filter and stable-sort,
+    // but it must never rewrite a byte of valid rrweb event data.
+    expect(JSON.stringify(normalized)).toBe(serializedBeforeNormalization);
+    expect(JSON.stringify(events)).toBe(serializedBeforeNormalization);
     expect(normalized[0]).toBe(events[0]);
     expect(normalized[1]).toBe(events[1]);
     expect(normalized[2]).toBe(events[2]);
@@ -145,7 +211,13 @@ describe("session replay event normalization", () => {
     });
   });
 
-  it("corrects a malformed initial Meta viewport before first playback", () => {
+  it("keeps an initial malformed-looking Meta viewport exactly as recorded", () => {
+    // Regression tripwire: this shape used to be misidentified as an
+    // "impossible" legacy recording and rewritten to 1,397x873. There was
+    // never a stored recording with corrupt geometry — the 2026-07 ultra-wide
+    // replay bugs were caused by demo mode's view-time fetch redaction (see
+    // packages/core/src/demo/fetch-interceptor.ts). Player geometry must stay
+    // fully raw, no matter how wide or unusual the aspect ratio looks.
     const events = [
       { type: 4, timestamp: 1000, data: { width: 7535, height: 873 } },
       { type: 2, timestamp: 1010, data: { node: { type: 0 } } },
@@ -155,34 +227,29 @@ describe("session replay event normalization", () => {
       width: 7535,
       height: 873,
     });
-    expect(replayInitialDisplayDimensions(events)).toEqual({
-      width: 1397,
-      height: 873,
-    });
   });
 
-  it("caps only impossible display aspect ratios", () => {
-    expect(clampReplayDisplayDimensions({ width: 7535, height: 873 })).toEqual({
-      width: 1397,
-      height: 873,
-    });
-    expect(clampReplayDisplayDimensions({ width: 300, height: 1200 })).toEqual({
-      width: 300,
-      height: 1200,
-    });
-    expect(clampReplayDisplayDimensions({ width: 5120, height: 1440 })).toEqual(
-      {
-        width: 5120,
-        height: 1440,
-      },
-    );
-    expect(clampReplayDisplayDimensions({ width: 7535, height: 5 })).toEqual({
+  it("never clamps or rewrites raw display dimensions, only fills in missing ones", () => {
+    // Regression tripwire against reintroducing a viewport "recovery"
+    // heuristic. 3189x885 was the exact shape a deleted `clampReplayDisplayDimensions`
+    // used to rewrite to 1416x885; it must now pass through untouched, same
+    // as every other real or unusual aspect ratio.
+    expect(
+      resolveReplayDisplayDimensions({ width: 3189, height: 885 }),
+    ).toEqual({ width: 3189, height: 885 });
+    expect(
+      resolveReplayDisplayDimensions({ width: 7535, height: 873 }),
+    ).toEqual({ width: 7535, height: 873 });
+    expect(
+      resolveReplayDisplayDimensions({ width: 300, height: 1200 }),
+    ).toEqual({ width: 300, height: 1200 });
+    expect(
+      resolveReplayDisplayDimensions({ width: 1440, height: 900 }),
+    ).toEqual({ width: 1440, height: 900 });
+    // Only missing/invalid dimensions fall back to the default player size.
+    expect(resolveReplayDisplayDimensions(null)).toEqual({
       width: 1024,
       height: 640,
-    });
-    expect(clampReplayDisplayDimensions({ width: 1440, height: 900 })).toEqual({
-      width: 1440,
-      height: 900,
     });
   });
 
@@ -430,7 +497,7 @@ describe("session replay timeline markers", () => {
 });
 
 describe("session replay inactivity ranges", () => {
-  it("ignores mutation, mouse-move, and custom diagnostic noise", () => {
+  it("ignores mutation, empty mouse-move, and custom diagnostic noise", () => {
     const ranges = buildIdleSkipRanges([
       { type: 4, timestamp: 1_000, data: {} },
       { type: 3, timestamp: 5_000, data: { source: 0 } },
@@ -459,6 +526,38 @@ describe("session replay inactivity ranges", () => {
     expect(ranges).toEqual([
       { startMs: 1_200, endMs: 18_800 },
       { startMs: 25_200, endMs: 47_800 },
+    ]);
+  });
+
+  it("keeps captured pointer movement out of inactivity skip ranges", () => {
+    const ranges = buildIdleSkipRanges([
+      { type: 4, timestamp: 1_000, data: {} },
+      {
+        type: 3,
+        timestamp: 10_000,
+        data: {
+          source: 1,
+          positions: [
+            { id: 1, x: 10, y: 20, timeOffset: -400 },
+            { id: 1, x: 30, y: 40, timeOffset: 0 },
+          ],
+        },
+      },
+      {
+        type: 3,
+        timestamp: 20_000,
+        data: {
+          source: 12,
+          positions: [{ id: 1, x: 50, y: 60, timeOffset: 100 }],
+        },
+      },
+      { type: 3, timestamp: 30_000, data: { source: 0 } },
+    ]);
+
+    expect(ranges).toEqual([
+      { startMs: 1_200, endMs: 7_400 },
+      { startMs: 10_200, endMs: 17_900 },
+      { startMs: 20_300, endMs: 27_800 },
     ]);
   });
 

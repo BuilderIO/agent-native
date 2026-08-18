@@ -1,4 +1,4 @@
-import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
+import { type PromptComposerSubmitOptions } from "@agent-native/core/client/composer";
 import { sourceContentHash } from "@shared/source-workspace";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";

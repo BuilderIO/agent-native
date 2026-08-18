@@ -1,9 +1,9 @@
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   isInAgentEmbed,
   postNavigate,
-  useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/navigation";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconClock,

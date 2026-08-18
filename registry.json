@@ -26,6 +26,16 @@
           "target": "~/.agents/skills/actions/SKILL.md"
         },
         {
+          "path": ".agents/skills/agent-native-toolkit/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/agent-native-toolkit/SKILL.md"
+        },
+        {
+          "path": ".agents/skills/customizing-agent-native/SKILL.md",
+          "type": "registry:file",
+          "target": "~/.agents/skills/customizing-agent-native/SKILL.md"
+        },
+        {
           "path": ".agents/skills/storing-data/SKILL.md",
           "type": "registry:file",
           "target": "~/.agents/skills/storing-data/SKILL.md"

@@ -1,4 +1,4 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 
 type LocalControlFileHandle = {
   kind: "file";

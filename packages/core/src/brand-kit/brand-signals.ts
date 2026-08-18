@@ -10,6 +10,32 @@
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import type { BrandWebsiteSignals } from "./types.js";
 
+export interface BrandAnalysisResult {
+  companyName?: string;
+  brandNotes?: string;
+  existingDesignSystem?: unknown;
+  websiteAnalysis?: unknown;
+}
+
+/** Assemble brand-analysis data without performing template or network work. */
+export function buildBrandAnalysisResult(input: {
+  companyName?: string;
+  brandNotes?: string;
+  existingDesignSystem?: unknown;
+  websiteAnalysis?: unknown;
+}): BrandAnalysisResult {
+  const result: BrandAnalysisResult = {};
+  if (input.companyName) result.companyName = input.companyName;
+  if (input.brandNotes) result.brandNotes = input.brandNotes;
+  if (input.existingDesignSystem !== undefined) {
+    result.existingDesignSystem = input.existingDesignSystem;
+  }
+  if (input.websiteAnalysis !== undefined) {
+    result.websiteAnalysis = input.websiteAnalysis;
+  }
+  return result;
+}
+
 /**
  * Normalize a user-supplied brand website URL: add an `https://` scheme when
  * missing and reject anything that isn't http(s). Throws on empty input or an

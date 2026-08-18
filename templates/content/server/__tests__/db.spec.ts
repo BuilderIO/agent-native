@@ -91,6 +91,38 @@ describe("content database migrations", () => {
     );
   });
 
+  it("adds the document trash lifecycle additively", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "ALTER TABLE documents ADD COLUMN IF NOT EXISTS trashed_at TEXT",
+    );
+    expect(source).toContain(
+      "ALTER TABLE documents ADD COLUMN IF NOT EXISTS trash_root_id TEXT",
+    );
+    expect(source).toContain(
+      "documents_trash_idx ON documents (owner_email, trashed_at, trash_root_id)",
+    );
+  });
+
+  it("creates bounded database migration receipts additively", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      "CREATE TABLE IF NOT EXISTS content_database_migration_receipts",
+    );
+    expect(source).toContain(
+      "content_database_migration_receipts_database_key_unique",
+    );
+    expect(source).toContain('name: "content-database-migration-receipts"');
+  });
+
   it("creates Builder MDX sidecar cache table additively", () => {
     const source = readFileSync(
       join(__dirname, "..", "plugins", "db.ts"),
@@ -149,5 +181,6 @@ describe("content database migrations", () => {
     expect(changeSetDelete).toBeGreaterThan(-1);
     expect(executionDelete).toBeLessThan(changeSetDelete);
     expect(reviewDelete).toBeLessThan(changeSetDelete);
+    expect(source).toContain("delete(schema.contentDatabaseMigrationReceipts)");
   });
 });

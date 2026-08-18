@@ -26,6 +26,7 @@ describe("Slack Agent Native app manifest", () => {
     expect(manifest.oauth_config.scopes.bot).toEqual(
       expect.arrayContaining([
         "assistant:write",
+        "channels:join",
         "channels:read",
         "chat:write",
         "groups:read",
@@ -45,6 +46,13 @@ describe("Slack Agent Native app manifest", () => {
     expect(manifest.settings.event_subscriptions.bot_events).toEqual([
       ...SLACK_AGENT_BOT_EVENTS,
     ]);
+    expect(manifest.settings.event_subscriptions.bot_events).not.toEqual(
+      expect.arrayContaining([
+        "message.channels",
+        "message.groups",
+        "message.mpim",
+      ]),
+    );
   });
 
   it("uses only the supplied deployment URLs", () => {

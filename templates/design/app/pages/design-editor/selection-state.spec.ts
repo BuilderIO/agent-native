@@ -4,8 +4,10 @@ import {
   getOverviewScreenContentKey,
   hasSelectableCodeLayerParent,
   isDocumentShellCodeLayerNode,
+  overviewSelectionTargetsElement,
   pendingEditTargetsSelectedElement,
   resolveEscapePopSelectionAction,
+  shouldClearSelectionForReviewThreadTarget,
   shouldEscapeToOverview,
 } from "./selection-state";
 
@@ -107,6 +109,32 @@ describe("resolveEscapePopSelectionAction", () => {
         viewMode: "overview",
       }),
     ).toEqual({ kind: "deselect" });
+  });
+});
+
+describe("shouldClearSelectionForReviewThreadTarget", () => {
+  it("clears stale layer context when thread focus changes screens", () => {
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "screen-a",
+        targetId: "screen-b",
+      }),
+    ).toBe(true);
+  });
+
+  it("preserves selection for same-screen and design-wide threads", () => {
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "screen-a",
+        targetId: "screen-a",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "screen-a",
+        targetId: null,
+      }),
+    ).toBe(false);
   });
 });
 
@@ -263,5 +291,66 @@ describe("shouldEscapeToOverview", () => {
   it("is false while drawing or pinning", () => {
     expect(shouldEscapeToOverview({ ...base, drawMode: true })).toBe(false);
     expect(shouldEscapeToOverview({ ...base, pinMode: true })).toBe(false);
+  });
+});
+
+describe("overviewSelectionTargetsElement", () => {
+  const element = {
+    tagName: "DIV",
+    selector: ".card",
+  } as unknown as Parameters<
+    typeof overviewSelectionTargetsElement
+  >[0]["selectedElement"];
+
+  it("routes an arrow key to the element rather than sliding the screen frame", () => {
+    expect(
+      overviewSelectionTargetsElement({
+        selectedElement: element,
+        selectedLayerIds: ["html:card-one"],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(true);
+  });
+
+  it("routes Delete to the element when a layer inside a screen is selected", () => {
+    expect(
+      overviewSelectionTargetsElement({
+        selectedElement: null,
+        selectedLayerIds: ["html:card-one"],
+        fileIds: ["screen-1", "screen-2"],
+      }),
+    ).toBe(true);
+  });
+
+  it("routes Delete to the element for a canvas element selection", () => {
+    expect(
+      overviewSelectionTargetsElement({
+        selectedElement: element,
+        selectedLayerIds: [],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(true);
+  });
+
+  it("leaves a screen-frame selection to the screen-delete confirmation", () => {
+    expect(
+      overviewSelectionTargetsElement({
+        selectedElement: null,
+        selectedLayerIds: ["screen-1", "__pseudo-row"],
+        fileIds: ["screen-1", "screen-2"],
+      }),
+    ).toBe(false);
+  });
+
+  it("treats the screen root element as the screen, not an element", () => {
+    expect(
+      overviewSelectionTargetsElement({
+        selectedElement: {
+          tagName: "BODY",
+        } as unknown as typeof element,
+        selectedLayerIds: ["screen-1"],
+        fileIds: ["screen-1"],
+      }),
+    ).toBe(false);
   });
 });

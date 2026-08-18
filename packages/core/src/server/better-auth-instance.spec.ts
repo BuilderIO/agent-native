@@ -1,7 +1,94 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 
-import { getAuthSecret } from "./better-auth-instance.js";
+import {
+  buildDatabaseConfig,
+  configureLocalSqlite,
+  desktopMagicLinkLandingUrl,
+  ensureGoogleAuthIdentityWithAdapter,
+  getAuthSecret,
+  type BetterAuthInternalAdapter,
+} from "./better-auth-instance.js";
 import { deriveServerSecret } from "./derived-secret.js";
+
+describe("configureLocalSqlite", () => {
+  it("waits for competing app writes before giving up", () => {
+    const pragma = vi.fn();
+
+    configureLocalSqlite({ pragma });
+
+    expect(pragma.mock.calls).toEqual([
+      ["busy_timeout = 10000"],
+      ["journal_mode = WAL"],
+    ]);
+  });
+});
+
+describe("desktopMagicLinkLandingUrl", () => {
+  it("moves only desktop verification links behind a non-consuming landing page", () => {
+    const verificationURL = new URL(
+      "https://dispatch.agent-native.com/_agent-native/auth/ba/magic-link/verify",
+    );
+    verificationURL.searchParams.set("token", "magic-token");
+    verificationURL.searchParams.set(
+      "callbackURL",
+      "/_agent-native/auth/magic-link/desktop-callback?flow_id=flow-1&verifier=verifier-1",
+    );
+    verificationURL.searchParams.set(
+      "newUserCallbackURL",
+      "/_agent-native/auth/magic-link/new-user?return=%2F",
+    );
+
+    const landingURL = desktopMagicLinkLandingUrl(verificationURL.toString());
+    expect(landingURL).toBeTruthy();
+    const parsedLandingURL = new URL(landingURL!);
+    expect(parsedLandingURL.pathname).toBe(
+      "/_agent-native/auth/magic-link/desktop-landing",
+    );
+    expect(parsedLandingURL.searchParams.get("token")).toBe("magic-token");
+    expect(parsedLandingURL.searchParams.get("callbackURL")).toContain(
+      "desktop-callback?flow_id=flow-1&verifier=verifier-1",
+    );
+    expect(parsedLandingURL.searchParams.get("newUserCallbackURL")).toContain(
+      "magic-link/new-user",
+    );
+  });
+
+  it("leaves ordinary web links and cross-origin callbacks unchanged", () => {
+    const ordinaryURL =
+      "https://dispatch.agent-native.com/_agent-native/auth/ba/magic-link/verify?token=magic-token&callbackURL=%2F";
+    expect(desktopMagicLinkLandingUrl(ordinaryURL)).toBeUndefined();
+
+    const externalCallbackURL = new URL(ordinaryURL);
+    externalCallbackURL.searchParams.set(
+      "callbackURL",
+      "https://evil.example/_agent-native/auth/magic-link/desktop-callback?flow_id=flow-1&verifier=verifier-1",
+    );
+    expect(
+      desktopMagicLinkLandingUrl(externalCallbackURL.toString()),
+    ).toBeUndefined();
+  });
+});
+
+describe("buildDatabaseConfig", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("uses the Cloudflare D1 binding for Better Auth", async () => {
+    const d1 = { prepare: vi.fn() };
+    vi.stubGlobal("__env__", { DB: d1 });
+
+    const database = await buildDatabaseConfig("d1");
+
+    expect(database).toEqual(expect.any(Function));
+  });
+
+  it("fails clearly when the D1 binding is unavailable", async () => {
+    await expect(buildDatabaseConfig("d1")).rejects.toThrow(
+      "Cloudflare D1 database binding is unavailable",
+    );
+  });
+});
 
 describe("resolveAuthSecret", () => {
   const originalEnv = { ...process.env };
@@ -42,6 +129,16 @@ describe("resolveAuthSecret", () => {
     expect(getAuthSecret()).not.toBe("workspace-root-secret");
   });
 
+  it("derives a production workspace auth secret for boolean workspace flags", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "true";
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    expect(getAuthSecret()).toBe(
+      deriveServerSecret("workspace-root-secret", "better-auth"),
+    );
+  });
+
   it("includes a sample value and openssl command in the prod error", () => {
     process.env.NODE_ENV = "production";
     expect(() => getAuthSecret()).toThrow(/openssl rand -hex 32/);
@@ -66,5 +163,166 @@ describe("resolveAuthSecret", () => {
     delete process.env.ACCESS_TOKEN;
     const secret = getAuthSecret();
     expect(secret).not.toBe("agent-native-local-dev-secret-k9x2m7q4w8");
+  });
+});
+
+describe("ensureGoogleAuthIdentityWithAdapter", () => {
+  function adapterFor(user: any = null) {
+    const linkAccount = vi.fn(async () => undefined);
+    const replaceUnverifiedCredentialWithGoogle = vi.fn(async () => undefined);
+    const createOAuthUser = vi.fn(async () => ({
+      user: { id: "google-user" },
+      account: {},
+    }));
+    const adapter: BetterAuthInternalAdapter = {
+      findUserByEmail: vi.fn(async () => user),
+      linkAccount,
+      createUser: vi.fn(async () => ({ id: "created-user" })),
+      createOAuthUser,
+      findAccountByProviderId: vi.fn(async () => null),
+      replaceUnverifiedCredentialWithGoogle,
+    };
+    return {
+      adapter,
+      linkAccount,
+      createOAuthUser,
+      replaceUnverifiedCredentialWithGoogle,
+    };
+  }
+
+  it("creates a verified canonical user and Google account", async () => {
+    const { adapter, createOAuthUser } = adapterFor();
+
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "  Owner@Example.com ",
+      accountId: "google-sub-1",
+      name: "Owner",
+    });
+
+    expect(created).toBe(true);
+    expect(createOAuthUser).toHaveBeenCalledWith(
+      { email: "owner@example.com", name: "Owner", emailVerified: true },
+      { providerId: "google", accountId: "google-sub-1" },
+    );
+  });
+
+  it("rechecks the Google account after a concurrent create race", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, createOAuthUser, linkAccount } = adapterFor();
+    vi.mocked(adapter.findUserByEmail)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(existing);
+    vi.mocked(adapter.findAccountByProviderId)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        id: "google-account",
+        userId: "existing-user",
+        providerId: "google",
+        accountId: "google-sub-race",
+      });
+    createOAuthUser.mockRejectedValueOnce(new Error("email already exists"));
+
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-race",
+    });
+
+    expect(created).toBe(false);
+    expect(linkAccount).not.toHaveBeenCalled();
+  });
+
+  it("links an already verified canonical user", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: true,
+      },
+      accounts: [],
+    };
+    const { adapter, linkAccount, createOAuthUser } = adapterFor(existing);
+
+    const created = await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+
+    expect(created).toBe(false);
+    expect(linkAccount).toHaveBeenCalledWith({
+      userId: "existing-user",
+      providerId: "google",
+      accountId: "google-sub-1",
+    });
+    expect(createOAuthUser).not.toHaveBeenCalled();
+  });
+
+  it("refuses to bless an unverified password identity", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+      ],
+    };
+    const { adapter, linkAccount, replaceUnverifiedCredentialWithGoogle } =
+      adapterFor(existing);
+
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+    expect(replaceUnverifiedCredentialWithGoogle).toHaveBeenCalledWith({
+      userId: "existing-user",
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+    expect(linkAccount).not.toHaveBeenCalled();
+  });
+
+  it("keeps account-claim protection for an unverified user with another account", async () => {
+    const existing = {
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [
+        {
+          id: "credential-account",
+          providerId: "credential",
+          accountId: "existing-user",
+        },
+        {
+          id: "github-account",
+          providerId: "github",
+          accountId: "github-sub-1",
+        },
+      ],
+    };
+    const { adapter, linkAccount, replaceUnverifiedCredentialWithGoogle } =
+      adapterFor(existing);
+
+    await expect(
+      ensureGoogleAuthIdentityWithAdapter(adapter, {
+        email: "owner@example.com",
+        accountId: "google-sub-1",
+      }),
+    ).rejects.toThrow("unverified email/password identity");
+    expect(replaceUnverifiedCredentialWithGoogle).not.toHaveBeenCalled();
+    expect(linkAccount).not.toHaveBeenCalled();
   });
 });

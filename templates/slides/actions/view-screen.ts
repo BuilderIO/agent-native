@@ -8,7 +8,69 @@ import { and, desc, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { normalizeOwnerEmail } from "../shared/ownership.js";
+import { hashSlideContent, type DeckFitState } from "../shared/slide-fit.js";
 import { readAppStateForCurrentTab } from "./_tab-state.js";
+
+type CurrentSlideFitMeasurement = DeckFitState["slides"][string] & {
+  slideId: string;
+};
+
+function getCurrentSlideFitMeasurement(
+  value: unknown,
+  slide: { id: string; content?: string } | null,
+  deckId: string,
+): CurrentSlideFitMeasurement | null {
+  if (!slide || !value || typeof value !== "object") return null;
+
+  const measurement = value as Record<string, unknown>;
+  const slideId = measurement.slideId;
+  const measurementDeckId = measurement.deckId;
+  const contentHash = measurement.contentHash;
+  const contentHeight = measurement.contentHeight;
+  const contentWidth = measurement.contentWidth;
+  const viewportHeight = measurement.viewportHeight;
+  const viewportWidth = measurement.viewportWidth;
+  const verticalOverflow = measurement.verticalOverflow;
+  const horizontalOverflow = measurement.horizontalOverflow;
+  const measuredAt = measurement.measuredAt;
+
+  if (
+    typeof slideId !== "string" ||
+    slideId !== slide.id ||
+    (measurementDeckId !== undefined && measurementDeckId !== deckId) ||
+    typeof contentHash !== "string" ||
+    contentHash !== hashSlideContent(slide.content ?? "") ||
+    typeof contentHeight !== "number" ||
+    !Number.isFinite(contentHeight) ||
+    typeof contentWidth !== "number" ||
+    !Number.isFinite(contentWidth) ||
+    typeof viewportHeight !== "number" ||
+    !Number.isFinite(viewportHeight) ||
+    typeof viewportWidth !== "number" ||
+    !Number.isFinite(viewportWidth) ||
+    typeof verticalOverflow !== "number" ||
+    !Number.isFinite(verticalOverflow) ||
+    typeof horizontalOverflow !== "number" ||
+    !Number.isFinite(horizontalOverflow) ||
+    typeof measuredAt !== "number" ||
+    !Number.isFinite(measuredAt)
+  ) {
+    return null;
+  }
+
+  return {
+    slideId,
+    contentHash,
+    contentHeight,
+    contentWidth,
+    viewportHeight,
+    viewportWidth,
+    verticalOverflow,
+    horizontalOverflow,
+    measuredAt,
+  };
+}
 
 export default defineAction({
   description:
@@ -152,6 +214,8 @@ export default defineAction({
         activeTool?: string;
         items?: Array<{
           selector?: string;
+          runtimeSelector?: string;
+          objectId?: string;
           text?: string;
           kind?: string;
           tagName?: string;
@@ -159,12 +223,12 @@ export default defineAction({
           style?: Record<string, unknown>;
         }>;
       } | null;
-      if (
-        selection &&
-        (!selection.slideId || selection.slideId === currentSlide?.id)
-      ) {
+      if (selection && currentSlide && selection.slideId === currentSlide.id) {
         lines.push(``);
         lines.push(`### Current visual selection`);
+        lines.push(
+          `selectionSlideId: ${selection.slideId}   (matches currentSlideId)`,
+        );
         lines.push(`mode: ${selection.mode ?? "unknown"}`);
         lines.push(`activeTool: ${selection.activeTool ?? "select"}`);
         if (Array.isArray(selection.items) && selection.items.length > 0) {
@@ -172,6 +236,10 @@ export default defineAction({
             lines.push(
               `selected ${index + 1}: ${item.kind ?? "element"} ${item.tagName ?? ""} selector=${item.selector ?? "(none)"}`,
             );
+            if (item.objectId) lines.push(`objectId: ${item.objectId}`);
+            if (item.runtimeSelector) {
+              lines.push(`runtimeSelector: ${item.runtimeSelector}`);
+            }
             if (item.text) lines.push(`text: ${item.text}`);
             if (item.imageSrc) lines.push(`imageSrc: ${item.imageSrc}`);
             if (item.style) {
@@ -185,29 +253,29 @@ export default defineAction({
 
       // ─── Layout-fit measurement ──────────────────────────────────────────
       // The editor measures the rendered slide and reports vertical overflow
-      // here whenever the natural content height exceeds the canvas content
-      // area. If this block is present, the current slide's HTML is too tall
-      // and needs to be rewritten to fit the canvas.
-      const overflow = (await readAppStateForCurrentTab("slide-fit-check")) as {
-        slideId?: string;
-        verticalOverflow?: number;
-        contentHeight?: number;
-        viewportHeight?: number;
-      } | null;
+      // here whenever the natural content bounds exceed the canvas content
+      // area. If this block is present, the current slide's HTML needs to be
+      // rewritten to fit the canvas.
+      const currentSlideMeasurement = getCurrentSlideFitMeasurement(
+        await readAppStateForCurrentTab("slide-fit-check"),
+        currentSlide,
+        rows[0].id,
+      );
+      const verticalOverflow = currentSlideMeasurement?.verticalOverflow ?? 0;
+      const horizontalOverflow =
+        currentSlideMeasurement?.horizontalOverflow ?? 0;
       if (
-        overflow &&
-        typeof overflow.verticalOverflow === "number" &&
-        overflow.verticalOverflow > 0 &&
-        overflow.slideId === currentSlide?.id
+        currentSlideMeasurement &&
+        (verticalOverflow > 0 || horizontalOverflow > 0)
       ) {
         lines.push(``);
-        lines.push(`### ⚠ Layout overflows the canvas vertically`);
+        lines.push(`### ⚠ Layout overflows the canvas`);
         lines.push(
-          `This slide's natural rendered height is ${overflow.contentHeight}px, ` +
-            `but the canvas content area is only ${overflow.viewportHeight}px tall ` +
-            `(overflow: ${overflow.verticalOverflow}px). The renderer no longer ` +
+          `This slide's natural rendered content is ${currentSlideMeasurement.contentWidth}x${currentSlideMeasurement.contentHeight}px, ` +
+            `but the canvas content area is ${currentSlideMeasurement.viewportWidth}x${currentSlideMeasurement.viewportHeight}px ` +
+            `(overflow: ${verticalOverflow}px vertical, ${horizontalOverflow}px horizontal). The renderer no longer ` +
             `auto-shrinks overflowing slides — you must rewrite the slide HTML so ` +
-            `the rendered height is at most ${overflow.viewportHeight}px. Options, ` +
+            `the rendered content fits the measured content area. Options, ` +
             `in order of preference: (1) tighten copy — shorter headings/bullets, ` +
             `drop low-value lines; (2) reduce vertical density — fewer stacked ` +
             `cards, smaller gaps, slightly smaller body font (not below 16px); ` +
@@ -216,6 +284,72 @@ export default defineAction({
             `Do not solve this with transform: scale, overflow: scroll, or ` +
             `absolute positioning — only the HTML shape can fix it now.`,
         );
+      }
+
+      const deckFit = (await readAppStateForCurrentTab(
+        "deck-fit-checks",
+      )) as DeckFitState | null;
+      if (
+        deckFit?.deckId === rows[0].id &&
+        deckFit.aspectRatio === (deck.aspectRatio ?? "16:9") &&
+        deckFit.slides
+      ) {
+        type DeckFitSummary =
+          | { kind: "unknown"; index: number }
+          | {
+              kind: "overflow";
+              index: number;
+              measurement: (typeof deckFit.slides)[string];
+            };
+        const measured: DeckFitSummary[] = slides.flatMap(
+          (slide, index): DeckFitSummary[] => {
+            const measurement =
+              slide.id === currentSlideMeasurement?.slideId
+                ? currentSlideMeasurement
+                : deckFit.slides[slide.id];
+            if (
+              !measurement ||
+              measurement.contentHash !==
+                hashSlideContent(slide.content ?? "") ||
+              !Number.isFinite(measurement.verticalOverflow) ||
+              !Number.isFinite(measurement.horizontalOverflow) ||
+              !Number.isFinite(measurement.contentHeight) ||
+              !Number.isFinite(measurement.contentWidth) ||
+              !Number.isFinite(measurement.viewportHeight) ||
+              !Number.isFinite(measurement.viewportWidth) ||
+              !Number.isFinite(measurement.measuredAt)
+            ) {
+              return [{ kind: "unknown" as const, index }];
+            }
+            return measurement.verticalOverflow > 0 ||
+              measurement.horizontalOverflow > 0
+              ? [{ kind: "overflow" as const, index, measurement }]
+              : [];
+          },
+        );
+        const unknown = measured.filter((item) => item.kind === "unknown");
+        const overflows = measured.filter((item) => item.kind === "overflow");
+        lines.push(``);
+        lines.push(`### Deck-wide layout fit`);
+        if (unknown.length > 0) {
+          lines.push(
+            `Measured ${slides.length - unknown.length} of ${slides.length} slides; ` +
+              `the remaining slides need a fresh browser measurement before claiming the deck fits.`,
+          );
+        } else if (overflows.length > 0) {
+          lines.push(
+            `Overflow detected on ${overflows.length} slide(s): ${overflows
+              .map((item) => {
+                if (item.kind !== "overflow") return "";
+                return `slide ${item.index + 1} (${item.measurement.verticalOverflow}px vertical, ${item.measurement.horizontalOverflow}px horizontal)`;
+              })
+              .join(", ")}.`,
+          );
+        } else {
+          lines.push(
+            `All ${slides.length} slides fit their measured content area.`,
+          );
+        }
       }
 
       return lines.join("\n");
@@ -236,11 +370,14 @@ export default defineAction({
       .where(accessFilter(schema.decks, schema.deckShares))
       .orderBy(desc(schema.decks.updatedAt));
 
-    const userEmail = getRequestUserEmail();
+    const normalizedUserEmail = normalizeOwnerEmail(getRequestUserEmail());
     const filteredRows =
       navigation?.deckFilter === "created-by-me"
-        ? userEmail
-          ? rows.filter((row) => row.ownerEmail === userEmail)
+        ? normalizedUserEmail !== null
+          ? rows.filter(
+              (row) =>
+                normalizeOwnerEmail(row.ownerEmail) === normalizedUserEmail,
+            )
           : []
         : rows;
     const lines: string[] = [];

@@ -2,6 +2,7 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconFold,
+  IconLoader2,
   IconPlus,
   IconRefresh,
 } from "@tabler/icons-react";
@@ -53,6 +54,8 @@ interface FileTreeProps {
   nodes: TreeNode[];
   activeUri: string | null;
   dirtyUris: ReadonlySet<string>;
+  loading?: boolean;
+  error?: string;
   focusToken: number;
   registerRef: (element: HTMLDivElement | null) => void;
   onRefresh: () => void;
@@ -75,6 +78,8 @@ export function FileTree({
   nodes,
   activeUri,
   dirtyUris,
+  loading = false,
+  error,
   focusToken,
   registerRef,
   onRefresh,
@@ -343,6 +348,32 @@ export function FileTree({
           if (node) handleRowKeyDown(event, node, index);
         }}
       >
+        {error ? (
+          <div
+            role="status"
+            data-testid={`design-code-file-list-error-${providerKey}`}
+            className="mx-1 my-1 rounded-[5px] border border-border bg-[var(--workbench-editor-bg)] px-2 py-2 text-[11px] text-[var(--workbench-muted-fg)]"
+          >
+            <p className="break-words">{error}</p>
+            <button
+              type="button"
+              className="mt-1 cursor-pointer font-medium text-[var(--workbench-accent)] hover:underline"
+              onClick={onRefresh}
+            >
+              {"Try again" /* i18n-ignore */}
+            </button>
+          </div>
+        ) : null}
+        {loading && rows.length === 0 ? (
+          <div
+            role="status"
+            data-testid={`design-code-file-list-loading-${providerKey}`}
+            className="flex items-center gap-1.5 px-2 py-2 text-[11px] text-[var(--workbench-muted-fg)]"
+          >
+            <IconLoader2 className="size-3 animate-spin" />
+            <span>{"Loading files…" /* i18n-ignore */}</span>
+          </div>
+        ) : null}
         {rows.map((row, index) => {
           const uri = workbenchUri(providerKey, row.path);
           const isActive = activeUri === uri;
@@ -489,6 +520,11 @@ export function FileTree({
             </ContextMenu>
           );
         })}
+        {!loading && !error && rows.length === 0 ? (
+          <p className="px-2 py-2 text-[11px] text-[var(--workbench-muted-fg)]">
+            {"No files found" /* i18n-ignore */}
+          </p>
+        ) : null}
         {pendingNewFile ? (
           <div
             className="flex h-6 items-center gap-1 rounded-[5px] pr-1 text-[12px]"

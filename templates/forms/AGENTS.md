@@ -6,8 +6,13 @@ The first screen is the chat: start by helping the user build, set up, inspect,
 or analyze their form workspace, then navigate into app views when a richer
 editor or table is useful.
 
-Detailed building, publishing, response, storage, and UI rules live in
-`.agents/skills/`.
+## Skills
+
+Read the relevant skill before deeper work:
+
+- `form-building` for schema/field creation and edits.
+- `form-publishing` for public forms, submission behavior, and sharing.
+- `form-responses` for response review and analysis.
 
 ## Core Rules
 
@@ -16,10 +21,10 @@ Detailed building, publishing, response, storage, and UI rules live in
   thumbnails, or replay chunks in app tables, `application_state`, `settings`,
   or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use actions for form lifecycle, fields, publishing, responses, navigation,
-  sharing, and database work. Do not bypass ownable access checks.
-- In dev, call actions with `pnpm action <name>`; in production, use native
-  tools. The action schema is authoritative.
+  sharing, and database work. Do not bypass ownable access checks. The action
+  schema is authoritative when a parameter is unclear.
 - Use `view-screen` when the active form, selected field, publish state, or
   response table is unclear.
 - For response analytics, call `response-insights` instead of inventing SQL.
@@ -28,10 +33,30 @@ Detailed building, publishing, response, storage, and UI rules live in
   combined dashboard/report requests.
 - For form setup/configuration previews, call `preview-form`. It returns a
   native inline summary/table and an "Open editor" expansion path.
+- For product usage, agent-native signup, conversion, app-wide event, or other
+  data-owned-by-sibling questions, use `describe-workspace-apps` when ownership
+  is unclear, then delegate a narrow natural-language question with `call-agent`
+  to the owning app. In workspaces with Analytics, it normally owns first-party
+  signup, conversion, and app-usage metrics. Do not invent SQL or query another
+  app's database.
 - For an anonymous feedback form or survey, create all fields in one
   `create-form` call with `status: "published"`, verify the persisted form, and
-  return the action's exact public `/f/<slug>` response URL rather than only
-  the private editor link.
+  copy the returned `publicUrl` verbatim. Never derive the link from `slug` or
+  omit the public `/f/<slug>` route segment.
+- To email the form owner when someone submits a response, set
+  `settings.emailOnNewResponses: true` through `create-form` or `update-form`.
+  Delivery uses the configured framework email provider (`RESEND_API_KEY` or
+  `SENDGRID_API_KEY`) in the form owner's request context and sends to the form
+  owner's account email. A public submission can succeed even when delivery
+  fails, so check the server logs and provider configuration when debugging.
+- Conditional fields use `conditional: { fieldId, operator, value }`. The
+  `fieldId` must reference an earlier field; supported operators are `equals`,
+  `not_equals`, and `contains`. Hidden fields and their stale values are not
+  persisted or delivered to integrations.
+- Form integrations are outbound webhooks. Slack requires an Incoming Webhook
+  URL, and Google Sheets requires a deployed Google Apps Script `/exec` URL that
+  parses `JSON.parse(e.postData.contents)` and appends the received values.
+  They are separate from the managed Slack/Messaging connection.
 - Form UX should stay focused: clear labels, sensible validation, minimal
   required fields, and progressive disclosure for advanced settings.
 - Public form submission endpoints must be intentionally public; keep management
@@ -69,12 +94,7 @@ Detailed building, publishing, response, storage, and UI rules live in
   do not include both unless the user asked for both; iframe/MCP App rendering
   is only a fallback for external hosts.
 
-## Skills
+## Source Changes
 
-Read the relevant skill before deeper work:
-
-- `form-building` for schema/field creation and edits.
-- `form-publishing` for public forms, submission behavior, and sharing.
-- `form-responses` for response review and analysis.
-- `storing-data`, `real-time-sync`, `security`, `actions`, `frontend-design`,
-  and `shadcn-ui` for framework work.
+Before building common workspace or agent UI, read `agent-native-toolkit`; read
+`customizing-agent-native` before adapting shared UI.

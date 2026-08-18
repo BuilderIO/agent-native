@@ -1,9 +1,9 @@
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
-  appApiPath,
   callAction,
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import type {
   CreateNotionPageRequest,
   Document,
@@ -15,6 +15,10 @@ import type {
 } from "@shared/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+
+import { useLocalStorage } from "@/hooks/use-local-storage";
+
+import { documentQueryFilter } from "./use-documents";
 
 // The server signs a `redirect` query param into the OAuth `state` and the
 // callback route sends the user back there once the connection completes. If
@@ -55,29 +59,23 @@ export function invalidateDocumentQueries(
   // path after every debounced editor save). Invalidating the bare ["action"]
   // key would refetch every mounted query app-wide (sidebar tree, comments,
   // database views, search, connection status, ...) on each cycle.
-  queryClient.invalidateQueries({
-    queryKey: ["action", "get-document", { id: documentId }],
-  });
+  queryClient.invalidateQueries(documentQueryFilter(documentId));
   queryClient.invalidateQueries({
     queryKey: ["action", "list-documents"],
   });
   queryClient.invalidateQueries({
     queryKey: documentSyncStatusQueryKey(documentId),
   });
-  queryClient.invalidateQueries({
-    queryKey: documentSyncStatusQueryKey(documentId, { autoSync: true }),
-  });
 }
 
-export function documentSyncStatusQueryKey(
-  documentId: string,
-  options?: { autoSync?: boolean },
-) {
-  const normalizedDocumentId = documentId.trim();
+// `autoSync` only decides how often to refetch, so keying on it split one
+// document's status across two cache entries and two independent poll loops —
+// the toolbar polling at 2s while the sync bar polled the same action at 30s.
+export function documentSyncStatusQueryKey(documentId: string) {
   return [
     "action",
     "refresh-notion-sync-status",
-    { documentId: normalizedDocumentId, autoSync: !!options?.autoSync },
+    { documentId: documentId.trim() },
   ] as const;
 }
 
@@ -119,17 +117,21 @@ export function documentSyncRefetchIntervalMs(
   return autoSync ? 2_000 : 30_000;
 }
 
-export function useDocumentSyncStatus(
-  documentId: string | null,
-  options?: { autoSync?: boolean },
-) {
+export function useDocumentSyncStatus(documentId: string | null) {
   const queryClient = useQueryClient();
   const lastObservedSyncedAtRef = useRef<string | null>(null);
   const normalizedDocumentId = documentId?.trim() || null;
-  const autoSync = !!options?.autoSync;
+  // `autoSync` changes what the server does, so every observer of the shared
+  // query key has to agree on it. Read the same per-document toggle the
+  // toolbar writes instead of taking it per mount, where one component could
+  // suppress or enable another's auto-sync through the shared query function.
+  const [autoSync] = useLocalStorage(
+    `notion-auto-sync:${normalizedDocumentId ?? ""}`,
+    false,
+  );
   const query = useQuery<DocumentSyncStatus>({
     queryKey: normalizedDocumentId
-      ? documentSyncStatusQueryKey(normalizedDocumentId, options)
+      ? documentSyncStatusQueryKey(normalizedDocumentId)
       : ["action", "refresh-notion-sync-status", null],
     queryFn: () => {
       if (!normalizedDocumentId) throw new Error("documentId is required");
@@ -155,21 +157,23 @@ export function useDocumentSyncStatus(
 
     lastObservedSyncedAtRef.current = query.data.lastSyncedAt;
 
-    const cachedDocument = queryClient.getQueryData<Document>([
-      "action",
-      "get-document",
-      { id: normalizedDocumentId },
-    ]);
+    const cachedDocuments = queryClient
+      .getQueriesData<Document>(documentQueryFilter(normalizedDocumentId))
+      .map(([, document]) => document)
+      .filter((document): document is Document => !!document);
     const syncedLocalUpdatedAt = query.data.lastPushedLocalUpdatedAt;
 
     if (
-      cachedDocument?.updatedAt &&
+      cachedDocuments.some(
+        (cachedDocument) =>
+          !!cachedDocument.updatedAt &&
+          !!syncedLocalUpdatedAt &&
+          syncedLocalUpdatedAt > cachedDocument.updatedAt,
+      ) &&
       syncedLocalUpdatedAt &&
-      syncedLocalUpdatedAt > cachedDocument.updatedAt
+      cachedDocuments.length > 0
     ) {
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-document", { id: normalizedDocumentId }],
-      });
+      queryClient.invalidateQueries(documentQueryFilter(normalizedDocumentId));
       queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
     }
   }, [

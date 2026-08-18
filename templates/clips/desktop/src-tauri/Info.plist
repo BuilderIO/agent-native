@@ -8,11 +8,21 @@
     <string>Clips uses your microphone to record audio with screen recordings.</string>
     <key>NSScreenCaptureUsageDescription</key>
     <string>Clips records your screen and system audio when you start a Clip.</string>
+    <key>NSCalendarsUsageDescription</key>
+    <string>Clips uses your calendars to show upcoming meetings and offer meeting capture.</string>
+    <key>NSCalendarsFullAccessUsageDescription</key>
+    <string>Clips uses your calendars to show upcoming meetings and offer meeting capture.</string>
     <key>NSSpeechRecognitionUsageDescription</key>
     <string>Clips uses speech recognition for on-device voice dictation.</string>
     <key>NSAccessibilityUsageDescription</key>
     <string>Clips uses Accessibility to learn your preferred spellings from edits you make right after dictating, so future dictations get them right.</string>
     <key>CFBundleIconName</key>
     <string>agent-native</string>
+    <!-- Menu-bar-only. Without this the bundle launches as a regular app, so
+         macOS creates a Dock tile and only removes it once the deferred
+         Accessory activation policy lands after setup() — a Dock icon that
+         appears and vanishes on a timing that varies with launch speed. -->
+    <key>LSUIElement</key>
+    <true/>
 </dict>
 </plist>

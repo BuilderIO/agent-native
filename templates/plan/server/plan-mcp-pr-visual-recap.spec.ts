@@ -30,7 +30,7 @@ describe("Plan MCP PR visual recap catalog", () => {
 
     expect(mcpPluginSource).toContain("mountMCP");
     expect(mcpPluginSource).toContain("PLAN_CONNECTOR_CATALOG");
-    expect(agentChatSource).toContain("disableMcp: true");
+    expect(agentChatSource).toContain("enabled: false");
 
     for (const tool of PR_VISUAL_RECAP_MCP_TOOLS) {
       expect(connectorCatalogSource).toContain(`"${tool}"`);

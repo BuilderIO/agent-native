@@ -7,7 +7,7 @@ description: "Sprachdiktat im Agent Chat Verfassenr – Builder Gemini, BYOK-Anb
 
 Jede agentennative App verfügt über ein Mikrofon im Chat Verfassenr. Klicken Sie darauf, sprechen Sie und Ihre Worte werden in die Eingabeaufforderung übertragen. Nützlich auf Mobilgeräten, nützlich für lange Eingabeaufforderungen, nützlich, wenn Sie etwas anderes in der Hand haben.
 
-Das Framework erledigt das alles automatisch. Mit Builder verbundene Benutzer erhalten standardmäßig das von Builder gehostete Gemini Flash-Lite. Andernfalls können Benutzer ihren eigenen Anbieterschlüssel mitbringen oder auf die Spracherkennung des Browsers zurückgreifen.
+Das Framework erledigt das alles automatisch. Mit Builder verbundene Benutzer (kostenloser Tarif verfügbar) erhalten standardmäßig das von Builder gehostete Gemini Flash-Lite. Andernfalls können Benutzer ihren eigenen Anbieterschlüssel mitbringen oder auf die Spracherkennung des Browsers zurückgreifen.
 
 ## Sprachmodus in Echtzeit {#realtime-speech-mode}
 
@@ -19,7 +19,7 @@ Das Sprachmodell verwendet dieselben authentifizierten Agent-Native-Werkzeuge wi
 
 Die Sprachtaste des Komponisten zeichnet Audio im Browser auf und wählt dann einen Anbieter aus:
 
-1. **Builder Gemini Flash-Lite (Standard, wenn Builder verbunden ist).** Der Browser sendet Audio an `/_agent-native/transcribe-voice`, das mithilfe von Gemini Flash-Lite über Builder.io weitergeleitet wird. Kein Google API-Schlüssel erforderlich.
+1. **Builder Gemini Flash-Lite (Standard, wenn Builder verbunden ist).** Der Browser sendet Audio an `/_agent-native/transcribe-voice`, das mithilfe von Gemini Flash-Lite über Builder.io (kostenloser Tarif verfügbar) weitergeleitet wird. Kein Google API-Schlüssel erforderlich.
 2. **BYOK Cloud-Anbieter.** Benutzer können in den Einstellungen Google Gemini, Groq Whisper oder OpenAI Whisper auswählen. Die Route löst benutzerbezogene verschlüsselte Geheimnisse vor gemeinsam genutzten Anmeldeinformationen für die Bereitstellung auf.
 3. **Browser Web Speech API (Fallback).** Wenn kein Serveranbieter verfügbar ist, kann der Verfassenr die integrierte Spracherkennung des Browsers verwenden. Funktioniert in Chromium-basierten Browsern (Chrome, Edge, Arc) und Safari. Weniger genau; Live-Streams.
 
@@ -77,7 +77,7 @@ Die Route ist **nur Same-Origin** – Site-übergreifende POSTs werden abgelehnt
 
 ## Anbieter aktivieren {#enabling-providers}
 
-Builder ist der einfachste Weg: Verbinden Sie Builder.io über die Einstellungen und der Standardanbieter wird Builder Gemini Flash-Lite. Für BYOK-Anbieter fügen Sie den passenden Schlüssel unter Einstellungen → API-Schlüssel hinzu.
+Builder ist der einfachste Weg: Verbinden Sie Builder.io (kostenloser Tarif verfügbar) über die Einstellungen und der Standardanbieter wird Builder Gemini Flash-Lite. Für BYOK-Anbieter fügen Sie den passenden Schlüssel unter Einstellungen → API-Schlüssel hinzu.
 
 ### Pro Benutzer (empfohlen für SaaS)
 

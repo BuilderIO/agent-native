@@ -31,6 +31,7 @@ import { getDb, schema } from "../../server/db/index.js";
 import { queueBuilderMediaCompression } from "../../server/lib/builder-media-compression.js";
 import { deleteRecordingMediaObjects } from "../../server/lib/recording-media-cleanup.js";
 import { ownerEmailMatches } from "../../server/lib/recordings.js";
+import { clearSeekableRepairPending } from "../../server/lib/seekable-media-state.js";
 import {
   makeSeekable,
   normalizeTimelineToMp4,
@@ -95,14 +96,22 @@ async function isAlreadyMarked(
   );
 }
 
-function isRemoteProviderUrl(videoUrl: string | null | undefined): boolean {
+export function isRemoteProviderUrl(
+  videoUrl: string | null | undefined,
+): boolean {
   return typeof videoUrl === "string" && /^https:\/\//i.test(videoUrl.trim());
 }
 
-async function fetchProviderBytes(
+/**
+ * Download stored provider media for server-side processing. Shared with the
+ * filmstrip sprite path — both need the same size cap and timeout, and both
+ * report the same two failure reasons rather than an empty buffer.
+ */
+export async function fetchProviderBytes(
   videoUrl: string,
 ): Promise<
-  { ok: true; bytes: Uint8Array } | { ok: false; reason: EnsureSeekableStatus }
+  | { ok: true; bytes: Uint8Array }
+  | { ok: false; reason: "skipped-fetch-failed" | "skipped-too-large" }
 > {
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -136,7 +145,7 @@ async function fetchProviderBytes(
  * Ensure a single recording's stored media is seekable. Owner-scoped: pass the
  * resolved owner email so the DB lookup can only touch that owner's rows.
  */
-export async function ensureRecordingSeekable(params: {
+async function ensureRecordingSeekableInternal(params: {
   recordingId: string;
   ownerEmail: string;
   force?: boolean;
@@ -244,9 +253,7 @@ export async function ensureRecordingSeekable(params: {
   const mimeType = outputFormat === "mp4" ? "video/mp4" : "video/webm";
   const upload = await uploadFile({
     data: seekable.bytes,
-    filename: normalizeTimeline
-      ? `${recordingId}-timeline-normalized-${Date.now()}.mp4`
-      : `${recordingId}.${outputFormat}`,
+    filename: `${recordingId}.${outputFormat}`,
     mimeType,
     ownerEmail,
     stableUrl: true,
@@ -275,6 +282,7 @@ export async function ensureRecordingSeekable(params: {
       videoUrl: upload.url,
       videoFormat: outputFormat,
       videoSizeBytes: seekable.bytes.byteLength,
+      mediaUpdatedAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     })
     .where(
@@ -333,4 +341,22 @@ export async function ensureRecordingSeekable(params: {
     changed: true,
     videoUrl: upload.url,
   };
+}
+
+export async function ensureRecordingSeekable(params: {
+  recordingId: string;
+  ownerEmail: string;
+  force?: boolean;
+  normalizeTimeline?: boolean;
+}): Promise<EnsureSeekableResult> {
+  const result = await ensureRecordingSeekableInternal(params);
+  if (result.changed || result.status === "already-optimized") {
+    await clearSeekableRepairPending(params.recordingId).catch((err) => {
+      console.warn("[ensure-seekable-video] failed to clear pending marker", {
+        recordingId: params.recordingId,
+        error: err instanceof Error ? err.message : String(err),
+      });
+    });
+  }
+  return result;
 }

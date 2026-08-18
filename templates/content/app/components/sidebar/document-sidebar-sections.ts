@@ -150,6 +150,6 @@ export function getDocumentSidebarSections(
     localSourceDocuments,
     databaseDocuments,
     favorites,
-    showFavorites: favorites.length > 0,
+    showFavorites: !localFileMode || favorites.length > 0,
   };
 }

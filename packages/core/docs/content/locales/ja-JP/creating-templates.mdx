@@ -9,6 +9,14 @@ description: "独自のエージェント ネイティブ アプリ テンプレ
 
 `@agent-native/core` は runtime contract に使用します: actions、server plugins、database helpers、app state、routing helpers、agent chat です。`@agent-native/toolkit` は shared primitives、toast/mobile hooks、date pickers、simple app shell slots などの再利用可能な app-building UI と helpers に使用します。製品動作や visual identity を表す template-specific variants はローカルに保持してください。
 
+機能の置き場所を決めるときは、3 つのレイヤーを意識してください。
+
+- **Core - フレームワーク:** すべてのアプリが利用できる必須のランタイムとデータ契約。
+- **Toolkit - オプションの再利用可能な部品:** アプリが採用、構成、フォークできる共通 UI とプロダクトシステム。
+- **Templates - オプションのアプリ:** Core 上に構築され、Toolkit をよく利用する完全なドメイン製品。出発点としてフォークできます。
+
+Toolkit と Templates はオプションです。Template 自体がフレームワークなのではなく、Toolkit が Core を置き換えるわけでもありません。
+
 良いテンプレート:
 
 - 有用なシード データまたは空の状態のフローを使用して、1 つのワークフローをエンドツーエンドで解決します。
@@ -35,7 +43,7 @@ npx @agent-native/core@latest create my-platform
 
 チャットでは、認証、耐久性のあるチャット スレッド、SQL を利用したリソース、ツール、アプリケーションの状態、actions、ポーリング同期が提供されます。ドメイン モデルと製品 UI を追加します。
 
-再利用可能な UI テンプレートをまだ構築していない場合は、[Getting Started](/docs/getting-started#1-create-your-app) のヘッドレス オンランプを使用します。アクションを 1 つ定義し、`pnpm agent` で実行し、後でワークフローで耐久性のあるサーフェスが必要になったときに UI を追加します。
+再利用可能なUIテンプレートをまだ構築していない場合は、[Automation-First Apps](/docs/pure-agent-apps)を使用してください。アクションを定義し、ブラウザなしで実行して、ワークフローに永続的なサーフェスが必要になったらUIを追加します。
 
 ## プロジェクトの構造 {#project-structure}
 
@@ -270,8 +278,10 @@ export default runMigrations(
 ルートは `app/routes/` に存在し、React Router v8 ファイル ルーティングを使用します。 actions または API ハンドラーを通じてデータをクエリし、デフォルトでミューテーションを楽観的にします。
 
 ```tsx
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
-
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 export default function ProjectsPage() {
   const { data: projects = [] } = useActionQuery("list-projects", {});
   const create = useActionMutation("create-project");
@@ -287,7 +297,7 @@ export default function ProjectsPage() {
 ライブ同期をアプリ シェルの近くに 1 回接続して、エージェント、別のタブ、またはアクションがデータを変更したときに React クエリ キャッシュが更新されるようにします。
 
 ```tsx
-import { useDbSync } from "@agent-native/core/client";
+import { useDbSync } from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export function AppSync() {
@@ -300,7 +310,7 @@ export function AppSync() {
 **エージェント ネイティブの約束: エージェントの書き込みは手動更新なしで UI に表示されます。** `useActionQuery` が簡単なパスです。変更アクションが `source: "action"` を発行すると、すべてのフックが再フェッチされます。カスタム キー (統合ステータスを読み取る低レベルのクライアント ヘルパーなど) を使用して生の `useQuery` に到達する場合は、ターゲットを絞った更新のためにソースごとのカウンターを queryKey に組み込みます。
 
 ```tsx
-import { useChangeVersions } from "@agent-native/core/client";
+import { useChangeVersions } from "@agent-native/core/client/hooks";
 
 const v = useChangeVersions(["dashboards", "action"]);
 useQuery({
@@ -323,7 +333,7 @@ useQuery({
 アプリケーション状態の書き込み、タブスコープのコマンド読み取り、読み取り後の削除、および重複コマンド保護の一貫性を維持するには、UI フックに `useAgentRouteState` を使用します。
 
 ```tsx
-import { useAgentRouteState } from "@agent-native/core/client";
+import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { TAB_ID } from "@/lib/tab-id";
 
 export function useNavigationState() {
@@ -493,11 +503,23 @@ export default defineNitroPlugin(() => {
 4. 必要な環境変数とオンボーディング手順を文書化します。
 5. 追跡されるランタイム データ ファイルではなく、追加的な移行を通じてサンプルまたはシード行を含めます。
 
-コミュニティ テンプレートは、GitHub リポジトリから作成できます。
+コミュニティテンプレートは公開 GitHub リポジトリから直接インストールします。Agent Native アプリをリポジトリのルートに配置してください。
 
 ```bash
-npx @agent-native/core@latest create my-app --template github:user/repo
+npx @agent-native/core@latest create my-app --template community:owner/repo
 ```
+
+特定のリビジョンを固定するには `#branch`、`#tag`、または `#commit` を追加します。
+
+```bash
+npx @agent-native/core@latest create my-app --template community:owner/repo#v1.0.0
+```
+
+CLI はソースだけをダウンロードし、依存関係のインストールやテンプレートのスクリプト実行は行いません。コミュニティテンプレートは第三者のコードです。`pnpm install` の前にリポジトリ、ライセンス、依存関係、インストールスクリプトを確認してください。
+
+カタログ掲載には、ルートにある完成したアプリ、ライセンスとセットアップ README のある公開リポジトリ、`@agent-native/core` への依存、成功する型チェックとテストが必要です。ホスト版デモとスクリーンショットは任意です。
+
+リポジトリの準備ができたら[コミュニティテンプレートを申請](https://github.com/BuilderIO/agent-native/issues/new?template=community-template.yml)してください。コミュニティ掲載は公式カタログと分けられ、作者が管理します。
 
 ## フレームワークモノリポジトリへの貢献 {#contributing}
 

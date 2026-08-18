@@ -2,10 +2,11 @@ import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { getDeckUrl } from "./_app-url.js";
 
 function slidesDeepLink(): string {
@@ -22,7 +23,9 @@ export default defineAction({
     includeSlides: z
       .enum(["true", "false"])
       .optional()
-      .describe("Set to 'true' for full frontend deck payloads"),
+      .describe(
+        "Set to 'true' for full frontend deck payloads; omitted returns metadata only",
+      ),
     light: z
       .enum(["true", "false"])
       .optional()
@@ -45,24 +48,28 @@ export default defineAction({
   run: async (args, ctx) => {
     const db = getDb();
     const ownerEmail = getRequestUserEmail();
+    const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     if (
       args.includeSlides === "true" &&
       ctx?.caller === "frontend" &&
-      !ownerEmail
+      normalizedOwnerEmail === null
     ) {
       const err = new Error("Unauthorized") as Error & { statusCode?: number };
       err.statusCode = 401;
       throw err;
     }
 
-    if (args.createdBy === "me" && !ownerEmail) {
+    if (args.createdBy === "me" && normalizedOwnerEmail === null) {
       return { count: 0, decks: [] };
     }
 
     const visibleDecks = accessFilter(schema.decks, schema.deckShares);
     const where =
-      args.createdBy === "me" && ownerEmail
-        ? and(visibleDecks, eq(schema.decks.ownerEmail, ownerEmail))
+      args.createdBy === "me" && normalizedOwnerEmail !== null
+        ? and(
+            visibleDecks,
+            sql`lower(trim(${schema.decks.ownerEmail})) = ${normalizedOwnerEmail}`,
+          )
         : visibleDecks;
 
     if (args.light === "true") {
@@ -77,11 +84,58 @@ export default defineAction({
           title: schema.decks.title,
           updatedAt: schema.decks.updatedAt,
           visibility: schema.decks.visibility,
+          ownerEmail: schema.decks.ownerEmail,
         })
         .from(schema.decks)
         .where(where)
         .orderBy(desc(schema.decks.updatedAt));
-      return { count: rows.length, decks: rows };
+      return {
+        count: rows.length,
+        decks: rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          updatedAt: row.updatedAt,
+          visibility: row.visibility,
+          createdByMe:
+            normalizedOwnerEmail !== null &&
+            normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+        })),
+      };
+    }
+
+    if (args.includeSlides !== "true") {
+      // The deck body is an opaque JSON blob containing every slide's HTML.
+      // Metadata callers must opt into it explicitly; the frontend opens one
+      // deck at a time through get-deck instead of downloading every body.
+      const rows = await db
+        .select({
+          id: schema.decks.id,
+          title: schema.decks.title,
+          ownerEmail: schema.decks.ownerEmail,
+          designSystemId: schema.decks.designSystemId,
+          createdAt: schema.decks.createdAt,
+          updatedAt: schema.decks.updatedAt,
+          visibility: schema.decks.visibility,
+        })
+        .from(schema.decks)
+        .where(where)
+        .orderBy(desc(schema.decks.updatedAt));
+
+      return {
+        count: rows.length,
+        decks: rows.map((row) => ({
+          id: row.id,
+          title: row.title,
+          url: getDeckUrl(row.id),
+          visibility: row.visibility,
+          designSystemId: row.designSystemId ?? null,
+          createdByMe:
+            normalizedOwnerEmail !== null &&
+            normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
+          createdAt: row.createdAt,
+          updatedAt: row.updatedAt,
+        })),
+      };
     }
 
     const rows = await db
@@ -103,7 +157,9 @@ export default defineAction({
           id: row.id,
           title: row.title,
           visibility: row.visibility,
-          createdByMe: ownerEmail ? row.ownerEmail === ownerEmail : false,
+          createdByMe:
+            normalizedOwnerEmail !== null &&
+            normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
           designSystemId: row.designSystemId ?? data.designSystemId ?? null,
           createdAt:
             typeof data.createdAt === "string" ? data.createdAt : row.createdAt,
@@ -120,6 +176,7 @@ export default defineAction({
           slideCount: slides?.length ?? 0,
           visibility: row.visibility,
           designSystemId: row.designSystemId ?? null,
+          starred: data?.starred === true,
         };
       }
       return {
@@ -129,6 +186,7 @@ export default defineAction({
         slideCount: slides?.length ?? 0,
         visibility: row.visibility,
         designSystemId: row.designSystemId ?? null,
+        starred: data?.starred === true,
         createdAt: row.createdAt,
         updatedAt: row.updatedAt,
       };

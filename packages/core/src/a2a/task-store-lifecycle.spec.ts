@@ -101,6 +101,72 @@ describe("task-store lifecycle (real sqlite)", () => {
       const loaded = await getTask(task.id);
       expect(loaded!.metadata).toEqual({ kind: "demo", n: 7 });
     });
+
+    it("round-trips verified org ownership for task access checks", async () => {
+      const { createTask, getTaskOwnership } = await loadStore();
+      const task = await createTask(
+        makeMessage("hi"),
+        undefined,
+        undefined,
+        "owner@example.com",
+        "acme.test",
+      );
+
+      await expect(getTaskOwnership(task.id)).resolves.toEqual({
+        ownerEmail: "owner@example.com",
+        ownerScope: "acme.test",
+      });
+    });
+  });
+
+  describe("createOrReuseTask idempotency", () => {
+    it("uses the verified org scope in the unique submission key", async () => {
+      const { createOrReuseTask } = await loadStore();
+      const acme = await createOrReuseTask(
+        makeMessage("go"),
+        undefined,
+        undefined,
+        "owner@example.com",
+        "acme.test",
+        "v1:stable",
+      );
+      const other = await createOrReuseTask(
+        makeMessage("go"),
+        undefined,
+        undefined,
+        "owner@example.com",
+        "other.test",
+        "v1:stable",
+      );
+
+      expect(acme.reused).toBe(false);
+      expect(other.reused).toBe(false);
+      expect(other.task.id).not.toBe(acme.task.id);
+    });
+
+    it("releases a failed submission key for one fresh retry", async () => {
+      const { createOrReuseTask, updateTask } = await loadStore();
+      const first = await createOrReuseTask(
+        makeMessage("go"),
+        undefined,
+        undefined,
+        "owner@example.com",
+        "acme.test",
+        "v1:stable",
+      );
+      await updateTask(first.task.id, { state: "failed" });
+      const retry = await createOrReuseTask(
+        makeMessage("go"),
+        undefined,
+        undefined,
+        "owner@example.com",
+        "acme.test",
+        "v1:stable",
+      );
+
+      expect(retry.reused).toBe(false);
+      expect(retry.task.id).not.toBe(first.task.id);
+    });
   });
 
   describe("claimA2ATaskForProcessing", () => {
@@ -150,8 +216,122 @@ describe("task-store lifecycle (real sqlite)", () => {
     });
   });
 
+  describe("A2A human approvals", () => {
+    it("binds approval to owner and org, claims it once, and settles the paused task", async () => {
+      const {
+        claimA2AApproval,
+        claimA2ATaskForProcessing,
+        createA2AApproval,
+        createTask,
+        getA2AApprovalForOwner,
+        getTask,
+        pauseProcessingA2ATask,
+        settleA2AApproval,
+      } = await loadStore();
+      const task = await createTask(
+        makeMessage("send it"),
+        undefined,
+        undefined,
+        "owner@example.com",
+      );
+      await claimA2ATaskForProcessing(task.id);
+      const approval = await createA2AApproval({
+        taskId: task.id,
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        tool: "send-email",
+        toolInput: { to: "recipient@example.com" },
+        approvalKey: "private-key",
+        callId: "call-1",
+      });
+      await pauseProcessingA2ATask(
+        task.id,
+        makeMessage("Approval required", "agent"),
+      );
+
+      expect(
+        await getA2AApprovalForOwner(approval.id, "other@example.com"),
+      ).toBeNull();
+      expect(
+        await claimA2AApproval(approval.id, "owner@example.com", "wrong-org"),
+      ).toBeNull();
+      expect(
+        await claimA2AApproval(approval.id, "owner@example.com", "org-1"),
+      ).toMatchObject({ status: "processing", approvalKey: "private-key" });
+      expect(
+        await claimA2AApproval(approval.id, "owner@example.com", "org-1"),
+      ).toBeNull();
+
+      await settleA2AApproval(approval.id, "completed", "Email sent");
+      expect(await getTask(task.id)).toMatchObject({
+        status: {
+          state: "completed",
+          message: { parts: [{ type: "text", text: "Email sent" }] },
+        },
+      });
+    });
+
+    it("refuses an expired approval", async () => {
+      const { claimA2AApproval, createA2AApproval, createTask } =
+        await loadStore();
+      const task = await createTask(
+        makeMessage("send it"),
+        undefined,
+        undefined,
+        "owner@example.com",
+      );
+      const approval = await createA2AApproval({
+        taskId: task.id,
+        ownerEmail: "owner@example.com",
+        tool: "send-email",
+        toolInput: {},
+        approvalKey: "private-key",
+        callId: "call-1",
+        ttlMs: -1,
+      });
+      expect(
+        await claimA2AApproval(approval.id, "owner@example.com"),
+      ).toBeNull();
+    });
+
+    it("refuses approval after the linked task is canceled", async () => {
+      const {
+        claimA2AApproval,
+        claimA2ATaskForProcessing,
+        createA2AApproval,
+        createTask,
+        pauseProcessingA2ATask,
+        updateTask,
+      } = await loadStore();
+      const task = await createTask(
+        makeMessage("send it"),
+        undefined,
+        undefined,
+        "owner@example.com",
+      );
+      await claimA2ATaskForProcessing(task.id);
+      const approval = await createA2AApproval({
+        taskId: task.id,
+        ownerEmail: "owner@example.com",
+        tool: "send-email",
+        toolInput: {},
+        approvalKey: "private-key",
+        callId: "call-1",
+      });
+      await pauseProcessingA2ATask(
+        task.id,
+        makeMessage("Approval required", "agent"),
+      );
+      await updateTask(task.id, { state: "canceled" });
+
+      expect(
+        await claimA2AApproval(approval.id, "owner@example.com"),
+      ).toBeNull();
+    });
+  });
+
   describe("getA2ATaskDispatchState", () => {
-    it("returns id/state/metadata/updatedAt for an existing task", async () => {
+    it("returns id/state/metadata/updatedAt/createdAt for an existing task", async () => {
       const { createTask, getA2ATaskDispatchState } = await loadStore();
       const task = await createTask(makeMessage("go"), undefined, {
         route: "x",
@@ -164,6 +344,8 @@ describe("task-store lifecycle (real sqlite)", () => {
       expect(dispatch!.metadata).toEqual({ route: "x" });
       expect(typeof dispatch!.updatedAt).toBe("number");
       expect(dispatch!.updatedAt).toBeGreaterThan(0);
+      expect(typeof dispatch!.createdAt).toBe("number");
+      expect(dispatch!.createdAt).toBeGreaterThan(0);
     });
 
     it("returns undefined metadata when none was stored", async () => {
@@ -298,6 +480,194 @@ describe("task-store lifecycle (real sqlite)", () => {
       expect(await failStuckA2ATask(task.id, Date.now() + 60_000, "nope")).toBe(
         false,
       );
+    });
+
+    it("fails via createdAtCutoff even when updated_at is fresh (heartbeat kept it alive)", async () => {
+      const {
+        createTask,
+        claimA2ATaskForProcessing,
+        touchProcessingA2ATask,
+        failStuckA2ATask,
+        getTask,
+      } = await loadStore();
+      const task = await createTask(makeMessage("go"));
+      await claimA2ATaskForProcessing(task.id);
+      // Simulate a live heartbeat: updated_at is fresh, well above any
+      // processingCutoff in the past.
+      await touchProcessingA2ATask(task.id);
+
+      // processingCutoff (updated_at test) is in the past — would not match
+      // alone. createdAtCutoff is in the future — the row's created_at is
+      // always <= "now + 60s", so the OR condition matches on age alone.
+      const ok = await failStuckA2ATask(
+        task.id,
+        Date.now() - 60_000,
+        "exceeded max run time",
+        Date.now() + 60_000,
+      );
+      expect(ok).toBe(true);
+      const loaded = await getTask(task.id);
+      expect(loaded!.status.state).toBe("failed");
+      expect(loaded!.status.message).toEqual({
+        role: "agent",
+        parts: [{ type: "text", text: "exceeded max run time" }],
+      });
+    });
+
+    it("does NOT fail when neither updated_at nor created_at cutoff is met", async () => {
+      const { createTask, claimA2ATaskForProcessing, failStuckA2ATask } =
+        await loadStore();
+      const task = await createTask(makeMessage("go"));
+      await claimA2ATaskForProcessing(task.id);
+
+      const ok = await failStuckA2ATask(
+        task.id,
+        Date.now() - 60_000, // updated_at (just touched by claim) is after this
+        "nope",
+        Date.now() - 60_000, // created_at (just now) is after this too
+      );
+      expect(ok).toBe(false);
+    });
+  });
+
+  describe("settleProcessingA2ATask", () => {
+    it("atomically settles a task while it remains processing", async () => {
+      const {
+        createTask,
+        claimA2ATaskForProcessing,
+        getTask,
+        settleProcessingA2ATask,
+      } = await loadStore();
+      const task = await createTask(makeMessage("go"));
+      await claimA2ATaskForProcessing(task.id);
+
+      const settled = await settleProcessingA2ATask(task.id, {
+        state: "completed",
+        message: makeMessage("done", "agent"),
+      });
+
+      expect(settled?.status.state).toBe("completed");
+      expect((await getTask(task.id))?.status.state).toBe("completed");
+    });
+
+    it("does not overwrite a timeout failure when the processor finishes late", async () => {
+      const {
+        createTask,
+        claimA2ATaskForProcessing,
+        failStuckA2ATask,
+        getTask,
+        settleProcessingA2ATask,
+      } = await loadStore();
+      const task = await createTask(makeMessage("go"));
+      await claimA2ATaskForProcessing(task.id);
+      await failStuckA2ATask(
+        task.id,
+        Date.now() + 60_000,
+        "processor exceeded its lifetime",
+      );
+
+      const settled = await settleProcessingA2ATask(task.id, {
+        state: "completed",
+        message: makeMessage("late success", "agent"),
+      });
+
+      expect(settled).toBeNull();
+      const loaded = await getTask(task.id);
+      expect(loaded?.status.state).toBe("failed");
+      expect(loaded?.status.message?.parts[0]).toEqual({
+        type: "text",
+        text: "processor exceeded its lifetime",
+      });
+      expect(loaded?.history).not.toContainEqual(
+        makeMessage("late success", "agent"),
+      );
+    });
+  });
+
+  describe("failStuckQueuedA2ATask", () => {
+    it("fails a submitted task whose age exceeds the cutoff and records the reason", async () => {
+      const { createTask, failStuckQueuedA2ATask, getTask } = await loadStore();
+      const task = await createTask(makeMessage("go"));
+
+      const ok = await failStuckQueuedA2ATask(
+        task.id,
+        Date.now() + 60_000,
+        "dispatch kept failing",
+      );
+      expect(ok).toBe(true);
+      const loaded = await getTask(task.id);
+      expect(loaded!.status.state).toBe("failed");
+      expect(loaded!.status.message).toEqual({
+        role: "agent",
+        parts: [{ type: "text", text: "dispatch kept failing" }],
+      });
+    });
+
+    it("fails a task still in 'working' state", async () => {
+      const { createTask, updateTask, failStuckQueuedA2ATask } =
+        await loadStore();
+      const task = await createTask(makeMessage("go"));
+      await updateTask(task.id, { state: "working" });
+
+      expect(
+        await failStuckQueuedA2ATask(task.id, Date.now() + 60_000, "nope"),
+      ).toBe(true);
+    });
+
+    it("does NOT fail a task younger than the cutoff", async () => {
+      const { createTask, failStuckQueuedA2ATask } = await loadStore();
+      const task = await createTask(makeMessage("go"));
+
+      expect(
+        await failStuckQueuedA2ATask(task.id, Date.now() - 60_000, "nope"),
+      ).toBe(false);
+    });
+
+    it("atomically fails only old queued tasks, leaving fresh ones alone", async () => {
+      const { createTask, failStuckQueuedA2ATask, getTask } = await loadStore();
+      const old = await createTask(makeMessage("old"));
+      const fresh = await createTask(makeMessage("fresh"));
+      await dbExec.execute({
+        sql: `UPDATE a2a_tasks SET created_at = ? WHERE id = ?`,
+        args: [Date.now() - 120_000, old.id],
+      });
+      const cutoff = Date.now() - 60_000;
+
+      expect(
+        await failStuckQueuedA2ATask(old.id, cutoff, "dispatch failed"),
+      ).toBe(true);
+      expect(
+        await failStuckQueuedA2ATask(fresh.id, cutoff, "dispatch failed"),
+      ).toBe(false);
+      expect((await getTask(old.id))!.status.state).toBe("failed");
+      expect((await getTask(fresh.id))!.status.state).toBe("submitted");
+    });
+
+    it("does NOT fail an old task already claimed for processing (out of queued set)", async () => {
+      const {
+        createTask,
+        claimA2ATaskForProcessing,
+        failStuckQueuedA2ATask,
+        getTask,
+      } = await loadStore();
+      const task = await createTask(makeMessage("go"));
+      await dbExec.execute({
+        sql: `UPDATE a2a_tasks SET created_at = ? WHERE id = ?`,
+        args: [Date.now() - 120_000, task.id],
+      });
+      await claimA2ATaskForProcessing(task.id);
+
+      expect(
+        await failStuckQueuedA2ATask(task.id, Date.now() - 60_000, "nope"),
+      ).toBe(false);
+      expect((await getTask(task.id))!.status.state).toBe("processing");
+    });
+
+    it("returns false for a missing task", async () => {
+      const { failStuckQueuedA2ATask } = await loadStore();
+      expect(
+        await failStuckQueuedA2ATask("missing", Date.now() + 60_000, "nope"),
+      ).toBe(false);
     });
   });
 

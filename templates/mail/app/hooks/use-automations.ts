@@ -1,4 +1,5 @@
-import { appApiPath } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { callAction } from "@agent-native/core/client/hooks";
 import type { AutomationRule, AutomationAction } from "@shared/types";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -22,7 +23,7 @@ async function apiFetch<T>(url: string, options?: RequestInit): Promise<T> {
 export function useAutomations() {
   return useQuery<AutomationRule[]>({
     queryKey: ["automations"],
-    queryFn: () => apiFetch("/api/automations"),
+    queryFn: () => callAction("list-automations", {}, { method: "GET" }),
     staleTime: 60_000,
   });
 }
@@ -34,12 +35,8 @@ export function useCreateAutomation() {
       name: string;
       condition: string;
       actions: AutomationAction[];
-      domain?: string;
-    }) =>
-      apiFetch<AutomationRule>("/api/automations", {
-        method: "POST",
-        body: JSON.stringify(data),
-      }),
+      domain?: AutomationRule["domain"];
+    }) => callAction("create-automation", data) as Promise<AutomationRule>,
     onSuccess: () => qc.invalidateQueries({ queryKey: ["automations"] }),
   });
 }
@@ -47,20 +44,16 @@ export function useCreateAutomation() {
 export function useUpdateAutomation() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      id,
-      ...data
-    }: {
+    mutationFn: (data: {
       id: string;
       name?: string;
       condition?: string;
       actions?: AutomationAction[];
       enabled?: boolean;
     }) =>
-      apiFetch<AutomationRule>(`/api/automations/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(data),
-      }),
+      callAction("update-automation", data, {
+        method: "PUT",
+      }) as Promise<AutomationRule>,
     onMutate: async ({ id, ...data }) => {
       await qc.cancelQueries({ queryKey: ["automations"] });
       const previous = qc.getQueryData<AutomationRule[]>(["automations"]);
@@ -89,7 +82,7 @@ export function useDeleteAutomation() {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) =>
-      apiFetch<void>(`/api/automations/${id}`, { method: "DELETE" }),
+      callAction("delete-automation", { id }, { method: "DELETE" }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ["automations"] }),
   });
 }

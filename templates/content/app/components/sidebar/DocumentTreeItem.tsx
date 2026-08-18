@@ -1,4 +1,5 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   SortableContext,
   useSortable,
@@ -19,16 +20,6 @@ import {
 import { useState } from "react";
 
 import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
@@ -42,6 +33,8 @@ import {
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
+import { documentSidebarActionAvailability } from "./document-sidebar-actions";
+
 interface DocumentTreeItemProps {
   node: DocumentTreeNode;
   depth: number;
@@ -52,7 +45,7 @@ interface DocumentTreeItemProps {
   onSelect: (id: string) => void;
   onCreateChildPage: (parentId: string) => void;
   onCreateChildDatabase: (parentId: string) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string, title: string) => void;
   onToggleFavorite: (id: string, isFavorite: boolean) => void;
 }
 
@@ -106,14 +99,10 @@ export function DocumentTreeItem({
   const isActive = node.id === activeId;
   const isLocalFileNode = node.source?.mode === "local-files";
   const isLocalFolder = isLocalFileNode && node.source?.kind === "folder";
-  const canEdit = node.canEdit !== false;
-  const canManage =
-    node.canManage === true ||
-    node.accessRole === "owner" ||
-    node.accessRole === "admin";
-  const hasMenuActions = canEdit || canManage;
+  const { canEdit, canManage, canFavorite, hasMenuActions } =
+    documentSidebarActionAvailability(node, { favoriteAvailable: true });
   const canCreateChild = canEdit && !isLocalFileNode;
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const indent = depth * 12 + 12;
   const rowWidth =
     sidebarWidth === undefined ? undefined : Math.max(0, sidebarWidth - 8);
@@ -233,7 +222,7 @@ export function DocumentTreeItem({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-48">
-                {canEdit && (
+                {canFavorite && (
                   <DropdownMenuItem
                     onClick={(e) => {
                       e.stopPropagation();
@@ -245,17 +234,29 @@ export function DocumentTreeItem({
                       className={cn("me-2", node.isFavorite && "fill-current")}
                     />
                     {node.isFavorite
-                      ? "Remove from favorites"
-                      : "Add to favorites"}
+                      ? t("sidebar.unpinFromSidebar")
+                      : t("sidebar.pinToSidebar")}
                   </DropdownMenuItem>
                 )}
-                {canEdit && canManage && <DropdownMenuSeparator />}
+                {canFavorite && canManage && <DropdownMenuSeparator />}
+                {canEdit && !isLocalFileNode && (
+                  <DropdownMenuItem
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      event.stopPropagation();
+                      setContextSheetOpen(true);
+                    }}
+                  >
+                    <IconPlus size={14} className="me-2" />
+                    {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+                  </DropdownMenuItem>
+                )}
                 {canManage && (
                   <DropdownMenuItem
                     className="text-destructive"
-                    onClick={(e) => {
+                    onSelect={(e) => {
                       e.stopPropagation();
-                      setDeleteDialogOpen(true);
+                      onDelete(node.id, node.title || t("sidebar.untitled"));
                     }}
                   >
                     <IconTrash size={14} className="me-2" />
@@ -266,7 +267,7 @@ export function DocumentTreeItem({
             </DropdownMenu>
           )}
 
-          {canCreateChild && (
+          {canCreateChild ? (
             <DropdownMenu>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -277,6 +278,7 @@ export function DocumentTreeItem({
                       aria-label={t("sidebar.addChildTo", {
                         title: node.title || t("sidebar.untitled"),
                       })}
+                      data-sidebar-add-child
                       onClick={(e) => e.stopPropagation()}
                     >
                       <IconPlus size={14} />
@@ -306,9 +308,36 @@ export function DocumentTreeItem({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : (
+            <button
+              type="button"
+              className="flex h-7 w-7 cursor-not-allowed items-center justify-center rounded text-muted-foreground/50"
+              aria-label={t("sidebar.addChildTo", {
+                title: node.title || t("sidebar.untitled"),
+              })}
+              data-sidebar-add-child
+              disabled
+            >
+              <IconPlus size={14} />
+            </button>
           )}
         </div>
       </div>
+
+      <CreativeContextShareSheet
+        open={contextSheetOpen}
+        onOpenChange={setContextSheetOpen}
+        resource={{
+          appId: "content",
+          resourceType: "document",
+          resourceId: node.id,
+          title: node.title || "Untitled",
+          updatedAt: node.updatedAt,
+          visibility: node.visibility,
+          preview: { kind: "document", label: "Document" },
+        }}
+        canManage={canManage}
+      />
 
       {hasChildren && expanded && (
         <SortableContext
@@ -333,30 +362,6 @@ export function DocumentTreeItem({
           ))}
         </SortableContext>
       )}
-
-      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("sidebar.deletePageQuestion")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("sidebar.deletePageDescription", {
-                title: node.title || t("sidebar.untitled"),
-              })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={() => onDelete(node.id)}
-            >
-              {t("database.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }

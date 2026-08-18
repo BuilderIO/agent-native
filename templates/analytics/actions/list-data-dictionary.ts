@@ -10,7 +10,7 @@ const KEY_PREFIX = "data-dict-";
 
 export default defineAction({
   description:
-    "List entries in the data dictionary — the internal catalog of metrics, tables, columns, and business definitions the analytics agent should consult before writing SQL or proposing a dashboard. Call this FIRST when the user asks for a dashboard or metric so you know what's already defined, where the numbers come from, and how to query them correctly. Returns all entries sorted by metric name; filter with `search` or `department` when you only need a slice.",
+    "List or browse entries in the data dictionary — the internal catalog of metrics, tables, columns, and business definitions. For an ordinary metric lookup, use search-analytics-query-catalog instead because it searches dictionary entries and existing dashboard/chart SQL together in one bounded call. Use this action when the user specifically asks to browse dictionary definitions or filter them by department.",
   schema: z.object({
     search: z
       .string()
@@ -64,6 +64,8 @@ export default defineAction({
           e.metric,
           e.definition,
           e.department,
+          e.source,
+          e.action,
           e.table,
           e.columnsUsed,
           e.cuts,

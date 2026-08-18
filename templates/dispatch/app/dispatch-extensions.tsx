@@ -16,6 +16,7 @@ import type { DispatchExtensionConfig } from "@agent-native/dispatch/components"
  *       {
  *         id: "reports",
  *         to: "/reports",
+ *         adminTo: "/admin/reports",
  *         label: "Reports",
  *         icon: IconChartBar,
  *         section: "operations",

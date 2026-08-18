@@ -4,21 +4,28 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   EMBED_TARGET_HEADER,
+  EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 
 const STORAGE_KEY = "agent-native:embed-auth-token";
 const BRIDGE_STORAGE_KEY = "agent-native:mcp-chat-bridge";
+type EmbedAuthModule = typeof import("./embed-auth.js");
+let lastEmbedAuthModule: EmbedAuthModule | undefined;
 
 async function loadEmbedAuth() {
+  lastEmbedAuthModule?._resetEmbedAuthForTests();
   vi.resetModules();
-  return import("./embed-auth.js");
+  lastEmbedAuthModule = await import("./embed-auth.js");
+  return lastEmbedAuthModule;
 }
 
 describe("embed auth client", () => {
   beforeEach(() => {
+    lastEmbedAuthModule?._resetEmbedAuthForTests();
     vi.resetModules();
+    vi.useRealTimers();
     sessionStorage.clear();
     window.history.replaceState(null, "", "/");
     Object.defineProperty(window, "fetch", {
@@ -242,6 +249,47 @@ describe("embed auth client", () => {
     expect(notifyIntrinsicHeight).toHaveBeenCalledWith({ height: 560 });
   });
 
+  it("dedupes delayed viewport notifications across repeated bridge setup", async () => {
+    vi.useFakeTimers();
+    const notifyIntrinsicHeight = vi.fn();
+    const requestAnimationFrame = vi.fn((callback: FrameRequestCallback) =>
+      window.setTimeout(() => callback(performance.now()), 0),
+    );
+    Object.defineProperty(window, "openai", {
+      configurable: true,
+      writable: true,
+      value: { notifyIntrinsicHeight },
+    });
+    Object.defineProperty(window, "requestAnimationFrame", {
+      configurable: true,
+      writable: true,
+      value: requestAnimationFrame,
+    });
+    Object.defineProperty(window, "cancelAnimationFrame", {
+      configurable: true,
+      writable: true,
+      value: (id: number) => window.clearTimeout(id),
+    });
+    window.history.replaceState(
+      null,
+      "",
+      `/inbox?embedded=1&${MCP_APP_CHAT_BRIDGE_QUERY_PARAM}=1&${EMBED_TOKEN_QUERY_PARAM}=signed-token`,
+    );
+
+    try {
+      const first = await loadEmbedAuth();
+      first.ensureEmbedAuthFetchInterceptor();
+      first.ensureEmbedAuthFetchInterceptor();
+
+      expect(notifyIntrinsicHeight).toHaveBeenCalledTimes(2);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(notifyIntrinsicHeight).toHaveBeenCalledTimes(5);
+    } finally {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
+  });
+
   it("does not leak a stored MCP chat bridge flag to a different embed token", async () => {
     sessionStorage.setItem(STORAGE_KEY, "old-token");
     sessionStorage.setItem(BRIDGE_STORAGE_KEY, "old-token");
@@ -301,7 +349,7 @@ describe("embed auth client", () => {
     expect(originalFetch).toHaveBeenCalledTimes(1);
     const [input, init] = originalFetch.mock.calls[0]!;
     expect(String(input)).toBe(
-      "http://localhost:3000/_agent-native/poll?since=100&__an_embed_token=stored-token",
+      `http://localhost:3000/_agent-native/poll?since=100&__an_embed_token=stored-token&${EMBED_TARGET_QUERY_PARAM}=%2Finbox%3Fembedded%3D1`,
     );
     const headers = new Headers(init?.headers);
     expect(headers.has("Authorization")).toBe(false);
@@ -328,7 +376,7 @@ describe("embed auth client", () => {
     expect(originalFetch).toHaveBeenCalledTimes(1);
     const [input, init] = originalFetch.mock.calls[0]!;
     expect(String(input)).toBe(
-      "http://localhost:3000/slides/_agent-native/agent-chat/runs/active?threadId=t1&__an_embed_token=stored-token",
+      `http://localhost:3000/slides/_agent-native/agent-chat/runs/active?threadId=t1&__an_embed_token=stored-token&${EMBED_TARGET_QUERY_PARAM}=%2Fslides%2Fdeck%2F1%3Fembedded%3D1`,
     );
     const headers = new Headers(init?.headers);
     expect(headers.has("Authorization")).toBe(false);

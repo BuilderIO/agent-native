@@ -71,6 +71,7 @@ export default defineAction({
           recording: existing,
           meetingId,
           created: false,
+          scheduledEnd: meeting.scheduledEnd,
         };
       }
     }
@@ -117,6 +118,11 @@ export default defineAction({
       .where(eq(schema.recordings.id, recordingId))
       .limit(1);
 
-    return { recording, meetingId, created: true };
+    return {
+      recording,
+      meetingId,
+      created: true,
+      scheduledEnd: meeting.scheduledEnd,
+    };
   },
 });

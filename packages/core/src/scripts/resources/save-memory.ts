@@ -7,7 +7,11 @@
  */
 
 import { resourcePut, resourceGetByPath } from "../../resources/store.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getAmbientUserEmail,
+  getRequestRunContext,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 
 const VALID_TYPES = ["user", "feedback", "project", "reference"] as const;
@@ -32,7 +36,10 @@ export default async function saveMemoryScript(args: string[]): Promise<void> {
   const content = parsed.content;
   if (!content) fail("--content is required");
 
-  const owner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+  const owner =
+    getRequestRunContext()?.owner ??
+    getRequestUserEmail() ??
+    getAmbientUserEmail();
   if (!owner) {
     fail(
       "save-memory requires an authenticated user (request context or AGENT_USER_EMAIL env var).",
@@ -94,6 +101,18 @@ ${content}`;
   }
 
   await resourcePut(owner, indexPath, updatedIndex, "text/markdown");
+
+  // Do not report success until both writes are visible through the resource
+  // read path. This catches storage or ownership mismatches that would
+  // otherwise leave the caller believing a memory was saved.
+  const persistedMemory = await resourceGetByPath(owner, memoryPath);
+  if (persistedMemory?.content !== fileContent) {
+    fail(`save-memory could not verify persisted memory "${name}".`);
+  }
+  const persistedIndex = await resourceGetByPath(owner, indexPath);
+  if (persistedIndex?.content !== updatedIndex) {
+    fail("save-memory could not verify persisted memory index.");
+  }
 
   console.log(`Saved memory "${name}" (${type}): ${description}`);
 }

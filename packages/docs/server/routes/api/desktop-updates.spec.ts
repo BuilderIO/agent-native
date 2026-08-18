@@ -107,38 +107,35 @@ describe("desktop update asset route", () => {
     });
   });
 
-  it("redirects updater metadata to the release asset without proxying it", async () => {
+  it("redirects updater metadata without proxying the release asset", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn(
-        async () =>
-          ({
-            ok: true,
-            status: 200,
-            json: async () => [
+      vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => [
+          {
+            tag_name: "v1.0.0",
+            name: "v1.0.0",
+            published_at: "2026-01-01T00:00:00Z",
+            draft: false,
+            prerelease: false,
+            assets: [
               {
-                tag_name: "v1.0.0",
-                name: "v1.0.0",
-                published_at: "2026-01-01T00:00:00Z",
-                draft: false,
-                prerelease: false,
-                assets: [
-                  {
-                    name: "latest-mac.yml",
-                    browser_download_url: "https://example.com/latest-mac.yml",
-                    size: 123,
-                  },
-                  {
-                    name: "Agent-Native-arm64.dmg",
-                    browser_download_url:
-                      "https://example.com/Agent-Native-arm64.dmg",
-                    size: 123,
-                  },
-                ],
+                name: "latest-mac.yml",
+                browser_download_url: "https://example.com/latest-mac.yml",
+                size: 123,
+              },
+              {
+                name: "Agent-Native-arm64.dmg",
+                browser_download_url:
+                  "https://example.com/Agent-Native-arm64.dmg",
+                size: 123,
               },
             ],
-          }) as Response,
-      ),
+          },
+        ],
+      }),
     );
 
     const event = createEvent("latest-mac.yml");
@@ -151,5 +148,14 @@ describe("desktop update asset route", () => {
       302,
     );
     expect(fetch).toHaveBeenCalledTimes(1);
+
+    expect(event.headers).toEqual({
+      "cache-control":
+        "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+      "cdn-cache-control":
+        "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+      "netlify-cdn-cache-control":
+        "public, durable, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400",
+    });
   });
 });

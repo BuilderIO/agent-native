@@ -7,6 +7,7 @@ import {
   type NavigateOptions,
 } from "react-router";
 
+import { isWorkspaceAppPath } from "./api-path.js";
 import {
   deleteClientAppState,
   readClientAppState,
@@ -198,12 +199,55 @@ function currentRouterPath(location: Location): string {
   return `${location.pathname}${location.search}${location.hash}`;
 }
 
-function stringifyForWriteDedup(value: unknown): string {
-  try {
-    return JSON.stringify(value);
-  } catch {
-    return "";
+function shallowEqualNavigationState(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (
+    !left ||
+    !right ||
+    typeof left !== "object" ||
+    typeof right !== "object"
+  ) {
+    return false;
   }
+
+  const leftKeys = Object.keys(left);
+  const rightKeys = Object.keys(right);
+  if (leftKeys.length !== rightKeys.length) return false;
+
+  for (const key of leftKeys) {
+    if (
+      !Object.prototype.hasOwnProperty.call(right, key) ||
+      !Object.is(
+        (left as Record<string, unknown>)[key],
+        (right as Record<string, unknown>)[key],
+      )
+    ) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Dedup token for the navigation write. Unserializable state falls back to the
+ * state's own identity, never a fresh symbol: the caller's `navigationKeys` is
+ * usually a new array each render, so a symbol recomputed here would never
+ * match the last one and every re-render would issue another failing write.
+ * Identity still lets a genuinely different state reach the write path.
+ */
+function navigationWriteDedupToken(
+  keys: readonly string[],
+  state: unknown,
+): unknown {
+  try {
+    const serialized = JSON.stringify({ keys, state });
+    if (typeof serialized === "string") return serialized;
+  } catch {
+    // coercion-ok: deferred, not dropped — the write below still rejects with
+    // this error and reports it through `onError`.
+  }
+  return state;
 }
 
 function resolveAgentChatViewTransitionOption<NavigateCommand>(
@@ -254,10 +298,10 @@ export function useSemanticNavigationState<
     [options.commandQueryKey],
   );
   const navigationState = options.state ?? null;
-  const navigationWriteDedup = stringifyForWriteDedup({
-    keys: navigationKeys,
-    state: navigationState,
-  });
+  const navigationWriteDedup = useMemo(
+    () => navigationWriteDedupToken(navigationKeys, navigationState),
+    [navigationKeys, navigationState],
+  );
 
   const getCommandDedupKeyRef = useRef(options.getCommandDedupKey);
   const onCommandRef = useRef(options.onCommand);
@@ -266,7 +310,9 @@ export function useSemanticNavigationState<
   onCommandRef.current = options.onCommand;
   onErrorRef.current = options.onError;
 
-  const lastNavigationWriteRef = useRef<string | null>(null);
+  // `null` is safe as "never written": a null state serializes to a string, so
+  // the token itself is never null.
+  const lastNavigationWriteRef = useRef<unknown>(null);
 
   useEffect(() => {
     if (!enabled) return;
@@ -414,7 +460,25 @@ export function useAgentRouteState<
     () => routeLocationFromReactRouter(location),
     [location],
   );
-  const navigationState = options.getNavigationState(routeLocation) ?? null;
+  // Callers may include app-local state in this callback in addition to the
+  // router location. Derive on every render so those values are not frozen at
+  // the last route change, then retain the previous object when its shallow
+  // values are unchanged. This keeps the write-dedup serialization off the
+  // unrelated-render path without hiding captured state updates.
+  const derivedNavigationState =
+    options.getNavigationState(routeLocation) ?? null;
+  const navigationStateRef = useRef<NavigationState | null>(
+    derivedNavigationState,
+  );
+  if (
+    !shallowEqualNavigationState(
+      navigationStateRef.current,
+      derivedNavigationState,
+    )
+  ) {
+    navigationStateRef.current = derivedNavigationState;
+  }
+  const navigationState = navigationStateRef.current;
 
   return useSemanticNavigationState<NavigationState, NavigateCommand>({
     state: navigationState,
@@ -439,6 +503,14 @@ export function useAgentRouteState<
         typeof navigateOptions === "function"
           ? navigateOptions(command)
           : navigateOptions;
+      if (isWorkspaceAppPath(path)) {
+        if (resolvedOptions?.replace) {
+          window.location.replace(path);
+        } else {
+          window.location.assign(path);
+        }
+        return;
+      }
       const transitionOptions = resolveAgentChatViewTransitionOption(
         options.agentChatViewTransition,
         command,

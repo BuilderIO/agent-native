@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useQueryClient } from "@tanstack/react-query";
 
 export interface AnalysisRevision {
@@ -21,6 +24,7 @@ export function useAnalysisRevisions(analysisId: string | null) {
         return Array.isArray(revisions) ? revisions : [];
       },
       placeholderData: (prev: any) => prev,
+      retry: false,
     } as any,
   );
 }

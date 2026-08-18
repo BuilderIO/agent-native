@@ -80,11 +80,15 @@ export async function wasVariantSlotDismissed(
     | string
     | null,
 ): Promise<boolean> {
+  const scopeId =
+    typeof scope === "object" && scope
+      ? variantScopeIdFor(scope)
+      : normalizeVariantScopeId(scope);
+  // Unscoped callers (CLI/A2A/MCP with no thread or picker tab) share one global
+  // state row across separate processes, so a missing slot there means another
+  // process overwrote the row, not that a human dismissed anything.
+  if (!scopeId) return false;
   return withVariantStateLock(async () => {
-    const scopeId =
-      typeof scope === "object" && scope
-        ? variantScopeIdFor(scope)
-        : normalizeVariantScopeId(scope);
     const state = await readVariantStateUnlocked(scopeId);
     if (!state) return true;
     if (state.libraryId !== libraryId) return false;
@@ -171,6 +175,32 @@ export async function readVariantState(
   scopeId?: string | null,
 ): Promise<AssetVariantState | null> {
   return withVariantStateLock(() => readVariantStateUnlocked(scopeId));
+}
+
+// Iterations (refine/edit/restyle) are a continuation of what is already on
+// screen for this thread, not a new generation topic: they should append into
+// the live tray instead of tripping the "new batch/run" reset in
+// isSameVariantScope. Passing the current tray's batch/run id plus its
+// collection/preset/session back through keeps every isSameVariantScope check
+// satisfied.
+export async function resolveLiveBatchContinuation(input: {
+  threadId?: string | null;
+  libraryId: string;
+}): Promise<{
+  variantBatchId: string;
+  collectionId: string | null;
+  presetId: string | null;
+  sessionId: string | null;
+} | null> {
+  if (!input.threadId) return null;
+  const state = await readVariantState(input.threadId);
+  if (!state || state.libraryId !== input.libraryId) return null;
+  return {
+    variantBatchId: state.batchId ?? state.runId,
+    collectionId: state.collectionId ?? null,
+    presetId: state.presetId ?? null,
+    sessionId: state.sessionId ?? null,
+  };
 }
 
 export async function writeVariantState(

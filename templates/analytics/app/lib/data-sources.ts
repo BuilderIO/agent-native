@@ -749,7 +749,7 @@ export const dataSources: DataSource[] = [
     id: "slack",
     name: "Slack",
     description:
-      "Channel history and workspace search. Prefer a Slack workspace integration from Settings > Connections; a local bot token remains available as a legacy fallback.",
+      "Channel history and workspace search. Prefer a Slack workspace integration from Settings > Integrations; a local bot token remains available as a legacy fallback.",
     category: "communication",
     icon: IconMessage,
     envKeys: ["SLACK_BOT_TOKEN"],

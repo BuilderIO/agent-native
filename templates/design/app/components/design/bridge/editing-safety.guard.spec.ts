@@ -78,7 +78,7 @@ describe("editing safety bridge", () => {
   );
 
   it(
-    "leaves authored animation and transitions live in Interact mode",
+    "live-toggles authored animation and transitions between Interact and Design",
     { timeout: 30_000 },
     async () => {
       const browser = await chromium.launch({ headless: true });
@@ -107,6 +107,62 @@ describe("editing safety bridge", () => {
           transitionDuration: "1s",
           safetyStylePresent: false,
         });
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "embedded-canvas-gesture-mode",
+              editingSafetyEnabled: true,
+            },
+            "*",
+          );
+        });
+        await expect
+          .poll(() =>
+            page.locator("#animated").evaluate((element) => {
+              const style = getComputedStyle(element);
+              return {
+                animationName: style.animationName,
+                transitionDuration: style.transitionDuration,
+                safetyStylePresent: Boolean(
+                  document.querySelector(
+                    "style[data-agent-native-editing-safety-style]",
+                  ),
+                ),
+              };
+            }),
+          )
+          .toEqual({
+            animationName: "none",
+            transitionDuration: "0s",
+            safetyStylePresent: true,
+          });
+
+        await page.evaluate(() => {
+          window.postMessage(
+            {
+              type: "embedded-canvas-gesture-mode",
+              editingSafetyEnabled: false,
+            },
+            "*",
+          );
+        });
+        await expect
+          .poll(() =>
+            page.locator("#animated").evaluate((element) => {
+              const style = getComputedStyle(element);
+              return {
+                animationName: style.animationName,
+                transitionDuration: style.transitionDuration,
+                safetyStylePresent: Boolean(
+                  document.querySelector(
+                    "style[data-agent-native-editing-safety-style]",
+                  ),
+                ),
+              };
+            }),
+          )
+          .toEqual(live);
       } finally {
         await browser.close();
       }

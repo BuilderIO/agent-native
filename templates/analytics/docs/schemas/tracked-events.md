@@ -29,7 +29,11 @@ Events tracked by application instrumentation and stored in the configured appli
   `$ai_model`, `$ai_provider`, `$ai_input_tokens`, `$ai_output_tokens`,
   `$ai_latency`, `$ai_total_cost_usd`, `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `status`, and error fields.
-  Prompt and response content are excluded by default.
+  A bounded `tools` array records only tool names, relative start times,
+  durations, statuses, and coarse error classes; interrupted tools and failed
+  runs remain visible, and `tools_truncated` marks runs above the 50-entry cap.
+  Delegated runs also include protocol, caller, task, parent-run, and
+  parent-turn linkage. Prompt, argument, result, and response content are excluded.
 
 ### Content Editing
 
