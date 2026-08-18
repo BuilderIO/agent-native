@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.161.5
+
+### Patch Changes
+
+- 4c7c289: Keep scoped chat tabs isolated when navigating between resources so an older
+  resource's conversation cannot remain visible on the current resource.
+
 ## 0.161.4
 
 ### Patch Changes

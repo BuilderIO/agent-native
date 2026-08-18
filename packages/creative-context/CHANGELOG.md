@@ -1,5 +1,12 @@
 # @agent-native/creative-context
 
+## 0.6.6
+
+### Patch Changes
+
+- 4c7c289: Keep browser-rendered website style extraction working when the shared evaluator
+  is bundled before it is serialized into Chromium.
+
 ## 0.6.5
 
 ### Patch Changes
