@@ -5662,13 +5662,13 @@ const AssistantChatInner = forwardRef<
     byIdentity: new Map(),
   }));
   const getApprovalResolution = useCallback(
-    (approvalKey: string, toolCallId?: string) => {
+    (approvalKey: string, toolCallId?: string, askId?: string) => {
       if (approvalResolutionState.scope !== approvalResolutionScope) {
         return null;
       }
       return (
         approvalResolutionState.byIdentity.get(
-          approvalResolutionIdentity(approvalKey, toolCallId),
+          approvalResolutionIdentity(approvalKey, toolCallId, askId),
         ) ?? null
       );
     },
@@ -5679,6 +5679,7 @@ const AssistantChatInner = forwardRef<
       approvalKey: string,
       resolution: ApprovalResolution,
       toolCallId?: string,
+      askId?: string,
     ) => {
       setApprovalResolutionState((previous) => {
         const byIdentity =
@@ -5687,7 +5688,7 @@ const AssistantChatInner = forwardRef<
             : new Map<string, ApprovalResolution>();
         const next = new Map(byIdentity);
         next.set(
-          approvalResolutionIdentity(approvalKey, toolCallId),
+          approvalResolutionIdentity(approvalKey, toolCallId, askId),
           resolution,
         );
         return { scope: approvalResolutionScope, byIdentity: next };
