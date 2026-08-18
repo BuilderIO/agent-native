@@ -998,7 +998,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
   commentsPanel: {
     disabled: "Os comentários estão desativados para esta gravação.",
     beFirst: "Seja a primeira pessoa a comentar",
-    leaveNotePanel: "Deixe uma nota no topo deste painel.",
+    leaveNotePanel: "Deixe uma nota na parte inferior deste painel.",
     leaveNoteTimestamp: "Deixe uma nota no timestamp atual.",
     leaveComment: "Deixe um comentário...",
     signInToComment: "Entre para deixar um comentário.",

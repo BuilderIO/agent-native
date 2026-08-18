@@ -935,7 +935,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
   commentsPanel: {
     disabled: "此录制已禁用评论。",
     beFirst: "成为第一个评论的人",
-    leaveNotePanel: "在此面板顶部留下备注。",
+    leaveNotePanel: "在此面板底部留下备注。",
     leaveNoteTimestamp: "在当前时间戳留下备注。",
     leaveComment: "留下评论...",
     signInToComment: "登录以发表评论。",
