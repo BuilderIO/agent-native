@@ -3176,7 +3176,7 @@ body {
   flex-direction: column;
   gap: 14px;
   padding: 16px 18px 14px;
-  background: #262626;
+  background: hsl(var(--card));
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
