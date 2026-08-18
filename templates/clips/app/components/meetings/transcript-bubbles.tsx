@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronDown,
   IconChevronUp,
@@ -6,17 +6,24 @@ import {
   IconSearch,
   IconX,
 } from "@tabler/icons-react";
+import type { KeyboardEvent, ReactNode } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
-  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+import { TranscriptSegmentRow } from "../transcript/transcript-segment-row";
+import {
+  attendeeInitials,
+  type AttendeeStackParticipant,
+} from "./attendee-stack";
 
 export interface TranscriptSegment {
   startMs: number;
@@ -29,32 +36,264 @@ export interface TranscriptSegment {
 interface TranscriptBubblesProps {
   segments: TranscriptSegment[];
   isLive: boolean;
-  recordingId?: string | null;
-  onSeek: (ms: number) => void;
-  /** Labels resolved from durable diarization or the meeting attendee list. */
-  speakerLabels?: {
-    mic: string;
-    system: string;
-    unknown: string;
-  };
+  participants?: AttendeeStackParticipant[];
+  ownerEmail?: string | null;
   /**
    * Imperative ref hook: parent can scroll a particular segment into view.
    * Receives a function (segmentIndex) => void.
    */
   registerScrollTo?: (fn: (segmentIndex: number) => void) => void;
-}
-
-function formatTimestamp(ms: number): string {
-  const total = Math.floor(ms / 1000);
-  const m = Math.floor(total / 60);
-  const s = total % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  /** Rendered at the left of the header row. Omit for no title (the header
+   * then shows only the search trigger, e.g. the compact share-page use). */
+  title?: ReactNode;
+  /** Rendered in the header, before the search trigger (e.g. a copy button). */
+  headerActions?: ReactNode;
 }
 
 interface BubbleGroup {
-  source: "mic" | "system" | "unknown";
-  label: string;
+  speaker: SpeakerIdentity;
   segments: { seg: TranscriptSegment; index: number }[];
+}
+
+export interface SpeakerIdentity {
+  key: string;
+  label: string | null;
+  initialsSource: AttendeeStackParticipant | string;
+  isOwner: boolean;
+  accentClass: string;
+  /** The capture could not tell speakers apart, so this transcript names
+   *  nobody — the row renders without an avatar or label rather than claiming
+   *  a speaker we cannot know. */
+  unattributed?: boolean;
+}
+
+/**
+ * Whether a transcript carries enough signal to name who said what.
+ *
+ * A capture that only ever produced one speaker signal cannot distinguish two
+ * people: the mic-only fallback engines tag every segment `mic` (the remote
+ * side reaches the transcript only as bleed into the same microphone), and
+ * cloud transcription of a single mixed track tags nothing at all. Attributing
+ * those to the recording owner reads as fact and is wrong for every line the
+ * other person spoke — including in the AI summary and action items derived
+ * from it. A per-segment `speaker` label from a diarizing provider counts as
+ * signal even when `source` is absent.
+ *
+ * Only meaningful when two people could have spoken; a solo recording that is
+ * all mic genuinely is all one person.
+ */
+export function transcriptDistinguishesSpeakers(
+  segments: TranscriptSegment[],
+  participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
+): boolean {
+  if (countPossibleSpeakers(participants, ownerEmail) < 2) return true;
+  const signals = new Set<string>();
+  for (const segment of segments) {
+    const signal = speakerSignal(segment);
+    if (signal) signals.add(signal);
+    if (signals.size > 1) return true;
+  }
+  return false;
+}
+
+/**
+ * What one segment claims about who was speaking, as a comparable key.
+ *
+ * A generic placeholder is not an identity — it names a side of the
+ * conversation, which is what `source` already says. Counting `speaker: "Me"`
+ * and a plain `source: "mic"` as two different speakers would mark a mic-only
+ * transcript distinguishable and hand the remote side's bleed back to the
+ * owner's name, so placeholders resolve to the side they mean instead. A real
+ * name wins over `source`, since a diarizing provider knows more than the
+ * stream split does; a placeholder yields to it.
+ */
+function speakerSignal(segment: TranscriptSegment): string | null {
+  const speaker = segment.speaker?.trim();
+  const side = placeholderSide(speaker);
+  if (speaker && !side) return `speaker:${normalizeSpeaker(speaker)}`;
+  if (segment.source) return `source:${segment.source}`;
+  // No placeholder and no source is an absence of information, not a side.
+  // Defaulting it to "system" here would make a transcript that mixes tagged
+  // and untagged segments look like two speakers.
+  return side ? `source:${side}` : null;
+}
+
+/**
+ * How many people could have spoken in this meeting.
+ *
+ * The participant roster is the calendar attendee list, which routinely omits
+ * the recording owner — `create-meeting` deliberately does not synthesize a row
+ * for a non-attendee owner, because that table feeds the public share payload.
+ * So counting rows alone reads an owner-plus-one-attendee meeting as solo and
+ * hands a mic-only transcript back to attribution, which is what labels the
+ * remote side's bleed as the owner.
+ *
+ * A withheld owner (`null`, from the public share page) still counts: it means
+ * an owner exists and is not among the participants. An owner we were never
+ * told about (`undefined`) also counts, because "we cannot name them" is not
+ * the same as "they are not there" — the cost of over-counting is a lost label,
+ * and the cost of under-counting is a false one.
+ */
+function countPossibleSpeakers(
+  participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
+): number {
+  const ownerInRoster = ownerEmail
+    ? Boolean(findParticipant(ownerEmail, participants))
+    : false;
+  return participants.length + (ownerInRoster ? 0 : 1);
+}
+
+const UNATTRIBUTED_SPEAKER: SpeakerIdentity = {
+  key: "unattributed",
+  label: null,
+  initialsSource: "",
+  isOwner: false,
+  accentClass: "",
+  unattributed: true,
+};
+
+const SPEAKER_ACCENTS = [
+  "bg-accent text-accent-foreground",
+  "bg-secondary text-secondary-foreground",
+  "bg-muted text-foreground",
+] as const;
+
+const OWNER_ACCENT = "bg-highlight/10 text-primary";
+
+function normalizeSpeaker(value: string): string {
+  return value.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+// Some providers (and our own seed fixture) tag unresolved segments with a
+// literal placeholder word instead of leaving `speaker` blank. These name a
+// side of the conversation rather than a person, so neither the label nor the
+// attribution check may treat one as an identity.
+const GENERIC_MIC_SPEAKER = /^(me|self|you)$/i;
+const GENERIC_SYSTEM_SPEAKER = /^them$/i;
+
+/** The side a generic placeholder names, or null when it names a person. */
+function placeholderSide(
+  label: string | null | undefined,
+): "mic" | "system" | null {
+  const speaker = label?.trim();
+  if (!speaker) return null;
+  if (GENERIC_MIC_SPEAKER.test(speaker)) return "mic";
+  if (GENERIC_SYSTEM_SPEAKER.test(speaker)) return "system";
+  return null;
+}
+
+/**
+ * Which side of the conversation a segment belongs to.
+ *
+ * `source` is the real signal, but a segment can arrive with only a
+ * placeholder speaker on it. Falling straight through to "system" then drops
+ * every "Me" into the remote group, which is how a transcript labelled purely
+ * with placeholders renders entirely as "Them" — the original bug. Read the
+ * side the placeholder names before defaulting.
+ */
+function segmentSide(segment: TranscriptSegment): "mic" | "system" {
+  return segment.source ?? placeholderSide(segment.speaker) ?? "system";
+}
+
+// Exported for regression testing — see transcript-bubbles.test.ts. These
+// are pure functions with no dependency on the component itself.
+export function findParticipant(
+  speaker: string | null | undefined,
+  participants: AttendeeStackParticipant[],
+): AttendeeStackParticipant | undefined {
+  const normalizedSpeaker = speaker ? normalizeSpeaker(speaker) : "";
+  if (!normalizedSpeaker) return undefined;
+  return participants.find((participant) => {
+    const name = participant.name ? normalizeSpeaker(participant.name) : "";
+    const email = normalizeSpeaker(participant.email);
+    return normalizedSpeaker === name || normalizedSpeaker === email;
+  });
+}
+
+export function resolveParticipantForSpeaker(
+  source: "mic" | "system",
+  participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
+): AttendeeStackParticipant | undefined {
+  // `undefined` and `null` are different signals here, not two spellings of
+  // "no owner" — a caller that never threads owner data through at all
+  // passes `undefined` (the only case where guessing via isOrganizer is
+  // acceptable, e.g. legacy data with no recorded owner). The public share
+  // page passes an explicit `null` when it *knows* the owner but withholds
+  // them for privacy (they aren't a public participant) — that still means
+  // "don't guess a different specific identity," it just can't resolve to a
+  // name, so mic segments fall through to the generic "Me" label instead.
+  const ownerParticipant =
+    ownerEmail === undefined
+      ? participants.find((participant) => participant.isOrganizer)
+      : ownerEmail
+        ? findParticipant(ownerEmail, participants)
+        : undefined;
+
+  if (source === "mic") return ownerParticipant;
+  if (!ownerParticipant) return undefined;
+
+  // Generic Them/System segments can only be resolved from meeting metadata
+  // when there is exactly one possible remote participant. Do not guess in a
+  // group meeting until transcript ingestion stores a stable speaker id.
+  const otherParticipants = participants.filter(
+    (participant) =>
+      normalizeSpeaker(participant.email) !==
+      normalizeSpeaker(ownerParticipant.email),
+  );
+  return otherParticipants.length === 1 ? otherParticipants[0] : undefined;
+}
+
+function accentForSpeaker(key: string, isOwner: boolean): string {
+  if (isOwner) return OWNER_ACCENT;
+
+  let hash = 0;
+  for (const character of key) {
+    hash = (hash * 31 + character.charCodeAt(0)) | 0;
+  }
+  return SPEAKER_ACCENTS[Math.abs(hash) % SPEAKER_ACCENTS.length];
+}
+
+export function resolveSpeaker(
+  segment: TranscriptSegment,
+  participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
+): SpeakerIdentity {
+  const source = segmentSide(segment);
+  const rawSpeaker = segment.speaker?.trim();
+  const participant =
+    findParticipant(segment.speaker, participants) ||
+    resolveParticipantForSpeaker(source, participants, ownerEmail);
+  const participantName = participant?.name?.trim();
+  const resolvedLabel = participantName || rawSpeaker;
+  // Treat a placeholder as "no label" so the UI falls back to the translated
+  // Me/Them string instead of rendering the raw English word verbatim. Only
+  // the placeholder matching this segment's own side counts: "Them" on a mic
+  // segment is a contradiction, not a placeholder, and keeping it visible is
+  // better than silently dropping it.
+  const isGenericPlaceholderLabel =
+    !!resolvedLabel &&
+    (source === "mic"
+      ? GENERIC_MIC_SPEAKER.test(resolvedLabel)
+      : GENERIC_SYSTEM_SPEAKER.test(resolvedLabel));
+  const label = isGenericPlaceholderLabel
+    ? null
+    : participantName || rawSpeaker || null;
+  const key =
+    source === "mic"
+      ? source
+      : participant?.email ||
+        (rawSpeaker ? `speaker:${normalizeSpeaker(rawSpeaker)}` : source);
+
+  return {
+    key,
+    label,
+    initialsSource: participant ?? label ?? (source === "mic" ? "Me" : "Them"),
+    isOwner: source === "mic",
+    accentClass: accentForSpeaker(key, source === "mic"),
+  };
 }
 
 // Splits `text` into plain/matched runs for a case-insensitive substring
@@ -84,31 +323,24 @@ function highlightRuns(
 
 function groupConsecutive(
   segments: TranscriptSegment[],
-  labels: { mic: string; system: string; unknown: string },
+  participants: AttendeeStackParticipant[],
+  ownerEmail?: string | null,
 ): BubbleGroup[] {
+  const attributable = transcriptDistinguishesSpeakers(
+    segments,
+    participants,
+    ownerEmail,
+  );
   const groups: BubbleGroup[] = [];
   segments.forEach((seg, index) => {
-    // Unknown source is intentionally kept distinct. Treating it as system
-    // silently misattributes source-less segments as "Them" after cleanup or
-    // when an older transcript row is read.
-    const source: BubbleGroup["source"] =
-      seg.source === "mic"
-        ? "mic"
-        : seg.source === "system"
-          ? "system"
-          : "unknown";
-    const label =
-      seg.speaker?.trim() ||
-      (source === "mic"
-        ? labels.mic
-        : source === "system"
-          ? labels.system
-          : labels.unknown);
+    const speaker = attributable
+      ? resolveSpeaker(seg, participants, ownerEmail)
+      : UNATTRIBUTED_SPEAKER;
     const last = groups[groups.length - 1];
-    if (last && last.source === source && last.label === label) {
+    if (last && last.speaker.key === speaker.key) {
       last.segments.push({ seg, index });
     } else {
-      groups.push({ source, label, segments: [{ seg, index }] });
+      groups.push({ speaker, segments: [{ seg, index }] });
     }
   });
   return groups;
@@ -117,10 +349,11 @@ function groupConsecutive(
 export function TranscriptBubbles({
   segments,
   isLive,
-  recordingId,
-  onSeek,
-  speakerLabels,
+  participants = [],
+  ownerEmail,
   registerScrollTo,
+  title,
+  headerActions,
 }: TranscriptBubblesProps) {
   const t = useT();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -133,15 +366,12 @@ export function TranscriptBubbles({
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [matchCursor, setMatchCursor] = useState(0);
+  const [keyboardSegmentIndex, setKeyboardSegmentIndex] = useState(0);
+  const [highlightedIndex, setHighlightedIndex] = useState<number | null>(null);
 
-  const labels = speakerLabels ?? {
-    mic: t("transcriptBubbles.me"),
-    system: t("transcriptBubbles.them"),
-    unknown: t("transcriptBubbles.unknownSpeaker"),
-  };
   const groups = useMemo(
-    () => groupConsecutive(segments, labels),
-    [labels.mic, labels.system, labels.unknown, segments],
+    () => groupConsecutive(segments, participants, ownerEmail),
+    [segments, participants, ownerEmail],
   );
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -198,6 +428,22 @@ export function TranscriptBubbles({
     );
   };
 
+  const focusSegment = (index: number) => {
+    const nextIndex = Math.max(0, Math.min(index, segments.length - 1));
+    setKeyboardSegmentIndex(nextIndex);
+    segmentRefs.current[nextIndex]?.focus();
+  };
+
+  const handleSegmentKeyDown = (
+    event: KeyboardEvent<HTMLDivElement>,
+    index: number,
+  ) => {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      focusSegment(index + (event.key === "ArrowDown" ? 1 : -1));
+    }
+  };
+
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
@@ -216,17 +462,18 @@ export function TranscriptBubbles({
     }
   }, [isLive, segments.length]);
 
-  // Shared imperative scroll-and-flash, used by both the parent's bullet-jump
-  // wiring (registerScrollTo) and in-panel search navigation below.
+  // Shared scroll-and-flash, used by both the parent's bullet-jump wiring
+  // (registerScrollTo) and in-panel search navigation below. Highlight state
+  // lives in React (not classList) so TranscriptSegmentRow can suppress its
+  // own hover styling while the flash is active — see `highlighted` there.
   const scrollToAndFlash = useRef((segmentIndex: number) => {
     const node = segmentRefs.current[segmentIndex];
     if (!node) return;
     node.scrollIntoView({ behavior: "smooth", block: "center" });
-    // Yellow-flash highlight for ~1.5s.
-    node.classList.add("ring-2", "ring-yellow-400/70", "bg-yellow-400/10");
+    setHighlightedIndex(segmentIndex);
     if (flashTimeoutRef.current) window.clearTimeout(flashTimeoutRef.current);
     flashTimeoutRef.current = window.setTimeout(() => {
-      node.classList.remove("ring-2", "ring-yellow-400/70", "bg-yellow-400/10");
+      setHighlightedIndex(null);
     }, 1500);
   }).current;
 
@@ -239,194 +486,239 @@ export function TranscriptBubbles({
     registerScrollTo(scrollToAndFlash);
   }, [registerScrollTo, scrollToAndFlash]);
 
-  if (segments.length === 0) {
-    if (isLive) {
-      return (
-        <div className="flex flex-col items-center justify-center h-full text-center text-sm text-muted-foreground gap-2">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-red-500 opacity-60" />
-            <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-          </span>
-          {t("transcriptBubbles.listening")}
-        </div>
-      );
-    }
-    return (
-      <div className="flex flex-col items-center justify-center h-full text-center text-sm text-muted-foreground gap-2 px-6">
-        <IconNotes className="h-6 w-6 text-muted-foreground/50" />
-        <span>{t("transcriptBubbles.noTranscript")}</span>
-        <span className="text-xs">
-          {t("transcriptBubbles.liveTranscriptDescription")}
-        </span>
-      </div>
-    );
-  }
+  useEffect(() => {
+    return () => {
+      if (flashTimeoutRef.current) window.clearTimeout(flashTimeoutRef.current);
+    };
+  }, []);
 
   const activeMatchIndex = matchIndexes.length
     ? matchIndexes[matchCursor % matchIndexes.length]
     : null;
 
   return (
-    <TooltipProvider delayDuration={200}>
-      <div className="flex shrink-0 items-center justify-end gap-1.5 border-b border-border px-2 py-1.5">
-        {searchOpen ? (
-          <>
-            <Input
-              ref={searchInputRef}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.preventDefault();
-                  closeSearch();
-                } else if (e.key === "Enter") {
-                  e.preventDefault();
-                  goToMatch(e.shiftKey ? -1 : 1);
-                }
-              }}
-              onBlur={() => {
-                if (!searchQuery.trim()) closeSearch();
-              }}
-              placeholder={t("transcriptBubbles.searchPlaceholder")}
-              className="h-7 flex-1 text-xs"
-            />
-            {normalizedQuery && (
-              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
-                {matchIndexes.length > 0
-                  ? t("transcriptBubbles.searchMatchCount", {
-                      current: (matchCursor % matchIndexes.length) + 1,
-                      total: matchIndexes.length,
-                    })
-                  : t("transcriptBubbles.searchNoMatches")}
-              </span>
-            )}
+    <div className="flex h-full flex-col">
+      {/* Primary header — title/actions never get displaced by search, so the
+          panel's identity stays put and this row's height always matches
+          sibling panels. The search UI is a second row that only exists
+          while search is actually open, not permanent chrome. */}
+      <div
+        className={cn(
+          "flex h-11 shrink-0 items-center gap-1.5 px-4",
+          // Only the last header row gets the divider below it — when
+          // search is open that's the search row, not this one, so the two
+          // read as one frame instead of stacked, separate boxes.
+          !searchOpen && "border-b border-border",
+        )}
+      >
+        <div className="flex flex-1 items-center gap-1.5 text-xs font-medium">
+          {title}
+        </div>
+        {headerActions}
+        <Tooltip>
+          <TooltipTrigger asChild>
             <Button
               size="icon"
               variant="ghost"
-              className="h-7 w-7 shrink-0 cursor-pointer"
-              disabled={!matchIndexes.length}
-              aria-label={t("transcriptBubbles.searchPrevMatch")}
-              onClick={() => goToMatch(-1)}
+              aria-pressed={searchOpen}
+              className={cn(
+                "h-7 w-7 shrink-0 cursor-pointer",
+                searchOpen && "bg-accent",
+              )}
+              aria-label={
+                searchOpen
+                  ? t("transcriptBubbles.searchClose")
+                  : t("transcriptBubbles.searchTranscript")
+              }
+              // Without this, clicking here while the input is focused blurs
+              // it first (onBlur may already auto-close on an empty query),
+              // then this handler runs against state that just changed out
+              // from under it — sometimes reopening what onBlur just closed.
+              // Keeping focus on the input means blur never fires from this
+              // click at all, so there's nothing left to race.
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
             >
-              <IconChevronUp className="h-3.5 w-3.5" />
+              <IconSearch className="h-3.5 w-3.5" />
             </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7 shrink-0 cursor-pointer"
-              disabled={!matchIndexes.length}
-              aria-label={t("transcriptBubbles.searchNextMatch")}
-              onClick={() => goToMatch(1)}
-            >
-              <IconChevronDown className="h-3.5 w-3.5" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="h-7 w-7 shrink-0 cursor-pointer"
-              aria-label={t("transcriptBubbles.searchClose")}
-              onClick={closeSearch}
-            >
-              <IconX className="h-3.5 w-3.5" />
-            </Button>
-          </>
-        ) : (
+          </TooltipTrigger>
+          <TooltipContent>
+            {searchOpen
+              ? t("transcriptBubbles.searchClose")
+              : t("transcriptBubbles.searchTranscript")}
+          </TooltipContent>
+        </Tooltip>
+      </div>
+
+      {searchOpen && (
+        <div className="flex shrink-0 items-center gap-1.5 border-b border-border px-4 py-1.5">
+          <Input
+            ref={searchInputRef}
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                closeSearch();
+              } else if (e.key === "Enter") {
+                e.preventDefault();
+                goToMatch(e.shiftKey ? -1 : 1);
+              }
+            }}
+            onBlur={() => {
+              if (!searchQuery.trim()) closeSearch();
+            }}
+            placeholder={t("transcriptBubbles.searchPlaceholder")}
+            className="h-7 flex-1 text-xs"
+          />
+          {normalizedQuery && (
+            <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+              {matchIndexes.length > 0
+                ? t("transcriptBubbles.searchMatchCount", {
+                    current: (matchCursor % matchIndexes.length) + 1,
+                    total: matchIndexes.length,
+                  })
+                : t("transcriptBubbles.searchNoMatches")}
+            </span>
+          )}
           <Button
             size="icon"
             variant="ghost"
             className="h-7 w-7 shrink-0 cursor-pointer"
-            aria-label={t("transcriptBubbles.searchTranscript")}
-            onClick={() => setSearchOpen(true)}
+            disabled={!matchIndexes.length}
+            aria-label={t("transcriptBubbles.searchPrevMatch")}
+            onClick={() => goToMatch(-1)}
           >
-            <IconSearch className="h-3.5 w-3.5" />
+            <IconChevronUp className="h-3.5 w-3.5" />
           </Button>
-        )}
-      </div>
-      <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
-        <div className="space-y-3">
-          {groups.map((group, gi) => {
-            const isMe = group.source === "mic";
-            return (
-              <div
-                key={gi}
-                className={cn(
-                  "flex flex-col gap-1",
-                  isMe ? "items-end" : "items-start",
-                )}
-              >
-                <div
-                  className={cn(
-                    "text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 px-1",
-                  )}
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0 cursor-pointer"
+            disabled={!matchIndexes.length}
+            aria-label={t("transcriptBubbles.searchNextMatch")}
+            onClick={() => goToMatch(1)}
+          >
+            <IconChevronDown className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0 cursor-pointer"
+            aria-label={t("transcriptBubbles.searchClose")}
+            onClick={closeSearch}
+          >
+            <IconX className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      )}
+      {segments.length === 0 ? (
+        isLive ? (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+            <span className="relative flex h-2 w-2">
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-destructive opacity-60" />
+              <span className="relative inline-flex h-2 w-2 rounded-full bg-destructive" />
+            </span>
+            {t("transcriptBubbles.listening")}
+          </div>
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground">
+            <IconNotes className="h-6 w-6 text-muted-foreground/50" />
+            <span>{t("transcriptBubbles.noTranscript")}</span>
+            <span className="text-xs">
+              {t("transcriptBubbles.liveTranscriptDescription")}
+            </span>
+          </div>
+        )
+      ) : (
+        <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
+          <div className="mx-auto max-w-3xl space-y-4">
+            {groups.map((group, gi) => {
+              return (
+                <section
+                  key={`${group.speaker.key}:${gi}`}
+                  className="space-y-0.5"
                 >
-                  {group.label}
-                </div>
-                {group.segments.map(({ seg, index }) => {
-                  const clickable = !!recordingId;
-                  return (
-                    <Tooltip key={index}>
-                      <TooltipTrigger asChild>
-                        <div
-                          ref={(el) => {
-                            segmentRefs.current[index] = el;
-                          }}
-                          role={clickable ? "button" : undefined}
-                          tabIndex={clickable ? 0 : -1}
-                          onClick={() => clickable && onSeek(seg.startMs)}
-                          onKeyDown={(e) => {
-                            if (
-                              clickable &&
-                              (e.key === "Enter" || e.key === " ")
-                            ) {
-                              e.preventDefault();
-                              onSeek(seg.startMs);
-                            }
-                          }}
+                  {!group.speaker.unattributed && (
+                    <div className="flex h-6 items-center gap-2">
+                      <Avatar
+                        className={cn(
+                          "size-6 shrink-0",
+                          group.speaker.accentClass,
+                        )}
+                      >
+                        <AvatarFallback
                           className={cn(
-                            "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed transition-shadow",
-                            isMe
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-foreground",
-                            clickable && "cursor-pointer hover:opacity-90",
+                            "text-[9px] font-semibold",
+                            group.speaker.accentClass,
                           )}
                         >
-                          <p className="whitespace-pre-wrap">
-                            {normalizedQuery
-                              ? highlightRuns(seg.text, normalizedQuery).map(
-                                  (run, ri) =>
-                                    run.match ? (
-                                      <mark
-                                        key={ri}
-                                        className={cn(
-                                          "rounded-sm bg-yellow-400/70 text-foreground",
-                                          index === activeMatchIndex &&
-                                            "bg-yellow-400 ring-1 ring-yellow-600",
-                                        )}
-                                      >
-                                        {run.text}
-                                      </mark>
-                                    ) : (
-                                      <span key={ri}>{run.text}</span>
-                                    ),
-                                )
-                              : seg.text}
-                          </p>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side={isMe ? "left" : "right"}>
-                        <span className="font-mono tabular-nums text-[11px]">
-                          {formatTimestamp(seg.startMs)}
+                          {attendeeInitials(group.speaker.initialsSource)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="flex min-h-6 items-center">
+                        <span
+                          className={cn(
+                            "text-xs font-semibold leading-6",
+                            group.speaker.isOwner
+                              ? "text-primary"
+                              : "text-foreground",
+                          )}
+                        >
+                          {group.speaker.label ||
+                            (group.speaker.isOwner
+                              ? t("transcriptBubbles.me")
+                              : t("transcriptBubbles.them"))}
                         </span>
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </div>
-            );
-          })}
-          <div ref={liveEndRef} />
+                      </div>
+                    </div>
+                  )}
+                  <div className="space-y-1">
+                    {group.segments.map(({ seg, index }) => {
+                      return (
+                        <TranscriptSegmentRow
+                          key={index}
+                          startMs={seg.startMs}
+                          highlighted={index === highlightedIndex}
+                          tabIndex={index === keyboardSegmentIndex ? 0 : -1}
+                          onKeyDown={(event) =>
+                            handleSegmentKeyDown(event, index)
+                          }
+                          segmentRef={(el) => {
+                            segmentRefs.current[index] = el;
+                          }}
+                          className="hover:bg-accent/30"
+                        >
+                          {normalizedQuery
+                            ? highlightRuns(seg.text, normalizedQuery).map(
+                                (run, ri) =>
+                                  run.match ? (
+                                    <mark
+                                      key={ri}
+                                      className={cn(
+                                        "rounded-sm bg-yellow-400/70 text-foreground",
+                                        index === activeMatchIndex &&
+                                          "bg-yellow-400 ring-1 ring-yellow-600",
+                                      )}
+                                    >
+                                      {run.text}
+                                    </mark>
+                                  ) : (
+                                    <span key={ri}>{run.text}</span>
+                                  ),
+                              )
+                            : seg.text}
+                        </TranscriptSegmentRow>
+                      );
+                    })}
+                  </div>
+                </section>
+              );
+            })}
+            <div ref={liveEndRef} />
+          </div>
         </div>
-      </div>
-    </TooltipProvider>
+      )}
+    </div>
   );
 }

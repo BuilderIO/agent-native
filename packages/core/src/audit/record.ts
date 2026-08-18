@@ -30,7 +30,12 @@ export interface AuditRunContextLike {
   userEmail?: string;
   orgId?: string | null;
   threadId?: string;
+  /** Concrete agent-loop attempt that produced this action. */
+  runId?: string;
   turnId?: string;
+  networkProtocol?: "a2a" | "mcp" | "provider-api";
+  networkId?: string;
+  networkPeer?: string;
 }
 
 export interface RecordActionAuditInput {
@@ -114,6 +119,8 @@ export async function recordActionAudit(
     const inputJson = recordInputs ? redactArgsToJson(input.args) : null;
 
     const hasExplicitTargetVisibility = target?.visibility !== undefined;
+    const integration = getIntegrationRequestContext();
+    const lineage = integration?.lineage;
     const event: AuditEvent = {
       id: crypto.randomUUID(),
       createdAt: Date.now(),
@@ -134,9 +141,14 @@ export async function recordActionAudit(
       // otherwise to the actor (the common self-mutation case).
       ownerEmail: target?.ownerEmail ?? actorEmail,
       visibility: target?.visibility ?? "private",
+      // Agent-loop action contexts already carry the concrete run id. The
+      // integration lineage is a second source for cross-app calls, not a
+      // prerequisite for making ordinary automation actions traceable.
+      runId: ctx?.runId ?? lineage?.runId ?? null,
+      networkProtocol: ctx?.networkProtocol ?? null,
+      networkId: ctx?.networkId ?? null,
+      networkPeer: ctx?.networkPeer ?? null,
     };
-    const lineage = getIntegrationRequestContext()?.lineage;
-    const integration = getIntegrationRequestContext();
     if (integration) {
       if (
         ctx?.orgId &&
@@ -145,7 +157,7 @@ export async function recordActionAudit(
       ) {
         event.visibility = "org";
       }
-      event.runId = lineage?.runId ?? null;
+      event.runId = ctx?.runId ?? lineage?.runId ?? null;
       event.taskId = integration.taskId;
       event.parentTaskId = lineage?.parentTaskId ?? null;
       event.sourceKind = lineage?.source?.kind ?? null;

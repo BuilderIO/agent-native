@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type {
   PlanAnnotation,
   PlanAnnotationPlacement,
@@ -77,6 +77,18 @@ type WorldPoint = {
   y: number;
 };
 
+type ClientPoint = {
+  x: number;
+  y: number;
+};
+
+type PinchGesture = {
+  pointerIds: [number, number];
+  startDistance: number;
+  startMidpoint: ClientPoint;
+  startView: CanvasView;
+};
+
 type PendingMarkup = {
   mode: "text" | "callout";
   origin: WorldPoint;
@@ -140,6 +152,10 @@ export function CanvasArea({
     [canvas.viewport?.pan?.x, canvas.viewport?.pan?.y, canvas.viewport?.zoom],
   );
   const [view, setView] = useState<CanvasView>(initialView);
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  const activePointersRef = useRef(new Map<number, ClientPoint>());
+  const pinchGestureRef = useRef<PinchGesture | null>(null);
   const [drag, setDrag] = useState<{
     pointerId: number;
     startX: number;
@@ -581,8 +597,48 @@ export function CanvasArea({
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (event.button !== 0 && event.button !== 1) return;
     const target = event.target as HTMLElement;
+    const activePointers = activePointersRef.current;
     // Don't start a pan when grabbing interactive chrome (zoom controls etc.).
-    if (event.button === 0 && target.closest("[data-plan-interactive]")) return;
+    if (
+      event.button === 0 &&
+      target.closest("[data-plan-interactive]") &&
+      activePointers.size === 0
+    ) {
+      return;
+    }
+    activePointers.set(event.pointerId, {
+      x: event.clientX,
+      y: event.clientY,
+    });
+    if (activePointers.size >= 2) {
+      const pointerIds = Array.from(activePointers.keys()).slice(0, 2) as [
+        number,
+        number,
+      ];
+      const first = activePointers.get(pointerIds[0]);
+      const second = activePointers.get(pointerIds[1]);
+      if (!first || !second) return;
+      const rect = viewportRef.current?.getBoundingClientRect();
+      const startMidpoint = getMidpoint(first, second);
+      pinchGestureRef.current = {
+        pointerIds,
+        startDistance: getDistance(first, second),
+        startMidpoint: rect
+          ? {
+              x: startMidpoint.x - rect.left,
+              y: startMidpoint.y - rect.top,
+            }
+          : startMidpoint,
+        startView: viewRef.current,
+      };
+      setDrag(null);
+      setDraftCallout(null);
+      setPendingMarkup(null);
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      return;
+    }
     if (!isEditableShortcutTarget(target)) {
       event.currentTarget.focus({ preventScroll: true });
     }
@@ -674,6 +730,37 @@ export function CanvasArea({
         onPointerDown={onPointerDown}
         onKeyDown={onViewportKeyDown}
         onPointerMove={(event) => {
+          const activePointer = activePointersRef.current.get(event.pointerId);
+          if (activePointer) {
+            activePointer.x = event.clientX;
+            activePointer.y = event.clientY;
+          }
+          const pinchGesture = pinchGestureRef.current;
+          if (pinchGesture) {
+            const first = activePointersRef.current.get(
+              pinchGesture.pointerIds[0],
+            );
+            const second = activePointersRef.current.get(
+              pinchGesture.pointerIds[1],
+            );
+            const rect = viewportRef.current?.getBoundingClientRect();
+            if (!first || !second || !rect) return;
+            const midpoint = getMidpoint(first, second);
+            const currentMidpoint = {
+              x: midpoint.x - rect.left,
+              y: midpoint.y - rect.top,
+            };
+            updateView(() =>
+              viewForPinchGesture({
+                gesture: pinchGesture,
+                currentDistance: getDistance(first, second),
+                currentMidpoint,
+              }),
+            );
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
           if (draftCallout?.pointerId === event.pointerId) {
             const point = clientPointToWorld(event);
             if (!point) return;
@@ -697,6 +784,28 @@ export function CanvasArea({
           }));
         }}
         onPointerUp={(event) => {
+          activePointersRef.current.delete(event.pointerId);
+          if (pinchGestureRef.current) {
+            event.preventDefault();
+            event.stopPropagation();
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+            const remaining = Array.from(
+              activePointersRef.current.entries(),
+            )[0];
+            pinchGestureRef.current = null;
+            if (remaining) {
+              setDrag({
+                pointerId: remaining[0],
+                startX: remaining[1].x,
+                startY: remaining[1].y,
+                panX: viewRef.current.pan.x,
+                panY: viewRef.current.pan.y,
+              });
+            }
+            return;
+          }
           if (draftCallout?.pointerId === event.pointerId) {
             const point = clientPointToWorld(event) ?? draftCallout.current;
             event.preventDefault();
@@ -722,7 +831,9 @@ export function CanvasArea({
             setDrag(null);
           }
         }}
-        onPointerCancel={() => {
+        onPointerCancel={(event) => {
+          activePointersRef.current.delete(event.pointerId);
+          pinchGestureRef.current = null;
           setDraftCallout(null);
           setDrag(null);
         }}
@@ -838,6 +949,7 @@ export function CanvasArea({
       <div
         className="plan-canvas-zoom absolute bottom-3 left-3 z-10 flex items-center gap-0.5 rounded-lg border border-plan-line bg-plan-chrome p-0.5 shadow-md backdrop-blur"
         data-plan-interactive
+        title={t("raw.canvas.zoomHint")}
       >
         <Button
           type="button"
@@ -912,6 +1024,18 @@ function surfaceOf(frame: PlanArtboard): PlanWireframeSurface {
   return frame.surface ?? frame.wireframe?.surface ?? "desktop";
 }
 
+/**
+ * Keep the surface width stable while allowing long screens to reserve a
+ * taller, non-scrolling artboard in canvas mode.
+ */
+export function canvasFrameSize(frame: PlanArtboard) {
+  const preset = SURFACE_SIZE[surfaceOf(frame)];
+  return {
+    width: preset.width,
+    height: Math.max(preset.height, frame.height ?? preset.height),
+  };
+}
+
 function sameCanvasView(a: CanvasView, b: CanvasView) {
   return (
     Math.abs(a.zoom - b.zoom) < 0.0001 &&
@@ -980,11 +1104,9 @@ function layoutArtboards(frames: PlanArtboard[]): PlanArtboard[] {
 
   return frames.map((frame) => {
     const surface = surfaceOf(frame);
-    const preset = SURFACE_SIZE[surface];
-    // SURFACE owns the footprint/aspect — ignore any model-supplied width/height
-    // so a popover is always ~square and can never render "too wide".
-    const width = preset.width;
-    const height = preset.height;
+    // Surface owns the width/aspect. A larger explicit height is the
+    // non-scrolling escape hatch for long HTML screens on the canvas.
+    const { width, height } = canvasFrameSize(frame);
 
     if (frame.x !== undefined || frame.y !== undefined) {
       return {
@@ -1038,10 +1160,7 @@ function CanvasArtboard({
   onDesignElementSelect?: (selection: DesignElementSelection) => void;
 }) {
   const surface = surfaceOf(frame);
-  const preset = SURFACE_SIZE[surface];
-  // SURFACE-locked footprint (see layoutArtboards) — model width/height ignored.
-  const width = preset.width;
-  const height = preset.height;
+  const { width, height } = canvasFrameSize(frame);
   const label = frame.label ?? block?.title;
   // Report the frame's real rendered height so board connectors can anchor to
   // the content box (frames are capped at `height` but usually shorter).
@@ -2278,6 +2397,43 @@ function connectorRoute(
       y: toBelow ? toRect.top - gap : toRect.top + toRect.height + gap,
     },
   };
+}
+
+export function viewForPinchGesture(input: {
+  gesture: PinchGesture;
+  currentDistance: number;
+  currentMidpoint: ClientPoint;
+}): CanvasView {
+  const { gesture, currentDistance, currentMidpoint } = input;
+  const nextZoom = clamp(
+    gesture.startView.zoom * (currentDistance / gesture.startDistance),
+    MIN_ZOOM,
+    MAX_ZOOM,
+  );
+  const worldX =
+    (gesture.startMidpoint.x - gesture.startView.pan.x) /
+    gesture.startView.zoom;
+  const worldY =
+    (gesture.startMidpoint.y - gesture.startView.pan.y) /
+    gesture.startView.zoom;
+  return {
+    zoom: nextZoom,
+    pan: {
+      x: currentMidpoint.x - worldX * nextZoom,
+      y: currentMidpoint.y - worldY * nextZoom,
+    },
+  };
+}
+
+function getMidpoint(first: ClientPoint, second: ClientPoint): ClientPoint {
+  return {
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2,
+  };
+}
+
+function getDistance(first: ClientPoint, second: ClientPoint) {
+  return Math.max(Math.hypot(first.x - second.x, first.y - second.y), 1);
 }
 
 function distance(a: WorldPoint, b: WorldPoint) {

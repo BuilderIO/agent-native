@@ -8,6 +8,7 @@ import {
 } from "h3";
 
 import {
+  DESKTOP_RELEASE_CACHE_HEADERS,
   getDesktopDownloadManifest,
   getDesktopReleaseError,
   isDesktopUpdateMetadataAsset,
@@ -84,13 +85,11 @@ export default defineEventHandler(async (event) => {
     }
     setResponseHeaders(event, {
       "content-type": "application/x-yaml; charset=utf-8",
-      "cache-control": "public, max-age=60",
+      ...DESKTOP_RELEASE_CACHE_HEADERS,
     });
     return upstream.text();
   }
 
-  setResponseHeaders(event, {
-    "cache-control": "public, max-age=300",
-  });
+  setResponseHeaders(event, DESKTOP_RELEASE_CACHE_HEADERS);
   return sendRedirect(event, asset.url, 302);
 });

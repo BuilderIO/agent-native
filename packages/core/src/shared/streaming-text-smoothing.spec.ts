@@ -141,6 +141,42 @@ describe("streaming text smoothing helpers", () => {
       expect(incrementalFinal.length).toBe(fullFinal.length);
     });
 
+    it("keeps a surrogate pair intact when the overlap boundary lands inside it", () => {
+      // The overlap window starts SEGMENTER_OVERLAP characters back from the
+      // end of the cached text. Streaming one character at a time walks that
+      // boundary through the emoji, so it lands mid-cluster on some step.
+      const text = `${"x".repeat(20)}\u{1F600}${"y".repeat(20)}`;
+
+      resetSegmenterCache();
+      let incremental: string[] = [];
+      for (let end = 1; end <= text.length; end++) {
+        incremental = splitStreamingTextGraphemes(text.slice(0, end));
+      }
+
+      resetSegmenterCache();
+      const full = splitStreamingTextGraphemes(text);
+
+      expect(incremental.join("")).toBe(text);
+      expect(incremental).toEqual(full);
+    });
+
+    it("keeps a ZWJ sequence intact when the overlap boundary lands inside it", () => {
+      const family = "\u{1F468}‍\u{1F469}‍\u{1F467}‍\u{1F466}";
+      const text = `${"a".repeat(20)}${family}${"b".repeat(20)}`;
+
+      resetSegmenterCache();
+      let incremental: string[] = [];
+      for (let end = 1; end <= text.length; end++) {
+        incremental = splitStreamingTextGraphemes(text.slice(0, end));
+      }
+
+      resetSegmenterCache();
+      const full = splitStreamingTextGraphemes(text);
+
+      expect(incremental.join("")).toBe(text);
+      expect(incremental).toEqual(full);
+    });
+
     it("falls back to full segmentation when text is not an append of cached text", () => {
       splitStreamingTextGraphemes("Some text");
       // Different text entirely (not an append)

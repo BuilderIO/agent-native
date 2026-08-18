@@ -102,13 +102,13 @@ PR Visual Recap 是一個 GitHub 操作，它將每個 pull request 轉變為**�
 npx @agent-native/core@latest skills add visual-plan --with-github-action
 ```
 
-這將安裝 `visual-plan` 技能（其中包括操作執行的 `visual-recap` 技能）並將 `.github/workflows/pr-visual-recap.yml` 寫入您的儲存庫。工作流程透過 `npx @agent-native/core@latest recap <subcommand>` 呼叫**發布的 CLI 子指令** — 包括 `gate`、`collect-diff`、`block-reference`、`scan`、`build-prompt`、`publish`、`shot`、`comment`、`check` 和`usage` - 因此沒有任何內容作為幫助程式指令碼複製到您的儲存庫中。 `setup`和`doctor`是您本機執行的互動式助手； `gate` 是工作流程在每次回顧之前執行的安全門步驟。
+這將安裝 `visual-plan` 技能（其中包括操作執行的 `visual-recap` 技能）並將 `.github/workflows/pr-visual-recap.yml` 寫入您的儲存庫。工作流程透過 `npx @agent-native/recap-cli@latest recap <subcommand>` 呼叫**發布的 CLI 子指令** — 包括 `gate`、`collect-diff`、`block-reference`、`scan`、`build-prompt`、`publish`、`shot`、`comment`、`check` 和`usage` - 因此沒有任何內容作為幫助程式指令碼複製到您的儲存庫中。 `setup`和`doctor`是您本機執行的互動式助手； `gate` 是工作流程在每次回顧之前執行的安全門步驟。
 
 然後執行引導設定幫助程式：
 
 ```bash
-npx @agent-native/core@latest recap setup
-npx @agent-native/core@latest recap doctor
+npx @agent-native/recap-cli@latest recap setup
+npx @agent-native/recap-cli@latest recap doctor
 ```
 
 `recap setup`重新整理工作流程，使用`gh`設定GitHub Actions
@@ -118,7 +118,7 @@ npx @agent-native/core@latest recap doctor
 產生的工作流程檔案並開啟 PR 以檢視其執行。
 
 預設情況下，工作流程根據最新捆綁的內容建置其代理提示
-`@agent-native/core@latest` 中的 `visual-recap` 指導，包括任何同級
+`@agent-native/recap-cli@latest` 中的 `visual-recap` 指導，包括任何同級
 技能附帶的參考檔案。如果您的儲存庫有意定制並且
 固定其提交的`visual-recap`資料夾，設定儲存庫變數
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
@@ -135,8 +135,8 @@ npx @agent-native/core@latest recap doctor
 JSON 引號不可省略。此值會選取完整 `recap` 工作的執行器。若要在引導設定期間進行設定，請將相同的 JSON 值傳給 `--runs-on`，然後使用 `doctor` 驗證工作流程和執行器可用性：
 
 ```bash
-npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
-npx @agent-native/core@latest recap doctor
+npx @agent-native/recap-cli@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/recap-cli@latest recap doctor
 ```
 
 輕量級閘道會另外使用 `ubuntu-latest`。停用 GitHub 託管執行器的儲存庫可以將 `VISUAL_RECAP_GATE_RUNS_ON` 設為一個不含 JSON 的純文字標籤，或使用 `--gate-runs-on visual-recap-gate`。自訂標籤僅用於同一儲存庫中身分為 `OWNER`、`MEMBER` 或 `COLLABORATOR` 的作者；分支及其他作者會被強制使用 `ubuntu-latest`，在停用 GitHub 託管執行器時可能一直無法排程。請使用專用且最好是暫時性的執行器；標準閘道不會簽出 PR 樹，只評估工作流程邏輯與 PR 中繼資料。
@@ -160,11 +160,29 @@ npx @agent-native/core@latest recap doctor
 
 除了後端之外，兩個儲存庫變數還可以調整代理的執行方式：
 
-- **`VISUAL_RECAP_MODEL`** 固定傳遞給 CLI (`--model`) 的模型 — 例如 `gpt-5.6-sol` 用於 Codex，或 Claude 模型 ID。保留其未設定以使用 CLI 自己的預設模型。
+- **`VISUAL_RECAP_MODEL`** 固定傳遞給 CLI (`--model`) 的模型 — 例如 Codex 使用 `gpt-5.6-luna`、Claude 模型 ID，或 DeepSeek 使用 `deepseek-chat`。對於 `openai-compatible` 是必需的。對於 **Claude** 後端，保留未設定現在預設使用 `claude-sonnet-5`；要使用其他 Claude 模型（例如更便宜的 `claude-haiku-4-5`），請明確設定該變數。對於 **Codex** 後端，保留未設定將使用 Codex CLI 自身的預設模型。
 - **`VISUAL_RECAP_REASONING`** 設定推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。適用於Codex後端； Claude 的推理是模型驅動的，因此該變數被忽略。
 - **`VISUAL_RECAP_SKILL_SOURCE`** 控制提示新鮮度：`auto`/unset 使用最新的捆綁技能指南，而 `repo` 固定到已提交的儲存庫本機 `visual-recap` 技能資料夾。
 
 例如，要在 Codex 和 GPT-5.6 Sol 上以高推理執行回顧，請設定儲存庫變數 `VISUAL_RECAP_AGENT=codex`、`VISUAL_RECAP_MODEL=gpt-5.6-sol` 和 `VISUAL_RECAP_REASONING=high`。
+
+## 成本
+
+每次回顧執行都是一次完整的代理式編碼代理工作階段，讀取真實的 diff，而不是廉價的範本化摘要，因此其成本取決於模型選擇和執行頻率：
+
+- **每次 PR 推送都會執行完整工作階段。** 預設觸發程序在 `synchronize` 時觸發，因此被推送十次的 PR 會執行代理十次。
+- **每次都是整個 PR**，而不僅僅是自上次執行以來的提交 — 成本隨 PR 總大小而非增量差異大小擴展。
+- **差異輸入上限約為 600KB。** 這限制了每次執行的最壞情況，但大差異的成本仍然明顯高於小差異。
+- **失敗時自動重試一次**，這可能會讓一次暫時性失敗的執行成本大約加倍。
+
+若要降低成本：
+
+- **固定使用較便宜的模型。** 對於 Claude，為簡單或小型儲存庫設定 `VISUAL_RECAP_MODEL=claude-haiku-4-5` — 這是最便宜的 Claude 層級；`claude-sonnet-5`（預設值）是均衡層級。
+- **切換到使用較便宜模型的 Codex。** 設定 `VISUAL_RECAP_AGENT=codex` 並搭配 `VISUAL_RECAP_MODEL=gpt-5.6-luna`（最便宜的 GPT-5.6 層級）或 `gpt-5.6-terra`（中間層級），並設定 `VISUAL_RECAP_REASONING=low` 以進一步減少推理 token 花費。推理深度僅適用於 Codex。
+- **指向較便宜的 OpenAI 相容供應商。** 設定 `VISUAL_RECAP_AGENT=openai-compatible`，並搭配指向 DeepSeek、Kimi 或任何其他 OpenAI 相容端點的 `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY`。
+- **降低回顧頻率。** 將已安裝工作流程的 `on.pull_request.types` 從 `[opened, synchronize, reopened, ready_for_review, labeled, closed]` 編輯為 `[opened, ready_for_review, closed]`，使其僅在 PR 開啟和合併時回顧，而不是每次推送都回顧。
+
+每次執行都會記錄實際花費：工作流程的 `recap usage` 步驟會將 token 和成本使用情況附加到已發布的計畫中，因此你可以查看每次執行的實際花費，而不是靠猜測。
 
 ## 秘密和變數
 
@@ -196,11 +214,11 @@ npx @agent-native/core@latest connect https://plan.agent-native.com --service-to
 
 **Solo：個人代幣仍然有效。**用 `npx @agent-native/core@latest connect` 鑄造它
 針對您的計畫應用程式。對於託管應用程式，這還會寫入本機
-`npx @agent-native/core@latest recap setup`可以讀取的發布權杖檔案：
+`npx @agent-native/recap-cli@latest recap setup`可以讀取的發布權杖檔案：
 
 ```bash
 npx @agent-native/core@latest connect https://plan.agent-native.com --client codex
-npx @agent-native/core@latest recap setup
+npx @agent-native/recap-cli@latest recap setup
 ```
 
 如果您更喜歡手動設定，請將權杖貼上到 GitHub 金鑰中。使用
@@ -209,16 +227,16 @@ npx @agent-native/core@latest recap setup
 
 ### 可選（僅當您更改預設值時）
 
-| 秘密/變數                | 預設                            | 當你需要的時候                                                                                                               |
-| ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                               | 秘密。與 `VISUAL_RECAP_AGENT=codex` 一起設定以使用 Codex 執行回顧。                                                          |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | 變數。選取編碼代理後端（`claude` 或 `codex`）。                                                                              |
-| `VISUAL_RECAP_MODEL`     | 每個 CLI 的預設值               | 變數。固定模型 - 例如`gpt-5.6-sol` 表示 Codex，或 Claude 型號 ID。取消設定使用 CLI 自己的預設值。                            |
-| `VISUAL_RECAP_REASONING` | 每個模型的預設值                | 變數。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。適用於Codex後端。                                     |
-| `RECAP_CLI_VERSION`      | `latest`                        | 變數。固定工作流程安裝的 `@agent-native/core` CLI 版本 - 例如`1.5.0`。參見[Version pinning](#version-pinning-copy-variant)。 |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 秘密。僅當在不同來源自行託管計畫應用時。                                                                                     |
+| 秘密/變數                | 預設                                        | 當你需要的時候                                                                                                                                                                                                       |
+| ------------------------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                           | 秘密。與 `VISUAL_RECAP_AGENT=codex` 一起設定以使用 Codex 執行回顧。                                                                                                                                                  |
+| `VISUAL_RECAP_AGENT`     | `claude`                                    | 變數。選取編碼代理後端（`claude` 或 `codex`）。                                                                                                                                                                      |
+| `VISUAL_RECAP_MODEL`     | Claude 使用 `claude-sonnet-5`；相容後端必需 | 變數。OpenAI 相容後端的供應商模型 ID（在該後端為必需）。對於 Claude，未設定時現在預設使用 `claude-sonnet-5` — 設定以覆寫，例如使用最便宜層級的 `claude-haiku-4-5`。對於 Codex，未設定時使用 Codex CLI 自身的預設值。 |
+| `VISUAL_RECAP_REASONING` | 每個模型的預設值                            | 變數。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。適用於Codex後端。                                                                                                                             |
+| `RECAP_CLI_VERSION`      | `latest`                                    | 變數。固定工作流程安裝的 `@agent-native/recap-cli` CLI 版本 - 例如`1.5.0`。參見[Version pinning](#version-pinning-copy-variant)。                                                                                    |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`             | 秘密。僅當在不同來源自行託管計畫應用時。                                                                                                                                                                             |
 
-工作流自動偵測如何呼叫其助手 CLI（此 monorepo 內的本機來源，在其他地方發布的 `@agent-native/core`），因此無需設定 `RECAP_CLI` 變數。
+工作流自動偵測如何呼叫其助手 CLI（此 monorepo 內的本機來源，在其他地方發布的 `@agent-native/recap-cli`），因此無需設定 `RECAP_CLI` 變數。
 
 ## 評論內嵌截圖
 
@@ -357,9 +375,9 @@ GitHub 操作專為託管、可共用的 PR 審核而設計。如果你想要一
 相同的幫助程式在本機檔案模式下本機流動：
 
 ```bash
-npx @agent-native/core@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
-npx @agent-native/core@latest recap scan --diff recap.diff
-npx @agent-native/core@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
+npx @agent-native/recap-cli@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
+npx @agent-native/recap-cli@latest recap scan --diff recap.diff
+npx @agent-native/recap-cli@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
 ```
 
 將產生的 `recap-prompt.md` 交給您的編碼代理。在本機檔案模式
@@ -389,7 +407,7 @@ npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap -
 
 ## 版本固定（複製變體） {#version-pinning-copy-variant}
 
-預設情況下，複製變體工作流程在執行時安裝 `@agent-native/core@latest`，因此每次回顧執行都會自動選取最新的 CLI。如果您的 CI 需要可重現的工具，請設定 **`RECAP_CLI_VERSION`** 儲存庫變數來固定已安裝的版本：
+預設情況下，複製變體工作流程在執行時安裝 `@agent-native/recap-cli@latest`，因此每次回顧執行都會自動選取最新的 CLI。如果您的 CI 需要可重現的工具，請設定 **`RECAP_CLI_VERSION`** 儲存庫變數來固定已安裝的版本：
 
 1. 轉到您的儲存庫的**設定 → 秘密和變數 → Actions → 變數**。
 2. 建立一個名為 `RECAP_CLI_VERSION` 的變數，其值類似於 `1.5.0`。
@@ -400,7 +418,7 @@ npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap -
 
 ## 秘密掃描允許清單
 
-在發布回顧之前，工作流程執行 `npx @agent-native/core@latest recap scan` 以偵測差異中可能的秘密。任何其 diff 與已知秘密模式匹配的 PR 都會被阻止並帶有解釋性註解 - 不會發布摘要，並且不會將 diff 內容傳送到編碼代理。
+在發布回顧之前，工作流程執行 `npx @agent-native/recap-cli@latest recap scan` 以偵測差異中可能的秘密。任何其 diff 與已知秘密模式匹配的 PR 都會被阻止並帶有解釋性註解 - 不會發布摘要，並且不會將 diff 內容傳送到編碼代理。
 
 在極少數情況下，儲存庫具有故意的測試裝置或表面上類似於秘密模式的非秘密字串（例如，測試檔案中的裝置金鑰）。要抑制誤報，請在儲存庫的根目錄中建立 `.github/recap-scan-allowlist`。
 
@@ -434,7 +452,7 @@ EXAMPLE_API_KEY=placeholder-value
 
 ### 為什麼使用可重用變體？
 
-預設安裝程式將完整的約 360 行工作流程 YAML 複製到您的儲存庫中（**複製**選項）。對於氣隙儲存庫或需要審核每一行執行內容的儲存庫來說，這是正確的選取。缺點是錯誤修復和改進永遠不會到達您的手中 - 您需要在每次發布後手動重新執行 `npx @agent-native/core@latest recap setup`。
+預設安裝程式將完整的約 360 行工作流程 YAML 複製到您的儲存庫中（**複製**選項）。對於氣隙儲存庫或需要審核每一行執行內容的儲存庫來說，這是正確的選取。缺點是錯誤修復和改進永遠不會到達您的手中 - 您需要在每次發布後手動重新執行 `npx @agent-native/recap-cli@latest recap setup`。
 
 **可重用**選項改為編寫一個精簡的約 20 行呼叫程式。它透過`uses:`委托給`BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml`。當工作流程執行時，每個呼叫者都會自動取得最新邏輯，無需本機更新。
 
@@ -447,7 +465,7 @@ EXAMPLE_API_KEY=placeholder-value
 
 ### 呼叫者片段
 
-這是`npx @agent-native/core@latest recap setup --reusable`寫的（或者你可以手動貼上）：
+這是`npx @agent-native/recap-cli@latest recap setup --reusable`寫的（或者你可以手動貼上）：
 
 ```yaml
 name: PR Visual Recap
@@ -459,10 +477,11 @@ name: PR Visual Recap
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, ready_for_review, closed]
+    types: [opened, synchronize, reopened, ready_for_review, labeled, closed]
 
 jobs:
   visual-recap:
+    if: github.event.action != 'labeled' || vars.VISUAL_RECAP_REQUIRED_LABELS != ''
     permissions:
       actions: write
       contents: read
@@ -482,7 +501,8 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
-      # cli-version: "latest"  # pin to a specific @agent-native/core version
+      required-labels: ${{ vars.VISUAL_RECAP_REQUIRED_LABELS || '' }}
+      # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 
 適用 [Secrets and variables](#secrets-and-variables) 中描述的相同秘密和變數。可重複使用的呼叫端會將完整工作的 `VISUAL_RECAP_RUNS_ON` 轉送為 `runs-on`，並將閘道的 `VISUAL_RECAP_GATE_RUNS_ON` 轉送為單一標籤 `gate-runs-on`。省略時兩者都使用 `ubuntu-latest`。
@@ -491,15 +511,15 @@ jobs:
 
 ```bash
 # 編寫瘦呼叫者而不是完整副本：
-npx @agent-native/core@latest recap setup --reusable
+npx @agent-native/recap-cli@latest recap setup --reusable
 
 # 或者使用固定參考來實現可重複性：
-npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
+npx @agent-native/recap-cli@latest recap setup --reusable --ref v1.2.3
 ```
 
 兩種變體都將工作流程寫入 `.github/workflows/pr-visual-recap.yml`。如果現有工作流程已存在且有所不同，則該指令會拒絕並告訴您傳遞 `--force` 進行覆蓋。
 
-寫入後，照常執行 `npx @agent-native/core@latest recap doctor` 以確認機密已設定。
+寫入後，照常執行 `npx @agent-native/recap-cli@latest recap doctor` 以確認機密已設定。
 
 ### 版本固定
 
@@ -509,7 +529,7 @@ npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
 uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@v1.2.3
 ```
 
-`cli-version` 輸入控制工作流程中執行的 `@agent-native/core` CLI 版本 - 將其保留在 `"latest"` 以跟蹤最新版本，或將其固定到版本字串（例如 `"1.5.0"`）以實現完全可重複性。
+`cli-version` 輸入控制工作流程中執行的 `@agent-native/recap-cli` CLI 版本 - 將其保留在 `"latest"` 以跟蹤最新版本，或將其固定到版本字串（例如 `"1.5.0"`）以實現完全可重複性。
 
 ### workflow_call事件脈絡
 

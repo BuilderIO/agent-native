@@ -1,24 +1,33 @@
 import {
   defineEventHandler,
+  setResponseHeader,
   setResponseStatus,
   getMethod,
   getRequestHeader,
 } from "h3";
 import * as jose from "jose";
 
+import { redactArgsToJson } from "../audit/redact.js";
 import {
   extractBearerToken,
   verifyInternalToken,
 } from "../integrations/internal-token.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
+import { isSameOriginRequest } from "../server/request-origin.js";
 import { generateAgentCard } from "./agent-card.js";
+import { canonicalA2AAudience } from "./audience.js";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "./auth-policy.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
-import type { A2AConfig } from "./types.js";
+import {
+  claimA2AApproval,
+  getA2AApprovalForOwner,
+  settleA2AApproval,
+} from "./task-store.js";
+import type { A2AConfig, AgentSkill } from "./types.js";
 
 /**
  * One-time warning when A2A is running unauthenticated in development. We
@@ -38,12 +47,16 @@ function warnA2AUnauthOnce(): void {
 }
 
 /**
- * Verify an inbound A2A JWT signed with the shared A2A_SECRET.
- * Returns the caller's email (from `sub` claim) if valid, null otherwise.
+ * Result of verifying an inbound A2A JWT. `email` is the caller identity from
+ * the token's `sub` claim (null when verification fails), `orgDomain` mirrors
+ * the verified `org_domain` claim when present, and `orgId` mirrors the
+ * optional verified `org_id` claim used when a sender knows its exact org but
+ * cannot resolve that org's domain.
  */
-interface A2ATokenPayload {
+export interface A2ATokenPayload {
   email: string | null;
   orgDomain: string | null;
+  orgId?: string;
 }
 
 function addSecretCandidate(
@@ -58,31 +71,101 @@ function addSecretCandidate(
 /**
  * Resolve the audience (`aud`) value to expect in an inbound JWT. We use the
  * receiver's app URL — it's the natural identifier of "who this token was
- * minted for". Falls back to undefined when no app URL is configured, in
- * which case the audience check is skipped (backward-compat with tokens
- * minted before the audience claim shipped).
+ * minted for". Returns undefined when no app URL is configured and no request
+ * host is derivable; `verifyA2AToken` then rejects any token that carries an
+ * `aud` claim (fail closed — a correctly signed token minted for another
+ * service must not verify here). Only tokens without an `aud` claim (minted
+ * before the audience claim shipped) skip the audience check.
  */
-function expectedJwtAudience(event: any | undefined): string | undefined {
+function expectedJwtAudience(
+  event: any | undefined,
+  options?: {
+    routePrefix?: string;
+    allowBaseAudience?: boolean;
+  },
+): string | string[] | undefined {
   const fromEnv =
     process.env.APP_URL ||
     process.env.URL ||
     process.env.DEPLOY_URL ||
     process.env.BETTER_AUTH_URL;
-  if (fromEnv) return String(fromEnv);
+  const receiverBasePath = process.env.APP_BASE_PATH;
+  if (fromEnv) {
+    return audienceForRoute(
+      canonicalA2AAudience(String(fromEnv), receiverBasePath),
+      options,
+    );
+  }
   // Best-effort: derive from the inbound request host. This is forgeable
   // (Host-header attack), but only useful as a hint when env-derived URL
   // is unset; the rest of the JWT verification still uses the secret.
   try {
     const proto = getRequestHeader(event, "x-forwarded-proto") || "https";
     const host = getRequestHeader(event, "host");
-    if (host) return `${proto}://${host}`;
+    if (host) {
+      return audienceForRoute(
+        canonicalA2AAudience(`${proto}://${host}`, receiverBasePath),
+        options,
+      );
+    }
+    // coercion-ok: undefined makes audience-bearing token verification fail closed.
   } catch {}
   return undefined;
 }
 
-async function verifyA2AToken(
+function audienceForRoute(
+  baseAudience: string,
+  options:
+    | {
+        routePrefix?: string;
+        allowBaseAudience?: boolean;
+      }
+    | undefined,
+): string | string[] {
+  const trimmedPrefix = options?.routePrefix?.replace(/^\/+|\/+$/g, "");
+  if (!trimmedPrefix || trimmedPrefix === "_agent-native") return baseAudience;
+  const normalizedPrefix = `/${trimmedPrefix}`;
+  const routeAudience = `${baseAudience.replace(/\/+$/, "")}${normalizedPrefix}`;
+  return options?.allowBaseAudience
+    ? [routeAudience, baseAudience]
+    : routeAudience;
+}
+
+function tokenHasAudienceClaim(token: string): boolean {
+  return typeof jose.decodeJwt(token).aud !== "undefined";
+}
+
+function isDirectReadSkill(skill: AgentSkill): boolean {
+  return (
+    skill.readOnly === true ||
+    (skill.readOnly === undefined && skill.publicAgent?.readOnly === true)
+  );
+}
+
+/**
+ * Verify an inbound A2A bearer token (HS256) exactly as the
+ * `/_agent-native/a2a` endpoint does: it peeks at the unverified `org_domain`
+ * claim to build an ordered candidate-secret set (`process.env.A2A_SECRET`
+ * plus any org-level secret for that domain), then verifies the JWT — checking
+ * `aud`/`iss` when the token carries them and `exp` always. Returns the
+ * caller's email (`sub`) and org domain on success, or `{ email: null,
+ * orgDomain: null }` on any failure (malformed, bad signature, expired, or no
+ * secret configured), never throwing.
+ *
+ * Exported so workspaces can accept A2A callers on the HTTP action route with
+ * the same routine — including org-level fallback secrets — instead of
+ * reimplementing a partial verifier. Pass the H3 `event` to enable org-domain →
+ * org-secret lookup and audience derivation; it is optional. A custom mounted
+ * JSON-RPC route also passes its prefix so endpoint-bound tokens verify against
+ * the same audience the client derived from the advertised URL.
+ */
+export async function verifyA2AToken(
   token: string,
-  event: any | undefined,
+  event?: any,
+  audienceOptions?: {
+    routePrefix?: string;
+    allowBaseAudience?: boolean;
+  },
 ): Promise<A2ATokenPayload> {
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
   // This is safe because we only use org_domain to look up the secret,
@@ -132,8 +215,15 @@ async function verifyA2AToken(
   try {
     const verifyOptions: jose.JWTVerifyOptions = {};
     if (unverifiedPayload && typeof unverifiedPayload.aud !== "undefined") {
-      const aud = expectedJwtAudience(event);
-      if (aud) verifyOptions.audience = aud;
+      // Fail closed: the token was minted for a specific audience, but this
+      // receiver can't derive its own expected audience (no APP_URL/URL and no
+      // usable request host). Accepting here would let a correctly-signed token
+      // whose `aud` targets ANOTHER service verify against a shared secret. A
+      // token that self-declares an audience must be checked against ours, so
+      // when we have nothing to check it against we reject rather than skip.
+      const aud = expectedJwtAudience(event, audienceOptions);
+      if (!aud) return { email: null, orgDomain: null };
+      verifyOptions.audience = aud;
     }
     if (
       unverifiedPayload &&
@@ -149,9 +239,14 @@ async function verifyA2AToken(
           new TextEncoder().encode(secret),
           verifyOptions,
         );
+        const orgId =
+          typeof payload.org_id === "string" && payload.org_id.trim()
+            ? payload.org_id.trim()
+            : undefined;
         return {
           email: (payload.sub as string) ?? null,
           orgDomain: (payload.org_domain as string) ?? null,
+          ...(orgId ? { orgId } : {}),
         };
       } catch {
         // Try the next candidate without leaking which secret failed.
@@ -189,7 +284,7 @@ export function mountA2A(
   // /tmp/security-audit/12-mcp-a2a-agent.md.
   getH3App(nitroApp).use(
     "/.well-known/agent-card.json",
-    defineEventHandler((event) => {
+    defineEventHandler(async (event) => {
       if (getMethod(event) !== "GET") {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -200,13 +295,155 @@ export function mountA2A(
       const host = getRequestHeader(event, "host") ?? "localhost";
       const baseUrl = `${protocol}://${host}`;
 
-      const filteredSkills = filterPublicAgentCardSkills(config);
+      // The anonymous card may only advertise actions safe to disclose
+      // publicly (`requiresAuth !== true`). A verified caller instead sees the
+      // authenticated surface: schemas for direct read invocation plus concise
+      // message-only capabilities for writes owned by the receiving agent.
+      // Anonymous fetches keep the public list unchanged.
+      let skills = filterPublicAgentCardSkills(config);
+      if (config.authenticatedSkills?.length) {
+        const bearer = extractBearerToken(
+          getRequestHeader(event, "authorization"),
+        );
+        if (bearer) {
+          const payload = await verifyA2AToken(bearer, event, {
+            routePrefix,
+            // Capability discovery may begin from either the app URL or an
+            // already-advertised endpoint URL. Both identify this receiver;
+            // direct POST invocation below remains endpoint-bound.
+            allowBaseAudience: true,
+          });
+          if (payload.email) {
+            skills = tokenHasAudienceClaim(bearer)
+              ? config.authenticatedSkills
+              : config.authenticatedSkills.filter(
+                  (skill) => !isDirectReadSkill(skill),
+                );
+          }
+        }
+      }
 
       return generateAgentCard(
-        { ...config, skills: filteredSkills },
+        { ...config, skills },
         baseUrl,
         `${routePrefix}/a2a`,
       );
+    }),
+  );
+
+  // Human-only continuation for consequential A2A tool calls. The opaque id
+  // is a lookup handle, not authorization: every read and mutation also
+  // requires the task owner's live browser session. Ordinary A2A bearer
+  // tokens never reach this control plane and cannot approve themselves.
+  getH3App(nitroApp).use(
+    `${routePrefix}/a2a/approvals`,
+    defineEventHandler(async (event) => {
+      const approvalId = (event.path || "")
+        .split("?")[0]
+        .replace(/^\//, "")
+        .split("/")[0];
+      if (!approvalId) {
+        setResponseStatus(event, 404);
+        return { error: "Approval not found" };
+      }
+
+      const { getSession } = await import("../server/auth.js");
+      const session = await getSession(event);
+      if (!session?.email) {
+        setResponseStatus(event, 401);
+        return { error: "Sign in to review this approval" };
+      }
+
+      if (getMethod(event) === "GET") {
+        const approval = await getA2AApprovalForOwner(
+          approvalId,
+          session.email,
+          session.orgId ?? null,
+        );
+        if (!approval) {
+          setResponseStatus(event, 404);
+          return { error: "Approval not found" };
+        }
+        const safeInput = redactArgsToJson(approval.input) ?? "{}";
+        const esc = (value: string) =>
+          value.replace(
+            /[&<>"']/g,
+            (char) =>
+              ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;",
+              })[char] ?? char,
+          );
+        setResponseHeader(event, "content-type", "text/html; charset=utf-8");
+        setResponseHeader(event, "cache-control", "no-store");
+        setResponseHeader(event, "x-frame-options", "DENY");
+        setResponseHeader(
+          event,
+          "content-security-policy",
+          "frame-ancestors 'none'",
+        );
+        setResponseHeader(event, "referrer-policy", "no-referrer");
+        const expired = approval.expiresAt <= Date.now();
+        const active = approval.status === "pending" && !expired;
+        const displayStatus = expired ? "expired" : approval.status;
+        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review agent action</title><style>body{font:15px/1.5 ui-sans-serif,system-ui;background:#f7f7f5;color:#171717;margin:0}.card{max-width:680px;margin:8vh auto;background:white;border:1px solid #ddd;border-radius:14px;padding:28px;box-shadow:0 12px 36px #0001}h1{font-size:22px;margin:0 0 8px}p{color:#555}pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f2;padding:16px;border-radius:9px;max-height:45vh;overflow:auto}button{background:#171717;color:white;border:0;border-radius:8px;padding:11px 16px;font-weight:650;cursor:pointer}button[disabled]{opacity:.5;cursor:default}#status{margin-left:10px;color:#555}</style></head><body><main class="card"><h1>Review agent action</h1><p>This action is paused until you approve it. Approval can be used once.</p><h2>${esc(approval.tool)}</h2><pre>${esc(safeInput)}</pre><button id="approve" ${active ? "" : "disabled"}>${active ? "Approve and run" : esc(displayStatus)}</button><span id="status">${active ? "" : esc(approval.result ?? displayStatus)}</span><script>document.getElementById('approve').onclick=async function(){this.disabled=true;document.getElementById('status').textContent='Running…';try{const r=await fetch(location.href,{method:'POST',credentials:'include',headers:{'content-type':'application/json'}});const j=await r.json();document.getElementById('status').textContent=j.output||j.error||'Done';}catch(e){document.getElementById('status').textContent='Could not run the action.'}}</script></main></body></html>`;
+      }
+
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      if (!isSameOriginRequest(event)) {
+        setResponseStatus(event, 403);
+        return { error: "Cross-origin approval denied" };
+      }
+      if (!config.executeApproval) {
+        setResponseStatus(event, 501);
+        return { error: "Approval execution is not configured" };
+      }
+
+      const approval = await claimA2AApproval(
+        approvalId,
+        session.email,
+        session.orgId ?? null,
+      );
+      if (!approval) {
+        const current = await getA2AApprovalForOwner(
+          approvalId,
+          session.email,
+          session.orgId ?? null,
+        );
+        setResponseStatus(event, current ? 409 : 404);
+        return {
+          error: current
+            ? `Approval is ${current.status} and cannot be run again`
+            : "Approval not found",
+        };
+      }
+
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      let execution: { status: "completed" | "failed"; output: string };
+      try {
+        execution = await runWithRequestContext(
+          { userEmail: session.email, orgId: session.orgId ?? undefined },
+          () => config.executeApproval!(approval),
+        );
+      } catch (error) {
+        execution = {
+          status: "failed",
+          output:
+            error instanceof Error
+              ? error.message
+              : "Approval execution failed",
+        };
+      }
+      await settleA2AApproval(approval.id, execution.status, execution.output);
+      if (execution.status === "failed") setResponseStatus(event, 500);
+      return execution;
     }),
   );
 
@@ -291,6 +528,7 @@ export function mountA2A(
       const bearerToken = extractBearerToken(authHeader);
       let verifiedCallerEmail: string | null = null;
       let verifiedOrgDomain: string | null = null;
+      let verifiedAudienceBound = false;
       let legacyApiKeyAuthenticated = false;
       let bearerTokenRejectedByJwt = false;
 
@@ -304,9 +542,14 @@ export function mountA2A(
 
       // Try JWT verification first (org-level or global A2A_SECRET-based identity)
       if (bearerToken) {
-        const tokenPayload = await verifyA2AToken(bearerToken, event);
+        const tokenPayload = await verifyA2AToken(bearerToken, event, {
+          routePrefix,
+        });
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
+        if (verifiedCallerEmail) {
+          verifiedAudienceBound = tokenHasAudienceClaim(bearerToken);
+        }
         bearerTokenRejectedByJwt = !verifiedCallerEmail;
       }
 
@@ -382,6 +625,9 @@ export function mountA2A(
       // can set request context from a trusted source instead of metadata
       if (verifiedCallerEmail) {
         event.context.__a2aVerifiedEmail = verifiedCallerEmail;
+      }
+      if (verifiedAudienceBound) {
+        event.context.__a2aAudienceVerified = true;
       }
       if (verifiedOrgDomain) {
         event.context.__a2aOrgDomain = verifiedOrgDomain;

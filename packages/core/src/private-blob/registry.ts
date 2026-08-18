@@ -1,5 +1,7 @@
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 
+import { getAppConfig } from "../app-config/index.js";
+import { setAppConfigLayer } from "../app-config/store.js";
 import { uploadFile } from "../file-upload/index.js";
 import {
   decryptSecretValue,
@@ -16,7 +18,6 @@ import type {
 
 interface PrivateBlobGlobals {
   __agentNativePrivateBlobProviders?: Map<string, PrivateBlobProvider>;
-  __agentNativePrivateBlobPublicUploadFallback?: { enabled: boolean };
 }
 
 interface EncryptedPayload {
@@ -44,13 +45,10 @@ interface PublicUploadDescriptor {
 }
 
 const PUBLIC_UPLOAD_HANDLE_PREFIX = "public-upload:v1:";
+const PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS = [100, 250, 500] as const;
 const globals = globalThis as typeof globalThis & PrivateBlobGlobals;
 const providers: Map<string, PrivateBlobProvider> =
   (globals.__agentNativePrivateBlobProviders ??= new Map());
-const publicUploadFallbackRef: { enabled: boolean } =
-  (globals.__agentNativePrivateBlobPublicUploadFallback ??= {
-    enabled: true,
-  });
 
 function toBytes(data: Uint8Array | Buffer): Uint8Array {
   return data instanceof Uint8Array ? data : new Uint8Array(data);
@@ -115,6 +113,20 @@ function isPublicUploadFallbackHandle(handle: PrivateBlobHandle): boolean {
   return handle.id.startsWith(PUBLIC_UPLOAD_HANDLE_PREFIX);
 }
 
+function isRetryablePublicUploadStatus(status: number): boolean {
+  return (
+    status === 404 ||
+    status === 408 ||
+    status === 425 ||
+    status === 429 ||
+    (status >= 500 && status <= 599)
+  );
+}
+
+function waitForPublicUploadRetry(delayMs: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, delayMs));
+}
+
 async function putViaEncryptedPublicUpload(
   input: PrivateBlobPutInput,
 ): Promise<PrivateBlobHandle | null> {
@@ -142,7 +154,7 @@ async function putViaEncryptedPublicUpload(
     createdAt: new Date().toISOString(),
   };
 
-  return {
+  const handle: PrivateBlobHandle = {
     id: encodePublicUploadDescriptor(descriptor),
     provider: `public-upload:${uploaded.provider}`,
     opaque: true,
@@ -152,17 +164,88 @@ async function putViaEncryptedPublicUpload(
     createdAt: descriptor.createdAt,
     metadata: input.metadata,
   };
+
+  // Do not hand callers a reference that the next request cannot read yet.
+  // The public-upload fallback is eventually consistent at the URL boundary,
+  // so readiness belongs to the write path as well as the later read path.
+  await readViaEncryptedPublicUpload(handle);
+  return handle;
 }
 
 async function readViaEncryptedPublicUpload(
   handle: PrivateBlobHandle,
 ): Promise<PrivateBlobReadResult> {
   const descriptor = decodePublicUploadDescriptor(handle.id);
-  const response = await fetch(descriptor.url);
-  if (!response.ok) {
+  const startedAt = Date.now();
+
+  let response: Response | undefined;
+  let attempts = 0;
+  for (
+    let attempt = 0;
+    attempt <= PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS.length;
+    attempt++
+  ) {
+    attempts = attempt + 1;
+    try {
+      response = await fetch(descriptor.url);
+    } catch (error) {
+      if (attempt === PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS.length) {
+        console.warn("[private-blob] public-upload read failed", {
+          attempts: attempt + 1,
+          elapsedMs: Date.now() - startedAt,
+          provider: handle.provider,
+          reason: "network",
+        });
+        throw new Error(
+          `Private blob public-upload read failed: ${
+            error instanceof Error ? error.message : "network error"
+          }`,
+          { cause: error },
+        );
+      }
+      await waitForPublicUploadRetry(
+        PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS[attempt],
+      );
+      continue;
+    }
+
+    if (response.ok) break;
+
+    if (
+      !isRetryablePublicUploadStatus(response.status) ||
+      attempt === PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS.length
+    ) {
+      console.warn("[private-blob] public-upload read failed", {
+        attempts: attempt + 1,
+        elapsedMs: Date.now() - startedAt,
+        provider: handle.provider,
+        status: response.status,
+      });
+      throw new Error(
+        `Private blob public-upload read failed (${response.status}): ${response.statusText}`,
+      );
+    }
+
+    await waitForPublicUploadRetry(PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS[attempt]);
+  }
+
+  if (!response?.ok) {
+    console.warn("[private-blob] public-upload read failed", {
+      attempts: PUBLIC_UPLOAD_READ_RETRY_DELAYS_MS.length + 1,
+      elapsedMs: Date.now() - startedAt,
+      provider: handle.provider,
+      reason: "no-response",
+    });
     throw new Error(
-      `Private blob public-upload read failed (${response.status}): ${response.statusText}`,
+      "Private blob public-upload read failed without a response",
     );
+  }
+  if (attempts > 1) {
+    console.info("[private-blob] public-upload read recovered after retry", {
+      attempts,
+      elapsedMs: Date.now() - startedAt,
+      provider: handle.provider,
+    });
   }
   // The uploaded ciphertext is intentionally opaque; the descriptor carries
   // auth tag + IV separately so the backing public URL is useless by itself.
@@ -190,16 +273,33 @@ export function listPrivateBlobProviders(): PrivateBlobProvider[] {
 }
 
 export function getActivePrivateBlobProvider(): PrivateBlobProvider | null {
+  const selected = getAppConfig().privateBlob.provider;
+  if (selected) {
+    const provider = providers.get(selected);
+    if (!provider) {
+      throw new Error(
+        `Private blob provider "${selected}" is selected in app config but no provider with that id is registered`,
+      );
+    }
+    return provider;
+  }
   for (const provider of providers.values()) {
     if (provider.isConfigured()) return provider;
   }
   return null;
 }
 
+/**
+ * @deprecated Use `defineAppConfig({ privateBlob: { publicUploadFallback } })`
+ * instead. This writes the same value into the deprecated layer of the config
+ * ladder, so an explicit `defineAppConfig` call now wins over it.
+ */
 export function setPrivateBlobPublicUploadFallbackEnabled(
   enabled: boolean,
 ): void {
-  publicUploadFallbackRef.enabled = enabled;
+  setAppConfigLayer("legacy", {
+    privateBlob: { publicUploadFallback: enabled },
+  });
 }
 
 export async function putPrivateBlob(
@@ -207,10 +307,7 @@ export async function putPrivateBlob(
 ): Promise<PrivateBlobHandle | null> {
   const provider = getActivePrivateBlobProvider();
   if (provider) return provider.put(input);
-  if (!publicUploadFallbackRef.enabled) return null;
-  if (process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK === "0") {
-    return null;
-  }
+  if (!getAppConfig().privateBlob.publicUploadFallback) return null;
   return putViaEncryptedPublicUpload(input);
 }
 

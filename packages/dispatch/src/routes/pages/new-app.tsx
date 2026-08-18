@@ -1,4 +1,5 @@
-import { NewWorkspaceAppFlow, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { NewWorkspaceAppFlow } from "@agent-native/core/client/ui";
 
 import { DispatchShell } from "../../components/dispatch-shell";
 

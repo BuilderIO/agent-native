@@ -1,4 +1,5 @@
-import { sendToAgentChat, useT } from "@agent-native/core/client";
+import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   IconArrowsMaximize,
@@ -150,9 +151,7 @@ export function VideoBlock({
 }: NodeViewProps) {
   const t = useT();
   const [isHovered, setIsHovered] = useState(false);
-  const [sourcePanelOpen, setSourcePanelOpen] = useState(false);
   const [sourcePanelDismissed, setSourcePanelDismissed] = useState(false);
-  const [sourceTab, setSourceTab] = useState<VideoSourceTab>("upload");
   const [videoUrl, setVideoUrl] = useState("");
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [lightboxOpen, setLightboxOpen] = useState(false);
@@ -164,12 +163,23 @@ export function VideoBlock({
   const resizeStateRef = useRef<VideoResizeState | null>(null);
   const isEditable = editor.isEditable;
   const src = node.attrs.src as string;
+  const sourcePanelOpen = node.attrs.sourcePanelOpen === true;
+  const sourceTab: VideoSourceTab =
+    node.attrs.sourceTab === "link" ? "link" : "upload";
   const poster = (node.attrs.poster as string) || "";
   const isUploading = Boolean(node.attrs.uploadId);
   const width = normalizedVideoWidth(node.attrs.width);
   const activeWidth = dragWidth ?? width;
   const controlsVisible = isEditable && (isHovered || selected);
   const options = extension.options as ContentVideoOptions;
+
+  function setSourcePanelOpen(open: boolean) {
+    updateAttributes({ sourcePanelOpen: open });
+  }
+
+  function setSourceTab(tab: VideoSourceTab) {
+    updateAttributes({ sourcePanelOpen: true, sourceTab: tab });
+  }
 
   useEffect(() => {
     if (!sourcePanelOpen && !selected) return;
@@ -209,10 +219,9 @@ export function VideoBlock({
   }
 
   function openReplacePanel() {
-    setSourceTab("upload");
     setVideoUrl("");
     setSourcePanelDismissed(false);
-    setSourcePanelOpen(true);
+    updateAttributes({ sourcePanelOpen: true, sourceTab: "upload" });
   }
 
   function handleLightboxOpenChange(open: boolean) {
@@ -375,8 +384,11 @@ export function VideoBlock({
     const toastId = toast.loading(t("editor.media.uploadingVideo"));
     try {
       const nextSrc = await uploadVideoFile(file);
-      updateAttributes({ src: nextSrc });
-      setSourcePanelOpen(false);
+      updateAttributes({
+        src: nextSrc,
+        sourcePanelOpen: false,
+        sourceTab: "upload",
+      });
       toast.success(t("editor.media.videoAdded"), { id: toastId });
     } catch (error) {
       toast.error(videoUploadErrorMessage(error), { id: toastId });
@@ -398,9 +410,12 @@ export function VideoBlock({
       return;
     }
 
-    updateAttributes({ src: nextSrc });
+    updateAttributes({
+      src: nextSrc,
+      sourcePanelOpen: false,
+      sourceTab: "upload",
+    });
     setVideoUrl("");
-    setSourcePanelOpen(false);
   }
 
   function renderSourcePanel(replace = false) {
@@ -416,6 +431,11 @@ export function VideoBlock({
             role="tab"
             aria-selected={sourceTab === "upload"}
             className="media-source-panel__tab"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setSourceTab("upload");
+            }}
             onClick={() => setSourceTab("upload")}
           >
             {t("editor.media.upload")}
@@ -425,6 +445,11 @@ export function VideoBlock({
             role="tab"
             aria-selected={sourceTab === "link"}
             className="media-source-panel__tab"
+            onPointerDown={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              setSourceTab("link");
+            }}
             onClick={() => setSourceTab("link")}
           >
             {t("editor.media.link")}

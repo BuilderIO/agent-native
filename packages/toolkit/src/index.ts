@@ -1,5 +1,7 @@
 export * from "./app-shell/index.js";
+export * from "./canvas-interactions/index.js";
 export * from "./collab-ui/index.js";
+export * from "./dashboard/index.js";
 export * from "./hooks/index.js";
 export * from "./onboarding/index.js";
 export * from "./provider.js";

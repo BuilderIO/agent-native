@@ -64,13 +64,15 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
-import { builderCompressedMediaUrl } from "../../../lib/builder-media-compression.js";
+import { allowsLegacyS3ObjectForPersistedMedia } from "../../../lib/media-storage-provenance.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
+import { fetchS3ObjectByUrl } from "../../../lib/s3-upload-provider.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
 interface RecordingRow {
   expiresAt?: string | null;
   organizationId?: string | null;
+  ownerEmail?: string | null;
   password?: string | null;
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
@@ -89,8 +91,6 @@ const PROXIED_HEADER_NAMES = [
 const PROVIDER_MEDIA_FETCH_TIMEOUT_MS = 30_000;
 const PROTECTED_MEDIA_ACCESS_TTL_SECONDS = 6 * 60 * 60;
 const PROTECTED_MEDIA_COOKIE_PREFIX = "clips_media_";
-const COMPRESSED_BUILDER_MEDIA_MISS_TTL_MS = 5_000;
-const compressedBuilderMediaMisses = new Map<string, number>();
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -148,42 +148,6 @@ function isRecursiveVideoRouteUrl(value: string, recordingId: string): boolean {
   } catch {
     return false;
   }
-}
-
-function shouldSkipCompressedBuilderMediaProbe(
-  compressedSourceUrl: string,
-): boolean {
-  const expiresAt = compressedBuilderMediaMisses.get(compressedSourceUrl);
-  if (!expiresAt) return false;
-  if (expiresAt <= Date.now()) {
-    compressedBuilderMediaMisses.delete(compressedSourceUrl);
-    return false;
-  }
-  return true;
-}
-
-function rememberCompressedBuilderMediaMiss(compressedSourceUrl: string): void {
-  if (compressedBuilderMediaMisses.size > 1_000) {
-    for (const [url, expiresAt] of compressedBuilderMediaMisses) {
-      if (expiresAt <= Date.now()) compressedBuilderMediaMisses.delete(url);
-    }
-  }
-  compressedBuilderMediaMisses.set(
-    compressedSourceUrl,
-    Date.now() + COMPRESSED_BUILDER_MEDIA_MISS_TTL_MS,
-  );
-}
-
-function shouldFallbackToOriginalMedia(
-  upstream: Response | { error: string; status: number },
-): boolean {
-  return upstream.status >= 500 || [403, 404, 416].includes(upstream.status);
-}
-
-function shouldRememberCompressedBuilderMediaMiss(
-  upstream: Response | { error: string; status: number },
-): boolean {
-  return upstream.status >= 500 || [403, 404].includes(upstream.status);
 }
 
 async function fetchProviderMedia(
@@ -492,29 +456,43 @@ export default defineEventHandler(async (event: H3Event) => {
 
         let upstream: Response | { error: string; status: number };
         try {
-          const compressedSourceUrl = builderCompressedMediaUrl(sourceUrl);
+          const db = getDb();
+          const [persistedMedia] = await db
+            .select({
+              videoUrl: schema.recordings.videoUrl,
+              editsJson: schema.recordings.editsJson,
+            })
+            .from(schema.recordings)
+            .where(eq(schema.recordings.id, recordingId))
+            .limit(1);
+          const allowLegacyObjectKey = allowsLegacyS3ObjectForPersistedMedia({
+            requestedUrl: sourceUrl,
+            persistedUrl: persistedMedia?.videoUrl,
+            editsJson: persistedMedia?.editsJson,
+          });
+          const signedS3Response = await runWithRequestContext(
+            {
+              userEmail: rec.ownerEmail ?? undefined,
+              orgId: rec.organizationId ?? undefined,
+            },
+            () =>
+              fetchS3ObjectByUrl(sourceUrl, {
+                range: rangeHeader?.startsWith("bytes=")
+                  ? rangeHeader
+                  : undefined,
+                timeoutMs: PROVIDER_MEDIA_FETCH_TIMEOUT_MS,
+                recordingId,
+                ...(allowLegacyObjectKey ? { allowLegacyObjectKey } : {}),
+              }),
+          );
           if (
-            compressedSourceUrl &&
-            !shouldSkipCompressedBuilderMediaProbe(compressedSourceUrl)
+            signedS3Response?.status === 200 ||
+            signedS3Response?.status === 206 ||
+            signedS3Response?.status === 416
           ) {
-            try {
-              upstream = await fetchProviderMedia(
-                compressedSourceUrl,
-                rangeHeader,
-              );
-            } catch (err) {
-              upstream = {
-                status: statusCodeForProviderFetchError(err),
-                error: messageForProviderFetchError(err),
-              };
-            }
-            if (shouldRememberCompressedBuilderMediaMiss(upstream)) {
-              rememberCompressedBuilderMediaMiss(compressedSourceUrl);
-            }
-            if (shouldFallbackToOriginalMedia(upstream)) {
-              upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
-            }
+            upstream = signedS3Response;
           } else {
+            await signedS3Response?.body?.cancel().catch(() => undefined);
             upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
           }
         } catch (err) {

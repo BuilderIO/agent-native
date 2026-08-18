@@ -15,7 +15,7 @@ import {
 } from "@agent-native/core/progress";
 
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Triage 128 unread emails",
   step: "Fetching inbox",
 });
@@ -100,7 +100,7 @@ Crear una ejecución. Devuelve el `AgentRun` completo con una identificación ge
 
 ```ts
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Ingest 1M rows",
   step: "Opening CSV",
   metadata: { jobId: "abc123", artifactPath: "s3://..." },
@@ -140,9 +140,9 @@ También emite `run.progress.updated` con el estado del terminal.
 ```ts
 import { listRuns, getRun, deleteRun } from "@agent-native/core/progress";
 
-const active = await listRuns("steve@builder.io", { activeOnly: true });
-const run = await getRun("run-id", "steve@builder.io");
-await deleteRun("run-id", "steve@builder.io");
+const active = await listRuns("user@example.com", { activeOnly: true });
+const run = await getRun("run-id", "user@example.com");
+await deleteRun("run-id", "user@example.com");
 ```
 
 ## HTTP API {#http}
@@ -233,7 +233,7 @@ Notificar me that run {{runId}} has failed.
 ## Cómo funciona {#internals}
 
 - **Alcance del propietario**: cada fila tiene una columna `owner`; cada consulta se filtra en él. Los usuarios solo ven sus propias ejecuciones.
-- **Integración de encuesta**: cada mutación llama a `recordChange()`, por lo que las plantillas que utilizan [`useDbSync`](/docs/client) se invalidan automáticamente sin ningún cableado adicional.
+- **Integración de encuesta**: cada mutación llama a `recordChange()`, por lo que las plantillas que utilizan [`useDbSync`](/docs/client-data#usedbsync) se invalidan automáticamente sin ningún cableado adicional.
 - **Nombre de la tabla**: el marco también tiene una tabla `agent_runs` para el seguimiento interno del ciclo de vida del turno del chat del agente. La primitiva de progreso usa `progress_runs` para mantener las dos preocupaciones separadas.
 - **Porcentaje de fijación**: los valores se fijan en `[0, 100]` y se redondean a un número entero al escribir.
 
@@ -241,4 +241,4 @@ Notificar me that run {{runId}} has failed.
 
 - [**Notifications**](/docs/notifications): empareja con `manage-progress` (`action=complete`) para informar al usuario cuando finaliza el trabajo
 - [**Automations**](/docs/automations): el mecanismo de vigilancia se ejecuta lentamente a través de `run.progress.updated`
-- [**Client**](/docs/client) — `useDbSync` para invalidación de caché en tiempo real
+- [**Datos y sincronización**](/docs/client-data) — `useDbSync` para invalidación de caché en tiempo real

@@ -12,6 +12,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { notifyRecordingReaction } from "../server/lib/activity-notifications.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -29,7 +30,7 @@ export default defineAction({
     viewerName: z.string().optional(),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "viewer");
+    await assertAccess("recording", args.recordingId, "commenter");
 
     const viewerEmail = getRequestUserEmail();
     if (!viewerEmail) {
@@ -50,8 +51,16 @@ export default defineAction({
       createdAt: now,
     });
 
+    const notified = await notifyRecordingReaction({
+      recordingId: args.recordingId,
+      emoji: args.emoji,
+      viewerEmail,
+      viewerName: args.viewerName,
+      videoTimestampMs: args.videoTimestampMs,
+    });
+
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { id };
+    return { id, notified };
   },
 });

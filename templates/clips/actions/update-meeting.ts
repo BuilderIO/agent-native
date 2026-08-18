@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { nanoid } from "../server/lib/recordings.js";
+import { booleanParam } from "./lib/cli-params.js";
 
 export default defineAction({
   description:
@@ -44,10 +45,17 @@ export default defineAction({
       .optional()
       .describe("Replace the action item set on the meeting"),
     transcriptStatus: z.enum(["idle", "pending", "ready", "failed"]).optional(),
+    shareTranscript: booleanParam
+      .optional()
+      .describe(
+        "Include the linked recording transcript on meeting share pages",
+      ),
     visibility: z.enum(["private", "org", "public"]).optional(),
   }),
   run: async (args) => {
-    await assertAccess("meeting", args.id, "editor");
+    const updatesSharing =
+      args.shareTranscript !== undefined || args.visibility !== undefined;
+    await assertAccess("meeting", args.id, updatesSharing ? "admin" : "editor");
     const db = getDb();
 
     const patch: Record<string, unknown> = {
@@ -77,6 +85,8 @@ export default defineAction({
     if (normalizedActionItems !== undefined)
       patch.actionItemsJson = JSON.stringify(normalizedActionItems);
     if (args.transcriptStatus) patch.transcriptStatus = args.transcriptStatus;
+    if (args.shareTranscript !== undefined)
+      patch.shareTranscript = args.shareTranscript;
     if (args.visibility) patch.visibility = args.visibility;
 
     // Keep the denormalized JSON used by the summary and the dedicated action

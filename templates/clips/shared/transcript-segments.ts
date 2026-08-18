@@ -3,8 +3,7 @@ export interface TranscriptSegment {
   endMs: number;
   text: string;
   source?: "mic" | "system";
-  /** A durable diarization or provider-supplied speaker label, when known. */
-  speaker?: string;
+  speaker?: string | null;
 }
 
 const MAX_WORDS_PER_CAPTION = 7;
@@ -30,9 +29,7 @@ export function parseTranscriptSegments(
             ? segment.source
             : undefined,
         speaker:
-          typeof segment?.speaker === "string" && segment.speaker.trim()
-            ? segment.speaker.trim()
-            : undefined,
+          typeof segment?.speaker === "string" ? segment.speaker : undefined,
       }))
       .filter(
         (segment) =>
@@ -49,6 +46,8 @@ export function parseTranscriptSegments(
 export function buildCaptionSegmentsFromText(
   text: string,
   durationMs?: number | null,
+  source?: TranscriptSegment["source"],
+  speaker?: TranscriptSegment["speaker"],
 ): TranscriptSegment[] {
   const chunks = splitIntoCaptionChunks(text);
   if (chunks.length === 0) return [];
@@ -79,6 +78,8 @@ export function buildCaptionSegmentsFromText(
       startMs: cursorMs,
       endMs,
       text: chunk,
+      source,
+      speaker,
     };
     cursorMs = endMs;
     return segment;
@@ -104,14 +105,12 @@ export function normalizeTranscriptSegments({
       .join(" ")
       .trim();
   if (validSegments.length <= 1) {
-    const onlySegment = validSegments[0];
-    if (onlySegment) {
-      return splitTimedSegmentIntoCaptions({
-        ...onlySegment,
-        text: sourceText,
-      });
-    }
-    return buildCaptionSegmentsFromText(sourceText, durationMs);
+    return buildCaptionSegmentsFromText(
+      sourceText,
+      durationMs,
+      validSegments[0]?.source,
+      validSegments[0]?.speaker,
+    );
   }
 
   return validSegments.flatMap(splitTimedSegmentIntoCaptions);
@@ -174,10 +173,11 @@ function splitTimedSegmentIntoCaptions(
           Math.max(cursorMs + minChunkMs, cursorMs + rawDuration),
         );
     const next = {
-      ...segment,
       startMs: cursorMs,
       endMs,
       text: chunk,
+      source: segment.source,
+      speaker: segment.speaker,
     };
     cursorMs = endMs;
     return next;

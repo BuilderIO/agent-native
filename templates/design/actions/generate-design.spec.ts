@@ -153,6 +153,34 @@ const mocks = vi.hoisted(() => {
     isNull: vi.fn((value) => ({ isNull: value })),
     readAppState: vi.fn().mockResolvedValue(null),
     writeAppState: vi.fn().mockResolvedValue(undefined),
+    getGenerationCreativeContext: vi.fn().mockResolvedValue(null),
+    recordGenerationCreativeContext: vi.fn().mockResolvedValue(undefined),
+    resolveGenerationCreativeContext: vi.fn().mockResolvedValue({
+      contextMode: "auto",
+      contextPackId: null,
+      reuseLabels: [],
+      results: [],
+    }),
+    validateGenerationCreativeContext: vi.fn(
+      async (input: {
+        contextPackId?: string | null;
+        contextModeOverride?: "off";
+        reuseLabels?: Array<Record<string, unknown>>;
+      }) => ({
+        contextMode:
+          input.contextModeOverride === "off"
+            ? "off"
+            : input.contextPackId
+              ? "pinned"
+              : "auto",
+        contextPackId:
+          input.contextModeOverride === "off"
+            ? null
+            : (input.contextPackId ?? null),
+        reuseLabels: input.reuseLabels ?? [],
+        results: [],
+      }),
+    ),
   };
 });
 
@@ -214,6 +242,30 @@ vi.mock("../server/db/index.js", () => {
 
 vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
+}));
+
+vi.mock("@agent-native/creative-context/server", () => ({
+  getGenerationCreativeContext: mocks.getGenerationCreativeContext,
+  recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
+  resolveGenerationCreativeContext: mocks.resolveGenerationCreativeContext,
+  validateGenerationCreativeContext: mocks.validateGenerationCreativeContext,
+  validateCreativeContextReuseLabels: (
+    labels: Array<Record<string, unknown>>,
+  ) => labels,
+  mergeCreativeContextReuseLabels: (
+    previous: Array<Record<string, unknown>>,
+    next: Array<Record<string, unknown>>,
+  ) => [...previous, ...next],
+  replaceCreativeContextElementProvenance: (
+    previous: Array<{ elementId: string }>,
+    next: Array<{ elementId: string }>,
+  ) => {
+    const replaced = new Set(next.map((entry) => entry.elementId));
+    return [
+      ...previous.filter((entry) => !replaced.has(entry.elementId)),
+      ...next,
+    ];
+  },
 }));
 
 import action from "./generate-design.js";
@@ -281,6 +333,8 @@ describe("generate-design action tool schema", () => {
     ]);
     expect(parameters.properties?.tweaks?.type).toBe("string");
     expect(parameters.properties?.canvasFrames?.type).toBe("string");
+    expect(parameters.properties?.reuseLabels?.type).toBe("string");
+    expect(parameters.properties?.contextModeOverride?.type).toBe("string");
 
     const parsed = (action as any).schema.safeParse({
       designId: "design_123",
@@ -660,15 +714,14 @@ describe("generate-design: new-file creation path (unchanged)", () => {
       x: 0,
       y: 0,
       width: 1440,
-      height: 1024,
+      height: 900,
     });
     expect(data.breakpointSet).toMatchObject({
-      breakpoints: [
-        expect.objectContaining({ label: "Mobile", widthPx: 390 }),
-        expect.objectContaining({ label: "Tablet", widthPx: 768 }),
-        expect.objectContaining({ label: "Desktop", widthPx: 1440 }),
-      ],
+      breakpoints: [expect.objectContaining({ label: "Mobile", widthPx: 390 })],
     });
+    expect(
+      (data.breakpointSet as { breakpoints: unknown[] }).breakpoints,
+    ).toHaveLength(1);
   });
 
   it("uses the requested mobile viewport when the agent supplies it", async () => {
@@ -690,5 +743,486 @@ describe("generate-design: new-file creation path (unchanged)", () => {
       data.canvasFrames as Record<string, Record<string, unknown>>,
     );
     expect(frame).toMatchObject({ width: 390, height: 844 });
+  });
+
+  it("derives the base frame and breakpoint set from an explicit devices list", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "Create a responsive landing page",
+      devices: ["mobile", "tablet", "desktop"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Landing</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const [frame] = Object.values(
+      data.canvasFrames as Record<string, Record<string, unknown>>,
+    );
+    // Widest device (desktop) seeds the primary frame.
+    expect(frame).toMatchObject({ width: 1440, height: 900 });
+    // Breakpoints are the narrower devices only, ascending, never the base width.
+    expect(data.breakpointSet).toMatchObject({
+      breakpoints: [
+        expect.objectContaining({ label: "Mobile", widthPx: 390 }),
+        expect.objectContaining({ label: "Tablet", widthPx: 768 }),
+      ],
+    });
+    expect(
+      (data.breakpointSet as { breakpoints: unknown[] }).breakpoints,
+    ).toHaveLength(2);
+  });
+
+  it("produces a single frame with no breakpoints for a one-device request", async () => {
+    await action.run({
+      designId: "design-1",
+      prompt: "Create a phone-only screen",
+      devices: ["mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Phone</body></html>",
+        },
+      ],
+    });
+
+    const data = mocks.getDesignData();
+    const [frame] = Object.values(
+      data.canvasFrames as Record<string, Record<string, unknown>>,
+    );
+    expect(frame).toMatchObject({ width: 390, height: 844 });
+    // Single device => empty breakpoint set => no breakpointSet is seeded.
+    expect(data.breakpointSet).toBeUndefined();
+  });
+
+  it("pins session evidence to the saved frame and preserves exact versions", async () => {
+    const evidence = {
+      itemId: "item-1",
+      itemVersionId: "version-1",
+      kind: "figma-frame",
+      label: "Pricing hero",
+      dataRole: "untrusted-reference" as const,
+    };
+    mocks.readAppState.mockResolvedValue({
+      id: "session-1",
+      designId: "design-1",
+      status: "generating",
+      prompt: "Pricing",
+      contextRefs: [],
+      creativeContext: {
+        contextMode: "pinned",
+        contextPackId: "pack-1",
+        reuseLabels: [evidence],
+      },
+      frames: [
+        {
+          frameId: "frame-1",
+          filename: "index.html",
+          agentId: "agent-1",
+          agentName: "Atlas",
+          agentColor: "red",
+          region: { x: 0, y: 0, width: 1440, height: 1024 },
+          role: "screen",
+          status: "queued",
+        },
+      ],
+      startedAt: "2026-07-16T00:00:00.000Z",
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Pricing",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Pricing</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
+      contextPackId: "pack-1",
+      contextPackSource: "inherited",
+      reuseLabels: [evidence],
+      reuseLabelsSource: "inherited",
+    });
+    expect(mocks.recordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        appId: "design",
+        artifactType: "design",
+        artifactId: "design-1",
+        contextPackId: "pack-1",
+        elementProvenance: [
+          expect.objectContaining({
+            elementId: "frame-1",
+            influence: "reference-conditioned",
+            itemId: "item-1",
+            itemVersionId: "version-1",
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("makes a one-generation off override structural even with a pinned session", async () => {
+    mocks.readAppState.mockResolvedValue({
+      designId: "design-1",
+      creativeContext: {
+        contextMode: "pinned",
+        contextPackId: "pack-1",
+        reuseLabels: [],
+      },
+      frames: [],
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Unbranded concept",
+      contextModeOverride: "off",
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<html><body>Concept</body></html>",
+        },
+      ],
+    });
+
+    expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.getGenerationCreativeContext).not.toHaveBeenCalled();
+    expect(mocks.validateGenerationCreativeContext).toHaveBeenCalledWith({
+      contextPackId: undefined,
+      contextModeOverride: "off",
+      reuseLabels: [],
+    });
+    expect(mocks.recordGenerationCreativeContext).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contextMode: "off",
+        contextPackId: null,
+        elementProvenance: [
+          expect.objectContaining({ influence: "generated" }),
+        ],
+      }),
+    );
+  });
+});
+
+describe("generate-design: new screens never stack on existing frames", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("relocates a second screen that requests the first screen's coordinates", async () => {
+    // A screen already sits at the origin (state after the first generation).
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Add a pricing screen",
+      files: [
+        {
+          filename: "pricing.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>Pricing</body></html>",
+        },
+      ],
+      // The agent reuses the skill example's x:0,y:0 for the new screen.
+      canvasFrames: [
+        { filename: "pricing.html", x: 0, y: 0, width: 1440, height: 900 },
+      ],
+    });
+
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; y: number; width: number; height: number }
+    >;
+    const first = frames["file-1"]!;
+    const second = Object.entries(frames).find(([id]) => id !== "file-1")![1];
+
+    expect(first).toMatchObject({ x: 0, y: 0 });
+    const overlaps =
+      first.x < second.x + second.width &&
+      first.x + first.width > second.x &&
+      first.y < second.y + second.height &&
+      first.y + first.height > second.y;
+    expect(overlaps).toBe(false);
+    expect(second.x).toBeGreaterThanOrEqual(1440);
+  });
+});
+
+describe("generate-design: single-device regen clears stale breakpoints", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  const responsiveData = () => ({
+    breakpointSet: {
+      id: "old",
+      breakpoints: [{ id: "m", label: "Mobile", widthPx: 390 }],
+    },
+  });
+  const oneFile = [
+    {
+      filename: "index.html",
+      fileType: "html",
+      content: "<!doctype html><html><body>x</body></html>",
+    },
+  ];
+
+  it("removes an existing breakpointSet on an explicit single-device request", async () => {
+    mocks.setDesignData(responsiveData());
+    await action.run({
+      designId: "design-1",
+      prompt: "Make it desktop only",
+      devices: ["desktop"],
+      files: oneFile,
+    });
+    expect(mocks.getDesignData().breakpointSet).toBeUndefined();
+  });
+
+  it("keeps the breakpointSet when devices is not explicitly narrowed", async () => {
+    mocks.setDesignData(responsiveData());
+    await action.run({
+      designId: "design-1",
+      prompt: "Tweak the copy",
+      files: oneFile,
+    });
+    expect(mocks.getDesignData().breakpointSet).toBeDefined();
+  });
+
+  it("does not overwrite a malformed breakpointSet when seeding generated-responsive breakpoints", async () => {
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "broken",
+        breakpoints: "not-an-array",
+      },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Seed responsive screens",
+      files: oneFile,
+    });
+
+    expect(mocks.getDesignData().breakpointSet).toEqual({
+      id: "broken",
+      breakpoints: "not-an-array",
+    });
+  });
+
+  it("does not overwrite a breakpointSet object with no breakpoint array", async () => {
+    mocks.setDesignData({
+      breakpointSet: { id: "broken" },
+    });
+
+    await action.run({
+      designId: "design-1",
+      prompt: "Seed responsive screens",
+      files: oneFile,
+    });
+
+    expect(mocks.getDesignData().breakpointSet).toEqual({ id: "broken" });
+  });
+});
+
+describe("generate-design: placement clears rotated existing frames", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("relocates a new screen clear of a rotated frame's real footprint", async () => {
+    // A wide-short frame at y=1000 rotated 90° becomes a tall band whose AABB
+    // is x∈[670,770], y∈[330,1770] — overlapping a new origin screen even
+    // though its UNROTATED rect (y∈[1000,1100]) does not. Requires
+    // rotation-aware collision to relocate the new screen.
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": {
+          x: 0,
+          y: 1000,
+          width: 1440,
+          height: 100,
+          rotation: 90,
+          z: 0,
+        },
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        {
+          filename: "b.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>b</body></html>",
+        },
+      ],
+      canvasFrames: [
+        { filename: "b.html", x: 0, y: 0, width: 1440, height: 900 },
+      ],
+    });
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number; width: number }
+    >;
+    const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
+    // Without rotation awareness the new screen would stay at x:0 (its
+    // unrotated rect misses); rotation-aware collision bumps it past the band.
+    expect(placed.x).toBeGreaterThanOrEqual(770);
+  });
+});
+
+describe("generate-design: explicit device requests reconcile breakpoints & rotated placement", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  const oneFile = [
+    {
+      filename: "index.html",
+      fileType: "html",
+      content: "<!doctype html><html><body>x</body></html>",
+    },
+  ];
+
+  it("replaces a stale set when an explicit multi-device request adds a device", async () => {
+    // Existing design has only Mobile; regenerating as mobile+tablet+desktop
+    // must add the Tablet breakpoint, not silently keep only Mobile.
+    mocks.setDesignData({
+      breakpointSet: {
+        id: "old",
+        breakpoints: [{ id: "m", label: "Mobile", widthPx: 390 }],
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Make it responsive across devices",
+      devices: ["mobile", "tablet", "desktop"],
+      files: oneFile,
+    });
+    const set = mocks.getDesignData().breakpointSet as {
+      breakpoints: Array<{ widthPx: number }>;
+    };
+    expect(set.breakpoints.map((b) => b.widthPx).sort((a, b) => a - b)).toEqual(
+      [390, 768],
+    );
+  });
+
+  it("relocates a new ROTATED screen whose rotated footprint overlaps", async () => {
+    // Existing frame occupies x∈[0,1440]. A new 200x200 screen requested at
+    // x:1450 (unrotated: clears it) rotated 45° has an AABB reaching back to
+    // ~1409, overlapping the existing frame — so it must be relocated.
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 0, y: 0, width: 1440, height: 900, z: 0 },
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Add a rotated screen",
+      files: [
+        {
+          filename: "b.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>b</body></html>",
+        },
+      ],
+      canvasFrames: [
+        {
+          filename: "b.html",
+          x: 1450,
+          y: 0,
+          width: 200,
+          height: 200,
+          rotation: 45,
+        },
+      ],
+    });
+    const frames = mocks.getDesignData().canvasFrames as Record<
+      string,
+      { x: number }
+    >;
+    const placed = Object.entries(frames).find(([id]) => id !== "file-1")![1];
+    expect(placed.x).not.toBe(1450);
+  });
+});
+
+describe("generate-design: explicit device request resizes an existing frame", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.seededCollabText.clear();
+    mocks.setFileRows([]);
+    mocks.setDesignRows([{ id: "design-1", data: null }]);
+    mocks.assertAccess.mockResolvedValue(undefined);
+    mocks.fileUpdateChain.where.mockResolvedValue({ rowsAffected: 1 });
+    mocks.designUpdateChain.where.mockResolvedValue(undefined);
+    resetDesignDataMutation();
+  });
+
+  it("resizes a persisted desktop frame to mobile (keeping position) on devices:[mobile]", async () => {
+    // Existing index.html (file-1) with a persisted desktop-sized frame.
+    setExistingFile("<html><body>old</body></html>");
+    mocks.setDesignData({
+      canvasFrames: {
+        "file-1": { x: 300, y: 120, width: 1440, height: 900, z: 0 },
+      },
+    });
+    await action.run({
+      designId: "design-1",
+      prompt: "Make this a mobile screen",
+      devices: ["mobile"],
+      files: [
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<!doctype html><html><body>x</body></html>",
+        },
+      ],
+    });
+    const frame = (
+      mocks.getDesignData().canvasFrames as Record<
+        string,
+        { x: number; y: number; width: number; height: number }
+      >
+    )["file-1"];
+    expect(frame).toMatchObject({ x: 300, y: 120, width: 390, height: 844 });
   });
 });

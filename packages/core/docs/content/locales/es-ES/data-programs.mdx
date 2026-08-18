@@ -8,7 +8,7 @@ search: "data program emit rows schema providerFetch dashboard panel program sou
 
 Un **programa de datos** es un script JS con nombre, almacenado y escrito por el agente que obtiene, une, filtra o agrega datos — APIs de proveedores mediante `providerFetch` / `providerFetchAll` / `providerSearchAll`, datos de la app mediante `appAction`, o archivos de workspace respaldados por Resources — y llama a `emit(rows, schema)` exactamente una vez con el resultado. El resultado se almacena en caché en SQL y cualquier componente de gráfico/tabla puede renderizarlo, actualizado según una política que usted elija en lugar de en cada vista de página.
 
-Está disponible automáticamente donde sea que [`run-code`](/docs/actions) esté disponible — no hay nada que montar o configurar por app. Si su app ya tiene run-code habilitado, `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program` y `delete-data-program` ya son actions registradas.
+Está disponible automáticamente donde sea que [`run-code`](/docs/actions-overview) esté disponible — no hay nada que montar o configurar por app. Si su app ya tiene run-code habilitado, `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program` y `delete-data-program` ya son actions registradas.
 
 <Diagram id="doc-block-dp-overview" title={"De consulta puntual a panel en vivo"} summary={"Un script run-code se convierte en un programa almacenado en cuanto llama a emit(); cualquier panel de dashboard puede vincularse a él y la política de caché/actualización se hace cargo desde ahí."}>
 
@@ -324,6 +324,6 @@ Cualquier app puede implementar la misma adopción para sus propios dashboards/t
 ## Documentación relacionada {#related}
 
 - [Extensiones](/docs/extensions) — la primitiva de mini-app en sandbox con la que los programas de datos comparten un modelo de seguridad y de sharing, pero con una UI propia.
-- [Actions](/docs/actions) — las convenciones de `run-code` y los globals del sandbox (`providerFetch`, `appAction`, etc.) sobre los que se construyen los programas de datos.
+- [Actions](/docs/actions-overview) — las convenciones de `run-code` y los globals del sandbox (`providerFetch`, `appAction`, etc.) sobre los que se construyen los programas de datos.
 - [Sharing y privacidad](/docs/sharing) — el modelo de sharing interno de la organización, nunca público, que usan los programas de datos.
 - [Seguridad](/docs/security) — los invariantes de manejo de credenciales y delimitación de acceso del framework.

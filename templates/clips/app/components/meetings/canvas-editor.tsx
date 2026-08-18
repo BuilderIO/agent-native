@@ -1,4 +1,5 @@
-import { SharedRichEditor, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { SharedRichEditor } from "@agent-native/toolkit/editor";
 import { useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";

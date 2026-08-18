@@ -9,9 +9,9 @@ import {
 } from "./aspect-ratios";
 
 describe("ASPECT_RATIOS constants", () => {
-  it("declares exactly the four supported ratios", () => {
+  it("declares exactly the five supported ratios", () => {
     expect(Object.keys(ASPECT_RATIOS).sort()).toEqual(
-      ["1:1", "16:9", "4:5", "9:16"].sort(),
+      ["1:1", "16:9", "4:3", "4:5", "9:16"].sort(),
     );
   });
 
@@ -77,9 +77,18 @@ describe("getAspectRatioDims", () => {
     // Cast through unknown so the test is honest about runtime safety,
     // not just compile-time safety.
     const bogus = "21:9" as unknown as AspectRatio;
-    expect(getAspectRatioDims(bogus)).toBeUndefined();
-    // Note: the helper does not validate — callers rely on the Zod enum on
-    // the action / DB boundary. This test pins the contract: only nullish
-    // is coerced to default; an unknown value returns undefined.
+    expect(getAspectRatioDims(bogus)).toBe(ASPECT_RATIOS["16:9"]);
+  });
+
+  it("falls back to 16:9 for an empty string at runtime", () => {
+    const empty = "" as unknown as AspectRatio;
+    expect(getAspectRatioDims(empty)).toBe(ASPECT_RATIOS["16:9"]);
+  });
+
+  it("falls back to 16:9 for inherited Object.prototype keys", () => {
+    for (const inherited of ["toString", "constructor", "hasOwnProperty"]) {
+      const bogus = inherited as unknown as AspectRatio;
+      expect(getAspectRatioDims(bogus)).toBe(ASPECT_RATIOS["16:9"]);
+    }
   });
 });

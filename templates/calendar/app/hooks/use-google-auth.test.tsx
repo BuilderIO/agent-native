@@ -3,8 +3,11 @@ import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@agent-native/core/client", () => ({
+vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
+}));
+
+vi.mock("@agent-native/core/client/host", () => ({
   isInBuilderFrame: () => false,
   oauthRedirectUri: (path: string) => `http://localhost${path}`,
 }));
@@ -184,7 +187,7 @@ describe("useGoogleDesktopAuth", () => {
       () => {
         expect(fetchMock).toHaveBeenCalledWith(
           "/_agent-native/auth/session?_session=token-1",
-          { credentials: "include" },
+          { credentials: "include", signal: expect.any(AbortSignal) },
         );
       },
       { timeout: 4_000 },

@@ -7,6 +7,14 @@ import {
   resolveLocaleFromRequest,
 } from "./server.js";
 
+function readHydrationPayload() {
+  return (
+    window as Window & {
+      __AGENT_NATIVE_LOCALE__?: Record<string, unknown>;
+    }
+  ).__AGENT_NATIVE_LOCALE__;
+}
+
 describe("localization server helpers", () => {
   it("parses Accept-Language by q weight", () => {
     expect(parseAcceptLanguage("fr-CA, zh-CN;q=0.9, en;q=0.5")).toEqual([
@@ -38,10 +46,25 @@ describe("localization server helpers", () => {
 
     expect(document.documentElement.getAttribute("lang")).toBe("ar-SA");
     expect(document.documentElement.getAttribute("dir")).toBe("rtl");
-    expect(
-      (window as Window & { __AGENT_NATIVE_LOCALE__?: { locale?: string } })
-        .__AGENT_NATIVE_LOCALE__?.locale,
-    ).toBe("ar-SA");
+    expect(readHydrationPayload()).toMatchObject({
+      locale: "ar-SA",
+      dir: "rtl",
+    });
+  });
+
+  it("keeps translations out of the render-blocking payload", () => {
+    const script = getLocaleInitScript({
+      locale: "ja-JP",
+      preference: { locale: "ja-JP" },
+    });
+    expect(script).not.toContain("messages");
+
+    new Function(script)();
+    expect(Object.keys(readHydrationPayload() ?? {}).sort()).toEqual([
+      "dir",
+      "locale",
+      "preference",
+    ]);
   });
 
   it("does not overwrite stored preference unless a preference is provided", () => {

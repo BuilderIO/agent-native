@@ -75,4 +75,12 @@ describe("ORG_MIGRATIONS", () => {
     expect(sql).toMatch(/org_id/i);
     expect(sql).toMatch(/LOWER\(email\)/i);
   });
+
+  it("adds the organization-level required auth provider column", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1014);
+    expect(migration).toBeDefined();
+    expect(migration?.sql).toMatch(
+      /ALTER TABLE organizations ADD COLUMN IF NOT EXISTS required_auth_provider TEXT/i,
+    );
+  });
 });

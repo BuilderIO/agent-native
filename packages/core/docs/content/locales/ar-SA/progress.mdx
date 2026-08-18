@@ -15,7 +15,7 @@ import {
 } from "@agent-native/core/progress";
 
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Triage 128 unread emails",
   step: "Fetching inbox",
 });
@@ -100,7 +100,7 @@ await completeRun(run.id, run.owner, "succeeded");
 
 ```ts
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Ingest 1M rows",
   step: "Opening CSV",
   metadata: { jobId: "abc123", artifactPath: "s3://..." },
@@ -140,9 +140,9 @@ await completeRun(run.id, run.owner, "succeeded", {
 ```ts
 import { listRuns, getRun, deleteRun } from "@agent-native/core/progress";
 
-const active = await listRuns("steve@builder.io", { activeOnly: true });
-const run = await getRun("run-id", "steve@builder.io");
-await deleteRun("run-id", "steve@builder.io");
+const active = await listRuns("user@example.com", { activeOnly: true });
+const run = await getRun("run-id", "user@example.com");
+await deleteRun("run-id", "user@example.com");
 ```
 
 ## HTTP API {#http}
@@ -233,7 +233,7 @@ mode: agentic
 ## كيفية العمل {#internals}
 
 - **نطاق المالك** — يحتوي كل صف على عمود `owner`؛ يتم تصفية كل استعلام عليه. يرى المستخدمون عمليات التشغيل الخاصة بهم فقط.
-- **تكامل الاستقصاء** — تستدعي كل طفرة `recordChange()`, لذا يتم إبطال صحة القوالب التي تستخدم [`useDbSync`](/docs/client) تلقائيًا دون أي أسلاك إضافية.
+- **تكامل الاستقصاء** — تستدعي كل طفرة `recordChange()`, لذا يتم إبطال صحة القوالب التي تستخدم [`useDbSync`](/docs/client-data#usedbsync) تلقائيًا دون أي أسلاك إضافية.
 - **اسم الجدول** — يحتوي إطار العمل أيضًا على جدول `agent_runs` لتتبع دورة حياة دورة حياة الوكيل الداخلي للدردشة. يستخدم التقدم البدائي `progress_runs` للفصل بين الاهتمامين.
 - **تثبيت النسبة المئوية** — يتم تثبيت القيم على `[0, 100]` وتقريبها إلى عدد صحيح عند الكتابة.
 
@@ -241,4 +241,4 @@ mode: agentic
 
 - [**Notifications**](/docs/notifications) — قم بالاقتران مع `manage-progress` (`action=complete`) لإخبار المستخدم عند انتهاء العمل
 - [**Automations**](/docs/automations) — يعمل جهاز المراقبة ببطء عبر `run.progress.updated`
-- [**Client**](/docs/client) — `useDbSync` لإبطال ذاكرة التخزين المؤقت في الوقت الفعلي
+- [**البيانات والمزامنة**](/docs/client-data) — `useDbSync` لإبطال ذاكرة التخزين المؤقت في الوقت الفعلي

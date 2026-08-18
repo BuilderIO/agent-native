@@ -33,7 +33,7 @@ export {
 /** The route prefix under which plan assets are served. */
 export const PLAN_ASSET_ROUTE_PREFIX = "/_agent-native/plan-asset";
 const PLAN_ASSET_STORAGE_REQUIRED_REASON =
-  "Image storage is not connected yet. Connect Builder.io or configure S3-compatible storage to add images to visual plans.";
+  "Image storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage to add images to visual plans.";
 
 /**
  * Build the serving URL for an asset stored in the `plan_assets` table.

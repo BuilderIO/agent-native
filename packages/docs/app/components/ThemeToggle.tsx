@@ -1,8 +1,9 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMoon, IconSun } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Theme = "light" | "dark";
+const THEME_CHANGE_EVENT = "docs-theme-change";
 
 function getInitialTheme(): Theme {
   if (typeof window === "undefined") {
@@ -26,29 +27,44 @@ function applyTheme(theme: Theme) {
   document.documentElement.style.colorScheme = theme;
 }
 
-export default function ThemeToggle() {
+export function useDocsTheme() {
   const [theme, setTheme] = useState<Theme>("light");
-  const t = useT();
+
+  const updateTheme = useCallback((next: Theme) => {
+    setTheme(next);
+    applyTheme(next);
+    window.localStorage.setItem("theme", next);
+    window.dispatchEvent(new Event(THEME_CHANGE_EVENT));
+  }, []);
 
   useEffect(() => {
     const initial = getInitialTheme();
     setTheme(initial);
     applyTheme(initial);
+
+    const handleThemeChange = () => setTheme(getInitialTheme());
+    window.addEventListener(THEME_CHANGE_EVENT, handleThemeChange);
+    return () =>
+      window.removeEventListener(THEME_CHANGE_EVENT, handleThemeChange);
   }, []);
 
-  function toggle() {
-    const next: Theme = theme === "light" ? "dark" : "light";
-    setTheme(next);
-    applyTheme(next);
-    window.localStorage.setItem("theme", next);
-  }
+  const toggleTheme = useCallback(() => {
+    updateTheme(getInitialTheme() === "light" ? "dark" : "light");
+  }, [updateTheme]);
+
+  return { theme, toggleTheme };
+}
+
+export default function ThemeToggle() {
+  const { theme, toggleTheme } = useDocsTheme();
+  const t = useT();
 
   const label = t("theme.label", { theme: t(`theme.${theme}`) });
 
   return (
     <button
       type="button"
-      onClick={toggle}
+      onClick={toggleTheme}
       aria-label={label}
       title={label}
       className="flex h-8 w-8 items-center justify-center rounded-md border border-[var(--docs-border)] text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"

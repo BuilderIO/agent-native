@@ -73,13 +73,38 @@ mod macos {
     use objc2::rc::Retained;
     use objc2::runtime::{AnyClass, AnyObject, Bool};
     use objc2::{class, msg_send};
-    use objc2_foundation::{NSArray, NSString};
+    use objc2_foundation::{NSArray, NSBundle, NSString};
     use tauri::AppHandle;
 
     use super::EventKitEvent;
 
     /// EKEntityType::Event == 0
     const EK_ENTITY_TYPE_EVENT: usize = 0;
+    const CALENDAR_USAGE_DESCRIPTION_KEYS: [&str; 2] = [
+        "NSCalendarsUsageDescription",
+        "NSCalendarsFullAccessUsageDescription",
+    ];
+
+    fn has_calendar_usage_descriptions() -> bool {
+        let bundle = NSBundle::mainBundle();
+        let Some(info) = bundle.infoDictionary() else {
+            return false;
+        };
+        CALENDAR_USAGE_DESCRIPTION_KEYS.iter().all(|key| {
+            let key = NSString::from_str(key);
+            info.objectForKey(&*key)
+                .and_then(|value| value.downcast::<NSString>().ok())
+                .is_some_and(|value| !value.is_empty())
+        })
+    }
+
+    fn ensure_calendar_usage_descriptions() -> Result<(), String> {
+        if has_calendar_usage_descriptions() {
+            Ok(())
+        } else {
+            Err("Clips cannot access macOS calendars because the app bundle is missing calendar usage descriptions.".into())
+        }
+    }
 
     /// Returns Some(NSObject*) for the given class name, or None if the
     /// runtime doesn't know about it (e.g. the EventKit framework is not
@@ -104,6 +129,7 @@ mod macos {
     }
 
     pub async fn request_access_impl(_app: AppHandle) -> Result<bool, String> {
+        ensure_calendar_usage_descriptions()?;
         let store =
             unsafe { new_event_store() }.ok_or_else(|| "EventKit not available".to_string())?;
         let (tx, rx) = mpsc::sync_channel::<bool>(1);
@@ -141,6 +167,7 @@ mod macos {
         _app: AppHandle,
         within_hours: u32,
     ) -> Result<Vec<EventKitEvent>, String> {
+        ensure_calendar_usage_descriptions()?;
         unsafe {
             let store = new_event_store().ok_or_else(|| "EventKit not available".to_string())?;
 

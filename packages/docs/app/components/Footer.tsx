@@ -1,4 +1,4 @@
-import { useLocale, useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "./docs-locale";

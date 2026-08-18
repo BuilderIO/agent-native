@@ -1,9 +1,4 @@
-/**
- * Self-contained i18n for the status-pages config sub-view. English is the
- * source of truth; other locales fall back per key. Reuses the uptime feature's
- * `fmt` interpolation helper.
- */
-import { useLocale } from "@agent-native/core/client";
+import { useLocale } from "@agent-native/core/client/i18n";
 
 export { fmt } from "../i18n";
 

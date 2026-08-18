@@ -26,26 +26,32 @@ vi.mock("./schema.js", () => ({
 import "./index.js";
 
 describe("design share registration", () => {
-  it("never upgrades a public loopback design above viewer", () => {
+  it("keeps owners editable after switching active organizations", () => {
     const registration = mocks.registerShareableResource.mock.calls
       .map(([value]) => value)
       .find((value) => value.type === "design");
 
+    expect(registration?.ownerAccessIgnoresOrg).toBe(true);
+  });
+
+  const designRegistration = () =>
+    mocks.registerShareableResource.mock.calls
+      .map(([value]) => value)
+      .find((value) => value.type === "design");
+
+  it("registers a capability-aware public role without ambient editor access", () => {
+    const registration = designRegistration();
+
     expect(registration).toBeDefined();
+    expect(registration.publicAccessRole).toBeTypeOf("function");
     expect(
-      registration.publicAccessRole({
-        visibility: "public",
-        data: JSON.stringify({
-          sourceMode: "localhost",
-          screenMetadata: {
-            home: {
-              sourceType: "localhost",
-              url: "http://localhost:5173/",
-              bridgeUrl: "http://127.0.0.1:7331",
-            },
-          },
-        }),
-      }),
+      registration.publicAccessRole(
+        {
+          id: "design_1",
+          data: JSON.stringify({ sourceType: "localhost" }),
+        },
+        {},
+      ),
     ).toBe("viewer");
   });
 });

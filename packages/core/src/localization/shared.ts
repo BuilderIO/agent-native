@@ -24,7 +24,23 @@ export interface LocaleMetadata {
 
 export interface LocalizationPreference {
   locale: LocalePreference;
+  /**
+   * IANA zone used for the user's scheduled work. 'system' defers to the
+   * requesting browser, which is unavailable to headless callers (cron,
+   * chat integrations), so pinning a zone here is what makes a schedule
+   * mean the same thing no matter what created it.
+   *
+   * Optional because a record written before this field existed, or by a
+   * caller that only cares about language, is still a valid preference.
+   * Read it through normalizeLocalizationPreference to get a concrete value.
+   */
+  timezone?: TimezonePreference;
 }
+
+/** A preference that has been through normalization: both fields resolved. */
+export type ResolvedLocalizationPreference = Required<LocalizationPreference>;
+
+export type TimezonePreference = "system" | (string & {});
 
 export const DEFAULT_LOCALE: LocaleCode = "en-US";
 export const LOCALIZATION_SETTING_KEY = "localization";
@@ -168,17 +184,34 @@ export function normalizeLocalePreference(
   return normalizeLocaleCode(value);
 }
 
+export function normalizeTimezonePreference(
+  value: unknown,
+): TimezonePreference {
+  if (typeof value !== "string") return "system";
+  const trimmed = value.trim();
+  if (!trimmed || trimmed === "system") return "system";
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: trimmed });
+  } catch {
+    return "system";
+  }
+  return trimmed;
+}
+
 export function normalizeLocalizationPreference(
   value: unknown,
-): LocalizationPreference {
+): ResolvedLocalizationPreference {
   if (value && typeof value === "object" && !Array.isArray(value)) {
-    const locale = normalizeLocalePreference(
-      (value as { locale?: unknown }).locale,
-    );
-    if (locale) return { locale };
+    const record = value as { locale?: unknown; timezone?: unknown };
+    // The two fields are independent: setting a timezone must not require
+    // also picking a language, which is the usual case.
+    return {
+      locale: normalizeLocalePreference(record.locale) ?? "system",
+      timezone: normalizeTimezonePreference(record.timezone),
+    };
   }
   const locale = normalizeLocalePreference(value);
-  return { locale: locale ?? "system" };
+  return { locale: locale ?? "system", timezone: "system" };
 }
 
 export function localeDirection(locale: LocaleCode): "ltr" | "rtl" {

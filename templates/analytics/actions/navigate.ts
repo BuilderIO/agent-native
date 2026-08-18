@@ -6,11 +6,10 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { listDashboardSummaries } from "../server/lib/dashboards-store";
-
-function normalizeDashboardName(value: string): string {
-  return value.trim().replace(/\s+/g, " ").toLowerCase();
-}
+import {
+  listDashboardSummaries,
+  normalizeDashboardName,
+} from "../server/lib/dashboards-store";
 
 async function resolveDashboardIdByName(name: string): Promise<string> {
   const email = getRequestUserEmail();
@@ -50,7 +49,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "View to navigate to (ask, adhoc, analyses, extensions, sessions, monitoring, agents, catalog, data-dictionary, data-sources, settings)",
+        "View to navigate to (ask, adhoc, analyses, extensions, sessions, monitoring, agents, data-dictionary, data-sources, settings)",
       ),
     dashboardId: z
       .string()
@@ -77,10 +76,10 @@ export default defineAction({
       .optional()
       .describe("Session recording id to open (used with view=sessions)"),
     agentsView: z
-      .enum(["monitoring", "dashboards", "database"])
+      .enum(["monitoring", "dashboards", "database", "flags"])
       .optional()
       .describe(
-        "Admin subview to open (monitoring, dashboard usage, or app databases)",
+        "Admin subview to open (monitoring, dashboard usage, app databases, or feature flags)",
       ),
     dbAdminConnectionId: z
       .string()

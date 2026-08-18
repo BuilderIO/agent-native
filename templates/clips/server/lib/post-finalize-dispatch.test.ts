@@ -84,6 +84,7 @@ describe("post-finalize dispatch", () => {
       kind: "transcript",
       delayMs: 5_000,
       retryAttempt: 1,
+      regenerate: true,
     });
 
     expect(fetch).toHaveBeenCalledWith(
@@ -92,6 +93,30 @@ describe("post-finalize dispatch", () => {
         body: JSON.stringify({
           recordingId: "rec-3",
           kind: "transcript",
+          delayMs: 5_000,
+          retryAttempt: 1,
+          regenerate: true,
+          token: "signed-job-token",
+        }),
+      }),
+    );
+  });
+
+  it("waits for media verification dispatch acceptance without leaking the local option", async () => {
+    await dispatchPostFinalizeJob({
+      recordingId: "rec-media",
+      kind: "media-ready",
+      delayMs: 5_000,
+      retryAttempt: 1,
+      requireAccepted: true,
+    });
+
+    expect(fetch).toHaveBeenCalledWith(
+      "https://clips.example/api/_agent-native-background/post-finalize-worker",
+      expect.objectContaining({
+        body: JSON.stringify({
+          recordingId: "rec-media",
+          kind: "media-ready",
           delayMs: 5_000,
           retryAttempt: 1,
           token: "signed-job-token",

@@ -107,6 +107,38 @@ describe("document property layout", () => {
     expect(source).toContain('role="alert"');
   });
 
+  it("uses the optimistic source-field mutation for Add Property", () => {
+    const source = readPropertiesSource();
+
+    expect(source).toContain(
+      "useAddContentDatabaseSourceFieldProperty(documentId)",
+    );
+    expect(source).not.toContain(
+      '>("add-content-database-source-field-property", {',
+    );
+  });
+
+  it("hands source connection to the owning database surface", () => {
+    const source = readPropertiesSource();
+
+    expect(source).toContain("onConnectSource?: () => void");
+    expect(source).toContain("openRequestId?: number");
+    expect(source).toContain('t("editor.properties.connectASource")');
+    expect(source).toContain("onConnectSource();");
+    expect(source).toContain("sourceFieldGroups.map");
+    expect(source).not.toContain("JoinSuggestionProbe");
+    expect(source).not.toContain("ConnectionReview");
+  });
+
+  it("removes the closing Add Property popover before opening Sources", () => {
+    const source = readPropertiesSource();
+
+    expect(source).toContain("const [sourceHandoffClosing");
+    expect(source).toContain("setSourceHandoffClosing(true)");
+    expect(source).toContain("data-[state=closed]:hidden");
+    expect(source).toContain("setSourceHandoffClosing(false)");
+  });
+
   it("makes editable property value triggers fill the database cell", () => {
     const source = readPropertiesSource();
 

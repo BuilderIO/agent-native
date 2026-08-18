@@ -15,6 +15,19 @@ description: "使用 Dispatch 作為身分授權，透過身分聯合在每個�
 
 </Callout>
 
+## 使用者看到的體驗 {#user-flow}
+
+Cross-App SSO 應該讓使用者感覺是在同一個工作區的產品之間切換，而不是建立第二個帳戶。例如：
+
+1. 登入 [Dispatch](https://dispatch.agent-native.com)，或登入任何已經使用工作區身分的應用程式。
+2. 在新分頁中開啟 [Mail](https://mail.agent-native.com)、[Calendar](https://calendar.agent-native.com) 或其他已啟用的應用程式。
+3. 只有在瀏覽器沒有 Dispatch 工作階段時，應用程式才會將瀏覽器送到 Dispatch。如果工作階段已存在，重新導向幾乎不會被察覺。
+4. 返回應用程式時已經處於登入狀態，並保留相同的電子郵件、記錄和組織內容。
+
+重要區別是：這是**一次登入，而不是共用 Cookie**。每個個別託管的應用程式仍然建立並管理自己的本機工作階段。Dispatch 在應用程式入口證明使用者身分，之後應用程式繼續使用自己的本機驗證和存取檢查。
+
+產品示範可以按此順序錄製：在 Dispatch 中登入一次，開啟另外兩個託管應用程式，展示它們都不會再次要求認證資訊，然後從其中一個應用程式登出，展示另一個應用程式的工作階段仍然獨立。這樣可以直觀看到安全邊界。
+
 ## 什麼以及為什麼 {#what-why}
 
 每個應用程式的使用者儲存意味著瀏覽器 cookie 沒有一個可以被每個應用程式信任的地方。相反，聯合模型將一個應用程式命名為 **Dispatch** 作為身分授權機構。任何其他應用程式都可以委托“這個人是誰？”要調度，取回使用者已驗證電子郵件的短暫簽名斷言，然後**透過電子郵件將其連結到其自己的本機帳戶**。
@@ -164,17 +177,17 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
 - **設定** → 應用程式顯示執行上述流程的**“使用 Agent-Native 登入”**選項。直接本機登入（電子郵件/密碼、Google）仍然可以與它一起使用。
-- **取消設定（預設）** → **零行為改變。** 應用程式的驗證與之前完全相同；聯合程式碼路徑處於休眠狀態。沒有架構更改，也沒有任何需要遷移的內容，因此開啟或關閉變數在任何時候都是完全可逆的。
+- **標準託管客戶端** → 具有已註冊來源的應用程式會顯示**「使用 Agent-Native 登入」**選項；自行託管的應用程式仍需設定該變數。沒有架構更改，也無需遷移。
 
 ## 安全 {#security}
 
 整個模型依賴於一些故意的小保證：
 
 - **短暫的簽名權杖。**身分斷言是 `A2A_SECRET` 簽名的 JWT，具有 **≤ 2 分鐘** 到期時間和 `scope: "identity"`。它授權單次登入，並且不能長時間重播或重新用於 API/A2A 存取。
-- **嚴格的 `redirect_uri` 允許清單。** 預設情況下，調度僅重新導向到 `*.agent-native.com` 或本機主機。任意、方案相關 (`//host`) 和跨域重新導向目標都會被拒絕，因此權限無法轉變為開放重新導向或權杖滲透預言機。
+- **與應用程式綁定的嚴格 `redirect_uri` 允許清單。** 每個正式應用程式 ID 都對應一個精確的正式環境來源和回呼路徑；localhost 仍可用於開發。未知子網域、不相符的應用程式 ID、任意路徑和跨來源目標都會被拒絕。
 - **從經過驗證的權杖僅透過電子郵件加入。** 跨越信任邊界的*唯一*事物是簽名權杖中經過驗證的電子郵件。該應用程式不接受來自線路的使用者 ID、角色、組織成員資格或任何特權狀態 - 它從匹配的帳戶在本機派生所有內容。
 - **僅新增身分寫入。**連結可以不受影響地重複使用現有的同一電子郵件帳戶，也可以插入一個新帳戶。此路徑上不會發生任何身分行的更新、重新命名、重新指向或刪除。
-- **預設情況下關閉。**如果取消設定 `AGENT_NATIVE_IDENTITY_HUB_URL`，則整個功能將處於惰性狀態。
+- **標準託管客戶端依來源啟用。**具有已註冊來源的標準託管應用程式會自動啟用；自行託管的應用程式未設定 `AGENT_NATIVE_IDENTITY_HUB_URL` 時維持停用。
 
 <Callout id="doc-block-1qqvic7" tone="success">
 
@@ -247,7 +260,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **重新導向允許清單。** 集線器（調度）在發出權杖之前驗證授權端點上的 `redirect_uri`。允許名單在`templates/dispatch/server/lib/identity-sso.ts`中設定：
 
-- **預設值：** 僅 `*.agent-native.com` 和 localhost（`DEFAULT_ALLOWED_HOST_SUFFIXES` 常量）。
+- **預設值：** 僅允許精確註冊的 Agent Native 應用程式 ID/來源組合和 localhost（`CANONICAL_IDENTITY_SSO_APP_ORIGINS`）。
 - **擴充功能它：**在 Dispatch 部署上設定 `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` 環境變數，並使用逗號分隔的其他主機後綴清單：
 
   ```bash
@@ -308,3 +321,8 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 - [Dispatch](/docs/dispatch) — 工作區身分授權和路由中心。
 - [Security & Data Scoping](/docs/security) - 僅附加資料寫入和每個帳戶範圍。
 - [Multi-App Workspaces](/docs/multi-app-workspace) — 統一的單來源部署，完全避免跨域 SSO。
+
+Dispatch 的 `desktop.workspace-sso` 旗標預設關閉，且只控制可用性；驗證、簽章、nonce、來源、回呼、工作階段及撤銷檢查一律強制執行。旗標關閉或無法讀取時，Desktop 不會變更逐一應用程式登入、登出或設定。
+User-Agent 中的 Canary 標記僅是可用性提示，不是遠端證明；驗證與授權皆不信任該標記。
+每個 Desktop 版本都可以在裝置偏好設定 `desktopSsoEnabled` 為 true（預設值）時初始化代理程式；明確持久化的 `false` 仍代表使用者選擇退出。Dispatch 的 `desktop.workspace-sso` 旗標也必須啟用。Canary User-Agent 標記不再控制代理程式初始化，只用於識別更新頻道。
+Canary 不會攔截匿名使用者前往應用程式登入頁面的導覽。使用者必須在 Desktop 設定中，為目前啟用的已註冊應用程式明確選擇工作區登入；一般應用程式登入仍是預設路徑。

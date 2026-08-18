@@ -1,19 +1,4 @@
-/**
- * BreakpointOverrideIndicator — per-field accent dot + reset affordance for
- * a style-section field whose property is overridden at the currently
- * active breakpoint. Mirrors `InteractionStateOverrideIndicator`'s
- * "dot + reset" shape (see `InteractionStatePanel.tsx`) so the two
- * override conventions (interaction state, breakpoint) read consistently
- * across the inspector.
- *
- * This component owns ONLY the indicator's rendering — it has no opinion on
- * how the override state is computed (see `getBreakpointOverrideState` in
- * `@shared/breakpoint-media`) or how a reset is persisted (the caller wires
- * `onReset` to commit through the normal `onStyleChange` path with
- * `meta.breakpointReset`, per the `EditPanel` `StyleChangeMeta` contract).
- */
-
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 
 import {
   Tooltip,

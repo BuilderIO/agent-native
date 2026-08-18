@@ -6,6 +6,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { openCliHandoff } from "./runner.js";
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(__dirname, "../../../..");
 const runnerSource = path.resolve(__dirname, "runner.ts");
@@ -79,6 +81,45 @@ describe("runScript package actions", () => {
                 return "package-ok";
               },
             },
+            "package-context": {
+              tool: {
+                description: "Fixture package action context",
+                parameters: { type: "object", properties: {} },
+              },
+              run: async (_args, ctx) => {
+                writeFileSync(
+                  "package-context.json",
+                  JSON.stringify({
+                    caller: ctx?.caller,
+                    userEmail: ctx?.userEmail ?? null,
+                    orgId: ctx?.orgId ?? null,
+                  }),
+                );
+                return "context-ok";
+              },
+            },
+            "package-handoff": {
+              tool: {
+                description: "Fixture package action handoff",
+                parameters: { type: "object", properties: {} },
+              },
+              run: async () => ({
+                openUrl: "/visual-edit/design_1",
+                embedStartUrl:
+                  "/_agent-native/embed/start?ticket=terminal-secret",
+              }),
+            },
+            "package-handoff-error": {
+              tool: {
+                description: "Fixture package action failed handoff",
+                parameters: { type: "object", properties: {} },
+              },
+              run: async () => {
+                throw new Error(
+                  "Could not open /_agent-native/embed/start?ticket=error-secret",
+                );
+              },
+            },
           },
         });
       `,
@@ -149,6 +190,186 @@ describe("runScript package actions", () => {
       limit: "8",
     });
   }, 40_000);
+
+  it("marks a signed-out local action invocation as CLI without inventing an account user", () => {
+    const env = { ...process.env };
+    delete env.AGENT_USER_EMAIL;
+    delete env.AGENT_ORG_ID;
+    env.NODE_ENV = "production";
+
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-context"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env,
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("context-ok");
+    expect(
+      JSON.parse(
+        fs.readFileSync(path.join(tmpDir, "package-context.json"), "utf8"),
+      ),
+    ).toEqual({
+      caller: "cli",
+      userEmail: null,
+      orgId: null,
+    });
+  }, 40_000);
+
+  it("fails safely when browser handoff is disabled without printing its credential", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-handoff"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_NATIVE_NO_OPEN: "1",
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toContain("/visual-edit/design_1");
+    expect(result.stdout).not.toContain("terminal-secret");
+    expect(result.stdout).not.toContain("embedStartUrl");
+    expect(result.stdout).not.toContain("/_agent-native/embed/start");
+    expect(result.stderr).toContain(
+      "Secure browser handoff is disabled by AGENT_NATIVE_NO_OPEN",
+    );
+    expect(result.stderr).not.toContain("terminal-secret");
+    expect(result.stderr).not.toContain("/_agent-native/embed/start");
+  }, 40_000);
+
+  it("exits nonzero with an actionable diagnostic when handoff has no app base URL", () => {
+    const env = { ...process.env };
+    delete env.AGENT_NATIVE_NO_OPEN;
+    delete env.APP_URL;
+    delete env.WORKSPACE_GATEWAY_URL;
+    delete env.VITE_WORKSPACE_GATEWAY_URL;
+    delete env.BETTER_AUTH_URL;
+
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-handoff"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env,
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "Secure browser handoff needs APP_URL or WORKSPACE_GATEWAY_URL",
+    );
+    expect(`${result.stdout}${result.stderr}`).not.toContain("terminal-secret");
+    expect(`${result.stdout}${result.stderr}`).not.toContain(
+      "/_agent-native/embed/start",
+    );
+  }, 40_000);
+
+  it("exits nonzero with an actionable diagnostic for an invalid app base URL", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-handoff"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_NATIVE_NO_OPEN: "0",
+          APP_URL: "not a URL",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "Secure browser handoff found an invalid app URL",
+    );
+    expect(`${result.stdout}${result.stderr}`).not.toContain("terminal-secret");
+    expect(`${result.stdout}${result.stderr}`).not.toContain(
+      "/_agent-native/embed/start",
+    );
+  }, 40_000);
+
+  it("redacts an embed handoff credential from runner error output", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "package-handoff-error"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          AGENT_NATIVE_NO_OPEN: "1",
+          AGENT_USER_EMAIL: "owner@example.test",
+        },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("[redacted embed handoff]");
+    expect(result.stderr).not.toContain("error-secret");
+    expect(result.stderr).not.toContain("/_agent-native/embed/start");
+  }, 40_000);
+
+  it("invokes the system opener with the absolute handoff URL", () => {
+    const calls: Array<{ command: string; args: string[] }> = [];
+    const result = openCliHandoff(
+      "/_agent-native/embed/start?ticket=trusted-only",
+      {
+        env: { APP_URL: "http://localhost:8140" },
+        platform: "darwin",
+        spawn: (command, args) => {
+          calls.push({ command, args });
+          return { status: 0 };
+        },
+      },
+    );
+
+    expect(result).toEqual({ ok: true });
+    expect(calls).toEqual([
+      {
+        command: "open",
+        args: [
+          "http://localhost:8140/_agent-native/embed/start?ticket=trusted-only",
+        ],
+      },
+    ]);
+  });
+
+  it("reports an opener failure without returning the handoff credential", () => {
+    const result = openCliHandoff(
+      "/_agent-native/embed/start?ticket=trusted-only",
+      {
+        env: { APP_URL: "http://localhost:8140" },
+        platform: "linux",
+        spawn: () => ({ status: 1 }),
+      },
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      reason: "open-failed",
+      message:
+        "Secure browser handoff could not invoke the system URL opener. Verify local URL handling, then rerun this action.",
+    });
+    expect(JSON.stringify(result)).not.toContain("trusted-only");
+    expect(JSON.stringify(result)).not.toContain("/_agent-native/embed/start");
+  });
 
   it("runs a package action with a positional JSON object", () => {
     const result = spawnSync(

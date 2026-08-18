@@ -13,6 +13,13 @@ import {
   searchEverythingRows,
   type UniversalSearchResult,
 } from "../server/lib/search.js";
+import {
+  compareEvaluatedSourcePolicies,
+  evaluateSourceAnswerPolicy,
+  loadAccessibleSourcePolicySnapshots,
+  type EvaluatedSourceAnswerPolicy,
+  type SourcePolicySnapshot,
+} from "../server/lib/source-policy.js";
 
 const STOPWORDS = new Set([
   "about",
@@ -96,7 +103,7 @@ function rankRowsForQuestion(rows: KnowledgeSearchRow[], question: string) {
   const minimumScore = bestScore >= 3 ? Math.max(2, bestScore - 2) : 0;
   return ranked
     .filter((entry) => entry.score >= minimumScore)
-    .slice(0, 6)
+    .slice(0, 24)
     .map((entry) => entry.row);
 }
 
@@ -116,9 +123,57 @@ function captureDeepLink(captureId: string): string {
   });
 }
 
+function knowledgeSourceIds(
+  item: ReturnType<typeof serializeKnowledge>,
+): string[] {
+  return Array.from(
+    new Set(
+      [
+        item.sourceId,
+        ...item.evidence.map((evidence) => evidence.sourceId),
+      ].filter((id): id is string => Boolean(id)),
+    ),
+  );
+}
+
+function sourcePolicyEnforcement(args: {
+  policies: Map<string, SourcePolicySnapshot>;
+  knowledgeEvaluated: number;
+  captureEvaluated: number;
+  excludedKnowledge: number;
+  excludedCaptures: number;
+}) {
+  return {
+    enforced: true,
+    legacyDefault: {
+      trustTier: "standard" as const,
+      answerEligible: true,
+      authority: 50,
+    },
+    ranking: ["trustTier", "authority", "relevance"],
+    configuredSources: Array.from(args.policies.values()).map((policy) => ({
+      sourceId: policy.sourceId,
+      trustTier: policy.trustTier,
+      answerEligible: policy.answerEligible,
+      authority: policy.authority,
+      freshnessWindowDays: policy.freshnessWindowDays,
+      reviewRequired: policy.reviewRequired,
+      conflictBehavior: policy.conflictBehavior,
+    })),
+    evaluated: {
+      knowledge: args.knowledgeEvaluated,
+      captures: args.captureEvaluated,
+    },
+    excluded: {
+      knowledge: args.excludedKnowledge,
+      captures: args.excludedCaptures,
+    },
+  };
+}
+
 export default defineAction({
   description:
-    "Answer a company-knowledge question from published Brain knowledge, falling back to cited raw capture matches when approved knowledge is thin. The external-facing public-agent company lookup: returns a cited answer plus deep links into the Brain knowledge/capture records.",
+    "Answer a company-knowledge question from published Brain knowledge, with raw captures returned separately as clearly labeled leads when approved knowledge is thin. Use this for every company-specific factual question instead of answering from general model knowledge. Raw captures are never answer evidence. Returns a cited answer plus deep links into the Brain knowledge/capture records.",
   schema: z.object({
     question: z.string().min(1),
     mode: z.enum(["cited"]).default("cited"),
@@ -137,17 +192,36 @@ export default defineAction({
     const seen = new Set<string>();
     const rows = [];
     for (const facet of facetsFromQuestion(question)) {
-      const matches = await searchKnowledgeRows({ query: facet, limit: 6 });
+      const matches = await searchKnowledgeRows({ query: facet, limit: 24 });
       for (const row of matches) {
         if (seen.has(row.id)) continue;
         seen.add(row.id);
         rows.push(row);
       }
-      if (rows.length >= 6) break;
+      if (rows.length >= 24) break;
     }
-    const knowledge = rankRowsForQuestion(rows, question).map(
+    const knowledgeCandidates = rankRowsForQuestion(rows, question).map(
       serializeKnowledge,
     );
+    const sourcePolicies = await loadAccessibleSourcePolicySnapshots(
+      knowledgeCandidates.flatMap(knowledgeSourceIds),
+    );
+    const evaluatedKnowledge = knowledgeCandidates.map((item) => ({
+      ...item,
+      answerPolicy: evaluateSourceAnswerPolicy({
+        sourceIds: knowledgeSourceIds(item),
+        sourcePolicies,
+        contentUpdatedAt: item.updatedAt,
+        resultType: "knowledge",
+        reviewed: item.status === "published",
+      }),
+    }));
+    const knowledge = evaluatedKnowledge
+      .filter((item) => item.answerPolicy.eligible)
+      .sort((left, right) =>
+        compareEvaluatedSourcePolicies(left.answerPolicy, right.answerPolicy),
+      )
+      .slice(0, 6);
     const captureFallback: UniversalSearchResult[] = [];
     const knowledgeTextLength = knowledge.reduce(
       (total, item) => total + `${item.summary} ${item.body}`.trim().length,
@@ -163,29 +237,63 @@ export default defineAction({
         const matches = await searchEverythingRows({
           query: facet,
           type: "capture",
-          limit: 6,
+          limit: 24,
         });
         for (const match of matches) {
           if (seenCaptures.has(match.id)) continue;
           seenCaptures.add(match.id);
           captureFallback.push(match);
         }
-        if (captureFallback.length >= 4) break;
+        if (captureFallback.length >= 24) break;
       }
     }
+    const captureSourcePolicies = await loadAccessibleSourcePolicySnapshots(
+      captureFallback.flatMap((item) =>
+        item.source?.id ? [item.source.id] : [],
+      ),
+    );
+    for (const [sourceId, policy] of captureSourcePolicies) {
+      sourcePolicies.set(sourceId, policy);
+    }
+    const evaluatedCaptures = captureFallback.map((item) => ({
+      ...item,
+      answerPolicy: evaluateSourceAnswerPolicy({
+        sourceIds: item.source?.id ? [item.source.id] : [],
+        sourcePolicies,
+        contentUpdatedAt: item.updatedAt,
+        resultType: "capture",
+        reviewed: false,
+      }),
+    }));
+    const eligibleCaptures = evaluatedCaptures
+      .filter((item) => item.answerPolicy.eligible)
+      .sort((left, right) =>
+        compareEvaluatedSourcePolicies(left.answerPolicy, right.answerPolicy),
+      )
+      .slice(0, 4);
+    const sourcePolicy = sourcePolicyEnforcement({
+      policies: sourcePolicies,
+      knowledgeEvaluated: evaluatedKnowledge.length,
+      captureEvaluated: evaluatedCaptures.length,
+      excludedKnowledge: evaluatedKnowledge.length - knowledge.length,
+      excludedCaptures: evaluatedCaptures.length - eligibleCaptures.length,
+    });
 
-    if (!knowledge.length && !captureFallback.length) {
+    if (!knowledge.length && !eligibleCaptures.length) {
       const federatedCoverage = await federatedCoveragePromise;
       return {
         answer:
           guidance.retrieval.rawCaptureFallback === "never-answer"
             ? "I could not find enough reviewed Brain knowledge for that question yet."
             : "I could not find approved Brain knowledge or matching raw captures for that question yet.",
+        answerSource: "none",
         citations: [],
+        leadCitations: [],
         knowledge: [],
         captures: [],
         results: [],
         policy: guidance.retrieval,
+        sourcePolicy,
         responseGuidance: guidance.response,
         federatedCoverage,
       };
@@ -201,9 +309,10 @@ export default defineAction({
         confidence: item.confidence / 100,
         url: safeCitationUrl(evidence.sourceUrl ?? evidence.url),
         deepLink: knowledgeDeepLink(item.id),
+        sourcePolicy: item.answerPolicy,
       })),
     );
-    const captureCitations = captureFallback.map((item) => ({
+    const captureCitations = eligibleCaptures.map((item) => ({
       id: item.id,
       captureId: item.id,
       title: item.title,
@@ -211,19 +320,29 @@ export default defineAction({
       excerpt: item.snippet,
       url: safeCitationUrl(item.sourceUrl),
       deepLink: captureDeepLink(item.id),
+      sourcePolicy: item.answerPolicy,
     }));
+    const answerSource = knowledge.length
+      ? "approved-knowledge"
+      : eligibleCaptures.length
+        ? "unreviewed-leads"
+        : "none";
     const answerParts = [];
-    const hasCitations = knowledgeCitations.length || captureCitations.length;
+    const hasCitations = knowledgeCitations.length;
     if (guidance.retrieval.requireCitations && !hasCitations) {
       const federatedCoverage = await federatedCoveragePromise;
       return {
-        answer:
-          "I found possible Brain context, but workspace settings require citations and these results did not include usable evidence.",
+        answer: eligibleCaptures.length
+          ? "I could not find approved Brain knowledge. I found raw Brain capture leads, but they need review before they can support an answer."
+          : "I found possible Brain context, but workspace settings require citations and these results did not include usable evidence.",
+        answerSource,
         citations: [],
+        leadCitations: captureCitations,
         knowledge,
-        captures: captureFallback,
-        results: captureFallback,
+        captures: eligibleCaptures,
+        results: eligibleCaptures,
         policy: guidance.retrieval,
+        sourcePolicy,
         responseGuidance: guidance.response,
         federatedCoverage,
       };
@@ -235,32 +354,26 @@ export default defineAction({
           .join("\n\n"),
       );
     }
-    if (captureFallback.length) {
-      const prefix = knowledge.length
-        ? "Related raw capture matches:"
-        : "I could not find approved Brain knowledge, but I found matching raw captures:";
+    if (!knowledge.length && eligibleCaptures.length) {
       answerParts.push(
-        [
-          prefix,
-          ...captureFallback.map(
-            (item) =>
-              `${item.title}${item.source?.title ? ` (${item.source.title})` : ""}: ${item.snippet}`,
-          ),
-        ].join("\n\n"),
+        "I could not find approved Brain knowledge. I found matching raw Brain capture leads, but they need review before they can support an answer.",
       );
     }
 
     const federatedCoverage = await federatedCoveragePromise;
-    const citations = [...knowledgeCitations, ...captureCitations];
+    const citations = knowledgeCitations;
     const primary = citations[0] ?? null;
     return {
       answer: formatAnswer(answerParts.join("\n\n"), guidance),
+      answerSource,
       citations,
+      leadCitations: captureCitations,
       deepLink: primary?.deepLink ?? null,
       knowledge,
-      captures: captureFallback,
-      results: captureFallback,
+      captures: eligibleCaptures,
+      results: eligibleCaptures,
       policy: guidance.retrieval,
+      sourcePolicy,
       responseGuidance: guidance.response,
       federatedCoverage,
     };

@@ -87,6 +87,10 @@ const ALLOWLIST_EXACT = new Set([
   // Better-auth
   "BETTER_AUTH_SECRET",
   "BETTER_AUTH_URL",
+  // Public deployment identity/configuration. These select the app origin and
+  // explicitly registered SSO clients; they are not user credentials.
+  "APP_URL",
+  "IDENTITY_SSO_APP_REGISTRY_JSON",
   // Notion OAuth app configuration. These identify the app itself; unlike
   // NOTION_API_KEY, they do not grant access to a user's workspace content.
   "NOTION_CLIENT_ID",
@@ -111,6 +115,11 @@ const ALLOWLIST_EXACT = new Set([
   // encrypt user secrets at rest. Rotating it invalidates the entire
   // vault, so it lives at deployment scope.
   "SECRETS_ENCRYPTION_KEY",
+  // Dedicated workspace-vault key and its rotation overlap key. These are
+  // deploy-level encryption material, separate from user credentials and
+  // app-local OAuth ciphertext.
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY",
+  "WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS",
 ]);
 
 const ALLOWLIST_PREFIX = [
