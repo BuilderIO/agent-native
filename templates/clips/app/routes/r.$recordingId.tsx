@@ -1612,7 +1612,11 @@ export default function RecordingPage() {
                   onFullscreenChange={setIsPlayerFullscreen}
                   enableComments={recording.enableComments}
                   onAddComment={() => {
-                    if (isCompactLayout) {
+                    // The side panel `openCommentsPanel` opens is a sibling
+                    // outside the element the Fullscreen API paints, so it's
+                    // invisible while fullscreen -- portal the composer
+                    // there instead, same as the non-compact layout.
+                    if (isCompactLayout && !isPlayerFullscreen) {
                       openCommentsPanel();
                       return;
                     }
