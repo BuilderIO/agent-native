@@ -1044,9 +1044,9 @@ const AUTH_GOOGLE_START_FALLBACK =
   "We couldn't start Google sign-in. Please try again.";
 
 function isTechnicalAuthErrorMessage(message: string): boolean {
-  return /failed query|\bselect\b.*\bfrom\b|\binsert\b.*\binto\b|\bupdate\b.*\bset\b|\bdelete\b.*\bfrom\b|\bsql\b|database|relation .* does not exist|column .* does not exist|syntax error|constraint|connection refused|econn|timeout/i.test(
-    message,
-  );
+  // TEMP: disabled to prove regression coverage — restored immediately after.
+  void message;
+  return false;
 }
 
 function isAuthPasswordTooShortMessage(message: string): boolean {

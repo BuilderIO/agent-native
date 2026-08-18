@@ -3151,6 +3151,116 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Microphone-off confirmation                                                */
+/* ------------------------------------------------------------------------- */
+
+.mic-off-confirmation {
+  min-height: 430px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.mic-off-confirmation-header {
+  display: flex;
+  align-items: center;
+  padding: 16px 18px 8px;
+}
+
+.mic-off-confirmation-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 6px 4px 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 650;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.mic-off-confirmation-back:hover {
+  background: var(--surface-hover);
+}
+
+.mic-off-confirmation-back:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.mic-off-confirmation-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 28px 30px;
+  text-align: center;
+}
+
+.mic-off-confirmation-visual {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: var(--surface-strong);
+  color: var(--status-warn);
+}
+
+.mic-off-confirmation-slash {
+  position: absolute;
+  width: 58px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--status-warn);
+  transform: rotate(45deg);
+}
+
+.mic-off-confirmation-body h2 {
+  margin: 24px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.mic-off-confirmation-body p {
+  max-width: 300px;
+  margin: 8px 0 0;
+  color: var(--fg-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.mic-off-confirmation-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 16px 18px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.mic-off-confirmation-actions .primary,
+.mic-off-confirmation-actions .secondary {
+  width: auto;
+  min-width: 0;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------------- */
 /* Alert dialog                                                              */
 /* ------------------------------------------------------------------------- */
 

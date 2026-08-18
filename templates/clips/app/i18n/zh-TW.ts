@@ -1277,6 +1277,7 @@ const messages = {
     micOffConfirmDescription:
       "麥克風已關閉，這段錄製將不會收錄任何音訊。若需要旁白，請先開啟麥克風再開始錄製。",
     startWithoutMic: "仍要開始",
+    unmuteMicrophone: "取消靜音",
     uploadVideo: "上傳影片",
     importLoom: "匯入 Loom",
     importing: "正在匯入...",

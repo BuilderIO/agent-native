@@ -1340,6 +1340,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     micOffConfirmDescription:
       "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (현지화됨)",
     startWithoutMic: "Start anyway (현지화됨)",
+    unmuteMicrophone: "음소거 해제",
     uploadVideo: "Upload video (현지화됨)",
     importLoom: "Import Loom (현지화됨)",
     importing: "Importing... (현지화됨)",

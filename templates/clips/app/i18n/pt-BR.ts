@@ -1361,6 +1361,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     micOffConfirmDescription:
       "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.",
     startWithoutMic: "Start anyway",
+    unmuteMicrophone: "Ativar microfone",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",
     importing: "Importing...",

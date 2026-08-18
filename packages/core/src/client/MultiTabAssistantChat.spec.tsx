@@ -2030,6 +2030,66 @@ describe("MultiTabAssistantChat tab close/open lifecycle", () => {
     expect(threadMocks.createThread).toHaveBeenCalledTimes(1);
     expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-new"]);
   });
+
+  // The persisted list is only one way a duplicate id reaches `openTabIds`.
+  // Open requests made before the lazy chat panel mounts are buffered, and the
+  // panel replays its whole backlog in one synchronous loop. Every handler in
+  // that loop reads the same pre-render `openTabIds`, so a `.includes()` guard
+  // evaluated outside the state updater misses on all of them and each one
+  // appends — two tab-bar entries backed by one thread id. Closing either one
+  // then filters that id out entirely and both disappear.
+  it("does not duplicate a tab when a buffered backlog opens one thread twice", async () => {
+    _resetAgentChatSubmitBufferForTests();
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [makeThread("thread-1"), makeThread("thread-2")];
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:backlog-test",
+      JSON.stringify(["thread-1"]),
+    );
+
+    // Buffered while no panel is listening, so both stay unclaimed and the
+    // panel replays both on mount.
+    requestAgentTaskOpen({
+      threadId: "thread-2",
+      parentThreadId: "thread-1",
+      name: "Sub agent",
+    });
+    requestAgentTaskOpen({
+      threadId: "thread-2",
+      parentThreadId: "thread-1",
+      name: "Sub agent",
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="backlog-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-2",
+    ]);
+
+    // The duplicate's real damage: one close must not take both entries.
+    await act(async () => {
+      headerProps?.closeTab("thread-2");
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-1"]);
+  });
 });
 
 describe("MultiTabAssistantChat page overlay", () => {

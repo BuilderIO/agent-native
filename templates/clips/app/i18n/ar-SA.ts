@@ -1349,6 +1349,7 @@ const messages = {
     micOffConfirmDescription:
       "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (مترجم)",
     startWithoutMic: "Start anyway (مترجم)",
+    unmuteMicrophone: "إلغاء كتم الميكروفون",
     uploadVideo: "Upload video (مترجم)",
     importLoom: "Import Loom (مترجم)",
     importing: "Importing... (مترجم)",

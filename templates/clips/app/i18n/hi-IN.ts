@@ -1328,6 +1328,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     micOffConfirmDescription:
       "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (स्थानीयकृत)",
     startWithoutMic: "Start anyway (स्थानीयकृत)",
+    unmuteMicrophone: "माइक चालू करें",
     uploadVideo: "Upload video (स्थानीयकृत)",
     importLoom: "Import Loom (स्थानीयकृत)",
     importing: "Importing... (स्थानीयकृत)",

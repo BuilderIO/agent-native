@@ -1292,6 +1292,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     micOffConfirmDescription:
       "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (已本地化)",
     startWithoutMic: "Start anyway (已本地化)",
+    unmuteMicrophone: "取消静音",
     uploadVideo: "Upload video (已本地化)",
     importLoom: "Import Loom (已本地化)",
     importing: "Importing... (已本地化)",

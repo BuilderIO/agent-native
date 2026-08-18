@@ -1368,6 +1368,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     micOffConfirmDescription:
       "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Localisé)",
     startWithoutMic: "Start anyway (Localisé)",
+    unmuteMicrophone: "Réactiver le micro",
     uploadVideo: "Upload video (Localisé)",
     importLoom: "Import Loom (Localisé)",
     importing: "Importing... (Localisé)",

@@ -1336,7 +1336,7 @@ export function MultiTabAssistantChat({
   // (and rebroadcasting their run state) while another resource is open.
   const scopeKeyPart = scope ? `:scope:${scope.type}:${scope.id}` : "";
   const OPEN_TABS_KEY = `agent-chat-open-tabs${keyPrefix}${scopeKeyPart}`;
-  const [openTabIds, setOpenTabIds] = useState<string[]>(() => {
+  const [openTabIds, setOpenTabIdsRaw] = useState<string[]>(() => {
     if (!restoreActiveThread && activeThreadId) {
       for (const id of [activeThreadId]) mountedTabsRef.current.add(id);
       return [activeThreadId];
@@ -1355,6 +1355,25 @@ export function MultiTabAssistantChat({
     } catch {}
     return [];
   });
+
+  // Every writer routes through here so a duplicate id can never reach state.
+  // A `.includes()` guard evaluated outside the updater cannot prevent one: a
+  // synchronous burst of writes (the mount-time replay of buffered open
+  // requests dispatches its whole backlog in one loop) has every handler read
+  // the same pre-render list, so each one appends. Two tab-bar entries then
+  // share a single thread id and `closeTab`'s filter removes both at once.
+  // Returning `prev` unchanged is load-bearing, not an optimization — callers
+  // rely on identity bail-outs to keep effects that depend on `openTabIds`
+  // from re-running forever.
+  const setOpenTabIds = useCallback((value: React.SetStateAction<string[]>) => {
+    setOpenTabIdsRaw((prev) => {
+      const next = dedupeIds(typeof value === "function" ? value(prev) : value);
+      return next.length === prev.length &&
+        next.every((id, i) => id === prev[i])
+        ? prev
+        : next;
+    });
+  }, []);
   const openTabIdsRef = useRef(openTabIds);
   openTabIdsRef.current = openTabIds;
   const initializedRef = useRef(false);
@@ -1375,9 +1394,8 @@ export function MultiTabAssistantChat({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          const deduped = dedupeIds(parsed);
-          for (const id of deduped) mountedTabsRef.current.add(id);
-          setOpenTabIds(deduped);
+          for (const id of parsed) mountedTabsRef.current.add(id);
+          setOpenTabIds(parsed);
           return;
         }
       }
@@ -1441,7 +1459,7 @@ export function MultiTabAssistantChat({
   // Persist open tab IDs to localStorage (exclude sub-agent tabs — they're session-only)
   useEffect(() => {
     if (openTabsKeyRef.current !== OPEN_TABS_KEY) return;
-    const mainTabs = dedupeIds(openTabIds.filter((id) => !parentMap[id]));
+    const mainTabs = openTabIds.filter((id) => !parentMap[id]);
     if (mainTabs.length > 0) {
       try {
         localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(mainTabs));

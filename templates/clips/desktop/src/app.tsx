@@ -37,16 +37,6 @@ import {
   useState,
 } from "react";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "./components/AlertDialog";
 import { FeedbackButton } from "./components/FeedbackButton";
 import {
   CamIcon,
@@ -58,6 +48,7 @@ import {
   SettingsIcon,
 } from "./components/Icons";
 import { MediaDeviceRow } from "./components/MediaDeviceRow";
+import { MicOffConfirmation } from "./components/MicOffConfirmation";
 import { ReadinessPanel } from "./components/ReadinessPanel";
 import { SourceRow, type CaptureSource } from "./components/SourceRow";
 import { Switch } from "./components/Switch";
@@ -3333,6 +3324,22 @@ export function App() {
     void handleStartRecording(options);
   }
 
+  function closeMicOffConfirmation() {
+    pendingStartOptionsRef.current = undefined;
+    setMicOffConfirmOpen(false);
+  }
+
+  function unmuteFromConfirmation() {
+    setMicOn(true);
+    closeMicOffConfirmation();
+  }
+
+  function continueWithoutMic() {
+    const options = pendingStartOptionsRef.current;
+    closeMicOffConfirmation();
+    void handleStartRecording(options);
+  }
+
   recordShortcutHandlerRef.current = () => {
     if (recorder) {
       emit("clips:recorder-stop").catch(() => {});
@@ -3960,7 +3967,19 @@ export function App() {
 
   return (
     <div className="app app-recorder" ref={appRef}>
-      <div className="recorder-home-content">
+      {micOffConfirmOpen ? (
+        <MicOffConfirmation
+          onBack={closeMicOffConfirmation}
+          onUnmute={unmuteFromConfirmation}
+          onContinue={continueWithoutMic}
+        />
+      ) : null}
+
+      <div
+        className="recorder-home-content"
+        hidden={micOffConfirmOpen}
+        aria-hidden={micOffConfirmOpen}
+      >
         <Header
           mode={mode}
           onModeChange={setMode}
@@ -4077,35 +4096,6 @@ export function App() {
           </button>
         ) : null}
 
-        <AlertDialog
-          open={micOffConfirmOpen}
-          onOpenChange={(open) => {
-            setMicOffConfirmOpen(open);
-            if (!open) pendingStartOptionsRef.current = undefined;
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Record without a microphone?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Your mic is off, so this recording won&apos;t capture any audio.
-                Turn it on before starting if you want narration.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogAction
-                onClick={() => {
-                  const options = pendingStartOptionsRef.current;
-                  pendingStartOptionsRef.current = undefined;
-                  void handleStartRecording(options);
-                }}
-              >
-                Start anyway
-              </AlertDialogAction>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
         {recError ? (
           recError === MACOS_UPDATE_RESTART_MESSAGE ? (
             <UpdateRestartBanner message={recError} />

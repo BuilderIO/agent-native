@@ -304,6 +304,32 @@ describe("design-system contract", () => {
     expect(node).toBe(button);
   });
 
+  it.each([
+    ["IconButton", <IconButton label="Manage" icon={<span />} />],
+    ["ActionButton", <ActionButton>Manage</ActionButton>],
+  ])(
+    "opens a Radix asChild Popover trigger built on %s when clicked",
+    async (_name, trigger) => {
+      // Radix passes its toggle handler down as `onClick`. An adapter that
+      // spreads props and then sets its own `onClick` silently drops it, so
+      // the trigger renders correctly and never opens.
+      await act(async () => {
+        root.render(
+          <Popover>
+            <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+            <PopoverContent>Content</PopoverContent>
+          </Popover>,
+        );
+      });
+
+      const button = container.querySelector("button");
+      await act(async () => {
+        button?.click();
+      });
+      expect(button?.dataset.state).toBe("open");
+    },
+  );
+
   it("isolates a broken customer component and renders the default control", () => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     const BrokenActionButton = () => {

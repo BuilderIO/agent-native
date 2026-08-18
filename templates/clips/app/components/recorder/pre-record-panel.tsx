@@ -2,6 +2,7 @@ import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
 import {
+  IconArrowLeft,
   IconBrowser,
   IconCamera,
   IconChevronDown,
@@ -14,16 +15,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CaptureInstallInlineLink } from "@/components/capture-install-options";
 import { ImportMenu } from "@/components/import-menu";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -123,6 +114,69 @@ type SurfaceOption = {
 };
 
 const REQUEST_MIC_ACCESS_VALUE = "__clips_request_microphone_access__";
+
+function MicOffConfirmation({
+  onBack,
+  onUnmute,
+  onContinue,
+}: {
+  onBack: () => void;
+  onUnmute: () => void;
+  onContinue: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <div className="fixed inset-0 z-50 flex min-h-screen flex-col overflow-y-auto bg-background text-foreground">
+      <header className="flex shrink-0 items-center px-6 py-5 sm:px-10">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-2 rounded-lg px-1 py-1 text-lg font-semibold transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconArrowLeft className="h-5 w-5 rtl:-scale-x-100" />
+          {t("recordingPage.back")}
+        </button>
+      </header>
+
+      <main className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center sm:py-16">
+        <div
+          className="relative flex h-28 w-28 items-center justify-center rounded-full bg-destructive/10 text-destructive"
+          aria-hidden="true"
+        >
+          <IconMicrophone className="h-12 w-12" strokeWidth={1.75} />
+          <span className="absolute h-1 w-20 rotate-45 rounded-full bg-destructive" />
+        </div>
+        <h1 className="mt-10 text-3xl font-semibold tracking-tight sm:text-4xl">
+          {t("preRecord.micOffConfirmTitle")}
+        </h1>
+        <p className="mt-4 max-w-md text-base leading-7 text-muted-foreground sm:text-lg">
+          {t("preRecord.micOffConfirmDescription")}
+        </p>
+      </main>
+
+      <footer className="flex shrink-0 justify-center border-t border-border bg-muted/20 px-6 py-6 sm:px-10">
+        <div className="flex w-full max-w-md gap-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onUnmute}
+            className="h-12 flex-1 rounded-xl text-base font-semibold"
+          >
+            {t("preRecord.unmuteMicrophone")}
+          </Button>
+          <Button
+            type="button"
+            onClick={onContinue}
+            className="h-12 flex-1 rounded-xl text-base font-semibold"
+          >
+            {t("preRecord.startWithoutMic")}
+          </Button>
+        </div>
+      </footer>
+    </div>
+  );
+}
 
 function isPseudoMediaDeviceId(value: string | null | undefined): boolean {
   const id = value?.trim().toLowerCase();
@@ -465,6 +519,20 @@ export function PreRecordPanel({
     onStart(buildStartOpts());
   }, [micId, buildStartOpts, onStart]);
 
+  const handleMicWarningBack = useCallback(() => {
+    setMicWarningOpen(false);
+  }, []);
+
+  const handleMicWarningUnmute = useCallback(() => {
+    chooseMic("default");
+    setMicWarningOpen(false);
+  }, [chooseMic]);
+
+  const handleMicWarningContinue = useCallback(() => {
+    setMicWarningOpen(false);
+    onStart(buildStartOpts());
+  }, [buildStartOpts, onStart]);
+
   const selectedCameraLabel = useMemo(() => {
     if (!needsCamera) return null;
     if (cameraId === "default") return t("preRecord.defaultCamera");
@@ -618,6 +686,16 @@ export function PreRecordPanel({
     }
     return null;
   }, [audioEnabled, cameraTest.status, micTest.status, needsCamera, t]);
+
+  if (micWarningOpen) {
+    return (
+      <MicOffConfirmation
+        onBack={handleMicWarningBack}
+        onUnmute={handleMicWarningUnmute}
+        onContinue={handleMicWarningContinue}
+      />
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
@@ -965,31 +1043,6 @@ export function PreRecordPanel({
           </>
         )}
       </div>
-
-      <AlertDialog open={micWarningOpen} onOpenChange={setMicWarningOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("preRecord.micOffConfirmTitle")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("preRecord.micOffConfirmDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("common.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              onClick={(event) => {
-                event.preventDefault();
-                setMicWarningOpen(false);
-                onStart(buildStartOpts());
-              }}
-            >
-              {t("preRecord.startWithoutMic")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   );
 }
