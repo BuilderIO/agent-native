@@ -559,6 +559,68 @@ describe("slackAdapter", () => {
     expect(authorizations).not.toContain("Bearer legacy-token");
   });
 
+  it("preserves Enterprise Grid authorization scope through sender hydration", async () => {
+    process.env.NODE_ENV = "development";
+    process.env.SLACK_ALLOWED_TEAM_IDS = "T123";
+    const resolveBotToken = vi.fn(async () => "enterprise-managed-token");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              ok: true,
+              user: {
+                profile: { email: "enterprise-member@example.test" },
+              },
+            }),
+          ),
+      ),
+    );
+    const adapter = slackAdapter({ resolveBotToken });
+    const parsed = await adapter.parseIncomingMessage(
+      slackEvent({
+        enterprise_id: "E123",
+        event: {
+          type: "message",
+          channel: "D-ENTERPRISE",
+          channel_type: "im",
+          user: "U-ENTERPRISE",
+          text: "check my content",
+          ts: "456.789",
+        },
+        authorizations: [
+          {
+            enterprise_id: "E123",
+            team_id: null,
+            user_id: "U-BOT",
+            is_bot: true,
+            is_enterprise_install: true,
+          },
+        ],
+      }),
+    );
+
+    expect(parsed?.platformContext).toMatchObject({
+      enterpriseId: "E123",
+      isEnterpriseInstall: true,
+    });
+    await expect(
+      adapter.hydrateIncomingIdentity?.(parsed!),
+    ).resolves.toMatchObject({
+      senderEmail: "enterprise-member@example.test",
+      senderVerified: true,
+    });
+    expect(resolveBotToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        platformContext: expect.objectContaining({
+          enterpriseId: "E123",
+          isEnterpriseInstall: true,
+        }),
+      }),
+    );
+  });
+
   it("does not let a legacy token from another Slack app answer the event", async () => {
     process.env.NODE_ENV = "development";
     process.env.SLACK_BOT_TOKEN = "fusion-token-example";

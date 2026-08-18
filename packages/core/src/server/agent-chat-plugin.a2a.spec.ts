@@ -777,6 +777,9 @@ describe("assembleA2AFinalResponse", () => {
         { persistedArtifactSecrets: [secret] },
       ),
     ).toEqual([expect.objectContaining({ receiptId: "receipt-org-secret" })]);
+    expect(assembled.mutationReceipts).toEqual([
+      expect.objectContaining({ receiptId: "receipt-org-secret" }),
+    ]);
     vi.unstubAllEnvs();
   });
 

@@ -317,9 +317,12 @@ export function assembleA2AFinalResponse(
     includePersistedArtifactMarker: true,
     persistedArtifactSecret: options.persistedArtifactSecret,
   });
-  const mutationReceipts = extractA2APersistedMutationReceipts([
-    ...toolResults,
-  ]);
+  const mutationReceipts = extractA2APersistedMutationReceipts(
+    [...toolResults],
+    options.persistedArtifactSecret
+      ? { persistedArtifactSecrets: [options.persistedArtifactSecret] }
+      : {},
+  );
   if (terminalError) {
     const partialResult = finalText.trim()
       ? `\n\nPartial verified results before the failure:\n${finalText.trim()}`
