@@ -67,6 +67,13 @@ only download the active locale. The supported locale codes are `en-US`,
 `zh-CN`, `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`,
 `hi-IN`, and `ar-SA`.
 
+`createAgentNativeI18nCatalog` also accepts an optional `sourceLocale`,
+which defaults to `en-US`, and an optional `supportedLocales` array. Set
+`supportedLocales` when an app ships translations for only some of the
+framework's locales instead of all ten. It defaults to every locale the
+framework supports. `LanguagePicker` only lists locales in this set, and any
+detected or requested locale outside it falls back to `sourceLocale`.
+
 ## UI
 
 Use `useT()` for interface strings and put `<LanguagePicker />` on the app's
