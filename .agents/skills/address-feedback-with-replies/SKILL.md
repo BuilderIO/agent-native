@@ -49,6 +49,13 @@ subjective/product, policy, informational, bot-forward, status-only, and
 non-repo-owned items; leave those without a reaction, reply, or code change
 unless the user explicitly assigns a concrete repo action.
 
+`👀` is an investigation marker, not a handled marker. A thread with only that
+reaction must remain eligible for the next cursor scan. If a fix is complete
+but internal verification is unavailable, leave the reaction in place, post no
+external status, and let the next run re-read the thread before scanning newer
+feedback. Remove the pending state only after verification and the final
+user-facing status are complete.
+
 Every actionable thread must end in exactly one external state: **Fixed** or
 **Clarification needed**. `Blocked`, `not fixed yet`, `still needs a fix`, and
 similar phrases are internal notes, never a complete Slack reply. If a reply
@@ -108,8 +115,9 @@ every thread it previously asked in and act on the replies first.
    details, run IDs, session IDs, tool names, database/history details, and
    internal ownership boundaries from the posted reply. Those belong in the
    investigation, not in the reporter's thread. If the fix is complete but
-   internal verification is unavailable, post nothing yet; keep the thread
-   pending internally and resume after verification is available.
+   internal verification is unavailable, post nothing yet; keep only the
+   investigation marker and resume from that thread on the next pass after
+   verification is available.
 6. When the user explicitly asks to reply, post directly in each requested
    thread with `slack_send_message` and `thread_ts`. Do not silently turn an
    authorized write into a draft. Re-read each thread afterward to confirm the

@@ -27,19 +27,19 @@ repository that is currently `#product-agent-native-feedback` (`C0ATH3CCZT4`);
 if the invocation names another channel, use that channel instead.
 
 Scan the channel newest to oldest and choose the most recent parent message
-with neither:
-
-1. an `👀` reaction, nor
-2. a meaningful reply from Steve, `agent-native`, or another person clearly
-   investigating or owning the report.
+without a final disposition reply from Steve, `agent-native`, or another person
+clearly investigating or owning the report. An `👀` reaction is only an
+investigation marker and never suppresses the scan. A thread with only that
+reaction, including a fix waiting for internal verification, remains the next
+work item until it receives a final **Fixed** reply or an open
+**Clarification needed** question. Do not treat a generic acknowledgement, bot
+reply, or vague status update as a terminal ownership marker.
 
 That message is the start cursor. Classify it, record it if it is not
 actionable, then continue toward older messages, processing each actionable
-message that is still unhandled. Do not restart at the beginning of the
-channel on every run, and do not treat a generic acknowledgement, bot reply,
-or vague status update as a terminal ownership marker. Read the full parent,
-every reply and reaction, and all linked issues, PRs, screenshots, runs, and
-commits before deciding.
+message that is still unhandled. Read the full parent, every reply and
+reaction, and all linked issues, PRs, screenshots, runs, and commits before
+deciding.
 
 For GitHub issues and Sentry, use their native state and links as corroborating
 cursor signals: prioritize recent open or unresolved items with no clear
@@ -161,7 +161,9 @@ failure modes, surfaces, or owners.
    question about missing reporter or product input. Keep implementation and
    verification evidence in the internal recap, not the reporter-facing reply.
    If the fix is complete but internal verification is unavailable, do not post
-   yet; leave it pending for the next verification pass.
+   yet. Leave only the `👀` investigation marker; because that marker never
+   counts as handled, the next run will re-read the thread before scanning newer
+   feedback.
    Do not post vague progress, technical internals, or a diagnosis that leaves
    a safely fixable bug undone. Re-read every thread after posting. A fix reply
    authored by this skill's own identity is a handled marker on the next run;
