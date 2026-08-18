@@ -9,12 +9,9 @@ import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import {
   PR_VISUAL_RECAP_SETUP,
   RECAP_DIFF_BYTE_CAP,
-  appendGateSkipLine,
   buildRecapFailureDiagnostic,
   buildRecapSetupPlan,
   buildCommentBody,
-  buildGateSkipCommentBody,
-  buildGateSkipLine,
   buildRecapPrompt,
   buildReusableCallerWorkflow,
   canonicalRecapUrl,
@@ -2932,73 +2929,32 @@ describe("recap comment body — tiny-diff copy", () => {
   });
 });
 
-/* ------------------------------------------------------------------ */
-/* Task 7: gate skip signal                                            */
-/* ------------------------------------------------------------------ */
+describe("gate skip output", () => {
+  it("keeps skip reasons in Actions logs without posting PR comments", () => {
+    const workflows = [
+      PR_VISUAL_RECAP_WORKFLOW_YML,
+      fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/pr-visual-recap-fork.yml"),
+        "utf8",
+      ),
+      fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/pr-visual-recap-reusable.yml"),
+        "utf8",
+      ),
+    ];
 
-describe("gate skip signal helpers", () => {
-  it("buildGateSkipLine formats the skip line with a short SHA", () => {
-    const line = buildGateSkipLine("draft PR", "abc1234");
-    expect(line).toBe("_Recap skipped for `abc1234`: draft PR._");
-  });
-
-  it("buildGateSkipLine uses 'latest push' when no SHA is available", () => {
-    const line = buildGateSkipLine("draft PR", "");
-    expect(line).toBe("_Recap skipped for latest push: draft PR._");
-  });
-
-  it("appendGateSkipLine replaces stale recap content with a skipped body", () => {
-    const body = "<!-- pr-visual-recap -->\n### Visual recap\n\nsome content";
-    const updated = appendGateSkipLine(
-      body,
-      "_Recap skipped for `abc1234`: draft PR._",
-    );
-    expect(updated).toContain("_Recap skipped for `abc1234`: draft PR._");
-    expect(updated).toContain("### Visual recap — skipped");
-    expect(updated).not.toContain("some content");
-  });
-
-  it("appendGateSkipLine preserves the plan id while dropping stale success content", () => {
-    const body =
-      "<!-- pr-visual-recap -->\n### Visual recap\n\nOpen the [full interactive recap](https://example.com/recaps/old)\n\n<!-- plan-id: plan-prev -->";
-    const updated = appendGateSkipLine(
-      body,
-      "_Recap skipped for `abc1234`: sensitive path._",
-    );
-    expect(updated).toContain("<!-- plan-id: plan-prev -->");
-    expect(updated).toContain("### Visual recap — skipped");
-    expect(updated).toContain("_Recap skipped for `abc1234`: sensitive path._");
-    expect(updated).not.toContain("full interactive recap");
-  });
-
-  it("builds a base skipped comment body for PRs that have never posted a recap", () => {
-    const updated = appendGateSkipLine(
-      buildGateSkipCommentBody(),
-      "_Recap skipped for `abc1234`: draft PR._",
-    );
-    expect(updated).toContain("### Visual recap");
-    expect(updated).toContain("skipped");
-    expect(updated).toContain("_Recap skipped for `abc1234`: draft PR._");
-  });
-
-  it("appendGateSkipLine replaces an existing skip line (idempotent)", () => {
-    const body =
-      "<!-- pr-visual-recap -->\n### Visual recap\n\n_Recap skipped for `aaa0000`: draft PR._";
-    const updated = appendGateSkipLine(
-      body,
-      "_Recap skipped for `bbb1111`: sensitive path._",
-    );
-    expect(updated).toContain("_Recap skipped for `bbb1111`: sensitive path._");
-    expect(updated).not.toContain("`aaa0000`");
-  });
-
-  it("bundled workflow includes the skip-comment logic in the gate", () => {
-    // The gate job must now also try to update an existing sticky comment.
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "_Recap skipped for ${shaRef}:",
-    );
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("pr-visual-recap");
-    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("issues: write");
+    for (const workflow of workflows) {
+      const gateSection = workflow.slice(
+        workflow.indexOf("\n  gate:"),
+        workflow.indexOf("\n  recap:"),
+      );
+      expect(gateSection).toContain("Visual recap skipped");
+      expect(gateSection).not.toContain("### Visual recap — skipped");
+      expect(gateSection).not.toContain("Recap skipped for");
+      expect(gateSection).not.toContain("createComment");
+      expect(gateSection).not.toContain("updateComment");
+      expect(gateSection).not.toContain("issues: write");
+    }
   });
 });
 
@@ -3308,25 +3264,26 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain('--head-sha "$HEAD_SHA"');
   });
 
-  it("gate job has issues: write permission for the skip-comment refresh", () => {
+  it("keeps gate permissions read-only because skips never post PR comments", () => {
     const content = fs.readFileSync(reusableFile, "utf8");
-    // The gate job section must include issues: write.
     const gateSection = content.slice(
       content.indexOf("\n  gate:"),
       content.indexOf("\n  recap:"),
     );
-    expect(gateSection).toContain("issues: write");
+    expect(gateSection).toContain("pull-requests: read");
+    expect(gateSection).not.toContain("issues: write");
+    expect(content).toContain("issues: write");
   });
 
-  it("gate job has skip-comment refresh logic (parity with copy workflow)", () => {
+  it("does not include skip-comment refresh logic in the gate", () => {
     const content = fs.readFileSync(reusableFile, "utf8");
     const gateSection = content.slice(
       content.indexOf("\n  gate:"),
       content.indexOf("\n  recap:"),
     );
-    expect(gateSection).toContain("_Recap skipped for");
-    expect(gateSection).toContain("pr-visual-recap");
-    expect(gateSection).toContain("createComment");
+    expect(gateSection).not.toContain("_Recap skipped for");
+    expect(gateSection).not.toContain("createComment");
+    expect(gateSection).not.toContain("updateComment");
   });
 
   it("threads the configurable secret scan mode into the reusable workflow", () => {
