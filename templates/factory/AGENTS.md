@@ -22,11 +22,19 @@ decisions, feedback, agent runs, and provider audit records.
   `reconciliation_required` state.
 - Deduplicate by Factory item and rule/run identity, not provider comment ID.
 - Use the generic Slack adapter: clear-bug automations add 👀 and tag
-  `@builderio`; GitHub/Sentry clear bugs use the Builder run API. Clips, Design,
-  and Content stay owner-managed outside autonomous dispatch and PR governance.
-- PR governance requires verified BuilderIO membership, a clear bug, passing CI,
-  and handled review feedback; product/UX implications stay manual. Auto-merge
-  also requires a verified Factory Builder run.
+  `@builder.io`, ask Builder to run `/address-feedback`, and group repeated
+  reports into one Builder thread; GitHub/Sentry clear bugs use the Builder run
+  API. Clips, Design, and Content stay owner-managed outside autonomous
+  dispatch and PR governance.
+- PR governance follows `review-prs`: verify current BuilderIO membership and
+  the complete diff/review/check evidence, never approve external or
+  unverified authors, and keep ultra-scary security, auth, tenant-isolation,
+  secrets, data-loss, execution, payment, and deployment risks manual. The
+  verified internal-author exception permits ordinary failed or unresolved
+  checks and feedback only when their exact states remain visible; it never
+  makes them clean and never waives membership or the ultra-scary gate.
+  Product/UX ownership still needs the verified owner, with the documented Sid
+  exception. Auto-merge also requires a verified Factory Builder run.
 - Graph edits create immutable blueprint versions. AI proposes with `source=ai`;
   a person reviews and publishes through the same action surface.
 - Provider credentials belong to Dispatch/shared workspace integrations, never
@@ -35,47 +43,39 @@ decisions, feedback, agent runs, and provider audit records.
 
 ## Application state
 
-- `navigation.view`: `factory` for the Factory workspace or `agents` for the
-  shared Agents sidebar surface.
-- `navigation.factoryId`: selected Factory id when present.
-- `navigation.factoryTab`: `map` | `inbox` | `rules` | `automations` | `agents` | `audit` | `settings`.
-- `navigation.factoryAuditRunId`: selected automation run in the audit view when present.
-- `navigation.factoryNodeId` / `navigation.factoryEdgeId`: selected graph item.
-- A selected graph node or edge is part of `navigation` context. Read
-  `view-screen` before answering why a route exists or changing the selected
-  Factory.
-- The `/agents` surface shows mounted agentic apps and reusable agent packs from
-  the same Dispatch SQL/action registry. Use `view-screen` there before
-  answering questions about the visible agent inventory.
+- `navigation.view` is `factory` or `agents`; `factoryId`, `factoryTab`,
+  `factoryAuditRunId`, `factoryNodeId`, and `factoryEdgeId` hold the selected
+  Factory context. Read `view-screen` before explaining a route, changing the
+  selected Factory, or answering about the `/agents` inventory.
 
 ## Action contract
 
 | Action | Purpose |
 | --- | --- |
-| `list-triage-items` / `get-triage-item` | Inspect queue and evidence; scheduled reviewers must pass `needsReview: true` with a bounded `source` and `limit`. |
+| `list-triage-items` / `get-triage-item` | Inspect bounded queue evidence; scheduled reviewers pass `needsReview: true`, `source`, and `limit`. |
 | `poll-slack-channel` | Observe Slack history; never writes to Slack. |
 | `get-slack-feedback-context` | Read the bounded full Slack thread before classification. |
-| `poll-github-sources` / `poll-sentry-errors` | Observe bounded GitHub and Sentry source queues. |
+| `poll-github-sources` / `poll-sentry-errors` | Observe bounded source queues. |
 | `ingest-github-observation` | Store read-only PR evidence. |
-| `list-triage-rules` / `save-triage-rule` | Tune prompt rules and guards. |
+| `list-triage-rules` / `save-triage-rule` | Tune rules and guards. |
 | `evaluate-triage-item` | Append a decision. |
 | `record-triage-feedback` | Capture human correction for learning. |
 | `approve-factory-item` | Explicitly authorize one bounded run. |
 | `start-builder-for-item` | Govern clear-bug dispatch through Slack or Builder API. |
-| `govern-agent-native-pull-request` | Apply CI, review, author, product, and owner gates. |
-| `list-factory-automations` / `save-factory-automation` / `run-factory-automation` | Inspect or edit org-owned prompts, schedules, and runs. |
+| `govern-agent-native-pull-request` | Apply PR evidence and ownership gates. |
+| `list-factory-automations` / `save-factory-automation` / `run-factory-automation` | Inspect or edit org-owned automations. |
 | `list-factory-audit` | Inspect automation runs, evidence, decisions, and provider actions. |
 | `get-factory-automation-health` | Inspect scheduler heartbeat and last error. |
-| `suggest-factory-rules` | Mine feedback and fast approvals into proposals. |
+| `suggest-factory-rules` | Mine feedback into proposals. |
 | `reconcile-triage-run` | Persist callback/provider reconciliation. |
-| `list-factories` / `get-factory-graph` | Inspect Factory definitions, graph versions, and live evidence metrics. |
+| `list-factories` / `get-factory-graph` | Inspect definitions, versions, and metrics. |
 | `save-factory-graph` | Create or version a complete visual graph; never starts provider work. |
 | `list-factory-comments` / `add-factory-comment` | Read or attach comments to a canvas, node, or edge. |
-| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Discover and use connected provider APIs with shared workspace credentials; never request raw keys. |
-| `list-workspace-apps` / `update-workspace-app-metadata` | Inventory and edit mounted agentic apps in the shared workspace. |
-| `list-workspace-resources` / `create-workspace-resource` / `update-workspace-resource` | Manage shared resource records used by agents and apps. |
-| `import-agent` / `import-agent-pack` / `list-agent-pack` | Import a simple profile or a Claude/Cowork-style folder-backed agent pack. |
-| `start-workspace-app-creation` | Promote an agent and all of its pack resource ids into an app-creation handoff. |
+| `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Use connected provider APIs with shared credentials; never request raw keys. |
+| `list-workspace-apps` / `update-workspace-app-metadata` | Inventory and edit mounted apps. |
+| `list-workspace-resources` / `create-workspace-resource` / `update-workspace-resource` | Manage shared agent resources. |
+| `import-agent` / `import-agent-pack` / `list-agent-pack` | Import profiles or agent packs. |
+| `start-workspace-app-creation` | Promote an agent and its pack into an app handoff. |
 
 Rules start in shadow mode; hard guards always apply. Organization automations
 execute stored prompts, and every external mutation needs a durable run,
