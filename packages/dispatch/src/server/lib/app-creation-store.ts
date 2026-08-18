@@ -1167,7 +1167,9 @@ async function filterWorkspaceAppsByAccess(
   try {
     userEmail = currentOwnerEmail();
   } catch {
-    return apps;
+    // App metadata is access-controlled. An anonymous request must not receive
+    // the full registry simply because there is no caller to resolve.
+    return [];
   }
   const orgId = currentOrgId() ?? undefined;
   const visibleIds = new Set<string>();

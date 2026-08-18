@@ -402,6 +402,21 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
+  it("does not expose the workspace app registry without an authenticated user", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "private-app", name: "Private app", path: "/private-app" },
+    ]);
+
+    const apps = await runWithRequestContext({ orgId: "org-123" }, () =>
+      listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
+    expect(mocks.resolveAccess).not.toHaveBeenCalled();
+  });
+
   it("uses the organization default only for apps with trusted creation metadata", async () => {
     stubNoPendingContext();
     stubManifest([
