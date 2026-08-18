@@ -403,6 +403,16 @@ export interface ProviderApiConfig {
   accessErrorGuidance?: string;
   corpusRecipes?: readonly ProviderApiCorpusRecipe[];
   templateUses?: readonly WorkspaceConnectionTemplateUse[];
+  /**
+   * Some provider APIs (Slack's Web API is the documented case) answer every
+   * request with HTTP 200 and encode the real outcome as a boolean field in
+   * the JSON body instead. When set, a response with this field explicitly
+   * `false` is treated as a failed request — `response.ok` is flipped to
+   * `false` — so a caller (or the agent) that only checks the transport-level
+   * `ok`, the same signal every other provider uses for success, can't
+   * mistake a rejected send for a delivered one.
+   */
+  bodyOkField?: string;
 }
 
 export interface ProviderApiPlaceholder {
@@ -1539,6 +1549,11 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     id: "slack",
     label: "Slack Web API",
     defaultBaseUrl: "https://slack.com/api",
+    // Slack answers every call with HTTP 200, success or failure — see
+    // bodyOkField's doc comment. Without this, a rejected chat.postMessage
+    // (not_in_channel, channel_not_found, msg_too_long, …) looks identical to
+    // a delivered one at the transport level.
+    bodyOkField: "ok",
     auth: {
       type: "bearer",
       keys: ["SLACK_BOT_TOKEN"],
@@ -1946,24 +1961,27 @@ export async function executeProviderApiRequest(
         body: pageBody,
         headers,
       });
-      const resp = await fetchWithTimeout(pageUrl.href, {
-        method,
-        headers,
-        body: pageBody,
-        maxBytes: effectiveMaxBytes,
-        timeoutMs: clampTimeout(args.timeoutMs),
-        signal: args.signal,
-        secretValues: auth.secretValues,
-        quota: {
-          identity: quotaIdentity,
+      const resp = applyBodyEnvelopeOutcome(
+        await fetchWithTimeout(pageUrl.href, {
           method,
-          target: describeProviderRequestTarget(
-            pageUrl.href,
-            auth.secretValues,
-          ),
-          requestKey,
-        },
-      });
+          headers,
+          body: pageBody,
+          maxBytes: effectiveMaxBytes,
+          timeoutMs: clampTimeout(args.timeoutMs),
+          signal: args.signal,
+          secretValues: auth.secretValues,
+          quota: {
+            identity: quotaIdentity,
+            method,
+            target: describeProviderRequestTarget(
+              pageUrl.href,
+              auth.secretValues,
+            ),
+            requestKey,
+          },
+        }),
+        config,
+      );
       return {
         text:
           resp.text ??
@@ -2005,21 +2023,24 @@ export async function executeProviderApiRequest(
     body,
     headers,
   });
-  const response = await fetchWithTimeout(url.href, {
-    method,
-    headers,
-    body,
-    maxBytes: effectiveMaxBytes,
-    timeoutMs: clampTimeout(args.timeoutMs),
-    signal: args.signal,
-    secretValues: auth.secretValues,
-    quota: {
-      identity: quotaIdentity,
+  const response = applyBodyEnvelopeOutcome(
+    await fetchWithTimeout(url.href, {
       method,
-      target: describeProviderRequestTarget(url.href, auth.secretValues),
-      requestKey,
-    },
-  });
+      headers,
+      body,
+      maxBytes: effectiveMaxBytes,
+      timeoutMs: clampTimeout(args.timeoutMs),
+      signal: args.signal,
+      secretValues: auth.secretValues,
+      quota: {
+        identity: quotaIdentity,
+        method,
+        target: describeProviderRequestTarget(url.href, auth.secretValues),
+        requestKey,
+      },
+    }),
+    config,
+  );
 
   // saveToFile: write full body to workspace file and return compact summary.
   if (args.saveToFile) {
@@ -2031,6 +2052,7 @@ export async function executeProviderApiRequest(
       rawText,
       response.contentType,
       response.status,
+      response.ok,
     )) as Record<string, unknown>;
     return {
       provider: { id: config.id, label: config.label },
@@ -3004,6 +3026,7 @@ async function executeCustomProviderApiRequest(
       rawText,
       response.contentType,
       response.status,
+      response.ok,
     )) as Record<string, unknown>;
     return {
       provider: {
@@ -5258,6 +5281,32 @@ function providerQuotaExhaustedResponse(
   };
 }
 
+/**
+ * Flip transport-level `ok` to `false` when the provider's own success field
+ * (config.bodyOkField) says the call failed. See ProviderApiConfig's
+ * bodyOkField doc comment: Slack answers every request with HTTP 200, so
+ * without this a rejected send is indistinguishable from a delivered one to
+ * any caller — including the agent — that trusts `response.ok`.
+ */
+function applyBodyEnvelopeOutcome(
+  response: ProviderApiHttpResponse,
+  config: ProviderApiConfig,
+): ProviderApiHttpResponse {
+  const field = config.bodyOkField;
+  if (!field || !response.ok) return response;
+  const body = response.json;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return response;
+  if ((body as Record<string, unknown>)[field] !== false) return response;
+  const error = stringOrNull((body as Record<string, unknown>).error);
+  return {
+    ...response,
+    ok: false,
+    statusText: error
+      ? `${response.statusText} (${config.label} reported ${field}: false — ${error})`
+      : `${response.statusText} (${config.label} reported ${field}: false)`,
+  };
+}
+
 async function fetchProviderResponse(
   url: string,
   fetchOptions: RequestInit & { dispatcher?: unknown },
@@ -5502,9 +5551,14 @@ async function handleSaveToFile(
   responseText: string,
   contentType: string | null,
   status: number,
+  ok = true,
 ): Promise<unknown> {
-  const { writeWorkspaceFile, SAVE_TO_FILE_MAX_BYTES: maxSaveBytes } =
-    await import("../workspace-files/store.js");
+  const {
+    writeWorkspaceFile,
+    SAVE_TO_FILE_MAX_BYTES: maxSaveBytes,
+    isScratchWorkspacePath,
+    toWorkspaceFileCard,
+  } = await import("../workspace-files/store.js");
   const { getRequestOrgId, getRequestUserEmail } =
     await import("../server/request-context.js");
 
@@ -5523,18 +5577,30 @@ async function handleSaveToFile(
   }
 
   const mimeType = contentType?.split(";")[0].trim() ?? "text/plain";
-  await writeWorkspaceFile(scope, filePath, responseText, mimeType, {
-    maxFileBytes: maxSaveBytes,
-  });
+  const meta = await writeWorkspaceFile(
+    scope,
+    filePath,
+    responseText,
+    mimeType,
+    {
+      maxFileBytes: maxSaveBytes,
+    },
+  );
   const bytes = Buffer.byteLength(responseText, "utf8");
   const preview = responseText.slice(0, 2000);
   return {
     savedToFile: true,
     savedTo: filePath,
     status,
+    ok,
     bytes,
     contentType: mimeType,
     preview: preview.length < responseText.length ? `${preview}…` : preview,
+    // A durable (non-scratch) file renders a download card the moment it's
+    // created — no separate show-workspace-file call needed to get a link.
+    ...(isScratchWorkspacePath(filePath)
+      ? {}
+      : { file: toWorkspaceFileCard(meta) }),
   };
 }
 

@@ -209,3 +209,50 @@ describe("history fidelity: the replayed prefix is stable across turns", () => {
     expect(JSON.stringify(body.structuredHistory)).toContain("answer 19");
   });
 });
+/**
+ * Reducing a long thread belongs to Observational Memory, which cannot help
+ * with turns the client already dropped before the request left the browser.
+ * The message-count cap is a backstop; what a request carries is bounded by the
+ * char budgets, so short asks keep surviving far past the old cap of 24.
+ */
+describe("history fidelity: user asks survive past the old message cap", () => {
+  it("keeps asks from well beyond 24 messages back", async () => {
+    const messages: unknown[] = [];
+    for (let i = 0; i < 25; i++) {
+      messages.push({
+        role: "user",
+        content: [{ type: "text", text: `ask number ${i}` }],
+      });
+      messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: `answer number ${i}` }],
+      });
+    }
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: "latest ask" }],
+    });
+
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "beyond-old-cap",
+    });
+    await drain(
+      adapter.run({
+        messages,
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const delivered = JSON.stringify(
+      JSON.parse(fetchSpy.mock.calls[0][1].body).structuredHistory,
+    );
+    // 50 prior messages of prose fit the word budget, so none of these asks
+    // should have been evicted by a message count.
+    expect(delivered).toContain("ask number 0");
+    expect(delivered).toContain("ask number 12");
+    expect(delivered).toContain("ask number 24");
+  });
+});

@@ -3211,7 +3211,9 @@ export interface ExecuteAgentToolCallOptions {
   threadId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
-  onApprovalRequired?: (binding: AgentApprovalBinding) => Promise<void>;
+  onApprovalRequired?: (
+    binding: AgentApprovalBinding,
+  ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   send?: (event: AgentChatEvent) => void;
 }
@@ -4542,7 +4544,9 @@ export async function runAgentLoop(opts: {
    * so client-supplied history is never the authorization source; direct loop
    * callers may omit them when they own the surrounding approval boundary.
    */
-  onApprovalRequired?: (binding: AgentApprovalBinding) => Promise<void>;
+  onApprovalRequired?: (
+    binding: AgentApprovalBinding,
+  ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   /**
    * In-loop processor seam (see `processors.ts`). Each processor can observe
@@ -5895,7 +5899,15 @@ export async function runAgentLoop(opts: {
           mustApprove = true;
         }
         if (mustApprove) {
-          await opts.onApprovalRequired?.(approvalBinding);
+          // `askId` identifies THIS gate hit, distinct from any earlier ask
+          // for the same approvalKey/toolCallId. A failed resume (expired
+          // grant, turn-id mismatch) re-enters this branch and mints a new
+          // askId, which is how the client tells "an already-approved card
+          // re-rendered" apart from "a fresh ask after the grant didn't land"
+          // — without it, a stale client-side "approved" mark permanently
+          // hides Approve/Deny with no way to retry.
+          const askId =
+            (await opts.onApprovalRequired?.(approvalBinding)) || undefined;
           send({
             type: "tool_start",
             id: toolCall.id,
@@ -5907,6 +5919,7 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
             approvalKey,
+            ...(askId ? { askId } : {}),
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
           // Audit the blocked attempt: the action did NOT run, but "the agent
@@ -9501,7 +9514,7 @@ export function createProductionAgentHandler(
     };
     const approvalHooks = {
       onApprovalRequired: async (binding: AgentApprovalBinding) => {
-        await createAgentToolApproval(approvalStoreBinding(binding));
+        return createAgentToolApproval(approvalStoreBinding(binding));
       },
       consumeApproval: async (binding: AgentApprovalBinding) => {
         if (!ownerEmail) return false;
@@ -9549,12 +9562,12 @@ export function createProductionAgentHandler(
           await import("./thread-data-builder.js");
         const priorThreadData = (await getThread(effectiveThreadId))
           ?.threadData;
-        // `threadDataToEngineMessages` takes one argument and flattens tool
-        // calls to text by design. The second argument never existed anywhere
-        // in the repo, so this failed `tsc` and broke every production build
-        // between 16:29 and now -- it reached main only because admin merges
-        // do not wait for the typecheck that would have caught it.
-        const resumed = threadDataToEngineMessages(priorThreadData);
+        // Replay what earlier chunks DID, not just what they said: the default
+        // text-only rebuild drops every tool call and result, so the next chunk
+        // re-runs work already committed and cannot see its output.
+        const resumed = threadDataToEngineMessages(priorThreadData, {
+          includeToolCalls: true,
+        });
         if (resumed.length > 0) {
           const actionPreparationTool =
             typeof backgroundRunMarker?.actionPreparationTool === "string" &&

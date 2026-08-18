@@ -592,3 +592,44 @@ describe("redacted thinking blocks survive the round trip", () => {
     ).toEqual([{ type: "thinking", thinking: "step one", signature: "sig-1" }]);
   });
 });
+describe("unsendable thinking blocks", () => {
+  it("drops an unsigned thinking block rather than sending an empty signature", () => {
+    // An empty signature is rejected by the native API, which kills the whole
+    // request — a turn that streamed fine dies on a provider error that points
+    // nowhere near the cause.
+    const replayed = engineMessagesToAnthropic([
+      {
+        role: "assistant",
+        content: [
+          { type: "thinking", text: "unsigned reasoning" },
+          { type: "text", text: "Answer." },
+        ],
+      },
+    ]);
+    expect(replayed[0].content).toEqual([{ type: "text", text: "Answer." }]);
+    expect(JSON.stringify(replayed)).not.toContain('"signature":""');
+  });
+
+  it("omits a thinking-only message after dropping its unsigned block", () => {
+    const replayed = engineMessagesToAnthropic([
+      {
+        role: "assistant",
+        content: [{ type: "thinking", text: "unsigned reasoning" }],
+      },
+    ]);
+
+    expect(replayed).toEqual([]);
+  });
+
+  it("keeps the Builder gateway path unchanged", () => {
+    // The gateway's tolerance for an unsigned thinking block is unverified, so
+    // that path is deliberately left as it was.
+    const replayed = engineMessagesToBuilderGatewayAnthropic([
+      {
+        role: "assistant",
+        content: [{ type: "thinking", text: "unsigned reasoning" }],
+      },
+    ]);
+    expect(replayed[0].content).toHaveLength(1);
+  });
+});
