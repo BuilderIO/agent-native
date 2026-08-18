@@ -88,24 +88,25 @@ every thread it previously asked in and act on the replies first.
    observations separate.
 5. Before posting, prepare one short status for every in-scope feedback item
    or thread that was addressed - not only the newest report:
-   - **Fixed** - what changed and what verification proves it.
-   - **Clarification needed** - one concrete question that unblocks the next
-     investigation, only when the available run, app, Slack, and linked-file
-     evidence is insufficient.
+   - **Fixed** - say only that it is fixed and when it should be live.
+   - **Clarification needed** - ask one concrete, plain-language question that
+     unblocks the next investigation, only when the available run, app, Slack,
+     and linked-file evidence is insufficient.
    Apply a reply gate before every external post: a reply must either say the
-   verified fix and its user-visible result, or ask the one essential missing
-   question. Never post a blocked/unresolved status without a question that
-   tells the reporter exactly what is needed. Never post a bare “not fixed yet,”
-   “still needs a fix,” or equivalent status-only reply. If the investigation
-   cannot yet produce a fix or concrete question, keep investigating instead of
-   posting a vague update. “I confirmed the bug” is not a fix; either implement
-   the change or ask for the exact information that prevents implementation.
-   Keep the posted reply shorter than the investigation: say only whether it
-   was fixed, what remains open in plain language, when it should be live, and
-   any truly required clarification. Omit implementation details, run IDs,
-   session IDs, tool names, database/history details, and internal ownership
-   boundaries from the posted reply. Those belong in the investigation, not in
-   the reporter's thread.
+   fix is complete and give its expected live timing, or ask the one essential
+   missing question. Never post a blocked/unresolved status without a question
+   that tells the reporter exactly what is needed. Never post a bare “not fixed
+   yet,” “still needs a fix,” or equivalent status-only reply. If the
+   investigation cannot yet produce a fix or concrete question, keep
+   investigating instead of posting a vague update. “I confirmed the bug” is
+   not a fix; either implement the change or ask for the exact information that
+   prevents implementation.
+   Keep the posted reply shorter than the investigation: say only that it was
+   fixed and when it should be live, or ask the one truly required
+   clarification. Omit what changed, verification details, implementation
+   details, run IDs, session IDs, tool names, database/history details, and
+   internal ownership boundaries from the posted reply. Those belong in the
+   investigation, not in the reporter's thread.
 6. When the user explicitly asks to reply, post directly in each requested
    thread with `slack_send_message` and `thread_ts`. Do not silently turn an
    authorized write into a draft. Re-read each thread afterward to confirm the
@@ -133,8 +134,8 @@ Write as Steve, not as a formal support bot:
   missing detail that is required to fix and verify it.
 - A clear, valid, repo-owned request is an instruction to fix it. Do not reply
   `valid request` and stop, and do not say `no ship timing yet` as a dead end.
-  Implement the fix first; when code is complete, say it should be live after
-  the final ship later today (roughly end of day).
+  Implement the fix first; when code is complete, say it is fixed and should be
+  live after the final ship later today (roughly end of day).
 - Never claim a fix, live behavior, deployment, or ownership that was not
   verified. Say “this should be live after the final ship later today” only
   when the code is complete and the expected ship window is actually known.
@@ -167,8 +168,9 @@ identify the failure.
 ## Release follow-up
 
 After the final ship, return to the same threads and post a brief follow-up
-with the shipped commit/release and live-path evidence. If the ship has not
-happened yet, say that plainly and do not imply that the fix is already live.
+saying the fix is live. If the ship has not happened yet, say that plainly and
+do not imply that the fix is already live. Omit commit, release, and live-path
+details unless the reporter asks for them.
 
 ## Verification
 
