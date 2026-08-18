@@ -19,6 +19,30 @@ export function isBreakpointSelectionTarget(screen: {
   );
 }
 
+/**
+ * Whether the screen's own frame-level SelectionBox (corner/rotate handles +
+ * outline sized to the whole screen) should be suppressed because a MORE
+ * specific target already owns the selection chrome — either one of the
+ * screen's breakpoint sub-frames (existing BP-DEEP v2 case), or a specific
+ * element inside the screen (Layers-panel row, in-canvas click resolving to
+ * a node). The editor-chrome bridge inside the iframe already renders a
+ * correctly-fitted outline + resize handles for that element; drawing the
+ * frame-sized box on top of it is wrong, not just redundant — it always
+ * spans the whole screen regardless of what's actually selected.
+ */
+export function shouldSuppressFrameSelectionBox(
+  screen: {
+    id: string;
+    breakpointWidths?: number[];
+    activeBreakpointWidth?: number;
+  },
+  selectedElementScreenId: string | null | undefined,
+): boolean {
+  return (
+    isBreakpointSelectionTarget(screen) || selectedElementScreenId === screen.id
+  );
+}
+
 export function getActiveScreenIframeId(screen: {
   id: string;
   activeBreakpointWidth?: number;

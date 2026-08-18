@@ -82,8 +82,7 @@ export default defineAction({
 أنشئ خلاصة نشاط أو سطر "من قام بتغيير هذا" عن طريق استدعاء `list-audit-events` من UI باستخدام `useActionQuery` — لا تكتب أبدًا يدويًا أي جلب إلى جدول التدقيق:
 
 ```tsx
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data } = useActionQuery("list-audit-events", {
   targetType: "recording",
   targetId: recordingId,
@@ -106,7 +105,7 @@ const { data } = useActionQuery("list-audit-events", {
 
 ## ما هي الخطوة التالية
 
-- [**Actions**](/docs/actions) — خط التماس `defineAction` الذي يحدث فيه الالتقاط
+- [**Actions**](/docs/actions-overview) — خط التماس `defineAction` الذي يحدث فيه الالتقاط
 - [**Human-in-the-Loop Approvals**](/docs/human-approval) — actions، مسجل كـ `denied`
 - [**Security & Data Scoping**](/docs/security) — يقرأ تدقيق نموذج الملكية إعادة الاستخدام
 - [**Observability**](/docs/observability) — القياس عن بعد الذي يديره الوكيل ("ما حدث" الآخر)

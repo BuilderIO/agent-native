@@ -141,9 +141,9 @@ test.describe("guest mode + claim", () => {
     await signInButton.click();
 
     // Must land on the framework sign-in surface.
-    await page.waitForURL(/\/_agent-native\/sign-in/i, { timeout: 15_000 });
+    await page.waitForURL(/\/sign-in\?c=/i, { timeout: 15_000 });
     expect(page.url()).toMatch(/sign-in/i);
-    expect(decodeURIComponent(page.url())).toMatch(/return=\/plans/i);
+    expect(new URL(page.url()).searchParams.get("c")).toBeTruthy();
     // The sign-in page offers account creation (the only way to author plans).
     await expect(page.getByText(/create account/i).first()).toBeVisible({
       timeout: 15_000,

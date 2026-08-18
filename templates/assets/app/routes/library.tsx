@@ -1,21 +1,27 @@
 import {
   AgentToggleButton,
-  appPath,
-  getBrowserTabId,
-  getEmbedAuthToken,
-  isEmbedMcpChatBridgeActive,
-  isEmbedAuthActive,
   insertAgentComposerReference,
-  readClientAppState,
   sendMcpAppHostMessage,
   updateMcpAppModelContext,
+  useAgentChatGenerating,
+} from "@agent-native/core/client/agent-chat";
+import { appPath } from "@agent-native/core/client/api-path";
+import {
+  getBrowserTabId,
+  readClientAppState,
   useActionMutation,
   useActionQuery,
-  useAgentChatGenerating,
-  useT,
   writeClientAppState,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import {
+  getEmbedAuthToken,
+  isEmbedAuthActive,
+  isEmbedMcpChatBridgeActive,
+} from "@agent-native/core/client/host";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  AGENT_NATIVE_EMBED_MESSAGE_TYPES,
+  createAgentNativeEmbedEnvelope,
   createEmbeddedAppBridge,
   type EmbeddedAppBridge,
 } from "@agent-native/core/embedding";
@@ -28,16 +34,22 @@ import {
   IconArrowUpRight,
   IconCheck,
   IconChevronDown,
-  IconChevronLeft,
-  IconChevronRight,
   IconClipboard,
   IconLibraryPhoto,
   IconPhotoPlus,
   IconSearch,
+  IconTrash,
   IconX,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Link,
   useSearchParams,
@@ -47,17 +59,21 @@ import {
 } from "react-router";
 import { toast } from "sonner";
 
-import { CreateLibraryDialog } from "@/components/library/CreateLibraryDialog";
+import { AssetPreviewDialog as SharedAssetPreviewDialog } from "@/components/asset/AssetPreviewDialog";
 import { LibraryPresetGrid } from "@/components/library/LibraryPresetGrid";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-  DialogClose,
-} from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -73,6 +89,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -106,6 +123,8 @@ import {
 } from "./brand-kits.$id";
 
 type AssetTab = "all" | "generated" | "drafts" | "references";
+
+const LIBRARY_SEARCH_DEBOUNCE_MS = 300;
 
 function isGeneratedAsset(asset: Asset) {
   const role = asset.role ?? "";
@@ -153,6 +172,12 @@ type Asset = {
   downloadUrl?: string;
   embedUrl?: string;
   embedPath?: string;
+  folderId?: string | null;
+  category?: string | null;
+  model?: string | null;
+  aspectRatio?: string | null;
+  durationSeconds?: number | null;
+  metadata?: Record<string, unknown> | null;
   libraryTitle?: string | null;
   lineage?: {
     label?: string | null;
@@ -197,6 +222,7 @@ type HostConfig = {
   styleStrength?: StyleStrength;
   includeLogo?: boolean;
   callerAppId?: string;
+  creativeContextRequestId?: string;
   layout?: PickerLayout;
   autoGenerate?: boolean;
   candidateRunIds?: string[];
@@ -234,6 +260,31 @@ function isEmbeddedWindow() {
     return window.self !== window.top;
   } catch {
     return true;
+  }
+}
+
+interface StandalonePickerHandoff {
+  handoffId: string;
+  returnOrigin: string;
+}
+
+function standalonePickerHandoff(): StandalonePickerHandoff | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const handoffId = params.get("__an_asset_picker_handoff")?.trim();
+  const rawReturnOrigin = params.get("__an_asset_picker_return_origin")?.trim();
+  if (!handoffId || handoffId.length > 128 || !rawReturnOrigin) return null;
+  try {
+    const parsed = new URL(rawReturnOrigin);
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.origin !== rawReturnOrigin
+    ) {
+      return null;
+    }
+    return { handoffId, returnOrigin: parsed.origin };
+  } catch {
+    return null;
   }
 }
 
@@ -329,6 +380,10 @@ function normalizeHostConfig(value: unknown): HostConfig {
     includeLogo: normalizeBoolean(record.includeLogo),
     callerAppId:
       typeof record.callerAppId === "string" ? record.callerAppId : undefined,
+    creativeContextRequestId:
+      typeof record.creativeContextRequestId === "string"
+        ? record.creativeContextRequestId
+        : undefined,
     layout: normalizePickerLayout(record.layout),
     candidateRunIds: normalizeCandidateRunIds(record.candidateRunIds),
   };
@@ -787,7 +842,7 @@ function AssetOverlayImage({ asset }: { asset: Asset }) {
       src={source}
       crossOrigin={isCrossOriginPreview(source) ? "anonymous" : undefined}
       alt={asset.altText ?? asset.title ?? ""}
-      className="max-h-[85vh] w-full rounded-lg object-contain"
+      className="max-h-[72vh] max-w-full rounded-lg object-contain"
       onError={() =>
         setSourceIndex((index) =>
           index + 1 < sources.length ? index + 1 : index,
@@ -972,7 +1027,7 @@ function LibraryKitSelector({
             type="button"
             className="-ml-1.5 inline-flex min-w-0 max-w-full items-center gap-1.5 rounded-md px-1.5 py-1 text-left text-xl font-semibold leading-tight tracking-tight transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
           >
-            <span className="block min-w-0 max-w-[min(48rem,calc(100vw-7rem))] truncate sm:max-w-none">
+            <span className="block min-w-0 break-words">
               {triggerLabel ?? selectedLibrary?.title ?? t("library.allAssets")}
             </span>
             <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
@@ -1094,26 +1149,66 @@ function LibraryKitSelector({
   );
 }
 
-function AllAssetsBrowser() {
+function AllAssetsBrowser({
+  foldersByLibraryId = {},
+}: {
+  foldersByLibraryId?: Record<string, any[]>;
+}) {
   const t = useT();
   const navigate = useNavigate();
-  const [query, setQuery] = useState("");
-  const [assetTab, setAssetTab] = useState<AssetTab>("all");
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchParamsKey = searchParams.toString();
+  // The root Library view keeps its tab/search in the URL so deep links,
+  // refreshes, and agent `navigate` commands are honored (the framework's
+  // useNavigationState reads the same `?tab=`/`?q=` params). Absent a tab param,
+  // default to Drafts.
+  const urlAssetTab = useMemo<AssetTab>(() => {
+    const tab = new URLSearchParams(searchParamsKey).get("tab");
+    return tab === "drafts" || tab === "generated" || tab === "references"
+      ? tab
+      : "drafts";
+  }, [searchParamsKey]);
+  const urlQuery = useMemo(
+    () => new URLSearchParams(searchParamsKey).get("q") ?? "",
+    [searchParamsKey],
+  );
+  const [query, setQuery] = useState(urlQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(urlQuery);
+  const [assetTab, setAssetTab] = useState<AssetTab>(urlAssetTab);
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
   > | null>(null);
   const [standaloneCopyOk, setStandaloneCopyOk] = useState(false);
+  const [selectedAssetIds, setSelectedAssetIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [optimisticallyDeletedAssetIds, setOptimisticallyDeletedAssetIds] =
+    useState<Set<string>>(() => new Set());
+  const [deletingAssetIds, setDeletingAssetIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [confirmDeleteIds, setConfirmDeleteIds] = useState<string[]>([]);
+  const deleteAssets = useActionMutation("delete-assets");
 
+  const isDraftsTab = assetTab === "drafts";
+
+  // The Drafts tab renders its own candidate queries via LibraryCandidateStage,
+  // so skip the cross-library asset scan while it is the active tab.
   const {
     data: assetData,
     isLoading,
     isError,
     isFetching,
     refetch,
-  } = useActionQuery("list-assets", {
-    query: query.trim() || undefined,
-  } as any) as {
+  } = useActionQuery(
+    "list-assets",
+    {
+      query: debouncedQuery.trim() || undefined,
+    } as any,
+    { enabled: !isDraftsTab } as any,
+  ) as {
     data?: { assets?: Asset[] };
     isLoading: boolean;
     isError: boolean;
@@ -1126,12 +1221,22 @@ function AllAssetsBrowser() {
     () => allAssets.filter((asset) => assetMatchesTab(asset, assetTab)),
     [allAssets, assetTab],
   );
-  const visibleAssetCount = assets.length;
+  const visibleAssets = useMemo(
+    () =>
+      assets.filter((asset) => !optimisticallyDeletedAssetIds.has(asset.id)),
+    [assets, optimisticallyDeletedAssetIds],
+  );
+  const selectedCount = selectedAssetIds.size;
+  const allVisibleSelected =
+    visibleAssets.length > 0 &&
+    visibleAssets.every((asset) => selectedAssetIds.has(asset.id));
+  const deleting = deleteAssets.isPending || deletingAssetIds.size > 0;
+  const visibleAssetCount = visibleAssets.length;
+  // The badge only renders on the Generated/References tabs, which are always a
+  // filtered subset, so report the shown count rather than the library total.
   const assetCountLabel = isLoading
     ? t("library.loading")
-    : query.trim() || assetTab !== "all"
-      ? t("library.shownCount", { count: visibleAssetCount })
-      : t("library.assetCount", { count: allAssets.length });
+    : t("library.shownCount", { count: visibleAssetCount });
   const standaloneSelectionText = useMemo(
     () =>
       standaloneSelection
@@ -1166,6 +1271,153 @@ function AllAssetsBrowser() {
     void copyStandaloneSelection(payload);
   }
 
+  function toggleAsset(assetId: string, checked: boolean) {
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(assetId);
+      else next.delete(assetId);
+      return next;
+    });
+  }
+
+  function toggleAllVisible(checked: boolean) {
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      for (const asset of visibleAssets) {
+        if (checked) next.add(asset.id);
+        else next.delete(asset.id);
+      }
+      return next;
+    });
+  }
+
+  function confirmDelete(ids: string[]) {
+    const uniqueIds = [...new Set(ids)];
+    if (uniqueIds.length) setConfirmDeleteIds(uniqueIds);
+  }
+
+  function markDeleting(ids: string[]) {
+    setDeletingAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    setOptimisticallyDeletedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  function finishDeleting(ids: string[]) {
+    setDeletingAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+  }
+
+  function restoreAfterDeleteError(ids: string[]) {
+    finishDeleting(ids);
+    setOptimisticallyDeletedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.delete(id);
+      return next;
+    });
+    setSelectedAssetIds((current) => {
+      const next = new Set(current);
+      for (const id of ids) next.add(id);
+      return next;
+    });
+  }
+
+  function handleDeleteConfirmed() {
+    if (!confirmDeleteIds.length || deleting) return;
+    const ids = [...confirmDeleteIds];
+    setConfirmDeleteIds([]);
+    markDeleting(ids);
+    deleteAssets.mutate(
+      { ids },
+      {
+        onSuccess: (result: any) => {
+          finishDeleting(ids);
+          void refetch();
+          const count = Number(result?.deletedCount ?? ids.length);
+          toast.success(
+            count === 1
+              ? t("library.deletedAsset")
+              : t("library.deletedAssets", { count }),
+          );
+        },
+        onError: (error) => {
+          restoreAfterDeleteError(ids);
+          toast.error(
+            error.message || t("library.couldNotDeleteSelectedAssets"),
+          );
+        },
+      },
+    );
+  }
+
+  // Keep local state in sync when the URL changes externally (back/forward,
+  // agent navigation, deep links) since the component stays mounted.
+  useEffect(() => {
+    setAssetTab(urlAssetTab);
+  }, [urlAssetTab]);
+  useEffect(() => {
+    setQuery(urlQuery);
+  }, [urlQuery]);
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedQuery(query);
+      if (query === urlQuery) return;
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (query.trim()) next.set("q", query);
+          else next.delete("q");
+          return next;
+        },
+        { replace: true },
+      );
+    }, LIBRARY_SEARCH_DEBOUNCE_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [query, setSearchParams, urlQuery]);
+  const handleAssetTabChange = useCallback(
+    (value: AssetTab) => {
+      setAssetTab(value);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          // Drafts is the default, so keep it out of the URL for clean links.
+          if (value === "drafts") next.delete("tab");
+          else next.set("tab", value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const handleQueryChange = useCallback((value: string) => {
+    setQuery(value);
+  }, []);
+
+  // The Drafts tab's candidate queries live inside LibraryCandidateStage;
+  // refetch them by key so the error state offers a working retry.
+  const retryDrafts = useCallback(() => {
+    void queryClient.refetchQueries({
+      queryKey: ["app-state", assetVariantStateKey(null)],
+    });
+    void queryClient.refetchQueries({ queryKey: ["action", "list-assets"] });
+  }, [queryClient]);
+
   return (
     <div className="flex min-w-0 flex-col">
       <div className="border-b border-border px-4 py-3 md:px-6">
@@ -1173,10 +1425,10 @@ function AllAssetsBrowser() {
           <div className="flex min-w-0 items-center gap-2">
             <Tabs
               value={assetTab}
-              onValueChange={(value) => setAssetTab(value as AssetTab)}
+              onValueChange={(value) => handleAssetTabChange(value as AssetTab)}
             >
               <TabsList className="h-9">
-                <TabsTrigger value="all">{t("library.tabsAll")}</TabsTrigger>
+                <TabsTrigger value="drafts">{t("library.drafts")}</TabsTrigger>
                 <TabsTrigger value="generated">
                   {t("library.generated")}
                 </TabsTrigger>
@@ -1185,24 +1437,47 @@ function AllAssetsBrowser() {
                 </TabsTrigger>
               </TabsList>
             </Tabs>
-            <Badge
-              variant="secondary"
-              className="h-6 max-w-full rounded-full px-2 text-xs"
-            >
-              {assetCountLabel}
-            </Badge>
+            {!isDraftsTab && (
+              <Badge
+                variant="secondary"
+                className="h-6 max-w-full rounded-full px-2 text-xs"
+              >
+                {assetCountLabel}
+              </Badge>
+            )}
+            {!isDraftsTab && visibleAssets.length > 0 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-8 shrink-0 px-2 text-xs"
+                onClick={() => toggleAllVisible(!allVisibleSelected)}
+                disabled={deleting}
+                aria-pressed={allVisibleSelected}
+                aria-label={
+                  allVisibleSelected
+                    ? t("library.deselectAll")
+                    : t("library.selectAllVisibleAssets")
+                }
+              >
+                {allVisibleSelected
+                  ? t("library.deselectAll")
+                  : t("library.selectAll")}
+              </Button>
+            )}
           </div>
-          <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-background px-3 focus-within:ring-1 focus-within:ring-ring sm:max-w-sm">
-            <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <input
-              type="search"
-              value={query}
-              onInput={(event) => setQuery(event.currentTarget.value)}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("library.searchAssets")}
-              className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-            />
-          </div>
+          {!isDraftsTab && (
+            <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-background px-3 focus-within:ring-1 focus-within:ring-ring sm:max-w-sm">
+              <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => handleQueryChange(event.target.value)}
+                placeholder={t("library.searchAssets")}
+                className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -1277,8 +1552,116 @@ function AllAssetsBrowser() {
         </section>
       )}
 
+      <AlertDialog
+        open={confirmDeleteIds.length > 0}
+        onOpenChange={(open) => {
+          if (!open) setConfirmDeleteIds([]);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmDeleteIds.length > 1
+                ? t("library.deleteAssetsTitle", {
+                    count: confirmDeleteIds.length,
+                  })
+                : t("library.deleteAssetTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("assetDetail.deleteDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("library.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleting}
+              onClick={(event) => {
+                event.preventDefault();
+                handleDeleteConfirmed();
+              }}
+            >
+              {deleting ? (
+                <Spinner className="h-4 w-4" />
+              ) : (
+                t("assetDetail.delete")
+              )}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {!isDraftsTab && (selectedCount > 0 || deletingAssetIds.size > 0) && (
+        <div className="mx-4 mb-1 flex min-h-10 flex-wrap items-center justify-between gap-2 rounded-md border border-border/70 bg-background px-3 py-2 md:mx-6">
+          {deletingAssetIds.size > 0 ? (
+            <div
+              className="flex min-w-0 items-center gap-2 text-sm font-medium"
+              role="status"
+              aria-live="polite"
+            >
+              <Spinner className="h-4 w-4" />
+              <span className="truncate">
+                {t("library.deletingAssets", {
+                  count: deletingAssetIds.size,
+                })}
+              </span>
+            </div>
+          ) : (
+            <span className="text-sm font-medium">
+              {t("library.selectedCount", { count: selectedCount })}
+            </span>
+          )}
+          {deletingAssetIds.size === 0 && (
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setSelectedAssetIds(new Set())}
+              >
+                {t("library.clear")}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() => confirmDelete([...selectedAssetIds])}
+                disabled={deleting}
+              >
+                <IconTrash className="h-4 w-4" />
+                {t("assetDetail.delete")}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
       <main className="p-4 md:p-6">
-        {isLoading ? (
+        {isDraftsTab ? (
+          <LibraryCandidateStage
+            activeLibraryId={null}
+            foldersByLibraryId={foldersByLibraryId}
+            inline
+            emptyState={
+              <div className="flex min-h-64 items-center justify-center text-center">
+                <div className="max-w-sm text-sm text-muted-foreground">
+                  {t("library.noDrafts")}
+                </div>
+              </div>
+            }
+            errorState={
+              <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center">
+                <IconAlertTriangle className="size-9 text-destructive" />
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {t("audit.unknownError")}
+                </p>
+                <Button size="sm" variant="outline" onClick={retryDrafts}>
+                  {t("brandKitDetail.refresh")}
+                </Button>
+              </div>
+            }
+          />
+        ) : isLoading ? (
           <div className="assets-library-grid grid grid-cols-2 gap-4">
             {Array.from({ length: 12 }).map((_, index) => (
               <Skeleton key={index} className="aspect-[4/3] rounded-lg" />
@@ -1299,7 +1682,7 @@ function AllAssetsBrowser() {
               {t("brandKitDetail.refresh")}
             </Button>
           </div>
-        ) : assets.length === 0 ? (
+        ) : visibleAssets.length === 0 ? (
           <div className="flex min-h-64 items-center justify-center text-center">
             <div className="max-w-sm text-sm text-muted-foreground">
               {query
@@ -1309,73 +1692,97 @@ function AllAssetsBrowser() {
           </div>
         ) : (
           <div className="assets-library-grid grid grid-cols-2 gap-4">
-            {assets.map((asset) => (
-              <div
-                key={asset.id}
-                className="group relative overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25 hover:bg-muted/10 focus-within:ring-2 focus-within:ring-ring"
-              >
-                <button
-                  type="button"
-                  aria-label={t("library.selectAsset", {
-                    title: assetDisplayTitle(asset),
-                  })}
-                  onClick={() => setPreviewAsset(asset)}
-                  title={assetDisplayTitle(asset)}
-                  className="block w-full text-left focus-visible:outline-none"
+            {visibleAssets.map((asset) => {
+              const selected = selectedAssetIds.has(asset.id);
+              return (
+                <div
+                  key={asset.id}
+                  className={cn(
+                    "group relative overflow-hidden rounded-lg border border-border/80 bg-background transition-[border-color,background-color,box-shadow] hover:border-foreground/25 hover:bg-muted/10 focus-within:ring-2 focus-within:ring-ring",
+                    selected && "border-primary ring-1 ring-primary/30",
+                  )}
                 >
-                  <div className="aspect-[4/3] bg-muted/40">
-                    {asset.mediaType === "video" ||
-                    asset.mimeType?.startsWith("video/") ? (
-                      <video
-                        src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
-                        poster={asset.thumbnailUrl}
-                        muted
-                        playsInline
-                        className="h-full w-full object-cover transition group-hover:scale-[1.02]"
-                      />
-                    ) : (
-                      <AssetThumbnail asset={asset} />
+                  <div
+                    className={cn(
+                      "absolute start-2 top-2 z-10 flex size-9 items-center justify-center rounded-md bg-background/90 shadow-sm backdrop-blur transition-[opacity]",
+                      "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100",
+                      selected && "opacity-100 sm:opacity-100",
                     )}
+                  >
+                    <Checkbox
+                      checked={selected}
+                      disabled={deleting}
+                      onCheckedChange={(checked) =>
+                        toggleAsset(asset.id, checked === true)
+                      }
+                      aria-label={t("library.selectAsset", {
+                        title: assetDisplayTitle(asset),
+                      })}
+                      className="size-5"
+                    />
                   </div>
-                </button>
-                {(asset as any).libraryTitle ? (
                   <button
                     type="button"
-                    onClick={() => navigate(`/library/${asset.libraryId}`)}
-                    className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:bg-background"
+                    aria-label={`${t("library.openDetails")}: ${assetDisplayTitle(asset)}`}
+                    onClick={() => setPreviewAsset(asset)}
+                    title={assetDisplayTitle(asset)}
+                    className="block w-full text-left focus-visible:outline-none"
                   >
-                    {(asset as any).libraryTitle}
+                    <div className="aspect-[4/3] bg-muted/40">
+                      {asset.mediaType === "video" ||
+                      asset.mimeType?.startsWith("video/") ? (
+                        <video
+                          src={
+                            asset.previewUrl ?? asset.downloadUrl ?? asset.url
+                          }
+                          poster={asset.thumbnailUrl}
+                          muted
+                          playsInline
+                          className="h-full w-full object-cover transition group-hover:scale-[1.02]"
+                        />
+                      ) : (
+                        <AssetThumbnail asset={asset} />
+                      )}
+                    </div>
                   </button>
-                ) : null}
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        aria-label={t("library.copyToClipboard")}
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          chooseAsset(asset);
-                        }}
-                        className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-0 shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
-                      >
-                        <IconClipboard className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("library.copyToClipboard")}
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              </div>
-            ))}
+                  {(asset as any).libraryTitle ? (
+                    <Link
+                      to={`/library/${asset.libraryId}`}
+                      className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:bg-background"
+                    >
+                      {(asset as any).libraryTitle}
+                    </Link>
+                  ) : null}
+                  <TooltipProvider>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          aria-label={t("library.copyToClipboard")}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            chooseAsset(asset);
+                          }}
+                          className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground opacity-100 shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100"
+                        >
+                          <IconClipboard className="h-4 w-4" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent>
+                        {t("library.copyToClipboard")}
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
+              );
+            })}
           </div>
         )}
       </main>
 
       <AssetPreviewDialog
         asset={previewAsset}
-        assets={assets}
+        assets={visibleAssets}
         onAssetChange={setPreviewAsset}
       />
     </div>
@@ -1391,98 +1798,15 @@ function AssetPreviewDialog({
   assets: Asset[];
   onAssetChange: (asset: Asset | null) => void;
 }) {
-  const t = useT();
   return (
-    <Dialog
-      open={Boolean(asset)}
-      onOpenChange={(open) => {
-        if (!open) onAssetChange(null);
-      }}
-    >
-      {asset &&
-        (() => {
-          const previewIndex = assets.findIndex(
-            (candidate) => candidate.id === asset.id,
-          );
-          const hasPrev = previewIndex > 0;
-          const hasNext = previewIndex >= 0 && previewIndex < assets.length - 1;
-          const showPreviousAsset = () => {
-            if (hasPrev) onAssetChange(assets[previewIndex - 1]);
-          };
-          const showNextAsset = () => {
-            if (hasNext) onAssetChange(assets[previewIndex + 1]);
-          };
-          return (
-            <DialogContent
-              hideClose
-              onKeyDown={(event) => {
-                if (event.key === "ArrowLeft") showPreviousAsset();
-                if (event.key === "ArrowRight") showNextAsset();
-              }}
-              className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
-            >
-              <DialogTitle className="sr-only">
-                {assetDisplayTitle(asset)}
-              </DialogTitle>
-              <DialogDescription className="sr-only">
-                {t("library.fullSizePreview", {
-                  title: assetDisplayTitle(asset),
-                })}
-              </DialogDescription>
-              <div className="relative">
-                <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                  <Button asChild variant="outline" size="sm">
-                    <Link to={`/asset/${encodeURIComponent(asset.id)}`}>
-                      {t("library.viewDetails")}
-                    </Link>
-                  </Button>
-                  <DialogClose
-                    aria-label={t("library.closePreview")}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                  >
-                    <IconX className="h-5 w-5" />
-                  </DialogClose>
-                </div>
-                {asset.mediaType === "video" ||
-                asset.mimeType?.startsWith("video/") ? (
-                  <video
-                    src={asset.previewUrl ?? asset.downloadUrl ?? asset.url}
-                    poster={asset.thumbnailUrl}
-                    controls
-                    autoPlay
-                    playsInline
-                    className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
-                  />
-                ) : (
-                  <AssetOverlayImage asset={asset} />
-                )}
-              </div>
-              {(hasPrev || hasNext) && (
-                <div className="mt-5 flex justify-center gap-2">
-                  <button
-                    type="button"
-                    aria-label={t("library.previousImage")}
-                    onClick={showPreviousAsset}
-                    disabled={!hasPrev}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <IconChevronLeft className="h-5 w-5" />
-                  </button>
-                  <button
-                    type="button"
-                    aria-label={t("library.nextImage")}
-                    onClick={showNextAsset}
-                    disabled={!hasNext}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    <IconChevronRight className="h-5 w-5" />
-                  </button>
-                </div>
-              )}
-            </DialogContent>
-          );
-        })()}
-    </Dialog>
+    <SharedAssetPreviewDialog
+      asset={asset}
+      assets={assets}
+      onAssetChange={(next) => onAssetChange(next as Asset | null)}
+      renderImage={(previewAsset) => (
+        <AssetOverlayImage asset={previewAsset as Asset} />
+      )}
+    />
   );
 }
 
@@ -1594,12 +1918,16 @@ function LibraryCandidateStage({
   variantScopeId = null,
   onUseAsset,
   inline = false,
+  emptyState = null,
+  errorState = null,
 }: {
   activeLibraryId?: string | null;
   foldersByLibraryId?: Record<string, any[]>;
   variantScopeId?: string | null;
   onUseAsset?: (asset: Asset) => void;
   inline?: boolean;
+  emptyState?: ReactNode;
+  errorState?: ReactNode;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -1609,7 +1937,11 @@ function LibraryCandidateStage({
   const [promotingReferenceKeys, setPromotingReferenceKeys] = useState<
     Set<string>
   >(() => new Set());
-  const { data: variants } = useQuery({
+  const {
+    data: variants,
+    isLoading: variantsLoading,
+    isError: variantsError,
+  } = useQuery({
     queryKey: ["app-state", assetVariantStateKey(variantScopeId)],
     queryFn: ({ signal }) => {
       return readClientAppState<AssetVariantState>(
@@ -1627,11 +1959,15 @@ function LibraryCandidateStage({
     { id: activeLibraryId ?? "" } as any,
     { enabled: Boolean(activeLibraryId) } as any,
   ) as { data?: { library?: Library; assets?: Asset[]; folders?: any[] } };
-  const { data: allCandidateData } = useActionQuery(
+  const {
+    data: allCandidateData,
+    isLoading: allCandidatesLoading,
+    isError: allCandidatesError,
+  } = useActionQuery(
     "list-assets",
     { includeCandidates: true, status: "candidate" } as any,
     { enabled: isAllAssetsStage } as any,
-  ) as { data?: { assets?: Asset[] } };
+  ) as { data?: { assets?: Asset[] }; isLoading: boolean; isError: boolean };
   const saveGenerated = useActionMutation("save-generated-image");
   const updateAsset = useActionMutation("update-asset");
   const libraryAssets = isAllAssetsStage
@@ -1676,10 +2012,20 @@ function LibraryCandidateStage({
     [libraryAssets, liveAssetIds],
   );
   const totalCount = slots.length + draftAssets.length;
+  // Don't flash the empty state before the candidate sources have resolved, and
+  // don't misreport a load failure as "no drafts".
+  const candidatesLoading =
+    variantsLoading || (isAllAssetsStage && allCandidatesLoading);
+  const candidatesError =
+    variantsError || (isAllAssetsStage && allCandidatesError);
 
-  if (totalCount === 0) return null;
+  if (totalCount === 0) {
+    if (candidatesLoading) return null;
+    if (candidatesError) return errorState ? <>{errorState}</> : null;
+    return emptyState ? <>{emptyState}</> : null;
+  }
   const stageLibraryId = liveLibraryId ?? draftAssets[0]?.libraryId ?? null;
-  if (!stageLibraryId) return null;
+  if (!stageLibraryId) return emptyState ? <>{emptyState}</> : null;
 
   function invalidateStage(
     libraryIdToInvalidate: string | null = stageLibraryId,
@@ -1913,7 +2259,7 @@ export function LibraryWorkspace({
   const t = useT();
   const navigate = useNavigate();
   const routeSelectedLibraryId = useLibraryRouteSelectedId(selectedLibraryId);
-  const [createOpen, setCreateOpen] = useState(false);
+  const createLibrary = useActionMutation("create-library");
   const { data, isLoading, isError, isFetching, refetch } = useActionQuery(
     "list-libraries",
     {
@@ -1957,6 +2303,20 @@ export function LibraryWorkspace({
     });
   }, [currentLibrary?.title, routeSelectedLibraryId]);
 
+  const handleCreateKit = useCallback(() => {
+    createLibrary.mutate(
+      { title: t("brandKits.newBrandKit") },
+      {
+        onSuccess: (library: any) => {
+          void navigate(`/brand-kits/${library.id}/settings`);
+        },
+        onError: (error: Error) => {
+          toast.error(error.message);
+        },
+      },
+    );
+  }, [createLibrary, navigate, t]);
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-background text-foreground">
       <section className="min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -1965,7 +2325,7 @@ export function LibraryWorkspace({
             selectedLibraryId={routeSelectedLibraryId}
             libraries={libraries}
             isLoading={isLoading}
-            onCreateKit={() => setCreateOpen(true)}
+            onCreateKit={handleCreateKit}
           />
           {isError ? (
             <div className="flex min-h-80 flex-col items-center justify-center gap-3 px-6 text-center">
@@ -1983,32 +2343,21 @@ export function LibraryWorkspace({
               </Button>
             </div>
           ) : routeSelectedLibraryId || hasLibraries ? (
-            <>
-              <LibraryCandidateStage
-                activeLibraryId={routeSelectedLibraryId}
-                foldersByLibraryId={foldersByLibraryId}
-              />
-              <div className="min-w-0">
-                {routeSelectedLibraryId ? (
-                  <BrandKitDetailRoute
-                    libraryId={routeSelectedLibraryId}
-                    headerMode="actions"
-                  />
-                ) : (
-                  <AllAssetsBrowser />
-                )}
-              </div>
-            </>
+            <div className="min-w-0">
+              {routeSelectedLibraryId ? (
+                <BrandKitDetailRoute
+                  libraryId={routeSelectedLibraryId}
+                  headerMode="actions"
+                />
+              ) : (
+                <AllAssetsBrowser foldersByLibraryId={foldersByLibraryId} />
+              )}
+            </div>
           ) : (
-            <EmptyLibraryStarter onCreateBlank={() => setCreateOpen(true)} />
+            <EmptyLibraryStarter onCreateBlank={handleCreateKit} />
           )}
         </div>
       </section>
-      <CreateLibraryDialog
-        open={createOpen}
-        onOpenChange={setCreateOpen}
-        onCreated={(library) => navigate(`/library/${library.id}`)}
-      />
     </div>
   );
 }
@@ -2051,6 +2400,8 @@ export function AssetPickerSurface() {
       styleStrength: normalizeStyleStrength(params.get("styleStrength")),
       includeLogo: normalizeBoolean(params.get("includeLogo")),
       callerAppId: params.get("callerAppId") ?? undefined,
+      creativeContextRequestId:
+        params.get("creativeContextRequestId") ?? undefined,
       layout: normalizePickerLayout(params.get("layout")),
       candidateRunIds: normalizeCandidateRunIds(
         params.getAll("candidateRunIds").length > 0
@@ -2067,6 +2418,10 @@ export function AssetPickerSurface() {
       isEmbeddedWindow() ||
       isEmbedAuthActive(),
     [searchParams],
+  );
+  const standaloneHandoff = useMemo(
+    () => (embedded ? null : standalonePickerHandoff()),
+    [embedded],
   );
   const pickerVariantScopeId = useMemo(
     () =>
@@ -2414,6 +2769,35 @@ export function AssetPickerSurface() {
     [],
   );
 
+  const postStandaloneSelectionMessage = useCallback(
+    (payload: ReturnType<typeof assetPayload>) => {
+      if (
+        !standaloneHandoff ||
+        typeof window === "undefined" ||
+        !window.opener ||
+        window.opener.closed
+      ) {
+        return false;
+      }
+      try {
+        window.opener.postMessage(
+          createAgentNativeEmbedEnvelope(
+            AGENT_NATIVE_EMBED_MESSAGE_TYPES.MESSAGE,
+            {
+              name: "chooseAsset",
+              payload: { ...payload, handoffId: standaloneHandoff.handoffId },
+            },
+          ),
+          standaloneHandoff.returnOrigin,
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [standaloneHandoff],
+  );
+
   const chooseAsset = (asset: Asset) => {
     const payload = assetPayload(asset, mediaType);
     if (embedded) {
@@ -2434,6 +2818,15 @@ export function AssetPickerSurface() {
           toast.error(t("library.selectedAssetSendFailed"));
         }
       });
+      return;
+    }
+    if (postStandaloneSelectionMessage(payload)) {
+      toast.success(
+        t("assetPicker.selectedAsset", {
+          title: selectedAssetLabel(payload),
+        }),
+      );
+      window.setTimeout(() => window.close(), 0);
       return;
     }
     setStandaloneSelection(payload);
@@ -2553,6 +2946,7 @@ export function AssetPickerSurface() {
       includeLogo: hostConfig.includeLogo,
       source: "ui",
       callerAppId: hostConfig.callerAppId,
+      creativeContextRequestId: hostConfig.creativeContextRequestId,
     } as any);
   }, [
     count,
@@ -2561,6 +2955,7 @@ export function AssetPickerSurface() {
     effectiveAspectRatio,
     generateBatch,
     hostConfig.callerAppId,
+    hostConfig.creativeContextRequestId,
     hostConfig.includeLogo,
     hostConfig.styleStrength,
     hostConfig.tier,
@@ -3265,103 +3660,11 @@ export function AssetPickerSurface() {
         )}
       </main>
 
-      <Dialog
-        open={Boolean(previewAsset)}
-        onOpenChange={(open) => {
-          if (!open) setPreviewAsset(null);
-        }}
-      >
-        {previewAsset &&
-          (() => {
-            const previewIndex = assets.findIndex(
-              (asset) => asset.id === previewAsset.id,
-            );
-            const hasPrev = previewIndex > 0;
-            const hasNext =
-              previewIndex >= 0 && previewIndex < assets.length - 1;
-            const showPreviousAsset = () => {
-              if (hasPrev) setPreviewAsset(assets[previewIndex - 1]);
-            };
-            const showNextAsset = () => {
-              if (hasNext) setPreviewAsset(assets[previewIndex + 1]);
-            };
-            return (
-              <DialogContent
-                hideClose
-                onKeyDown={(event) => {
-                  if (event.key === "ArrowLeft") showPreviousAsset();
-                  if (event.key === "ArrowRight") showNextAsset();
-                }}
-                className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
-              >
-                <DialogTitle className="sr-only">
-                  {assetDisplayTitle(previewAsset)}
-                </DialogTitle>
-                <DialogDescription className="sr-only">
-                  {t("library.fullSizePreview", {
-                    title: assetDisplayTitle(previewAsset),
-                  })}
-                </DialogDescription>
-                <div className="relative">
-                  <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
-                    <Button asChild variant="outline" size="sm">
-                      <Link
-                        to={`/asset/${encodeURIComponent(previewAsset.id)}`}
-                      >
-                        {t("library.viewDetails")}
-                      </Link>
-                    </Button>
-                    <DialogClose
-                      aria-label={t("library.closePreview")}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
-                    >
-                      <IconX className="h-5 w-5" />
-                    </DialogClose>
-                  </div>
-                  {previewAsset.mediaType === "video" ||
-                  previewAsset.mimeType?.startsWith("video/") ? (
-                    <video
-                      src={
-                        previewAsset.previewUrl ??
-                        previewAsset.downloadUrl ??
-                        previewAsset.url
-                      }
-                      poster={previewAsset.thumbnailUrl}
-                      controls
-                      autoPlay
-                      playsInline
-                      className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
-                    />
-                  ) : (
-                    <AssetOverlayImage asset={previewAsset} />
-                  )}
-                </div>
-                {(hasPrev || hasNext) && (
-                  <div className="mt-5 flex justify-center gap-2">
-                    <button
-                      type="button"
-                      aria-label={t("library.previousImage")}
-                      onClick={showPreviousAsset}
-                      disabled={!hasPrev}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <IconChevronLeft className="h-5 w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={t("library.nextImage")}
-                      onClick={showNextAsset}
-                      disabled={!hasNext}
-                      className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
-                    >
-                      <IconChevronRight className="h-5 w-5" />
-                    </button>
-                  </div>
-                )}
-              </DialogContent>
-            );
-          })()}
-      </Dialog>
+      <AssetPreviewDialog
+        asset={previewAsset}
+        assets={assets}
+        onAssetChange={setPreviewAsset}
+      />
     </div>
   );
 }

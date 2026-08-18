@@ -1,8 +1,6 @@
-import {
-  AgentToggleButton,
-  useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   useHeaderTitle,
   useHeaderActions,
@@ -13,6 +11,7 @@ const pageTitleKeys: Record<string, string> = {
   "/": "navigation.create",
   "/library": "navigation.library",
   "/brand-kits": "navigation.brandKits",
+  "/agent": "settings.agentTitle",
   "/extensions": "navigation.extensions",
   "/settings": "navigation.settings",
 };

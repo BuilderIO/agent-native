@@ -7,7 +7,6 @@ import {
   TEMPLATE_APPS,
   sortDesktopApps,
   type AppConfig,
-  type FrameSettings,
 } from "@shared/app-registry";
 import {
   normalizeDesktopShortcutAccelerator,
@@ -21,15 +20,20 @@ import type {
   CodeAgentProviderSettingsUpdate,
   CodeAgentProviderStatus,
 } from "@shared/ipc-channels";
-import { app, safeStorage } from "electron";
+import {
+  normalizeQuickPromptPreferences,
+  type QuickPromptPreferences,
+} from "@shared/quick-prompt";
+import { app } from "electron";
 
 const STORE_FILE = "app-config.json";
-const FRAME_STORE_FILE = "frame-config.json";
 const REMOTE_CONNECTOR_STORE_FILE = "remote-connector-config.json";
 const CODE_AGENT_PROVIDER_STORE_FILE = "code-agent-providers.json";
 const SHORTCUT_STORE_FILE = "shortcut-config.json";
+const QUICK_PROMPT_STORE_FILE = "quick-prompt-config.json";
 const DESKTOP_APP_PREFERENCES_STORE_FILE = "desktop-app-preferences.json";
-const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
+const REMOVED_DESKTOP_APP_IDS = new Set(["starter", "chat"]);
+const DESKTOP_APP_MODE_DEFAULTS_VERSION = 1;
 
 type StoredSecret =
   | { encoding: "local-file-v1"; value: string; updatedAt?: string }
@@ -80,7 +84,9 @@ const CODE_AGENT_PROVIDER_KEYS = CODE_AGENT_PROVIDER_DEFINITIONS.flatMap(
   (provider) => provider.keys,
 );
 
-export type { FrameSettings };
+type CodeAgentProviderCredentials = Partial<
+  Record<CodeAgentProviderCredentialKey, string>
+>;
 
 export interface RemoteConnectorSettings {
   enabled: boolean;
@@ -90,6 +96,8 @@ export interface DesktopAppPreferences {
   appsRoot: string;
   managedAppIds: string[];
   appOrder: string[];
+  appModeDefaultsVersion?: number;
+  desktopSsoEnabled: boolean;
 }
 
 interface ShortcutStore {
@@ -97,12 +105,8 @@ interface ShortcutStore {
   bindings: DesktopShortcutBinding[];
 }
 
-function defaultFrameSettings(): FrameSettings {
-  return {
-    enabled: true,
-    showCodeTab: true,
-    mode: app.isPackaged ? "prod" : "dev",
-  };
+interface QuickPromptStore extends QuickPromptPreferences {
+  version: 1;
 }
 
 function defaultRemoteConnectorSettings(): RemoteConnectorSettings {
@@ -114,8 +118,7 @@ function defaultRemoteConnectorSettings(): RemoteConnectorSettings {
 function defaultApps(): AppConfig[] {
   return DESKTOP_DEFAULT_APPS.map((def) => ({
     ...def,
-    mode:
-      app.isPackaged || def.id === "dispatch" ? (def.mode ?? "prod") : "dev",
+    mode: def.mode ?? "prod",
   }));
 }
 
@@ -166,10 +169,6 @@ function canonicalizeTemplateApp(appConfig: AppConfig, def: AppConfig) {
   };
 }
 
-function getFrameStorePath(): string {
-  return path.join(app.getPath("userData"), FRAME_STORE_FILE);
-}
-
 function getRemoteConnectorStorePath(): string {
   return path.join(app.getPath("userData"), REMOTE_CONNECTOR_STORE_FILE);
 }
@@ -180,6 +179,10 @@ function getCodeAgentProviderStorePath(): string {
 
 function getShortcutStorePath(): string {
   return path.join(app.getPath("userData"), SHORTCUT_STORE_FILE);
+}
+
+function getQuickPromptStorePath(): string {
+  return path.join(app.getPath("userData"), QUICK_PROMPT_STORE_FILE);
 }
 
 function getDesktopAppPreferencesStorePath(): string {
@@ -249,6 +252,41 @@ function defaultShortcutStore(): ShortcutStore {
   return { version: 1, bindings: [] };
 }
 
+function defaultQuickPromptStore(): QuickPromptStore {
+  return { version: 1, enabled: false };
+}
+
+function loadQuickPromptStore(): QuickPromptStore {
+  try {
+    const raw = JSON.parse(fs.readFileSync(getQuickPromptStorePath(), "utf-8"));
+    return {
+      version: 1,
+      ...normalizeQuickPromptPreferences(raw),
+    };
+  } catch {
+    return defaultQuickPromptStore();
+  }
+}
+
+export function loadQuickPromptPreferences(): QuickPromptPreferences {
+  return loadQuickPromptStore();
+}
+
+export function saveQuickPromptPreferences(
+  settings: Partial<QuickPromptPreferences>,
+): QuickPromptPreferences {
+  const current = loadQuickPromptStore();
+  const updated: QuickPromptStore = {
+    version: 1,
+    enabled:
+      typeof settings.enabled === "boolean"
+        ? settings.enabled
+        : current.enabled,
+  };
+  writeJsonFileAtomic(getQuickPromptStorePath(), updated);
+  return updated;
+}
+
 function sanitizeShortcutBehavior(behavior: unknown): DesktopShortcutBehavior {
   return behavior === "show" ? "show" : "toggle";
 }
@@ -302,82 +340,34 @@ function saveShortcutStore(store: ShortcutStore): void {
   writeJsonFileAtomic(getShortcutStorePath(), store);
 }
 
-function canUseSafeStorage(): boolean {
-  try {
-    return safeStorage.isEncryptionAvailable();
-  } catch {
-    return false;
-  }
-}
-
 function encodeProviderSecret(value: string): StoredSecret {
-  if (canUseSafeStorage()) {
-    try {
-      return {
-        encoding: "safeStorage-v1",
-        value: safeStorage.encryptString(value).toString("base64"),
-        updatedAt: new Date().toISOString(),
-      };
-    } catch {
-      // Fall through to the plain fallback below.
-    }
-  }
-
   return {
-    encoding: "plain",
+    // Keep credentials in the app-owned 0600 file so startup never touches macOS Keychain.
+    encoding: "local-file-v1",
     value,
     updatedAt: new Date().toISOString(),
   };
 }
 
-function decryptProviderSecret(
-  secret: StoredSecret | undefined,
-): string | null {
+function readProviderSecret(secret: StoredSecret | undefined): string | null {
   if (!secret?.value) return null;
   if (secret.encoding === "local-file-v1" || secret.encoding === "plain") {
     return secret.value;
   }
-  if (!canUseSafeStorage()) return null;
-  try {
-    return safeStorage.decryptString(Buffer.from(secret.value, "base64"));
-  } catch {
-    return null;
-  }
+  return null;
 }
 
-function migrateDecryptableProviderSecrets(
-  store: CodeAgentProviderStore,
-  credentials: Partial<Record<CodeAgentProviderCredentialKey, string>>,
-): void {
-  if (!canUseSafeStorage()) return;
-  let changed = false;
-  for (const key of CODE_AGENT_PROVIDER_KEYS) {
-    const secret = store.credentials[key];
-    const value = credentials[key];
-    if (!value || !secret || secret.encoding === "safeStorage-v1") continue;
-    store.credentials[key] = encodeProviderSecret(value);
-    changed = true;
-  }
-  if (changed) saveCodeAgentProviderStore(store);
+function hasUsableProviderSecret(secret: StoredSecret | undefined): boolean {
+  return readProviderSecret(secret) !== null;
 }
 
-function hasStoredProviderSecretBlob(
-  secret: StoredSecret | undefined,
-): boolean {
-  return Boolean(secret?.value);
-}
-
-export function loadCodeAgentProviderCredentials(): Partial<
-  Record<CodeAgentProviderCredentialKey, string>
-> {
+export function loadCodeAgentProviderCredentials(): CodeAgentProviderCredentials {
   const store = loadCodeAgentProviderStore();
-  const credentials: Partial<Record<CodeAgentProviderCredentialKey, string>> =
-    {};
+  const credentials: CodeAgentProviderCredentials = {};
   for (const key of CODE_AGENT_PROVIDER_KEYS) {
-    const value = decryptProviderSecret(store.credentials[key]);
+    const value = readProviderSecret(store.credentials[key]);
     if (value) credentials[key] = value;
   }
-  migrateDecryptableProviderSecrets(store, credentials);
   return credentials;
 }
 
@@ -416,7 +406,7 @@ export function applyCodeAgentProviderCredentialsToEnv(): CodeAgentProviderCrede
   for (const key of CODE_AGENT_PROVIDER_KEYS) {
     if (credentials[key]) {
       appliedKeys.push(key);
-    } else if (hasStoredProviderSecretBlob(store.credentials[key])) {
+    } else if (hasUsableProviderSecret(store.credentials[key])) {
       failedKeys.push(key);
     }
   }
@@ -436,7 +426,7 @@ export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings 
   const store = loadCodeAgentProviderStore();
   const providers = CODE_AGENT_PROVIDER_DEFINITIONS.map((provider) => {
     const savedKeys = provider.keys.filter((key) =>
-      hasStoredProviderSecretBlob(store.credentials[key]),
+      hasUsableProviderSecret(store.credentials[key]),
     );
     const envKeys = provider.keys.filter((key) => Boolean(process.env[key]));
     const configuredKeys = provider.keys.filter(
@@ -475,24 +465,6 @@ export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings 
   };
 }
 
-export function loadFrameSettings(): FrameSettings {
-  try {
-    const raw = fs.readFileSync(getFrameStorePath(), "utf-8");
-    return { ...defaultFrameSettings(), ...JSON.parse(raw) };
-  } catch {
-    return defaultFrameSettings();
-  }
-}
-
-export function saveFrameSettings(
-  settings: Partial<FrameSettings>,
-): FrameSettings {
-  const current = loadFrameSettings();
-  const updated = { ...current, ...settings };
-  writeJsonFileAtomic(getFrameStorePath(), updated);
-  return updated;
-}
-
 export function loadRemoteConnectorSettings(): RemoteConnectorSettings {
   try {
     const raw = fs.readFileSync(getRemoteConnectorStorePath(), "utf-8");
@@ -512,7 +484,7 @@ export function saveRemoteConnectorSettings(
 }
 
 export function getDefaultDesktopAppsRoot(): string {
-  return path.join(app.getPath("home"), "Agent Native Apps");
+  return path.join(app.getPath("home"), ".agent-native", "workspaces");
 }
 
 export function loadDesktopAppPreferences(): DesktopAppPreferences {
@@ -520,6 +492,7 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
     appsRoot: getDefaultDesktopAppsRoot(),
     managedAppIds: [],
     appOrder: [],
+    desktopSsoEnabled: true,
   };
   try {
     const raw = JSON.parse(
@@ -543,6 +516,13 @@ export function loadDesktopAppPreferences(): DesktopAppPreferences {
       appsRoot,
       managedAppIds: [...new Set(managedAppIds)],
       appOrder: [...new Set(appOrder)],
+      desktopSsoEnabled:
+        typeof raw.desktopSsoEnabled === "boolean"
+          ? raw.desktopSsoEnabled
+          : defaults.desktopSsoEnabled,
+      ...(typeof raw.appModeDefaultsVersion === "number"
+        ? { appModeDefaultsVersion: raw.appModeDefaultsVersion }
+        : {}),
     };
   } catch {
     return defaults;
@@ -562,6 +542,15 @@ export function saveDesktopAppPreferences(
       ...new Set(settings.managedAppIds ?? current.managedAppIds),
     ],
     appOrder: [...new Set(settings.appOrder ?? current.appOrder)],
+    desktopSsoEnabled:
+      typeof settings.desktopSsoEnabled === "boolean"
+        ? settings.desktopSsoEnabled
+        : current.desktopSsoEnabled,
+    ...(settings.appModeDefaultsVersion !== undefined
+      ? { appModeDefaultsVersion: settings.appModeDefaultsVersion }
+      : current.appModeDefaultsVersion !== undefined
+        ? { appModeDefaultsVersion: current.appModeDefaultsVersion }
+        : {}),
   };
   writeJsonFileAtomic(getDesktopAppPreferencesStorePath(), updated);
   return updated;
@@ -678,6 +667,7 @@ export function loadApps(): AppConfig[] {
     const defaults = defaultApps();
     const defaultsById = new Map(defaults.map((d) => [d.id, d]));
     const templateAppsById = new Map(TEMPLATE_APPS.map((d) => [d.id, d]));
+    const preferences = loadDesktopAppPreferences();
     const persistedIds = new Set(apps.map((a) => a.id));
 
     // Remove stale desktop apps that should no longer appear, then preserve
@@ -728,8 +718,8 @@ export function loadApps(): AppConfig[] {
       // User-added or legacy entries that match a first-party template should
       // still get canonical URL backfills. This covers old desktop configs
       // where hidden-but-known templates existed with an empty production URL,
-      // which otherwise falls through to the local dev frame in packaged builds
-      // and renders a blank tab.
+      // which otherwise falls through to an invalid local target and renders a
+      // blank tab.
       const templateDef = templateAppsById.get(app.id);
       if (templateDef) {
         const canonical = canonicalizeTemplateApp(app, templateDef);
@@ -738,6 +728,18 @@ export function loadApps(): AppConfig[] {
           migrated = true;
         }
       }
+    }
+
+    if (
+      preferences.appModeDefaultsVersion !== DESKTOP_APP_MODE_DEFAULTS_VERSION
+    ) {
+      // Record the migration only after legacy useCliHarness values have been
+      // normalized. An explicit persisted mode cannot be distinguished from
+      // the old implicit default, so changing every legacy dev app to prod
+      // would silently overwrite a user's local-development choice.
+      saveDesktopAppPreferences({
+        appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
+      });
     }
 
     const orderedApps = orderAppsForDesktop(apps);
@@ -752,6 +754,9 @@ export function loadApps(): AppConfig[] {
     // First launch or corrupted — seed with defaults
     const apps = defaultApps();
     saveApps(apps);
+    saveDesktopAppPreferences({
+      appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
+    });
     return apps;
   }
 }
@@ -816,6 +821,10 @@ export function updateApp(
 export function resetToDefaults(): AppConfig[] {
   const apps = defaultApps();
   saveApps(apps);
-  saveDesktopAppPreferences({ managedAppIds: [], appOrder: [] });
+  saveDesktopAppPreferences({
+    managedAppIds: [],
+    appOrder: [],
+    appModeDefaultsVersion: DESKTOP_APP_MODE_DEFAULTS_VERSION,
+  });
   return apps;
 }

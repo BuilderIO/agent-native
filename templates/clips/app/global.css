@@ -22,7 +22,7 @@
   --muted-foreground: 0 0% 45%;
   --accent: 0 0% 95%;
   --accent-foreground: 0 0% 15%;
-  --destructive: 0 84% 60%;
+  --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 90%;
   --input: 0 0% 90%;
@@ -36,6 +36,8 @@
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 40%;
+  --highlight: 197 100% 50%;
+  --highlight-foreground: 0 0% 10%;
 }
 
 .dark {
@@ -53,7 +55,7 @@
   --muted-foreground: 0 0% 60%;
   --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
-  --destructive: 0 63% 51%;
+  --destructive: 0 84% 60%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 24%;
   --input: 0 0% 24%;
@@ -67,6 +69,13 @@
   --sidebar-accent-foreground: 0 0% 90%;
   --sidebar-border: 0 0% 20%;
   --sidebar-ring: 0 0% 60%;
+  --highlight: 197 100% 50%;
+  --highlight-foreground: 0 0% 10%;
+}
+
+@theme inline {
+  --color-highlight: hsl(var(--highlight));
+  --color-highlight-foreground: hsl(var(--highlight-foreground));
 }
 
 @layer base {
@@ -74,6 +83,29 @@
     @apply bg-background text-foreground;
     font-family: "Inter Variable", "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@keyframes clips-import-progress {
+  0% {
+    transform: translateX(-100%);
+  }
+  50% {
+    transform: translateX(50%);
+  }
+  100% {
+    transform: translateX(250%);
+  }
+}
+
+@keyframes clips-benefit-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 

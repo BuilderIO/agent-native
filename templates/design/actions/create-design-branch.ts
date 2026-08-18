@@ -155,7 +155,7 @@ export default defineAction({
           ? ("connect-builder" as const)
           : ("make-it-real" as const),
         ctaMessage: isFusion
-          ? "Builder is not yet connected. Connect Builder.io to create branches for this design."
+          ? "Builder is not yet connected. Connect Builder.io (free tier available) to create branches for this design."
           : "Branching requires a Builder-hosted app. Use 'Make it real' to upgrade this inline design to a real-app source, then create branches.",
         branch: null,
         versionId: null,

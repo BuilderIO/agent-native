@@ -43,6 +43,9 @@ import {
   resolvePlanAccessContext,
 } from "./lib/local-identity.js";
 
+// Real libSQL access matrices run alongside every workspace suite in CI.
+vi.setConfig({ testTimeout: 60_000 });
+
 // ---------------------------------------------------------------------------
 // Test DB wiring. A single libSQL :memory: db is shared across the file; rows
 // are reset between tests. The plan resource is registered against it so the
@@ -85,10 +88,14 @@ let unshareResource: AnyAction;
 const OWNER = "owner@example.com";
 const OTHER = "outsider@example.com";
 const VIEWER = "viewer@example.com";
+const COMMENTER = "commenter@example.com";
 const EDITOR = "editor@example.com";
 const ORG = "org-1";
 const OTHER_ORG = "org-2";
-const ACCESS_MATRIX_SETUP_TIMEOUT_MS = 30_000;
+// The full CI matrix imports every action package concurrently with the other
+// template suites. The setup is normally a few seconds, but can exceed the
+// Vitest default under a saturated runner without indicating a product fault.
+const ACCESS_MATRIX_SETUP_TIMEOUT_MS = 60_000;
 
 async function resetTables() {
   // guard:allow-unscoped -- test-only fixture cleanup resets the isolated temp DB.
@@ -100,6 +107,7 @@ async function resetTables() {
     DELETE FROM plan_shares;
     DELETE FROM plans;
     DELETE FROM organizations;
+    DELETE FROM org_members;
   `);
 }
 
@@ -134,6 +142,14 @@ async function seedOrg(id: string, name: string) {
   await client.execute({
     sql: `INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)`,
     args: [id, name, OWNER, Date.now()],
+  });
+}
+
+/** Real `org_members` row — `org`-visibility access checks real membership. */
+async function seedOrgMember(orgId: string, email: string) {
+  await client.execute({
+    sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
+    args: [`${orgId}:${email}`, orgId, email, "member", Date.now()],
   });
 }
 
@@ -309,6 +325,13 @@ beforeAll(async () => {
       created_at INTEGER NOT NULL,
       allowed_domain TEXT,
       a2a_secret TEXT
+    );
+    CREATE TABLE org_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      role TEXT NOT NULL,
+      joined_at INTEGER NOT NULL
     );
   `);
 
@@ -602,6 +625,25 @@ describe("explicit user shares", () => {
     );
     expect(got.planId).toBe(planId);
 
+    await expect(
+      asUser({ userEmail: VIEWER }, () =>
+        updateVisualPlan.run({
+          planId,
+          contentPatches: [],
+          sections: [],
+          comments: [
+            {
+              message: "Viewer comment must be rejected",
+              kind: "comment",
+              status: "open",
+              createdBy: "human",
+            },
+          ],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
     // edit denied (viewer < editor)
     await expect(
       asUser({ userEmail: VIEWER }, () =>
@@ -744,28 +786,58 @@ describe("public review link", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
   });
 
-  it("a real signed-in account CAN comment on a public plan (read-only viewer + account)", async () => {
+  it("a commenter share can comment while a public viewer remains read-only", async () => {
     const planId = await createPlanAs(OWNER, undefined);
     await setVisibility(OWNER, undefined, planId, "public");
-
-    const result = await asUser({ userEmail: OTHER, userName: "Other" }, () =>
-      updateVisualPlan.run({
-        planId,
-        contentPatches: [],
-        sections: [],
-        comments: [
-          {
-            message: "Looks good, one nit.",
-            kind: "comment",
-            status: "open",
-            createdBy: "human",
-          },
-        ],
-        consumedCommentIds: [],
+    await asUser({ userEmail: OWNER }, () =>
+      shareResource.run({
+        resourceType: "plan",
+        resourceId: planId,
+        principalType: "user",
+        principalId: COMMENTER,
+        role: "commenter",
       }),
     );
+
+    await expect(
+      asUser({ userEmail: OTHER, userName: "Other" }, () =>
+        updateVisualPlan.run({
+          planId,
+          contentPatches: [],
+          sections: [],
+          comments: [
+            {
+              message: "Public viewer cannot comment.",
+              kind: "comment",
+              status: "open",
+              createdBy: "human",
+            },
+          ],
+          consumedCommentIds: [],
+        }),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+
+    const result = await asUser(
+      { userEmail: COMMENTER, userName: "Commenter" },
+      () =>
+        updateVisualPlan.run({
+          planId,
+          contentPatches: [],
+          sections: [],
+          comments: [
+            {
+              message: "Looks good, one nit.",
+              kind: "comment",
+              status: "open",
+              createdBy: "human",
+            },
+          ],
+          consumedCommentIds: [],
+        }),
+    );
     expect(result.comments.length).toBe(1);
-    expect(result.comments[0].authorEmail).toBe(OTHER);
+    expect(result.comments[0].authorEmail).toBe(COMMENTER);
     // The plan body itself is untouched by a comment-only call.
     expect((await rawPlan(planId)).title).toBe("Plan");
   });
@@ -788,6 +860,7 @@ describe("org visibility", () => {
   it("an org-visible plan is readable by same-org members, not other orgs", async () => {
     const planId = await createPlanAs(OWNER, ORG);
     await setVisibility(OWNER, ORG, planId, "org");
+    await seedOrgMember(ORG, VIEWER);
 
     // same org member reads
     const got = await asUser({ userEmail: VIEWER, orgId: ORG }, () =>
@@ -806,6 +879,7 @@ describe("org visibility", () => {
   it("org visibility grants read but not edit to a non-owner org member", async () => {
     const planId = await createPlanAs(OWNER, ORG);
     await setVisibility(OWNER, ORG, planId, "org");
+    await seedOrgMember(ORG, VIEWER);
 
     await expect(
       asUser({ userEmail: VIEWER, orgId: ORG }, () =>
@@ -960,7 +1034,16 @@ describe("adversarial", () => {
     // owner makes a public plan and another account leaves a comment
     const planId = await createPlanAs(OWNER, undefined);
     await setVisibility(OWNER, undefined, planId, "public");
-    const commentResult = await asUser({ userEmail: VIEWER }, () =>
+    await asUser({ userEmail: OWNER }, () =>
+      shareResource.run({
+        resourceType: "plan",
+        resourceId: planId,
+        principalType: "user",
+        principalId: COMMENTER,
+        role: "commenter",
+      }),
+    );
+    const commentResult = await asUser({ userEmail: COMMENTER }, () =>
       updateVisualPlan.run({
         planId,
         contentPatches: [],

@@ -361,7 +361,85 @@ describe("resource handlers", () => {
         "Content-Type",
         "text/markdown",
       );
+      expect(setResponseHeader).toHaveBeenCalledWith(
+        event,
+        "Cache-Control",
+        "private, no-store",
+      );
+      expect(setResponseHeader).toHaveBeenCalledWith(
+        event,
+        "X-Content-Type-Options",
+        "nosniff",
+      );
       expect(result).toBeInstanceOf(Response);
+    });
+
+    it("downloads empty content with a sanitized attachment filename", async () => {
+      const { setResponseHeader } = await import("h3");
+
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: 'exports/quarterly\n"résumé".csv',
+        owner: "test@test.com",
+        content: "",
+        mimeType: "text/csv",
+        size: 0,
+        createdAt: 1000,
+        updatedAt: 2000,
+      });
+
+      const event = {
+        _params: { id: "r1" },
+        _query: { download: "1" },
+        context: {},
+      };
+
+      const result = await handleGetResource(event);
+
+      expect(setResponseHeader).toHaveBeenCalledWith(
+        event,
+        "Content-Disposition",
+        "attachment; filename=\"quarterly__r_sum__.csv\"; filename*=UTF-8''quarterly_%22r%C3%A9sum%C3%A9%22.csv",
+      );
+      expect(setResponseHeader).toHaveBeenCalledWith(
+        event,
+        "Content-Length",
+        "0",
+      );
+      expect(setResponseHeader).toHaveBeenCalledWith(
+        event,
+        "Cache-Control",
+        "private, no-store",
+      );
+      expect(setResponseHeader).toHaveBeenCalledWith(
+        event,
+        "X-Content-Type-Options",
+        "nosniff",
+      );
+      expect(result).toBeInstanceOf(Response);
+      await expect((result as Response).text()).resolves.toBe("");
+    });
+
+    it("does not treat other download values as raw resource requests", async () => {
+      const resource = {
+        id: "r1",
+        path: "notes.md",
+        owner: "test@test.com",
+        content: "# Hello",
+        mimeType: "text/markdown",
+        size: 7,
+        createdAt: 1000,
+        updatedAt: 2000,
+      };
+      mockResourceGet.mockResolvedValue(resource);
+
+      const event = {
+        _params: { id: "r1" },
+        _query: { download: "0" },
+        context: {},
+      };
+
+      await expect(handleGetResource(event)).resolves.toEqual(resource);
     });
   });
 

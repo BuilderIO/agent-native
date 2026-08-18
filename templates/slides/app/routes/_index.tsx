@@ -1,7 +1,7 @@
 import Index from "@/pages/Index";
 
 const SEO_TITLE =
-  "Agent-Native Slides - Open Source AI presentation builder and Google Slides alternative";
+  "Slides - Open Source AI presentation builder and Google Slides alternative";
 const SEO_DESCRIPTION =
   "Open Source AI presentation builder for generating, editing, refining, and exporting React decks as Google Slides-ready presentations.";
 

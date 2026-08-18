@@ -24,6 +24,8 @@ export default defineAction({
 
     return `Image Generation Status:
 ========================
+Primary: Assets app (via A2A)
+Local fallback providers:
 Gemini: ${geminiStatus}
 OpenAI: ${openaiStatus}
 ${autoProvider}

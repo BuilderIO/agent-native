@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import {
   canInviteOrgMembers,
@@ -80,14 +80,30 @@ export function useOrgRole(): UseOrgRoleResult {
   };
 }
 
-export function useOrgMembers() {
+export const ORG_MEMBER_PAGE_SIZE = 25;
+
+export interface OrgMembersPage {
+  members: OrgMember[];
+  totalCount: number;
+  hasMore: boolean;
+  nextOffset: number | null;
+}
+
+export function useOrgMembers(offset = 0) {
   // Scope the cache by active orgId so switching or creating an org forces a
   // fresh fetch rather than briefly showing the previous org's members.
   const { data: org } = useOrg();
-  return useQuery<{ members: OrgMember[] }>({
-    queryKey: ["org-members", org?.orgId ?? null],
-    queryFn: () => apiFetch(`${ORG_BASE}/members`),
+  const params = new URLSearchParams({
+    limit: String(ORG_MEMBER_PAGE_SIZE),
+    offset: String(offset),
+  });
+  return useQuery<OrgMembersPage>({
+    queryKey: ["org-members", org?.orgId ?? null, offset],
+    queryFn: () => apiFetch(`${ORG_BASE}/members?${params}`),
+    enabled: Boolean(org?.orgId),
     staleTime: 30_000,
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === org?.orgId ? previousData : undefined,
   });
 }
 
@@ -274,6 +290,22 @@ export function useSwitchOrg() {
   });
 }
 
+export function useDeleteOrg() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (name: string) =>
+      apiFetch(ORG_BASE, {
+        method: "DELETE",
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: async () => {
+      // Deleting an org drops the user into a different active org (or none),
+      // so every org-scoped query is stale — same reasoning as create/switch.
+      await qc.invalidateQueries();
+    },
+  });
+}
+
 export function useJoinByDomain() {
   const qc = useQueryClient();
   return useMutation({
@@ -299,6 +331,112 @@ export function useSetOrgDomain() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-me"] });
     },
+  });
+}
+
+export function useSetOrgWorkspaceUrl() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (url: string | null) =>
+      apiFetch(`${ORG_BASE}/workspace-url`, {
+        method: "PUT",
+        body: JSON.stringify({ url }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
+export function useSetOrgAuthProvider() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (provider: "google" | null) =>
+      apiFetch(`${ORG_BASE}/auth-provider`, {
+        method: "PUT",
+        body: JSON.stringify({ provider }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
+export interface AppRoleAssignment {
+  email: string;
+  role: string;
+}
+
+export interface AppRolesInfo {
+  appId: string;
+  roles: string[];
+  /** Shown for members with no assignment. Never satisfies a server guard. */
+  defaultRole: string | null;
+  roleLabels: Record<string, string>;
+  /** Whether the current user may change assignments (org owner/admin). */
+  canManage: boolean;
+  assignments: AppRoleAssignment[];
+  myRole: string | null;
+}
+
+/**
+ * App-role vocabulary and assignments for the active org.
+ *
+ * `myRole` and `canManage` are progressive disclosure only — every guarded
+ * operation re-resolves both server-side, so a client that shows the wrong
+ * affordance still cannot perform the operation.
+ */
+export function useAppRoles(appId: string | undefined) {
+  const { data: org } = useOrg();
+  return useQuery<AppRolesInfo>({
+    queryKey: ["org-app-roles", appId ?? null, org?.orgId ?? null],
+    queryFn: () =>
+      apiFetch(`${ORG_BASE}/app-roles?appId=${encodeURIComponent(appId!)}`),
+    enabled: Boolean(appId),
+    staleTime: 30_000,
+  });
+}
+
+/** The current user's role in one app, or `null` when unassigned. */
+export function useAppRole(appId: string | undefined): {
+  role: string | null;
+  isLoading: boolean;
+  error: Error | null;
+} {
+  const query = useAppRoles(appId);
+  return {
+    role: query.data?.myRole ?? null,
+    isLoading: query.isLoading,
+    error: query.error,
+  };
+}
+
+export function useSetAppMemberRole(appId: string) {
+  const qc = useQueryClient();
+  return useMutation<
+    { appId: string; email: string; role: string | null },
+    Error,
+    { email: string; role: string | null }
+  >({
+    mutationFn: ({ email, role }) =>
+      apiFetch(`${ORG_BASE}/app-roles/${encodeURIComponent(email)}`, {
+        method: "PUT",
+        body: JSON.stringify({ appId, role }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-app-roles"] });
+    },
+  });
+}
+
+/**
+ * Fetch the org's A2A secret on demand (owner/admin). Deliberately a separate
+ * request from `useOrg()` so the secret only reaches the browser when the
+ * operator asks to reveal or copy it.
+ */
+export function useRevealA2ASecret() {
+  return useMutation<{ a2aSecret: string | null }, Error, void>({
+    mutationFn: () => apiFetch(`${ORG_BASE}/a2a-secret`),
   });
 }
 

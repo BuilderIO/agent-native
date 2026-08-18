@@ -11,8 +11,8 @@
 //! renderer's `LiveTranscript` tagged `source: "system"`.
 //!
 //! Uses the safe `screencapturekit` Rust crate. Its `SCStreamOutputTrait`
-//! callback hands us a `CMSampleBuffer` per audio frame; SCK delivers stereo
-//! 48 kHz float, which we mono-mix on the way out.
+//! callback hands us a `CMSampleBuffer` per audio frame; each source is decoded
+//! from its advertised format, normalized to 48 kHz, and mono-mixed.
 //!
 //! ## Tauri commands
 //!
@@ -115,10 +115,12 @@ pub async fn audio_transcription_start(
     mic_device_label: Option<String>,
     capture_system: Option<bool>,
     voice_processing: Option<bool>,
+    emit_partials: Option<bool>,
     owner: Option<String>,
 ) -> Result<(), String> {
     let _ = meeting_id;
-    crate::whisper_speech::whisper_transcription_start(
+    crate::logfile::diagnostic("[meeting-audio] transcription engine start requested");
+    let result = crate::whisper_speech::whisper_transcription_start(
         app,
         locale,
         mic_device_id,
@@ -128,9 +130,21 @@ pub async fn audio_transcription_start(
         // create a second VoiceProcessingIO stack beside a live call app.
         // Short dictation sessions opt in explicitly from the renderer.
         voice_processing.unwrap_or(false),
+        // Existing meeting callers depend on live partials. Recording capture
+        // explicitly opts out because it only persists final segments.
+        emit_partials.unwrap_or(true),
         owner,
     )
-    .await
+    .await;
+    if let Err(error) = &result {
+        crate::logfile::diagnostic(&format!(
+            "[meeting-audio] transcription engine start failed: {error}"
+        ));
+        eprintln!("[clips-tray] meeting transcription engine start failed: {error}");
+    } else {
+        crate::logfile::diagnostic("[meeting-audio] transcription engine started");
+    }
+    result
 }
 
 #[tauri::command]
@@ -147,10 +161,8 @@ pub async fn audio_transcription_reset_timeline() -> Result<(), String> {
 pub(crate) mod macos {
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::Arc;
+    use std::time::Duration;
 
-    use objc2::rc::Retained;
-    use objc2::AnyThread;
-    use objc2_avf_audio::{AVAudioFormat, AVAudioPCMBuffer};
     use objc2_foundation::NSProcessInfo;
     use serde::Serialize;
     use tauri::{AppHandle, Emitter};
@@ -217,7 +229,7 @@ pub(crate) mod macos {
     /// open System Settings manually).
     pub fn open_screen_recording_settings() -> Result<(), String> {
         use std::process::Command;
-        let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
+        let url = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture";
         Command::new("open")
             .arg(url)
             .status()
@@ -245,7 +257,6 @@ pub(crate) mod macos {
     // ----------------------------------------------------------------------
     struct RawAudioForwarder {
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
-        speech_format: Retained<AVAudioFormat>,
         app: AppHandle,
         cancelled: Arc<AtomicBool>,
         level_tick: Arc<AtomicU32>,
@@ -253,10 +264,8 @@ pub(crate) mod macos {
         source: &'static str,
     }
 
-    // SAFETY: `Retained<SFSpeech*>` and `Retained<AVAudioFormat>` wrap
-    // refcounted ObjC objects that Apple documents as message-thread-safe.
-    // SCK calls our handler from its own dispatch queue; we never alias
-    // these via `&` across threads.
+    // SAFETY: SCK calls this handler from its dispatch queue; all shared
+    // fields are immutable handles or atomics.
     unsafe impl Send for RawAudioForwarder {}
     unsafe impl Sync for RawAudioForwarder {}
 
@@ -272,33 +281,42 @@ pub(crate) mod macos {
             if self.cancelled.load(Ordering::SeqCst) {
                 return;
             }
-            let Some(buf) = build_pcm_buffer_from_sample(&sample_buffer, &self.speech_format)
+            let Some(samples) =
+                crate::native_screen::extract_mono_audio(&sample_buffer, self.source)
             else {
                 return;
             };
-            // Hand channel 0 (mono mix) to the callback continuously — no level
-            // gate, so the Whisper buffer stays a contiguous stream.
-            let frames = unsafe { buf.frameLength() } as usize;
-            if frames > 0 {
-                let ch_ptr = unsafe { buf.floatChannelData() };
-                if !ch_ptr.is_null() {
-                    let slice = unsafe { std::slice::from_raw_parts((*ch_ptr).as_ptr(), frames) };
-                    (self.on_samples)(slice);
-                }
-                let n = self.level_tick.fetch_add(1, Ordering::Relaxed);
-                if n % 3 == 0 {
-                    let level = crate::native_speech::macos::peak_level_for_pcm(&buf);
-                    let _ = self.app.emit(
-                        "voice:audio-level",
-                        AudioLevelPayload {
-                            level,
-                            source: self.source,
-                        },
-                    );
-                }
+            if samples.is_empty() {
+                return;
+            }
+            (self.on_samples)(&samples);
+            let n = self.level_tick.fetch_add(1, Ordering::Relaxed);
+            if n % 3 == 0 {
+                let level = samples
+                    .iter()
+                    .copied()
+                    .map(f32::abs)
+                    .fold(0.0_f32, f32::max)
+                    .min(1.0);
+                let _ = self.app.emit(
+                    "voice:audio-level",
+                    AudioLevelPayload {
+                        level,
+                        source: self.source,
+                    },
+                );
             }
         }
     }
+
+    /// `SCStream::stop_capture()` occasionally never returns when the stream's
+    /// underlying connection was already interrupted (same ScreenCaptureKit
+    /// flakiness `native_screen::run_bounded_capture_stop` bounds for the video
+    /// stream). This capture has no delegate to observe that ahead of time, so
+    /// bound the stop call itself — otherwise a hung stop blocks the
+    /// `audio_transcription_stop` Tauri command, which blocks the recorder's
+    /// finalize await, forever.
+    const SYSTEM_AUDIO_SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
 
     /// Handle for a running raw SCK audio capture. A meeting capture can carry
     /// both system and microphone output handlers on this one stream.
@@ -314,7 +332,17 @@ pub(crate) mod macos {
     impl RawSckAudioCapture {
         pub(crate) fn stop(self) {
             self.cancelled.store(true, Ordering::SeqCst);
-            let _ = self.stream.stop_capture();
+            let stream = self.stream;
+            if let Err(err) = crate::native_screen::run_bounded_capture_stop(
+                move || {
+                    stream
+                        .stop_capture()
+                        .map_err(|e| format!("system audio SCStream stop failed: {e:?}"))
+                },
+                SYSTEM_AUDIO_SCK_STOP_TIMEOUT,
+            ) {
+                eprintln!("[system-audio] bounded stop_capture: {err}");
+            }
         }
     }
 
@@ -414,19 +442,11 @@ pub(crate) mod macos {
             );
         }
 
-        // Mono float32 @ 48 kHz destination format for the mono-mix.
-        let speech_format = unsafe {
-            let allocated = AVAudioFormat::alloc();
-            AVAudioFormat::initStandardFormatWithSampleRate_channels(allocated, 48000.0, 1)
-        }
-        .ok_or_else(|| "AVAudioFormat init failed for raw system capture".to_string())?;
-
         let cancelled = Arc::new(AtomicBool::new(false));
         let mut stream = SCStream::new(&filter, &config);
         if let Some(on_samples) = on_system_samples {
             let forwarder = RawAudioForwarder {
                 on_samples,
-                speech_format: speech_format.clone(),
                 app: app.clone(),
                 cancelled: cancelled.clone(),
                 level_tick: Arc::new(AtomicU32::new(0)),
@@ -438,7 +458,6 @@ pub(crate) mod macos {
         if let Some(on_samples) = on_mic_samples {
             let forwarder = RawAudioForwarder {
                 on_samples,
-                speech_format,
                 app: app.clone(),
                 cancelled: cancelled.clone(),
                 level_tick: Arc::new(AtomicU32::new(0)),
@@ -460,97 +479,5 @@ pub(crate) mod macos {
     struct AudioLevelPayload {
         level: f32,
         source: &'static str,
-    }
-
-    /// Pull the PCM bytes out of a SCK CMSampleBuffer and copy them into a
-    /// freshly-allocated AVAudioPCMBuffer matching `speech_format`
-    /// (single-channel float32 at the SCK sample rate). SCK delivers stereo
-    /// non-interleaved float32 by default — we mono-mix by averaging the
-    /// two channels. Returns `None` if the sample buffer's audio layout
-    /// can't be interpreted (rare; only happens if SCK changes its output
-    /// shape mid-stream).
-    fn build_pcm_buffer_from_sample(
-        sample: &CMSampleBuffer,
-        speech_format: &AVAudioFormat,
-    ) -> Option<Retained<AVAudioPCMBuffer>> {
-        let num_samples = sample.num_samples();
-        if num_samples == 0 {
-            return None;
-        }
-        let abl = sample.audio_buffer_list()?;
-        let n_buffers = abl.num_buffers();
-        if n_buffers == 0 {
-            return None;
-        }
-
-        // Allocate the destination buffer.
-        // SAFETY: standard AVAudioPCMBuffer init; we control the format and
-        // capacity.
-        #[allow(clippy::cast_possible_truncation)]
-        let frame_capacity = num_samples as u32;
-        let allocated = AVAudioPCMBuffer::alloc();
-        let dest = unsafe {
-            AVAudioPCMBuffer::initWithPCMFormat_frameCapacity(
-                allocated,
-                speech_format,
-                frame_capacity,
-            )
-        }?;
-        unsafe { dest.setFrameLength(frame_capacity) };
-
-        // SAFETY: the format is the one we constructed below — float, mono,
-        // non-interleaved — so `floatChannelData` is non-null and points at
-        // `channelCount=1` pointers, each to `frame_capacity` floats.
-        let dest_ch_ptr = unsafe { dest.floatChannelData() };
-        if dest_ch_ptr.is_null() {
-            return None;
-        }
-        let dest_slice =
-            unsafe { std::slice::from_raw_parts_mut((*dest_ch_ptr).as_ptr(), num_samples) };
-
-        if n_buffers >= 2 {
-            // Stereo non-interleaved — average the two channels.
-            let l = abl.get(0)?;
-            let r = abl.get(1)?;
-            let l_bytes = l.data();
-            let r_bytes = r.data();
-            // Treat as f32 little-endian (host byte order on every Apple
-            // platform we ship).
-            let l_floats = bytes_as_f32(l_bytes);
-            let r_floats = bytes_as_f32(r_bytes);
-            let n = num_samples.min(l_floats.len()).min(r_floats.len());
-            for i in 0..n {
-                dest_slice[i] = 0.5 * (l_floats[i] + r_floats[i]);
-            }
-            for v in dest_slice.iter_mut().take(num_samples).skip(n) {
-                *v = 0.0;
-            }
-        } else {
-            // Mono — just copy.
-            let only = abl.get(0)?;
-            let src = bytes_as_f32(only.data());
-            let n = num_samples.min(src.len());
-            dest_slice[..n].copy_from_slice(&src[..n]);
-            for v in dest_slice.iter_mut().take(num_samples).skip(n) {
-                *v = 0.0;
-            }
-        }
-
-        Some(dest)
-    }
-
-    /// Reinterpret a `&[u8]` as `&[f32]`. Length is rounded down to the
-    /// nearest multiple of 4. Safe because `f32` has no invalid
-    /// bit-patterns and the caller only uses the elements they're
-    /// indexing into.
-    fn bytes_as_f32(b: &[u8]) -> &[f32] {
-        let n = b.len() / 4;
-        if n == 0 {
-            return &[];
-        }
-        // SAFETY: `f32` is plain old data with alignment 4; CoreAudio's
-        // AudioBuffer pointers are 16-byte aligned in practice. We cap the
-        // length at `n` so we never read past the end.
-        unsafe { std::slice::from_raw_parts(b.as_ptr().cast::<f32>(), n) }
     }
 }

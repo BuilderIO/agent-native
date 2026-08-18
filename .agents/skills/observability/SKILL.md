@@ -32,7 +32,7 @@ await putSetting("observability-config", {
   enabled: true,
   capturePrompts: false,
   captureToolArgs: true,    // capture action input args
-  captureToolResults: false,
+  captureToolResults: false, // include failed tool error text on tracked $ai_generation tool call entries
   evalSampleRate: 0.05,     // 5% of runs get LLM-as-judge eval
   inferredSentimentEnabled: false,
   inferredSentimentSampleRate: 0,
@@ -158,21 +158,6 @@ The agent loop reads active experiments via `resolveActiveExperimentConfig()` an
 
 Compute results with `POST /_agent-native/observability/experiments/:id/results`.
 
-#### First-party hosted default-model rollout
-
-First-party apps on `agent-native.com` automatically run the July 2026
-default-model experiment for authenticated users on the Builder engine:
-
-- 80% `claude-sonnet-5`
-- 20% `gpt-5-6-luna`
-- Assignment is sticky by normalized user email and shared across templates.
-- The rollout applies only when the user, app, and deployment have not selected
-  a model. Explicit model choices and BYO provider engines always win.
-- Set `AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT=off` for an emergency rollback, or
-  `true` to exercise the rollout on a non-first-party preview.
-- `$ai_generation` tracking includes `experiment_id`,
-  `experiment_variant`, and `model_selection_source` for central analysis.
-
 In production, experiment management routes require the caller's email in the
 comma-separated `AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS` allowlist. This gate is
 separate from normal app/org admin roles because an experiment affects every
@@ -190,7 +175,7 @@ user in that deployment.
 Add a dashboard route to any template:
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 
 export default function ObservabilityPage() {
   return (
@@ -247,6 +232,7 @@ All tables are dialect-agnostic (SQLite + Postgres) and strictly additive.
 | `packages/core/src/observability/types.ts` | Shared type definitions |
 | `packages/core/src/observability/store.ts` | SQL tables + CRUD |
 | `packages/core/src/observability/traces.ts` | Auto-instrumentation |
+| `packages/core/src/observability/posthog-ai.ts` | `$ai_trace` / `$ai_span` / `survey sent` emission, content bounding, `$ai_error` |
 | `packages/core/src/observability/feedback.ts` | Feedback + Frustration Index |
 | `packages/core/src/observability/evals.ts` | Eval engine (3 layers) |
 | `packages/core/src/observability/experiments.ts` | A/B testing system |
@@ -287,20 +273,55 @@ The loop emits `agent.run` (with `agent.run_id`, `agent.thread_id`, `agent.user_
 
 ## Tracking Bridge
 
-Instrumented agent loops also emit one server-side tracking event per completed
-LLM generation:
+Instrumented agent loops emit server-side tracking events for every run through
+`track()` from `@agent-native/core/tracking`, so configured PostHog, Agent Native
+Analytics, Mixpanel, Amplitude, and webhook providers receive them through the
+same best-effort fan-out as other tracking events.
 
-- Event name: `$ai_generation`
-- Provider path: `track()` from `@agent-native/core/tracking`, so configured
-  PostHog, Agent Native Analytics, Mixpanel, Amplitude, and webhook providers
-  receive it through the same best-effort fan-out as other tracking events.
-- PostHog shape: uses AI Observability properties such as `$ai_trace_id`,
-  `$ai_session_id`, `$ai_model`, `$ai_provider`, `$ai_input_tokens`,
-  `$ai_output_tokens`, `$ai_latency`, `$ai_total_cost_usd`, and `$ai_is_error`.
+- Events: `$ai_trace` per run, `$ai_span` per tool call, and `$ai_generation`
+  per model call. Every node carries the run id as `$ai_trace_id` and links
+  upward through `$ai_parent_id` so a backend can rebuild the tree.
+  `$ai_session_id` is the thread; the browser session is separate and ships as
+  `$session_id`, read from `X-Agent-Native-Session-Id` via
+  `RequestContext.browserSessionId`. The agent chat and the action client both
+  send that header, so a UI action call and the agent's own call during one
+  visit share a session. `setAnalyticsSessionId()` from
+  `@agent-native/core/client/analytics` pins a custom id and opts it out of the
+  30-minute idle rotation. Emission lives in `posthog-ai.ts`.
 - Agent Native Analytics shape: the same event lands in `analytics_events` with
   mirrored query-friendly properties such as `run_id`, `thread_id`,
   `cost_cents_x100`, `duration_ms`, `tool_calls`, `successful_tools`,
-  `failed_tools`, and `status`.
+  `failed_tools`, and `status`. A content-free `tools` array includes at most
+  50 tool names, start offsets, durations, statuses, and coarse error classes;
+  interrupted calls are finalized as errors, and failed runs still emit with
+  zero or known usage. `tools_truncated` marks longer runs while the rollup counts remain complete.
+  Delegated runs add `delegation_protocol`, `caller_app`, `a2a_task_id`, and
+  `parent_run_id` when available. `parent_turn_id` is separate because one
+  logical turn may span multiple concrete runs.
+
+Constraints that are not visible from the emit site:
+
+- **One generation per run, not per model round-trip.** The engine layer reports
+  aggregate usage through `onUsage` and exposes no per-step hook, so a multi-step
+  run collapses into a single generation carrying the whole message list.
+  Per-round-trip latency and intermediate turns are unavailable without a new
+  seam in `ai-sdk-engine.ts` / `builder-engine.ts`. Do not describe the current
+  output as per-step.
+- **Disabled capture omits the field rather than sending an empty one.** An
+  empty array is indistinguishable from a run that genuinely had no messages.
+  Truncated content is marked, and a run over the span cap stamps
+  `$ai_spans_dropped` — a truncated run must not read as a complete one.
+- **The structural tool-call list ships even when content capture is off.**
+  Backends derive their tool tags from tool-call blocks inside the output
+  choices and from nothing else, so tool names (without arguments) are always
+  emitted. The parallel first-party `tools` array stays because the dashboards
+  read it; that duplication is deliberate, not cleanup.
+- **Only thumbs carry `sentiment`.** All four feedback types are reported, but a
+  category follow-up to a thumbs-down is detail about the same vote — counting
+  it again inflates the metric.
+- **Never invent an external id to make an integration light up.** Survey-based
+  feedback is emitted only when a real survey id is configured, and nothing is
+  sent otherwise.
 
 Do not build a separate LLM-observability ingestion API unless there is a clear
 reason the tracking provider registry cannot express the use case. Keep prompt,

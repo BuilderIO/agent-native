@@ -1,11 +1,15 @@
+import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import {
   IconChevronDown,
   IconChevronRight,
-  IconExternalLink,
   IconLoader2,
-  IconTerminal2,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useState } from "react";
+
+import type {
+  SubscriptionProviderId,
+  SubscriptionStatus,
+} from "../../../shared/subscription-status.js";
 
 type ProviderStatusTone = "ok" | "offline";
 const PENDING_BUILDER_CONNECT_RELOAD_KEY =
@@ -78,6 +82,10 @@ const CODE_AGENT_PROVIDER_FIELDSETS: Array<{
     ],
   },
 ];
+
+const CUSTOM_KEY_PROVIDER_FIELDSETS = CODE_AGENT_PROVIDER_FIELDSETS.filter(
+  (provider) => provider.id !== "builder",
+);
 
 function providerStatusCopy(provider: CodeAgentProviderStatus | undefined): {
   label: string;
@@ -174,12 +182,7 @@ export function CodeProviderSettings({
   const builderProvider = settings.providers.find(
     (provider) => provider.id === "builder",
   );
-  const codexProvider = settings.providers.find(
-    (provider) => provider.id === "codex",
-  );
   const builderConnected = Boolean(builderProvider?.configured);
-  const codexAvailable = Boolean(codexProvider);
-  const codexConnected = Boolean(codexProvider?.configured);
   const builderSavedKeys = Boolean(builderProvider?.savedKeys.length);
   const selectedProviderDefinition =
     CODE_AGENT_PROVIDER_FIELDSETS.find(
@@ -321,194 +324,358 @@ export function CodeProviderSettings({
   );
 
   return (
-    <div className="settings-provider-card">
-      <div className="settings-provider-card-header">
-        <div>
-          <span className="settings-mode-card-title">Agent runtimes</span>
-          <span className="settings-mode-card-status">
-            {settings.configured
-              ? `${settings.configuredProviders.join(", ")} ready`
-              : "Connect Builder.io, run codex login, or add an API key before chatting."}
-          </span>
-        </div>
-      </div>
-
-      <div
-        className={`settings-builder-connect-card${
-          builderConnected ? " settings-builder-connect-card--ok" : ""
-        }`}
+    <div className="space-y-6">
+      <SettingsGroup
+        title="AI providers"
+        description="Choose a provider for agent tasks."
       >
-        <div className="settings-builder-connect-copy">
-          <span className="settings-builder-title">Builder.io</span>
-          <span className="settings-builder-description">
-            {builderConnected
+        <SettingsRow
+          label="Builder.io"
+          description={
+            builderConnected
               ? builderProvider?.source === "environment"
                 ? "Connected through environment credentials."
                 : "Connected for Agent tasks."
-              : "Free credits to start - no API key needed."}
-          </span>
-        </div>
-        <div className="settings-builder-actions">
-          <button
-            type="button"
-            className="settings-builder-connect-button"
-            onClick={() => handleConnectBuilder()}
-            disabled={builderConnecting}
-          >
-            {builderConnecting ? (
-              <>
-                <IconLoader2
-                  size={13}
-                  className="settings-builder-connect-spinner"
-                />
-                Waiting...
-              </>
-            ) : (
-              <>
-                {builderConnected ? "Reconnect" : "Connect Builder.io"}
-                <IconExternalLink size={13} />
-              </>
-            )}
-          </button>
-          {builderSavedKeys && (
-            <button
-              type="button"
-              className="settings-provider-text-button"
-              onClick={() => handleRemoveProvider("builder")}
-              disabled={providerSavingId === "builder"}
-            >
-              Remove
-            </button>
-          )}
-        </div>
-      </div>
-
-      <div
-        className={`settings-builder-connect-card${
-          codexConnected ? " settings-builder-connect-card--ok" : ""
-        }`}
-      >
-        <div className="settings-builder-connect-copy">
-          <span className="settings-builder-title">Codex CLI</span>
-          <span className="settings-builder-description">
-            {codexConnected
-              ? `Using ${codexProvider?.label ?? "Codex CLI"} for Agent tasks.`
-              : codexAvailable
-                ? "Run codex login in Terminal; Desktop will pick up the local session."
-                : "Install the OpenAI Codex CLI, then run codex login in Terminal."}
-          </span>
-        </div>
-        <span
-          className={`settings-codex-status${
-            codexConnected ? " settings-codex-status--ok" : ""
-          }`}
-        >
-          <IconTerminal2 size={13} />
-          {codexConnected ? "Ready" : codexAvailable ? "Sign in" : "Install"}
-        </span>
-      </div>
-
-      <button
-        type="button"
-        className="settings-provider-advanced-toggle"
-        onClick={() => setShowProviderKeys((value) => !value)}
-      >
-        {showProviderKeys ? (
-          <IconChevronDown size={14} />
-        ) : (
-          <IconChevronRight size={14} />
-        )}
-        <span>Or add an API key</span>
-      </button>
-
-      {showProviderKeys && (
-        <div className="settings-provider-key-panel">
-          <div className="settings-provider-picker">
-            {CODE_AGENT_PROVIDER_FIELDSETS.map((definition) => {
-              const provider = settings.providers.find(
-                (item) => item.id === definition.id,
-              );
-              return (
-                <button
-                  key={definition.id}
-                  type="button"
-                  className={`settings-provider-pill${
-                    selectedProviderDefinition.id === definition.id
-                      ? " settings-provider-pill--active"
-                      : ""
-                  }`}
-                  onClick={() => setSelectedProviderId(definition.id)}
-                >
-                  {definition.label}
-                  {provider?.configured && (
-                    <span className="settings-provider-pill-dot" />
-                  )}
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="settings-provider-key-summary">
-            <span
-              className={`settings-remote-dot settings-remote-dot--${selectedProviderCopy.tone}`}
-            />
-            <span>
-              {selectedProviderCopy.label} - {selectedProviderCopy.description}
-            </span>
-          </div>
-
-          <div className="settings-provider-form">
-            {selectedProviderDefinition.fields.map((field) => (
-              <label key={field.key}>
-                {field.label}
-                <input
-                  type="password"
-                  value={providerDrafts[field.key]}
-                  onChange={(e) =>
-                    updateProviderDraft(field.key, e.target.value)
-                  }
-                  placeholder={
-                    selectedProviderStatus?.configuredKeys.includes(field.key)
-                      ? "Leave blank to keep existing key"
-                      : field.placeholder
-                  }
-                  autoComplete="off"
-                />
-              </label>
-            ))}
-            <div className="settings-provider-actions">
+              : "Includes a free tier for managed AI - no API key needed."
+          }
+          control={
+            <div className="flex flex-wrap items-center justify-end gap-2">
               <button
                 type="button"
                 className="settings-btn settings-btn--primary"
-                onClick={() =>
-                  handleSaveProvider(selectedProviderDefinition.id)
-                }
-                disabled={providerSavingId === selectedProviderDefinition.id}
+                onClick={() => handleConnectBuilder()}
+                disabled={builderConnecting}
               >
-                {providerSavingId === selectedProviderDefinition.id
-                  ? "Saving..."
-                  : "Save key"}
+                {builderConnecting ? (
+                  <IconLoader2 size={14} className="settings-update-spin" />
+                ) : null}
+                {builderConnected ? "Reconnect" : "Connect Builder.io"}
               </button>
-              {selectedProviderHasSavedKeys && (
+              {builderSavedKeys ? (
                 <button
                   type="button"
                   className="settings-btn settings-btn--ghost"
-                  onClick={() =>
-                    handleRemoveProvider(selectedProviderDefinition.id)
-                  }
-                  disabled={providerSavingId === selectedProviderDefinition.id}
+                  onClick={() => handleRemoveProvider("builder")}
+                  disabled={providerSavingId === "builder"}
                 >
-                  Remove saved key
+                  Remove
                 </button>
-              )}
+              ) : null}
             </div>
-          </div>
-        </div>
-      )}
+          }
+        />
 
-      {providerMessage && (
-        <div className="settings-provider-message">{providerMessage}</div>
-      )}
+        <SettingsRow
+          label="Custom keys"
+          description="Use your own provider key for direct provider access."
+          control={
+            <button
+              type="button"
+              className="settings-btn settings-btn--ghost"
+              onClick={() => setShowProviderKeys((value) => !value)}
+            >
+              {showProviderKeys ? (
+                <IconChevronDown size={14} />
+              ) : (
+                <IconChevronRight size={14} />
+              )}
+              {showProviderKeys ? "Hide" : "Manage"}
+            </button>
+          }
+        >
+          {showProviderKeys ? (
+            <div className="settings-provider-key-panel">
+              <div className="settings-provider-picker">
+                {CUSTOM_KEY_PROVIDER_FIELDSETS.map((definition) => {
+                  const provider = settings.providers.find(
+                    (item) => item.id === definition.id,
+                  );
+                  return (
+                    <button
+                      key={definition.id}
+                      type="button"
+                      className={`settings-provider-pill${
+                        selectedProviderDefinition.id === definition.id
+                          ? " settings-provider-pill--active"
+                          : ""
+                      }`}
+                      onClick={() => setSelectedProviderId(definition.id)}
+                    >
+                      {definition.label}
+                      {provider?.configured ? (
+                        <span className="settings-provider-pill-dot" />
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+
+              <div className="settings-provider-key-summary">
+                <span
+                  className={`settings-remote-dot settings-remote-dot--${selectedProviderCopy.tone}`}
+                />
+                <span>
+                  {selectedProviderCopy.label} -{" "}
+                  {selectedProviderCopy.description}
+                </span>
+              </div>
+
+              <div className="settings-provider-form">
+                {selectedProviderDefinition.fields.map((field) => (
+                  <label key={field.key}>
+                    {field.label}
+                    <input
+                      type="password"
+                      value={providerDrafts[field.key]}
+                      onChange={(e) =>
+                        updateProviderDraft(field.key, e.target.value)
+                      }
+                      placeholder={
+                        selectedProviderStatus?.configuredKeys.includes(
+                          field.key,
+                        )
+                          ? "Leave blank to keep existing key"
+                          : field.placeholder
+                      }
+                      autoComplete="off"
+                    />
+                  </label>
+                ))}
+                <div className="settings-provider-actions">
+                  <button
+                    type="button"
+                    className="settings-btn settings-btn--primary"
+                    onClick={() =>
+                      handleSaveProvider(selectedProviderDefinition.id)
+                    }
+                    disabled={
+                      providerSavingId === selectedProviderDefinition.id
+                    }
+                  >
+                    {providerSavingId === selectedProviderDefinition.id
+                      ? "Saving..."
+                      : "Save key"}
+                  </button>
+                  {selectedProviderHasSavedKeys ? (
+                    <button
+                      type="button"
+                      className="settings-btn settings-btn--ghost"
+                      onClick={() =>
+                        handleRemoveProvider(selectedProviderDefinition.id)
+                      }
+                      disabled={
+                        providerSavingId === selectedProviderDefinition.id
+                      }
+                    >
+                      Remove saved key
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </SettingsRow>
+      </SettingsGroup>
+
+      <SubscriptionSettings />
+
+      {providerMessage ? (
+        <p className="settings-provider-message" role="status">
+          {providerMessage}
+        </p>
+      ) : null}
     </div>
+  );
+}
+
+const SUBSCRIPTION_PROVIDERS: readonly SubscriptionProviderId[] = [
+  "codex",
+  "claude",
+];
+
+function subscriptionLabel(status: SubscriptionStatus | undefined): {
+  label: string;
+  description: string;
+  connected: boolean;
+} {
+  if (!status) {
+    return {
+      label: "Checking…",
+      description: "Checking the local CLI status.",
+      connected: false,
+    };
+  }
+  if (status.connectionState === "connected") {
+    return {
+      label: "Connected",
+      description: status.plan?.label
+        ? `${status.plan.label} subscription detected.`
+        : "Subscription login detected.",
+      connected: true,
+    };
+  }
+  if (status.connectionState === "needs-sign-in") {
+    return {
+      label: "Not signed in",
+      description: status.connectionMessage ?? "Sign in through the local CLI.",
+      connected: false,
+    };
+  }
+  if (status.connectionState === "unavailable") {
+    return {
+      label: "Not installed",
+      description:
+        status.connectionMessage ??
+        "The local CLI was not found on this computer.",
+      connected: false,
+    };
+  }
+  return {
+    label: "Could not check",
+    description: status.connectionMessage ?? "The local CLI returned an error.",
+    connected: false,
+  };
+}
+
+function SubscriptionSettings() {
+  const [statuses, setStatuses] = useState<
+    Partial<Record<SubscriptionProviderId, SubscriptionStatus>>
+  >({});
+  const [busyProvider, setBusyProvider] =
+    useState<SubscriptionProviderId | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(
+    null,
+  );
+
+  const refresh = useCallback(async (providerId: SubscriptionProviderId) => {
+    const api = window.electronAPI?.multiFrontier;
+    if (!api) return;
+    setBusyProvider(providerId);
+    setSubscriptionError(null);
+    try {
+      const result = await api.refreshProviderStatus(providerId);
+      if (result.status) {
+        setStatuses((current) => ({ ...current, [providerId]: result.status }));
+      }
+      if (result.error?.message) setSubscriptionError(result.error.message);
+    } catch (error) {
+      setSubscriptionError(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setBusyProvider(null);
+    }
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const api = window.electronAPI?.multiFrontier;
+    if (!api) return;
+    void Promise.all(
+      SUBSCRIPTION_PROVIDERS.map(async (providerId) => {
+        try {
+          const result = await api.getProviderStatus(providerId);
+          return [providerId, result.status] as const;
+        } catch {
+          return [providerId, undefined] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (!active) return;
+      setStatuses((current) => {
+        const next = { ...current };
+        for (const [providerId, status] of entries) {
+          if (status) next[providerId] = status;
+        }
+        return next;
+      });
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  async function connect(providerId: SubscriptionProviderId) {
+    const api = window.electronAPI?.multiFrontier;
+    if (!api) return;
+    setBusyProvider(providerId);
+    setSubscriptionError(null);
+    try {
+      const result = await api.beginProviderLogin(providerId);
+      if (result.status) {
+        setStatuses((current) => ({ ...current, [providerId]: result.status }));
+      }
+      if (result.error?.message) setSubscriptionError(result.error.message);
+    } catch (error) {
+      setSubscriptionError(
+        error instanceof Error ? error.message : String(error),
+      );
+    } finally {
+      setBusyProvider(null);
+    }
+  }
+
+  const hasSubscriptionBridge = Boolean(window.electronAPI?.multiFrontier);
+
+  return (
+    <SettingsGroup
+      title="Subscriptions"
+      description="Reuse local ChatGPT/Codex and Claude Code logins."
+    >
+      {SUBSCRIPTION_PROVIDERS.map((providerId) => {
+        const label =
+          providerId === "codex" ? "ChatGPT subscription" : "Claude";
+        const status = hasSubscriptionBridge
+          ? subscriptionLabel(statuses[providerId])
+          : {
+              label: "Unavailable",
+              description:
+                "Subscription detection is unavailable in this desktop build.",
+              connected: false,
+            };
+        const busy = busyProvider === providerId;
+        return (
+          <SettingsRow
+            key={providerId}
+            label={label}
+            description={status.description}
+            status={
+              <span
+                className={`settings-subscription-status${
+                  status.connected ? " settings-subscription-status--ok" : ""
+                }`}
+              >
+                {status.label}
+              </span>
+            }
+            control={
+              !status.connected && statuses[providerId] ? (
+                <button
+                  type="button"
+                  className="settings-btn settings-btn--ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    statuses[providerId]?.connectionState === "needs-sign-in"
+                      ? void connect(providerId)
+                      : void refresh(providerId)
+                  }
+                >
+                  {busy
+                    ? "Working…"
+                    : status.label === "Not signed in"
+                      ? "Sign in"
+                      : "Refresh"}
+                </button>
+              ) : null
+            }
+          />
+        );
+      })}
+      {subscriptionError ? (
+        <p className="settings-provider-message px-5 pb-4" role="alert">
+          {subscriptionError}
+        </p>
+      ) : null}
+    </SettingsGroup>
   );
 }

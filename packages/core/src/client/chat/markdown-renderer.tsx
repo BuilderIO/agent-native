@@ -2,11 +2,7 @@
 // HighlightedCodeBlock wrapper, and the markdownComponents/markdownUrlTransform
 // used by every markdown render path in AssistantChat.
 
-import {
-  useThread,
-  useMessageRuntime,
-  useMessagePartText,
-} from "@assistant-ui/react";
+import { useMessageRuntime, useMessagePartText } from "@assistant-ui/react";
 import { IconPlus, IconExternalLink } from "@tabler/icons-react";
 import React, {
   useState,
@@ -29,12 +25,20 @@ import {
   splitStreamingTextGraphemes,
 } from "../../shared/streaming-text-smoothing.js";
 import {
+  localizeKnownChatErrorText,
   NEW_CHAT_ACTION_HREF,
-  BUILDER_SPACE_SETTINGS_URL,
 } from "../error-format.js";
 import { HighlightedCodeBlock as SharedHighlightedCodeBlock } from "../HighlightedCodeBlock.js";
+import { useT } from "../i18n.js";
 import { IframeEmbed, parseEmbedBody } from "../IframeEmbed.js";
 import { cn } from "../utils.js";
+import {
+  LEGACY_CHART_SHORTHAND_LANG,
+  LegacyChartShorthandChart,
+  LegacyChartShorthandFallback,
+  parseLegacyChartShorthand,
+  wrapLegacyChartShorthandLines,
+} from "./legacy-chart-shorthand.js";
 
 // ─── Lazy markdown loader ────────────────────────────────────────────────────
 // react-markdown + remark-gfm are deferred so they stay off the critical path
@@ -47,20 +51,30 @@ type ReactMarkdownModule = {
   defaultUrlTransform: typeof DefaultUrlTransformType;
 };
 
+type RenderToStaticMarkupFn = (node: React.ReactElement) => string;
+
 export let markdownModule: ReactMarkdownModule | null = null;
 export let remarkGfmFn: typeof remarkGfmType | null = null;
+let renderToStaticMarkupFn: RenderToStaticMarkupFn | null = null;
 const markdownListeners = new Set<() => void>();
 
 export function loadMarkdown(): void {
   if (markdownModule !== null) return; // already loaded
-  Promise.all([import("react-markdown"), import("remark-gfm")]).then(
-    ([md, gfm]) => {
-      markdownModule = md as ReactMarkdownModule;
-      remarkGfmFn = gfm.default;
-      markdownListeners.forEach((fn) => fn());
-      markdownListeners.clear();
-    },
-  );
+  Promise.all([
+    import("react-markdown"),
+    import("remark-gfm"),
+    // react-dom/server powers the synchronous markdown→HTML string used for
+    // rich clipboard copy; loaded alongside so readiness stays a single gate.
+    import("react-dom/server"),
+  ]).then(([md, gfm, server]) => {
+    markdownModule = md as ReactMarkdownModule;
+    remarkGfmFn = gfm.default;
+    renderToStaticMarkupFn = (
+      server as { renderToStaticMarkup: RenderToStaticMarkupFn }
+    ).renderToStaticMarkup;
+    markdownListeners.forEach((fn) => fn());
+    markdownListeners.clear();
+  });
 }
 
 export function onMarkdownReady(fn: () => void): () => void {
@@ -177,7 +191,8 @@ function isBuilderErrorCtaHref(href: string | undefined): boolean {
       return false;
     }
     return (
-      url.href === BUILDER_SPACE_SETTINGS_URL ||
+      (url.origin === "https://builder.io" &&
+        url.pathname === "/account/space") ||
       url.pathname === "/account/billing" ||
       url.pathname === "/account/subscription" ||
       /^\/app\/organizations\/[^/]+\/billing$/.test(url.pathname)
@@ -261,6 +276,14 @@ export const markdownComponents = {
       </a>
     );
   },
+  table(props: React.TableHTMLAttributes<HTMLTableElement>) {
+    const { children, ...rest } = props;
+    return (
+      <div className="agent-markdown-table-wrap">
+        <table {...rest}>{children}</table>
+      </div>
+    );
+  },
   pre(props: React.HTMLAttributes<HTMLPreElement>) {
     const { children, ...rest } = props;
     if (React.isValidElement(children)) {
@@ -276,6 +299,19 @@ export const markdownComponents = {
           <IframeEmbed {...(parsed as Parameters<typeof IframeEmbed>[0])} />
         );
       }
+      if (
+        new RegExp(`\\blanguage-${LEGACY_CHART_SHORTHAND_LANG}\\b`).test(
+          className,
+        )
+      ) {
+        const body = extractCodeText(childProps.children).replace(/\n$/, "");
+        const parsed = parseLegacyChartShorthand(body);
+        return parsed ? (
+          <LegacyChartShorthandChart parsed={parsed} />
+        ) : (
+          <LegacyChartShorthandFallback text={body} />
+        );
+      }
       const langMatch = className.match(/\blanguage-([\w+-]+)\b/);
       if (langMatch) {
         const code = extractCodeText(childProps.children).replace(/\n$/, "");
@@ -285,6 +321,42 @@ export const markdownComponents = {
     return <pre {...rest}>{children}</pre>;
   },
 };
+
+// ─── Clipboard HTML rendering ─────────────────────────────────────────────────
+// A stripped component set for the `text/html` clipboard flavor: plain <a> and
+// <pre>/<code> with no in-app buttons, iframes, or syntax-highlight markup, so
+// pasted output is portable structure (bold, lists, links, code) rather than
+// app-specific chrome that receiving apps (Slack, Notion) discard anyway.
+
+const clipboardMarkdownComponents = {
+  a(props: React.AnchorHTMLAttributes<HTMLAnchorElement>) {
+    const { href, children } = props;
+    if (href === NEW_CHAT_ACTION_HREF || !href) return <span>{children}</span>;
+    return <a href={href}>{children}</a>;
+  },
+  pre(props: React.HTMLAttributes<HTMLPreElement>) {
+    return <pre>{props.children}</pre>;
+  },
+};
+
+// Renders joined message markdown to an HTML string for rich clipboard copy.
+// Returns null when the lazy markdown/react-dom-server modules haven't landed
+// yet; callers fall back to plain-text copy in that case.
+export function renderMarkdownToClipboardHtml(markdown: string): string | null {
+  const ReactMarkdown = markdownModule?.default;
+  const gfm = remarkGfmFn;
+  const renderToStaticMarkup = renderToStaticMarkupFn;
+  if (!ReactMarkdown || !gfm || !renderToStaticMarkup) return null;
+  return renderToStaticMarkup(
+    <ReactMarkdown
+      remarkPlugins={[gfm]}
+      components={clipboardMarkdownComponents}
+      urlTransform={markdownUrlTransform}
+    >
+      {markdown}
+    </ReactMarkdown>,
+  );
+}
 
 // ─── Smooth streaming ─────────────────────────────────────────────────────────
 
@@ -324,6 +396,50 @@ function sliceGraphemes(
   return graphemes.slice(0, count).join("");
 }
 
+type SmoothStreamingTextCacheEntry = {
+  targetText: string;
+  visibleText: string;
+};
+
+// Grouped message parts are rebuilt as tool calls arrive. A text part can
+// therefore be unmounted and mounted again even though its identity did not
+// change. Keep the reveal cursor outside that subtree so a structural update
+// continues from the current cursor instead of replaying the opening sentence.
+const smoothStreamingTextCache = new Map<
+  string,
+  SmoothStreamingTextCacheEntry
+>();
+
+function cachedStreamingText(
+  resetKey: string,
+  targetText: string,
+): string | undefined {
+  const cached = smoothStreamingTextCache.get(resetKey);
+  if (!cached) return undefined;
+  if (
+    !targetText.startsWith(cached.targetText) ||
+    !targetText.startsWith(cached.visibleText)
+  ) {
+    return undefined;
+  }
+  return cached.visibleText;
+}
+
+function rememberStreamingText(
+  resetKey: string,
+  targetText: string,
+  visibleText: string,
+): void {
+  smoothStreamingTextCache.delete(resetKey);
+  smoothStreamingTextCache.set(resetKey, { targetText, visibleText });
+  if (smoothStreamingTextCache.size <= 128) return;
+  const oldestKey = smoothStreamingTextCache.keys().next().value;
+  if (oldestKey !== undefined) smoothStreamingTextCache.delete(oldestKey);
+}
+
+/** Stable placeholder so the grapheme ref stays `string[]` before it is seeded. */
+const EMPTY_GRAPHEMES: string[] = [];
+
 export function useSmoothStreamingText(
   targetText: string,
   streaming: boolean,
@@ -332,6 +448,8 @@ export function useSmoothStreamingText(
   const prefersReducedMotion = usePrefersReducedMotion();
   const [visibleText, setVisibleText] = useState(() => {
     if (!streaming || prefersReducedMotion) return targetText;
+    const cachedText = cachedStreamingText(resetKey, targetText);
+    if (cachedText !== undefined) return cachedText;
     const graphemes = splitStreamingTextGraphemes(targetText);
     return sliceGraphemes(
       targetText,
@@ -340,16 +458,35 @@ export function useSmoothStreamingText(
     );
   });
   const visibleTextRef = useRef(visibleText);
-  const visibleCountRef = useRef(
-    splitStreamingTextGraphemes(visibleText).length,
-  );
   const targetTextRef = useRef(targetText);
-  const targetGraphemesRef = useRef(splitStreamingTextGraphemes(targetText));
+  // `useRef(expr)` evaluates `expr` on EVERY render and throws it away after
+  // mount. Segmenting here therefore ran a full Intl.Segmenter pass per commit
+  // — up to 60Hz per streaming message — and, because `visibleText` is a strict
+  // prefix of `targetText`, that pass could never hit the incremental path and
+  // evicted the shared segmenter cache for every other live stream too. Seed
+  // once; the streaming effect below keeps both refs authoritative after that.
+  const visibleCountRef = useRef(-1);
+  const targetGraphemesRef = useRef<string[]>(EMPTY_GRAPHEMES);
+  if (visibleCountRef.current < 0) {
+    if (streaming && !prefersReducedMotion) {
+      targetGraphemesRef.current = splitStreamingTextGraphemes(targetText);
+      visibleCountRef.current = splitStreamingTextGraphemes(visibleText).length;
+    } else {
+      visibleCountRef.current = 0;
+    }
+  }
   const frameRef = useRef<number | null>(null);
   const lastCommitAtRef = useRef(0);
   const pauseUntilRef = useRef(0);
   const resetKeyRef = useRef(resetKey);
+  const cacheKeyRef = useRef(resetKey);
+  const cacheStreamingRef = useRef(streaming);
+  const cacheReducedMotionRef = useRef(prefersReducedMotion);
   const stepRef = useRef<(time: number) => void>(() => {});
+
+  cacheKeyRef.current = resetKey;
+  cacheStreamingRef.current = streaming;
+  cacheReducedMotionRef.current = prefersReducedMotion;
 
   const commitVisibleCount = useCallback((nextCount: number) => {
     const graphemes = targetGraphemesRef.current;
@@ -363,6 +500,13 @@ export function useSmoothStreamingText(
     if (visibleTextRef.current !== nextText) {
       visibleTextRef.current = nextText;
       setVisibleText(nextText);
+    }
+    if (cacheStreamingRef.current && !cacheReducedMotionRef.current) {
+      rememberStreamingText(
+        cacheKeyRef.current,
+        targetTextRef.current,
+        nextText,
+      );
     }
   }, []);
 
@@ -442,18 +586,24 @@ export function useSmoothStreamingText(
   };
 
   useEffect(() => {
-    const targetGraphemes = splitStreamingTextGraphemes(targetText);
     targetTextRef.current = targetText;
-    targetGraphemesRef.current = targetGraphemes;
 
     const keyChanged = resetKeyRef.current !== resetKey;
     resetKeyRef.current = resetKey;
 
     if (!streaming || prefersReducedMotion) {
       cancelFrame();
-      commitVisibleCount(targetGraphemes.length);
+      targetGraphemesRef.current = EMPTY_GRAPHEMES;
+      visibleCountRef.current = 0;
+      if (visibleTextRef.current !== targetText) {
+        visibleTextRef.current = targetText;
+        setVisibleText(targetText);
+      }
       return;
     }
+
+    const targetGraphemes = splitStreamingTextGraphemes(targetText);
+    targetGraphemesRef.current = targetGraphemes;
 
     const visibleNoLongerMatchesTarget =
       visibleTextRef.current.length > 0 &&
@@ -481,6 +631,11 @@ export function useSmoothStreamingText(
     commitVisibleCount,
     scheduleFrame,
   ]);
+
+  useEffect(() => {
+    if (!streaming || prefersReducedMotion) return;
+    rememberStreamingText(resetKey, targetText, visibleText);
+  }, [prefersReducedMotion, resetKey, streaming, targetText, visibleText]);
 
   // When the tab returns from background, rAF has been paused and the backlog
   // may be tens of thousands of characters. Animating from where we left off
@@ -527,10 +682,6 @@ export function useMarkdownReady(): boolean {
   return ready;
 }
 
-// ─── MemoizedMarkdownBlock ────────────────────────────────────────────────────
-// Renders a single stable markdown block. Wrapped in React.memo so React
-// skips re-rendering completed blocks when only the tail changes.
-
 export const MemoizedMarkdownBlock = React.memo(function MemoizedMarkdownBlock({
   blockText,
 }: {
@@ -545,7 +696,7 @@ export const MemoizedMarkdownBlock = React.memo(function MemoizedMarkdownBlock({
       components={markdownComponents}
       urlTransform={markdownUrlTransform}
     >
-      {blockText}
+      {wrapLegacyChartShorthandLines(blockText)}
     </ReactMarkdown>
   );
 });
@@ -557,65 +708,60 @@ export function SmoothMarkdownText({
   streaming,
   resetKey,
   statusType = "complete",
+  animateStreaming = true,
+  onRevealComplete,
 }: {
   text: string;
   streaming: boolean;
   resetKey: string;
   statusType?: string;
+  /** Allow callers to opt out for static or deliberately chunk-native surfaces. */
+  animateStreaming?: boolean;
+  onRevealComplete?: () => void;
 }) {
   const mdReady = useMarkdownReady();
-  const visibleText = useSmoothStreamingText(text, streaming, resetKey);
-  const isVisuallyStreaming = streaming && visibleText !== text;
+  const shouldAnimate = streaming && animateStreaming;
+  const visibleText = useSmoothStreamingText(text, shouldAnimate, resetKey);
   const ReactMarkdown = markdownModule?.default;
   const gfm = remarkGfmFn;
-
-  // Block-memoized rendering: during streaming split the visible text into
-  // stable completed blocks + an in-progress tail.  Only the tail re-renders
-  // on every commit; completed blocks are React.memo'd and skipped.
-  // On completion we fall through to a single ReactMarkdown pass to guarantee
-  // byte-identical final output (no block-split artifacts).
-  const split = useMemo(
-    () => (isVisuallyStreaming ? splitMarkdownBlocks(visibleText) : null),
-    [isVisuallyStreaming, visibleText],
+  // Split whether or not the turn is still streaming. Rendering the finished
+  // message as one whole-document ReactMarkdown instead swapped the element
+  // tree the instant `streaming` went false, so React unmounted every block and
+  // rebuilt it: code blocks re-highlighted, heights collapsed for a frame, and
+  // the scroll jumped — the "flash at the end" report. The split is faithful to
+  // a whole-document parse (see markdown-block-split.ts), so one tree serves
+  // both phases and nothing is rebuilt when streaming stops.
+  const markdownBlocks = useMemo(
+    () => splitMarkdownBlocks(visibleText),
+    [visibleText],
   );
+  // The tail renders through the same component as completed blocks, so when it
+  // is promoted to a completed block React matches the same type at the same
+  // key and keeps its DOM instead of remounting that paragraph.
+  const renderedBlocks = useMemo(
+    () =>
+      markdownBlocks.tail
+        ? [...markdownBlocks.completedBlocks, markdownBlocks.tail]
+        : markdownBlocks.completedBlocks,
+    [markdownBlocks],
+  );
+
+  useEffect(() => {
+    if (!onRevealComplete || !shouldAnimate || visibleText !== text) return;
+    onRevealComplete();
+  }, [onRevealComplete, shouldAnimate, text, visibleText]);
 
   return (
     <div
       className="agent-markdown break-words"
       data-status={statusType}
-      data-streaming={isVisuallyStreaming ? "true" : undefined}
+      data-streaming={streaming ? "true" : undefined}
     >
       {mdReady && ReactMarkdown && gfm ? (
-        split ? (
-          // Streaming: render completed blocks (memoized) + live tail block
-          <>
-            {split.completedBlocks.map((block, i) => (
-              <MemoizedMarkdownBlock key={i} blockText={block} />
-            ))}
-            {split.tail ? (
-              <ReactMarkdown
-                remarkPlugins={[gfm]}
-                components={markdownComponents}
-                urlTransform={markdownUrlTransform}
-              >
-                {split.tail}
-              </ReactMarkdown>
-            ) : null}
-          </>
-        ) : (
-          // Not streaming (or streaming complete): single-pass render
-          <ReactMarkdown
-            remarkPlugins={[gfm]}
-            components={markdownComponents}
-            urlTransform={markdownUrlTransform}
-          >
-            {visibleText}
-          </ReactMarkdown>
-        )
+        renderedBlocks.map((blockText, index) => (
+          <MemoizedMarkdownBlock key={index} blockText={blockText} />
+        ))
       ) : (
-        // Plain text while the react-markdown chunk is in flight.
-        // The chunk is already being fetched by loadMarkdown() above, so
-        // this placeholder is typically only visible for one render frame.
         <span style={{ whiteSpace: "pre-wrap" }}>{visibleText}</span>
       )}
     </div>
@@ -625,22 +771,20 @@ export function SmoothMarkdownText({
 // ─── MarkdownText ──────────────────────────────────────────────────────────────
 
 export function MarkdownText() {
+  const t = useT();
   const textPart = useMessagePartText();
   const messageRuntime = useMessageRuntime();
   const message = messageRuntime.getState();
-  const thread = useThread();
   const textStreaming = React.useContext(TextStreamingContext);
-  const lastMessage = thread.messages[thread.messages.length - 1];
-  const isLastAssistantMessage =
-    message.role === "assistant" && lastMessage?.id === message.id;
+  const isLastAssistantMessage = message.role === "assistant" && message.isLast;
   const statusType =
     textPart.status?.type ?? message.status?.type ?? "complete";
 
   return (
     <SmoothMarkdownText
-      text={textPart.text}
+      text={localizeKnownChatErrorText(textPart.text, t)}
       streaming={textStreaming && isLastAssistantMessage}
-      resetKey={`${message.id}:${statusType}`}
+      resetKey={message.id}
       statusType={statusType}
     />
   );

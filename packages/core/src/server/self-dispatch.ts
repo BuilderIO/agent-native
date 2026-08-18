@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
 /**
@@ -51,25 +52,30 @@ function readHeader(event: any, name: string): string | undefined {
 }
 
 /**
- * Resolve the base URL to fire a self-dispatch request at. Prefers explicit env
- * vars (most reliable on serverless, where inbound host headers can be the
- * platform's internal hostname), falling back to the inbound request headers
- * and finally localhost in dev.
+ * Resolve the base URL to fire a self-dispatch request at. Prefer the URL for
+ * this exact deploy before stable app URLs: a preview or in-flight deploy must
+ * not send a token minted by its function fleet to a different deploy that
+ * happens to serve the same public hostname. Fall back to the inbound request
+ * headers and finally localhost in dev.
  *
  * Throws in production / shared deployments when no env var is set — a silent
  * fallback to a bad host there would drop background work invisibly.
  */
 export function resolveSelfDispatchBaseUrl(event?: any): string {
+  // The first three are platform facts — Netlify sets them per deploy, and
+  // they are what makes this resolve to *this* deployment rather than the
+  // canonical one. `app.url` is the last rung, not the first, for that reason.
   const fromEnv =
-    process.env.APP_URL ||
-    process.env.URL ||
+    process.env.DEPLOY_PRIME_URL ||
     process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL;
+    process.env.URL ||
+    getAppConfig().app.url;
   if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
 
   if (process.env.NODE_ENV === "production" || !isLocalDatabase()) {
     throw new Error(
-      "Self-dispatch requires APP_URL, URL, DEPLOY_URL, or BETTER_AUTH_URL in " +
+      "Self-dispatch requires DEPLOY_PRIME_URL, DEPLOY_URL, URL, APP_URL, or " +
+        "BETTER_AUTH_URL in " +
         "production/shared deployments so background work can reach this " +
         "deployment's own URL.",
     );
@@ -135,9 +141,10 @@ async function dispatchResponseError(
  * may take minutes); it is only raced against a short settle timer so the
  * request reliably leaves a serverless box before it freezes.
  *
- * When `A2A_SECRET` is unset (local dev), the request is sent unsigned — the
- * processor accepts unsigned dispatches in dev and relies on the SQL atomic
- * claim for double-processing protection, mirroring the A2A/webhook flow.
+ * When `A2A_SECRET` is unset in local SQLite development, the request is sent
+ * unsigned — the processor accepts unsigned dispatches in dev and relies on
+ * the SQL atomic claim for double-processing protection. Shared and production
+ * dispatches fail before sending an unauthenticated request.
  */
 /**
  * For host-root dispatch targets (`/.netlify/functions/*`), strip the configured
@@ -174,12 +181,20 @@ export async function fireInternalDispatch(
   try {
     headers["Authorization"] = `Bearer ${signInternalToken(options.taskId)}`;
   } catch (err) {
-    // Distinguish the documented "no A2A_SECRET in dev" path from a real
-    // signing failure, so a malformed secret doesn't fail invisibly.
-    if (err instanceof Error && !/A2A_SECRET/i.test(err.message)) {
-      console.error(
-        `[self-dispatch] signInternalToken failed unexpectedly for ${options.taskId}:`,
-        err,
+    const detail = err instanceof Error ? err.message : String(err);
+    // Only local SQLite development has the loopback/unsigned exception. A
+    // shared database or production deployment must never turn a signing
+    // failure into an unauthenticated processor request.
+    if (
+      process.env.NODE_ENV !== "production" &&
+      isLocalDatabase() &&
+      /A2A_SECRET/i.test(detail)
+    ) {
+      // The processor applies the matching trusted-local policy.
+    } else {
+      throw new Error(
+        `[self-dispatch] Cannot sign processor handoff for ${options.taskId}: ${detail}`,
+        { cause: err },
       );
     }
   }

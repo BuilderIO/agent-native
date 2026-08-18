@@ -9,9 +9,13 @@ vi.mock("@/lib/utils", () => ({
 }));
 
 vi.mock("@/components/ui/context-menu", () => {
-  const Container = ({ children }: { children?: React.ReactNode }) => (
-    <div>{children}</div>
-  );
+  const Container = ({
+    children,
+    className,
+  }: {
+    children?: React.ReactNode;
+    className?: string;
+  }) => <div className={className}>{children}</div>;
   const Item = ({
     children,
     disabled,
@@ -165,6 +169,100 @@ describe("CanvasContextMenu Select layer", () => {
 
     await act(async () => parent?.click());
     expect(onSelectLayer).toHaveBeenCalledWith(candidates[1]);
+    await view.cleanup();
+  });
+});
+
+describe("CanvasContextMenu regenerate", () => {
+  const candidate = {
+    key: "hero",
+    label: "Hero",
+    screenId: "screen-1",
+    info: {
+      tagName: "section",
+      sourceId: "hero",
+      selector: '[data-agent-native-node-id="hero"]',
+      classes: [],
+      computedStyles: {},
+      boundingRect: { x: 0, y: 0, width: 400, height: 240 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    },
+  };
+
+  it("routes an active selection through the reprompt action", async () => {
+    const onReprompt = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      canReprompt: true,
+      onReprompt,
+    });
+
+    await act(async () => view.findButton("Regenerate")?.click());
+    expect(onReprompt).toHaveBeenCalledWith(
+      expect.objectContaining({ action: "reprompt", selectedCount: 1 }),
+    );
+    await view.cleanup();
+  });
+
+  it("keeps stacked-layer candidates explicit for reprompting", async () => {
+    const parent = {
+      ...candidate,
+      key: "parent",
+      label: "Parent frame",
+      info: { ...candidate.info, sourceId: "parent" },
+    };
+    const onRepromptLayer = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      layerCandidates: [candidate, parent],
+      canReprompt: true,
+      onRepromptLayer,
+    });
+
+    const parentButtons = Array.from(
+      view.container.querySelectorAll<HTMLButtonElement>("button"),
+    ).filter((button) => button.textContent?.includes("Parent frame"));
+    await act(async () => parentButtons[parentButtons.length - 1]?.click());
+    expect(onRepromptLayer).toHaveBeenCalledWith(
+      parent,
+      expect.objectContaining({ action: "reprompt" }),
+    );
+    await view.cleanup();
+  });
+});
+
+describe("CanvasContextMenu rotation", () => {
+  it("moves the visible rotation affordance into the context menu", async () => {
+    const onRotateClockwise = vi.fn();
+    const view = await renderContextMenu({
+      selectedCount: 1,
+      canRotateClockwise: true,
+      onRotateClockwise,
+    });
+
+    const rotate = view.findButton("Rotate 90° clockwise");
+    expect(rotate).toBeDefined();
+    await act(async () => rotate?.click());
+    expect(onRotateClockwise).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: "rotate-clockwise",
+        selectedCount: 1,
+      }),
+    );
+    await view.cleanup();
+  });
+});
+
+describe("CanvasContextMenu motion", () => {
+  it("disables the Radix entrance and exit animation", async () => {
+    const view = await renderContextMenu({ selectedCount: 0 });
+    const menu = Array.from(view.container.querySelectorAll("div")).find(
+      (element) =>
+        element.className.includes("data-[state=open]:!animate-none") &&
+        element.className.includes("data-[state=closed]:!animate-none"),
+    );
+    expect(menu).toBeDefined();
     await view.cleanup();
   });
 });

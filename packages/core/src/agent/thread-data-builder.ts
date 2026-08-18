@@ -1,5 +1,9 @@
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
+  formatChatErrorText,
+  normalizeChatError,
+} from "../client/error-format.js";
+import {
   isCredentialGapCodeAgentEvent,
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
@@ -9,7 +13,9 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
-import type { EngineMessage } from "./engine/types.js";
+import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
+import { stringifyToolUseInputForGateway } from "./engine/translate-anthropic.js";
+import type { EngineContentPart, EngineMessage } from "./engine/types.js";
 import type { AgentChatAttachment, RunEvent } from "./types.js";
 
 interface ContentPart {
@@ -21,9 +27,13 @@ interface ContentPart {
   args?: Record<string, string>;
   result?: string;
   isError?: boolean;
+  /** Mirrors the client ContentPart marker in client/sse-event-processor.ts. */
+  outcome?: "unknown";
   completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
+  activity?: boolean;
+  approval?: { approvalKey: string; dismissed?: boolean };
 }
 
 interface BuildAssistantMessageOptions {
@@ -35,6 +45,7 @@ interface BuildAssistantMessageOptions {
    * overwriting the others.
    */
   turnId?: string;
+  runDurationMs?: number;
 }
 
 type AssistantMessage = NonNullable<ReturnType<typeof buildAssistantMessage>>;
@@ -43,14 +54,9 @@ type UserMessage = ReturnType<typeof buildUserMessage>;
 const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
 
+export const ASSISTANT_RUN_DURATION_METADATA_KEY = "agentNativeRunDurationMs";
+
 const MAX_STORED_ATTACHMENT_CHARS = 60_000;
-/**
- * When no file-upload provider is configured we fall back to storing base64
- * directly in the SQL thread_data column. Cap the raw base64 per attachment to
- * avoid unbounded row growth. Attachments larger than this get a '[truncated]'
- * marker so the transcript still renders but the column stays sane.
- */
-const MAX_STORED_BASE64_BYTES = 2 * 1024 * 1024; // 2 MB per attachment
 
 function isInternalContinuationError(event: {
   error: string;
@@ -60,15 +66,29 @@ function isInternalContinuationError(event: {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
   if (code === "builder_gateway_error") return false;
+  // An explicit `recoverable: false` outranks the code and message inference
+  // below, matching `isRecoverableContinuationError`. The background
+  // no-progress breaker stops a turn while PRESERVING the underlying transient
+  // code, so reading the code instead of the flag drops the one error the user
+  // was supposed to see out of the persisted turn.
+  if (event.recoverable === false) return false;
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
+    // Carries what `msg.includes("stream ended")` below used to: a
+    // Builder-credits deployment replaces that sentence with one visitor line,
+    // and the code is the only thing left that says the turn was truncated.
+    code === "builder_gateway_stream_ended" ||
     code === "stale_run" ||
     code === "timeout" ||
     code === "timeout_error" ||
     code === "http_408" ||
     code === "http_429" ||
     code === "http_500" ||
+    // The gateway's unhandled-500 envelope arriving in-stream. Without this the
+    // turn stored Builder's internal correlation id as the assistant's visible
+    // answer instead of a continuation.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
@@ -135,8 +155,29 @@ export function buildAssistantMessage(
     }
   };
 
-  for (const { event } of events) {
+  // Index of the last event that is not a `clear`. Everything after it is a
+  // trailing run of clears with no successor chunk to re-emit what they wipe.
+  let lastNonClearIndex = events.length - 1;
+  while (
+    lastNonClearIndex >= 0 &&
+    events[lastNonClearIndex]?.event.type === "clear"
+  ) {
+    lastNonClearIndex -= 1;
+  }
+
+  for (const [index, { event }] of events.entries()) {
     if (event.type === "clear") {
+      // A live stream always follows `clear` with the chunk that re-emits the
+      // wiped content. A rebuild has no successor, so applying a TRAILING
+      // clear can only destroy the transcript permanently.
+      //
+      // The whole trailing RUN has to be skipped, not just the final element:
+      // each failed engine attempt emits one `clear`, so three failed attempts
+      // in a row is the common shape, and skipping only the last still applied
+      // the other two. When the run made no tool calls that emptied `content`
+      // entirely and this builder returned null — the user's message was left
+      // with no assistant reply at all.
+      if (index > lastNonClearIndex) continue;
       clearAssistantDraftContent(content);
       continue;
     }
@@ -152,9 +193,27 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "tool_start") {
+      const explicitToolCallId = event.id?.trim();
+      // A tool_start whose id is already in this turn is a REPLAY, not a new
+      // call: the tool-call journal and zombie-ledger recovery paths re-emit
+      // tool_start/tool_done for calls that already ran in an interrupted
+      // chunk. The live client coalesces those onto the original card, so a
+      // blind push here persisted a second copy of a call the user had only
+      // ever seen once — the duplicate that appears only after a reload.
+      // Matching the tool name too, so an id reused across different tools
+      // stays two cards rather than being silently merged into one.
+      if (explicitToolCallId) {
+        const replayed = content.some(
+          (part) =>
+            part.type === "tool-call" &&
+            part.toolCallId === explicitToolCallId &&
+            part.toolName === (event.tool ?? "unknown"),
+        );
+        if (replayed) continue;
+      }
       toolCallCounter += 1;
       const toolCallId =
-        event.id?.trim() ||
+        explicitToolCallId ||
         (runId ? `${runId}:tc_${toolCallCounter}` : `tc_${toolCallCounter}`);
       const args = (event.input ?? {}) as Record<string, string>;
       content.push({
@@ -164,6 +223,20 @@ export function buildAssistantMessage(
         argsText: JSON.stringify(args),
         args,
       });
+      continue;
+    }
+
+    if (event.type === "approval_required") {
+      const matchingIndex = findApprovalToolCallIndex(
+        content,
+        event.tool ?? "unknown",
+        event.toolCallId,
+      );
+
+      const part = content[matchingIndex];
+      if (part?.type === "tool-call") {
+        part.approval = { approvalKey: event.approvalKey };
+      }
       continue;
     }
 
@@ -239,13 +312,24 @@ export function buildAssistantMessage(
       if (event.errorCode === "run_timeout" && event.recoverable) {
         continue;
       }
+      // Mirror the live client (client/sse-event-processor.ts): route the raw
+      // provider/engine string through the same friendly-copy layer before it
+      // ever becomes persisted chat text, and keep the raw text only in
+      // `details`. Without this, a rebuild (background run, reconnect, poller,
+      // webhook turn) dumps whatever the provider sent — a JSON error body, an
+      // SSL handshake failure — straight into the user-visible transcript.
+      const normalized = normalizeChatError(event.error, event.errorCode);
       runError = {
-        message: event.error,
+        message: normalized.message,
         ...(event.errorCode ? { errorCode: event.errorCode } : {}),
-        ...(event.details ? { details: event.details } : {}),
+        ...((event.details ?? normalized.details)
+          ? { details: event.details ?? normalized.details }
+          : {}),
         ...(event.recoverable ? { recoverable: event.recoverable } : {}),
       };
-      appendText(`${content.length > 0 ? "\n\n" : ""}Error: ${event.error}`);
+      appendText(
+        `${content.length > 0 ? "\n\n" : ""}${formatChatErrorText(event.error, event.upgradeUrl, event.errorCode)}`,
+      );
       continue;
     }
 
@@ -267,6 +351,13 @@ export function buildAssistantMessage(
   const custom: Record<string, unknown> = {};
   if (options.turnId) custom.turnId = options.turnId;
   if (runId) custom.foldedRunIds = [runId];
+  if (
+    typeof options.runDurationMs === "number" &&
+    Number.isFinite(options.runDurationMs) &&
+    options.runDurationMs >= 0
+  ) {
+    custom[ASSISTANT_RUN_DURATION_METADATA_KEY] = options.runDurationMs;
+  }
   if (continued) custom.continued = true;
   if (runError) {
     custom.runError = {
@@ -291,19 +382,34 @@ export function buildAssistantMessage(
   };
 }
 
+/**
+ * The rebuild half of the live client's `clearAssistantDraftContent`
+ * (client/sse-event-processor.ts). The two bodies are asserted identical by
+ * `keeps clearAssistantDraftContent identical to the live client copy` in
+ * thread-data-builder.spec.ts — a rebuild that clears more than the live stream
+ * did makes narration vanish on reload, which is worse than clearing nothing.
+ */
 function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined
+    ) {
+      return;
+    }
     if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
       continue;
     }
     if (part.type === "tool-call" && part.result === undefined) {
-      // Keep materialized in-flight tool cards across retry clears so persisted
-      // thread rebuilds match the live SSE processor and avoid hide→show flicker.
+      // Only drop ephemeral placeholders. Materialized in-flight tool cards
+      // (real args from tool_start) stay mounted so a retry/auto-continue clear
+      // does not hide→show the same call when the next chunk re-emits it.
       const isEphemeral =
-        (part as { activity?: boolean }).activity === true ||
+        part.activity === true ||
         part.argsText === "" ||
         Object.keys(part.args ?? {}).length === 0;
       if (isEphemeral) content.splice(index, 1);
@@ -371,6 +477,9 @@ function settleInterruptedToolCalls(content: ContentPart[]): void {
   for (const part of content) {
     if (part.type === "tool-call" && part.result === undefined) {
       part.result = INTERRUPTED_TOOL_RESULT;
+      // Interrupted is not failed — never set `isError` here. The persisted
+      // turn must agree with the live client (client/sse-event-processor.ts).
+      part.outcome = "unknown";
     }
   }
 }
@@ -387,6 +496,55 @@ function normalizeAttachmentIdentity(attachments: unknown): unknown {
     name: att?.name,
     contentType: att?.contentType,
   }));
+}
+
+function findApprovalToolCallIndex(
+  content: ContentPart[],
+  toolName: string,
+  toolCallId?: string,
+): number {
+  if (toolCallId) {
+    for (let i = content.length - 1; i >= 0; i--) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolCallId === toolCallId &&
+        part.result === undefined
+      ) {
+        return i;
+      }
+    }
+
+    // Older tool_start events without an id use one reader-local tc_N id.
+    // Only accept that fallback when it is unambiguous, so a replayed approval
+    // cannot attach its key to another same-name call.
+    const readerLocalCandidates: number[] = [];
+    for (let i = 0; i < content.length; i += 1) {
+      const part = content[i];
+      if (
+        part.type === "tool-call" &&
+        part.toolName === toolName &&
+        part.result === undefined &&
+        typeof part.toolCallId === "string" &&
+        /^tc_\d+$/.test(part.toolCallId)
+      ) {
+        readerLocalCandidates.push(i);
+      }
+    }
+    return readerLocalCandidates.length === 1 ? readerLocalCandidates[0]! : -1;
+  }
+
+  for (let i = content.length - 1; i >= 0; i--) {
+    const part = content[i];
+    if (
+      part.type === "tool-call" &&
+      part.toolName === toolName &&
+      part.result === undefined
+    ) {
+      return i;
+    }
+  }
+  return -1;
 }
 
 // Strip the render-only `toolCallId` before fingerprinting. The id is generated
@@ -462,6 +620,41 @@ function messagesMatch(a: any, b: any): boolean {
   return messageIdentityKeys(a).some((key) => bKeys.has(key));
 }
 
+function preserveAssistantRunDuration(chosenEntry: any, otherEntry: any): any {
+  const chosen = getStoredMessage(chosenEntry);
+  const other = getStoredMessage(otherEntry);
+  if (chosen?.role !== "assistant" || other?.role !== "assistant") {
+    return chosenEntry;
+  }
+
+  const chosenCustom =
+    chosen.metadata?.custom && typeof chosen.metadata.custom === "object"
+      ? (chosen.metadata.custom as Record<string, unknown>)
+      : {};
+  if (assistantRunDurationMs(chosenCustom) != null) return chosenEntry;
+
+  const otherCustom =
+    other.metadata?.custom && typeof other.metadata.custom === "object"
+      ? (other.metadata.custom as Record<string, unknown>)
+      : {};
+  const durationMs = assistantRunDurationMs(otherCustom);
+  if (durationMs == null) return chosenEntry;
+
+  const nextMessage = {
+    ...chosen,
+    metadata: {
+      ...chosen.metadata,
+      custom: {
+        ...chosenCustom,
+        [ASSISTANT_RUN_DURATION_METADATA_KEY]: durationMs,
+      },
+    },
+  };
+  return chosenEntry?.message === undefined
+    ? nextMessage
+    : { ...chosenEntry, message: nextMessage };
+}
+
 function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   const existing = getStoredMessage(existingEntry);
   const incoming = getStoredMessage(incomingEntry);
@@ -479,12 +672,19 @@ function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
   ) {
     const existingWeight = assistantContentWeight(existing.content);
     const incomingWeight = assistantContentWeight(incoming.content);
-    if (existingWeight > incomingWeight) return existingEntry;
-    if (incomingWeight > existingWeight) return incomingEntry;
-    return isTerminalAssistantStatus(existing?.status) &&
-      !isTerminalAssistantStatus(incoming?.status)
-      ? existingEntry
-      : incomingEntry;
+    const chosen =
+      existingWeight > incomingWeight
+        ? existingEntry
+        : incomingWeight > existingWeight
+          ? incomingEntry
+          : isTerminalAssistantStatus(existing?.status) &&
+              !isTerminalAssistantStatus(incoming?.status)
+            ? existingEntry
+            : incomingEntry;
+    return preserveAssistantRunDuration(
+      chosen,
+      chosen === existingEntry ? incomingEntry : existingEntry,
+    );
   }
   if (
     existing?.role === "assistant" &&
@@ -492,9 +692,9 @@ function chooseMergedMessageEntry(existingEntry: any, incomingEntry: any): any {
     isTerminalAssistantStatus(existing?.status) &&
     !isTerminalAssistantStatus(incoming?.status)
   ) {
-    return existingEntry;
+    return preserveAssistantRunDuration(existingEntry, incomingEntry);
   }
-  return incomingEntry;
+  return preserveAssistantRunDuration(incomingEntry, existingEntry);
 }
 
 function normalizeMessageEntry(
@@ -613,10 +813,137 @@ export function normalizeThreadRepository(repo: any): any {
 }
 
 /**
+ * A replayed tool result is evidence, not the source of truth — the resumed
+ * turn can always re-read current state. Bound each one so restoring fidelity
+ * cannot itself overflow the context window, and say so in-band when it bites.
+ */
+const MAX_REPLAYED_TOOL_RESULT_CHARS = 12_000;
+/**
+ * Total budget for replayed tool payloads across the whole thread. Per-result
+ * capping alone is not a bound: a long run has hundreds of calls, so replaying
+ * every one of them would overflow the context window and break the very
+ * continuation this replay exists to serve. The newest turns keep their tool
+ * detail; older turns fall back to prose and say so.
+ */
+const MAX_REPLAYED_TOOL_PAYLOAD_CHARS = 64_000;
+const ELIDED_TOOL_DETAIL_NOTE =
+  "[Tool calls from this turn were elided from replayed history to fit the context. Re-read the current state with tools if their detail matters.]";
+
+function replayedToolResultContent(result: unknown): string {
+  const body =
+    typeof result === "string"
+      ? result
+      : result === undefined || result === null
+        ? ""
+        : (() => {
+            try {
+              return JSON.stringify(result) ?? "";
+            } catch {
+              return String(result);
+            }
+          })();
+  if (body.length <= MAX_REPLAYED_TOOL_RESULT_CHARS) return body;
+  const omitted = body.length - MAX_REPLAYED_TOOL_RESULT_CHARS;
+  return `${body.slice(0, MAX_REPLAYED_TOOL_RESULT_CHARS)}\n\n[Tool result truncated after ${MAX_REPLAYED_TOOL_RESULT_CHARS.toLocaleString()} characters; ${omitted.toLocaleString()} omitted from replayed history. Re-read the current state with tools if the exact content matters.]`;
+}
+
+/**
+ * Integration turns (Slack and friends) deliberately replay only what the
+ * participant saw plus a compact artifact ledger — never the raw tool results.
+ * `threadMessageTextForEngine` owns that policy, so a structured replay has to
+ * defer to it rather than reach past it into `content`.
+ */
+function hasIntegrationReplayPolicy(message: any): boolean {
+  const metadata = message?.metadata;
+  if (!metadata || typeof metadata !== "object") return false;
+  return (
+    metadata.integrationDelivery !== undefined ||
+    metadata.integrationDeliveryAttempted === true ||
+    Array.isArray(metadata.integrationArtifacts)
+  );
+}
+
+function replayableToolCalls(message: any): any[] {
+  const content = Array.isArray(message?.content) ? message.content : [];
+  return content.filter(
+    (part: any) =>
+      part?.type === "tool-call" &&
+      typeof part.toolCallId === "string" &&
+      part.toolCallId.trim() &&
+      typeof part.toolName === "string" &&
+      part.toolName.trim(),
+  );
+}
+
+/** What replaying this turn's tool calls with their results would actually cost. */
+function replayedToolPayloadCost(message: any): number {
+  let cost = 0;
+  for (const part of replayableToolCalls(message)) {
+    cost += stringifyToolUseInputForGateway(part.args ?? {}).length;
+    if (part.result !== undefined) {
+      cost += replayedToolResultContent(part.result).length;
+    }
+  }
+  return cost;
+}
+
+/**
+ * One persisted assistant turn spans many tool rounds. Replay it as the
+ * provider protocol wants it — one assistant message carrying every `tool-call`,
+ * then one user message carrying every matching `tool-result`. The exact
+ * round-by-round interleaving is not recoverable from thread_data and does not
+ * matter; what matters is that the calls and their outputs survive at all.
+ */
+function assistantReplayContent(
+  message: any,
+  text: string,
+): { assistant: EngineContentPart[]; results: EngineContentPart[] } {
+  const assistant: EngineContentPart[] = [];
+  const results: EngineContentPart[] = [];
+  if (text.trim()) assistant.push({ type: "text", text });
+  const content = Array.isArray(message?.content) ? message.content : [];
+  for (const part of content) {
+    if (part?.type !== "tool-call") continue;
+    const id =
+      typeof part.toolCallId === "string" ? part.toolCallId.trim() : "";
+    const name = typeof part.toolName === "string" ? part.toolName.trim() : "";
+    if (!id || !name) continue;
+    const input =
+      part.args && typeof part.args === "object" && !Array.isArray(part.args)
+        ? (part.args as Record<string, unknown>)
+        : {};
+    assistant.push({ type: "tool-call", id, name, input });
+    if (part.result === undefined) continue;
+    results.push({
+      type: "tool-result",
+      toolCallId: id,
+      toolName: name,
+      toolInput: stringifyToolUseInputForGateway(input),
+      content: replayedToolResultContent(part.result),
+      ...(part.isError === true ? { isError: true } : {}),
+    });
+  }
+  return { assistant, results };
+}
+
+export interface ThreadDataToEngineMessagesOptions {
+  /**
+   * Replay the tool calls and results thread_data already stores instead of
+   * flattening each turn to its prose. Required by callers that RESUME a run
+   * (chained background continuation, agent-teams continue): a turn rebuilt as
+   * text alone tells the model what it said but not what it did, so it re-runs
+   * tools it already ran and cannot see their output. Callers that only need
+   * "what was said" — recovery floors, memory compaction — leave this off.
+   */
+  includeToolCalls?: boolean;
+}
+
+/**
  * Rebuild a flat `EngineMessage[]` from persisted thread_data (the
- * assistant-ui ExportedMessageRepository shape). Text-only — tool calls/results
- * are flattened to their text so a continuation run gets the conversation
- * prefix as plain context (Anthropic's prompt cache makes the resume cheap).
+ * assistant-ui ExportedMessageRepository shape). Each turn collapses to its
+ * text by default, which is all a recovery floor or a memory compaction needs.
+ * Callers resuming a run pass `includeToolCalls` to replay what the turn
+ * actually DID as well as what it said.
  *
  * Used to resume a background sub-agent in a fresh function invocation (the
  * server-side analog of the browser re-POSTing history for the main chat).
@@ -624,6 +951,7 @@ export function normalizeThreadRepository(repo: any): any {
  */
 export function threadDataToEngineMessages(
   threadData: string | Record<string, unknown> | null | undefined,
+  options: ThreadDataToEngineMessagesOptions = {},
 ): EngineMessage[] {
   const messages: EngineMessage[] = [];
   if (!threadData) return messages;
@@ -634,24 +962,181 @@ export function threadDataToEngineMessages(
     return messages;
   }
   if (!Array.isArray(data?.messages)) return messages;
-  for (const entry of data.messages) {
+
+  const entries: any[] = data.messages;
+  const replaysTools = (m: any) =>
+    options.includeToolCalls === true &&
+    m?.role === "assistant" &&
+    !hasIntegrationReplayPolicy(m);
+
+  // Spend the tool-payload budget on the most recent turns: those are the ones
+  // a resumed run is about to build on. Decided up front so the walk below can
+  // stay in conversation order.
+  const toolPayloadAllowed = new Set<number>();
+  if (options.includeToolCalls) {
+    let spent = 0;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const m = entries[i]?.message ?? entries[i];
+      if (!replaysTools(m)) continue;
+      const cost = replayedToolPayloadCost(m);
+      if (cost === 0) continue;
+      if (spent + cost > MAX_REPLAYED_TOOL_PAYLOAD_CHARS) continue;
+      spent += cost;
+      toolPayloadAllowed.add(i);
+    }
+  }
+
+  for (const [index, entry] of entries.entries()) {
     const m = entry?.message ?? entry;
     if (!m || (m.role !== "user" && m.role !== "assistant")) continue;
-    const text =
-      typeof m.content === "string"
-        ? m.content
-        : Array.isArray(m.content)
-          ? m.content
-              .filter(
-                (c: any) => c?.type === "text" && typeof c.text === "string",
-              )
-              .map((c: any) => c.text)
-              .join("\n")
-          : "";
+    const text = threadMessageTextForEngine(m);
+    if (replaysTools(m)) {
+      if (toolPayloadAllowed.has(index)) {
+        const { assistant, results } = assistantReplayContent(m, text);
+        if (assistant.length === 0) continue;
+        messages.push({ role: "assistant", content: assistant });
+        if (results.length > 0) {
+          messages.push({ role: "user", content: results });
+        }
+        continue;
+      }
+      // Over budget, or nothing to replay. Prose still travels — but a turn
+      // whose tool detail was dropped must not read like a turn that never
+      // called a tool.
+      const elided = replayableToolCalls(m).length > 0;
+      const prose = elided
+        ? `${text.trim() ? `${text.trim()}\n\n` : ""}${ELIDED_TOOL_DETAIL_NOTE}`
+        : text;
+      if (!prose.trim()) continue;
+      messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: prose }],
+      });
+      continue;
+    }
     if (!text.trim()) continue;
     messages.push({ role: m.role, content: [{ type: "text", text }] });
   }
   return messages;
+}
+
+const MAX_RECOVERED_HISTORY_MESSAGES = 12;
+const MAX_RECOVERED_HISTORY_CHARS = 32_000;
+
+function engineMessageTextLength(message: EngineMessage): number {
+  return message.content.reduce(
+    (total, part) =>
+      total + (part.type === "text" ? (part.text?.length ?? 0) : 0),
+    0,
+  );
+}
+
+/**
+ * The trailing window of what was actually said in a thread, for a request that
+ * arrived carrying no history of its own. The client trims history against a
+ * size budget, so one tool-heavy turn can zero it out; without this floor the
+ * model re-derives answers it already gave and re-asks questions the user
+ * already answered. Contiguous and bounded on purpose — this restores the
+ * conversation, not the tool transcript.
+ */
+export function recoverThreadHistoryForRequest(
+  threadData: string | Record<string, unknown> | null | undefined,
+  limits?: { maxMessages?: number; maxChars?: number },
+): EngineMessage[] {
+  const maxMessages = limits?.maxMessages ?? MAX_RECOVERED_HISTORY_MESSAGES;
+  const maxChars = limits?.maxChars ?? MAX_RECOVERED_HISTORY_CHARS;
+  const window = threadDataToEngineMessages(threadData).slice(-maxMessages);
+  let total = window.reduce(
+    (sum, message) => sum + engineMessageTextLength(message),
+    0,
+  );
+  while (window.length > 1 && total > maxChars) {
+    total -= engineMessageTextLength(window.shift()!);
+  }
+  return window;
+}
+
+const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;
+const MAX_INTEGRATION_ARTIFACT_FIELD_CHARS = 500;
+
+function boundedString(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed
+    ? trimmed.slice(0, MAX_INTEGRATION_ARTIFACT_FIELD_CHARS)
+    : undefined;
+}
+
+function promptSafeJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replaceAll("&", "\\u0026")
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e");
+}
+
+function messageTextContent(message: any): string {
+  if (typeof message?.content === "string") return message.content;
+  if (!Array.isArray(message?.content)) return "";
+  return message.content
+    .filter(
+      (part: any) => part?.type === "text" && typeof part.text === "string",
+    )
+    .map((part: any) => part.text)
+    .join("\n");
+}
+
+/**
+ * Select the participant-visible delivery for integration turns while keeping
+ * a compact, trusted resource ledger available to the agent. Raw tool results
+ * remain in thread_data for UI/audit use but are not replayed into the prompt.
+ */
+export function threadMessageTextForEngine(message: any): string {
+  const delivery = message?.metadata?.integrationDelivery;
+  const deliveryAttempted =
+    message?.metadata?.integrationDeliveryAttempted === true;
+  const deliveredText =
+    message?.role === "assistant" &&
+    delivery?.status === "delivered" &&
+    typeof delivery.text === "string" &&
+    delivery.text.trim()
+      ? delivery.text
+      : undefined;
+  let text =
+    deliveredText ??
+    (message?.role === "assistant" && deliveryAttempted
+      ? ""
+      : messageTextContent(message));
+
+  if (message?.role !== "assistant") return text;
+  const storedArtifacts = message?.metadata?.integrationArtifacts;
+  if (!Array.isArray(storedArtifacts)) return text;
+
+  const artifacts = storedArtifacts
+    .slice(0, MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT)
+    .map((artifact: any) => ({
+      resourceType: boundedString(artifact?.resourceType),
+      id: boundedString(artifact?.id),
+      sourceAction: boundedString(artifact?.sourceAction),
+      titleAtAction: boundedString(artifact?.titleAtAction),
+      url: boundedString(artifact?.url),
+    }))
+    .filter(
+      (artifact: {
+        resourceType?: string;
+        id?: string;
+        sourceAction?: string;
+      }) => artifact.resourceType && artifact.id && artifact.sourceAction,
+    );
+  if (artifacts.length === 0) return text;
+
+  const context = [
+    "<integration_artifact_context>",
+    "Trusted action history for this conversation. Resource IDs remain stable if participants rename the resource. Fields such as titleAtAction are historical aliases from the time of that action, not current resource state. Use stable IDs to locate an earlier artifact, read its current state before changing it, and omit fields the user did not explicitly ask to change while still deciding whether to update, add, supersede, or create.",
+    promptSafeJson(artifacts),
+    "</integration_artifact_context>",
+  ].join("\n");
+  text = text.trim() ? `${text.trim()}\n\n${context}` : context;
+  return text;
 }
 
 export interface CodeAgentThreadTranscriptEvent {
@@ -810,6 +1295,45 @@ export interface MergeThreadDataOptions {
   preserveExistingTopLevelKeys?: boolean;
 }
 
+const CLAIMED_QUEUED_MESSAGE_IDS_KEY = "_claimedQueuedMessageIds";
+const MAX_CLAIMED_QUEUED_MESSAGE_IDS = 200;
+
+function claimedQueuedMessageIds(repo: any): string[] {
+  const value = repo?.[CLAIMED_QUEUED_MESSAGE_IDS_KEY];
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (id): id is string => typeof id === "string" && id.length > 0,
+  );
+}
+
+export function hasClaimedQueuedMessage(repo: any, messageId: string): boolean {
+  return claimedQueuedMessageIds(repo).includes(messageId);
+}
+
+export function claimQueuedMessage(repo: any, messageId: string): any {
+  const normalized = repo && typeof repo === "object" ? { ...repo } : {};
+  const claimed = claimedQueuedMessageIds(normalized).filter(
+    (id) => id !== messageId,
+  );
+  normalized[CLAIMED_QUEUED_MESSAGE_IDS_KEY] = [...claimed, messageId].slice(
+    -MAX_CLAIMED_QUEUED_MESSAGE_IDS,
+  );
+  return pruneClaimedQueuedMessages(normalized);
+}
+
+function pruneClaimedQueuedMessages(repo: any): any {
+  if (!Array.isArray(repo?.queuedMessages)) return repo;
+  const claimed = new Set(claimedQueuedMessageIds(repo));
+  if (claimed.size === 0) return repo;
+  return {
+    ...repo,
+    queuedMessages: repo.queuedMessages.filter(
+      (message: any) =>
+        typeof message?.id !== "string" || !claimed.has(message.id),
+    ),
+  };
+}
+
 export function mergeThreadDataForClientSave(
   existingRepo: any,
   incomingRepo: any,
@@ -855,7 +1379,9 @@ export function mergeThreadDataForClientSave(
   const incomingMessages = Array.isArray(merged.messages)
     ? merged.messages
     : null;
-  if (!existingMessages || !incomingMessages) return merged;
+  if (!existingMessages || !incomingMessages) {
+    return pruneClaimedQueuedMessages(merged);
+  }
 
   const incomingKeySets: Set<string>[] = incomingMessages.map(
     (entry: unknown) => new Set(messageIdentityKeys(getStoredMessage(entry))),
@@ -910,7 +1436,7 @@ export function mergeThreadDataForClientSave(
   merged.messages = nextMessages.map((entry) =>
     rewriteEntryParentId(entry, idRewrites),
   );
-  return normalizeThreadRepository(merged);
+  return normalizeThreadRepository(pruneClaimedQueuedMessages(merged));
 }
 
 function escapeAttachmentAttribute(value: string): string {
@@ -943,22 +1469,6 @@ function textAttachmentEnvelope(
     att.type ? `type="${escapeAttachmentAttribute(att.type)}"` : null,
   ].filter(Boolean);
   return `<attachment ${attrs.join(" ")}>\n${truncateStoredAttachment(text)}\n</attachment>`;
-}
-
-/**
- * Cap a base64 data-URL string for storage. When the encoded string is over
- * the limit we replace the base64 payload with a truncation marker so the
- * transcript still renders the attachment chip but doesn't bloat SQL.
- */
-function capBase64DataUrl(dataUrl: string): string {
-  const commaIdx = dataUrl.indexOf(",");
-  if (commaIdx === -1) return dataUrl;
-  const header = dataUrl.slice(0, commaIdx + 1);
-  const b64 = dataUrl.slice(commaIdx + 1);
-  // Each base64 char encodes 6 bits; 4 chars = 3 bytes.
-  const approxBytes = Math.floor((b64.length * 3) / 4);
-  if (approxBytes <= MAX_STORED_BASE64_BYTES) return dataUrl;
-  return `${header}[base64 truncated — ${approxBytes.toLocaleString()} bytes exceeds storage limit]`;
 }
 
 function buildStoredAttachments(
@@ -1007,33 +1517,6 @@ function buildStoredAttachments(
         };
       }
 
-      if (att.type === "image" && att.data) {
-        return {
-          id,
-          type: "image",
-          name: att.name,
-          contentType: att.contentType,
-          status: { type: "complete" },
-          content: [{ type: "image", image: capBase64DataUrl(att.data) }],
-        };
-      }
-      if (att.data) {
-        return {
-          id,
-          type: "file",
-          name: att.name,
-          contentType: att.contentType,
-          status: { type: "complete" },
-          content: [
-            {
-              type: "file",
-              data: capBase64DataUrl(att.data),
-              mimeType: att.contentType,
-              filename: att.name,
-            },
-          ],
-        };
-      }
       if (typeof att.text === "string" && att.text.length > 0) {
         return {
           id,
@@ -1046,6 +1529,33 @@ function buildStoredAttachments(
           ],
         };
       }
+
+      // Binary attachment data is request-scoped input, not thread state. If
+      // the provider was unavailable or failed, retain only a visible marker
+      // so the transcript can explain why the attachment needs storage setup
+      // without putting base64 bytes in SQL.
+      if (att.storageRequired === true || typeof att.data === "string") {
+        const uploadFailed = att.storageUploadFailed === true;
+        return {
+          id,
+          type: att.type === "image" ? "image" : "file",
+          name: att.name,
+          contentType: att.contentType,
+          status: { type: "complete" },
+          content: [
+            {
+              type: "text",
+              text: uploadFailed
+                ? "Attachment not retained: the configured object-storage upload failed. Retry the upload to keep files available throughout this thread."
+                : "Attachment not retained: connect object storage to keep files available throughout this thread.",
+            },
+          ],
+          metadata: {
+            storageRequired: true,
+            ...(uploadFailed ? { storageUploadFailed: true } : {}),
+          },
+        };
+      }
       return null;
     })
     .filter(Boolean);
@@ -1055,6 +1565,7 @@ export function buildUserMessage(opts: {
   text: string;
   attachments?: AgentChatAttachment[];
   runId?: string;
+  queuedMessageId?: string;
   createdAt?: Date;
 }): {
   id: string;
@@ -1074,6 +1585,9 @@ export function buildUserMessage(opts: {
     metadata: {
       custom: {
         submittedRunId: opts.runId,
+        ...(opts.queuedMessageId
+          ? { agentNativeQueuedMessageId: opts.queuedMessageId }
+          : {}),
       },
     },
   };
@@ -1324,6 +1838,17 @@ function foldedRunIdsOf(message: any): string[] {
     : [];
 }
 
+function assistantRunDurationMs(
+  custom: Record<string, unknown>,
+): number | null {
+  const durationMs = custom[ASSISTANT_RUN_DURATION_METADATA_KEY];
+  return typeof durationMs === "number" &&
+    Number.isFinite(durationMs) &&
+    durationMs >= 0
+    ? durationMs
+    : null;
+}
+
 /** Rough size of an assistant message's content, used only to pick the larger
  *  of two representations of the same chunk so a fold can never shrink. */
 function assistantContentWeight(content: unknown): number {
@@ -1446,6 +1971,20 @@ export function foldAssistantTurn(
     turnId,
     foldedRunIds: mergedFolded,
   };
+  const existingDurationMs = assistantRunDurationMs(existingCustom);
+  const incomingDurationMs = assistantRunDurationMs(incomingCustom);
+  const mergedDurationMs = runAlreadyFolded
+    ? existingDurationMs == null
+      ? incomingDurationMs
+      : incomingDurationMs == null
+        ? existingDurationMs
+        : Math.max(existingDurationMs, incomingDurationMs)
+    : existingDurationMs == null && incomingDurationMs == null
+      ? null
+      : (existingDurationMs ?? 0) + (incomingDurationMs ?? 0);
+  if (mergedDurationMs != null) {
+    mergedCustom[ASSISTANT_RUN_DURATION_METADATA_KEY] = mergedDurationMs;
+  }
   // Only the freshest chunk decides whether the turn is still continuing.
   if (incomingCustom.continued !== true) delete mergedCustom.continued;
 

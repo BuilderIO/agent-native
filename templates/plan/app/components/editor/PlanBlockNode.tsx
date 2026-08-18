@@ -1,9 +1,9 @@
+import { RegistryBlockDataProvider } from "@agent-native/core/blocks";
 import {
   createRegistryBlockNode,
-  RegistryBlockDataProvider,
-  useRegistryBlockData,
   type RegistryBlockDataValue,
-} from "@agent-native/core/client";
+  useRegistryBlockData,
+} from "@agent-native/toolkit/editor";
 import { createPlanBlockId, type PlanBlock } from "@shared/plan-content";
 import type { ReactNode } from "react";
 

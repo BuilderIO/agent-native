@@ -89,6 +89,8 @@ export interface DocumentPropertyOption {
   id: string;
   name: string;
   color: DocumentPropertyOptionColor;
+  /** Stable guidance for when this select/status value should be chosen. */
+  description?: string;
 }
 
 export interface DocumentPropertyOptions {

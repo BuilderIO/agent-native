@@ -1,4 +1,5 @@
-import { Turnstile, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import { Turnstile } from "@agent-native/core/client/ui";
 import type { CustomField } from "@shared/api";
 import { useState } from "react";
 

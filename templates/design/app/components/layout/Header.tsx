@@ -1,10 +1,10 @@
 import {
   requestAgentChatThreadOpen,
   requestAgentTaskOpen,
-  useActionQuery,
-  useT,
-} from "@agent-native/core/client";
-import { AgentToggleButton } from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { AgentToggleButton } from "@agent-native/core/client/agent-chat";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { RunsTray } from "@agent-native/core/client/progress";
 import {
   useHeaderTitle,

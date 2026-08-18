@@ -45,12 +45,12 @@ import * as Y from "yjs";
 
 import { agentNativePath } from "../client/api-path.js";
 import { subscribeSyncEvents, type SyncEvent } from "../client/use-db-sync.js";
-import { AGENT_CLIENT_ID } from "./agent-identity.js";
-
+import { REALTIME_CAP_NO_AWARENESS } from "../realtime-protocol.js";
 export {
   dedupeCollabUsersByEmail,
   emailToColor,
   emailToName,
+  isReconcileLeadClient,
   type CollabUser,
 } from "@agent-native/toolkit/collab-ui";
 
@@ -117,57 +117,6 @@ function collabUsersEqual(a: CollabUser[], b: CollabUser[]): boolean {
     }
   }
   return true;
-}
-
-/**
- * Leader election for applying authoritative external snapshots into a shared
- * collaborative document.
- *
- * When the agent (or a Notion pull, or any full-document rewrite) writes new
- * content to SQL, the open editor reconciles it into the live Y.Doc with
- * `setContent`. If EVERY connected client did that independently, each would
- * diff the same snapshot into the CRDT and the changed region would be inserted
- * N times (concurrent inserts at the same position → duplicated text). So only
- * ONE client — the "lead" — applies the snapshot; every other client receives
- * the result through normal Yjs sync.
- *
- * The lead is the present client with the lowest Yjs `clientID`. The agent's
- * awareness entry uses `AGENT_CLIENT_ID` (max int) so it can never be the lead,
- * and a client editing alone is always the lead. This is deterministic across
- * clients with no coordination round-trip.
- */
-export function isReconcileLeadClient(
-  awareness: Awareness | null | undefined,
-  localClientId: number | null | undefined,
-): boolean {
-  if (localClientId == null) return false;
-  if (!awareness) return true; // standalone / tests — act alone
-
-  let hasPeer = false;
-  let minVisible = localClientId;
-  awareness.getStates().forEach((state, clientId) => {
-    if (clientId === AGENT_CLIENT_ID) return; // agent never leads
-    if (clientId === localClientId) return;
-    const s = state as { user?: unknown; visible?: boolean };
-    if (!s || !s.user) return; // skip empty/stale entries
-    hasPeer = true;
-    // Only VISIBLE peers can act; a peer published `visible: false` (backgrounded)
-    // is skipped. A peer that hasn't published the field is treated as visible.
-    if (s.visible !== false && clientId < minVisible) minVisible = clientId;
-  });
-
-  // Sole client: always the applier — no other client can duplicate the edit,
-  // so single-user agent edits apply even if this tab reports hidden.
-  if (!hasPeer) return true;
-
-  // With peers present, exactly one VISIBLE client applies (the lowest clientId
-  // among visible ones). A backgrounded tab pauses its poll and can't reliably
-  // act, so it yields — otherwise an agent edit would never reach the tab the
-  // user is actually looking at. The caller re-elects on visibility change.
-  const localHidden =
-    typeof document !== "undefined" && document.visibilityState === "hidden";
-  if (localHidden) return false;
-  return localClientId <= minVisible;
 }
 
 export interface RemoteAwarenessSnapshot {
@@ -257,6 +206,26 @@ const _awarenessThrottleTimers = new Map<
   ReturnType<typeof setTimeout>
 >();
 
+function awarenessThrottleKey(
+  baseUrl: string,
+  docId: string,
+  clientId: number,
+): string {
+  return `${baseUrl}::${docId}::${clientId}`;
+}
+
+function cancelAwarenessPush(
+  baseUrl: string,
+  docId: string,
+  clientId: number,
+): void {
+  const key = awarenessThrottleKey(baseUrl, docId, clientId);
+  const timer = _awarenessThrottleTimers.get(key);
+  if (timer === undefined) return;
+  clearTimeout(timer);
+  _awarenessThrottleTimers.delete(key);
+}
+
 function scheduleAwarenessPush(
   baseUrl: string,
   docId: string,
@@ -264,7 +233,7 @@ function scheduleAwarenessPush(
   getState: () => Record<string, unknown> | null,
 ): void {
   if (typeof window === "undefined") return;
-  const key = `${docId}::${clientId}`;
+  const key = awarenessThrottleKey(baseUrl, docId, clientId);
   if (_awarenessThrottleTimers.has(key)) return; // already scheduled
 
   const timer = setTimeout(() => {
@@ -378,6 +347,12 @@ class CollabDocConnection {
   private pollVersion = 0;
   private lastPolledVersion = 0;
   private sseActive = false;
+  // Whether the active SSE stream actually forwards awareness. The hosted
+  // Realtime Gateway advertises `no-awareness` (it can't see the in-process
+  // awareness emitter), so on that transport we must NOT relax the presence
+  // poll cadence — otherwise remote cursors go stale. In-process SSE forwards
+  // awareness and sends no handshake, so this stays true there.
+  private sseAwarenessCovered = false;
   private sseSubscribedWithPause: boolean | null = null;
   private unsubscribeCollabEvents: (() => void) | null = null;
   private unsubscribeAwarenessEvents: (() => void) | null = null;
@@ -448,6 +423,10 @@ class CollabDocConnection {
   remove(id: symbol): void {
     this.subscribers.delete(id);
     if (this.subscribers.size === 0) {
+      // A lingered connection may be remounted for StrictMode, but it has no
+      // live consumer while empty. Do not let a queued presence push escape
+      // after the last subscriber has gone away.
+      cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
       this.scheduleDispose();
     } else {
       this.resubscribeCollabEventsIfPauseChanged();
@@ -488,6 +467,7 @@ class CollabDocConnection {
     // `setLocalState(null)` does not schedule a push (matches the previous
     // per-hook effect cleanup ordering).
     this.awareness.off("change", this.handleAwarenessChange);
+    cancelAwarenessPush(this.baseUrl, this.docId, this.ydoc.clientID);
     this.awareness.destroy();
     this.ydoc.destroy();
     if (collabConnectionRegistry.get(this.registryKey) === this) {
@@ -812,8 +792,22 @@ class CollabDocConnection {
         if (this.disposed || !this.syncActive) return;
         for (const change of events) this.handleSharedEvent(change);
       },
-      onSseStateChange: (connected) => {
+      onSseStateChange: (connected, capabilities) => {
+        const wasActive = this.sseActive;
         this.sseActive = connected;
+        // Only treat SSE as covering awareness when it's connected AND does not
+        // advertise `no-awareness` (the hosted gateway does). Drives whether we
+        // relax the presence poll — see getActivePollInterval.
+        const awarenessCovered =
+          connected && !capabilities?.includes(REALTIME_CAP_NO_AWARENESS);
+        const coverageFlipped = awarenessCovered !== this.sseAwarenessCovered;
+        this.sseAwarenessCovered = awarenessCovered;
+        // The gateway handshake lands AFTER onopen, so a relaxed poll timer
+        // scheduled at connect can already be pending when `no-awareness`
+        // arrives. Reschedule only for that mid-connection capability flip so
+        // the fast presence cadence applies immediately; connect/disconnect
+        // transitions keep the pre-existing next-natural-tick behavior.
+        if (coverageFlipped && connected === wasActive) this.reschedulePoll();
         if (connected) this.consecutiveErrors = 0;
       },
       pauseWhenHidden,
@@ -863,7 +857,10 @@ class CollabDocConnection {
   }
 
   private getActivePollInterval(): number {
-    return this.sseActive
+    // Relax to the slow cadence only when SSE is genuinely carrying awareness;
+    // on a `no-awareness` hosted stream keep the fast cadence so presence/
+    // cursor state doesn't go stale (the gateway doesn't forward awareness).
+    return this.sseActive && this.sseAwarenessCovered
       ? this.effectivePollIntervalWithSse
       : this.effectivePollInterval;
   }

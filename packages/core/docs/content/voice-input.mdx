@@ -7,13 +7,13 @@ description: "Voice dictation in the agent chat composer — Builder Gemini, BYO
 
 Every agent-native app has a microphone in the chat composer. Click it, talk, and your words get transcribed into the prompt. Useful on mobile, useful for long prompts, useful when your hands are on something else.
 
-The framework handles all of this automatically. Builder-connected users get Builder-hosted Gemini Flash-Lite by default; otherwise users can bring their own provider key or fall back to browser speech recognition.
+The framework handles all of this automatically. Builder-connected users get Builder-hosted Gemini Flash-Lite by default, with managed AI credits available on Builder.io's free tier; otherwise users can bring their own provider key or fall back to browser speech recognition.
 
 ## How it works {#how-it-works}
 
 The composer's voice button records audio in the browser, then picks a provider:
 
-1. **Builder Gemini Flash-Lite (default when Builder is connected).** The browser POSTs audio to `/_agent-native/transcribe-voice`, which proxies through Builder.io using Gemini Flash-Lite. No Google API key required.
+1. **Builder Gemini Flash-Lite (default when Builder is connected).** The browser POSTs audio to `/_agent-native/transcribe-voice`, which proxies through Builder.io using Gemini Flash-Lite. No Google API key required; managed AI credits are available on Builder.io's free tier.
 2. **BYOK cloud providers.** Users can choose Google Gemini, Groq Whisper, or OpenAI Whisper from Settings. The route resolves user-scoped encrypted secrets before shared deployment credentials.
 3. **Browser Web Speech API (fallback).** If no server provider is available, the composer can use the browser's built-in speech recognition. Works in Chromium-based browsers (Chrome, Edge, Arc) and Safari. Less accurate; streams live.
 
@@ -69,7 +69,7 @@ The route is **same-origin only** — cross-site POSTs are rejected so an attack
 
 ## Enabling Providers {#enabling-providers}
 
-Builder is the easiest path: connect Builder.io from Settings and the default provider becomes Builder Gemini Flash-Lite. For BYOK providers, add the matching key in Settings → API Keys.
+Builder is the easiest path: connect Builder.io (free tier available) from Settings and the default provider becomes Builder Gemini Flash-Lite. For BYOK providers, add the matching key in Settings → API Keys.
 
 ### Per-user (recommended for SaaS)
 
@@ -77,13 +77,23 @@ The user sets their own key via the agent sidebar settings UI. It's stored as a 
 
 ### Shared (for internal tools)
 
-Set `GEMINI_API_KEY`, `GROQ_API_KEY`, or `OPENAI_API_KEY` as an environment variable or in the `settings` table. Every user's transcription hits the shared key.
+Set `GEMINI_API_KEY`, `GROQ_API_KEY`, or `OPENAI_API_KEY` as an environment variable, or have a workspace admin add it in Settings → API Keys (stored as a shared, encrypted workspace secret). Every user's transcription hits the shared key.
 
 <Callout id="doc-block-1jgl027" tone="info">
 
 **Credential resolution order:** the route checks the user's own encrypted secret first, then the shared deployment key. A power user with their own key always overrides the shared one. If neither exists, the route returns a 400 the composer recognizes and silently falls back to browser Web Speech.
 
 </Callout>
+
+## Realtime speech mode {#realtime-speech-mode}
+
+Beyond one-shot dictation, the composer also offers a live, hands-free conversation mode. When the mic opens, a popover lets you choose **Realtime speech** or **Editable dictation**. Realtime speech uses a connected Builder account automatically (same as dictation; free tier available), or an `OPENAI_API_KEY` if Builder isn't connected — connects the browser to `gpt-realtime-2.1` over WebRTC. The chat collapses into a speech orb in the bottom-end corner; click the orb to show or hide chat without ending the conversation. The orb stays visible above the chat even if the chat opens automatically, and its compact waveform reacts to your voice and the assistant's voice.
+
+The speech model uses the same authenticated Agent Native tools as chat, so it can navigate the app and call actions while it talks. Approval-gated actions remain paused until you approve them. Only completed user and assistant text turns are appended to the original chat thread. Ending voice mode opens that chat so you can continue over text; audio and interim transcript fragments are never stored. A realtime session lasts at most 60 minutes.
+
+## For developers {#for-developers}
+
+The rest of this page is the transcription route's request/response contract and how to customize or replace it — useful if you're building a custom input surface or an on-prem provider, not required to use voice input day to day.
 
 ## The route {#route}
 
@@ -122,12 +132,6 @@ The composer POSTs the recorded clip here; the route resolves a provider and ret
 </Endpoint>
 
 You don't need to call this directly — the composer does. If you're building a custom input surface, first reuse the shared composer/voice client pieces from `@agent-native/core/client`. Treat this route as the low-level transport boundary for custom helpers that need to send multipart audio.
-
-## Realtime speech mode {#realtime-speech-mode}
-
-Beyond one-shot dictation, the composer also offers a live, hands-free conversation mode. When the mic opens, a popover lets you choose **Realtime speech** or **Editable dictation**. Realtime speech requires a user-scoped `OPENAI_API_KEY` and connects the browser to `gpt-realtime-2.1` over WebRTC. The chat collapses into a speech orb in the bottom-end corner; click the orb to show or hide chat without ending the conversation. The orb stays visible above the chat even if the chat opens automatically, and its compact waveform reacts to your voice and the assistant's voice.
-
-The speech model uses the same authenticated Agent Native tools as chat, so it can navigate the app and call actions while it talks. Approval-gated actions remain paused until you approve them. Only completed user and assistant text turns are appended to the original chat thread. Ending voice mode opens that chat so you can continue over text; audio and interim transcript fragments are never stored. A realtime session lasts at most 60 minutes.
 
 ## Customizing the provider {#customizing}
 

@@ -11,12 +11,12 @@ import {
 } from "./reasoning-effort.js";
 
 describe("supportsClaudeXHigh (via getReasoningEffortOptionsForModel)", () => {
-  it("uses Medium as the default and never exposes legacy Auto", () => {
-    expect(DEFAULT_REASONING_EFFORT).toBe("medium");
+  it("uses High as the default and never exposes legacy Auto", () => {
+    expect(DEFAULT_REASONING_EFFORT).toBe("high");
     expect(getReasoningEffortOptionsForModel("claude-sonnet-5")).not.toContain(
       "auto",
     );
-    expect(reasoningEffortLabel("auto")).toBe("Medium");
+    expect(reasoningEffortLabel("auto")).toBe("High");
   });
 
   it("includes xhigh for claude-opus-4-7", () => {
@@ -87,12 +87,12 @@ describe("normalizeReasoningEffortForModel", () => {
     );
   });
 
-  it("normalizes legacy auto and missing effort to medium", () => {
+  it("normalizes legacy auto and missing effort to high", () => {
     expect(normalizeReasoningEffortForModel("claude-opus-4-8", "auto")).toBe(
-      "medium",
+      "high",
     );
     expect(normalizeReasoningEffortForModel("claude-opus-4-8", undefined)).toBe(
-      "medium",
+      "high",
     );
   });
 
@@ -108,12 +108,12 @@ describe("normalizeReasoningEffortForModel", () => {
 });
 
 describe("resolveReasoningEffortSelection", () => {
-  it("migrates legacy auto and missing selections to medium", () => {
+  it("migrates legacy auto and missing selections to high", () => {
     expect(resolveReasoningEffortSelection("claude-sonnet-5", "auto")).toBe(
-      "medium",
+      "high",
     );
     expect(resolveReasoningEffortSelection("claude-sonnet-5", undefined)).toBe(
-      "medium",
+      "high",
     );
   });
 
@@ -122,7 +122,7 @@ describe("resolveReasoningEffortSelection", () => {
       "high",
     );
     expect(resolveReasoningEffortSelection("claude-sonnet-4-6", "xhigh")).toBe(
-      "medium",
+      "high",
     );
   });
 });
@@ -137,10 +137,10 @@ describe("normalizeReasoningEffortForRequest", () => {
     ).toBe("minimal");
   });
 
-  it("uses Medium when the request omits an effort", () => {
+  it("uses High when the request omits an effort", () => {
     expect(
       normalizeReasoningEffortForRequest("claude-sonnet-5", undefined),
-    ).toBe("medium");
+    ).toBe("high");
   });
 });
 

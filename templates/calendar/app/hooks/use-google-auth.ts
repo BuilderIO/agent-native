@@ -1,8 +1,8 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
-  agentNativePath,
   isInBuilderFrame,
   oauthRedirectUri,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/host";
 import type { GoogleAuthStatus } from "@shared/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -36,6 +36,14 @@ interface DesktopGlobals {
   agentNativeDesktop?: unknown;
   electronAPI?: unknown;
 }
+
+const DESKTOP_AUTH_POLL_INTERVAL_MS = 1500;
+// Bounds each poll tick's fetches so a hung request can't leave
+// pollInFlightRef stuck and stall the interval forever.
+const DESKTOP_AUTH_POLL_ABORT_MS = Math.max(
+  10_000,
+  DESKTOP_AUTH_POLL_INTERVAL_MS * 4,
+);
 
 function bodyError(
   body: any,
@@ -188,6 +196,7 @@ export function useGoogleAddAccountUrl(enabled = false) {
 export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
   const { onError, onSuccess, timeoutMs = 120_000 } = options;
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const pollInFlightRef = useRef(false);
   const [isPending, setIsPending] = useState(false);
   const isDesktopGoogleAuth = useMemo(() => {
     if (typeof window === "undefined" || typeof navigator === "undefined") {
@@ -285,62 +294,76 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
       })();
 
       pollRef.current = setInterval(async () => {
+        if (document.hidden || pollInFlightRef.current) return;
+        pollInFlightRef.current = true;
+        const controller = new AbortController();
+        const abortTimer = setTimeout(
+          () => controller.abort(),
+          DESKTOP_AUTH_POLL_ABORT_MS,
+        );
         try {
-          const exchangeRes = await fetch(
-            agentNativePath(
-              `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
-            ),
-            { credentials: "include" },
-          );
-          const exchange = await exchangeRes.json();
-          if (exchange?.error) {
-            clearPoll();
-            setIsPending(false);
-            onError?.(exchange);
-            return;
-          }
-          if (exchange?.token) {
-            await fetch(
+          try {
+            const exchangeRes = await fetch(
               agentNativePath(
-                `/_agent-native/auth/session?_session=${exchange.token}`,
+                `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
               ),
-              { credentials: "include" },
+              { credentials: "include", signal: controller.signal },
             );
-            await finish({ token: exchange.token, email: exchange.email });
-            return;
-          }
-        } catch {
-          // Keep polling; the status endpoint below may still observe success.
-        }
-
-        try {
-          const statusRes = await fetch(
-            agentNativePath("/_agent-native/google/status"),
-            { credentials: "include" },
-          );
-          if (statusRes.ok) {
-            const status = (await statusRes.json()) as GoogleAuthStatus;
-            const connected = startOptions.addAccount
-              ? (status.accounts?.length ?? 0) >
-                (startOptions.previousAccountCount ?? 0)
-              : status.connected;
-            if (connected) {
-              await finish();
+            const exchange = await exchangeRes.json();
+            if (exchange?.error) {
+              clearPoll();
+              setIsPending(false);
+              onError?.(exchange);
               return;
             }
+            if (exchange?.token) {
+              await fetch(
+                agentNativePath(
+                  `/_agent-native/auth/session?_session=${exchange.token}`,
+                ),
+                { credentials: "include", signal: controller.signal },
+              );
+              await finish({ token: exchange.token, email: exchange.email });
+              return;
+            }
+          } catch {
+            // coercion-ok: keep polling; the status endpoint below may still
+            // observe success, and the timeout below reports desktop_auth_timeout.
           }
-        } catch {
-          // Keep polling until the timeout.
-        }
 
-        if (Date.now() - startedAt > timeoutMs) {
-          reportError({
-            code: "desktop_auth_timeout",
-            message:
-              "Google sign-in timed out. Finish sign-in in the browser or try again.",
-          });
+          try {
+            const statusRes = await fetch(
+              agentNativePath("/_agent-native/google/status"),
+              { credentials: "include", signal: controller.signal },
+            );
+            if (statusRes.ok) {
+              const status = (await statusRes.json()) as GoogleAuthStatus;
+              const connected = startOptions.addAccount
+                ? (status.accounts?.length ?? 0) >
+                  (startOptions.previousAccountCount ?? 0)
+                : status.connected;
+              if (connected) {
+                await finish();
+                return;
+              }
+            }
+          } catch {
+            // coercion-ok: keep polling until the bounded timeout below, which
+            // reports desktop_auth_timeout rather than failing silently.
+          }
+
+          if (Date.now() - startedAt > timeoutMs) {
+            reportError({
+              code: "desktop_auth_timeout",
+              message:
+                "Google sign-in timed out. Finish sign-in in the browser or try again.",
+            });
+          }
+        } finally {
+          clearTimeout(abortTimer);
+          pollInFlightRef.current = false;
         }
-      }, 1500);
+      }, DESKTOP_AUTH_POLL_INTERVAL_MS);
 
       return true;
     },

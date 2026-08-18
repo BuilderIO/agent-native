@@ -1,14 +1,11 @@
 import { defineAction } from "@agent-native/core";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { resolveLocalhostConnectionScope } from "../server/lib/localhost-connection.js";
 
 /** Grant expiry: 8 hours from mint time. */
 const GRANT_TTL_MS = 8 * 60 * 60 * 1000;
@@ -40,9 +37,7 @@ export default defineAction({
   run: async ({ designId, connectionId }) => {
     await assertAccess("design", designId, "editor");
 
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
-    const orgId = getRequestOrgId() ?? null;
+    const { ownerEmail, orgId } = await resolveLocalhostConnectionScope();
 
     const db = getDb();
 

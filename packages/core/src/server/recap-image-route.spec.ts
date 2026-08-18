@@ -44,7 +44,7 @@ vi.mock("./recap-image-store.js", async () => {
   };
 });
 
-// verifyAuth / getMcpOAuthResource are only imported when getSession misses;
+// verifyAuth / getMcpOAuthAudiences are only imported when getSession misses;
 // stub them so the connect-token path is exercisable.
 const verifyAuth = vi.hoisted(() => vi.fn());
 vi.mock("../mcp/build-server.js", () => ({
@@ -52,7 +52,7 @@ vi.mock("../mcp/build-server.js", () => ({
   resolveOrgIdFromDomain: async () => undefined,
 }));
 vi.mock("../mcp/oauth-route.js", () => ({
-  getMcpOAuthResource: () => "https://app.example.com/_agent-native/mcp",
+  getMcpOAuthAudiences: () => ["https://app.example.com/mcp"],
 }));
 
 const { createRecapImageHandler } = await import("./recap-image-route.js");

@@ -1,12 +1,11 @@
 import {
   AgentToggleButton,
-  appApiPath,
-  callAction,
-  PromptComposer,
-  useActionMutation,
   useSendToAgentChat,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { appApiPath } from "@agent-native/core/client/api-path";
+import { PromptComposer } from "@agent-native/core/client/composer";
+import { callAction, useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
 import {
   isFailedSessionReplayNetworkStatus,
@@ -34,6 +33,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  type CSSProperties,
   type ReactNode,
   useCallback,
   useEffect,
@@ -42,10 +42,17 @@ import {
   useState,
   type FormEvent,
 } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -166,11 +173,6 @@ type ReplayViewportChange = ReplayViewportDimensions & {
 
 const DEFAULT_PLAYER_WIDTH = 1024;
 const DEFAULT_PLAYER_HEIGHT = 640;
-const MALFORMED_REPLAY_MIN_WIDTH = 4000;
-const MALFORMED_REPLAY_MIN_ASPECT_RATIO = 4;
-const MIN_REPLAY_DISPLAY_DIMENSION = 240;
-const RECOVERED_REPLAY_DISPLAY_ASPECT_RATIO =
-  DEFAULT_PLAYER_WIDTH / DEFAULT_PLAYER_HEIGHT;
 const DEFAULT_SPEED = 2;
 const SPEED_OPTIONS = [0.5, 1, 2, 4, 8];
 const SKIP_STEP_MS = 5000;
@@ -186,10 +188,14 @@ const MIN_STAGE_HEIGHT_PX = 240;
 const SCRUBBER_MARKER_LIMIT = 500;
 const TIMELINE_MARKER_LIMIT = 300;
 const TIMELINE_FOLLOW_PAUSE_MS = 4000;
-/** Toast/snackbar noise only — keep insertStyleRules minimal like builder-internal. */
-const SUPPRESS_OVERLAYS_CSS = [
-  "[data-radix-popper-content-wrapper], .Toastify, [class*='toast'], [class*='Toast'], [class*='Snackbar'] { display: none !important; }",
-];
+const REPLAY_CLOCK_UPDATE_INTERVAL_MS = 100;
+/**
+ * Keep captured overlays intact. Toasts and snackbars are product feedback,
+ * not recorder chrome, and can be essential to understanding the session.
+ * The recorder does not inject notification UI into the recorded document, so
+ * blanket selectors (including Sonner's data attributes) are not justified.
+ */
+export const REPLAY_OVERLAY_STYLE_RULES: string[] = [];
 type ReplayConsoleDiagnostics = ReturnType<
   typeof extractReplayDiagnostics
 >["console"];
@@ -235,11 +241,13 @@ const RRWEB_EVENT_TYPE = {
 
 const INCREMENTAL_SOURCE = {
   Mutation: 0,
+  MouseMove: 1,
   MouseInteraction: 2,
   Scroll: 3,
   ViewportResize: 4,
   Input: 5,
   TouchMove: 6,
+  Drag: 12,
 } as const;
 
 const MOUSE_INTERACTION = {
@@ -256,9 +264,15 @@ const MOUSE_INTERACTION = {
 export default function SessionDetailPage() {
   const t = useT();
   const { recordingId = "" } = useParams();
+  const [searchParams] = useSearchParams();
   const { codeRequiredDialog } = useSendToAgentChat();
   const { data, isLoading, error } = useSessionReplayPlayback(recordingId);
   const recording = data?.recording;
+  const initialSeekMs = useMemo(() => {
+    const raw = searchParams.get("atMs");
+    if (!raw || !/^\d+$/.test(raw)) return 0;
+    return Number(raw);
+  }, [searchParams]);
 
   return (
     <div className="analytics-session-detail-page flex h-full min-h-0 w-full flex-col gap-3 overflow-hidden">
@@ -310,7 +324,7 @@ export default function SessionDetailPage() {
         <DetailSkeleton />
       ) : data && recording ? (
         <div className="min-h-0 flex-1">
-          <ReplayWorkbench response={data} />
+          <ReplayWorkbench response={data} initialSeekMs={initialSeekMs} />
         </div>
       ) : null}
     </div>
@@ -419,8 +433,10 @@ function AskSessionPopover({
 
 function ReplayWorkbench({
   response,
+  initialSeekMs,
 }: {
   response: SessionReplayPlaybackResponse;
+  initialSeekMs: number;
 }) {
   const events = useReplayEvents(response);
   const markers = useMemo(() => buildReplayMarkers(events), [events]);
@@ -449,6 +465,7 @@ function ReplayWorkbench({
         events={events}
         markers={markers}
         response={response}
+        initialSeekMs={initialSeekMs}
         onTimeUpdate={setCurrentTime}
         registerSeek={registerSeek}
       />
@@ -466,12 +483,14 @@ function ReplayPlayer({
   events,
   markers,
   response,
+  initialSeekMs,
   onTimeUpdate,
   registerSeek,
 }: {
   events: AnyReplayEvent[];
   markers: ReplayMarker[];
   response: SessionReplayPlaybackResponse;
+  initialSeekMs: number;
   onTimeUpdate: (ms: number) => void;
   registerSeek: (seek: (ms: number, autoplay?: boolean) => void) => void;
 }) {
@@ -480,6 +499,7 @@ function ReplayPlayer({
   const stageRootRef = useRef<HTMLDivElement>(null);
   const replayerRef = useRef<any>(null);
   const rafRef = useRef<number | null>(null);
+  const lastClockUpdateAtRef = useRef<number | null>(null);
   const [status, setStatus] = useState<ReplayPlayerStatus>("idle");
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
@@ -497,7 +517,7 @@ function ReplayPlayer({
   } | null>(null);
   const [fitScale, setFitScale] = useState(1);
   const initialDims = useMemo(
-    () => replayInitialDisplayDimensions(events),
+    () => replayInitialViewportDimensions(events),
     [events],
   );
   const viewportTimeline = useMemo(
@@ -519,16 +539,14 @@ function ReplayPlayer({
   const scrubbingRef = useRef(false);
   const scrubResumePlayingRef = useRef(false);
 
-  // IMPORTANT — DO NOT REMOVE THIS LEGACY VIEWPORT CORRECTION.
-  // Some stored sessions contain impossible 4,000–7,500px-wide Meta/resize
-  // values even though the browser was a normal desktop viewport. Rendering
-  // those raw values collapses the replay into a tiny horizontal ribbon. Keep
-  // normal recordings exact—including 32:9 and mobile portrait. Recover only
-  // widths >=4,000px with aspect >4:1 to the standard 16:10 viewport. The same
-  // dimensions are applied to rrweb's iframe so CSS breakpoints/camera agree.
-  const displayDims = clampReplayDisplayDimensions(streamedDims ?? initialDims);
-  const playerWidth = displayDims?.width ?? DEFAULT_PLAYER_WIDTH;
-  const playerHeight = displayDims?.height ?? DEFAULT_PLAYER_HEIGHT;
+  // Fall back to the default player size only when the viewport is unknown;
+  // otherwise render the raw recorded dimensions untouched. See the Replayer
+  // construction below for why "recovery" heuristics were removed here.
+  const displayDims = resolveReplayDisplayDimensions(
+    streamedDims ?? initialDims,
+  );
+  const playerWidth = displayDims.width;
+  const playerHeight = displayDims.height;
   const skipRanges = useMemo(() => buildIdleSkipRanges(events), [events]);
   const skipRangesRef = useLiveRef(skipRanges);
   const skipInactiveRef = useLiveRef(skipInactive);
@@ -624,10 +642,16 @@ function ReplayPlayer({
 
   const updateTime = useCallback(
     (next: number) => {
+      if (!Number.isFinite(next) || next === currentTimeRef.current) return;
+      // Keep the live value in sync before React commits. The animation clock
+      // can run again while React is still processing the previous render;
+      // relying on useLiveRef's effect here republishes the same value and can
+      // create a nested update loop in development.
+      currentTimeRef.current = next;
       setCurrentTime(next);
       onTimeUpdate(next);
     },
-    [onTimeUpdate],
+    [currentTimeRef, onTimeUpdate],
   );
 
   const seek = useCallback(
@@ -652,18 +676,16 @@ function ReplayPlayer({
         clamped,
       );
       if (seekDims) {
-        // rrweb 2.1 does not reliably re-emit Resize when seeking backwards.
-        // IMPORTANT: correct both layers together. Correcting only the outer
-        // stage or only rrweb's iframe recreates the ultra-wide/clipped bug.
-        const correctedSeekDims = clampReplayDisplayDimensions(seekDims);
+        // rrweb 2.1 does not reliably re-emit its resize event when seeking
+        // backwards, so mirror the raw viewport-timeline lookup onto both
+        // rrweb's iframe and the outer stage state to keep them in sync.
         const currentDims = streamedDimsRef.current;
         if (
-          correctedSeekDims &&
-          (currentDims?.width !== correctedSeekDims.width ||
-            currentDims?.height !== correctedSeekDims.height)
+          currentDims?.width !== seekDims.width ||
+          currentDims?.height !== seekDims.height
         ) {
-          replayer.handleResize?.(correctedSeekDims);
-          setStreamedDims(correctedSeekDims);
+          replayer.handleResize?.(seekDims);
+          setStreamedDims(seekDims);
         }
       }
       updateTime(clamped);
@@ -707,29 +729,20 @@ function ReplayPlayer({
     if (!stageRootRef.current) return;
     let cancelled = false;
     let localReplayer: any = null;
+    let stopCursorVisibilityObserver = () => {};
 
     async function loadReplay() {
-      // Wait for the full recording before creating the Replayer. Progressive
-      // chunk publishes used to rebuild the player on every append, which
-      // reset the clock, disabled the scrubber, and desynced the playhead.
       const replayEvents = eventsRef.current;
+      // Replayer construction remains all-or-nothing. Progressive response
+      // publishes update loading progress only; rebuilding during download
+      // rewinds the player and can desync the scrubber/playhead.
       if (!response.isComplete) {
         setStatus("loading");
         setError(null);
         setPlaying(false);
         return;
       }
-      if (replayEvents.length < 2) {
-        throw new Error(t("sessions.noReplayEvents"));
-      }
-      if (
-        !replayEvents.some(
-          (event) => event.type === RRWEB_EVENT_TYPE.FullSnapshot,
-        )
-      ) {
-        throw new Error(t("sessions.noReplayEvents"));
-      }
-      if (!hasPlayableReplayEvents(replayEvents)) {
+      if (replayEvents.length < 2 || !hasPlayableReplayEvents(replayEvents)) {
         throw new Error(t("sessions.noReplayEvents"));
       }
       setStatus("loading");
@@ -739,45 +752,42 @@ function ReplayPlayer({
       if (cancelled || !stageRootRef.current) return;
 
       stageRootRef.current.innerHTML = "";
-      // Match builder-internal: pass events through untouched and let rrweb own
-      // normal iframe sizing via Meta / ViewportResize. Never rewrite Meta or
-      // force arbitrary iframe dimensions (that mismatches the FullSnapshot DOM
-      // and blanks the stage). The one exception below mirrors the narrowly
-      // detected legacy malformed viewport onto both the iframe and outer stage.
-      const rawInitialDims = replayInitialViewportDimensions(replayEvents);
-      const correctedInitialDims = replayInitialDisplayDimensions(replayEvents);
-      setStreamedDims(correctedInitialDims);
+      // Viewport and pointer events must pass through to rrweb untouched.
+      // The 2026-07 "ultra-wide replay" bugs (e.g. a stored 1,152px-wide
+      // recording rendering as a 4,491px Meta width) were caused by demo
+      // mode's fetch redaction faking numbers >= 1000 in raw replay JSON at
+      // view time, not by malformed stored geometry — fixed in
+      // packages/core/src/demo/fetch-interceptor.ts. Stored recordings were
+      // always sane, so never add viewport "recovery" heuristics here; they
+      // can only corrupt genuine recordings (e.g. a real ultrawide window).
+      setStreamedDims(replayInitialViewportDimensions(replayEvents));
+      // Keep this loosely typed: our internal AnyReplayEvent shape doesn't
+      // exactly match rrweb's declared eventWithTime type.
       localReplayer = new Replayer(replayEvents as any[], {
         root: stageRootRef.current,
         speed: speedRef.current,
         skipInactive: false,
         showWarning: false,
         showDebug: false,
-        triggerFocus: false,
         mouseTail: false,
-        insertStyleRules: SUPPRESS_OVERLAYS_CSS,
+        // Match stock rrweb/builder-internal focus replay. Disabling focus
+        // drops recorded focus-visible state and can leave menus/forms looking
+        // unlike the source page even when the snapshot CSS is correct.
+        triggerFocus: true,
+        insertStyleRules: REPLAY_OVERLAY_STYLE_RULES,
       });
-      // IMPORTANT: rrweb constructs its iframe from the raw initial Meta event.
-      // When that legacy Meta width is malformed, correcting only streamedDims
-      // fixes the outer stage but leaves CSS breakpoints and clicks ultra-wide.
-      // Apply the same correction to rrweb immediately, before first playback.
-      if (
-        correctedInitialDims &&
-        (rawInitialDims?.width !== correctedInitialDims.width ||
-          rawInitialDims?.height !== correctedInitialDims.height)
-      ) {
-        localReplayer.handleResize?.(correctedInitialDims);
-      }
       // rrweb already sandboxes the replay document without script execution.
       // Do not mutate recorded URLs/CSS; suppress viewer-page referrer leakage
       // at the iframe boundary while retaining historical visual resources.
       localReplayer.iframe?.setAttribute?.("referrerpolicy", "no-referrer");
+      stopCursorVisibilityObserver =
+        hideReplayCursorUntilPosition(localReplayer);
       replayerRef.current = localReplayer;
       const meta = localReplayer.getMetaData?.();
       const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
       setTotalTime(Number.isFinite(total) ? total : 0);
       const startAt = clamp(
-        currentTimeRef.current,
+        initialSeekMs || currentTimeRef.current,
         0,
         Number.isFinite(total) ? total : 0,
       );
@@ -800,25 +810,17 @@ function ReplayPlayer({
             width: Math.round(dims.width),
             height: Math.round(dims.height),
           };
-          const correctedDims = clampReplayDisplayDimensions(rawDims);
-          if (!correctedDims) return;
-          // rrweb handles the raw resize before notifying us. Override only
-          // impossible legacy geometry so its iframe and our stage stay equal.
-          // DO NOT clamp just one layer; that breaks responsive CSS and clicks.
+          // rrweb owns its iframe geometry from raw Meta/ViewportResize
+          // events. Only mirror the raw dims into React state here, for the
+          // outer stage's fit-to-container scaling.
           const currentDims = streamedDimsRef.current;
           if (
-            currentDims?.width === correctedDims.width &&
-            currentDims?.height === correctedDims.height
+            currentDims?.width === rawDims.width &&
+            currentDims?.height === rawDims.height
           ) {
             return;
           }
-          if (
-            correctedDims.width !== rawDims.width ||
-            correctedDims.height !== rawDims.height
-          ) {
-            localReplayer.handleResize?.(correctedDims);
-          }
-          setStreamedDims(correctedDims);
+          setStreamedDims(rawDims);
         }
       });
       updateTime(startAt);
@@ -846,11 +848,13 @@ function ReplayPlayer({
 
     return () => {
       cancelled = true;
+      stopCursorVisibilityObserver();
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
       try {
         localReplayer?.pause?.();
         localReplayer?.destroy?.();
+        replayerRef.current?.pause?.();
         replayerRef.current?.destroy?.();
       } catch {
         // rrweb cleanup is best-effort across versions.
@@ -858,13 +862,11 @@ function ReplayPlayer({
       replayerRef.current = null;
       if (stageRootRef.current) stageRootRef.current.innerHTML = "";
     };
-    // Key only on isComplete + a stable events identity. Including the events
-    // array reference would rebuild the Replayer when the final publish()
-    // replaces the chunks object even though the event set is unchanged.
   }, [
     currentTimeRef,
     eventsIdentity,
     eventsRef,
+    initialSeekMs,
     response.isComplete,
     speedRef,
     t,
@@ -875,10 +877,11 @@ function ReplayPlayer({
     if (!playing || status !== "ready") {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+      lastClockUpdateAtRef.current = null;
       return;
     }
 
-    const tick = () => {
+    const tick = (frameTime: number) => {
       const replayer = replayerRef.current;
       if (replayer && !scrubbingRef.current) {
         let nextTime = Number(
@@ -901,7 +904,17 @@ function ReplayPlayer({
             }
           }
         }
-        if (Number.isFinite(nextTime)) updateTime(nextTime);
+        if (
+          shouldPublishReplayClockUpdate(
+            lastClockUpdateAtRef.current,
+            frameTime,
+            currentTimeRef.current,
+            nextTime,
+          )
+        ) {
+          lastClockUpdateAtRef.current = frameTime;
+          updateTime(nextTime);
+        }
       }
       rafRef.current = requestAnimationFrame(tick);
     };
@@ -910,6 +923,7 @@ function ReplayPlayer({
     return () => {
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
+      lastClockUpdateAtRef.current = null;
     };
   }, [
     currentTimeRef,
@@ -986,16 +1000,27 @@ function ReplayPlayer({
                 <div
                   ref={stageRootRef}
                   className="an-replay-stage-root absolute left-1/2 top-1/2"
-                  style={{
-                    width: playerWidth,
-                    height: playerHeight,
-                    transform: `translate(-50%, -50%) scale(${fitScale})`,
-                    transformOrigin: "center center",
-                  }}
+                  style={
+                    {
+                      width: playerWidth,
+                      height: playerHeight,
+                      "--an-replay-cursor-scale": String(1 / fitScale),
+                      transform: `translate(-50%, -50%) scale(${fitScale})`,
+                      transformOrigin: "center center",
+                    } as CSSProperties
+                  }
                 />
                 <button
                   type="button"
-                  className="absolute inset-0 z-20 cursor-pointer rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
+                  className={cn(
+                    "absolute inset-0 z-20 rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default",
+                    // INTENTIONAL — KEEP THE VIEWER CURSOR VISIBLE.
+                    // The recorded cursor is a separate overlay, while this
+                    // button owns the live hover target for pause/play. Do
+                    // not add `cursor-none`: it makes the user's cursor
+                    // disappear when they move over the preview.
+                    "cursor-pointer",
+                  )}
                   disabled={disabled}
                   aria-label={
                     playing ? t("sessions.pause") : t("sessions.play")
@@ -1080,22 +1105,34 @@ function ReplayPlayer({
                 {formatClock(totalTime)}
               </span>
 
-              <div className="flex items-center rounded-md bg-muted p-1">
-                {SPEED_OPTIONS.map((option) => (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <button
-                    key={option}
                     type="button"
-                    className={cn(
-                      "rounded px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
-                      speed === option &&
-                        "bg-background text-foreground shadow-sm",
-                    )}
-                    onClick={() => updateSpeed(option)}
+                    disabled={disabled}
+                    aria-label={`${speed}x`}
+                    className="inline-flex h-8 min-w-11 items-center justify-center rounded-md border px-2 text-xs font-medium tabular-nums transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                   >
-                    {option}x
+                    {speed}x
                   </button>
-                ))}
-              </div>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" side="top">
+                  <DropdownMenuRadioGroup
+                    value={String(speed)}
+                    onValueChange={(value) => updateSpeed(Number(value))}
+                  >
+                    {SPEED_OPTIONS.map((option) => (
+                      <DropdownMenuRadioItem
+                        key={option}
+                        value={String(option)}
+                        className="tabular-nums"
+                      >
+                        {option}x
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -2169,9 +2206,7 @@ export function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
     const timestamp = Number(event.timestamp ?? 0);
     if (!Number.isFinite(timestamp) || timestamp <= 0) continue;
     lastTimestamp = Math.max(lastTimestamp, timestamp);
-    if (isReplayActivityEvent(event)) {
-      interactions.push(timestamp);
-    }
+    interactions.push(...replayActivityTimestamps(event, timestamp));
   }
   interactions.sort((a, b) => a - b);
   const ranges: SkipRange[] = [];
@@ -2194,22 +2229,42 @@ export function buildIdleSkipRanges(events: AnyReplayEvent[]): SkipRange[] {
   return ranges;
 }
 
-function isReplayActivityEvent(event: AnyReplayEvent): boolean {
-  if (event.type === RRWEB_EVENT_TYPE.Meta) return true;
-  if (event.type !== RRWEB_EVENT_TYPE.IncrementalSnapshot) return false;
+function replayActivityTimestamps(
+  event: AnyReplayEvent,
+  timestamp: number,
+): number[] {
+  if (event.type === RRWEB_EVENT_TYPE.Meta) return [timestamp];
+  if (event.type !== RRWEB_EVENT_TYPE.IncrementalSnapshot) return [];
 
   const source = event.data?.source;
   if (
-    source === INCREMENTAL_SOURCE.Input ||
-    source === INCREMENTAL_SOURCE.Scroll ||
-    source === INCREMENTAL_SOURCE.TouchMove
+    source === INCREMENTAL_SOURCE.MouseMove ||
+    source === INCREMENTAL_SOURCE.TouchMove ||
+    source === INCREMENTAL_SOURCE.Drag
   ) {
-    return true;
+    const positions = Array.isArray(event.data?.positions)
+      ? event.data.positions
+      : [];
+    // IMPORTANT: rrweb batches pointer positions and schedules each one at
+    // event.timestamp + timeOffset. Treat those exact moments as activity.
+    // Ignoring the batch made Skip inactivity jump across visible movement,
+    // which looked like a frozen cursor even though the recording was intact.
+    return positions.flatMap((position: unknown) => {
+      if (!isRecord(position)) return [];
+      const timeOffset = Number(position.timeOffset ?? 0);
+      return [timestamp + (Number.isFinite(timeOffset) ? timeOffset : 0)];
+    });
   }
-  if (source !== INCREMENTAL_SOURCE.MouseInteraction) return false;
+  if (
+    source === INCREMENTAL_SOURCE.Input ||
+    source === INCREMENTAL_SOURCE.Scroll
+  ) {
+    return [timestamp];
+  }
+  if (source !== INCREMENTAL_SOURCE.MouseInteraction) return [];
 
   const interactionType = event.data?.type;
-  return (
+  return [
     interactionType === MOUSE_INTERACTION.MouseUp ||
     interactionType === MOUSE_INTERACTION.MouseDown ||
     interactionType === MOUSE_INTERACTION.Click ||
@@ -2218,7 +2273,9 @@ function isReplayActivityEvent(event: AnyReplayEvent): boolean {
     interactionType === MOUSE_INTERACTION.Focus ||
     interactionType === MOUSE_INTERACTION.TouchStart ||
     interactionType === MOUSE_INTERACTION.TouchEnd
-  );
+      ? timestamp
+      : null,
+  ].filter((value): value is number => value !== null);
 }
 
 function pushIdleRange(
@@ -2260,6 +2317,32 @@ function hasPlayableReplayEvents(events: unknown[]): boolean {
   return false;
 }
 
+function hideReplayCursorUntilPosition(replayer: any): () => void {
+  const cursor = replayer?.mouse as HTMLElement | undefined;
+  if (!cursor || typeof MutationObserver === "undefined") return () => {};
+
+  let observer: MutationObserver | null = null;
+  const revealWhenPositioned = () => {
+    if (!cursor.style.left || !cursor.style.top) return;
+    cursor.classList.add("has-position");
+    observer?.disconnect();
+    observer = null;
+  };
+
+  cursor.classList.remove("has-position");
+  observer = new MutationObserver(revealWhenPositioned);
+  observer.observe(cursor, {
+    attributes: true,
+    attributeFilter: ["style"],
+  });
+  revealWhenPositioned();
+
+  return () => {
+    observer?.disconnect();
+    observer = null;
+  };
+}
+
 export function replayViewportDimensions(
   events: AnyReplayEvent[],
 ): ReplayViewportDimensions | null {
@@ -2289,14 +2372,6 @@ export function replayInitialViewportDimensions(
     if (dims) return dims;
   }
   return null;
-}
-
-export function replayInitialDisplayDimensions(
-  events: AnyReplayEvent[],
-): ReplayViewportDimensions | null {
-  // Keep the initial outer stage and rrweb iframe on one corrected camera.
-  // DO NOT use the raw initial Meta dimensions for only one of those layers.
-  return clampReplayDisplayDimensions(replayInitialViewportDimensions(events));
 }
 
 export function buildReplayViewportTimeline(
@@ -2384,27 +2459,28 @@ export function normalizeReplayDimensions(
   };
 }
 
-export function clampReplayDisplayDimensions(
+/**
+ * Fall back to the default player size only when the viewport is entirely
+ * unknown (no Meta/ViewportResize event yet). This is not a "recovery"
+ * heuristic for real recorded geometry — it never rewrites valid dims, no
+ * matter how wide, narrow, or unusual the aspect ratio. See the Replayer
+ * construction in ReplayPlayer for why viewport "correction" was removed:
+ * the 2026-07 ultra-wide replay bugs were caused by demo mode's fetch
+ * redaction faking numbers at view time, not by malformed stored geometry.
+ */
+export function resolveReplayDisplayDimensions(
   dims: ReplayViewportDimensions | null,
-): ReplayViewportDimensions | null {
-  if (!dims) return null;
+): ReplayViewportDimensions {
   if (
-    dims.width < MIN_REPLAY_DISPLAY_DIMENSION ||
-    dims.height < MIN_REPLAY_DISPLAY_DIMENSION
+    dims &&
+    Number.isFinite(dims.width) &&
+    Number.isFinite(dims.height) &&
+    dims.width > 0 &&
+    dims.height > 0
   ) {
-    return { width: DEFAULT_PLAYER_WIDTH, height: DEFAULT_PLAYER_HEIGHT };
+    return dims;
   }
-  const aspect = dims.width / dims.height;
-  if (
-    dims.width >= MALFORMED_REPLAY_MIN_WIDTH &&
-    aspect > MALFORMED_REPLAY_MIN_ASPECT_RATIO
-  ) {
-    return {
-      width: Math.round(dims.height * RECOVERED_REPLAY_DISPLAY_ASPECT_RATIO),
-      height: dims.height,
-    };
-  }
-  return dims;
+  return { width: DEFAULT_PLAYER_WIDTH, height: DEFAULT_PLAYER_HEIGHT };
 }
 
 export function filterReplayMarkers(
@@ -2561,6 +2637,20 @@ function formatNumber(value: number): string {
 function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
   return Math.min(max, Math.max(min, value));
+}
+
+export function shouldPublishReplayClockUpdate(
+  lastUpdateAt: number | null,
+  frameTime: number,
+  currentTime: number,
+  nextTime: number,
+): boolean {
+  if (!Number.isFinite(frameTime) || !Number.isFinite(nextTime)) return false;
+  if (nextTime === currentTime) return false;
+  return (
+    lastUpdateAt == null ||
+    frameTime - lastUpdateAt >= REPLAY_CLOCK_UPDATE_INTERVAL_MS
+  );
 }
 
 function isRecord(value: unknown): value is AnyRecord {

@@ -1,0 +1,434 @@
+---
+title: "Banco de dados"
+description: "Conecte um banco de dados SQL portátil ao seu aplicativo nativo do agente: auxiliares de esquema, migrações e as opções de banco de dados hospedado."
+---
+
+# Banco de dados
+
+Todo aplicativo nativo do agente armazena seu estado em SQL. A UI e o agente leem e gravam as mesmas tabelas por meio das mesmas actions, usando o mesmo cliente [Drizzle ORM](https://orm.drizzle.team). A sincronização ao vivo usa SSE com polling como fallback, então as mudanças aparecem na outra superfície sem atualização manual.
+
+<Diagram id="doc-block-9mtx2f" title="Como os dados fluem até o banco de dados" summary="A UI e o agente chegam ao banco de dados pela mesma camada de Actions. Ambos os chamadores usam o mesmo cliente getDb() e as mesmas tabelas SQL. Não existe um backend separado para cada um.">
+
+```html
+<div class="diagram-dbr">
+  <div class="diagram-col">
+    <div class="diagram-node">Navegador / UI</div>
+    <div class="diagram-node">Loop do agente</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Actions</strong>
+    <small class="diagram-muted">defineAction</small>
+    <small class="diagram-muted">getDb() &middot; Drizzle ORM</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Banco de dados SQL<br /><small class="diagram-muted"
+      >dialeto a partir de DATABASE_URL</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-dbr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-dbr .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-dbr .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-dbr .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Opções de hospedagem {#hosting}
+
+O aplicativo detecta qual back-end usar a partir de `DATABASE_URL`. Quando a variável não está definida, ele volta para um arquivo SQLite local para que você possa começar sem nenhuma configuração.
+
+### Padrão: arquivo SQLite {#default-sqlite}
+
+Quando `DATABASE_URL` não está definido, o aplicativo cria um banco de dados SQLite em `data/app.db`. Nenhuma configuração é necessária. Inicie o servidor de desenvolvimento e o arquivo é criado na primeira execução.
+
+Isso serve apenas para desenvolvimento local. Contêineres, funções sem servidor e ambientes de visualização podem redefinir seu sistema de arquivos entre reinicializações, de modo que um arquivo SQLite local pode desaparecer. Defina `DATABASE_URL` como um banco de dados hospedado persistente antes de implantar.
+
+### Postgres local: PGlite {#local-pglite}
+
+Para desenvolver localmente contra o dialeto Postgres sem Docker ou um banco de dados hospedado, instale o pacote opcional PGlite e defina `DATABASE_URL`:
+
+```bash
+pnpm add @electric-sql/pglite@^0.5.3
+```
+
+```bash
+DATABASE_URL=pglite:./data/pglite
+```
+
+O [PGlite](https://pglite.dev/) executa um banco de dados Postgres WASM em processo. Ele permite detectar problemas de esquema exclusivos do Postgres antes de implantar, mantendo a configuração tão simples quanto o padrão SQLite. Assim como o SQLite, é um armazenamento apenas local. Não o use para produção ou ambientes compartilhados.
+
+### Banco de dados de produção {#production}
+
+Defina `DATABASE_URL` no seu arquivo `.env` ou no ambiente do provedor de implantação para conectar um banco de dados hospedado:
+
+```bash
+# Neon Postgres
+DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/mydb?sslmode=require
+
+# Supabase Postgres
+DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+
+# Plain Postgres
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+
+# Turso (libSQL). Também requer DATABASE_AUTH_TOKEN.
+DATABASE_URL=libsql://my-db-org.turso.io
+```
+
+A estrutura detecta automaticamente o dialeto a partir do prefixo do URL e configura o Drizzle de acordo.
+
+### Banco de dados gerenciado Builder.io {#builder-managed}
+
+_Planejado (ainda não disponível):_ quando conectado ao Builder.io, seu aplicativo poderá usar um banco de dados gerenciado provisionado automaticamente, sem exigir cadeias de conexão.
+
+## Configurando o banco de dados {#setup}
+
+Um aplicativo que usa o banco de dados precisa de três arquivos:
+
+- `server/db/schema.ts`: definições de tabela
+- `server/db/index.ts`: o singleton do cliente de BD tipado
+- `server/plugins/db.ts`: migrações próprias do app para o início local
+
+### 1. Defina seu esquema {#schema}
+
+Importe os auxiliares de esquema de `@agent-native/core/db/schema`. Nunca importe diretamente de `drizzle-orm/sqlite-core` ou `drizzle-orm/pg-core`. Os auxiliares da estrutura produzem definições independentes de dialeto que funcionam em todos os back-ends suportados.
+
+```ts filename="server/db/schema.ts"
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const tasks = table("tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  priority: integer("priority").notNull().default(0),
+  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+| Auxiliar  | Finalidade                                                                     |
+| --------- | ------------------------------------------------------------------------------ |
+| `table`   | Define uma tabela; delega para `pgTable` ou `sqliteTable`                      |
+| `text`    | Coluna de texto, compatível com `{ enum: [...] }`                              |
+| `integer` | Coluna inteira, `{ mode: "boolean" }` mapeia para booleano no Postgres         |
+| `real`    | Coluna flutuante. Mapeia para `real` no SQLite, `double precision` no Postgres |
+| `now`     | Carimbo de data/hora atual independente de dialeto, para `.default(now())`     |
+
+<DataModel
+  id="doc-block-3hbven"
+  title="A tabela tasks"
+  summary={
+    "Definida uma vez com os auxiliares da estrutura; o dialeto é escolhido em tempo de execução a partir de DATABASE_URL."
+  }
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "Tabela de domínio. Adicione owner_email (ou ...ownableColumns()) para que o escopo em nível SQL possa filtrar linhas para o usuário autenticado.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
+
+Tabelas que armazenam dados por usuário devem incluir uma coluna `owner_email` para que a estrutura possa filtrar linhas para o usuário autenticado. Tabelas que também oferecem suporte a compartilhamento com outros usuários ou organizações devem, em vez disso, distribuir `...ownableColumns()`, o que adiciona `owner_email`, `org_id` e `visibility` em uma única chamada. Veja [Delimitando dados por usuário](#scoping) abaixo.
+
+### 2. Crie o cliente do banco de dados {#db-client}
+
+Cada aplicativo cria um cliente Drizzle singleton preguiçoso chamando `createGetDb(schema)`. A localização canônica é `server/db/index.ts`:
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+```
+
+`createGetDb` retorna uma função `getDb()` que abre a conexão com o banco de dados na primeira chamada e retorna a mesma instância tipada do Drizzle nas chamadas seguintes. Ela lê `DATABASE_URL` em tempo de execução para determinar qual back-end e dialeto usar.
+
+Importe `getDb` a partir desse caminho local do modelo em actions e rotas. Não importe diretamente de `@agent-native/core`. A exportação central não é tipada; a exportação local carrega os tipos do seu esquema.
+
+### 3. Escreva as migrações {#migrations}
+
+No desenvolvimento local, as alterações de esquema podem ser aplicadas por um
+plugin Nitro em `server/plugins/db.ts`. Em produção ou deploys serverless, execute
+as migrações em uma etapa de release ou deploy, não na primeira requisição. Use
+`runMigrations` de `@agent-native/core/db`:
+
+<AnnotatedCode
+  id="doc-block-7qwlpz"
+  title="Um plugin de migração de inicialização"
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+  }
+  annotations={[
+    {
+      lines: "6",
+      label: "Tabela de versões por aplicativo",
+      note: "Cada aplicativo rastreia suas próprias versões aplicadas em uma tabela separada. Use um nome exclusivo para seu aplicativo, para que não colida com migrações da estrutura ou de outros aplicativos que compartilhem o mesmo banco de dados.",
+    },
+    {
+      lines: "7",
+      label: "Criação inicial da tabela",
+      note: "`CREATE TABLE IF NOT EXISTS` é seguro de executar novamente a cada reinicialização. Coloque a definição completa da tabela na versão 1.",
+    },
+    {
+      lines: "17",
+      label: "Adições aditivas de colunas",
+      note: "`ADD COLUMN IF NOT EXISTS` é a forma segura de adicionar colunas após a criação inicial. Nunca descarte ou renomeie colunas.",
+    },
+    {
+      lines: "22-25",
+      label: "Controle por dialeto",
+      note: "Passe um objeto indexado por dialeto para executar SQL diferente por back-end. Use `SELECT 1` como no-op no dialeto que não precisa da alteração.",
+    },
+  ]}
+/>
+
+`runMigrations` executa cada entrada pendente em ordem uma vez, registra-a como
+aplicada e a ignora nas execuções seguintes. Dê um `name` estável às novas
+entradas; migrações nomeadas são rastreadas independentemente do número da versão.
+
+<Callout tone="warning">
+  O template Chat fornece `pnpm migrate:production` para executar migrações como
+  parte da etapa de release.
+</Callout>
+
+<Callout tone="risk">
+  Nunca execute `drizzle-kit push` contra um banco de dados de produção. Os
+  esquemas dos modelos definem apenas tabelas específicas do aplicativo; eles
+  não incluem as tabelas centrais da estrutura (`user`, `session`,
+  `application_state`, entre outras). Executar `drizzle-kit push` contra a
+  produção detectará essas tabelas como desconhecidas e tentará descartá-las,
+  causando perda imediata de dados.
+</Callout>
+
+O `drizzle.config.ts` na raiz de cada aplicativo configura o drizzle-kit para inspeção de esquema em desenvolvimento local:
+
+```ts filename="drizzle.config.ts"
+import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
+export default createDrizzleConfig();
+```
+
+Use `pnpm db:generate` para inspecionar seu esquema e `pnpm db:push` somente contra um banco de dados local.
+
+### 4. Consultas em actions {#querying}
+
+Chame `getDb()` a partir das suas actions para obter o cliente Drizzle tipado. Use o construtor de consultas do Drizzle e os operadores portáteis de `drizzle-orm`:
+
+```ts
+import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
+import * as schema from "../server/db/schema.js";
+
+const db = getDb();
+
+const openTasks = await db
+  .select()
+  .from(schema.tasks)
+  .where(
+    and(eq(schema.tasks.ownerEmail, userEmail), eq(schema.tasks.done, false)),
+  )
+  .orderBy(desc(schema.tasks.createdAt));
+
+await db
+  .update(schema.tasks)
+  .set({ done: true })
+  .where(eq(schema.tasks.id, taskId));
+```
+
+## Delimitando dados por usuário {#scoping}
+
+Todas as leituras e gravações em tabelas voltadas ao usuário devem ser delimitadas ao usuário autenticado. A estrutura oferece dois padrões, dependendo se os dados são privados ou compartilháveis.
+
+**Dados privados:** tabelas que pertencem a um único usuário. Adicione `ownerEmail: text("owner_email").notNull()` ao esquema e inclua `eq(table.ownerEmail, userEmail)` em toda consulta:
+
+```ts
+.where(eq(schema.tasks.ownerEmail, userEmail))
+```
+
+**Recursos compartilhados:** tabelas que podem ser compartilhadas com outros usuários ou organizações. Distribua `...ownableColumns()` no esquema em vez de um simples `owner_email`. Isso adiciona `owner_email`, `org_id` e `visibility` em uma única chamada, e cria uma tabela de compartilhamentos complementar com `createSharesTable`:
+
+```ts filename="server/db/schema.ts"
+import {
+  table,
+  text,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const decks = table("decks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+export const deckShares = createSharesTable("deck_shares");
+```
+
+Depois, use `accessFilter` de `@agent-native/core/sharing` nas consultas de listagem em vez de uma verificação manual com `eq`:
+
+```ts
+import { accessFilter } from "@agent-native/core/sharing";
+
+const rows = await db
+  .select()
+  .from(schema.decks)
+  .where(accessFilter(schema.decks, schema.deckShares));
+```
+
+`accessFilter` monta uma consulta que admite linhas pertencentes ao chamador, linhas compartilhadas com sua organização e linhas explicitamente compartilhadas com ele. Ela não expõe linhas de outros usuários.
+
+Veja [Security — Escopo de dados](/docs/security#data-scoping) e [Sharing](/docs/sharing#building) para o modelo completo.
+
+## Sincronização apoiada em SQL {#sync}
+
+O Agent Native não depende de observadores de sistema de arquivos nem de estado fixo em memória. Quando uma action grava no banco de dados, uma versão de sincronização é incrementada. O gancho `useDbSync()` do cliente consulta `/_agent-native/poll` e invalida os caches do React Query quando percebe uma versão mais alta.
+
+Isso funciona em implantações serverless e multi-instância porque o banco de dados é o ponto de coordenação. Se você escrever mutações personalizadas fora das actions, use os auxiliares da estrutura ou emita a invalidação de sincronização apropriada para que as UIs abertas se atualizem.
+
+<Diagram id="doc-block-qhkdv8" title="Loop de sincronização apoiado em SQL" summary="Sem observadores, sem estado fixo. Uma gravação incrementa uma versão no SQL; cada cliente consulta a versão e refaz a busca.">
+
+```html
+<div class="diagram-db-sync">
+  <div class="diagram-box" data-rough>
+    Action / auxiliar<br /><small class="diagram-muted">altera dados</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Banco de dados SQL</strong
+    ><small class="diagram-muted">versão de sincronização incrementa</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useDbSync()<br /><small class="diagram-muted"
+        >consulta /_agent-native/poll</small
+      >
+    </div>
+    <div class="diagram-pill ok">invalida caches &rarr; UI se atualiza</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-db-sync {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-db-sync .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-db-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-1s11d2e" title="O endpoint de poll" method="GET" path="/_agent-native/poll" summary="Retorna as versões de sincronização atuais do banco de dados por fonte, para que o cliente possa detectar mudanças." auth="Cookie de sessão (identidade com escopo de requisição)" responses={[
+  {
+    "status": "200",
+    "description": "Versões de sincronização atuais indexadas por fonte."
+  }
+]}>
+
+`useDbSync()` chama esse endpoint em um intervalo e recorre a ele quando o SSE não está disponível. Quando uma versão retornada é maior que o último valor visto pelo cliente, os caches correspondentes do React Query são invalidados e refeitos.
+
+</Endpoint>
+
+## SQL bruto {#raw-sql}
+
+Para consultas avançadas, verificações de integridade ou manutenção pontual que o construtor de consultas do Drizzle não consegue expressar, use `getDbExec` de `@agent-native/core/db`:
+
+```ts
+import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+
+const { rows } = await getDbExec().execute({
+  sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
+  args: [userEmail, 50],
+});
+```
+
+`getDbExec` converte automaticamente os parâmetros `?` em `$1`, `$2` etc. para o Postgres. Use `isPostgres()` para ramificar de acordo com o dialeto e `intType()` para retornar o tipo inteiro correto do back-end atual. Prefira o construtor de consultas do Drizzle para leituras e gravações normais. SQL bruto contorna a segurança de tipos e é mais difícil de manter.
+
+## Variáveis de ambiente {#environment-variables}
+
+| Variável              | Finalidade                                                                                                        |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | String de conexão SQL persistente (não definida = SQLite local; `pglite:./data/pglite` = opção de Postgres local) |
+| `DATABASE_AUTH_TOKEN` | Token de autenticação para provedores que exigem um token separado, como Turso/libSQL                             |
+
+## O que vem a seguir {#whats-next}
+
+- [**Security — Escopo de dados**](/docs/security#data-scoping): como `owner_email` e os auxiliares de acesso delimitam leituras e gravações
+- [**Sharing**](/docs/sharing#building): `ownableColumns()` e o modelo de visibilidade para recursos compartilhados
+- [**Plugins**](/docs/server-plugins): o ciclo de vida dos plugins de inicialização onde as migrações rodam
+- [**Actions**](/docs/actions-overview): a superfície onde as actions chamam `getDb()` para ler e gravar dados
+- [**Implantação**](/docs/deployment#persistent-database): conectando um banco de dados persistente por destino de implantação
+- [**Sincronização em tempo real**](/docs/key-concepts#polling-sync): `useDbSync()` e o modelo completo de sincronização do lado do cliente

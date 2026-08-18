@@ -1,0 +1,181 @@
+name: Push chat template to starter
+
+# Vendor-branch mirror: materialize the post-processed templates/chat and push it
+# to builder-agent-native-starter's `template` branch. The starter's own
+# `sync.yml` (on that branch) then git-merges it into `main`. This workflow only
+# ever handles pristine, public template output — no private starter content.
+#
+# The mirror always materializes main HEAD (freshest template content), but only
+# when the @agent-native/core version pinned in source is already on npm. During
+# the few-minute window between a Version Packages PR merging (which bumps the
+# source version) and its publish finishing, HEAD's pin isn't installable yet, so
+# the gate skips — and the publish dispatch re-runs the mirror the moment it lands.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "templates/chat/**"
+      - ".github/workflows/push-starter-template.yml"
+  # Fires when a publish completes (published == true). This is the reliable
+  # second chance for anything the gate skipped during a publish-in-flight
+  # window: by the time it fires, the just-published version is on npm.
+  repository_dispatch:
+    types: [agent-native-packages-published]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: push-starter-template
+  cancel-in-progress: false
+
+jobs:
+  push:
+    name: Materialize and push template branch
+    runs-on: ubuntu-latest
+    steps:
+      # Always materialize main HEAD, so the mirror only ever moves forward.
+      # push and repository_dispatch already resolve to main HEAD, but
+      # workflow_dispatch lets the operator pick any branch/tag — pinning
+      # ref: main stops a manual run from pushing stale template content.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+
+      - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: "pnpm"
+
+      # materialize pins @agent-native/core to the version in source. If that
+      # version isn't on npm yet (a publish is in flight), pushing it would make
+      # the starter's sync fail its install/build. Skip; the publish dispatch
+      # re-runs this once the version lands, and because we mirror HEAD it sweeps
+      # up everything that merged in the meantime.
+      - name: Gate on the pinned core version being published
+        id: gate
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/core/package.json').version")"
+          # Fetch the published version list. A successful query (exit 0) is an
+          # authoritative answer, so membership is definitive. A failed query
+          # means the registry was unreachable (timeout / DNS / 5xx / rate
+          # limit) — NOT that the version is unpublished; retry, then fail
+          # loudly, because a silent publishable=false on a template-only push
+          # has no guaranteed later dispatch to retry it.
+          versions=""; ok=""
+          for attempt in 1 2 3; do
+            if versions="$(npm view "@agent-native/core" versions --json --prefer-online 2>/dev/null)"; then
+              ok=1; break
+            fi
+            echo "npm registry lookup failed (attempt ${attempt}/3); retrying in 5s..."
+            sleep 5
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::Could not reach npm to check @agent-native/core@${version}; failing rather than silently skipping."
+            exit 1
+          fi
+          if printf '%s' "$versions" \
+            | jq -e --arg v "$version" '(if type=="array" then . else [.] end) | index($v) != null' >/dev/null; then
+            echo "core ${version} is on npm — mirroring HEAD."
+            echo "publishable=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "core ${version} is not on npm yet (publish in flight); skipping."
+            echo "The publish dispatch will re-run this once ${version} lands."
+            echo "publishable=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - if: steps.gate.outputs.publishable == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Materialize post-processed templates/chat
+        if: steps.gate.outputs.publishable == 'true'
+        run: >-
+          pnpm exec tsx packages/core/src/cli/index.ts template materialize
+          --template chat --out ./dist/template
+
+      # materialize pins toolkit to "latest", because core declares it as
+      # workspace:^ in source and the resolver falls back to "latest" when it
+      # can't read a concrete range. A real `create` from a *published* core pins
+      # the compatible range changesets locked at release time, keeping toolkit in
+      # lockstep with core. Reproduce that: read the range the published core
+      # we're pinning declares, and rewrite it into the materialized package.json.
+      - name: Pin toolkit to the published core's compatible range
+        if: steps.gate.outputs.publishable == 'true'
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./packages/core/package.json').version")"
+          # The exit code separates three cases; don't mask it with `|| true`:
+          #   exit 0, non-empty -> the range (pin it)
+          #   exit 0, empty     -> core declares no toolkit dep (benign; leave as
+          #                        materialized, which matches create's fallback)
+          #   exit != 0         -> registry error -> retry, then fail (never push
+          #                        an uncontrolled toolkit version)
+          range=""; ok=""
+          for attempt in 1 2 3; do
+            if range="$(npm view "@agent-native/core@${version}" dependencies.@agent-native/toolkit --prefer-online 2>/dev/null)"; then
+              ok=1; break
+            fi
+            echo "npm lookup failed (attempt ${attempt}/3); retrying in 5s..."
+            sleep 5
+          done
+          if [ -z "$ok" ]; then
+            echo "::error::Could not reach npm to read core ${version}'s toolkit range; failing rather than pushing an uncontrolled toolkit version."
+            exit 1
+          fi
+          if [ -z "$range" ]; then
+            echo "::warning::core ${version} declares no @agent-native/toolkit dependency; leaving toolkit as materialized."
+            exit 0
+          fi
+          # Surgical replace so the rest of package.json keeps materialize's exact
+          # formatting (no churn on the template branch).
+          sed -i "s#\"@agent-native/toolkit\": \"[^\"]*\"#\"@agent-native/toolkit\": \"${range}\"#" \
+            ./dist/template/package.json
+          if ! grep -q "\"@agent-native/toolkit\": \"${range}\"" ./dist/template/package.json; then
+            echo "::error::Failed to pin @agent-native/toolkit to ${range}."
+            exit 1
+          fi
+          echo "Pinned @agent-native/toolkit to ${range} (from core ${version})."
+
+      - name: Generate app token
+        id: app-token
+        if: steps.gate.outputs.publishable == 'true'
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          repositories: builder-agent-native-starter
+
+      - name: Push to starter template branch
+        if: steps.gate.outputs.publishable == 'true'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+        run: |
+          set -euo pipefail
+          # Capture the source commit before cd'ing into the starter clone.
+          SRC_SHA="$(git rev-parse --short HEAD)"
+          git clone --depth 1 --branch template \
+            "https://x-access-token:${GH_TOKEN}@github.com/BuilderIO/builder-agent-native-starter.git" \
+            /tmp/starter
+          # Mirror the materialized tree onto the template branch. Preserve
+          # .github (the starter-side sync workflow lives there) and never send
+          # a .git dir. Skills flow through (they compose with skills update on
+          # the starter side).
+          rsync -a --delete \
+            --exclude '.git/' \
+            --exclude '.github/' \
+            ./dist/template/ /tmp/starter/
+          cd /tmp/starter
+          git config user.name "builder-bot"
+          git config user.email "noreply@builder.io"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "template branch already up to date."
+            exit 0
+          fi
+          git commit -m "chore: sync template from templates/chat@${SRC_SHA}"
+          git push origin template

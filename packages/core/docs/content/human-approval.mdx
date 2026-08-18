@@ -78,6 +78,15 @@ The paused tool returns a result telling the model the turn is paused and not to
 
 On `approval_required`, the chat UI renders an **Approve / Deny** affordance on the paused tool call. This is wired automatically in `AssistantChat` — you don't build it per template.
 
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="panel"
+    html={
+      "<div style='display:flex;flex-direction:column;min-height:200px;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
 - **Approve** re-issues the turn (an ordinary continuation message) carrying the call's key in `approvedToolCalls: [approvalKey]`. On the re-issued turn, the gate sees the key in the approved set and lets that specific call run normally.
 - **Deny** dismisses the affordance locally; nothing is re-issued, so the action never runs.
 
@@ -142,6 +151,6 @@ The canonical (and intentionally rare) use of this gate in the framework is the 
 
 ## What's next
 
-- [**Actions**](/docs/actions#needs-approval) — the full `defineAction` surface, including `outputSchema` for validating return values.
+- [**Actions**](/docs/actions-access-control#needs-approval) — the full `defineAction` surface, including `outputSchema` for validating return values.
 - [**Security**](/docs/security) — when to reach for an approval gate vs. hiding an action from the model.
 - [**Mail template**](/docs/template-mail) — `send-email` is the reference example.

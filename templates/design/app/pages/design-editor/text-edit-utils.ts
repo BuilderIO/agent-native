@@ -1,6 +1,37 @@
 import { POINTER_TEXT_EDIT_ACTIVATION_DELAY_MS } from "@/components/design/design-canvas/pending-text-edit";
+import { findCanvasIframeForScreen } from "@/components/design/multi-screen/iframe-targeting";
 
 import { queryUniqueSelector } from "./dom-utils";
+
+/**
+ * Why one begin-text-edit attempt did not end up in an editing session. These
+ * stay distinct on purpose: a screen whose iframe is not mounted yet
+ * ("no-iframe") is a retry-worthy race, while an iframe that answered and does
+ * not have the node ("node-missing") or has it un-focused ("not-editing") is a
+ * different situation entirely. Collapsing them all to `false` is what made the
+ * board-space text bug invisible — every probe failed identically, so nothing
+ * distinguished "asked the wrong window" from "user has not typed yet".
+ */
+export type BeginTextEditOutcome =
+  | "active"
+  | "done"
+  | "node-missing"
+  | "not-editing"
+  | "no-iframe"
+  | "no-reply"
+  /** begin-text-edit was posted; the iframe has not been re-probed yet. Never
+   *  settle on this — it is not evidence the node was abandoned, and the
+   *  caller's exhaustion path deletes untouched nodes. */
+  | "activation-requested";
+
+export function isTextEditSessionOutcome(
+  outcome: BeginTextEditOutcome,
+): boolean {
+  return outcome === "active" || outcome === "done";
+}
+
+/** Grace period before re-probing a just-requested activation. */
+const ACTIVATION_CONFIRM_DELAY_MS = 300;
 
 /**
  * Ask a single iframe's editor-chrome bridge whether a text-edit session for
@@ -13,16 +44,16 @@ import { queryUniqueSelector } from "./dom-utils";
 function queryTextEditStatus(
   iframe: HTMLIFrameElement,
   nodeId: string,
-): Promise<"active" | "done" | false> {
+): Promise<"active" | "done" | "node-missing" | "not-editing" | "no-reply"> {
   const win = iframe.contentWindow;
-  if (!win) return Promise.resolve(false);
+  if (!win) return Promise.resolve("no-reply");
   const correlationId = `text-edit-status-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 6)}`;
   return new Promise((resolve) => {
     const timer = window.setTimeout(() => {
       window.removeEventListener("message", listener);
-      resolve(false);
+      resolve("no-reply");
     }, 250);
     const listener = (event: MessageEvent) => {
       if (
@@ -38,7 +69,13 @@ function queryTextEditStatus(
       window.clearTimeout(timer);
       window.removeEventListener("message", listener);
       const status = event.data.status;
-      resolve(status === "active" || status === "done" ? status : false);
+      if (status === "active" || status === "done") {
+        resolve(status);
+        return;
+      }
+      // Older bridges answer a bare `false` for both cases; treat that as
+      // "present but not editing" so the retry ladder behaves as before.
+      resolve(status === "missing" ? "node-missing" : "not-editing");
     };
     window.addEventListener("message", listener);
     win.postMessage(
@@ -48,31 +85,50 @@ function queryTextEditStatus(
   });
 }
 
-async function postBeginTextEditToPreviewIframes(
+async function probeTextEdit(
   screenId: string | null,
   nodeId: string,
-): Promise<"active" | "done" | false> {
-  if (typeof document === "undefined" || !nodeId) return false;
-  const iframes = Array.from(
-    document.querySelectorAll<HTMLIFrameElement>(
-      "iframe[data-design-preview-iframe]",
-    ),
-  );
-  const targetIframes = iframes.filter(
-    (iframe) => screenId && iframe.dataset.screenIframeId === screenId,
-  );
-  const orderedIframes = targetIframes.length > 0 ? targetIframes : iframes;
-  for (const iframe of orderedIframes) {
-    const status = await queryTextEditStatus(iframe, nodeId);
-    if (status === "active" || status === "done") return status;
+  boardFileId: string | null,
+): Promise<BeginTextEditOutcome> {
+  if (typeof document === "undefined" || !nodeId || !screenId) {
+    return "no-iframe";
   }
-  orderedIframes.forEach((iframe) => {
-    iframe.contentWindow?.postMessage(
-      { type: "begin-text-edit", nodeId, force: true },
-      "*",
-    );
-  });
-  return false;
+  // The board surface's live iframe carries no `data-screen-iframe-id`, so the
+  // old `dataset.screenIframeId === screenId` filter never matched it and every
+  // attempt fell through to broadcasting at all the *screen* iframes — none of
+  // which own a board node. findCanvasIframeForScreen is the one resolver that
+  // already knows the board's `[data-board-surface-layer]` shape.
+  const iframe = findCanvasIframeForScreen(
+    document.body,
+    screenId,
+    boardFileId ?? undefined,
+  );
+  if (!iframe?.contentWindow) return "no-iframe";
+  return queryTextEditStatus(iframe, nodeId);
+}
+
+/** Probes, and asks the iframe to enter edit mode when it is not already
+ *  editing. Reports `activation-requested` rather than the status observed
+ *  *before* the request: that pre-activation status is not an answer about the
+ *  session it just asked for. */
+async function requestTextEdit(
+  screenId: string | null,
+  nodeId: string,
+  boardFileId: string | null,
+): Promise<BeginTextEditOutcome> {
+  const status = await probeTextEdit(screenId, nodeId, boardFileId);
+  if (isTextEditSessionOutcome(status) || status === "no-iframe") return status;
+  const iframe = findCanvasIframeForScreen(
+    document.body,
+    screenId ?? "",
+    boardFileId ?? undefined,
+  );
+  if (!iframe?.contentWindow) return "no-iframe";
+  iframe.contentWindow.postMessage(
+    { type: "begin-text-edit", nodeId, force: true },
+    "*",
+  );
+  return "activation-requested";
 }
 
 /**
@@ -93,13 +149,20 @@ async function postBeginTextEditToPreviewIframes(
 export function scheduleBeginTextEditForScreen(
   screenId: string | null,
   nodeId: string,
-  onExhausted?: (finalStatus: "active" | "done" | false) => void,
+  options?: {
+    /** Board file id, so a board-space text node resolves the board surface's
+     *  iframe instead of looking for a `data-screen-iframe-id` it never has. */
+    boardFileId?: string | null;
+    onExhausted?: (finalStatus: BeginTextEditOutcome) => void;
+  },
 ): () => void {
   if (typeof window === "undefined") return () => {};
+  const onExhausted = options?.onExhausted;
+  const boardFileId = options?.boardFileId ?? null;
   let finished = false;
-  let lastStatus: "active" | "done" | false = false;
+  let lastStatus: BeginTextEditOutcome = "no-iframe";
   const timers: number[] = [];
-  const settle = (status: "active" | "done" | false) => {
+  const settle = (status: BeginTextEditOutcome) => {
     if (finished) return;
     finished = true;
     lastStatus = status;
@@ -119,19 +182,31 @@ export function scheduleBeginTextEditForScreen(
   delays.forEach((delay, index) => {
     const timer = window.setTimeout(() => {
       if (finished) return;
-      void postBeginTextEditToPreviewIframes(screenId, nodeId).then(
-        (status) => {
+      void requestTextEdit(screenId, nodeId, boardFileId).then((status) => {
+        if (finished) return;
+        lastStatus = status;
+        if (isTextEditSessionOutcome(status)) {
+          settle(status);
+          return;
+        }
+        if (index !== delays.length - 1) return;
+        if (status !== "activation-requested") {
+          settle(status);
+          return;
+        }
+        // Activation is still in flight, and the caller deletes untouched nodes
+        // on exhaustion. Settle on what the iframe reports, never on the request.
+        const confirmTimer = window.setTimeout(() => {
           if (finished) return;
-          lastStatus = status;
-          if (status === "active" || status === "done") {
-            settle(status);
-            return;
-          }
-          if (index === delays.length - 1) {
-            settle(false);
-          }
-        },
-      );
+          void probeTextEdit(screenId, nodeId, boardFileId).then(
+            (confirmed) => {
+              if (finished) return;
+              settle(confirmed);
+            },
+          );
+        }, ACTIVATION_CONFIRM_DELAY_MS);
+        timers.push(confirmTimer);
+      });
     }, delay);
     timers.push(timer);
   });

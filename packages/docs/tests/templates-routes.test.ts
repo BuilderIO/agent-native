@@ -94,7 +94,8 @@ describe("template routes", () => {
   });
 
   it("uses doc-specific OG image titles and a docs accent line", async () => {
-    const docsIndex = docsIndexMeta();
+    const docsIndexDoc = await loadDoc("getting-started");
+    const docsIndex = docsIndexMeta({ data: docsIndexDoc });
     expect(ogImageTitle(docsIndex)).toBe("Getting Started");
     expect(ogImageAccentText(docsIndex)).toBe("Agent-Native Docs");
 
@@ -110,7 +111,9 @@ describe("template routes", () => {
     expect(ogImageTitle(arabicIndex)).toBe("الخطوات الأولى");
     expect(ogImageAccentText(arabicIndex)).toBe("Agent-Native Docs");
 
+    const docsPageDoc = await loadDoc("workspace-connections");
     const docsPage = docsSlugMeta({
+      data: docsPageDoc,
       params: { slug: "workspace-connections" },
     });
     expect(ogImageTitle(docsPage)).toBe("Workspace Connections");

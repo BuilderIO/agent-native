@@ -450,6 +450,6 @@ Agent skills, der Muster erklärt, wenn der Agent Code ändern muss:
 
 `templates/slides/AGENTS.md` ist der kurze Router, den der Agent bei jedem Gespräch liest. Es verweist auf skills unter `.agents/skills/` und legt die Kernregeln, den Anwendungsstatusvertrag und den Fähigkeitsindex fest. Die genauen HTML-Folienvorlagen für jedes Layout sind in `.agents/skills/create-deck/SKILL.md` verfügbar – aktualisieren Sie diese Fähigkeit, wann immer Sie ein Folienlayoutmuster hinzufügen oder ändern.
 
-#### API-Routen
+#### Actions und API-Routen
 
-Für Fälle, in denen actions nicht die richtige Lösung sind (Datei-Uploads, Streaming), stellt die Vorlage einen kleinen Satz von REST-Endpunkten bereit: `GET/POST /api/decks`, `GET/PUT/DELETE /api/decks/:id`. Siehe `templates/slides/server/routes/api/`.
+Das Erstellen, Bearbeiten und Löschen von Decks und Folien verwendet gemeinsame Actions wie `create-deck`, `add-slide`, `update-slide` und `delete-deck`, die sowohl der Agent als auch die UI aufrufen können. REST-Routen unter `templates/slides/server/routes/api/` sind für Uploads, Streaming, Exporte und andere reine Routenabläufe reserviert.

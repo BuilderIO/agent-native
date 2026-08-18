@@ -15,6 +15,19 @@ Il s'agit de la même primitive de confiance que [A2A](/docs/a2a-protocol) et [E
 
 </Callout>
 
+## Ce que voit l'utilisateur {#user-flow}
+
+Cross-App SSO doit donner l'impression de passer d'un produit à l'autre dans un même espace de travail, et non de créer un deuxième compte. Par exemple :
+
+1. Connectez-vous à [Dispatch](https://dispatch.agent-native.com), ou à toute application qui utilise déjà l'identité de l'espace de travail.
+2. Ouvrez [Mail](https://mail.agent-native.com), [Calendar](https://calendar.agent-native.com) ou une autre application activée dans un nouvel onglet.
+3. L'application n'envoie le navigateur vers Dispatch que si aucune session Dispatch n'existe. Si la session existe déjà, la redirection est pratiquement invisible.
+4. Revenez dans l'application déjà connectée, avec la même adresse e-mail, les mêmes données et le même contexte d'organisation.
+
+La distinction importante est qu'il s'agit **d'une seule connexion, et non d'un cookie partagé**. Chaque application hébergée séparément continue de créer et de gérer sa propre session locale. Dispatch confirme l'identité de l'utilisateur à l'entrée de l'application, puis celle-ci utilise son authentification locale et ses contrôles d'accès habituels.
+
+Pour une démonstration produit, enregistrez exactement cette séquence : connectez-vous une fois dans Dispatch, ouvrez deux autres applications hébergées, montrez qu'aucune ne demande de nouveaux identifiants, puis déconnectez-vous de l'une pour montrer que la session de l'autre reste indépendante. La limite de sécurité devient ainsi visible.
+
 ## Quoi et pourquoi {#what-why}
 
 Les magasins d'utilisateurs par application signifient qu'il n'existe pas d'endroit unique où un cookie de navigateur puisse résider et auquel chaque application fasse confiance. Le modèle de fédération nomme plutôt une application, **Dispatch**, comme autorité d'identité. Toute autre application peut déléguer « qui est cette personne ? » à Dispatch, récupérez une assertion signée de courte durée de l'adresse e-mail vérifiée de l'utilisateur, puis **associez-la à son propre compte local par e-mail**.
@@ -164,17 +177,17 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.agent-native.com
 ```
 
 - **Set** → l'application affiche une option **"Connectez-vous avec Agent-Native"** qui exécute le flux ci-dessus. La connexion locale directe (e-mail/mot de passe, Google) fonctionne toujours en parallèle.
-- **Désactivé (par défaut)** → **zéro changement de comportement.** L'application s'authentifie exactement comme avant ; le chemin du code de la fédération est inactif. Il n'y a aucun changement de schéma et rien à migrer, donc l'activation ou la désactivation de la variable est entièrement réversible à tout moment.
+- **Client hébergé canonique** → l'application affiche l'option **« Se connecter avec Agent-Native »** pour l'origine enregistrée ; les applications auto-hébergées doivent toujours définir la variable. Il n'y a aucun changement de schéma ni rien à migrer.
 
 ## Sécurité {#security}
 
 L'ensemble du modèle repose sur quelques garanties volontairement petites :
 
 - **Jeton signé de courte durée.** L'assertion d'identité est un JWT signé `A2A_SECRET` avec une expiration **≤ 2 minutes** et `scope: "identity"`. Il autorise une connexion unique et ne peut pas être rejoué longtemps ni réutilisé pour l'accès aux API/A2A.
-- **Liste verte stricte de `redirect_uri`.** La répartition redirige uniquement vers `*.agent-native.com` ou localhost par défaut. Les cibles de redirection arbitraires, relatives au schéma (`//host`) et d'origine croisée sont rejetées, de sorte que l'autorité ne peut pas être transformée en un oracle de redirection ouverte ou d'exfiltration de jetons.
+- **Liste stricte de `redirect_uri` liée à l'application.** Chaque identifiant d'application canonique correspond à une origine de production et à un chemin de rappel exacts ; localhost reste disponible pour le développement. Les sous-domaines inconnus, identifiants incompatibles, chemins arbitraires et destinations inter-origines sont rejetés.
 - **Jointure par e-mail uniquement à partir d'un jeton vérifié.** La seule chose qui traverse la limite de confiance est l'e-mail vérifié dans un jeton signé. L'application n'accepte pas d'identifiant d'utilisateur, de rôle, d'appartenance à une organisation ou tout autre état privilégié du fil : elle dérive tout localement du compte correspondant.
 - **Écrites d'identité additives uniquement.** La liaison réutilise un compte de même adresse existant sans modification ou en insère un nouveau. Aucune mise à jour, renommage, redirection ou suppression des lignes d'identité ne se produit sur ce chemin.
-- **Désactivé par défaut.** Avec `AGENT_NATIVE_IDENTITY_HUB_URL` désactivé, toute la fonctionnalité est inerte.
+- **Clients hébergés canoniques activés par origine.** Les applications hébergées canoniques avec une origine enregistrée sont activées automatiquement ; les applications auto-hébergées restent inactives sans `AGENT_NATIVE_IDENTITY_HUB_URL`.
 
 <Callout id="doc-block-yjxbff" tone="success">
 
@@ -249,7 +262,7 @@ AGENT_NATIVE_IDENTITY_HUB_URL=https://dispatch.yourcompany.com
 
 **Liste autorisée de redirection.** Le hub (Dispatch) valide `redirect_uri` sur le point de terminaison d'autorisation avant d'émettre un jeton. La liste blanche est configurée dans `templates/dispatch/server/lib/identity-sso.ts` :
 
-- **Par défaut :** `*.agent-native.com` et localhost uniquement (la constante `DEFAULT_ALLOWED_HOST_SUFFIXES`).
+- **Par défaut :** uniquement les paires exactes identifiant/origine des applications Agent Native enregistrées et localhost (`CANONICAL_IDENTITY_SSO_APP_ORIGINS`).
 - **Extension :** définissez la variable d'environnement `IDENTITY_SSO_ALLOWED_HOST_SUFFIXES` sur le déploiement Dispatch avec une liste de suffixes d'hôte supplémentaires séparés par des virgules :
 
   ```bash
@@ -310,3 +323,8 @@ Le déploiement déconnecte les utilisateurs lorsque chaque application est acti
 - [Dispatch](/docs/dispatch) : l'autorité d'identité de l'espace de travail et le hub de routage.
 - [Security & Data Scoping](/docs/security) : écritures de données additives uniquement et portée par compte.
 - [Multi-App Workspaces](/docs/multi-app-workspace) : le déploiement unifié à origine unique qui évite entièrement SSO inter-domaines.
+
+Le flag Dispatch `desktop.workspace-sso`, désactivé par défaut, ne contrôle que la disponibilité ; les contrôles d’authentification, de signature, de nonce, d’origine, de callback, de session et de révocation restent toujours obligatoires. Si le flag est désactivé ou illisible, Desktop ne modifie ni la connexion, ni la déconnexion, ni les réglages propres à chaque application.
+Le marqueur Canary de l’agent utilisateur est seulement un indice de disponibilité, pas une attestation distante ; l’authentification et l’autorisation ne lui font pas confiance.
+Chaque version de Desktop peut initialiser le courtier lorsque la préférence par appareil `desktopSsoEnabled` est vraie (valeur par défaut) ; une valeur persistée explicitement à `false` reste une désactivation volontaire. Le flag Dispatch `desktop.workspace-sso` doit également être activé. Le marqueur Canary de l’agent utilisateur n’est plus un contrôle d’initialisation ; il identifie uniquement le canal de mise à jour.
+La version Canary n’intercepte pas la navigation de connexion anonyme des applications. L’utilisateur doit choisir explicitement la connexion à l’espace de travail dans les paramètres de Desktop pour l’application enregistrée active ; la connexion normale de l’application reste le parcours par défaut.

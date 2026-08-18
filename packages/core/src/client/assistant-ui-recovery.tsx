@@ -1,3 +1,4 @@
+import { IconLoader2 } from "@tabler/icons-react";
 import React from "react";
 
 import { captureError } from "./analytics.js";
@@ -5,7 +6,8 @@ import { captureError } from "./analytics.js";
 type AssistantUiRecoverableErrorKind =
   | "assistant-ui-stale-message-index"
   | "assistant-ui-duplicate-resource-key"
-  | "assistant-ui-react-fiber-unmount";
+  | "assistant-ui-react-fiber-unmount"
+  | "assistant-ui-react-update-depth";
 
 export function assistantUiRecoverableRenderErrorKind(
   error: unknown,
@@ -21,6 +23,10 @@ export function assistantUiRecoverableRenderErrorKind(
   }
   if (/^Tried to unmount a fiber that is already unmounted\b/.test(message)) {
     return "assistant-ui-react-fiber-unmount";
+  }
+  // guard:allow-raw-color — #185 is a React diagnostic code, not a UI color.
+  if (/Maximum update depth exceeded|Minified React error #185/.test(message)) {
+    return "assistant-ui-react-update-depth";
   }
   return null;
 }
@@ -38,7 +44,10 @@ export function isAssistantUiRecoverableRenderError(error: unknown): boolean {
 
 type AssistantUiStaleIndexErrorBoundaryProps = {
   resetKey: string;
+  /** Remount children when the recovery scope changes. */
+  remountOnResetKey?: boolean;
   componentName?: string;
+  fallback?: React.ReactNode;
   children: React.ReactNode;
 };
 
@@ -170,13 +179,20 @@ export class AssistantUiStaleIndexErrorBoundary extends React.Component<
       ) {
         throw this.state.error;
       }
-      return null;
+      return this.props.fallback === undefined ? (
+        <AssistantUiRecoverableRenderFallback />
+      ) : (
+        this.props.fallback
+      );
     }
 
+    const fragmentKey =
+      this.props.remountOnResetKey === false
+        ? String(this.state.retryToken)
+        : `${this.props.resetKey}:${this.state.retryToken}`;
+
     return (
-      <React.Fragment key={`${this.props.resetKey}:${this.state.retryToken}`}>
-        {this.props.children}
-      </React.Fragment>
+      <React.Fragment key={fragmentKey}>{this.props.children}</React.Fragment>
     );
   }
 }
@@ -191,9 +207,24 @@ export function AssistantMessageListErrorBoundary({
   return (
     <AssistantUiStaleIndexErrorBoundary
       resetKey={resetKey}
+      remountOnResetKey={false}
       componentName="AssistantMessageList"
+      fallback={<AssistantUiRecoverableRenderFallback />}
     >
       {children}
     </AssistantUiStaleIndexErrorBoundary>
+  );
+}
+
+function AssistantUiRecoverableRenderFallback() {
+  return (
+    <div
+      aria-label="Updating chat"
+      className="flex min-h-8 items-center justify-center text-muted-foreground"
+      role="status"
+    >
+      <IconLoader2 className="size-3.5 animate-spin" aria-hidden="true" />
+      <span className="sr-only">Updating chat...</span>
+    </div>
   );
 }

@@ -1,13 +1,11 @@
-import { useT } from "@agent-native/core/client";
-import { Button } from "@agent-native/toolkit/ui/button";
-import { IconPlayerRecord } from "@tabler/icons-react";
+import { useT } from "@agent-native/core/client/i18n";
 import { NavLink } from "react-router";
 
 import { LibraryGrid } from "@/components/library/library-grid";
 import { usePageHeaderLayout } from "@/components/library/page-header";
+import { Button } from "@/components/ui/button";
 
-const SEO_TITLE =
-  "Agent-Native Clips - Open Source, agent-friendly Loom alternative";
+const SEO_TITLE = "Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
   "Open Source screen recorder and meeting-notes app with AI transcripts, summaries, search, dictation, and agent-readable share links.";
 
@@ -39,7 +37,6 @@ export default function LibraryIndexRoute() {
             asChild
           >
             <NavLink to="/record" aria-label={t("navigation.newRecording")}>
-              <IconPlayerRecord className="h-4 w-4" />
               <span className="hidden sm:inline">
                 {t("navigation.newRecording")}
               </span>

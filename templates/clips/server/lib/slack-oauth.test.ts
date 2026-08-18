@@ -119,7 +119,12 @@ describe("Clips Slack OAuth", () => {
 
     expect(fetchImpl).toHaveBeenCalledWith(
       SLACK_TOKEN_URL,
-      expect.objectContaining({ method: "POST" }),
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: `Basic ${Buffer.from("client-id:client-secret").toString("base64")}`,
+        }),
+      }),
     );
     const body = (fetchImpl.mock.calls[0]?.[1]?.body ??
       new URLSearchParams()) as URLSearchParams;
@@ -127,5 +132,7 @@ describe("Clips Slack OAuth", () => {
     expect(body.get("redirect_uri")).toBe(
       "https://clips.example.com/api/slack/oauth/callback",
     );
+    expect(body.has("client_id")).toBe(false);
+    expect(body.has("client_secret")).toBe(false);
   });
 });
