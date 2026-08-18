@@ -519,7 +519,17 @@ export default function MeetingDetailRoute() {
   const meetingContentSaveQueueRef = useRef<Promise<unknown>>(
     Promise.resolve(),
   );
-  const richNoteSaveRevisionRef = useRef(0);
+  const meetingTitleSaveRevisionRef = useRef(0);
+  const meetingTitleDraftRef = useRef<{
+    meetingId: string;
+    value: string;
+  } | null>(null);
+  const richNotePendingRef = useRef<{
+    meetingId: string;
+    patch: { summaryMd?: string; userNotesMd?: string };
+    label: string;
+  } | null>(null);
+  const richNoteSaveActiveRef = useRef(false);
   const meetingUpdatedAtRef = useRef<string | null>(null);
 
   // Imperative scroll-to handle wired by TranscriptBubbles
@@ -668,8 +678,24 @@ export default function MeetingDetailRoute() {
     patchCachedMeeting({ updatedAt });
   };
 
+  const refetchMeetingAfterSaveFailure = async () => {
+    try {
+      const refreshed = await refetchMeeting();
+      const updatedAt = refreshed.data?.meeting?.updatedAt;
+      if (typeof updatedAt === "string") {
+        meetingUpdatedAtRef.current = updatedAt;
+      }
+      return refreshed.data;
+    } catch (error) {
+      console.error("[clips] meeting refetch after save failed", error);
+      return undefined;
+    }
+  };
+
   const handleTitleChange = (next: string) => {
     if (!meeting) return;
+    const revision = ++meetingTitleSaveRevisionRef.current;
+    meetingTitleDraftRef.current = { meetingId: meeting.id, value: next };
     patchCachedMeeting({ title: next });
     const save = meetingContentSaveQueueRef.current
       .catch(() => undefined)
@@ -684,8 +710,18 @@ export default function MeetingDetailRoute() {
         return result;
       });
     meetingContentSaveQueueRef.current = save.catch((error) => {
-      console.error("[clips] meeting title save failed", error);
-      toast.error(t("transcriptPanel.saveFailed", { status: "title" }));
+      return (async () => {
+        console.error("[clips] meeting title save failed", error);
+        const hasNewerDraft = meetingTitleSaveRevisionRef.current !== revision;
+        await refetchMeetingAfterSaveFailure();
+        if (
+          hasNewerDraft &&
+          meetingTitleDraftRef.current?.meetingId === meeting.id
+        ) {
+          patchCachedMeeting({ title: meetingTitleDraftRef.current.value });
+        }
+        toast.error(t("transcriptPanel.saveFailed", { status: "title" }));
+      })();
     });
   };
 
@@ -694,30 +730,58 @@ export default function MeetingDetailRoute() {
     patch: { summaryMd?: string; userNotesMd?: string },
     label: string,
   ) => {
-    const revision = ++richNoteSaveRevisionRef.current;
-    const save = meetingContentSaveQueueRef.current
+    const pending = richNotePendingRef.current;
+    richNotePendingRef.current = {
+      meetingId,
+      patch: {
+        ...(pending?.meetingId === meetingId ? pending.patch : {}),
+        ...patch,
+      },
+      label,
+    };
+    if (richNoteSaveActiveRef.current) return;
+
+    richNoteSaveActiveRef.current = true;
+    const drain = meetingContentSaveQueueRef.current
       .catch(() => undefined)
       .then(async () => {
-        const expectedUpdatedAt = meetingUpdatedAtRef.current;
-        const result = await updateMeeting.mutateAsync({
-          id: meetingId,
-          ...patch,
-          ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
-        });
-        recordMeetingSaveResult(result);
-        return result;
+        while (richNotePendingRef.current) {
+          const current = richNotePendingRef.current;
+          richNotePendingRef.current = null;
+          try {
+            const expectedUpdatedAt = meetingUpdatedAtRef.current;
+            const result = await updateMeeting.mutateAsync({
+              id: current.meetingId,
+              ...current.patch,
+              ...(expectedUpdatedAt ? { expectedUpdatedAt } : {}),
+            });
+            recordMeetingSaveResult(result);
+          } catch (error) {
+            console.error("[clips] rich note save failed", error);
+            await refetchMeetingAfterSaveFailure();
+            // A newer blur may have arrived while the failed request was in
+            // flight. Refetch to refresh the CAS token, then put that latest
+            // draft back into the optimistic cache before retrying it.
+            const nextPending = richNotePendingRef.current as {
+              meetingId: string;
+              patch: { summaryMd?: string; userNotesMd?: string };
+              label: string;
+            } | null;
+            if (nextPending) {
+              patchCachedMeeting(nextPending.patch);
+              continue;
+            }
+            toast.error(
+              t("transcriptPanel.saveFailed", { status: current.label }),
+            );
+          }
+        }
+      })
+      .finally(() => {
+        richNoteSaveActiveRef.current = false;
       });
-    meetingContentSaveQueueRef.current = save.catch(async (error) => {
-      console.error("[clips] rich note save failed", error);
-      if (richNoteSaveRevisionRef.current === revision) {
-        await refetchMeeting().catch((refetchError) => {
-          console.error(
-            "[clips] meeting refetch after note save failed",
-            refetchError,
-          );
-        });
-      }
-      toast.error(t("transcriptPanel.saveFailed", { status: label }));
+    meetingContentSaveQueueRef.current = drain.catch((error) => {
+      console.error("[clips] rich note save drain failed", error);
     });
   };
 
@@ -769,20 +833,27 @@ export default function MeetingDetailRoute() {
             status: t("meetingDetail.actionItems"),
           }),
         );
-        if (actionItemsSaveRevisionRef.current !== revision) return;
+        const hasNewerDraft = actionItemsSaveRevisionRef.current !== revision;
+        const refreshed = await refetchMeetingAfterSaveFailure();
+        if (hasNewerDraft) {
+          const latestDraft = actionItemsDraftRef.current;
+          if (latestDraft?.meetingId === meetingId) {
+            patchCachedMeeting({ actionItemsJson: latestDraft.items });
+          }
+          return;
+        }
 
-        const rollbackItems =
-          actionItemsAuthoritativeRef.current?.meetingId === meetingId
+        const rollbackItems = Array.isArray(refreshed?.actionItems)
+          ? refreshed.actionItems
+          : actionItemsAuthoritativeRef.current?.meetingId === meetingId
             ? actionItemsAuthoritativeRef.current.items
             : [];
+        actionItemsAuthoritativeRef.current = {
+          meetingId,
+          items: rollbackItems,
+        };
         actionItemsDraftRef.current = { meetingId, items: rollbackItems };
         patchCachedMeeting({ actionItemsJson: rollbackItems });
-        await refetchMeeting().catch((refetchError) => {
-          console.error(
-            "[clips] meeting refetch after action-item save failed",
-            refetchError,
-          );
-        });
       })
       .finally(() => {
         pendingActionItemsSavesRef.current -= 1;

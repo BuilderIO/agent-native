@@ -175,6 +175,9 @@ function RichContentBlock({
     <SharedRichEditor
       value={draft}
       onChange={(next) => {
+        // Keep Tiptap updates local while typing. The parent only commits the
+        // latest markdown on blur, so one editing session cannot enqueue one
+        // database write per keystroke.
         focusedRef.current = true;
         draftRef.current = next;
         setDraft(next);
