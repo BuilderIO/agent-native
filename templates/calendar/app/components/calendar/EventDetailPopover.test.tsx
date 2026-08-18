@@ -654,9 +654,8 @@ describe("EventDetailPopover characterization", () => {
       (timeSummary as HTMLElement).click();
     });
 
-    const timeInputs = document.querySelectorAll<HTMLInputElement>(
-      'input[type="time"]',
-    );
+    const timeInputs =
+      document.querySelectorAll<HTMLInputElement>('input[type="time"]');
     expect(timeInputs).toHaveLength(2);
     expect(timeInputs[0].value).toBe("12:00");
     expect(timeInputs[1].value).toBe("13:00");
