@@ -221,6 +221,7 @@ function workspaceOAuthOrigin(): string | null {
       try {
         return new URL(projectedRaw).origin;
       } catch {
+        // coercion-ok: a stale projected origin intentionally falls back below.
         // Fall through to the current origin when the projected value is stale.
       }
     }
