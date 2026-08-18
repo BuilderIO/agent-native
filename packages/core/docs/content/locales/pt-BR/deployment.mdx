@@ -7,6 +7,31 @@ description: "Implemente aplicativos nativos de agente em qualquer plataforma co
 
 Os aplicativos nativos do agente usam [Nitro](https://nitro.build) internamente, o que significa que você pode implantar em qualquer plataforma sem nenhuma alteração de configuração. Basta definir uma predefinição.
 
+## Caminho rápido: hospede um app Chat localmente {#self-host-quickstart}
+
+Há dois bons pontos de partida:
+
+- **Você está criando um app?** Comece com [Getting Started](/docs/getting-started) e volte aqui quando quiser colocá-lo em um local permanente.
+- **Você está operando um app?** Use primeiro o caminho local com Docker. Ele testa a mesma combinação de Node.js, Postgres, autenticação e variáveis de ambiente que você usará em um servidor pequeno.
+
+A pilha local usa intencionalmente um segredo de autenticação de exemplo e um volume local do Postgres. Ela é para `localhost`, não para exposição na Internet. Consulte o [quickstart em inglês](/docs/deployment#self-host-quickstart) para obter o arquivo Compose completo e as etapas copiáveis.
+
+### 1. Crie o app
+
+```bash
+npx @agent-native/core@latest create my-app --template chat
+cd my-app
+pnpm install
+```
+
+### 2. Inicie a pilha local
+
+```bash
+docker compose up --build
+```
+
+Abra [http://localhost:3000](http://localhost:3000). Adicione `ANTHROPIC_API_KEY` a um arquivo `.env` local se quiser usar o agente integrado.
+
 ## Antes de implantar: escolha um banco de dados persistente {#persistent-database}
 
 Todo aplicativo implantado precisa de um banco de dados SQL persistente. No desenvolvimento local, o agente nativo recorre a um arquivo SQLite em `data/app.db`; isso é conveniente em sua máquina, mas não é durável em contêineres, visualizações ou ambientes sem servidor onde o sistema de arquivos pode ser redefinido.
@@ -247,6 +272,7 @@ COPY --from=build /app/.output .output
 # data/ é um diretório SQLite criado em tempo de execução - não copie um banco de dados dev para prod.
 # Para produção, defina DATABASE_URL como uma instância hospedada Postgres ou Turso.
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]

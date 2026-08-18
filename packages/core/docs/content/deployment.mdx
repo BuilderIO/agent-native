@@ -7,6 +7,74 @@ description: "Deploy agent-native apps to any platform with Nitro presets — No
 
 Agent-native apps use [Nitro](https://nitro.build) under the hood, which means you can deploy to any platform with zero config changes — just set a preset.
 
+## Fast path: self-host a Chat app locally {#self-host-quickstart}
+
+There are two good starting points, depending on your role:
+
+- **Building an app?** Start with [Getting Started](/docs/getting-started), then return here when you are ready to put the result somewhere permanent.
+- **Operating an app?** Use the local Docker path below first. It exercises the same Node.js, Postgres, authentication, and environment-variable shape you will use on a small server.
+
+The local stack intentionally uses a fake auth secret and a local Postgres volume. It is for `localhost`, not an internet-facing deployment.
+
+### 1. Create the app
+
+```bash
+npx @agent-native/core@latest create my-app --template chat
+cd my-app
+pnpm install
+```
+
+The install step creates the lockfile that the production Dockerfile below copies into its build stage.
+
+### 2. Add a local Compose file
+
+Create `docker-compose.yml` in the app root. It uses the [Dockerfile](#docker) in the next section and starts Postgres only on the private Compose network:
+
+You can also download the [Dockerfile](https://www.agent-native.com/examples/self-hosted-chat/Dockerfile), [Compose file](https://www.agent-native.com/examples/self-hosted-chat/docker-compose.yml), and [environment template](https://www.agent-native.com/examples/self-hosted-chat/env.example) as a starter fixture.
+
+```yaml filename="docker-compose.yml" maxLines=40
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    environment:
+      DATABASE_URL: postgres://agent_native:local-development-only@postgres:5432/agent_native
+      BETTER_AUTH_URL: http://localhost:3000
+      BETTER_AUTH_SECRET: local-development-secret-change-me-1234567890
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+      image: postgres:18
+    environment:
+      POSTGRES_DB: agent_native
+      POSTGRES_USER: agent_native
+      POSTGRES_PASSWORD: local-development-only
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent_native -d agent_native"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data:
+```
+
+### 3. Run it
+
+```bash
+docker compose up --build
+```
+
+Open [http://localhost:3000](http://localhost:3000). Set `ANTHROPIC_API_KEY` in a local `.env` file if you want to use the embedded agent; leave it empty if you only want to verify that the app and database start. Stop the stack with `docker compose down`; add `-v` when you intentionally want to reset the local database.
+
+Before putting this on the public internet, replace the example secret, configure HTTPS and OAuth callback URLs, use a persistent production database, and complete the [production environment checklist](#env-required-prod).
+
 ## Before You Deploy: Pick a Persistent Database {#persistent-database}
 
 Every deployed app needs a persistent SQL database. In local development, agent-native falls back to a SQLite file at `data/app.db`; that is convenient on your machine, but it is not durable in containers, previews, or serverless environments where the filesystem can be reset.
@@ -233,6 +301,8 @@ receives upstream security updates.
 
 ### Docker {#docker}
 
+This Dockerfile works for the standalone app created above. Run `pnpm install` before building so `pnpm-lock.yaml` exists in the build context. Keep the dependency manifest and lockfile in sync when you update the app.
+
 ```dockerfile filename="Dockerfile"
 FROM node:24-slim AS build
 WORKDIR /app
@@ -247,6 +317,7 @@ COPY --from=build /app/.output .output
 # data/ is a runtime-created SQLite directory — do not copy a dev DB into prod.
 # For production, set DATABASE_URL to a hosted Postgres or Turso instance.
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
@@ -306,14 +377,14 @@ proxy, but the important part is the path-prefix routing:
 ```yaml filename="docker-compose.yml" maxLines=30
 services:
   postgres:
-    image: postgres:17
+    image: postgres:18
     restart: unless-stopped
     environment:
       POSTGRES_DB: agent_native
       POSTGRES_USER: agent_native
       POSTGRES_PASSWORD: change-me
     volumes:
-      - postgres-data:/var/lib/postgresql/data
+      - postgres-data:/var/lib/postgresql
 
   mail:
     build:

@@ -7,6 +7,31 @@ description: "Nitro प्रीसेट के साथ किसी भी �
 
 एजेंट-नेटिव ऐप्स हुड के तहत [Nitro](https://nitro.build) का उपयोग करते हैं, जिसका अर्थ है कि आप शून्य कॉन्फ़िगरेशन परिवर्तनों के साथ किसी भी प्लेटफ़ॉर्म पर तैनात कर सकते हैं - बस एक प्रीसेट सेट करें।
 
+## तेज़ रास्ता: Chat ऐप को स्थानीय रूप से self-host करें {#self-host-quickstart}
+
+शुरू करने के दो अच्छे तरीके हैं:
+
+- **ऐप बना रहे हैं?** [Getting Started](/docs/getting-started) से शुरू करें और ऐप को स्थायी जगह पर रखने के समय यहां लौटें।
+- **ऐप चला रहे हैं?** पहले स्थानीय Docker रास्ता आज़माएं। इससे छोटे सर्वर पर उपयोग होने वाला Node.js, Postgres, authentication और environment variables का वही आकार जांचा जाता है।
+
+स्थानीय stack जानबूझकर उदाहरण authentication secret और स्थानीय Postgres volume का उपयोग करता है। यह `localhost` के लिए है, इंटरनेट पर प्रकाशित करने के लिए नहीं। पूरी Compose फ़ाइल और copy करने योग्य steps के लिए [English quickstart](/docs/deployment#self-host-quickstart) देखें।
+
+### 1. ऐप बनाएं
+
+```bash
+npx @agent-native/core@latest create my-app --template chat
+cd my-app
+pnpm install
+```
+
+### 2. स्थानीय stack चलाएं
+
+```bash
+docker compose up --build
+```
+
+[http://localhost:3000](http://localhost:3000) खोलें। Embedded agent का उपयोग करने के लिए स्थानीय `.env` फ़ाइल में `ANTHROPIC_API_KEY` जोड़ें।
+
 ## तैनाती करने से पहले: एक स्थायी डेटाबेस चुनें {#persistent-database}
 
 प्रत्येक तैनात ऐप को एक सतत SQL डेटाबेस की आवश्यकता होती है। स्थानीय विकास में, एजेंट-नेटिव `data/app.db` पर SQLite फ़ाइल पर वापस आ जाता है; यह आपकी मशीन पर सुविधाजनक है, लेकिन यह कंटेनर, पूर्वावलोकन, या सर्वर रहित वातावरण में टिकाऊ नहीं है जहां फ़ाइल सिस्टम को रीसेट किया जा सकता है।
@@ -247,6 +272,7 @@ COPY --from=build /app/.output .output
 # data/ एक रनटाइम-निर्मित SQLite निर्देशिका है - किसी डेव DB को उत्पाद में कॉपी न करें।
 # उत्पादन के लिए, DATABASE_URL को होस्ट किए गए Postgres या Turso इंस्टेंस पर सेट करें।
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
