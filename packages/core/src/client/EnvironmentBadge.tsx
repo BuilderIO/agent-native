@@ -68,6 +68,7 @@ export function buildEnvironmentUrl(
     target.port = "";
     return target.toString();
   } catch {
+    // coercion-ok: Invalid navigation input is an explicit absent target.
     return null;
   }
 }
