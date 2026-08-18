@@ -491,18 +491,17 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       );
       setDesktopIdentityEnabled(rememberedSignedIn ? true : null);
       setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
-      setDesktopIdentitySessionReady(rememberedSignedIn);
+      setDesktopIdentitySessionReady(false);
 
       const applyStatus = async (
         status: DesktopIdentityStatus,
         request: number,
-        preserveVisibleSession = false,
       ) => {
         if (!active || request !== statusRequest) return;
         rememberDesktopIdentityStatus(status);
         setDesktopIdentityStatus(status);
         if (status === "signed-in") {
-          if (!preserveVisibleSession) setDesktopIdentitySessionReady(false);
+          setDesktopIdentitySessionReady(false);
           let synchronized: boolean | null;
           try {
             synchronized = await identity.ensureAppSession(app.id);
@@ -553,7 +552,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           const status =
             nextStatus ??
             (reuseRememberedSession ? "signed-in" : await identity.getStatus());
-          await applyStatus(status, request, reuseRememberedSession);
+          await applyStatus(status, request);
         } catch {
           // An older or unavailable preload must fail closed to the legacy
           // app-owned login surface rather than strand the WebView behind SSO.
@@ -566,8 +565,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               )
             ) {
               setDesktopIdentityEnabled(true);
-              setDesktopIdentityStatus("signed-in");
-              setDesktopIdentitySessionReady(true);
+              await applyStatus("signed-in", request);
               return;
             }
             setDesktopIdentityEnabled(false);

@@ -117,15 +117,18 @@ describe("multi-frontier app integration", () => {
   it("holds a user quit while the updater prepares helper disposal", () => {
     const dispose = vi.fn(async () => undefined);
     const reissueQuit = vi.fn();
+    const onDeferredQuit = vi.fn();
     const guard = createMultiFrontierQuitGuard({
       dispose,
       reissueQuit,
       shouldDeferQuit: () => true,
+      onDeferredQuit,
     });
     const event = { preventDefault: vi.fn() };
 
     expect(guard(event)).toBe(true);
     expect(event.preventDefault).toHaveBeenCalledOnce();
+    expect(onDeferredQuit).toHaveBeenCalledOnce();
     expect(dispose).not.toHaveBeenCalled();
     expect(reissueQuit).not.toHaveBeenCalled();
   });

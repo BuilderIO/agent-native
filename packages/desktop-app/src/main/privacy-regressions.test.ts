@@ -274,4 +274,22 @@ describe("desktop passive-access regressions", () => {
     );
     expect(main).toContain("void closeDesktopComputerMcpBridge().catch(");
   });
+
+  it("runs the quit guard before poisoning shutdown state", () => {
+    const main = source("./index.ts");
+    const beforeQuit = between(
+      main,
+      'app.on("before-quit", (event) => {',
+      'app.on("will-quit", () => {',
+    );
+    const guardIndex = beforeQuit.indexOf("multiFrontierQuitGuard(event)");
+    const quittingIndex = beforeQuit.indexOf("appIsQuitting = true");
+    const stopServicesIndex = beforeQuit.indexOf(
+      "stopManagedDesktopApp(appId)",
+    );
+
+    expect(guardIndex).toBeGreaterThanOrEqual(0);
+    expect(guardIndex).toBeLessThan(quittingIndex);
+    expect(guardIndex).toBeLessThan(stopServicesIndex);
+  });
 });

@@ -21,6 +21,7 @@ const electronState = vi.hoisted(() => {
       on: vi.fn(),
       relaunch: vi.fn(),
       exit: vi.fn(),
+      quit: vi.fn(),
     },
     browserWindow: {
       getAllWindows: vi.fn(() => []),
@@ -70,6 +71,7 @@ let checkForAppUpdates: typeof import("./updates.js").checkForAppUpdates;
 let getCurrentUpdateStatus: typeof import("./updates.js").getCurrentUpdateStatus;
 let isInstallingDownloadedUpdate: typeof import("./updates.js").isInstallingDownloadedUpdate;
 let isPreparingDownloadedUpdate: typeof import("./updates.js").isPreparingDownloadedUpdate;
+let requestQuitAfterUpdatePreparation: typeof import("./updates.js").requestQuitAfterUpdatePreparation;
 let registerUpdatesIpc: typeof import("./updates.js").registerUpdatesIpc;
 
 describe("desktop updates", () => {
@@ -92,6 +94,7 @@ describe("desktop updates", () => {
       getCurrentUpdateStatus,
       isInstallingDownloadedUpdate,
       isPreparingDownloadedUpdate,
+      requestQuitAfterUpdatePreparation,
       registerUpdatesIpc,
     } = await import("./updates.js"));
   });
@@ -267,6 +270,35 @@ describe("desktop updates", () => {
     });
     await installHandler?.();
     expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(2);
+  });
+
+  it("completes a deferred quit after helper preparation fails and restores retry state", async () => {
+    const prepareForUpdate = vi.fn(async () => {
+      requestQuitAfterUpdatePreparation();
+      throw new Error("helper close failed");
+    });
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+      prepareForUpdate,
+    });
+    updaterState.handlers.get("update-downloaded")?.({
+      version: "1.1.0",
+    });
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    await installHandler?.();
+
+    expect(getCurrentUpdateStatus()).toEqual({
+      state: "downloaded",
+      version: "1.1.0",
+    });
+    expect(isPreparingDownloadedUpdate()).toBe(false);
+    expect(isInstallingDownloadedUpdate()).toBe(false);
+    expect(electronState.app.quit).toHaveBeenCalledOnce();
+    expect(updaterState.quitAndInstall).not.toHaveBeenCalled();
   });
 
   it("keeps un-packaged development updates explicitly unsupported", async () => {

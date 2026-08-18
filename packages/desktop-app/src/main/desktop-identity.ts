@@ -1772,7 +1772,18 @@ export class DesktopIdentityBroker {
     }
 
     const previousStatus = this.status;
+    const previousStatusVerifiedAt = this.statusVerifiedAt;
     this.setStatus("signing-in");
+    const restorePreviousStatus = () => {
+      if (!this.isCeremonyCurrent(generation)) return;
+      if (previousStatus === "signed-in") {
+        this.status = previousStatus;
+        this.statusVerifiedAt = previousStatusVerifiedAt;
+        this.options.onStatus?.(previousStatus);
+        return;
+      }
+      this.setStatus("idle");
+    };
     const previousAuthorityCookies = currentIdentityCookies.filter(
       (cookie) =>
         cookieMatchesOrigin(cookie, authority.origin) &&
@@ -1805,9 +1816,7 @@ export class DesktopIdentityBroker {
           authority,
           previousAuthorityCookies,
         );
-        if (this.isCeremonyCurrent(generation)) {
-          this.setStatus(previousStatus === "signed-in" ? "signed-in" : "idle");
-        }
+        restorePreviousStatus();
         return false;
       }
 
@@ -1828,9 +1837,7 @@ export class DesktopIdentityBroker {
           authority,
           previousAuthorityCookies,
         );
-        if (this.isCeremonyCurrent(generation)) {
-          this.setStatus(previousStatus === "signed-in" ? "signed-in" : "idle");
-        }
+        restorePreviousStatus();
         return false;
       }
 
@@ -1874,9 +1881,7 @@ export class DesktopIdentityBroker {
         authority,
         previousAuthorityCookies,
       );
-      if (this.isCeremonyCurrent(generation)) {
-        this.setStatus(previousStatus === "signed-in" ? "signed-in" : "idle");
-      }
+      restorePreviousStatus();
       console.warn("[desktop identity] automatic session adoption failed", {
         appId: sourceApp.id,
         reason: error instanceof Error ? error.message : "unknown error",

@@ -47,6 +47,7 @@ let lastUpdateCheckStartedAt = 0;
 let notifiedUpdateVersion: string | null = null;
 let updateInstallInFlight = false;
 let updateQuitOwned = false;
+let quitRequestedDuringUpdatePreparation = false;
 let installingUpdateForRetry: Extract<
   UpdateStatus,
   { state: "downloaded" }
@@ -83,6 +84,21 @@ export function getCurrentUpdateStatus(): UpdateStatus {
   return currentUpdateStatus;
 }
 
+/** Remembers a user quit that Electron deferred while helpers are closing. */
+export function requestQuitAfterUpdatePreparation(): void {
+  if (isPreparingDownloadedUpdate()) {
+    quitRequestedDuringUpdatePreparation = true;
+  }
+}
+
+function completeDeferredQuitIfRequested(): void {
+  const shouldQuit = quitRequestedDuringUpdatePreparation;
+  quitRequestedDuringUpdatePreparation = false;
+  if (shouldQuit) {
+    queueMicrotask(() => app.quit());
+  }
+}
+
 export async function installDownloadedUpdate(): Promise<void> {
   if (
     !UPDATE_SUPPORT.supported ||
@@ -94,6 +110,7 @@ export async function installDownloadedUpdate(): Promise<void> {
   installingUpdateForRetry =
     pendingDownloadedUpdate ||
     (currentUpdateStatus.state === "downloaded" ? currentUpdateStatus : null);
+  quitRequestedDuringUpdatePreparation = false;
   updateInstallInFlight = true;
   try {
     // Native helpers can outlive the Electron window. Close them before
@@ -103,6 +120,7 @@ export async function installDownloadedUpdate(): Promise<void> {
     // installer handoff is about to happen. A normal user quit remains
     // guarded while preparation is in flight.
     updateQuitOwned = true;
+    quitRequestedDuringUpdatePreparation = false;
     // isSilent=false so any installer UI shows; isForceRunAfter=true so the
     // app relaunches after the update completes.
     autoUpdater.quitAndInstall(false, true);
@@ -118,12 +136,13 @@ export async function installDownloadedUpdate(): Promise<void> {
         err,
       );
       broadcastUpdateStatus(retryUpdate);
-      return;
+    } else {
+      broadcastUpdateStatus({
+        state: "error",
+        message: err instanceof Error ? err.message : String(err),
+      });
     }
-    broadcastUpdateStatus({
-      state: "error",
-      message: err instanceof Error ? err.message : String(err),
-    });
+    completeDeferredQuitIfRequested();
   }
 }
 

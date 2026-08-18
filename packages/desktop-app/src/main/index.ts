@@ -247,6 +247,7 @@ import {
   isPreparingDownloadedUpdate,
   isInstallingDownloadedUpdate,
   installDownloadedUpdate,
+  requestQuitAfterUpdatePreparation,
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
@@ -2109,6 +2110,7 @@ const multiFrontierQuitGuard = createMultiFrontierQuitGuard({
   reissueQuit: () => app.quit(),
   shouldAllowQuit: () => isInstallingDownloadedUpdate(),
   shouldDeferQuit: () => isPreparingDownloadedUpdate(),
+  onDeferredQuit: requestQuitAfterUpdatePreparation,
 });
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
@@ -12152,6 +12154,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  if (multiFrontierQuitGuard(event)) return;
   if (!appIsQuitting) {
     appIsQuitting = true;
     for (const appId of managedDesktopAppProcesses.keys()) {
@@ -12171,7 +12174,6 @@ app.on("before-quit", (event) => {
       );
     });
   }
-  if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });
 
 app.on("will-quit", () => {

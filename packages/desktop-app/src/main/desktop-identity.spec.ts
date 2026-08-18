@@ -671,57 +671,72 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("signed-in");
   });
 
-  it("restores the previous identity session when authority synchronization fails", async () => {
-    const source = appFixture();
-    source.session = {
-      cookies: cookieStore([
-        sessionCookie("an_session_mail", source.origin, "new-session"),
-      ]),
-      fetch: vi.fn(async () => sessionResponse()),
-    } as unknown as Electron.Session;
-    const authority = authorityFixture();
-    const identityCookies = cookieStore([
-      sessionCookie(
-        "an_session_dispatch",
-        authority.origin,
-        "previous-session",
-      ),
-    ]);
-    const identityFetch = vi.fn(
-      async () =>
-        new Response(JSON.stringify({ email: "steve@example.com" }), {
-          status: 200,
-          headers: { "content-type": "application/json" },
-        }),
-    );
-    const reloadApp = vi.fn();
-    const broker = new DesktopIdentityBroker({
-      identitySession: {
-        cookies: identityCookies,
-        fetch: identityFetch,
-        clearStorageData: vi.fn(async () => {}),
-      } as unknown as Electron.Session,
-      resolveLoginRedirect: vi.fn(async () => null),
-      resolveApp: (id) =>
-        id === source.id ? source : id === authority.id ? authority : null,
-      listApps: () => [source, authority],
-      createWindow: vi.fn() as never,
-      reloadApp,
-      clearLocalBroker: vi.fn(),
-    });
+  it("restores the previous identity session and revalidation timestamp when authority synchronization fails", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(0);
+      const source = appFixture();
+      source.session = {
+        cookies: cookieStore([
+          sessionCookie("an_session_mail", source.origin, "new-session"),
+        ]),
+        fetch: vi.fn(async () => sessionResponse()),
+      } as unknown as Electron.Session;
+      const authority = authorityFixture();
+      const identityCookies = cookieStore([
+        sessionCookie(
+          "an_session_dispatch",
+          authority.origin,
+          "previous-session",
+        ),
+      ]);
+      const identityFetch = vi.fn(
+        async () =>
+          new Response(JSON.stringify({ email: "steve@example.com" }), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+      );
+      const reloadApp = vi.fn();
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: identityCookies,
+          fetch: identityFetch,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        resolveLoginRedirect: vi.fn(async () => null),
+        resolveApp: (id) =>
+          id === source.id ? source : id === authority.id ? authority : null,
+        listApps: () => [source, authority],
+        createWindow: vi.fn() as never,
+        reloadApp,
+        clearLocalBroker: vi.fn(),
+        statusRevalidationIntervalMs: 1_000,
+      });
+      broker.setStatusForSetting("signed-in");
+      vi.setSystemTime(500);
 
-    await expect(broker.adoptAppSession(source.id)).resolves.toBe(false);
+      await expect(broker.adoptAppSession(source.id)).resolves.toBe(false);
 
-    expect(await identityCookies.get()).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          name: "an_session_dispatch",
-          value: "previous-session",
-        }),
-      ]),
-    );
-    expect(reloadApp).toHaveBeenCalledWith(authority);
-    expect(broker.getStatus()).toBe("idle");
+      expect(await identityCookies.get()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            name: "an_session_dispatch",
+            value: "previous-session",
+          }),
+        ]),
+      );
+      expect(reloadApp).toHaveBeenCalledWith(authority);
+      expect(broker.getStatus()).toBe("signed-in");
+
+      const fetchCallsAfterAdoption = identityFetch.mock.calls.length;
+      vi.setSystemTime(1_100);
+      await broker.refreshStatus(authority);
+      expect(identityFetch).toHaveBeenCalledTimes(fetchCallsAfterAdoption + 1);
+      expect(broker.getStatus()).toBe("signed-in");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails closed and restores an existing identity session for an invalid app cookie", async () => {

@@ -1,6 +1,17 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import type { AppConfig, AppDefinition } from "@shared/app-registry";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { buildGuestThemeScript } from "../lib/theme.js";
 import {
@@ -13,8 +24,33 @@ import {
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
   resolveDesktopIdentityLazySyncStatus,
+  rememberDesktopIdentityStatus,
   shouldReuseRememberedDesktopIdentitySession,
+  default as AppWebview,
 } from "./AppWebview.js";
+
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => values.delete(key),
+    setItem: (key, value) => values.set(key, String(value)),
+  };
+}
+
+beforeAll(() => {
+  if (!window.localStorage) {
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: createMemoryStorage(),
+    });
+  }
+});
 
 describe("Desktop identity lazy child synchronization", () => {
   it("does not demote a verified workspace session when child sync fails", () => {
@@ -48,6 +84,110 @@ describe("Desktop identity lazy child synchronization", () => {
         Date.now() - 10 * 60_000,
       ),
     ).toBe(false);
+  });
+});
+
+describe("Desktop identity activation", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        disconnect() {}
+        observe() {}
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    container = document.createElement("div");
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    rememberDesktopIdentityStatus("idle");
+  });
+
+  it("keeps a remembered session gated until child synchronization completes", async () => {
+    let resolveSynchronization!: (synchronized: boolean) => void;
+    const ensureAppSession = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSynchronization = resolve;
+        }),
+    );
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus: vi.fn(async () => "signed-in"),
+          ensureAppSession,
+          onStatusChange: vi.fn(() => () => {}),
+          signIn: vi.fn(async () => true),
+          authenticate: vi.fn(async () => ({ ok: true })),
+          requestMagicLink: vi.fn(async () => ({ ok: true })),
+        },
+      },
+    });
+    rememberDesktopIdentityStatus("signed-in");
+    root = createRoot(container);
+
+    const app: AppDefinition = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig: AppConfig = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      url: "https://mail.agent-native.com",
+      devPort: 3000,
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod",
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark",
+        }),
+      );
+    });
+    await vi.waitFor(() =>
+      expect(ensureAppSession).toHaveBeenCalledWith("mail"),
+    );
+
+    const webviewSlot = [
+      ...container.querySelectorAll(".webview-slot > div"),
+    ].find((element) => element.querySelector("webview")) as
+      | HTMLElement
+      | undefined;
+    expect(webviewSlot?.style.display).toBe("none");
+    expect(container.textContent).not.toContain("Checking...");
+
+    await act(async () => {
+      resolveSynchronization(true);
+      await Promise.resolve();
+    });
+
+    expect(webviewSlot?.style.display).toBe("flex");
   });
 });
 
