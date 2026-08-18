@@ -66,7 +66,14 @@ async function readApps() {
   // registry and therefore in no monitor. It went permanently cold behind a
   // hanging health route — cache misses cost ~10x — and every check we owned
   // stayed green because nothing was checking it at all.
-  apps.push({ name: "docs", prodUrl: "https://www.agent-native.com" });
+  // The docs site is a static shell and does not expose the app health route.
+  // Keep its public shell in the fleet audit without turning that expected
+  // 502 into a false outage.
+  apps.push({
+    name: "docs",
+    prodUrl: "https://www.agent-native.com",
+    healthPath: null,
+  });
   return apps;
 }
 
@@ -92,14 +99,15 @@ async function pingOnce(url) {
   return { status: res.status, ok: res.ok, db, ready, pressure, ms };
 }
 
-async function pingApp({ name, prodUrl }, strict) {
+async function pingApp({ name, prodUrl, healthPath = HEALTH_PATH }, strict) {
+  if (healthPath === null) {
+    return { name, ok: true, healthSkipped: true, ms: 0 };
+  }
   // ?pressure=1 asks the app to read its own pg_stat_activity. Requested only
   // in --strict runs: ordinary runs exist to warm the function, and an extra
   // stats query every minute per app buys nothing.
-  const healthPath = strict
-    ? `${HEALTH_PATH}?strict=1&pressure=1`
-    : HEALTH_PATH;
-  const url = `${prodUrl.replace(/\/$/, "")}${healthPath}`;
+  const requestPath = strict ? `${healthPath}?strict=1&pressure=1` : healthPath;
+  const url = `${prodUrl.replace(/\/$/, "")}${requestPath}`;
   let lastErr;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     try {
