@@ -347,6 +347,23 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
+  it("does not create or expose apps when the org visibility setting cannot be read", async () => {
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "private-app", name: "Private app", path: "/private-app" },
+    ]);
+    mocks.getOrgSetting.mockRejectedValueOnce(
+      new Error("settings store unavailable"),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toThrow("settings store unavailable");
+  });
+
   it("projects exact custom SSO eligibility without exposing registry details", async () => {
     stubNoPendingContext();
     stubManifest([

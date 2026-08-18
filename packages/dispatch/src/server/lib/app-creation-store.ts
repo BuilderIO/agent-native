@@ -1034,10 +1034,14 @@ async function workspaceAppDefaultVisibility(): Promise<WorkspaceAppVisibility> 
   const setting = await getOrgSetting(
     orgId,
     WORKSPACE_APP_DEFAULT_VISIBILITY_KEY,
-  )
-    // coercion-ok: An unavailable optional setting preserves the org-wide default.
-    .catch(() => null);
-  return setting?.visibility === "private" ? "private" : "org";
+  );
+  if (setting === null) return "org";
+  if (setting.visibility === "private" || setting.visibility === "org") {
+    return setting.visibility;
+  }
+  throw new Error(
+    "Workspace app default visibility is invalid; refusing to widen access.",
+  );
 }
 
 function appRecordTimestamp(value: string | null | undefined): number {
