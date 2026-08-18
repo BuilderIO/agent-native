@@ -29,6 +29,11 @@ import {
   setA2ASecretHandler,
   syncA2ASecretHandler,
   receiveA2ASecretHandler,
+  listGroupsHandler,
+  createGroupHandler,
+  updateGroupHandler,
+  deleteGroupHandler,
+  setWorkspaceAppDefaultVisibilityHandler,
 } from "./handlers.js";
 import { ORG_MIGRATIONS } from "./migrations.js";
 
@@ -113,6 +118,42 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return removeMemberHandler(event);
+      }),
+    );
+
+    // /groups, /groups/:id — reusable organization principals for sharing.
+    app.use(
+      `${ORG_PREFIX}/groups`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (tail === "" || tail === "/") {
+          if (method === "GET") return listGroupsHandler(event);
+          if (method === "POST") return createGroupHandler(event);
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        if (!/^\/[^/]+\/?$/.test(tail)) {
+          setResponseStatus(event, 404);
+          return { error: "Not found" };
+        }
+        if (method === "PUT") return updateGroupHandler(event);
+        if (method === "DELETE") return deleteGroupHandler(event);
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }),
+    );
+
+    // PUT /workspace-app-default-visibility — org admins choose the default
+    // for newly created workspace apps. Existing apps retain their setting.
+    app.use(
+      `${ORG_PREFIX}/workspace-app-default-visibility`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setWorkspaceAppDefaultVisibilityHandler(event);
       }),
     );
 

@@ -7,6 +7,19 @@ import { TooltipProvider } from "./ui/tooltip";
 import { WorkspaceAppCard } from "./workspace-app-card";
 
 vi.mock("@agent-native/core/client", () => ({
+  ShareButton: ({
+    resourceTitle,
+    triggerClassName,
+  }: {
+    resourceTitle?: string;
+    triggerClassName?: string;
+  }) => (
+    <button
+      type="button"
+      aria-label={`Share ${resourceTitle ?? "app"}`}
+      className={triggerClassName}
+    />
+  ),
   useActionMutation: () => ({ mutate: vi.fn(), isPending: false }),
   useActionQuery: () => ({
     data: { resources: [], counts: {} },
@@ -56,6 +69,9 @@ describe("WorkspaceAppCard", () => {
     ).toContain("focus-visible:ring-2");
 
     const actions = [
+      container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Share Analytics"]',
+      ),
       container.querySelector<HTMLButtonElement>(
         'button[aria-label="View context resources for Analytics"]',
       ),

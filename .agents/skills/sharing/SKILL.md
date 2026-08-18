@@ -26,7 +26,8 @@ This is the framework-level primitive. Every ownable resource gets it for free �
 - **`org`** — owner + explicit grants + anyone in the same org (read-only).
 - **`public`** — owner + explicit grants + **anyone with the link** (read-only). Public docs do NOT appear in other users' list/sidebar/search results — `accessFilter` omits them by default. They're reachable by id (`resolveAccess` admits them) so direct links and SSR routes like `/p/:id` keep working. If a list endpoint legitimately needs cross-user public discovery (a template gallery, etc.), pass `accessFilter(table, shares, ctx, minRole, { includePublic: true })`.
 
-Visibility is coarse. Explicit share grants are fine-grained (per user or per org).
+Visibility is coarse. Explicit share grants are fine-grained (per user, reusable
+organization group, or per org).
 
 ### Roles on a share grant
 
@@ -98,6 +99,7 @@ registerShareableResource({
   // ...
   allowPublic: false, // hides "Public" in the share dialog and rejects it server-side
   requireOrgMemberForUserShares: true, // user shares must target an org member or pending invitee
+  supportsGroupShares: true, // this app's DB includes the framework org-group tables
 });
 ```
 
@@ -107,6 +109,19 @@ registerShareableResource({
 Use both for resources that execute code or expose privileged data with the *viewer's* credentials. Extensions ship with both set: an extension's HTML calls actions / SQL / the secrets-injecting proxy as the viewer, so a public or cross-org-shared extension would let a stranger run arbitrary code with someone else's auth context. `scripts/guard-extension-no-public.mjs` (CI + `pnpm prep`) statically enforces that the extension registration keeps both flags set.
 
 Defaults match historical behaviour: `allowPublic: true`, `requireOrgMemberForUserShares: false`. Resources that don't set the flags work as before.
+
+### Reusable organization groups
+
+The org plugin exposes `/_agent-native/org/groups` for admins to create named groups
+from active organization members. Set `supportsGroupShares: true` on a resource
+registration to enable `principalType: "group"` in the generic share actions and
+the shared popover's autocomplete. Group ids are scoped to the resource's org;
+deleting a group removes its membership and makes any stale group grants inert.
+
+Workspace apps opt into this flag and use the same default `org` visibility as
+their organization setting. The app creator is the durable `owner_email`, while
+organization owners/admins receive admin access through the registration's
+`canManageAccess` callback.
 
 ## Filter list/read queries
 
@@ -185,7 +200,7 @@ The framework auto-mounts these actions in every template — no per-template bo
 
 | Action                     | Args                                                                           | Purpose                                   |
 | -------------------------- | ------------------------------------------------------------------------------ | ----------------------------------------- |
-| `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?` | Grant a user or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link used in the notification email. |
+| `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?` | Grant a user, group, or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link used in the notification email. |
 | `unshare-resource`         | `resourceType, resourceId, principalType, principalId`                         | Revoke access.                            |
 | `list-resource-shares`     | `resourceType, resourceId`                                                     | Current visibility + all share grants.    |
 | `set-resource-visibility`  | `resourceType, resourceId, visibility`                                         | Change to `private` / `org` / `public`.  |

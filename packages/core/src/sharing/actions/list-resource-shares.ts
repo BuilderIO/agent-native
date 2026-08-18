@@ -2,6 +2,7 @@ import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import { getDbExec } from "../../db/client.js";
 import { organizations } from "../../org/schema.js";
 import { resolveAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
@@ -44,6 +45,36 @@ async function loadOrgDisplayNames(
   }
 }
 
+async function loadGroupDisplayNames(
+  shares: Array<{ principalType: string; principalId: string }>,
+): Promise<Map<string, string>> {
+  const groupIds = Array.from(
+    new Set(
+      shares
+        .filter((share) => share.principalType === "group" && share.principalId)
+        .map((share) => share.principalId),
+    ),
+  );
+  if (!groupIds.length) return new Map();
+  try {
+    const result = await getDbExec().execute({
+      sql: `SELECT id, name FROM org_groups WHERE id IN (${groupIds
+        .map(() => "?")
+        .join(", ")})`,
+      args: groupIds,
+    });
+    return new Map(
+      result.rows.flatMap((row: any): Array<[string, string]> => {
+        const id = typeof row.id === "string" ? row.id : "";
+        const name = typeof row.name === "string" ? row.name.trim() : "";
+        return id && name ? [[id, name]] : [];
+      }),
+    );
+  } catch {
+    return new Map();
+  }
+}
+
 export default defineAction({
   description:
     "List the current visibility and share grants on a shareable resource. Any read access is sufficient.",
@@ -54,11 +85,18 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const reg = requireShareableResource(args.resourceType);
-    const policy = {
+    const policy: {
+      allowPublic: boolean;
+      requireOrgMemberForUserShares: boolean;
+      supportsGroupShares?: boolean;
+    } = {
       // Defaults match registration defaults so the UI behaves the same for
       // resources that haven't opted into restrictions.
       allowPublic: reg.allowPublic !== false,
       requireOrgMemberForUserShares: reg.requireOrgMemberForUserShares === true,
+      ...(reg.supportsGroupShares === true
+        ? { supportsGroupShares: true }
+        : {}),
     };
     const access = await resolveAccess(args.resourceType, args.resourceId);
     if (!access)
@@ -70,6 +108,7 @@ export default defineAction({
       .from(reg.sharesTable)
       .where(eq(reg.sharesTable.resourceId, args.resourceId));
     const orgDisplayNames = await loadOrgDisplayNames(db, shares);
+    const groupDisplayNames = await loadGroupDisplayNames(shares);
 
     return {
       ownerEmail: access.resource.ownerEmail ?? null,
@@ -83,7 +122,9 @@ export default defineAction({
         displayName:
           s.principalType === "org"
             ? orgDisplayNames.get(s.principalId)
-            : undefined,
+            : s.principalType === "group"
+              ? groupDisplayNames.get(s.principalId)
+              : undefined,
         role: s.role,
         createdAt: s.createdAt,
       })),

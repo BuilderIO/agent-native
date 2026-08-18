@@ -1,4 +1,8 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  ShareButton,
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -182,6 +186,17 @@ export function WorkspaceAppCard({
           ) : null}
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          {!isPending ? (
+            <div className="pointer-events-auto">
+              <ShareButton
+                resourceType="workspace-app"
+                resourceId={app.id}
+                resourceTitle={app.name}
+                trigger="icon"
+                triggerClassName={APP_CARD_ACTION_CLASS}
+              />
+            </div>
+          ) : null}
           {!isPending && !isArchived ? (
             <div className="pointer-events-auto">
               <AppResourcesDialog app={app} />

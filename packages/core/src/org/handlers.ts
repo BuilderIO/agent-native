@@ -43,10 +43,17 @@ import { getSession } from "../server/auth.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
+import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
 import { putUserSetting } from "../settings/user-settings.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
-import type { OrgRole } from "./types.js";
+import type {
+  OrgGroupSummary,
+  OrgRole,
+  WorkspaceAppDefaultVisibility,
+} from "./types.js";
+
+const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
 
 function getInviteAppUrl(event: H3Event): string {
   return getAppProductionUrl(event);
@@ -62,6 +69,153 @@ function requireAuthEmail(session: { email?: string } | null): string {
     throw createError({ statusCode: 401, message: "Authentication required" });
   }
   return email;
+}
+
+function normalizeWorkspaceAppDefaultVisibility(
+  value: unknown,
+): WorkspaceAppDefaultVisibility {
+  return value === "private" ? "private" : "org";
+}
+
+function canManageOrgAccess(role: OrgRole | null): boolean {
+  return role === "owner" || role === "admin";
+}
+
+function requireOrgAdmin(role: OrgRole | null): void {
+  if (!canManageOrgAccess(role)) {
+    throw createError({
+      statusCode: 403,
+      message: "Only organization admins can manage groups and app defaults.",
+    });
+  }
+}
+
+function extractGroupId(event: H3Event): string | undefined {
+  const fromRouter = getRouterParam(event, "id");
+  if (fromRouter) return fromRouter;
+  const path = getRequestURL(event).pathname;
+  const match =
+    path.match(/^\/([^/]+)\/?$/) ?? path.match(/\/org\/groups\/([^/]+)\/?$/);
+  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
+}
+
+function normalizeGroupName(value: unknown): string {
+  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
+}
+
+function normalizeGroupEmails(value: unknown): string[] {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[\s,;]+/)
+      : [];
+  return Array.from(
+    new Set(
+      values
+        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
+        .filter((entry) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry))
+        .map((entry) => entry.toLowerCase()),
+    ),
+  );
+}
+
+function groupId(): string {
+  return (
+    globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
+    Math.random().toString(36).slice(2) + Date.now().toString(36)
+  );
+}
+
+async function withGroupTransaction<T>(
+  fn: (client: Awaited<ReturnType<typeof exec>>) => Promise<T>,
+): Promise<T> {
+  const client = await exec();
+  if (client.transaction) return client.transaction(fn);
+  await client.execute("BEGIN");
+  try {
+    const result = await fn(client);
+    await client.execute("COMMIT");
+    return result;
+  } catch (error) {
+    await client.execute("ROLLBACK").catch(() => {});
+    throw error;
+  }
+}
+
+async function assertActiveOrgMembers(
+  orgId: string,
+  emails: string[],
+): Promise<void> {
+  if (emails.length === 0) return;
+  const e = await exec();
+  const result = await e.execute({
+    sql: `SELECT LOWER(email) AS email FROM org_members WHERE org_id = ? AND LOWER(email) IN (${emails
+      .map(() => "?")
+      .join(", ")})`,
+    args: [orgId, ...emails],
+  });
+  const found = new Set(
+    result.rows.map((row: any) => String(row.email ?? "").toLowerCase()),
+  );
+  const missing = emails.filter((email) => !found.has(email));
+  if (missing.length > 0) {
+    throw createError({
+      statusCode: 400,
+      message: `These group members are not active organization members: ${missing.join(", ")}`,
+    });
+  }
+}
+
+async function groupSummaries(
+  orgId: string,
+  search: string,
+  limit: number | null,
+  offset: number,
+): Promise<{
+  groups: OrgGroupSummary[];
+  hasMore: boolean;
+  nextOffset: number | null;
+}> {
+  const e = await exec();
+  const args: unknown[] = [orgId];
+  let sql = `SELECT id, name, created_at AS "createdAt"
+             FROM org_groups WHERE org_id = ?`;
+  if (search) {
+    sql += ` AND LOWER(name) LIKE ? ESCAPE '!'`;
+    args.push(`%${escapeLike(search)}%`);
+  }
+  sql += ` ORDER BY LOWER(name) ASC`;
+  if (limit !== null) {
+    sql += ` LIMIT ? OFFSET ?`;
+    args.push(limit + 1, offset);
+  }
+  const result = await e.execute({ sql, args });
+  const pageRows = limit === null ? result.rows : result.rows.slice(0, limit);
+  const groups = await Promise.all(
+    pageRows.map(async (row: any) => {
+      const membersResult = await e.execute({
+        sql: `SELECT email FROM org_group_members
+              WHERE org_id = ? AND group_id = ? ORDER BY LOWER(email) ASC`,
+        args: [orgId, String(row.id)],
+      });
+      const members = membersResult.rows.map((member: any) =>
+        String(member.email),
+      );
+      return {
+        id: String(row.id),
+        name: String(row.name),
+        memberCount: members.length,
+        members,
+        createdAt: Number(row.createdAt ?? row.created_at ?? 0),
+      } satisfies OrgGroupSummary;
+    }),
+  );
+  const hasMore = limit !== null && result.rows.length > limit;
+  return {
+    groups,
+    hasMore,
+    nextOffset: hasMore ? offset + groups.length : null,
+  };
 }
 
 /** GET /_agent-native/org/me — current user's active org, all orgs, pending invitations */
@@ -126,6 +280,16 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   const isOwnerOrAdmin = ctx.role === "owner" || ctx.role === "admin";
+  let workspaceAppDefaultVisibility: WorkspaceAppDefaultVisibility = "org";
+  if (ctx.orgId) {
+    const setting = await getOrgSetting(
+      ctx.orgId,
+      WORKSPACE_APP_DEFAULT_VISIBILITY_KEY,
+    ).catch(() => null);
+    workspaceAppDefaultVisibility = normalizeWorkspaceAppDefaultVisibility(
+      setting?.visibility,
+    );
+  }
 
   const invitesRes = await e.execute({
     // Case-insensitive match: invitations are stored with whatever case
@@ -154,9 +318,30 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     pendingInvitations,
     domainMatches,
     allowedDomain,
+    workspaceAppDefaultVisibility,
     a2aSecret: isOwnerOrAdmin ? a2aSecret : undefined,
   };
 });
+
+/** PUT /_agent-native/org/workspace-app-default-visibility — org admins only */
+export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    requireOrgAdmin(ctx.role);
+    if (!ctx.orgId) {
+      throw createError({
+        statusCode: 400,
+        message: "Join an organization before changing app defaults.",
+      });
+    }
+    const body = await readBody(event);
+    const visibility = normalizeWorkspaceAppDefaultVisibility(body?.visibility);
+    await putOrgSetting(ctx.orgId, WORKSPACE_APP_DEFAULT_VISIBILITY_KEY, {
+      visibility,
+    });
+    return { visibility };
+  },
+);
 
 /** POST /_agent-native/org — create a new organization */
 export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
@@ -228,6 +413,153 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
     hasMore,
     nextOffset: hasMore ? offset + members.length : null,
   };
+});
+
+/** GET /_agent-native/org/groups — list reusable sharing groups */
+export const listGroupsHandler = defineEventHandler(async (event: H3Event) => {
+  const ctx = await getOrgContext(event);
+  if (!ctx.orgId) return { groups: [], hasMore: false, nextOffset: null };
+  const url = getRequestURL(event);
+  const search = (
+    url.searchParams.get("search") ??
+    url.searchParams.get("q") ??
+    ""
+  )
+    .trim()
+    .toLowerCase();
+  const shouldPaginate =
+    url.searchParams.has("limit") ||
+    url.searchParams.has("offset") ||
+    search.length > 0;
+  const limit = shouldPaginate
+    ? clampInteger(url.searchParams.get("limit"), 25, 1, 100)
+    : null;
+  const offset = shouldPaginate
+    ? clampInteger(url.searchParams.get("offset"), 0, 0, 100_000)
+    : 0;
+  return groupSummaries(ctx.orgId, search, limit, offset);
+});
+
+/** POST /_agent-native/org/groups — create a group (owner/admin only) */
+export const createGroupHandler = defineEventHandler(async (event: H3Event) => {
+  const ctx = await getOrgContext(event);
+  requireOrgAdmin(ctx.role);
+  if (!ctx.orgId)
+    throw createError({ statusCode: 400, message: "Organization required" });
+  const body = await readBody(event);
+  const name = normalizeGroupName(body?.name);
+  if (!name || name.length > 100) {
+    throw createError({
+      statusCode: 400,
+      message: "Group name must be 1-100 characters.",
+    });
+  }
+  const emails = normalizeGroupEmails(body?.emails);
+  if (emails.length === 0) {
+    throw createError({
+      statusCode: 400,
+      message: "Add at least one organization member.",
+    });
+  }
+  await assertActiveOrgMembers(ctx.orgId, emails);
+  const id = groupId();
+  const createdAt = Date.now();
+  await withGroupTransaction(async (client) => {
+    await client.execute({
+      sql: `INSERT INTO org_groups (id, org_id, name, created_by, created_at) VALUES (?, ?, ?, ?, ?)`,
+      args: [id, ctx.orgId, name, ctx.email, createdAt],
+    });
+    for (const email of emails) {
+      await client.execute({
+        sql: `INSERT INTO org_group_members (id, org_id, group_id, email, created_at) VALUES (?, ?, ?, ?, ?)`,
+        args: [groupId(), ctx.orgId, id, email, createdAt],
+      });
+    }
+  });
+  return { id, name, memberCount: emails.length, members: emails, createdAt };
+});
+
+/** PUT /_agent-native/org/groups/:id — update a group (owner/admin only) */
+export const updateGroupHandler = defineEventHandler(async (event: H3Event) => {
+  const ctx = await getOrgContext(event);
+  requireOrgAdmin(ctx.role);
+  if (!ctx.orgId)
+    throw createError({ statusCode: 400, message: "Organization required" });
+  const id = extractGroupId(event);
+  if (!id)
+    throw createError({ statusCode: 400, message: "Group id is required" });
+  const body = await readBody(event);
+  const e = await exec();
+  const existing = await e.execute({
+    sql: `SELECT id, name FROM org_groups WHERE id = ? AND org_id = ? LIMIT 1`,
+    args: [id, ctx.orgId],
+  });
+  if (!existing.rows[0])
+    throw createError({ statusCode: 404, message: "Group not found" });
+  const name =
+    body?.name === undefined
+      ? String(existing.rows[0].name)
+      : normalizeGroupName(body.name);
+  if (!name || name.length > 100) {
+    throw createError({
+      statusCode: 400,
+      message: "Group name must be 1-100 characters.",
+    });
+  }
+  const hasEmails = Object.prototype.hasOwnProperty.call(body ?? {}, "emails");
+  const emails = hasEmails ? normalizeGroupEmails(body?.emails) : null;
+  if (hasEmails && !emails?.length) {
+    throw createError({
+      statusCode: 400,
+      message: "Add at least one organization member.",
+    });
+  }
+  if (emails) await assertActiveOrgMembers(ctx.orgId, emails);
+  await withGroupTransaction(async (client) => {
+    await client.execute({
+      sql: `UPDATE org_groups SET name = ? WHERE id = ? AND org_id = ?`,
+      args: [name, id, ctx.orgId],
+    });
+    if (emails) {
+      await client.execute({
+        sql: `DELETE FROM org_group_members WHERE group_id = ? AND org_id = ?`,
+        args: [id, ctx.orgId],
+      });
+      for (const email of emails) {
+        await client.execute({
+          sql: `INSERT INTO org_group_members (id, org_id, group_id, email, created_at) VALUES (?, ?, ?, ?, ?)`,
+          args: [groupId(), ctx.orgId, id, email, Date.now()],
+        });
+      }
+    }
+  });
+  return {
+    id,
+    name,
+    ...(emails ? { memberCount: emails.length, members: emails } : {}),
+  };
+});
+
+/** DELETE /_agent-native/org/groups/:id — delete a group (owner/admin only) */
+export const deleteGroupHandler = defineEventHandler(async (event: H3Event) => {
+  const ctx = await getOrgContext(event);
+  requireOrgAdmin(ctx.role);
+  if (!ctx.orgId)
+    throw createError({ statusCode: 400, message: "Organization required" });
+  const id = extractGroupId(event);
+  if (!id)
+    throw createError({ statusCode: 400, message: "Group id is required" });
+  await withGroupTransaction(async (client) => {
+    await client.execute({
+      sql: `DELETE FROM org_group_members WHERE group_id = ? AND org_id = ?`,
+      args: [id, ctx.orgId],
+    });
+    await client.execute({
+      sql: `DELETE FROM org_groups WHERE id = ? AND org_id = ?`,
+      args: [id, ctx.orgId],
+    });
+  });
+  return { ok: true };
 });
 
 function clampInteger(

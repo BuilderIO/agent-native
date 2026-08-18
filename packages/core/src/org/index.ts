@@ -8,6 +8,8 @@ export type {
   OrgInfo,
   OrgMember,
   OrgPendingInvitation,
+  OrgGroupSummary,
+  WorkspaceAppDefaultVisibility,
 } from "./types.js";
 
 export {
@@ -40,7 +42,15 @@ export { createOrgPlugin, defaultOrgPlugin } from "./plugin.js";
 
 // Drizzle schema (re-exported so templates can write typed queries against
 // org tables without redefining the schema themselves).
-export { organizations, orgMembers, orgInvitations } from "./schema.js";
+export {
+  organizations,
+  orgMembers,
+  orgInvitations,
+  orgGroups,
+  orgGroupMembers,
+  workspaceApps,
+  workspaceAppShares,
+} from "./schema.js";
 
 // Individual handlers — exported so templates can compose a custom org plugin
 // while still using the framework-provided handlers.
@@ -58,6 +68,16 @@ export {
   setA2ASecretHandler,
   syncA2ASecretHandler,
   receiveA2ASecretHandler,
+  listGroupsHandler,
+  createGroupHandler,
+  updateGroupHandler,
+  deleteGroupHandler,
+  setWorkspaceAppDefaultVisibilityHandler,
 } from "./handlers.js";
 
 export { isFreeEmailProvider } from "./free-email-providers.js";
+
+export {
+  isWorkspaceAppAccessAllowed,
+  type WorkspaceAppAccessContext,
+} from "./workspace-app-access.js";

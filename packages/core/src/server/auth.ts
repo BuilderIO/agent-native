@@ -14,6 +14,7 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 
+import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -1963,7 +1964,23 @@ function createAuthGuardFn(): (
     }
 
     const session = await getSession(event);
-    if (session) return;
+    if (session) {
+      const workspaceAppId =
+        process.env.AGENT_NATIVE_WORKSPACE_APP_ID?.trim() || "";
+      if (
+        workspaceAppId &&
+        workspaceAppId !== "dispatch" &&
+        (p.startsWith("/api/") || p.startsWith("/_agent-native/")) &&
+        !(await isWorkspaceAppAccessAllowed(workspaceAppId, {
+          email: session.email,
+          orgId: session.orgId,
+        }))
+      ) {
+        setResponseStatus(event, 403);
+        return { error: "You do not have access to this workspace app." };
+      }
+      return;
+    }
 
     if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
       setResponseStatus(event, 401);

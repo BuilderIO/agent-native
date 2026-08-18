@@ -4,6 +4,10 @@ export {
   useOrg,
   useOrgMembers,
   useOrgInvitations,
+  useOrgGroups,
+  useCreateOrgGroup,
+  useUpdateOrgGroup,
+  useDeleteOrgGroup,
   useCreateOrg,
   useUpdateOrg,
   useInviteMember,
@@ -14,6 +18,7 @@ export {
   useSwitchOrg,
   useJoinByDomain,
   useSetOrgDomain,
+  useSetWorkspaceAppDefaultVisibility,
   useSetA2ASecret,
   useSyncA2ASecret,
   useOrgRole,
@@ -25,6 +30,7 @@ export type {
   BulkInviteResult,
   SyncA2ASecretResult,
   UseOrgRoleResult,
+  WorkspaceAppDefaultVisibility,
 } from "./hooks.js";
 
 export { OrgSwitcher, type OrgSwitcherProps } from "./OrgSwitcher.js";
@@ -64,6 +70,7 @@ export type {
   OrgInfo,
   OrgMember,
   OrgPendingInvitation,
+  OrgGroupSummary,
   OrgSummary,
   OrgInvitationSummary,
   DomainMatchOrg,

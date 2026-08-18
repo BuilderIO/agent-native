@@ -140,7 +140,7 @@ type HideInSearchControl = NonNullable<ShareButtonProps["hideInSearchControl"]>;
 
 interface Share {
   id: string;
-  principalType: "user" | "org";
+  principalType: "user" | "group" | "org";
   principalId: string;
   displayName?: string | null;
   role: Role;
@@ -151,6 +151,7 @@ interface SharesPolicy {
   allowPublic: boolean;
   /** When true, individual user shares must target an org member or pending invitee. Default: false. */
   requireOrgMemberForUserShares: boolean;
+  supportsGroupShares: boolean;
 }
 
 interface SharesResponse {
@@ -424,6 +425,162 @@ interface OrgMembersResponse {
   nextOffset?: number | null;
 }
 
+interface OrgGroup {
+  id: string;
+  name: string;
+  memberCount?: number;
+}
+
+interface OrgGroupsResponse {
+  groups: OrgGroup[];
+  hasMore?: boolean;
+  nextOffset?: number | null;
+}
+
+interface ShareSuggestion {
+  id: string;
+  principalType: "user" | "group";
+  label: string;
+  secondary?: string | null;
+  email?: string;
+}
+
+interface OrgGroupSearch {
+  groups: OrgGroup[];
+  isLoading: boolean;
+  isLoadingMore: boolean;
+  hasMore: boolean;
+  error: boolean;
+  loadMore: () => void;
+}
+
+function useOrgGroupSearch(query: string, enabled: boolean): OrgGroupSearch {
+  const search = query.trim();
+  const [groups, setGroups] = useState<OrgGroup[]>([]);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [error, setError] = useState(false);
+  const requestIdRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
+
+  const fetchPage = useCallback(
+    (offset: number, append: boolean) => {
+      if (!enabled) return;
+      const requestId = ++requestIdRef.current;
+      abortRef.current?.abort();
+      const controller = new AbortController();
+      abortRef.current = controller;
+      if (append) {
+        setIsLoadingMore(true);
+      } else {
+        setIsLoading(true);
+        setGroups([]);
+        setNextOffset(null);
+        setHasMore(false);
+      }
+      setError(false);
+
+      const params = new URLSearchParams();
+      if (search) params.set("search", search);
+      params.set("limit", String(MEMBER_SUGGESTION_LIMIT));
+      params.set("offset", String(offset));
+
+      fetch(`${agentNativePath("/_agent-native/org/groups")}?${params}`, {
+        credentials: "include",
+        signal: controller.signal,
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error("Could not load groups");
+          return response.json() as Promise<OrgGroupsResponse>;
+        })
+        .then((data) => {
+          if (controller.signal.aborted || requestId !== requestIdRef.current)
+            return;
+          const nextGroups = normalizeGroups(data?.groups);
+          setGroups((prev) =>
+            append ? mergeGroups(prev, nextGroups) : nextGroups,
+          );
+          setHasMore(data?.hasMore === true);
+          setNextOffset(
+            typeof data?.nextOffset === "number" ? data.nextOffset : null,
+          );
+        })
+        .catch((err) => {
+          if (controller.signal.aborted || requestId !== requestIdRef.current)
+            return;
+          setError(true);
+          setHasMore(false);
+          setNextOffset(null);
+          if (!append) setGroups([]);
+          if (process.env.NODE_ENV === "development") {
+            console.warn("[ShareButton] org group search failed", err);
+          }
+        })
+        .finally(() => {
+          if (controller.signal.aborted || requestId !== requestIdRef.current)
+            return;
+          if (append) setIsLoadingMore(false);
+          else setIsLoading(false);
+        });
+    },
+    [enabled, search],
+  );
+
+  useEffect(() => {
+    if (!enabled) {
+      abortRef.current?.abort();
+      setGroups([]);
+      setNextOffset(null);
+      setHasMore(false);
+      setIsLoading(false);
+      setIsLoadingMore(false);
+      setError(false);
+      return;
+    }
+    const timeout = setTimeout(
+      () => fetchPage(0, false),
+      search ? MEMBER_SEARCH_DEBOUNCE_MS : 0,
+    );
+    return () => {
+      clearTimeout(timeout);
+      abortRef.current?.abort();
+    };
+  }, [enabled, fetchPage, search]);
+
+  const loadMore = useCallback(() => {
+    if (!enabled || !hasMore || nextOffset === null) return;
+    if (isLoading || isLoadingMore) return;
+    fetchPage(nextOffset, true);
+  }, [enabled, fetchPage, hasMore, isLoading, isLoadingMore, nextOffset]);
+
+  return { groups, isLoading, isLoadingMore, hasMore, error, loadMore };
+}
+
+function normalizeGroups(value: unknown): OrgGroup[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((group: any) => ({
+      id: typeof group?.id === "string" ? group.id : "",
+      name: typeof group?.name === "string" ? group.name : "",
+      memberCount:
+        typeof group?.memberCount === "number" ? group.memberCount : 0,
+    }))
+    .filter((group) => group.id && group.name);
+}
+
+function mergeGroups(existing: OrgGroup[], next: OrgGroup[]): OrgGroup[] {
+  const seen = new Set(existing.map((group) => group.id));
+  const merged = [...existing];
+  for (const group of next) {
+    if (seen.has(group.id)) continue;
+    seen.add(group.id);
+    merged.push(group);
+  }
+  return merged;
+}
+
 interface OrgMemberSearch {
   members: OrgMember[];
   isLoading: boolean;
@@ -597,6 +754,8 @@ function SharePanel(
   const unshare = useActionMutation("unshare-resource");
 
   const [email, setEmail] = useState("");
+  const [selectedSuggestion, setSelectedSuggestion] =
+    useState<ShareSuggestion | null>(null);
   const [role, setRole] = useState<Role>("viewer");
   const [notifyPeople, setNotifyPeople] = useState(true);
   const [shareError, setShareError] = useState<string | null>(null);
@@ -632,6 +791,7 @@ function SharePanel(
   const policy: SharesPolicy = data?.policy ?? {
     allowPublic: true,
     requireOrgMemberForUserShares: false,
+    supportsGroupShares: false,
   };
   const visibility: Visibility =
     visibilityOverride ?? (data?.visibility as Visibility | null) ?? "private";
@@ -686,16 +846,52 @@ function SharePanel(
     ...pendingAdds,
   ];
   const memberSearch = useOrgMemberSearch(email, canManage && suggestionsOpen);
+  const groupSearch = useOrgGroupSearch(
+    email,
+    canManage && suggestionsOpen && policy.supportsGroupShares,
+  );
   const excludedMemberEmails = new Set<string>();
+  const excludedGroupIds = new Set<string>();
   if (data?.ownerEmail) excludedMemberEmails.add(data.ownerEmail.toLowerCase());
   for (const s of shares) {
     if (s.principalType === "user") {
       excludedMemberEmails.add(s.principalId.toLowerCase());
+    } else if (s.principalType === "group") {
+      excludedGroupIds.add(s.principalId);
     }
   }
   const memberSuggestions = memberSearch.members.filter(
     (m) => !excludedMemberEmails.has(m.email.toLowerCase()),
   );
+  const groupSuggestions = policy.supportsGroupShares
+    ? groupSearch.groups.filter((group) => !excludedGroupIds.has(group.id))
+    : [];
+  const suggestions: ShareSuggestion[] = [
+    ...memberSuggestions.map((member) => ({
+      id: member.email,
+      principalType: "user" as const,
+      label: member.name?.trim() || member.email,
+      secondary: member.name?.trim() ? member.email : null,
+      email: member.email,
+    })),
+    ...groupSuggestions.map((group) => ({
+      id: group.id,
+      principalType: "group" as const,
+      label: group.name,
+      secondary: `${group.memberCount ?? 0} people`,
+    })),
+  ];
+  const suggestionSearch: OrgMemberSearch = {
+    members: [],
+    isLoading: memberSearch.isLoading || groupSearch.isLoading,
+    isLoadingMore: memberSearch.isLoadingMore || groupSearch.isLoadingMore,
+    hasMore: memberSearch.hasMore || groupSearch.hasMore,
+    error: memberSearch.error && groupSearch.error,
+    loadMore: () => {
+      if (memberSearch.hasMore) memberSearch.loadMore();
+      if (groupSearch.hasMore) groupSearch.loadMore();
+    },
+  };
   const knownMembers = memberSearch.members;
 
   const handleVisibility = (next: Visibility) => {
@@ -728,10 +924,15 @@ function SharePanel(
   const handleAdd = () => {
     const trimmed = email.trim();
     if (!trimmed) return;
+    const principalType = selectedSuggestion?.principalType ?? "user";
+    const principalId =
+      principalType === "group" && selectedSuggestion
+        ? selectedSuggestion.id
+        : trimmed;
     const optimistic: Share = {
-      id: `pending-${trimmed}`,
-      principalType: "user",
-      principalId: trimmed,
+      id: `pending-${principalType}-${principalId}`,
+      principalType,
+      principalId,
       role,
     };
     const k = keyOf(optimistic);
@@ -740,16 +941,17 @@ function SharePanel(
     setShareError(null);
     setPendingAdds((p) => [...p, optimistic]);
     setEmail("");
+    setSelectedSuggestion(null);
     setSuggestionsOpen(false);
     addInFlight(k);
     share.mutate(
       {
         resourceType,
         resourceId,
-        principalType: "user",
-        principalId: trimmed,
+        principalType,
+        principalId,
         role,
-        notify: notifyPeople,
+        notify: principalType === "user" ? notifyPeople : false,
         resourceUrl: getNotificationUrl(props.shareUrl),
       } as any,
       {
@@ -763,6 +965,7 @@ function SharePanel(
           setPendingAdds((p) => p.filter((s) => s.id !== optimistic.id));
           clearInFlight(k);
           setEmail(trimmed);
+          setSelectedSuggestion(null);
           setShareError(extractShareErrorMessage(err));
         },
       },
@@ -903,10 +1106,12 @@ function SharePanel(
               onOpenChange={setSuggestionsOpen}
               onValueChange={(next) => {
                 setEmail(next);
+                setSelectedSuggestion(null);
                 if (shareError) setShareError(null);
               }}
-              onSelectMember={(member) => {
-                setEmail(member.email);
+              onSelectSuggestion={(suggestion) => {
+                setSelectedSuggestion(suggestion);
+                setEmail(suggestion.label);
                 setSuggestionsOpen(false);
                 if (shareError) setShareError(null);
               }}
@@ -916,8 +1121,8 @@ function SharePanel(
                   ? "Add people from your organization"
                   : "Add people by email"
               }
-              suggestions={memberSuggestions}
-              search={memberSearch}
+              suggestions={suggestions}
+              search={suggestionSearch}
             />
             <RoleSelect value={role} onChange={setRole} />
           </div>
@@ -929,7 +1134,7 @@ function SharePanel(
               {shareError}
             </div>
           ) : null}
-          {hasInviteEmail ? (
+          {hasInviteEmail && selectedSuggestion?.principalType !== "group" ? (
             <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
               <input
                 type="checkbox"
@@ -964,7 +1169,7 @@ function SharePanel(
           >
             <Avatar
               label={principalLabel(s, knownMembers)}
-              org={s.principalType === "org"}
+              org={s.principalType !== "user"}
             />
             <span className="flex-1 min-w-0 truncate">
               {principalLabel(s, knownMembers)}
@@ -1201,10 +1406,10 @@ interface MemberAutocompleteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onValueChange: (value: string) => void;
-  onSelectMember: (member: OrgMember) => void;
+  onSelectSuggestion: (suggestion: ShareSuggestion) => void;
   onSubmit: () => void;
   placeholder: string;
-  suggestions: OrgMember[];
+  suggestions: ShareSuggestion[];
   search: OrgMemberSearch;
 }
 
@@ -1213,7 +1418,7 @@ function MemberAutocomplete({
   open,
   onOpenChange,
   onValueChange,
-  onSelectMember,
+  onSelectSuggestion,
   onSubmit,
   placeholder,
   suggestions,
@@ -1223,7 +1428,7 @@ function MemberAutocomplete({
   const listboxId = rawListboxId.replace(/:/g, "");
   const inputRef = useRef<HTMLInputElement>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const activeMember =
+  const activeSuggestion =
     activeIndex >= 0 && activeIndex < suggestions.length
       ? suggestions[activeIndex]
       : null;
@@ -1245,8 +1450,8 @@ function MemberAutocomplete({
       ?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, listboxId]);
 
-  const chooseMember = (member: OrgMember) => {
-    onSelectMember(member);
+  const chooseSuggestion = (suggestion: ShareSuggestion) => {
+    onSelectSuggestion(suggestion);
     onOpenChange(false);
     inputRef.current?.focus();
   };
@@ -1275,9 +1480,9 @@ function MemberAutocomplete({
     }
 
     if (event.key === "Enter") {
-      if (open && activeMember) {
+      if (open && activeSuggestion) {
         event.preventDefault();
-        chooseMember(activeMember);
+        chooseSuggestion(activeSuggestion);
         return;
       }
       if (value.trim()) {
@@ -1318,7 +1523,7 @@ function MemberAutocomplete({
           />
           <input
             ref={inputRef}
-            type="email"
+            type="text"
             role="combobox"
             aria-autocomplete="list"
             aria-expanded={open}
@@ -1371,17 +1576,17 @@ function MemberAutocomplete({
           className="max-h-56 overflow-y-auto overflow-x-hidden"
           onScroll={handleScroll}
         >
-          {suggestions.map((member, index) => {
+          {suggestions.map((suggestion, index) => {
             const active = index === activeIndex;
             return (
               <div
-                key={member.email}
+                key={`${suggestion.principalType}:${suggestion.id}`}
                 id={optionId(listboxId, index)}
                 role="option"
                 aria-selected={active}
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => chooseMember(member)}
+                onClick={() => chooseSuggestion(suggestion)}
                 className={cn(
                   "flex cursor-pointer select-none flex-col rounded-sm px-3 py-2 text-sm outline-none",
                   active
@@ -1389,12 +1594,20 @@ function MemberAutocomplete({
                     : "text-foreground hover:bg-accent hover:text-accent-foreground",
                 )}
               >
-                <span className="truncate font-medium">
-                  {member.name?.trim() || member.email}
+                <span className="flex items-center gap-2 truncate font-medium">
+                  {suggestion.principalType === "group" ? (
+                    <IconUsersGroup
+                      aria-hidden
+                      size={14}
+                      strokeWidth={1.75}
+                      className="shrink-0 text-muted-foreground"
+                    />
+                  ) : null}
+                  <span className="truncate">{suggestion.label}</span>
                 </span>
-                {member.name?.trim() ? (
+                {suggestion.secondary ? (
                   <span className="truncate text-xs text-muted-foreground">
-                    {member.email}
+                    {suggestion.secondary}
                   </span>
                 ) : null}
               </div>
@@ -1716,6 +1929,7 @@ function principalLabel(share: Share, members: OrgMember[]): string {
   const serverLabel = share.displayName?.trim();
   if (serverLabel) return serverLabel;
   if (share.principalType === "org") return "Organization";
+  if (share.principalType === "group") return "Group";
   return displayName(share.principalId, members);
 }
 

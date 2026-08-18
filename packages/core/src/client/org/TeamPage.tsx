@@ -42,6 +42,9 @@ import {
   useOrg,
   useOrgMembers,
   useOrgInvitations,
+  useOrgGroups,
+  useCreateOrgGroup,
+  useDeleteOrgGroup,
   useCreateOrg,
   useUpdateOrg,
   useBulkInviteMembers,
@@ -50,6 +53,7 @@ import {
   useRemoveMember,
   useSwitchOrg,
   useSetOrgDomain,
+  useSetWorkspaceAppDefaultVisibility,
   useSetA2ASecret,
   useSyncA2ASecret,
   useJoinByDomain,
@@ -392,7 +396,199 @@ function MembersCard() {
         currentUserEmail={org.email}
         currentUserRole={org.role ?? null}
       />
+      {isOwnerOrAdmin ? (
+        <WorkspaceAppPrivacyCard
+          visibility={org.workspaceAppDefaultVisibility ?? "org"}
+        />
+      ) : null}
+      {isOwnerOrAdmin ? <OrgGroupsCard /> : null}
     </div>
+  );
+}
+
+function WorkspaceAppPrivacyCard({
+  visibility,
+}: {
+  visibility: "private" | "org";
+}) {
+  const setDefault = useSetWorkspaceAppDefaultVisibility();
+  return (
+    <section className="rounded-lg border border-border bg-card p-4 space-y-3">
+      <div>
+        <h3 className="text-sm font-medium">New app privacy</h3>
+        <p className="text-xs text-muted-foreground">
+          Choose the default access for apps created in this organization. App
+          creators and admins can change an app later.
+        </p>
+      </div>
+      <select
+        value={visibility}
+        disabled={setDefault.isPending}
+        onChange={(event) =>
+          setDefault.mutate(
+            event.target.value === "private" ? "private" : "org",
+          )
+        }
+        className="rounded-md border border-border bg-background px-2.5 py-1.5 text-sm"
+      >
+        <option value="org">Organization - everyone in the org</option>
+        <option value="private">Creator only</option>
+      </select>
+      <ErrorText error={setDefault.error} />
+    </section>
+  );
+}
+
+function OrgGroupsCard() {
+  const { data, isLoading } = useOrgGroups();
+  const createGroup = useCreateOrgGroup();
+  const deleteGroup = useDeleteOrgGroup();
+  const [name, setName] = useState("");
+  const [emails, setEmails] = useState("");
+  const [showForm, setShowForm] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState<string | null>(null);
+  const groups = data?.groups ?? [];
+
+  const submit = () => {
+    const trimmedName = name.trim();
+    const members = parseEmailList(emails);
+    if (!trimmedName || !members.length) return;
+    createGroup.mutate(
+      { name: trimmedName, emails: members },
+      {
+        onSuccess: () => {
+          setName("");
+          setEmails("");
+          setShowForm(false);
+        },
+      },
+    );
+  };
+
+  return (
+    <section className="rounded-lg border border-border bg-card p-4 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-medium">User groups</h3>
+          <p className="text-xs text-muted-foreground">
+            Create groups like <span className="font-mono">gtm-team</span> to
+            share apps and other resources together.
+          </p>
+        </div>
+        {!showForm ? (
+          <button
+            type="button"
+            onClick={() => setShowForm(true)}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90"
+          >
+            <IconPlus className="h-3.5 w-3.5" />
+            New group
+          </button>
+        ) : null}
+      </div>
+
+      {showForm ? (
+        <div className="space-y-2 rounded-md border border-border bg-background/50 p-3">
+          <input
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Group name"
+            className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+            autoFocus
+          />
+          <textarea
+            value={emails}
+            onChange={(event) => setEmails(event.target.value)}
+            placeholder="member@example.com, another@example.com"
+            rows={3}
+            className="w-full resize-y rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-foreground"
+          />
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={
+                !name.trim() ||
+                !parseEmailList(emails).length ||
+                createGroup.isPending
+              }
+              onClick={submit}
+              className="rounded-md bg-foreground px-3 py-1.5 text-xs font-medium text-background hover:opacity-90 disabled:opacity-50"
+            >
+              {createGroup.isPending ? "Creating..." : "Create group"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowForm(false);
+                setName("");
+                setEmails("");
+              }}
+              className="rounded-md border border-border px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              Cancel
+            </button>
+          </div>
+          <ErrorText error={createGroup.error} />
+        </div>
+      ) : null}
+
+      {isLoading ? (
+        <div className="h-8 rounded-md bg-muted animate-pulse" />
+      ) : groups.length ? (
+        <div className="space-y-2">
+          {groups.map((group) => (
+            <div
+              key={group.id}
+              className="flex items-center gap-3 rounded-md border border-border px-3 py-2"
+            >
+              <IconUsersGroup className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium">{group.name}</div>
+                <div className="truncate text-xs text-muted-foreground">
+                  {group.memberCount}{" "}
+                  {group.memberCount === 1 ? "member" : "members"}
+                </div>
+              </div>
+              {confirmingDelete === group.id ? (
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingDelete(null)}
+                    className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-accent hover:text-foreground"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deleteGroup.isPending}
+                    onClick={() =>
+                      deleteGroup.mutate(group.id, {
+                        onSettled: () => setConfirmingDelete(null),
+                      })
+                    }
+                    className="rounded bg-red-500 px-1.5 py-0.5 text-[11px] text-white hover:bg-red-600 disabled:opacity-50"
+                  >
+                    Delete
+                  </button>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingDelete(group.id)}
+                  className="text-muted-foreground hover:text-red-500"
+                  aria-label={`Delete ${group.name}`}
+                >
+                  <IconTrash className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">No groups yet.</p>
+      )}
+      <ErrorText error={deleteGroup.error} />
+    </section>
   );
 }
 

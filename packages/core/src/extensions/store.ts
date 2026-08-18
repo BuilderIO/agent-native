@@ -474,7 +474,7 @@ async function extensionChangeTargetsForRow(
     })
     .from(extensionShares)
     .where(eq(extensionShares.resourceId, row.id))) as Array<{
-    principalType: "user" | "org";
+    principalType: "user" | "group" | "org";
     principalId: string;
   }>;
 
@@ -483,6 +483,8 @@ async function extensionChangeTargetsForRow(
       addExtensionChangeTarget(targets, { owner: share.principalId });
     } else if (share.principalType === "org") {
       addExtensionChangeTarget(targets, { orgId: share.principalId });
+    } else if (share.principalType === "group" && row.orgId) {
+      addExtensionChangeTarget(targets, { orgId: row.orgId });
     }
   }
 

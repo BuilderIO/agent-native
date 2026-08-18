@@ -75,4 +75,24 @@ describe("ORG_MIGRATIONS", () => {
     expect(sql).toMatch(/org_id/i);
     expect(sql).toMatch(/LOWER\(email\)/i);
   });
+
+  it("creates reusable groups and workspace-app access tables", () => {
+    const groups = ORG_MIGRATIONS.find((m) => m.name === "org-groups");
+    const groupMembers = ORG_MIGRATIONS.find(
+      (m) => m.name === "org-group-members",
+    );
+    const apps = ORG_MIGRATIONS.find((m) => m.name === "workspace-apps");
+    const shares = ORG_MIGRATIONS.find(
+      (m) => m.name === "workspace-app-shares",
+    );
+
+    expect(groups?.sql).toMatch(/CREATE TABLE IF NOT EXISTS org_groups/i);
+    expect(groupMembers?.sql).toMatch(
+      /CREATE TABLE IF NOT EXISTS org_group_members/i,
+    );
+    expect(apps?.sql).toMatch(/visibility TEXT NOT NULL DEFAULT 'org'/i);
+    expect(shares?.sql).toMatch(
+      /CREATE TABLE IF NOT EXISTS workspace_app_shares/i,
+    );
+  });
 });

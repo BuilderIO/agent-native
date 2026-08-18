@@ -6,6 +6,7 @@ export interface WorkspaceAppSummary {
   url?: string | null;
   isDispatch?: boolean;
   audience?: "internal" | "public";
+  visibility?: "private" | "org";
   publicPaths?: string[];
   protectedPaths?: string[];
   status?: "ready" | "pending";

@@ -14,7 +14,11 @@ import {
 } from "@agent-native/core/server";
 import { getSetting, putSetting } from "@agent-native/core/settings";
 import { assertValidWorkspaceAppId } from "@agent-native/core/shared";
+import { resolveAccess } from "@agent-native/core/sharing";
 
+// Import the Dispatch DB module for its workspace-app shareable-resource
+// registration. The generic share actions load independently of this store.
+import "../../db/index.js";
 import { identityKeyForIncoming } from "./dispatch-integrations.js";
 import {
   currentOrgId,
@@ -31,6 +35,7 @@ import {
 
 const SETTINGS_KEY = "dispatch-app-creation-settings";
 const WORKSPACE_APP_METADATA_SETTINGS_KEY = "workspace-app-metadata";
+const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
 const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
@@ -42,6 +47,7 @@ const AGENT_CARD_FETCH_TIMEOUT_MS = 1_500;
 const DEFAULT_WORKSPACE_APP_AUDIENCE = "internal";
 
 type WorkspaceAppAudience = "internal" | "public";
+type WorkspaceAppVisibility = "private" | "org";
 
 export interface WorkspaceAppSummary {
   id: string;
@@ -51,6 +57,7 @@ export interface WorkspaceAppSummary {
   url: string | null;
   isDispatch: boolean;
   audience: WorkspaceAppAudience;
+  visibility?: WorkspaceAppVisibility;
   publicPaths: string[];
   protectedPaths: string[];
   status?: "ready" | "pending";
@@ -129,6 +136,8 @@ interface WorkspaceAppMetadataOverride {
   sourcePrompt?: string;
   updatedAt?: string;
   updatedBy?: string;
+  createdBy?: string;
+  visibility?: WorkspaceAppVisibility;
 }
 
 interface WorkspaceAppMetadataSettings {
@@ -292,6 +301,11 @@ function parseWorkspaceAppMetadataSettings(
     const sourcePrompt = cleanOptionalText(item.sourcePrompt);
     const updatedAt = cleanOptionalText(item.updatedAt);
     const updatedBy = cleanOptionalText(item.updatedBy);
+    const createdBy = cleanOptionalText(item.createdBy);
+    const visibility =
+      item.visibility === "private" || item.visibility === "org"
+        ? item.visibility
+        : undefined;
 
     if (name) override.name = name;
     if (description) override.description = description;
@@ -299,6 +313,8 @@ function parseWorkspaceAppMetadataSettings(
     if (sourcePrompt) override.sourcePrompt = sourcePrompt;
     if (updatedAt) override.updatedAt = updatedAt;
     if (updatedBy) override.updatedBy = updatedBy;
+    if (createdBy) override.createdBy = createdBy;
+    if (visibility) override.visibility = visibility;
 
     if (Object.keys(override).length > 0) apps[id.trim()] = override;
   }
@@ -320,6 +336,8 @@ async function writeWorkspaceAppMetadataOverride(input: {
   generated?: boolean;
   sourcePrompt?: string | null;
   updatedBy?: string | null;
+  createdBy?: string | null;
+  visibility?: WorkspaceAppVisibility | null;
 }): Promise<WorkspaceAppMetadataSettings> {
   const key = workspaceAppMetadataSettingsKey();
   const current = parseWorkspaceAppMetadataSettings(
@@ -335,6 +353,7 @@ async function writeWorkspaceAppMetadataOverride(input: {
   const description = cleanOptionalText(input.description);
   const sourcePrompt = cleanOptionalText(input.sourcePrompt);
   const updatedBy = cleanOptionalText(input.updatedBy);
+  const createdBy = cleanOptionalText(input.createdBy);
 
   if (name) next.name = name;
   else delete next.name;
@@ -344,6 +363,8 @@ async function writeWorkspaceAppMetadataOverride(input: {
   else if (input.generated === false) delete next.generated;
   if (sourcePrompt) next.sourcePrompt = sourcePrompt;
   if (updatedBy) next.updatedBy = updatedBy;
+  if (createdBy) next.createdBy = createdBy;
+  if (input.visibility) next.visibility = input.visibility;
 
   current.apps[appId] = next;
   await putSetting(key, { apps: current.apps });
@@ -869,6 +890,153 @@ async function maybeIncludeAgentCards(
   );
 }
 
+async function workspaceAppDefaultVisibility(): Promise<WorkspaceAppVisibility> {
+  const orgId = currentOrgId();
+  if (!orgId) return "org";
+  const setting = await getSetting(
+    `o:${orgId}:${WORKSPACE_APP_DEFAULT_VISIBILITY_KEY}`,
+  ).catch(() => null);
+  return setting?.visibility === "private" ? "private" : "org";
+}
+
+function appRecordTimestamp(value: string | null | undefined): number {
+  const parsed = value ? Date.parse(value) : NaN;
+  return Number.isFinite(parsed) ? parsed : Date.now();
+}
+
+/**
+ * Persist the app's creator the first time Dispatch discovers it. The
+ * workspace manifest remains the source for code/deploy metadata, while this
+ * small SQL record is the source for ownership, privacy, and group shares.
+ */
+async function ensureWorkspaceAppRecords(
+  apps: WorkspaceAppSummary[],
+): Promise<WorkspaceAppSummary[]> {
+  const readyApps = apps.filter(
+    (app) => app.status !== "pending" && !app.isDispatch,
+  );
+  if (readyApps.length === 0) return apps;
+
+  let viewerEmail: string;
+  try {
+    viewerEmail = currentOwnerEmail();
+  } catch {
+    return apps;
+  }
+  const orgId = currentOrgId();
+  const metadata = await readWorkspaceAppMetadataSettings();
+  const defaultVisibility = await workspaceAppDefaultVisibility();
+  const db = getDbExec();
+  const records = new Map<
+    string,
+    {
+      ownerEmail: string;
+      orgId: string | null;
+      visibility: WorkspaceAppVisibility;
+    }
+  >();
+
+  try {
+    for (const app of readyApps) {
+      const result = await db.execute({
+        sql: `SELECT owner_email, org_id, visibility
+              FROM workspace_apps WHERE id = ? LIMIT 1`,
+        args: [app.id],
+      });
+      const existing = result.rows[0] as
+        | { owner_email?: unknown; org_id?: unknown; visibility?: unknown }
+        | undefined;
+      if (!existing) {
+        const override = metadata.apps[app.id];
+        const ownerEmail =
+          cleanOptionalText(override?.createdBy) ?? viewerEmail;
+        const visibility =
+          override?.visibility === "private"
+            ? "private"
+            : override?.visibility === "org"
+              ? "org"
+              : defaultVisibility;
+        const createdAt = appRecordTimestamp(app.createdAt);
+        await db.execute({
+          sql: `INSERT INTO workspace_apps
+                (id, owner_email, org_id, visibility, name, description, path, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          args: [
+            app.id,
+            ownerEmail,
+            orgId,
+            visibility,
+            app.name,
+            app.description || null,
+            app.path,
+            createdAt,
+            Date.now(),
+          ],
+        });
+        records.set(app.id, { ownerEmail, orgId, visibility });
+      } else {
+        records.set(app.id, {
+          ownerEmail:
+            typeof existing.owner_email === "string"
+              ? existing.owner_email
+              : viewerEmail,
+          orgId:
+            (typeof existing.org_id === "string"
+              ? existing.org_id
+              : ""
+            ).trim() || null,
+          visibility: existing.visibility === "private" ? "private" : "org",
+        });
+      }
+    }
+  } catch (error) {
+    // Local/legacy deployments may be listing apps before the additive org
+    // migrations have run. Keep discovery working; the org plugin will create
+    // the record table on its next boot.
+    console.warn("[dispatch] workspace app access records unavailable", error);
+    return apps;
+  }
+
+  return apps.map((app) => {
+    const record = records.get(app.id);
+    return record ? { ...app, visibility: record.visibility } : app;
+  });
+}
+
+async function filterWorkspaceAppsByAccess(
+  apps: WorkspaceAppSummary[],
+): Promise<WorkspaceAppSummary[]> {
+  let userEmail: string;
+  try {
+    userEmail = currentOwnerEmail();
+  } catch {
+    return apps;
+  }
+  const orgId = currentOrgId() ?? undefined;
+  const visible: WorkspaceAppSummary[] = [];
+  for (const app of apps) {
+    if (app.status === "pending" || app.isDispatch) {
+      visible.push(app);
+      continue;
+    }
+    try {
+      const access = await resolveAccess(
+        "workspace-app",
+        app.id,
+        { userEmail, orgId },
+        { skipResourceBody: true },
+      );
+      if (access) visible.push(app);
+    } catch (error) {
+      // A missing share table should not hide the workspace during a rolling
+      // migration. Once the table exists, resolveAccess is authoritative.
+      console.warn("[dispatch] workspace app access lookup failed", error);
+      visible.push(app);
+    }
+  }
+  return visible;
+}
+
 async function recordPendingWorkspaceApp(input: {
   appId: string;
   projectId: string | null;
@@ -919,6 +1087,7 @@ async function recordPendingWorkspaceApp(input: {
     generated: true,
     sourcePrompt: input.sourcePrompt,
     updatedBy: currentOwnerEmail(),
+    createdBy: currentOwnerEmail(),
   });
 
   await recordAudit({
@@ -1186,12 +1355,15 @@ export async function updateWorkspaceAppMetadata(input: {
 export async function listWorkspaceApps(
   options: ListWorkspaceAppsOptions = {},
 ): Promise<WorkspaceAppSummary[]> {
+  const finalize = async (apps: WorkspaceAppSummary[]) => {
+    const annotated = await applyArchivedAndPending(apps, options);
+    const recorded = await ensureWorkspaceAppRecords(annotated);
+    const visible = await filterWorkspaceAppsByAccess(recorded);
+    return maybeIncludeAgentCards(visible, options);
+  };
   const gatewayApps = await readWorkspaceAppsFromGateway();
   if (gatewayApps) {
-    return maybeIncludeAgentCards(
-      await applyArchivedAndPending(gatewayApps, options),
-      options,
-    );
+    return finalize(gatewayApps);
   }
 
   const workspaceRoot = findWorkspaceRoot();
@@ -1200,49 +1372,34 @@ export async function listWorkspaceApps(
       ? readWorkspaceAppsFromFilesystem(workspaceRoot)
       : null;
   if (localFilesystemApps) {
-    return maybeIncludeAgentCards(
-      await applyArchivedAndPending(localFilesystemApps, options),
-      options,
-    );
+    return finalize(localFilesystemApps);
   }
 
   const manifestApps =
     readWorkspaceAppsFromEnv() ?? readWorkspaceAppsFromManifestFile();
   if (manifestApps) {
-    return maybeIncludeAgentCards(
-      await applyArchivedAndPending(manifestApps, options),
-      options,
-    );
+    return finalize(manifestApps);
   }
 
   if (!workspaceRoot) {
-    return maybeIncludeAgentCards(
-      await applyArchivedAndPending(
-        [
-          {
-            id: "dispatch",
-            name: "Dispatch",
-            description: "Workspace control plane",
-            path: "/dispatch",
-            url: workspaceAppUrl("/dispatch"),
-            isDispatch: true,
-            audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
-            publicPaths: [],
-            protectedPaths: [],
-            status: "ready",
-          },
-        ],
-        options,
-      ),
-      options,
-    );
+    return finalize([
+      {
+        id: "dispatch",
+        name: "Dispatch",
+        description: "Workspace control plane",
+        path: "/dispatch",
+        url: workspaceAppUrl("/dispatch"),
+        isDispatch: true,
+        audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
+        publicPaths: [],
+        protectedPaths: [],
+        status: "ready",
+      },
+    ]);
   }
 
   const apps = readWorkspaceAppsFromFilesystem(workspaceRoot) ?? [];
-  return maybeIncludeAgentCards(
-    await applyArchivedAndPending(apps, options),
-    options,
-  );
+  return finalize(apps);
 }
 
 /**
@@ -1416,6 +1573,21 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     summary: `Scaffolded apps/${appId} from ${template}`,
     metadata: { template },
   });
+
+  await ensureWorkspaceAppRecords([
+    {
+      id: appId,
+      name: titleCase(appId),
+      description: "",
+      path: `/${appId}`,
+      url: workspaceAppUrl(`/${appId}`),
+      isDispatch: false,
+      audience: DEFAULT_WORKSPACE_APP_AUDIENCE,
+      publicPaths: [],
+      protectedPaths: [],
+      status: "ready",
+    },
+  ]);
 
   return { appId, template, output };
 }
@@ -1845,6 +2017,12 @@ export async function startWorkspaceAppCreation(input: {
     await grantSelectedWorkspaceResources({
       appId: built.appId,
       resourceIds: selectedResources.map((resource) => resource.id),
+    });
+    await recordPendingWorkspaceApp({
+      appId: built.appId,
+      projectId: null,
+      description: appDescription,
+      sourcePrompt: input.prompt,
     });
     return {
       mode: "local-agent",

@@ -91,7 +91,7 @@ function nanoid(size = 12): string {
 }
 
 function normalizePrincipalId(
-  principalType: "user" | "org",
+  principalType: "user" | "group" | "org",
   principalId: string,
 ): string {
   return principalType === "user"
@@ -105,7 +105,7 @@ function isEmailPrincipalId(value: string): boolean {
 
 function principalIdMatches(
   sharesTable: any,
-  principalType: "user" | "org",
+  principalType: "user" | "group" | "org",
   principalId: string,
 ): SQL {
   return principalType === "user"
@@ -156,8 +156,10 @@ export default defineAction({
       .describe("Registered resource type, e.g. 'document', 'form'."),
     resourceId: z.string().describe("Id of the resource to share."),
     principalType: z
-      .enum(["user", "org"])
-      .describe("'user' for an individual, 'org' for a whole organization."),
+      .enum(["user", "group", "org"])
+      .describe(
+        "'user' for an individual, 'group' for an organization group, or 'org' for the whole organization.",
+      ),
     principalId: z
       .string()
       .describe("Email (user) or org id (org) of the principal."),
@@ -191,6 +193,11 @@ export default defineAction({
       args.principalType,
       args.principalId,
     );
+    if (args.principalType === "group" && reg.supportsGroupShares !== true) {
+      throw new ForbiddenError(
+        `${reg.displayName} does not support organization groups yet.`,
+      );
+    }
     if (args.principalType === "user" && !isEmailPrincipalId(principalId)) {
       throw new Error(
         "User shares must use an email address, not an internal user id.",
@@ -223,6 +230,16 @@ export default defineAction({
         if (principalId !== resourceOrgId) {
           throw new ForbiddenError(
             `${reg.displayName} can only be shared with its own organization, not a different one.`,
+          );
+        }
+      } else if (args.principalType === "group") {
+        const group = await getDbExec().execute({
+          sql: `SELECT 1 FROM org_groups WHERE id = ? AND org_id = ? LIMIT 1`,
+          args: [principalId, resourceOrgId],
+        });
+        if (!group.rows.length) {
+          throw new ForbiddenError(
+            `${reg.displayName} can only be shared with a group from its own organization.`,
           );
         }
       }

@@ -38,6 +38,7 @@ export interface OrgInfo {
   pendingInvitations: OrgInvitationSummary[];
   domainMatches: DomainMatchOrg[];
   allowedDomain: string | null;
+  workspaceAppDefaultVisibility?: WorkspaceAppDefaultVisibility;
   a2aSecret?: string | null;
 }
 
@@ -55,3 +56,13 @@ export interface OrgPendingInvitation {
   status: string;
   role: "admin" | "member";
 }
+
+export interface OrgGroupSummary {
+  id: string;
+  name: string;
+  memberCount: number;
+  members?: string[];
+  createdAt: number;
+}
+
+export type WorkspaceAppDefaultVisibility = "private" | "org";

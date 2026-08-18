@@ -102,4 +102,68 @@ export const ORG_MIGRATIONS = [
     name: "org-members-unique-lower-email-idx",
     sql: `CREATE UNIQUE INDEX IF NOT EXISTS org_members_org_lower_email_uidx ON org_members (org_id, LOWER(email))`,
   },
+  {
+    version: 1011,
+    name: "org-groups",
+    sql: `CREATE TABLE IF NOT EXISTS org_groups (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`,
+  },
+  {
+    version: 1012,
+    name: "org-group-members",
+    sql: `CREATE TABLE IF NOT EXISTS org_group_members (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      email TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    )`,
+  },
+  {
+    version: 1013,
+    name: "org-group-indexes",
+    sql: `CREATE UNIQUE INDEX IF NOT EXISTS org_groups_org_lower_name_uidx
+      ON org_groups (org_id, LOWER(name));
+      CREATE INDEX IF NOT EXISTS org_group_members_group_idx
+      ON org_group_members (org_id, group_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS org_group_members_group_lower_email_uidx
+      ON org_group_members (group_id, LOWER(email));`,
+  },
+  {
+    version: 1014,
+    name: "workspace-apps",
+    sql: `CREATE TABLE IF NOT EXISTS workspace_apps (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'org',
+      name TEXT NOT NULL,
+      description TEXT,
+      path TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`,
+  },
+  {
+    version: 1015,
+    name: "workspace-app-shares",
+    sql: `CREATE TABLE IF NOT EXISTS workspace_app_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+      CREATE UNIQUE INDEX IF NOT EXISTS workspace_app_shares_principal_uidx
+      ON workspace_app_shares (resource_id, principal_type, principal_id);
+      CREATE INDEX IF NOT EXISTS workspace_apps_org_idx
+      ON workspace_apps (org_id, visibility);`,
+  },
 ];

@@ -7,6 +7,7 @@ import {
 } from "../../org/permissions.js";
 import type {
   OrgInfo,
+  OrgGroupSummary,
   OrgMember,
   OrgPendingInvitation,
   OrgRole,
@@ -97,6 +98,70 @@ export function useOrgInvitations() {
     queryKey: ["org-invitations", org?.orgId ?? null],
     queryFn: () => apiFetch(`${ORG_BASE}/invitations`),
     staleTime: 30_000,
+  });
+}
+
+export function useOrgGroups() {
+  const { data: org } = useOrg();
+  return useQuery<{ groups: OrgGroupSummary[] }>({
+    queryKey: ["org-groups", org?.orgId ?? null],
+    queryFn: () => apiFetch(`${ORG_BASE}/groups`),
+    staleTime: 30_000,
+    enabled: !!org?.orgId,
+  });
+}
+
+export function useCreateOrgGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: { name: string; emails: string[] }) =>
+      apiFetch(`${ORG_BASE}/groups`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-groups"] });
+    },
+  });
+}
+
+export function useUpdateOrgGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      name,
+      emails,
+    }: {
+      id: string;
+      name?: string;
+      emails?: string[];
+    }) => {
+      const body = {
+        ...(name === undefined ? {} : { name }),
+        ...(emails === undefined ? {} : { emails }),
+      };
+      return apiFetch(`${ORG_BASE}/groups/${encodeURIComponent(id)}`, {
+        method: "PUT",
+        body: JSON.stringify(body),
+      });
+    },
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-groups"] });
+    },
+  });
+}
+
+export function useDeleteOrgGroup() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      apiFetch(`${ORG_BASE}/groups/${encodeURIComponent(id)}`, {
+        method: "DELETE",
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-groups"] });
+    },
   });
 }
 
@@ -295,6 +360,22 @@ export function useSetOrgDomain() {
       apiFetch(`${ORG_BASE}/domain`, {
         method: "PUT",
         body: JSON.stringify({ domain }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
+export type WorkspaceAppDefaultVisibility = "private" | "org";
+
+export function useSetWorkspaceAppDefaultVisibility() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (visibility: WorkspaceAppDefaultVisibility) =>
+      apiFetch(`${ORG_BASE}/workspace-app-default-visibility`, {
+        method: "PUT",
+        body: JSON.stringify({ visibility }),
       }),
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ["org-me"] });

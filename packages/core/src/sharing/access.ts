@@ -5,7 +5,7 @@
  * 1. Direct ownership — `owner_email = currentUser`.
  * 2. Visibility — `'private' | 'org' | 'public'`. `org` grants read to anyone
  *    in the same org; `public` grants read to any authenticated user.
- * 3. Share rows — per-user or per-org grants in the `{type}_shares` table
+ * 3. Share rows — per-user, per-group, or per-org grants in the `{type}_shares` table
  *    with a role (`viewer | editor | admin`).
  *
  * Use `applyAccessFilter()` on list/read queries to filter rows the current
@@ -145,6 +145,21 @@ export function accessFilter(
                   where ${sharesTable.resourceId} = ${resourceTable.id}
                     and ${sharesTable.principalType} = 'user'
                     and lower(${sharesTable.principalId}) = ${normalizedUserEmail}
+                    and ${shareScope}
+                    and ${minRoleSql(minRole)})`,
+    );
+  }
+  if (reg?.supportsGroupShares === true && normalizedUserEmail && orgId) {
+    const shareScope = restrictedShareScopeSql(reg, resourceTable, ctx);
+    clauses.push(
+      sql`exists (select 1
+                  from ${sharesTable}
+                  inner join org_group_members gm
+                    on gm.org_id = ${orgId}
+                   and gm.group_id = ${sharesTable.principalId}
+                   and lower(gm.email) = ${normalizedUserEmail}
+                  where ${sharesTable.resourceId} = ${resourceTable.id}
+                    and ${sharesTable.principalType} = 'group'
                     and ${shareScope}
                     and ${minRoleSql(minRole)})`,
     );
@@ -473,6 +488,9 @@ async function resolveAccessImpl(
   ) {
     return { role: "owner", resource };
   }
+  if (reg.canManageAccess && (await reg.canManageAccess(resource, ctx))) {
+    return { role: "admin", resource };
+  }
   if (resource.visibility === "public" && reg.allowPublic !== false) {
     // No share row needed; default viewer unless the resource registration
     // deliberately grants a stronger public-by-link role or explicit shares
@@ -519,6 +537,17 @@ async function highestShareRole(
       and(
         eq(reg.sharesTable.principalType, "org"),
         eq(reg.sharesTable.principalId, orgId),
+      ),
+    );
+  }
+  if (reg.supportsGroupShares === true && normalizedUserEmail && orgId) {
+    principalClauses.push(
+      and(
+        eq(reg.sharesTable.principalType, "group"),
+        sql`exists (select 1 from org_group_members gm
+                    where gm.org_id = ${orgId}
+                      and lower(gm.email) = ${normalizedUserEmail}
+                      and gm.group_id = ${reg.sharesTable.principalId})`,
       ),
     );
   }
