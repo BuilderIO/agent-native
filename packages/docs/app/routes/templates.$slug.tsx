@@ -180,14 +180,6 @@ export default function GenericTemplatePage() {
               </a>
             ) : null}
             <a
-              href={`${template.demoUrl}/_agent-native/sign-in`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="secondary-button"
-            >
-              {t("common.signIn")}
-            </a>
-            <a
               href={`https://github.com/BuilderIO/agent-native/tree/main/templates/${sourceSlug}`}
               target="_blank"
               rel="noopener noreferrer"
