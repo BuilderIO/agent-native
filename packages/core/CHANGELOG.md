@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.161.13
+
+### Patch Changes
+
+- a269cc8: Keep failed MCP app iframes visible under a compact error overlay with a clear open-in-new-tab escape hatch.
+
 ## 0.161.12
 
 ### Patch Changes
