@@ -35,6 +35,13 @@ interface QueryClient {
   }): number;
 }
 
+type InvalidateFilters = {
+  queryKey?: string[];
+  predicate?: (query: Query) => boolean;
+  /** Stable identity for freshly-created predicates that target the same set. */
+  dedupeKey?: string;
+};
+
 const POLL_ABORT_MIN_MS = 10_000;
 // SSE delivers changes immediately in the normal path. The poll is a
 // cross-process/serverless safety net, so an idle tab should not bill the host
@@ -45,6 +52,8 @@ const HIDDEN_POLL_INTERVAL_MS = 10_000;
 const POLL_AUTH_FAILURE_COOLDOWN_MS = 60_000;
 const LOCAL_SSE_RECONNECT_BASE_MS = 1_000;
 const LOCAL_SSE_RECONNECT_MAX_MS = 30_000;
+const ACTIVE_CHAT_TTL_MS = 5 * 60 * 1_000;
+const ACTIVE_CHAT_MAX = 1_000;
 /**
  * Max cadence for SSE/poll-driven query invalidation in `useDbSync`. Events
  * that arrive within this window of the first one in a burst are merged into
@@ -66,12 +75,6 @@ const INVALIDATE_COALESCE_MS = 250;
  */
 const SSE_LEADER_LOCK_PREFIX = "agent-native-sync:";
 
-/** Frames the SSE leader forwards to follower tabs over BroadcastChannel. */
-type SyncBroadcast =
-  | { type: "events"; events: SyncEvent[]; version: number | undefined }
-  | { type: "sse-state"; connected: boolean; capabilities: string[] }
-  | { type: "sse-state-request" };
-
 class HttpStatusError extends Error {
   status: number;
 
@@ -83,6 +86,7 @@ class HttpStatusError extends Error {
 
 export type SyncEvent = {
   version?: number;
+  cursorId?: string;
   source?: string;
   type?: string;
   key?: string;
@@ -93,12 +97,77 @@ export type SyncEvent = {
 type PollResponse = {
   version: number;
   events: SyncEvent[];
+  cursor?: string;
 };
+
+type SyncCursor = {
+  version: number;
+  id: string;
+};
+
+const INITIAL_SYNC_CURSOR: SyncCursor = { version: 0, id: "" };
+
+function encodeSyncCursor(cursor: SyncCursor): string {
+  return `${cursor.version}.${cursor.id}`;
+}
+
+function decodeSyncCursor(value: unknown): SyncCursor | undefined {
+  if (typeof value !== "string") return undefined;
+  const separator = value.indexOf(".");
+  if (separator < 1) return undefined;
+  const version = Number(value.slice(0, separator));
+  const id = value.slice(separator + 1);
+  if (!Number.isSafeInteger(version) || version < 0) return undefined;
+  return { version, id };
+}
+
+function compareSyncCursors(a: SyncCursor, b: SyncCursor): number {
+  if (a.version !== b.version) return a.version - b.version;
+  return a.id < b.id ? -1 : a.id > b.id ? 1 : 0;
+}
+
+function syncEventCursor(event: SyncEvent): SyncCursor | undefined {
+  if (
+    typeof event.version !== "number" ||
+    !Number.isSafeInteger(event.version) ||
+    typeof event.cursorId !== "string"
+  ) {
+    return undefined;
+  }
+  return { version: event.version, id: event.cursorId };
+}
+
+function maxSyncCursor(a: SyncCursor, b: SyncCursor | undefined): SyncCursor {
+  return b && compareSyncCursors(b, a) > 0 ? b : a;
+}
+
+function isSyncEventAfterCursor(
+  event: SyncEvent,
+  cursor: SyncCursor,
+  subscriberVersion: number,
+): boolean {
+  const eventCursor = syncEventCursor(event);
+  if (eventCursor) return compareSyncCursors(eventCursor, cursor) > 0;
+  const version = typeof event.version === "number" ? event.version : 0;
+  return version === 0 || version > subscriberVersion;
+}
+
+/** Frames the SSE leader forwards to follower tabs over BroadcastChannel. */
+type SyncBroadcast =
+  | {
+      type: "events";
+      events: SyncEvent[];
+      version: number | undefined;
+      cursor?: SyncCursor;
+    }
+  | { type: "sse-state"; connected: boolean; capabilities: string[] }
+  | { type: "sse-state-request" };
 
 /** Callback delivered to each transport subscriber for every batch of events. */
 type EventSubscriber = (
   events: SyncEvent[],
   version: number | undefined,
+  cursor?: SyncCursor,
 ) => void;
 
 function getPollAbortMs(interval: number): number {
@@ -253,9 +322,27 @@ export function isInteractionCriticalSyncEvent(event: SyncEvent): boolean {
   );
 }
 
+function appStateQueryMatchesKeys(
+  query: Query,
+  changedKeys: readonly string[],
+): boolean {
+  if (query.queryKey[0] !== "app-state") return false;
+  // The aggregate query is the fallback for callers that read all app state.
+  if (query.queryKey.length === 1) return true;
+  const queryStateKey = query.queryKey[1];
+  if (typeof queryStateKey !== "string") return false;
+  return changedKeys.some(
+    (changedKey) =>
+      changedKey === "*" ||
+      changedKey === queryStateKey ||
+      changedKey.startsWith(`${queryStateKey}:`) ||
+      queryStateKey.startsWith(`${changedKey}:`),
+  );
+}
+
 async function fetchPollJson<T>(
   pollUrl: string,
-  since: number,
+  cursor: SyncCursor,
   interval: number,
   token?: string,
 ): Promise<T> {
@@ -265,12 +352,17 @@ async function fetchPollJson<T>(
     ? setTimeout(() => controller.abort(), getPollAbortMs(interval))
     : null;
 
-  // Local path stays exactly `?since=N`; the hosted gateway also carries the
-  // subscribe token on the query string (a cross-origin fetch can't set the
-  // Authorization header for the SSE sibling either, so both use the query).
-  const url = token
-    ? `${pollUrl}${pollUrl.includes("?") ? "&" : "?"}since=${since}&token=${encodeURIComponent(token)}`
-    : `${pollUrl}?since=${since}`;
+  // The numeric `since` remains for backward-compatible servers. The
+  // composite cursor closes the same-millisecond cross-instance gap by
+  // ordering durable rows on `(version,id)`.
+  const separator = pollUrl.includes("?") ? "&" : "?";
+  const cursorQuery = `since=${cursor.version}`;
+  const compositeCursorQuery =
+    cursor.version > 0 || cursor.id
+      ? `&cursor=${encodeURIComponent(encodeSyncCursor(cursor))}`
+      : "";
+  const tokenQuery = token ? `&token=${encodeURIComponent(token)}` : "";
+  const url = `${pollUrl}${separator}${cursorQuery}${compositeCursorQuery}${tokenQuery}`;
 
   try {
     const res = await fetch(
@@ -330,7 +422,7 @@ interface TransportSubscription {
 
 class SyncTransport {
   private subscribers = new Map<symbol, TransportSubscription>();
-  private versionRef = 0;
+  private cursorRef: SyncCursor = { ...INITIAL_SYNC_CURSOR };
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
   private inFlight = false;
@@ -340,7 +432,7 @@ class SyncTransport {
   private sseConnected = false;
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
-  private activeChatIds = new Set<string>();
+  private activeChatIds = new Map<string, number>();
   // Hosted-gateway state. `mode` starts "hosted" when a binding is present and
   // flips to "local" on health-gate revert; `token` is the current subscribe
   // token (minted from the app, rotated over the stream), never part of any
@@ -378,7 +470,9 @@ class SyncTransport {
       const base = `${this.gateway.sseUrl}?token=${encodeURIComponent(this.token)}`;
       // Cursor lets the gateway replay the reconnect gap on connect instead of
       // deferring it to the next poll; 0 on first connect means nothing to replay.
-      return this.versionRef > 0 ? `${base}&since=${this.versionRef}` : base;
+      return this.cursorRef.version > 0
+        ? `${base}&since=${this.cursorRef.version}`
+        : base;
     }
     return this.sseUrl;
   }
@@ -463,7 +557,7 @@ class SyncTransport {
 
   /**
    * Health-gate back to the app's own /poll + /events with the cursor intact
-   * (versionRef is untouched), so delivery stays poll-equivalent — never a
+   * (cursorRef is untouched), so delivery stays poll-equivalent - never a
    * silent stall.
    */
   private revertToLocal(): void {
@@ -559,6 +653,12 @@ class SyncTransport {
   }
 
   private get isActive(): boolean {
+    const now = Date.now();
+    for (const [id, lastSeen] of this.activeChatIds) {
+      if (now - lastSeen > ACTIVE_CHAT_TTL_MS) {
+        this.activeChatIds.delete(id);
+      }
+    }
     return this.activeChatIds.size > 0;
   }
 
@@ -574,9 +674,13 @@ class SyncTransport {
   // Event fan-out
   // -------------------------------------------------------------------------
 
-  private fan(events: SyncEvent[], version: number | undefined): void {
+  private fan(
+    events: SyncEvent[],
+    version: number | undefined,
+    cursor: SyncCursor = this.cursorRef,
+  ): void {
     for (const sub of this.subscribers.values()) {
-      sub.onEvents(events, version);
+      sub.onEvents(events, version, cursor);
     }
   }
 
@@ -684,7 +788,7 @@ class SyncTransport {
     // already origin-scoped, and the dev gateway serves every workspace app
     // from one origin — so an origin key would elect a single leader across
     // different apps. A follower applies whatever the leader sends into its own
-    // `versionRef` (see openChannel), and that cursor is the `?since=` for its
+    // `cursorRef` (see openChannel), and that cursor is the `?since=` for its
     // own poll, so it would skip its own app's events from then on. The poll
     // URL is app-scoped, which is exactly the granularity a stream serves.
     return `${SSE_LEADER_LOCK_PREFIX}${this.pollUrl}`;
@@ -765,8 +869,12 @@ class SyncTransport {
       // Only followers consume frames; a leader already applied them locally.
       if (this.leaderState === "leader") return;
       if (frame?.type === "events") {
-        this.applyVersion(frame.events, frame.version);
-        this.fan(frame.events, frame.version);
+        this.applyVersion(
+          frame.events,
+          frame.cursor ? undefined : frame.version,
+        );
+        this.cursorRef = maxSyncCursor(this.cursorRef, frame.cursor);
+        this.fan(frame.events, frame.version, this.cursorRef);
       } else if (frame?.type === "sse-state") {
         this.capabilities = frame.capabilities;
         // The leader's stream is this tab's push path too. Tracking its state
@@ -876,7 +984,7 @@ class SyncTransport {
       if (this.mode === "hosted" && this.gateway) {
         // Browser auto-reconnect reuses the URL frozen at construction, so it
         // would replay from a stale `since`. Own the reconnect so the next
-        // connect rebuilds activeSseUrl from the current versionRef. CLOSED also
+        // connect rebuilds activeSseUrl from the current cursorRef. CLOSED also
         // refreshes the token (expired/rotated/deploy); CONNECTING keeps it. A
         // successful reconnect resets the count in onopen; a hard-down gateway
         // trips the threshold and health-gates to local.
@@ -902,8 +1010,13 @@ class SyncTransport {
         const version =
           typeof payload?.version === "number" ? payload.version : undefined;
         this.applyVersion(events, version);
-        this.fan(events, version);
-        this.broadcast({ type: "events", events, version });
+        this.fan(events, version, this.cursorRef);
+        this.broadcast({
+          type: "events",
+          events,
+          version,
+          cursor: this.cursorRef,
+        });
       } catch {
         // Ignore malformed SSE frames; polling is the safety net.
       }
@@ -946,15 +1059,15 @@ class SyncTransport {
    * Advance the transport's shared version cursor. Subscribers receive the
    * raw events and decide independently which ones are "fresh" relative to
    * their own cursor, but the transport-level cursor ensures the poll
-   * `?since=` parameter always advances.
+   * `?since=&cursor=` parameters always advance.
    */
   private applyVersion(events: SyncEvent[], version: number | undefined): void {
-    let max = typeof version === "number" ? version : 0;
-    for (const evt of events) {
-      const v = typeof evt.version === "number" ? evt.version : 0;
-      if (v > max) max = v;
+    if (typeof version === "number" && version > this.cursorRef.version) {
+      this.cursorRef = { version, id: "" };
     }
-    if (max > this.versionRef) this.versionRef = max;
+    for (const evt of events) {
+      this.cursorRef = maxSyncCursor(this.cursorRef, syncEventCursor(evt));
+    }
   }
 
   private async poll(): Promise<void> {
@@ -969,15 +1082,21 @@ class SyncTransport {
       }
       const data = await fetchPollJson<PollResponse>(
         this.activePollUrl,
-        this.versionRef,
+        this.cursorRef,
         this.effectiveInterval,
         this.mode === "hosted" ? (this.token ?? undefined) : undefined,
       );
       if (this.stopped) return;
       this.consecutiveFailures = 0;
       const events = data.events ?? [];
-      this.applyVersion(events, data.version);
-      this.fan(events, data.version);
+      const responseCursor = decodeSyncCursor(data.cursor);
+      // A paged durable response's numeric version is the high-water mark,
+      // not necessarily the last row in this page. When a composite cursor is
+      // present, advance from event ids/that cursor only - applying the high
+      // water first would skip the remainder of a same-version page.
+      this.applyVersion(events, responseCursor ? undefined : data.version);
+      this.cursorRef = maxSyncCursor(this.cursorRef, responseCursor);
+      this.fan(events, data.version, this.cursorRef);
     } catch (err) {
       if (this.stopped) return;
       this.consecutiveFailures++;
@@ -1064,8 +1183,18 @@ class SyncTransport {
         ? detail.tabId
         : "__default__";
     const wasActive = this.isActive;
-    if (running) this.activeChatIds.add(id);
-    else this.activeChatIds.delete(id);
+    if (running) {
+      // Reinsert to refresh both the TTL and insertion order for the cap.
+      this.activeChatIds.delete(id);
+      this.activeChatIds.set(id, Date.now());
+      while (this.activeChatIds.size > ACTIVE_CHAT_MAX) {
+        const oldestId = this.activeChatIds.keys().next().value;
+        if (typeof oldestId !== "string") break;
+        this.activeChatIds.delete(oldestId);
+      }
+    } else {
+      this.activeChatIds.delete(id);
+    }
     if (wasActive === this.isActive) return;
 
     if (this.isActive) {
@@ -1095,6 +1224,7 @@ class SyncTransport {
 
   private teardown(): void {
     this.stopped = true;
+    this.activeChatIds.clear();
     this.closeEvents();
     // Hand this app's stream slot to a waiting tab before dropping the
     // channel, so the next leader is elected without waiting on a poll.
@@ -1311,6 +1441,7 @@ export function useDbSync(
     // Per-subscriber version cursor: tracks which events have already been
     // processed by THIS subscriber so stale poll re-deliveries are ignored.
     let subscriberVersion = 0;
+    let subscriberCursor: SyncCursor = { ...INITIAL_SYNC_CURSOR };
 
     // Coalesce bursts of SSE-driven invalidation into at most one flush per
     // INVALIDATE_COALESCE_MS. A chatty doc (many small agent edits, several
@@ -1332,6 +1463,12 @@ export function useDbSync(
     // coalesced behavior.
     let pendingInvalidateEvents: SyncEvent[] = [];
     let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+    const pendingTrailingRefreshes: Array<{
+      filters: InvalidateFilters | undefined;
+      completion: Promise<unknown>;
+      predicateIdentity?: (query: Query) => boolean;
+    }> = [];
 
     function flushInvalidateBatch() {
       if (invalidateTimer) {
@@ -1419,30 +1556,68 @@ export function useDbSync(
         // in flight, let it finish instead of aborting and immediately
         // launching the same request again. Repeated action events otherwise
         // turn a slow endpoint into a cancel/restart loop that never settles.
-        const invalidateWithoutCancel = (requested?: {
-          queryKey?: string[];
-          predicate?: (query: Query) => boolean;
-        }) => {
+        const hasPendingTrailingRefresh = (
+          filters: InvalidateFilters | undefined,
+          predicateIdentity?: (query: Query) => boolean,
+        ) =>
+          pendingTrailingRefreshes.some((pending) => {
+            if (pending.filters?.dedupeKey !== filters?.dedupeKey) return false;
+            if (filters?.dedupeKey) return true;
+            const pendingKey = pending.filters?.queryKey;
+            const filterKey = filters?.queryKey;
+            if (pendingKey || filterKey) {
+              if (
+                !pendingKey ||
+                !filterKey ||
+                pendingKey.length !== filterKey.length
+              ) {
+                return false;
+              }
+              return pendingKey.every((key, index) => key === filterKey[index]);
+            }
+            return pending.predicateIdentity === predicateIdentity;
+          });
+
+        const invalidateWithoutCancel = (requested?: InvalidateFilters) => {
           const callerPredicate = requested?.predicate;
-          const filters = {
+          const normalizedFilters: InvalidateFilters = {
             ...requested,
             predicate: (query: Query) =>
               !hasTerminalAuthFailure(query) &&
               (callerPredicate?.(query) ?? true),
           };
           const needsTrailingRefresh =
-            (queryClient.isFetching?.(filters) ?? 0) > 0;
-          const completion = queryClient.invalidateQueries(filters, {
+            (queryClient.isFetching?.(normalizedFilters) ?? 0) > 0;
+          const completion = queryClient.invalidateQueries(normalizedFilters, {
             cancelRefetch: false,
           });
           // TanStack Query deliberately leaves an in-flight fetch alone when
           // cancelRefetch is false. Queue one post-settlement invalidation so
           // a write that landed after that read began cannot be cleared as
           // fresh by the older response.
-          if (needsTrailingRefresh && completion instanceof Promise) {
+          if (
+            !disposed &&
+            needsTrailingRefresh &&
+            completion instanceof Promise &&
+            !hasPendingTrailingRefresh(normalizedFilters, callerPredicate)
+          ) {
+            const pending = {
+              filters: normalizedFilters,
+              completion,
+              predicateIdentity: callerPredicate,
+            };
+            pendingTrailingRefreshes.push(pending);
             void completion.then(
-              () => queryClient.invalidateQueries(filters),
-              () => {},
+              () => {
+                const index = pendingTrailingRefreshes.indexOf(pending);
+                if (index < 0) return;
+                pendingTrailingRefreshes.splice(index, 1);
+                if (!disposed) queryClient.invalidateQueries(normalizedFilters);
+              },
+              () => {
+                const index = pendingTrailingRefreshes.indexOf(pending);
+                if (index >= 0) pendingTrailingRefreshes.splice(index, 1);
+              },
             );
           }
         };
@@ -1522,8 +1697,32 @@ export function useDbSync(
               invalidateWithoutCancel({ queryKey: ["tools"] });
             }
           }
-          if (invalidating.some((evt) => evt.source === "app-state")) {
-            invalidateWithoutCancel({ queryKey: ["app-state"] });
+          const appStateKeys = invalidating
+            .filter((evt) => evt.source === "app-state")
+            .map((evt) => evt.key)
+            .map((key) => (typeof key === "string" && key ? key : "*"));
+          if (appStateKeys.length > 0) {
+            const appStateDedupeKey = Array.from(new Set(appStateKeys))
+              .sort()
+              .map((key) => `${key.length}:${key}`)
+              .join("|");
+            const needsBroadAppStateRefresh = appStateKeys.some(
+              (key) =>
+                key === "*" ||
+                isInteractionCriticalSyncEvent({
+                  source: "app-state",
+                  key,
+                }),
+            );
+            invalidateWithoutCancel(
+              needsBroadAppStateRefresh
+                ? { queryKey: ["app-state"] }
+                : {
+                    dedupeKey: `app-state:${appStateDedupeKey}`,
+                    predicate: (query) =>
+                      appStateQueryMatchesKeys(query, appStateKeys),
+                  },
+            );
           }
           if (hasAppStateEvent(invalidating, "navigate")) {
             invalidateWithoutCancel({ queryKey: ["navigate-command"] });
@@ -1545,10 +1744,17 @@ export function useDbSync(
       }
     }
 
-    function onEvents(events: SyncEvent[], version: number | undefined): void {
+    function onEvents(
+      events: SyncEvent[],
+      version: number | undefined,
+      cursor: SyncCursor | undefined,
+    ): void {
       const freshEvents = events.filter((event) => {
-        const v = typeof event.version === "number" ? event.version : 0;
-        return v === 0 || v > subscriberVersion;
+        return isSyncEventAfterCursor(
+          event,
+          subscriberCursor,
+          subscriberVersion,
+        );
       });
 
       if (freshEvents.length > 0) {
@@ -1565,6 +1771,13 @@ export function useDbSync(
         version ?? 0,
         maxEventVersion,
       );
+      for (const event of freshEvents) {
+        subscriberCursor = maxSyncCursor(
+          subscriberCursor,
+          syncEventCursor(event),
+        );
+      }
+      if (cursor) subscriberCursor = maxSyncCursor(subscriberCursor, cursor);
     }
 
     const transport = getOrCreateTransport(
@@ -1581,12 +1794,14 @@ export function useDbSync(
     });
 
     return () => {
+      disposed = true;
       if (invalidateTimer) {
         clearTimeout(invalidateTimer);
         // Flush synchronously on unmount so a pending batch isn't silently
         // dropped (e.g. a route change right after an agent edit lands).
         flushInvalidateBatch();
       }
+      pendingTrailingRefreshes.length = 0;
       transport.remove(id);
       // If the registry still holds this transport, and the transport is now
       // empty, evict it so the next mount gets a fresh instance rather than a
@@ -1656,11 +1871,19 @@ export function useScreenRefreshKey(
     const id = Symbol("useScreenRefreshKey");
     // Per-subscriber version cursor (same freshness logic as useDbSync).
     let subscriberVersion = 0;
+    let subscriberCursor: SyncCursor = { ...INITIAL_SYNC_CURSOR };
 
-    function onEvents(events: SyncEvent[], version: number | undefined): void {
+    function onEvents(
+      events: SyncEvent[],
+      version: number | undefined,
+      cursor: SyncCursor | undefined,
+    ): void {
       const freshEvents = events.filter((event) => {
-        const v = typeof event.version === "number" ? event.version : 0;
-        return v === 0 || v > subscriberVersion;
+        return isSyncEventAfterCursor(
+          event,
+          subscriberCursor,
+          subscriberVersion,
+        );
       });
       if (freshEvents.some((e) => e.source === "screen-refresh")) {
         setKey((k) => k + 1);
@@ -1675,6 +1898,13 @@ export function useScreenRefreshKey(
         version ?? 0,
         maxEventVersion,
       );
+      for (const event of freshEvents) {
+        subscriberCursor = maxSyncCursor(
+          subscriberCursor,
+          syncEventCursor(event),
+        );
+      }
+      if (cursor) subscriberCursor = maxSyncCursor(subscriberCursor, cursor);
     }
 
     const transport = getOrCreateTransport(
