@@ -52,6 +52,17 @@ export interface AgentNativeRuntimeConfig {
   environment?: AgentNativeRuntimeEnvironmentConfig;
 }
 
+export type AgentNativeDeploymentEnvironment =
+  | "local"
+  | "beta"
+  | "production"
+  | "preview";
+
+export interface AgentNativeDeploymentConfig {
+  /** The release lane that produced the currently running client bundle. */
+  environment?: AgentNativeDeploymentEnvironment;
+}
+
 export interface AgentNativeDiagnosticsConfig {
   /** Fail a production Vite build when runtime configuration has issues. */
   failOnBuild?: boolean;
@@ -98,6 +109,7 @@ export interface AgentNativeConfig {
   version?: typeof AGENT_NATIVE_CONFIG_VERSION;
   onboarding?: AgentNativeOnboardingConfig;
   runtime?: AgentNativeRuntimeConfig;
+  deployment?: AgentNativeDeploymentConfig;
   diagnostics?: AgentNativeDiagnosticsConfig;
   instructions?: AgentNativeInstructionsConfig;
   translations?: AgentNativeTranslationsConfig;
@@ -152,6 +164,7 @@ export function normalizeAgentNativeConfig(
 
   const onboardingValue = input.onboarding;
   const runtimeValue = input.runtime;
+  const deploymentValue = input.deployment;
   const diagnosticsValue = input.diagnostics;
   const instructionsValue = input.instructions;
   const translationsValue = input.translations;
@@ -179,6 +192,13 @@ export function normalizeAgentNativeConfig(
     normalized.runtime = normalizeRuntimeConfig(
       runtimeValue,
       `${source}.runtime`,
+    );
+  }
+
+  if (deploymentValue !== undefined) {
+    normalized.deployment = normalizeDeploymentConfig(
+      deploymentValue,
+      `${source}.deployment`,
     );
   }
 
@@ -268,6 +288,13 @@ export function mergeAgentNativeConfigs(
                     ),
                   }
                 : undefined,
+          }
+        : undefined,
+    deployment:
+      base.deployment || override.deployment
+        ? {
+            ...base.deployment,
+            ...override.deployment,
           }
         : undefined,
     diagnostics:
@@ -405,6 +432,23 @@ function normalizeRuntimeConfig(
     result[section] = fieldValue === undefined ? {} : { [field]: fieldValue };
   }
   return result;
+}
+
+function normalizeDeploymentConfig(
+  value: unknown,
+  source: string,
+): AgentNativeDeploymentConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  const environment = value.environment;
+  if (environment === undefined) return {};
+  if (!isAgentNativeDeploymentEnvironment(environment)) {
+    throw new Error(
+      `${source}.environment must be "local", "beta", "production", or "preview"`,
+    );
+  }
+  return { environment };
 }
 
 function normalizeDiagnosticsConfig(
@@ -591,6 +635,48 @@ function isAgentNativeHarnessRuntime(
     value === "pi" ||
     value === "opencode"
   );
+}
+
+export function isAgentNativeDeploymentEnvironment(
+  value: unknown,
+): value is AgentNativeDeploymentEnvironment {
+  return (
+    value === "local" ||
+    value === "beta" ||
+    value === "production" ||
+    value === "preview"
+  );
+}
+
+/**
+ * Resolve the public deployment lane from hosting facts at build time.
+ *
+ * Netlify exposes `CONTEXT` and `BRANCH` to builds. Keeping this inference in
+ * the Vite/config boundary means browser code consumes typed public config and
+ * never parses process.env itself.
+ */
+export function inferAgentNativeDeploymentEnvironment(
+  env: Record<string, string | undefined>,
+  mode?: string,
+): AgentNativeDeploymentEnvironment | undefined {
+  const context = env.CONTEXT?.trim().toLowerCase();
+  const branch = env.BRANCH?.trim().toLowerCase();
+
+  if (branch === "production" || context === "production") {
+    return "production";
+  }
+  if (branch === "beta" || (context === "branch-deploy" && branch === "main")) {
+    return "beta";
+  }
+  if (
+    context === "deploy-preview" ||
+    context === "branch-deploy" ||
+    branch?.startsWith("deploy-preview")
+  ) {
+    return "preview";
+  }
+  if (mode === "development") return "local";
+  return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

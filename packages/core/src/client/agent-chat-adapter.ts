@@ -143,7 +143,17 @@ const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
 // the trailing truncation notice still makes a pathological multi-MB paste
 // visibly (not silently) capped.
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
-const MAX_HISTORY_MESSAGES = 24;
+// An array-length backstop, NOT the reduction policy. Reducing a long thread is
+// Observational Memory's job: it folds older turns into observations/reflections
+// and replaces the raw prefix with a memory block plus a recent-raw window
+// (agent/observational-memory/). But its Observer only engages once a thread
+// passes 30k unobserved tokens, and a count cap of 24 bit long before that — so
+// turns were evicted from the request while compaction still had nothing to say
+// about them, and only reached the model again once thread_data was observed a
+// turn or more later. The two char budgets below are the real bound (they cap
+// what a request can carry regardless of message count); this cap only keeps the
+// array from growing without limit.
+const MAX_HISTORY_MESSAGES = 80;
 // Every provider prompt cache matches a byte-identical PREFIX. A window that
 // ends at the newest message and starts MAX_HISTORY_MESSAGES back moves its
 // START by one message per turn, so from the first turn past the cap onward no

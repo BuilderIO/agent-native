@@ -274,6 +274,39 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("General content");
   });
 
+  it("keeps semantic settings routes under a workspace mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    window.history.replaceState(null, "", "/dispatch/settings");
+
+    const props = {
+      general: <div>General content</div>,
+      account: <div>Account content</div>,
+    };
+
+    act(() => {
+      root.render(<SettingsTabsPage {...props} />);
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>("#settings-tab-account")
+        ?.click();
+    });
+
+    expect(window.location.pathname).toBe("/dispatch/settings/account");
+    expect(container.textContent).toContain("Account content");
+
+    act(() => {
+      root.unmount();
+      root = createRoot(container);
+      root.render(<SettingsTabsPage {...props} />);
+    });
+
+    expect(container.textContent).toContain("Account content");
+    expect(container.textContent).not.toContain("General content");
+  });
+
   it("places extra settings tabs between general and team", () => {
     act(() => {
       root.render(

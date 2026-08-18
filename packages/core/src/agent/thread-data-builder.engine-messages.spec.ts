@@ -375,6 +375,44 @@ describe("threadDataToEngineMessages({ includeToolCalls: true })", () => {
       { type: "text", text: "Did a thing." },
     ]);
   });
+
+  it("pairs an interrupted tool call with the stored interrupted marker", () => {
+    const messages = threadDataToEngineMessages(
+      {
+        messages: [
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "tool-call",
+                toolCallId: "interrupted_call",
+                toolName: "db-query",
+                args: { query: "select 1" },
+              },
+            ],
+          },
+        ],
+      },
+      { includeToolCalls: true },
+    );
+
+    expect(messages).toHaveLength(2);
+    expect(messages[0].content).toEqual([
+      {
+        type: "tool-call",
+        id: "interrupted_call",
+        name: "db-query",
+        input: { query: "select 1" },
+      },
+    ]);
+    expect(messages[1].content).toEqual([
+      expect.objectContaining({
+        type: "tool-result",
+        toolCallId: "interrupted_call",
+        content: "Interrupted before this tool returned a result.",
+      }),
+    ]);
+  });
 });
 
 describe("recoverThreadHistoryForRequest", () => {
