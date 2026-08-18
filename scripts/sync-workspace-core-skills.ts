@@ -116,6 +116,9 @@ const staleInstructionPatterns = [
   },
 ];
 
+const runtimeIntegrationGuidancePattern =
+  /For external integrations, inspect the workspace\/provider connection catalog\s+first(?:\.|;)/;
+
 const requiredGeneratedGuidance = [
   {
     rel: "packages/core/src/templates/default/AGENTS.md",
@@ -125,14 +128,12 @@ const requiredGeneratedGuidance = [
   },
   {
     rel: "packages/core/src/templates/default/AGENTS.md",
-    pattern:
-      /For external integrations, inspect the workspace\/provider connection catalog\s+first\./,
+    pattern: runtimeIntegrationGuidancePattern,
     message: "runtime-visible integration preflight",
   },
   {
     rel: "packages/core/src/templates/headless/AGENTS.md",
-    pattern:
-      /For external integrations, inspect the workspace\/provider connection catalog\s+first\./,
+    pattern: runtimeIntegrationGuidancePattern,
     message: "runtime-visible integration preflight",
   },
   {
@@ -144,12 +145,6 @@ const requiredGeneratedGuidance = [
     rel: "packages/core/src/templates/workspace-core/AGENTS.md",
     pattern: /Normal app data must flow through actions\./,
     message: "canonical action-first guidance",
-  },
-  {
-    rel: "templates/chat/AGENTS.md",
-    pattern:
-      /For external integrations, inspect the workspace\/provider connection catalog\s+first\./,
-    message: "runtime-visible integration preflight",
   },
   {
     rel: "registry/agent-native-app/AGENTS.md",
@@ -419,6 +414,19 @@ function checkGeneratedInstructionPhrases() {
     const content = readFileSync(file, "utf-8");
     if (!pattern.test(content)) {
       findings.push(`${rel}: missing ${message}`);
+    }
+  }
+
+  for (const template of listTemplateDirs()) {
+    const rel = `templates/${template}/AGENTS.md`;
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(`${rel}: missing required generated-app guidance file`);
+      continue;
+    }
+    const content = readFileSync(file, "utf-8");
+    if (!runtimeIntegrationGuidancePattern.test(content)) {
+      findings.push(`${rel}: missing runtime-visible integration preflight`);
     }
   }
 
