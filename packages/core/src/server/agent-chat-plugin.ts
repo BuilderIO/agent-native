@@ -6471,17 +6471,33 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            // Rides the same site-tick as the reap above, for the same reason:
+            // it is the only durable driver on serverless. Never fatal to the
+            // job sweep, and its own failure is a distinguishable outcome
+            // rather than a silent healthy.
+            const { checkChatHealthAndAlert } =
+              await import("../agent/chat-health-alert.js");
+            const chatHealth = await checkChatHealthAndAlert().catch(
+              (error: unknown) => {
+                console.error("[agent-chat] chat-health alert failed:", error);
+                return null;
+              },
+            );
             try {
               // Jobs may request MCP tools, and `getActions` is synchronous —
               // hydrate before the sweep so a serverless container that never
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
-              return { ok: true, staleRunsReaped };
+              return { ok: true, staleRunsReaped, chatHealth };
             } catch (error) {
               console.error("[recurring-jobs] Sweep route failed:", error);
               setResponseStatus(event, 500);
-              return { error: "Recurring-job sweep failed", staleRunsReaped };
+              return {
+                error: "Recurring-job sweep failed",
+                staleRunsReaped,
+                chatHealth,
+              };
             }
           }),
         );

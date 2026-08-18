@@ -55,6 +55,13 @@ similar phrases are internal notes, never a complete Slack reply. If a reply
 does not say what was fixed and verified or ask what is needed to fix it, do not
 post it.
 
+**Clarification needed** is an open state, not a finished one. Asking the
+question creates a standing obligation to come back for the answer: the thread
+now looks owned to any cursor that scans for unhandled reports, so nothing will
+resurface it on its own. `review-latest-feedback` owns that re-check and runs
+it before it scans for new messages; when this workflow runs on its own, re-read
+every thread it previously asked in and act on the replies first.
+
 ## Workflow
 
 1. Build a per-thread checklist with the symptom, expected behavior, evidence,
