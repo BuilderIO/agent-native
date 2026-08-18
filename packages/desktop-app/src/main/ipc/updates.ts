@@ -19,7 +19,7 @@ const IS_DEV = !app.isPackaged;
 const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
 const DEFAULT_DESKTOP_UPDATE_FEED_URL =
-  "https://agent-native.com/api/desktop-updates";
+  "https://www.agent-native.com/api/desktop-updates";
 const DESKTOP_UPDATE_FEED_URL = (
   process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
   DEFAULT_DESKTOP_UPDATE_FEED_URL
@@ -41,6 +41,19 @@ export interface UpdatesIpcDeps {
 // functions below can be invoked (autoUpdater events fire only after
 // registration, and the app menu isn't clickable until the app is ready).
 let deps: UpdatesIpcDeps | null = null;
+
+const UPDATE_CHECK_ERROR_MESSAGE =
+  "Couldn't check for updates. Please try again.";
+const UPDATE_DOWNLOAD_ERROR_MESSAGE =
+  "Couldn't download the update. Please try again.";
+const UPDATE_GENERIC_ERROR_MESSAGE =
+  "Couldn't complete the software update. Please try again.";
+
+function updateErrorMessage(error: unknown, message: string): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.warn("[updates] update operation failed:", detail);
+  return message;
+}
 
 function getDeps(): UpdatesIpcDeps {
   if (!deps) {
@@ -76,7 +89,7 @@ export async function checkForAppUpdates(): Promise<UpdateStatus> {
       .catch((err) => {
         broadcastUpdateStatus({
           state: "error",
-          message: err instanceof Error ? err.message : String(err),
+          message: updateErrorMessage(err, UPDATE_CHECK_ERROR_MESSAGE),
         });
       })
       .finally(() => {
@@ -176,7 +189,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     autoUpdater.on("error", (err) => {
       broadcastUpdateStatus({
         state: "error",
-        message: err?.message ?? String(err),
+        message: updateErrorMessage(err, UPDATE_GENERIC_ERROR_MESSAGE),
       });
     });
 
@@ -205,7 +218,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
     } catch (err) {
       broadcastUpdateStatus({
         state: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: updateErrorMessage(err, UPDATE_DOWNLOAD_ERROR_MESSAGE),
       });
     }
     return currentUpdateStatus;
