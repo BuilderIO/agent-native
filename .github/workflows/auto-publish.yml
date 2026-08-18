@@ -249,10 +249,6 @@ jobs:
             printf '%s' "$version"
           }
 
-          core_version="$(published_version @agent-native/core)"
-          dispatch_version="$(published_version @agent-native/dispatch)"
-          toolkit_version="$(published_version @agent-native/toolkit)"
-
           # GitHub's dispatch endpoint returns 503 "No server is currently
           # available" under load, and a lost dispatch has no second chance —
           # the publish that would re-send it happens exactly once. So retry 5xx
@@ -298,6 +294,9 @@ jobs:
 
           if has @agent-native/core || has @agent-native/creative-context ||
             has @agent-native/dispatch || has @agent-native/toolkit; then
+            core_version="$(published_version @agent-native/core)"
+            dispatch_version="$(published_version @agent-native/dispatch)"
+            toolkit_version="$(published_version @agent-native/toolkit)"
             payload="$(jq -cn \
               --arg p "$packages" \
               --arg c "$RELEASE_CHANNEL" \

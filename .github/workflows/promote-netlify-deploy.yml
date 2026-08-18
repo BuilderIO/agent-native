@@ -16,6 +16,7 @@ on:
         description: Site to prioritize, or all production sites
         required: true
         type: choice
+        default: all
         options:
           - all
           - assets
@@ -35,9 +36,10 @@ on:
           - factory
           - fw
       ref:
-        description: Git ref or commit SHA to promote
+        description: Git ref or commit SHA to promote (defaults to latest main)
         required: true
         type: string
+        default: main
       clear_others:
         description: Cancel other sites' queued (not in-progress) production deploys to free build slots
         required: false

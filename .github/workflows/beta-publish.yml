@@ -1,8 +1,8 @@
 name: Publish beta packages
 
-# Beta snapshots are deliberately manual. They use Changesets' snapshot
-# versioning and the beta npm dist-tag without changing the stable release PR
-# or the stable package versions on main.
+# Beta snapshots run for package-related merges to main. They use Changesets'
+# snapshot versioning and the beta npm dist-tag without changing the stable
+# release PR or the stable package versions on main.
 on:
   push:
     branches: [main]
@@ -76,6 +76,6 @@ jobs:
         if: steps.snapshot.outputs.changed == 'true'
         run: |
           {
-            echo "Beta packages were published with the npm `beta` dist-tag."
+            echo "Beta packages were published with the npm beta dist-tag."
             echo "The stable builder-workspace updater was intentionally not notified."
           } >> "$GITHUB_STEP_SUMMARY"

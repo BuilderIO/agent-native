@@ -662,11 +662,20 @@ export function inferAgentNativeDeploymentEnvironment(
   const context = env.CONTEXT?.trim().toLowerCase();
   const branch = env.BRANCH?.trim().toLowerCase();
 
-  if (branch === "beta") return "beta";
+  if (
+    branch === "beta" ||
+    (context === "branch-deploy" && branch === "main")
+  ) {
+    return "beta";
+  }
   if (branch === "production" || context === "production") {
     return "production";
   }
-  if (context === "deploy-preview" || branch?.startsWith("deploy-preview")) {
+  if (
+    context === "deploy-preview" ||
+    context === "branch-deploy" ||
+    branch?.startsWith("deploy-preview")
+  ) {
     return "preview";
   }
   if (mode === "development") return "local";
