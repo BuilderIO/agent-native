@@ -1798,6 +1798,240 @@ describe("MultiTabAssistantChat agent-team tabs", () => {
   });
 });
 
+// Regression coverage for the Slack C0ATH3CCZT4 / 2026-08-14 report: closing
+// one "New Chat" tab closed both, and a closed tab reappeared after opening
+// another one. Root cause: `openTabIds` could carry a duplicated id restored
+// verbatim from localStorage — `closeTab`'s `.filter(id => id !== tabId)`
+// then removed every tab sharing that id in one click, and (when the removed
+// id happened to be the active thread) the "ensure active thread is in open
+// tabs" effect re-added the dangling active id right back in.
+describe("MultiTabAssistantChat tab close/open lifecycle", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  function makeThread(id: string): ChatThreadSummary {
+    return {
+      id,
+      title: "",
+      preview: "",
+      messageCount: 0,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      scope: null,
+    };
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    resetThreadMocks();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => Response.json({ value: null })),
+    );
+    window.localStorage.clear();
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => {
+      root.unmount();
+    });
+    container.remove();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("de-duplicates an open-tabs list restored from localStorage", async () => {
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [makeThread("thread-1"), makeThread("thread-2")];
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:dup-test",
+      JSON.stringify(["thread-1", "thread-2", "thread-2"]),
+    );
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="dup-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-2",
+    ]);
+  });
+
+  it("closes a duplicated active tab instead of the effect re-adding it", async () => {
+    // The exact shape Manish hit: the active thread's id is duplicated in the
+    // persisted list. `closeTab`'s filter drops every matching entry at once,
+    // so `openTabIds` empties out without `activeThreadId` ever changing —
+    // the "ensure active thread is in open tabs" effect then reads that
+    // dangling active id and adds it straight back in, so the tab that was
+    // just closed reopens itself.
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [makeThread("thread-1")];
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:dup-active-test",
+      JSON.stringify(["thread-1", "thread-1"]),
+    );
+    // Mirrors the real `useChatThreads.createThread`, which sets the new
+    // thread active synchronously (before its returned promise resolves) —
+    // relevant here because a de-duplicated single-entry list also takes the
+    // "replace the last tab" path.
+    threadMocks.createThread.mockImplementation(async () => {
+      threadMocks.activeThreadId = "thread-new";
+      threadMocks.threads = [makeThread("thread-new")];
+      return "thread-new";
+    });
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="dup-active-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      headerProps?.closeTab("thread-1");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.tabs.map((tab) => tab.id)).not.toContain("thread-1");
+  });
+
+  it("closing one tab removes only that tab, leaving its siblings open", async () => {
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [
+      makeThread("thread-1"),
+      makeThread("thread-2"),
+      makeThread("thread-3"),
+    ];
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:close-test",
+      JSON.stringify(["thread-1", "thread-2", "thread-3"]),
+    );
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="close-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-2",
+      "thread-3",
+    ]);
+
+    await act(async () => {
+      headerProps?.closeTab("thread-2");
+    });
+
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-3",
+    ]);
+
+    // A later, unrelated thread-list refresh (e.g. a background poll) must
+    // not resurrect the tab the user just closed.
+    await act(async () => {
+      threadMocks.threads = [...threadMocks.threads, makeThread("thread-4")];
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="close-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+      await Promise.resolve();
+    });
+
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual([
+      "thread-1",
+      "thread-3",
+    ]);
+  });
+
+  it("replaces the only open tab with a fresh one instead of ending up empty", async () => {
+    threadMocks.activeThreadId = "thread-1";
+    threadMocks.threads = [makeThread("thread-1")];
+    window.localStorage.setItem(
+      "agent-chat-open-tabs:last-tab-test",
+      JSON.stringify(["thread-1"]),
+    );
+    threadMocks.createThread.mockImplementation(async () => {
+      // Mirrors the real `useChatThreads.createThread`, which sets the new
+      // thread active synchronously (before its returned promise resolves).
+      threadMocks.activeThreadId = "thread-new";
+      threadMocks.threads = [...threadMocks.threads, makeThread("thread-new")];
+      return "thread-new";
+    });
+
+    let headerProps: MultiTabAssistantChatHeaderProps | null = null;
+    await act(async () => {
+      root.render(
+        <MultiTabAssistantChat
+          storageKey="last-tab-test"
+          renderHeader={(props) => {
+            headerProps = props;
+            return null;
+          }}
+        />,
+      );
+    });
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await act(async () => {
+      headerProps?.closeTab("thread-1");
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(threadMocks.createThread).toHaveBeenCalledTimes(1);
+    expect(headerProps?.tabs.map((tab) => tab.id)).toEqual(["thread-new"]);
+  });
+});
+
 describe("MultiTabAssistantChat page overlay", () => {
   let container: HTMLDivElement;
   let root: Root;

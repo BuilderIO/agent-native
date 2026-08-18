@@ -601,6 +601,22 @@ const DEFAULT_THREAD_URL_PARAM = "thread";
 const THREAD_URL_CHANGED_EVENT = "agent-chat:url-thread-changed";
 const hasOwn = Object.prototype.hasOwnProperty;
 
+// A duplicated id in `openTabIds` makes two tab-bar entries share one
+// underlying thread: closing either one filters that id out of the array
+// entirely, so both disappear at once. De-duplicate at every boundary the
+// array crosses (localStorage read and write) so a corrupted persisted list
+// self-heals instead of reproducing the phantom tab on every reload.
+function dedupeIds(ids: string[]): string[] {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const id of ids) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    result.push(id);
+  }
+  return result;
+}
+
 // The history patch is installed once and shared via a ref count so that
 // multiple synced chats (or a remount) don't restore a stale `pushState`
 // reference and silently drop a wrapper installed by another instance.
@@ -1330,9 +1346,10 @@ export function MultiTabAssistantChat({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) {
+          const deduped = dedupeIds(parsed);
           // Mark restored tabs as mounted
-          for (const id of parsed) mountedTabsRef.current.add(id);
-          return parsed;
+          for (const id of deduped) mountedTabsRef.current.add(id);
+          return deduped;
         }
       }
     } catch {}
@@ -1358,8 +1375,9 @@ export function MultiTabAssistantChat({
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed)) {
-          for (const id of parsed) mountedTabsRef.current.add(id);
-          setOpenTabIds(parsed);
+          const deduped = dedupeIds(parsed);
+          for (const id of deduped) mountedTabsRef.current.add(id);
+          setOpenTabIds(deduped);
           return;
         }
       }
@@ -1423,7 +1441,7 @@ export function MultiTabAssistantChat({
   // Persist open tab IDs to localStorage (exclude sub-agent tabs — they're session-only)
   useEffect(() => {
     if (openTabsKeyRef.current !== OPEN_TABS_KEY) return;
-    const mainTabs = openTabIds.filter((id) => !parentMap[id]);
+    const mainTabs = dedupeIds(openTabIds.filter((id) => !parentMap[id]));
     if (mainTabs.length > 0) {
       try {
         localStorage.setItem(OPEN_TABS_KEY, JSON.stringify(mainTabs));
@@ -2017,25 +2035,33 @@ export function MultiTabAssistantChat({
 
   const closeTab = useCallback(
     (tabId: string) => {
-      setOpenTabIds((prev) => {
-        if (prev.length <= 1) {
-          // Last tab — create a new one and replace the old tab atomically
-          createThread().then((newId) => {
-            if (newId) {
-              newThreadIds.current.add(newId);
-              setOpenTabIds([newId]);
-              writeThreadUrl(null);
-            }
-          });
-          return prev; // Keep old tab until new one is ready
-        }
-        const next = prev.filter((id) => id !== tabId);
-        if (tabId === activeThreadIdRef.current && next.length > 0) {
-          const idx = prev.indexOf(tabId);
-          switchThread(next[Math.min(idx, next.length - 1)]);
-        }
-        return next;
-      });
+      // Read the current list from the ref rather than a `setOpenTabIds`
+      // updater callback — `createThread()`/`switchThread()` below set
+      // `activeThreadId` synchronously as a side effect, and calling them
+      // from inside an updater left `openTabIds` and `activeThreadId`
+      // inconsistent for a render: the "ensure active thread is in open
+      // tabs" effect would then re-add the just-closed id, so the tab
+      // appeared to reopen itself right after closing.
+      const prev = openTabIdsRef.current;
+      if (prev.length <= 1) {
+        // Last tab — create a new one and replace the old tab once ready;
+        // the old tab stays visible in the meantime so the bar is never empty.
+        cleanupClosedTab(tabId);
+        createThread().then((newId) => {
+          if (newId) {
+            newThreadIds.current.add(newId);
+            setOpenTabIds([newId]);
+            writeThreadUrl(null);
+          }
+        });
+        return;
+      }
+      const next = prev.filter((id) => id !== tabId);
+      if (tabId === activeThreadIdRef.current && next.length > 0) {
+        const idx = prev.indexOf(tabId);
+        switchThread(next[Math.min(idx, next.length - 1)]);
+      }
+      setOpenTabIds(next);
       cleanupClosedTab(tabId);
     },
     [switchThread, createThread, cleanupClosedTab, writeThreadUrl],
