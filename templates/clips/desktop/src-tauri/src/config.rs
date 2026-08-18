@@ -91,7 +91,6 @@ pub struct FeatureConfig {
     pub region_guides: RegionGuidesConfig,
     #[serde(default)]
     pub screen_memory: ScreenMemoryConfig,
-    pub onboarding_complete: bool,
     #[serde(default = "default_whisper_model_enabled")]
     pub whisper_model_enabled: bool,
 }
@@ -159,7 +158,6 @@ impl Default for FeatureConfig {
             show_in_screen_capture: false,
             region_guides: RegionGuidesConfig::default(),
             screen_memory: ScreenMemoryConfig::default(),
-            onboarding_complete: false,
             whisper_model_enabled: default_whisper_model_enabled(),
         }
     }

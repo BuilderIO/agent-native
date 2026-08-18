@@ -10,7 +10,6 @@ import { Finalizing } from "./overlays/finalizing";
 import { FlowBar } from "./overlays/flow-bar";
 import { MeetingNotification } from "./overlays/meeting-notification";
 import { MeetingNub } from "./overlays/meeting-nub";
-import { Onboarding } from "./overlays/onboarding";
 import { RecordingPill } from "./overlays/recording-pill";
 import { RegionGuideEditor, RegionGuides } from "./overlays/region-guides";
 import { RegionRecordBorder } from "./overlays/region-record-border";
@@ -43,8 +42,6 @@ function pickRoute(route: string): React.ReactElement {
       return <Bubble />;
     case "finalizing":
       return <Finalizing />;
-    case "onboarding":
-      return <Onboarding />;
     case "meeting-notif":
       return <MeetingNotification />;
     case "meeting-nub":
