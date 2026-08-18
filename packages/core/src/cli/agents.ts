@@ -1,8 +1,17 @@
-import { discoverAgents } from "../server/agent-discovery.js";
+import {
+  formatCapabilityDetail,
+  formatCapabilitySummary,
+  loadAllCapabilities,
+  loadCapabilities,
+  MAX_APPS,
+} from "../server/agent-capabilities.js";
+import { discoverAgents, findAgent } from "../server/agent-discovery.js";
 
 export interface ParsedAgentsArgs {
   command: "list" | "help";
   selfAppId?: string;
+  app?: string;
+  capabilities: boolean;
   json: boolean;
   errors: string[];
 }
@@ -15,6 +24,7 @@ export interface AgentsCliIo {
 export function parseAgentsArgs(args: string[]): ParsedAgentsArgs {
   const parsed: ParsedAgentsArgs = {
     command: "list",
+    capabilities: false,
     json: false,
     errors: [],
   };
@@ -37,6 +47,24 @@ export function parseAgentsArgs(args: string[]): ParsedAgentsArgs {
     }
     if (name === "json") {
       parsed.json = true;
+      continue;
+    }
+    if (name === "capabilities" || name === "what-can-they-do") {
+      parsed.capabilities = true;
+      continue;
+    }
+    if (name === "app") {
+      const value =
+        inlineValue ??
+        (args[i + 1] !== undefined && !args[i + 1].startsWith("--")
+          ? args[++i]
+          : undefined);
+      if (!value) {
+        parsed.errors.push(`Missing value for --${name}`);
+      } else {
+        parsed.app = value;
+        parsed.capabilities = true;
+      }
       continue;
     }
     if (name === "self" || name === "self-app-id") {
@@ -82,7 +110,47 @@ export async function runAgents(
     return 1;
   }
 
+  if (parsed.app) {
+    const agent = await findAgent(parsed.app, parsed.selfAppId);
+    if (!agent) {
+      const available = (await discoverAgents(parsed.selfAppId))
+        .map((peer) => peer.id)
+        .join(", ");
+      stderr(
+        `No connected agent "${parsed.app}". Available: ${available || "(none)"}`,
+      );
+      return 1;
+    }
+    const peer = await loadCapabilities(agent);
+    stdout(
+      parsed.json
+        ? JSON.stringify(toCapabilityJson(peer), null, 2)
+        : formatCapabilityDetail(peer, callHint),
+    );
+    return 0;
+  }
+
   const agents = await discoverAgents(parsed.selfAppId);
+
+  if (parsed.capabilities) {
+    if (agents.length === 0) {
+      stdout("No connected agents found.");
+      return 0;
+    }
+    const shown = agents.slice(0, MAX_APPS);
+    const peers = await loadAllCapabilities(shown);
+    stdout(
+      parsed.json
+        ? JSON.stringify({ agents: peers.map(toCapabilityJson) }, null, 2)
+        : formatCapabilitySummary(
+            peers,
+            agents.length - shown.length,
+            (appId) => `run agent-native agents list --app ${appId}`,
+          ),
+    );
+    return 0;
+  }
+
   if (parsed.json) {
     stdout(JSON.stringify({ agents }, null, 2));
     return 0;

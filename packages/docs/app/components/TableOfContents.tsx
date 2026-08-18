@@ -1,5 +1,6 @@
-import { useT } from "@agent-native/core/client";
-import { IconCheck, IconCopy, IconX } from "@tabler/icons-react";
+import { AgentAskPopover } from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
+import { IconCheck, IconCopy, IconMessage, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
 import {
@@ -197,7 +198,7 @@ export default function TableOfContents({
                     aria-label={t("docs.copyMarkdown")}
                     disabled={isCopying}
                     onClick={handleCopyMarkdown}
-                    className="inline-flex size-7 shrink-0 items-center justify-center rounded-md border border-[var(--docs-border)] text-[var(--fg-secondary)] transition hover:bg-[var(--bg-secondary)] hover:text-[var(--fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] disabled:cursor-wait disabled:opacity-60"
+                    className="inline-flex size-7 shrink-0 items-center justify-center rounded-md text-[var(--fg-secondary)] transition hover:bg-[var(--bg-secondary)] hover:text-[var(--fg)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--docs-accent)] disabled:cursor-wait disabled:opacity-60"
                   >
                     {copyStatus === "copied" ? (
                       <IconCheck className="size-3.5" />
@@ -231,6 +232,14 @@ export default function TableOfContents({
             );
           })}
         </ul>
+        <AgentAskPopover
+          label={t("header.askAssistant")}
+          title={t("header.askAssistant")}
+          icon={<IconMessage aria-hidden="true" size={16} stroke={1.5} />}
+          placeholder={t("agent.emptyState")}
+          prompt=""
+          className="mt-4 w-full cursor-pointer border border-[var(--docs-border)] bg-transparent text-[var(--fg-secondary)] hover:bg-[var(--bg-secondary)] hover:text-[var(--fg)]"
+        />
       </nav>
     </aside>
   );

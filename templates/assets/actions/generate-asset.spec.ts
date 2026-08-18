@@ -11,6 +11,20 @@ vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestRunContext: getRequestRunContextMock,
 }));
 
+vi.mock("@agent-native/creative-context/server", () => ({
+  recordGenerationCreativeContext: vi.fn(async () => undefined),
+  resolveGenerationCreativeContext: vi.fn(async () => ({
+    contextMode: "off",
+    contextPackId: null,
+    reuseLabels: [],
+    results: [],
+  })),
+}));
+
+vi.mock("nanoid", () => ({
+  nanoid: vi.fn(() => "context-request-1"),
+}));
+
 import action from "./generate-asset.js";
 
 describe("generate-asset", () => {
@@ -46,7 +60,7 @@ describe("generate-asset", () => {
       generationMode: "picker-auto-generate",
     });
     expect(result.path).toBe(
-      "/library?__an_picker=1&mediaType=image&prompt=A+polished+landing+page+hero+image&aspectRatio=16%3A9&includeLogo=1&callerAppId=design&autoGenerate=1",
+      "/library?__an_picker=1&mediaType=image&prompt=A+polished+landing+page+hero+image&aspectRatio=16%3A9&includeLogo=1&callerAppId=design&creativeContextRequestId=context-request-1&autoGenerate=1",
     );
     expect(result.message).toContain("no libraries");
     expect(writeAppStateMock).toHaveBeenCalledWith(

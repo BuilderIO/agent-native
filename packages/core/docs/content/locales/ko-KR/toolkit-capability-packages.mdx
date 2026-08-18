@@ -1,0 +1,21 @@
+---
+title: "Capability 패키지"
+description: "도메인 기능과 매니페스트 기반 수명 주기를 Toolkit에 흡수하지 않고 관리합니다."
+---
+
+# Capability 패키지
+
+Toolkit은 횡단적인 제품 기반을 제공하고 Capability 패키지는 제한된 도메인, actions, skills 및 수명 주기 메타데이터를 제공합니다. Scheduling과 Creative Context는 Toolkit 키트가 아닌 별도 Capability 패키지입니다.
+
+`@agent-native/scheduling`은 일반 매니페스트 파일럿에 참여합니다. 확장 지점과 소유권은 각 패키지의 로컬 문서와 매니페스트를 참조하세요.
+
+- [Scheduling 패키지 문서](https://github.com/BuilderIO/agent-native/tree/main/packages/scheduling/docs)
+- [Creative Context 패키지 문서](https://github.com/BuilderIO/agent-native/tree/main/packages/creative-context/docs)
+
+```bash
+agent-native package inspect @agent-native/scheduling
+agent-native package add @agent-native/scheduling --apply
+agent-native package eject @agent-native/scheduling --apply
+```
+
+검사, dry run, eject 규칙은 [Package Lifecycle](/docs/package-lifecycle)를 참조하세요.

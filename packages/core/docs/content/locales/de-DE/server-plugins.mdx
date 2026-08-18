@@ -1,0 +1,154 @@
+---
+title: "Plugins"
+description: "Startup-Plugins in server/plugins/ – was sie sind, die zwei Plugins, die jede App mitbringt, das optionale Datenbank-Plugin und wie man eigene schreibt."
+---
+
+# Plugins
+
+Plugins sind Startup-Hooks. Nitro lädt jede Datei in `server/plugins/` einmal bei der Serverinitialisierung. Sie sind der richtige Ort für einmalige Einrichtung: Auth konfigurieren, die Agentenschleife einhängen, Datenbankmigrationen ausführen oder anderen Initialisierungscode registrieren. Framework-Hilfsfunktionen koordinieren ihre asynchrone Einrichtung; benutzerdefinierte Plugin-Arbeit kann beim ersten Request noch laufen.
+
+Nitro entdeckt Plugins automatisch über das Dateisystem. Weder Registrierung noch Imports sind erforderlich. Dateien laufen in alphabetischer Reihenfolge, sodass die Ausführungsreihenfolge über das Dateinamenspräfix gesteuert wird.
+
+Jede agentennative App bringt standardmäßig zwei Plugins mit:
+
+```text
+server/plugins/
+  auth.ts        -> configure auth provider and public paths
+  agent-chat.ts  -> mount the agent loop with your actions and system prompt
+```
+
+Apps, die benutzerdefinierte Datenbanktabellen benötigen, fügen ein drittes hinzu:
+
+```text
+server/plugins/
+  db.ts          -> app-eigene Migrationen beim lokalen Start registrieren
+```
+
+## Auth-Plugin {#auth-plugin}
+
+`server/plugins/auth.ts` konfiguriert, wie sich Benutzer anmelden. `createAuthPlugin` aus `@agent-native/core/server` verdrahtet den Auth-Provider und legt das Branding der Anmeldeseite fest:
+
+```ts filename="server/plugins/auth.ts"
+import { createAuthPlugin } from "@agent-native/core/server";
+
+export default createAuthPlugin({
+  marketing: {
+    appName: "My App",
+    tagline: "A short description shown on the sign-in page.",
+    features: ["Feature one", "Feature two", "Feature three"],
+  },
+});
+```
+
+Um bestimmte Routen für unauthentifizierte Benutzer zu öffnen, übergeben Sie `publicPaths`:
+
+```ts
+export default createAuthPlugin({
+  publicPaths: ["/public", "/api/webhook"],
+  marketing: { appName: "My App", tagline: "..." },
+});
+```
+
+Das Auth-Plugin konfiguriert den Guard. Die Middleware in `server/middleware/auth.ts` erzwingt ihn bei jeder Anfrage. Siehe [Middleware](/docs/server-middleware).
+
+## Agent-Chat-Plugin {#agent-chat-plugin}
+
+`server/plugins/agent-chat.ts` hängt die Agentenschleife mit den Actions, dem System-Prompt und dem initialen Tool-Set Ihrer App ein. Dieses Plugin macht Ihre App zu einer agentennativen App.
+
+```ts filename="server/plugins/agent-chat.ts"
+import { getOrgContext } from "@agent-native/core/org";
+import {
+  createAgentChatPlugin,
+  loadActionsFromStaticRegistry,
+} from "@agent-native/core/server";
+
+import actionsRegistry from "../../.generated/actions-registry.js";
+
+export default createAgentChatPlugin({
+  appId: "my-app",
+  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  initialToolNames: ["view-screen", "navigate"],
+  resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
+  systemPrompt: `You are the My App agent.
+
+Use actions as the source of truth. Start by inspecting the current
+screen when context matters.`,
+});
+```
+
+`loadActionsFromStaticRegistry` erfasst jede Action, die aus `actions/` über die generierte Registry exportiert wird. `initialToolNames` steuert, auf welche Actions der Agent zu Beginn einer Unterhaltung Zugriff hat. Er kann bei Bedarf weiterhin andere aufrufen.
+
+## Datenbank-Plugin {#database-plugin}
+
+Wenn Ihre App benutzerdefinierte Datenbanktabellen definiert, fügen Sie `server/plugins/db.ts` hinzu, um Schemamigrationen beim Start auszuführen. Es verwendet `runMigrations` aus `@agent-native/core/db`:
+
+```ts filename="server/plugins/db.ts"
+import { runMigrations } from "@agent-native/core/db";
+
+export default runMigrations(
+  [
+    {
+      version: 1,
+      sql: `CREATE TABLE IF NOT EXISTS projects (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+  ],
+  { table: "my_app_migrations" },
+);
+```
+
+Jeder Eintrag benötigt eine `version`-Nummer und einen `sql`-String. Die Option `table` benennt die Tabelle zur Migrations-Nachverfolgung. Verwenden Sie einen für Ihre App eindeutigen Namen, damit es nicht zu Kollisionen mit Framework-Migrationen kommt. Die vollständige Anleitung zur Schemaerstellung finden Sie unter [Datenbank](/docs/server-database).
+
+<Callout tone="warning">
+  Migrationen müssen additiv sein. Setzen Sie niemals destruktives SQL (`DROP
+  TABLE`, `ALTER TABLE ... DROP COLUMN`, `DELETE FROM`) in Startup-Plugins ein.
+</Callout>
+
+## Eigene Plugins schreiben {#custom-plugins}
+
+Die Framework-Helfer (`createAuthPlugin`, `createAgentChatPlugin`, `runMigrations`) geben jeweils eine Nitro-Plugin-Funktion zurück. Für alles außerhalb dieser Helfer schreiben Sie ein Plugin mit `defineNitroPlugin`:
+
+```ts filename="server/plugins/my-plugin.ts"
+import { defineNitroPlugin } from "nitropack/runtime";
+
+export default defineNitroPlugin((nitro) => {
+  nitro.hooks.hook("request", (event) => {
+    // runs on every request
+  });
+
+  nitro.hooks.hookOnce("close", async () => {
+    // runs when the server shuts down
+  });
+});
+```
+
+Plugins können jeden der Lifecycle-Hooks von Nitro verwenden: `request`, `beforeResponse`, `close` und weitere. Die [Nitro-Plugin-Dokumentation](https://nitro.build/guide/plugins) behandelt die vollständige Hook-API und den Plugin-Vertrag im Detail.
+
+## Startreihenfolge {#startup-order}
+
+Nitro startet Plugins in alphabetischer Dateinamenreihenfolge. Die Dateireihenfolge bestimmt, wann ein Plugin startet, nicht wann seine asynchrone Arbeit endet. Verlassen Sie sich daher nicht darauf, dass ein Plugin abgeschlossen ist, bevor das nächste beginnt. Eine typische Reihenfolge:
+
+1. `db.ts` — app-eigene Migrationen beim lokalen Start; in Produktion als Release-Schritt
+2. `auth.ts` — die Auth-Konfiguration steht, bevor Anfragen eintreffen
+3. `agent-chat.ts` — Agent-Routen werden eingehängt, nachdem Auth konfiguriert ist
+
+<Callout tone="warning">
+  Führen Sie Migrationen in Produktions- oder Serverless-Deployments in einem
+  Release- oder Deploy-Schritt aus, nicht bei der ersten Anfrage. Das
+  Chat-Template stellt dafür `pnpm migrate:production` bereit.
+</Callout>
+
+Wenn Sie eigene Plugins hinzufügen, versehen Sie deren Dateinamen mit einem Präfix, um zu steuern, wo sie in der Abfolge einsortiert werden.
+
+## Was kommt als nächstes? {#whats-next}
+
+- [**Datenbank**](/docs/server-database): Schema-Helfer und das `getDb`-Muster, das innerhalb von Plugins verwendet wird
+- [**Middleware**](/docs/server-middleware): der Auth-Guard, der durchsetzt, was das Auth-Plugin konfiguriert
+- [**Routen**](/docs/server-routes): benutzerdefinierte Dateirouten und wann sie sinnvoll sind
+- [**Writing Agent Instructions**](/docs/writing-agent-instructions): wie man den `systemPrompt` im Agent-Chat-Plugin gestaltet
+- [**Nitro-Plugin-Dokumentation**](https://nitro.build/guide/plugins): die vollständige Plugin-API und Lifecycle-Hooks

@@ -29,6 +29,7 @@ export {
 export {
   getOrgSetting,
   putOrgSetting,
+  mutateOrgSetting,
   deleteOrgSetting,
   listOrgSettings,
 } from "./org-settings.js";

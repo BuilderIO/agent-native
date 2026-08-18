@@ -106,4 +106,13 @@ describe("find-time scheduling", () => {
     expect(range.from).toBe("2026-05-26T07:00:00.000Z");
     expect(range.to).toBe("2026-05-27T07:00:00.000Z");
   });
+
+  it("uses the first valid instant when a timezone skips local midnight", () => {
+    expect(
+      zonedDateTimeToUtcIso("2026-09-06", "00:00", "America/Santiago"),
+    ).toBe("2026-09-06T04:00:00.000Z");
+    expect(zonedDateTimeToUtcIso("2026-04-24", "00:00", "Africa/Cairo")).toBe(
+      "2026-04-23T22:00:00.000Z",
+    );
+  });
 });

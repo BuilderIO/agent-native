@@ -15,6 +15,10 @@ const requireFromThisFile = createRequire(import.meta.url);
 let cachedFfmpegStaticPath: string | null | undefined;
 
 export type AudioOnlyExtractionErrorCode =
+  // The stored recording has no audio stream at all — a measurement of the
+  // file, distinct from "we looked and found no speech". Kept separate so the
+  // message can say so instead of blaming the recording.
+  | "NO_AUDIO_SAVED"
   | "NO_AUDIO_TRACK"
   | "NO_SPEECH_DETECTED"
   | "FFMPEG_UNAVAILABLE"
@@ -75,7 +79,9 @@ export function isAudioMimeType(mimeType: string | null | undefined): boolean {
 export function isNoExtractableAudioError(err: unknown): boolean {
   return (
     err instanceof AudioOnlyExtractionError &&
-    (err.code === "NO_AUDIO_TRACK" || err.code === "NO_SPEECH_DETECTED")
+    (err.code === "NO_AUDIO_SAVED" ||
+      err.code === "NO_AUDIO_TRACK" ||
+      err.code === "NO_SPEECH_DETECTED")
   );
 }
 

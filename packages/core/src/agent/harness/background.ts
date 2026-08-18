@@ -1,3 +1,4 @@
+import { redactArgsToValue, redactTextToSummary } from "../../audit/redact.js";
 import type {
   BackgroundAgentControlInput,
   BackgroundAgentControlResult,
@@ -151,7 +152,7 @@ function toAgentHarnessBackgroundRun(
     },
     title: `${session.harnessName} harness`,
     subtitle: session.status === "running" ? "Running" : undefined,
-    status: backgroundStatus(session.status),
+    status: backgroundStatus(session.status, Boolean(session.pendingApproval)),
     phase: session.status,
     createdAt,
     updatedAt,
@@ -233,13 +234,22 @@ function summarizeAgentChatEvent(event: AgentChatEvent): {
       return {
         kind: "status",
         message: `Running ${event.tool}`,
-        metadata: { type: "tool_start", tool: event.tool, input: event.input },
+        metadata: {
+          type: "tool_start",
+          tool: event.tool,
+          input: redactArgsToValue(event.input),
+        },
       };
     case "tool_done":
       return {
         kind: "artifact",
         message: event.result,
-        metadata: { type: "tool_done", tool: event.tool },
+        metadata: {
+          type: "tool_done",
+          tool: event.tool,
+          input: redactArgsToValue(event.input),
+          result: redactTextToSummary(event.result),
+        },
       };
     case "error":
       return {
@@ -276,12 +286,13 @@ function parseRunEvent(row: {
 
 function backgroundStatus(
   status: AgentHarnessSessionStatus,
+  needsApproval: boolean,
 ): BackgroundAgentRun["status"] {
   if (status === "running") return "running";
   if (status === "errored") return "errored";
-  if (status === "idle" || status === "stopped" || status === "destroyed") {
-    return "completed";
-  }
+  if (needsApproval) return "needs-approval";
+  if (status === "idle") return "paused";
+  if (status === "stopped" || status === "destroyed") return "completed";
   return "unknown";
 }
 
@@ -317,7 +328,11 @@ async function controlAgentHarnessBackgroundRun(
   }
   if (input.command === "approve" || input.command === "deny") {
     const session = await getAgentHarnessSessionByRunId(input.runId);
-    if (!session || session.ownerEmail !== scope.ownerEmail) {
+    if (
+      !session ||
+      session.ownerEmail !== scope.ownerEmail ||
+      (scope.orgId !== undefined && session.orgId !== scope.orgId)
+    ) {
       return missingHarnessRunResult(input.runId);
     }
     const pending = session.pendingApproval as { id?: unknown } | undefined;

@@ -20,6 +20,7 @@ description: "Slack、Microsoft Teams、Discord インタラクション、メ�
 - **Slack** でエージェントに DM するか、任意のチャネルで `@mention` してください。
 - **携帯電話から Telegram または WhatsApp** でエージェントにメッセージを送信します。
 - **同じエージェント、同じ記憶。** Slack で話した内容は、後で電子メールで送信したときに記憶されます。 Web チャットと外部メッセージは 1 つのスレッド履歴を共有します。
+- **メッセージから他のツールを操作。** @mention の結果を Notion の行、Jira の課題、HubSpot のレコードにできます。完全な手順は [Slack の @mention → Notion の行](#slack-to-notion) を参照してください。
 - 一方向のアプリ内アラート (ベルのアイコン、webhooks) については、[Notifications](/docs/notifications) を参照してください。
 
 <Diagram id="doc-block-1cagm52" title={"多くのチャネル、1 人のエージェント"} summary={"すべてのプラットフォームは同じエージェント ループと同じ SQL スレッド履歴にファンインするため、SlackのDM と電子メールは同じ会話を継続します。"}>
@@ -126,7 +127,7 @@ Slack アプリには 1 つのイベント API リクエスト URL がありま�
 
 ### ヒント
 
-- **チャンネルメンション** — 作業開始時は @mention します。メンションなしの返信は、その同じスレッドで作業中の間だけ続行されます。
+- **チャンネルメンション** — 作業開始時は @mention します。エージェントに処理させる各チャンネルメッセージには明示的なメンションが必要です。通常のスレッド返信やチャンネルの一般的な会話では起動しません。
 - **DM** — 受け付ける個人 DM は非公開の会話であり、確認済み組織メンバーまたはリンク済み Slack ID が必要です。
 - **ID** — DM は検証済み Slack メールを同じアプリユーザーに関連付けられます。管理チャンネルは独自のサービス ID とポリシーを使用します。
 - **運用許可リスト** — 有効な署名シークレットが予期しないワークスペースで再利用されないように、`SLACK_ALLOWED_TEAM_IDS` を設定し、共有 Slack アプリの場合は `SLACK_ALLOWED_API_APP_IDS` を設定します。
@@ -168,8 +169,7 @@ Event Subscriptions Request URL を
 `https://your-app.example.com/_agent-native/integrations/slack/webhook`、
 Interactivity Request URL を
 `https://your-app.example.com/_agent-native/integrations/slack/interactions` に設定します。
-`app_home_opened`、`app_context_changed`、`app_mention`、`message.channels`、
-`message.groups`、`message.im`、`message.mpim` を購読します。
+`app_home_opened`、`app_context_changed`、`app_mention`、`message.im` を購読します。
 `SLACK_CLIENT_ID`、`SLACK_CLIENT_SECRET`、`SLACK_SIGNING_SECRET`
 を設定したら、**設定 → Messaging** で **Add to Slack** を選択します。各インストールの
 トークンは暗号化され、会話キーはワークスペース、アプリ、チャンネル、スレッド別です。
@@ -184,14 +184,187 @@ Interactivity Request URL を
 個人の Slack DM は、確認済みの Agent Native 組織メンバー、またはそのメンバーにリンク済みの
 Slack ID からのみ受け付けます。チャンネルのサービスプリンシパルに対するポリシーと予算は別です。
 
-メンションなしの返信は実行中の同じスレッドだけを操作し、通常のチャンネル会話は
-エージェントを起動しません。制限された文脈にはリアクションとファイル参照が含まれ、
+各チャンネルメッセージにはエージェントへの明示的なメンションが必要です。通常の
+スレッド返信やチャンネルの一般的な会話ではエージェントを起動しません。制限された文脈にはリアクションとファイル参照が含まれ、
 ネイティブカードに計画、進捗、キャンセル、承認/拒否が表示されます。DM は個人 ID、
 管理チャンネルは明示したサービス ID とゲスト、Slack Connect、モデルのポリシーを
 使用します。チャンネルメモリは明示的な依頼だけで保存または削除され、自動保存されません。
 チャンネルで作成したルーチンは同じ Slack に配信されます。組織、依頼者、チャンネルの
 日次または月次予算は完全な監査系統とともに適用されます。`assistant:write` は Agent View の
 コンテキストイベントを有効にし、`chat:write` は返信とライブ状態更新に使用されます。
+
+### 実践例: Slack の @mention から Notion の行へ {#slack-to-notion}
+
+Slack のメンションが動くようになると、次に必ず出てくる要望が _「スレッドでエージェントに @mention したら、その内容を Notion のデータベースに行として追加してほしい」_ です。これはすでに実現できます。Slack の受信、Notion のプロバイダー API、アプリのアクションはすべて組み込み済みです。ただし 3 つの部品を正しい順序でつなぐ必要があり、そのうち 2 つは飛ばしても何も言わずに失敗します。
+
+以下の `<ANGLE_BRACKETS>` はすべてプレースホルダーです。実際の Notion のシークレットをソース、コミットされる `.env`、チャットのメッセージに貼り付けないでください。
+
+#### 1. メンションをアプリに届ける
+
+Notion に手を付ける前に [Slack をセットアップ](#slack) を完了し、チャンネルでの `@mention` に返信が返ることを確認してください。以降の手順では次の 2 点が重要です。
+
+- `@mention` を含むメッセージが起動のきっかけであり、そのテキストがエージェントに渡ります。
+- 同じスレッドで後から送る各メッセージにも、エージェントへの明示的なメンションが必要です。通常の返信は届かないため、新しい依頼ごとに改めて @mention してください。
+
+#### 2. プロバイダー API アクションを公開する
+
+Core には Notion プロバイダーのプリセット (ベース URL、`Notion-Version` ヘッダー、認証、ドキュメントリンク) が同梱されていますが、エージェントがそれを使うための 3 つのアクション — `provider-api-catalog`、`provider-api-docs`、`provider-api-request` — は**オプトインのサブパスエクスポート**です。これらを追加していないアプリには Notion への経路がまったくなく、エージェントは Notion のツールがないと答えます。ここが最も見落とされやすい手順です。
+
+プロバイダーランタイムを追加します。
+
+```ts
+// server/lib/provider-api.ts
+import { createProviderApiRuntime } from "@agent-native/core/provider-api";
+
+const runtime = createProviderApiRuntime({
+  appId: "<YOUR_APP_ID>",
+  providerIds: ["notion"],
+});
+
+export function getProviderApiRuntime() {
+  return runtime;
+}
+```
+
+続いてアクション ID ごとに薄いアクションファイルを追加します。ファクトリーのオプションはすべて省略可能なので、各ファイルは 1 回の呼び出しで済みます。
+
+```ts
+// actions/provider-api-catalog.ts
+import { createProviderApiCatalogAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiCatalogAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-docs.ts
+import { createProviderApiDocsAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiDocsAction(getProviderApiRuntime());
+```
+
+```ts
+// actions/provider-api-request.ts
+import { createProviderApiRequestAction } from "@agent-native/core/provider-api/actions/provider-api";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default createProviderApiRequestAction(getProviderApiRuntime());
+```
+
+`actions/` 内のファイルは自動的に検出されるため、編集すべきレジストリはありません。プロバイダーを絞り込んだり HTTP で公開したりする場合は [Core のアクションファクトリーを再利用する](/docs/integrations#provider-api-factories) を参照してください。
+
+#### 3. Notion のキーは `.env` ではなく保管庫に入れる
+
+**[notion.so/my-integrations](https://www.notion.so/my-integrations)** で内部インテグレーションを作成し、シークレットをコピーします。次にアプリで **Settings → API Keys & Connections** を開き、名前をちょうど `NOTION_API_KEY` としたキーを追加して値を貼り付け、スコープを選びます。
+
+- **Personal** — あなたとして実行される処理だけが使用できます。
+- **Workspace** — 組織で共有されます。あなた以外の人がエージェントを @mention する場合はこちらを選んでください。Slack の実行はメッセージを書いた人ではなくインテグレーションの所有者として動くためです。
+
+プロバイダーランタイムは暗号化された保管庫から、個人 → 組織 → ワークスペースの順に資格情報を解決し、**意図的に `process.env` を一切読みません**。デプロイ時の環境変数はマルチテナントアプリの全ユーザーで共有されてしまうためです。`.env` に `NOTION_API_KEY` の行を書いても、ここでは読み取られません。
+
+#### 4. データベースをインテグレーションと共有する
+
+Notion で対象のデータベースを開き、**••• → Connections →** からインテグレーションを追加します。これを飛ばすのが Notion で最も多く、最も紛らわしい失敗です。API は 403 ではなく **404** を返すため、データベース ID が間違っているように見えます。カタログのエントリーにはこの対処テキストが含まれており、`provider-api-request` は 401・403・404 いずれの応答でもそれを `guidance` フィールドに追加します。
+
+データベース ID はデータベースの URL にあります。`?` の直前にある 32 文字の文字列です。
+
+#### 5. エージェントに作ってもらう
+
+どの設定画面にも書かれていないのがこの部分です。2 つの半分を自分でつなぐのではなく、望む振る舞いを依頼します。アプリのエージェントチャットで次のように伝えます。
+
+> プロバイダー API を使って Notion データベース `<NOTION_DATABASE_ID>` に行を追加する `add-notion-row` というアクションを作ってください。メッセージ本文、Slack の投稿者、Slack メッセージへのリンクを受け取れるようにしてください。そのうえで `AGENTS.md` を更新し、Slack で @mention されて記録や保存を頼まれたらそのアクションを呼び出し、新しい Notion ページの URL を返信するようにしてください。
+
+エージェントが書くべきなのは**1 つのアクション**です。Nitro のルートでも、ブラウザーからの `fetch` でもありません。
+
+```ts
+// actions/add-notion-row.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+import { getProviderApiRuntime } from "../server/lib/provider-api.js";
+
+export default defineAction({
+  description:
+    "Append one row to the team's Notion database, e.g. from a Slack reply.",
+  schema: z.object({
+    databaseId: z.string().describe("Notion database id"),
+    text: z.string().min(1).describe("Body of the message to record"),
+    author: z.string().optional().describe("Who said it"),
+    sourceUrl: z.string().url().optional().describe("Link back to Slack"),
+  }),
+  run: async ({ databaseId, text, author, sourceUrl }) => {
+    const runtime = getProviderApiRuntime();
+
+    const database = await runtime.executeRequest({
+      provider: "notion",
+      method: "GET",
+      path: `/databases/${databaseId}`,
+    });
+    if (!database.response.ok) {
+      throw new Error(
+        `Notion rejected the database lookup (${database.response.status}). ${database.guidance}`,
+      );
+    }
+
+    const dataSourceId = (
+      database.response.json as { data_sources?: { id: string }[] }
+    )?.data_sources?.[0]?.id;
+    if (!dataSourceId) {
+      throw new Error("That Notion database has no readable data source.");
+    }
+
+    const created = await runtime.executeRequest({
+      provider: "notion",
+      method: "POST",
+      path: "/pages",
+      body: {
+        parent: { data_source_id: dataSourceId },
+        properties: {
+          Name: { title: [{ text: { content: text.slice(0, 200) } }] },
+          ...(author
+            ? { Author: { rich_text: [{ text: { content: author } }] } }
+            : {}),
+          ...(sourceUrl ? { Source: { url: sourceUrl } } : {}),
+        },
+      },
+    });
+    if (!created.response.ok) {
+      throw new Error(
+        `Notion rejected the new row (${created.response.status}). ${created.guidance}`,
+      );
+    }
+
+    return created.response.json;
+  },
+});
+```
+
+このサンプルで重要な点は 3 つあります。
+
+- 現行の Notion では行はデータベース内の**データソース**にぶら下がるため、まずデータベースを読み、その `data_sources[0].id` を親として使います。データベース ID をそのまま親に渡すのは旧 API の形式です。
+- `executeRequest` はプロバイダーのエラーを送出せず戻り値として返すため、`response.ok` を自分で確認し、返ってきた `guidance` をそのまま伝えてください。「データベースを共有してください」というヒントはそこに届きます。
+- プロパティ名 (`Name`、`Author`、`Source`) はデータベースの列と完全に一致している必要があり、型も一致させる必要があります。推測させず、まずデータベースの `properties` をエージェントに読ませてください。
+
+`AGENTS.md` の更新は省略できません。それがないと、エージェントはツールを持っていても、Slack のメッセージで「これを記録して」と言われたときに使う理由がありません。
+
+#### 6. 動作確認と、うまくいかないときの確認先
+
+エージェントが参加している Slack チャンネルで `@YourAgent これを Notion に記録して: <SOME_TEXT>` と投稿します。成功した実行はスレッド内に新しいページの URL を返信し、Notion に行が追加されます。
+
+うまくいかない場合:
+
+| 見えている症状                                            | 確認する場所                                                                                                                                            |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Slack がまったく返信しない                                | メンションがアプリに届いていません。[Slack をセットアップ](#slack) の Request URL と署名シークレットを確認してください。Notion 側の問題ではありません。 |
+| エージェントは返信するが Notion のツールがないと言う      | 手順 2。プロバイダー API アクションが `actions/` に追加されていません。                                                                                 |
+| `notion credential not configured. Tried: NOTION_API_KEY` | 手順 3。キーが `.env` にあるか、実行者とは別のアカウントの **Personal** として保存されています。**Workspace** で保存してください。                      |
+| Notion が `404` を返す                                    | 手順 4。データベースがインテグレーションと共有されていません。                                                                                          |
+| Notion がプロパティについて `400` を返す                  | アクション内のプロパティ名または型がデータベースの列と一致していません。                                                                                |
+| 一度は成功したが、その後のスレッド返信が無視された        | 想定どおりの動作です。エージェントに処理させる各メッセージには明示的なメンションが必要です。改めて @mention してください。                              |
 
 ## テレグラムを設定する {#telegram}
 

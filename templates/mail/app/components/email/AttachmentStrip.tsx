@@ -1,4 +1,4 @@
-import { appApiPath } from "@agent-native/core/client";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import type { ComposeAttachment } from "@shared/types";
 import {
   IconAlertCircle,

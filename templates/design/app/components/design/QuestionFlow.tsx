@@ -4,10 +4,10 @@ import {
   isOtherGuidedAnswer,
   makeOtherGuidedAnswer,
   normalizeGuidedAnswers,
-  useT,
   type GuidedQuestion,
   type GuidedQuestionOption,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import type { QuestionFlowQuestion } from "@shared/api";
 import { IconCheck, IconPalette, IconUpload, IconX } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -81,8 +81,11 @@ export function QuestionFlow({
       : Math.round((answeredCount / guidedQuestions.length) * 100);
 
   return (
-    <div className="flex h-full w-full justify-center overflow-y-auto bg-transparent px-5 py-8 text-[13px] text-foreground sm:px-8 lg:px-10">
-      <main className="w-full max-w-[820px] pb-8">
+    /* `items-start` is what makes the trailing space real: stretched, this
+       column overflows its own padding box, so its `pb` renders above the
+       overflow and the scroll container's `py` bottom is dropped. */
+    <div className="flex h-full w-full items-start justify-center overflow-y-auto bg-transparent px-5 py-8 text-[13px] text-foreground sm:px-8 lg:px-10">
+      <main className="w-full max-w-[820px] pb-16">
         <div className="mb-6 border-b border-[var(--design-editor-panel-divider-color)] pb-5">
           <h2 className="text-[22px] font-semibold leading-7 tracking-normal text-foreground sm:text-2xl sm:leading-8">
             {title ?? t("questionFlow.defaultTitle")}

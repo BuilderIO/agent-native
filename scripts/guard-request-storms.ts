@@ -15,6 +15,10 @@ const EXCLUDED_DIRECTORY_NAMES = new Set([
   "vendor",
 ]);
 
+function isExcludedDirectoryName(name: string): boolean {
+  return EXCLUDED_DIRECTORY_NAMES.has(name) || name.startsWith("corpus.tmp-");
+}
+
 export type RequestStormRule =
   | "background-refetch"
   | "fast-fixed-poll"
@@ -202,7 +206,7 @@ export function shouldScanRequestStormFile(relativeFile: string): boolean {
   if (/\.(?:generated|gen)\.(?:ts|tsx)$/.test(normalized)) return false;
   return !normalized
     .split("/")
-    .some((segment) => EXCLUDED_DIRECTORY_NAMES.has(segment));
+    .some((segment) => isExcludedDirectoryName(segment));
 }
 
 function discoverFiles(repoRoot: string): string[] {
@@ -212,7 +216,7 @@ function discoverFiles(repoRoot: string): string[] {
       const child = path.join(absolutePath, entry.name);
       const relative = path.relative(repoRoot, child);
       if (entry.isDirectory()) {
-        if (EXCLUDED_DIRECTORY_NAMES.has(entry.name)) continue;
+        if (isExcludedDirectoryName(entry.name)) continue;
         visit(child);
       } else if (shouldScanRequestStormFile(relative)) {
         files.push(relative.split(path.sep).join("/"));
@@ -232,14 +236,19 @@ export function checkRequestStorms(repoRoot: string): {
   violations: RequestStormViolation[];
 } {
   const files = discoverFiles(repoRoot);
+  let filesChecked = 0;
+  const violations = files.flatMap((file) => {
+    const absoluteFile = path.join(repoRoot, file);
+    if (!existsSync(absoluteFile)) return [];
+    filesChecked += 1;
+    return analyzeRequestStormSource({
+      file,
+      source: readFileSync(absoluteFile, "utf8"),
+    });
+  });
   return {
-    filesChecked: files.length,
-    violations: files.flatMap((file) =>
-      analyzeRequestStormSource({
-        file,
-        source: readFileSync(path.join(repoRoot, file), "utf8"),
-      }),
-    ),
+    filesChecked,
+    violations,
   };
 }
 

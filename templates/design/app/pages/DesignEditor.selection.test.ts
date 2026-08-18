@@ -62,7 +62,7 @@ import {
   findScreenFrameAtCanvasPoint,
 } from "./design-editor/overview-camera";
 import {
-  getPendingVisualStylePropertyCount,
+  getPendingVisualEditCount,
   shouldBlockPendingVisualStyleNavigation,
   resolveOverviewScreenSourceType,
   shouldPreferRuntimeLayerProjection,
@@ -99,6 +99,7 @@ import {
 import {
   getDesignToolActivationState,
   getMoveGroupToolPresentation,
+  shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 
 describe("DesignEditor overview selection state", () => {
@@ -164,6 +165,23 @@ describe("DesignEditor command tool activation", () => {
       drawMode: false,
       pinMode: false,
     });
+  });
+
+  it("does not auto-enable the draw overlay while comment pins are active", () => {
+    expect(
+      shouldAutoEnableDrawOverlay({
+        mode: "annotate",
+        activeTool: "comment",
+        pinMode: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoEnableDrawOverlay({
+        mode: "annotate",
+        activeTool: "draw",
+        pinMode: false,
+      }),
+    ).toBe(true);
   });
 });
 
@@ -404,7 +422,7 @@ describe("DesignEditor pending visual style edits", () => {
       color: "",
       backgroundColor: "",
     });
-    expect(getPendingVisualStylePropertyCount(edits)).toBe(2);
+    expect(getPendingVisualEditCount(edits)).toBe(1);
   });
 
   it("keeps repeated same-target style undo scoped to the latest gesture", () => {
@@ -618,7 +636,7 @@ describe("DesignEditor pending visual style edits", () => {
       ],
     });
 
-    expect(prompt).toContain("Pending text/structure edits:");
+    expect(prompt).toContain("Pending text/layer-state/structure edits:");
     expect(prompt).toContain('"kind": "text"');
     expect(prompt).toContain('"value": "New headline"');
     expect(prompt).toContain('"kind": "structure"');
@@ -741,6 +759,15 @@ describe("DesignEditor pending visual style edits", () => {
     ).toBe(true);
   });
 
+  it("uses runtime layers for URL-backed fusion screens too", () => {
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "fusion" },
+        content: "http://localhost:8080/builder-preview/design-1/",
+      }),
+    ).toBe(true);
+  });
+
   it("uses runtime layers only for URL-backed localhost screens", () => {
     expect(
       shouldUseRuntimeLayerProjection({
@@ -788,7 +815,7 @@ describe("DesignEditor pending visual style edits", () => {
     ).toBe(false);
   });
 
-  it("hides the apply styles affordance for non-localhost visual edits", () => {
+  it("hides the apply styles affordance for inline visual edits", () => {
     const edits = [
       {
         screenId: "generated-home",
@@ -808,12 +835,14 @@ describe("DesignEditor pending visual style edits", () => {
         screenSourceTypes: new Map([["generated-home", "inline"]]),
       }),
     ).toBe(false);
+    // A fusion screen is a running app: its markup lives in source, so the
+    // handoff is the only way an edit can land.
     expect(
       shouldShowPendingVisualStyleApply({
         edits,
         screenSourceTypes: new Map([["generated-home", "fusion"]]),
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -1006,7 +1035,7 @@ describe("DesignEditor sidebar code layer selection", () => {
     });
   });
 
-  it("leaves single-screen selection state alone", () => {
+  it("returns sidebar code-layer selection to the editing canvas", () => {
     expect(
       getSidebarCodeLayerSelectionState({
         currentViewMode: "single",
@@ -1015,8 +1044,8 @@ describe("DesignEditor sidebar code layer selection", () => {
         screenFileIds: ["screen-a"],
       }),
     ).toEqual({
-      viewMode: "single",
-      overviewSelectedScreenIds: ["screen-a"],
+      viewMode: "overview",
+      overviewSelectedScreenIds: [],
     });
   });
 });
@@ -1488,9 +1517,10 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         selectionId: "node-456",
         zoom: 100,
+        mode: "interact",
       }),
     ).toBe(
-      "?design_host=builder&view=single&screen=screen-123&selection=node-456&zoom=100",
+      "?design_host=builder&view=single&screen=screen-123&selection=node-456&zoom=100&mode=interact",
     );
   });
 
@@ -1518,7 +1548,9 @@ describe("DesignEditor URL state", () => {
         codeFileId: "code-file",
         codeFilename: "app/routes/home.tsx",
       }),
-    ).toBe("?view=single&panel=code&fileId=code-file&screen=screen-123");
+    ).toBe(
+      "?view=single&panel=code&fileId=code-file&screen=screen-123&mode=interact",
+    );
   });
 
   it("tracks the live non-default tool and removes a stale tool after returning to move", () => {
@@ -1529,7 +1561,7 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         tool: "pen",
       }),
-    ).toBe("?view=single&screen=screen-123&tool=pen");
+    ).toBe("?view=single&screen=screen-123&tool=pen&mode=interact");
 
     expect(
       getDesignEditorStateUrlSearch({
@@ -1538,7 +1570,19 @@ describe("DesignEditor URL state", () => {
         screenId: "screen-123",
         tool: "move",
       }),
-    ).toBe("?view=single&screen=screen-123");
+    ).toBe("?view=single&screen=screen-123&mode=interact");
+  });
+
+  it("removes stale Interact mode after returning to the overview", () => {
+    expect(
+      getDesignEditorStateUrlSearch({
+        currentSearch: "?view=single&screen=screen-123&mode=interact&zoom=100",
+        viewMode: "overview",
+        screenId: "screen-123",
+        mode: "edit",
+        zoom: 100,
+      }),
+    ).toBe("?view=overview&screen=screen-123&zoom=100");
   });
 });
 
@@ -2527,6 +2571,54 @@ describe("U3: local content history fallback mirror", () => {
         after: "same",
       }),
     ).toBe(stack);
+  });
+
+  it("does NOT coalesce a user-edit mirror across an agent checkpoint (isCheckpoint guard)", () => {
+    // Repro for: AI creates design → user edits → Cmd+Z wipes all AI work.
+    // The agent checkpoint must remain as a distinct undo entry so the first
+    // Cmd+Z reverts only the user edit and a second Cmd+Z reverts the AI work.
+    const checkpoint = {
+      fileId: "a",
+      before: "",
+      after: "<ai-design/>",
+      isCheckpoint: true,
+    };
+    const stack = [checkpoint];
+    const next = mergeLocalContentHistoryFallback(stack, {
+      fileId: "a",
+      before: "<ai-design/>",
+      after: "<ai-design/><user-edit/>",
+    });
+    expect(next).toEqual([
+      checkpoint,
+      {
+        fileId: "a",
+        before: "<ai-design/>",
+        after: "<ai-design/><user-edit/>",
+      },
+    ]);
+  });
+
+  it("does NOT coalesce an incoming agent checkpoint into a preceding user edit (reverse ordering)", () => {
+    // Mirror of the case above: a user edit is already on the stack when the
+    // agent edits the same file. The incoming checkpoint is contiguous
+    // (agent.before === user.after) so the one-sided guard used to merge it
+    // backward and drop isCheckpoint — one Cmd+Z then wiped both.
+    const userEdit = {
+      fileId: "a",
+      before: "<design/>",
+      after: "<design/><user-edit/>",
+    };
+    const stack = [userEdit];
+    const checkpoint = {
+      fileId: "a",
+      before: "<design/><user-edit/>",
+      after: "<design/><user-edit/><ai-edit/>",
+      isCheckpoint: true,
+    };
+    const next = mergeLocalContentHistoryFallback(stack, checkpoint);
+    expect(next).toEqual([userEdit, checkpoint]);
+    expect(next[next.length - 1]?.isCheckpoint).toBe(true);
   });
 });
 

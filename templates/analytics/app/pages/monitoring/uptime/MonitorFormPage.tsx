@@ -1,13 +1,7 @@
-/**
- * Full-page create / edit form for an uptime monitor. Renders inside the
- * Monitoring → Uptime panel (not a modal), driven by query params so it is
- * deep-linkable and back-button friendly.
- *
- * Progressive disclosure: only Name, URL, and Check interval are always
- * visible. Response checks, Alerting, and Advanced live in collapsed sections
- * with smart defaults, so a working monitor needs just a name + URL.
- */
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import {
   IconArrowLeft,
   IconBell,

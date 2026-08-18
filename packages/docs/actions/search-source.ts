@@ -1,6 +1,8 @@
 import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
+import { readPublicJsonAsset } from "./public-assets";
+
 interface SourceEntry {
   path: string;
   content: string;
@@ -10,18 +12,10 @@ let cachedIndex: SourceEntry[] | null = null;
 
 async function loadSourceIndex(): Promise<SourceEntry[]> {
   if (cachedIndex) return cachedIndex;
-
-  const { readFile } = await import("node:fs/promises");
-  const { join } = await import("node:path");
-
-  try {
-    const indexPath = join(import.meta.dirname, "../public/source-index.json");
-    const raw = await readFile(indexPath, "utf-8");
-    cachedIndex = JSON.parse(raw);
-    return cachedIndex!;
-  } catch {
-    return [];
-  }
+  const index = await readPublicJsonAsset<SourceEntry[]>("source-index.json");
+  if (!Array.isArray(index)) return [];
+  cachedIndex = index;
+  return index;
 }
 
 export default defineAction({
@@ -39,6 +33,8 @@ export default defineAction({
       ),
   }),
   http: false,
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true },
   run: async ({ query, directory }) => {
     const index = await loadSourceIndex();
     if (index.length === 0) {

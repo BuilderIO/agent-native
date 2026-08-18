@@ -28,10 +28,9 @@ const messages = {
     workspaceDescription: "管理團隊成員、組織存取權限和共用工作區偏好。",
     openTeamSettings: "開啟團隊設定",
     openResourceSettings: "開啟資源設定",
-    agentTitle: "代理設定",
-    agentDescription:
-      "開啟代理側邊欄設定，管理模型、API 金鑰、自動化、語音和其他代理控制項。",
-    openAgentSettings: "開啟代理設定",
+    agentTitle: "管理代理",
+    agentDescription: "管理代理的模型、API 金鑰、自動化、語音和其他控制項。",
+    openAgentSettings: "管理代理",
     editorTitle: "VS Code 擴充功能",
     editorDescription:
       "在 VS Code 的側邊面板中開啟並審閱計畫，而不是切換到單獨的瀏覽器標籤頁面。",
@@ -43,6 +42,10 @@ const messages = {
     suggestionShipped: "上週發布了什麼？",
     suggestionUi: "這個介面現在是什麼樣？",
     suggestionApi: "這個 API 的結構是什麼？",
+  },
+  contextXray: {
+    panelTitle: "脈絡 X 光",
+    snapshotsTitle: "快照",
   },
   sidebar: {
     openNavigation: "開啟導覽",
@@ -148,6 +151,7 @@ const messages = {
       artboardCanvas: "Plan 畫板畫布",
       zoomIn: "放大",
       zoomOut: "縮小",
+      zoomHint: "按住 ⌘/Ctrl 並捲動以縮放",
       markupSaveFailed: "無法儲存標注。請重試。",
     },
     document: {
@@ -281,6 +285,7 @@ const messages = {
       advanced: "先進的",
       agentMissing: "連線代理以執行 - 新增 API 金鑰或使用 Builder。",
       assessment: {
+        design: "自動偵測到高擬真要求；代理將建立精緻的品牌化介面。",
         ui: "自動偵測 UI 狀態或流程；代理將制定線框優先計畫。",
         visual: "汽車將要求代理提供豐富的技術計畫，包括圖表和實施細節。",
       },
@@ -301,6 +306,10 @@ const messages = {
         ui: {
           description: "UI 流程 - 線框和狀態",
           label: "使用者介面流程",
+        },
+        design: {
+          description: "高擬真設計 - 精緻的品牌化介面",
+          label: "高擬真設計",
         },
         visual: {
           description: "一般視覺 - 圖表和註解",
@@ -657,6 +666,8 @@ const messages = {
         "預設為私人。邀請他人、與您的組織共用或設定公開以供任何有連結的人審核。",
       finishAccount: "完成建立您的帳戶，然後返回，我們將生成連結。",
       generalAccess: "通用 {{noun}} 存取",
+      commenterRoleLabel: "評論者",
+      commenterRoleDescription: "可以檢視並新增評論",
       hostedCopy:
         "此本機 {{noun}} 有一個託管副本可供共用。開啟託管的 {{noun}} 來管理存取。",
       linkCopied: "已複製共用連結",

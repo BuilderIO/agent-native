@@ -1,12 +1,11 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { DbAdminPage } from "@agent-native/core/client/db-admin";
 import {
-  agentNativePath,
-  ObservabilityDashboard,
   useActionMutation,
   useActionQuery,
-  useFormatters,
-  useT,
-} from "@agent-native/core/client";
-import { DbAdminPage } from "@agent-native/core/client/db-admin";
+} from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 import { useOrgRole } from "@agent-native/core/client/org";
 import {
   IconActivity,
@@ -18,11 +17,13 @@ import {
   IconLoader2,
   IconMouse,
   IconPlus,
+  IconToggleRight,
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 
+import { FeatureFlagsFleetPanel } from "@/components/agents/FeatureFlagsFleetPanel";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -70,7 +71,7 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-type AgentAdminView = "monitoring" | "dashboards" | "database";
+type AgentAdminView = "monitoring" | "dashboards" | "database" | "flags";
 
 interface DbAdminConnection {
   id: string;
@@ -105,6 +106,7 @@ interface DashboardUsageStats {
   viewCount: number;
   engagementCount: number;
   eventEngagementCount: number;
+  editCount: number;
   savedViewCount: number;
   uniqueUserCount: number;
   lastViewedAt: string | null;
@@ -117,6 +119,7 @@ const AGENT_ADMIN_VIEWS: AgentAdminView[] = [
   "monitoring",
   "dashboards",
   "database",
+  "flags",
 ];
 
 function parseView(value: string | null): AgentAdminView {
@@ -133,6 +136,7 @@ function DashboardUsageAdminPanel() {
   const t = useT();
   const { formatDate } = useFormatters();
   const numberFormat = useMemo(() => new Intl.NumberFormat(), []);
+  const [sortBy, setSortBy] = useState<"views" | "edits">("views");
   const {
     data: dashboards = [],
     isLoading,
@@ -170,7 +174,25 @@ function DashboardUsageAdminPanel() {
   const staleDashboards = dashboards.filter(
     (dashboard) => dashboard.viewCount === 0 && !dashboard.archivedAt,
   );
-  const mostViewedDashboard = dashboards[0] ?? null;
+  const mostViewedDashboard = dashboards.reduce<DashboardUsageStats | null>(
+    (mostViewed, dashboard) =>
+      !mostViewed || dashboard.viewCount > mostViewed.viewCount
+        ? dashboard
+        : mostViewed,
+    null,
+  );
+  const sortedDashboards = useMemo(
+    () =>
+      [...dashboards].sort((a, b) => {
+        const primary =
+          sortBy === "views"
+            ? b.viewCount - a.viewCount
+            : b.editCount - a.editCount;
+        if (primary !== 0) return primary;
+        return b.updatedAt.localeCompare(a.updatedAt);
+      }),
+    [dashboards, sortBy],
+  );
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-4">
@@ -183,6 +205,27 @@ function DashboardUsageAdminPanel() {
             {t("agents.dashboardUsageDescription")}
           </p>
         </div>
+        <Select
+          value={sortBy}
+          onValueChange={(value) => {
+            if (value === "views" || value === "edits") setSortBy(value);
+          }}
+        >
+          <SelectTrigger
+            className="w-44"
+            aria-label={t("agents.dashboardUsageSort")}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="views">
+              {t("agents.dashboardUsageMostViewed")}
+            </SelectItem>
+            <SelectItem value="edits">
+              {t("agents.dashboardUsageMostEdited")}
+            </SelectItem>
+          </SelectContent>
+        </Select>
       </div>
 
       {error ? (
@@ -258,6 +301,7 @@ function DashboardUsageAdminPanel() {
                     <TableHead>{t("agents.dashboardUsageDashboard")}</TableHead>
                     <TableHead>{t("agents.dashboardUsageOwner")}</TableHead>
                     <TableHead>{t("agents.dashboardUsageViews")}</TableHead>
+                    <TableHead>{t("agents.dashboardUsageEdits")}</TableHead>
                     <TableHead>
                       {t("agents.dashboardUsageEngagements")}
                     </TableHead>
@@ -268,7 +312,7 @@ function DashboardUsageAdminPanel() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {dashboards.map((dashboard) => (
+                  {sortedDashboards.map((dashboard) => (
                     <TableRow key={dashboard.id}>
                       <TableCell className="min-w-[240px]">
                         <div className="flex min-w-0 flex-col gap-1">
@@ -299,6 +343,11 @@ function DashboardUsageAdminPanel() {
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {formatMaybeDate(dashboard.lastViewedAt)}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="font-medium">
+                          {formatCount(dashboard.editCount)}
                         </div>
                       </TableCell>
                       <TableCell>
@@ -383,7 +432,7 @@ export default function AgentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const view = parseView(searchParams.get("view"));
   const selectedConnectionId = searchParams.get("db");
-  const isAdminView = view === "dashboards" || view === "database";
+  const isAdminView = view !== "monitoring";
 
   function setView(next: AgentAdminView) {
     const params = new URLSearchParams(searchParams);
@@ -440,9 +489,6 @@ export default function AgentsPage() {
           </p>
         </div>
         <div className="flex shrink-0 items-center gap-2">
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/catalog">{t("agents.openCatalog")}</Link>
-          </Button>
           {canManageOrg ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
@@ -493,6 +539,21 @@ export default function AgentsPage() {
             {t("agents.dashboardUsage")}
           </button>
         ) : null}
+        {canManageOrg ? (
+          <button
+            type="button"
+            onClick={() => setView("flags")}
+            className={cn(
+              "inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
+              view === "flags"
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+          >
+            <IconToggleRight className="size-4" />
+            {t("agents.featureFlags")}
+          </button>
+        ) : null}
         {canManageOrg && view === "database" && (
           <button
             type="button"
@@ -512,6 +573,8 @@ export default function AgentsPage() {
         />
       ) : view === "dashboards" ? (
         <DashboardUsageAdminPanel />
+      ) : view === "flags" ? (
+        <FeatureFlagsFleetPanel />
       ) : (
         <div className="min-w-0">
           <div className="mb-4 max-w-3xl text-sm leading-6 text-muted-foreground">

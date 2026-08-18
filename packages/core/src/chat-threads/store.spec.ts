@@ -15,11 +15,14 @@ vi.mock("./emitter.js", () => ({
 }));
 
 import {
+  adoptThreadScopeIfUnscoped,
   createThreadShareLink,
   forkThread,
   getThreadByShareToken,
+  grantThreadUserShare,
   listThreads,
   renameThread,
+  resolveRunThreadScope,
   revokeThreadShareLink,
   searchThreads,
   setThreadArchived,
@@ -43,6 +46,9 @@ type ChatThreadRow = {
   pinned_at?: number | null;
   archived_at?: number | null;
   share_token_hash?: string | null;
+  source_platform?: string | null;
+  source_app_id?: string | null;
+  source_url?: string | null;
   org_id?: string | null;
   visibility?: "private" | "org" | "public";
 };
@@ -65,6 +71,14 @@ describe("chat thread store", () => {
   let row: ChatThreadRow | null;
   let conflictOnce: (() => void) | null;
   let conflictEveryThreadDataUpdate: boolean;
+  let transientThreadDataUpdateFailures: number;
+  let shareRows: Array<{
+    id: string;
+    resource_id: string;
+    principal_id: string;
+    role: string;
+    created_by: string;
+  }>;
 
   beforeEach(() => {
     row = {
@@ -79,6 +93,8 @@ describe("chat thread store", () => {
     };
     conflictOnce = null;
     conflictEveryThreadDataUpdate = false;
+    transientThreadDataUpdateFailures = 0;
+    shareRows = [];
     executeMock.mockReset();
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
@@ -118,6 +134,10 @@ describe("chat thread store", () => {
         };
       }
       if (/UPDATE chat_threads SET thread_data/i.test(sql)) {
+        if (transientThreadDataUpdateFailures > 0) {
+          transientThreadDataUpdateFailures -= 1;
+          throw new Error("temporary database unavailable");
+        }
         if (conflictOnce) {
           const applyConflict = conflictOnce;
           conflictOnce = null;
@@ -161,8 +181,88 @@ describe("chat thread store", () => {
         row = { ...row, archived_at: args[0] };
         return { rows: [], rowsAffected: 1 };
       }
+      if (/SELECT id, role FROM chat_thread_shares/i.test(sql)) {
+        return {
+          rows: shareRows.filter(
+            (share) =>
+              share.resource_id === args[0] &&
+              share.principal_id.toLowerCase() === args[1],
+          ),
+          rowsAffected: 0,
+        };
+      }
+      if (/UPDATE chat_thread_shares SET role/i.test(sql)) {
+        shareRows = shareRows.map((share) =>
+          share.id === args[1] ? { ...share, role: args[0] } : share,
+        );
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/INSERT INTO chat_thread_shares/i.test(sql)) {
+        shareRows.push({
+          id: args[0],
+          resource_id: args[1],
+          principal_id: args[2],
+          role: args[3],
+          created_by: args[4],
+        });
+        return { rows: [], rowsAffected: 1 };
+      }
       throw new Error(`Unexpected SQL: ${sql}`);
     });
+  });
+
+  it("grants a non-owner an explicit share so integration deep links resolve", async () => {
+    await grantThreadUserShare(
+      "thread-1",
+      "  Brent@Example.com ",
+      "editor",
+      "integration@slack",
+    );
+
+    expect(shareRows).toEqual([
+      expect.objectContaining({
+        resource_id: "thread-1",
+        principal_id: "brent@example.com",
+        role: "editor",
+        created_by: "integration@slack",
+      }),
+    ]);
+  });
+
+  it("is idempotent and never downgrades an existing stronger role", async () => {
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "admin",
+      "integration@slack",
+    );
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "editor",
+      "integration@slack",
+    );
+
+    expect(shareRows).toHaveLength(1);
+    expect(shareRows[0].role).toBe("admin");
+  });
+
+  it("upgrades a weaker existing role instead of inserting a duplicate", async () => {
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "viewer",
+      "integration@slack",
+    );
+    await grantThreadUserShare(
+      "thread-1",
+      "brent@example.com",
+      "editor",
+      "integration@slack",
+    );
+
+    expect(shareRows).toHaveLength(1);
+    expect(shareRows[0].role).toBe("editor");
   });
 
   it("retries cross-process thread-data conflicts and preserves server-only messages", async () => {
@@ -213,6 +313,23 @@ describe("chat thread store", () => {
       "Failed to update chat thread thread-1 after concurrent write conflicts.",
     );
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("retries transient thread-data write failures before surfacing an error", async () => {
+    transientThreadDataUpdateFailures = 2;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({ messages: [userMessage, assistantMessage] }),
+      "Thread",
+      "Done.",
+      2,
+      { maxAttempts: 3 },
+    );
+
+    expect(JSON.parse(row!.thread_data).messages).toHaveLength(2);
+    expect(row!.message_count).toBe(2);
+    expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
   it("can ignore exhausted conflicts for best-effort client saves", async () => {
@@ -292,7 +409,7 @@ describe("chat thread store", () => {
     await setThreadQueuedMessages("thread-1", []);
 
     const repo = JSON.parse(row!.thread_data);
-    expect(repo.queuedMessages).toBeUndefined();
+    expect(repo.queuedMessages).toEqual([]);
     expect(repo.messages.map((entry: any) => entry.message.id)).toEqual([
       "user-1",
       "assistant-1",
@@ -431,6 +548,56 @@ describe("chat thread store", () => {
     expect(result[0].messageCount).toBe(1);
   });
 
+  it("keeps the local history view app-scoped and excludes connected chats", async () => {
+    const summaryRow = {
+      id: "thread-local",
+      title: "Local thread",
+      preview: "hello there",
+      message_count: 1,
+      created_at: 1,
+      updated_at: 2,
+      scope_type: null,
+      scope_id: null,
+      scope_label: null,
+      source_platform: null,
+      source_app_id: "dispatch",
+      source_url: null,
+      pinned_at: null,
+      archived_at: null,
+    };
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      if (/SELECT .* FROM chat_threads WHERE/i.test(sql)) {
+        return { rows: [summaryRow], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+
+    const result = await listThreads("user@example.com", {
+      limit: 10,
+      includeExternal: false,
+      sourceAppId: "dispatch",
+    });
+
+    const listCall = executeMock.mock.calls.find(([query]) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      return /SELECT .* FROM chat_threads WHERE/i.test(sql);
+    });
+    expect(listCall).toBeTruthy();
+    const request = listCall![0] as { sql: string; args: unknown[] };
+    expect(request.sql).toContain("source_platform IS NULL");
+    expect(request.sql).toContain(
+      `thread_data NOT LIKE '%"integrationDeliveryAttempted":true%'`,
+    );
+    expect(request.sql).toContain(
+      "(source_app_id IS NULL OR source_app_id = ?)",
+    );
+    expect(request.args).toContain("dispatch");
+    expect(result[0]?.source).toEqual({
+      appId: "dispatch",
+    });
+  });
+
   it("excludes archived threads from list/search by default, includes them via includeArchived, and restores them on unarchive", async () => {
     const activeRow: ChatThreadRow = {
       id: "thread-active",
@@ -526,12 +693,12 @@ describe("chat thread store", () => {
     ]);
   });
 
-  it("backfills message_count for legacy rows so they stay in the list", async () => {
+  it("keeps the legacy message_count repair out of table bootstrap", async () => {
     // ensureTable caches its bootstrap promise at module scope, so reset the
-    // module registry to force a fresh bootstrap (and the one-time backfill)
-    // for this assertion.
+    // module registry to exercise a fresh bootstrap.
     vi.resetModules();
     const updates: Array<{ count: number; id: string }> = [];
+    let repairScans = 0;
     executeMock.mockImplementation(async (query: string | any) => {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : query.args;
@@ -540,6 +707,7 @@ describe("chat thread store", () => {
       }
       // The legacy backfill probe: a row that has messages but count = 0.
       if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        repairScans++;
         return {
           rows: [
             {
@@ -571,7 +739,14 @@ describe("chat thread store", () => {
     const freshStore = await import("./store.js");
     await freshStore.listThreads("user@example.com");
 
+    expect(repairScans).toBe(0);
+    expect(updates).toEqual([]);
+
+    const result = await freshStore.repairLegacyChatThreadMessageCounts();
+
+    expect(repairScans).toBe(1);
     expect(updates).toEqual([{ count: 2, id: "legacy-1" }]);
+    expect(result).toEqual({ scanned: 1, updated: 1 });
   });
 
   it("renames threads with a durable title override", async () => {
@@ -613,7 +788,7 @@ describe("chat thread store", () => {
         return { rows: found ? [found] : [], rowsAffected: 0 };
       }
       if (/INSERT INTO chat_threads/i.test(sql)) {
-        if (args.length === 9) {
+        if (args.length === 12) {
           rows.set(args[0], {
             id: args[0],
             owner_email: args[1],
@@ -626,7 +801,10 @@ describe("chat thread store", () => {
             scope_type: args[5],
             scope_id: args[6],
             scope_label: args[7],
-            org_id: args[8],
+            source_platform: args[8],
+            source_app_id: args[9],
+            source_url: args[10],
+            org_id: args[11],
             visibility: "private",
           });
           return { rows: [], rowsAffected: 1 };
@@ -643,7 +821,10 @@ describe("chat thread store", () => {
           scope_type: args[8],
           scope_id: args[9],
           scope_label: args[10],
-          org_id: args[11],
+          source_platform: args[11],
+          source_app_id: args[12],
+          source_url: args[13],
+          org_id: args[14],
           visibility: "private",
         });
         return { rows: [], rowsAffected: 1 };
@@ -763,7 +944,10 @@ describe("chat thread store", () => {
           scope_type: args[8],
           scope_id: args[9],
           scope_label: args[10],
-          org_id: args[11],
+          source_platform: args[11],
+          source_app_id: args[12],
+          source_url: args[13],
+          org_id: args[14],
           visibility: "private",
         });
         return { rows: [], rowsAffected: 1 };
@@ -844,7 +1028,10 @@ describe("chat thread store", () => {
           scope_type: args[8],
           scope_id: args[9],
           scope_label: args[10],
-          org_id: args[11],
+          source_platform: args[11],
+          source_app_id: args[12],
+          source_url: args[13],
+          org_id: args[14],
           visibility: "private",
         });
         return { rows: [], rowsAffected: 1 };
@@ -870,5 +1057,98 @@ describe("chat thread store", () => {
     expect(
       JSON.parse(rows.get("thread-forked-stale")!.thread_data).messages,
     ).toHaveLength(2);
+  });
+});
+
+describe("resolveRunThreadScope", () => {
+  const designA = { type: "design", id: "design-a" };
+  const designB = { type: "design", id: "design-b" };
+
+  it("adopts the run's scope when the thread has none", () => {
+    expect(resolveRunThreadScope(null, designA)).toEqual(designA);
+  });
+
+  it("keeps the thread's own scope when a run arrives from another resource", () => {
+    expect(resolveRunThreadScope(designA, designB)).toEqual(designA);
+  });
+
+  it("never clears a scope when the run carries none", () => {
+    expect(resolveRunThreadScope(designA, null)).toEqual(designA);
+    expect(resolveRunThreadScope(designA, undefined)).toEqual(designA);
+  });
+
+  it("leaves a general chat general when the run is also unscoped", () => {
+    expect(resolveRunThreadScope(null, null)).toBeNull();
+  });
+});
+
+describe("adoptThreadScopeIfUnscoped", () => {
+  const designA = { type: "design", id: "design-a" };
+  const designB = { type: "design", id: "design-b" };
+
+  function mockRow(scopeType: string | null, scopeId: string | null) {
+    const row = {
+      id: "thread-1",
+      owner_email: "user@example.com",
+      title: "Thread",
+      preview: "",
+      thread_data: "{}",
+      message_count: 1,
+      created_at: 1,
+      updated_at: 1,
+      scope_type: scopeType,
+      scope_id: scopeId,
+      scope_label: null,
+      pinned_at: null,
+      archived_at: null,
+      org_id: null,
+      visibility: "private" as const,
+    };
+    executeMock.mockReset();
+    emitChatThreadChangeMock.mockReset();
+    executeMock.mockImplementation(async (query: string | any) => {
+      const sql = typeof query === "string" ? query : query.sql;
+      const args = typeof query === "string" ? [] : query.args;
+      if (/CREATE TABLE/i.test(sql) || /CREATE INDEX/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/SELECT id, thread_data, message_count/i.test(sql)) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      if (/UPDATE chat_threads SET scope_type/i.test(sql)) {
+        // Honour the compare-and-set guard the real statement carries.
+        if (/AND scope_type IS NULL/i.test(sql) && row.scope_type !== null) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        row.scope_type = args[0];
+        row.scope_id = args[1];
+        row.scope_label = args[2];
+        return { rows: [], rowsAffected: 1 };
+      }
+      if (/SELECT id, owner_email/i.test(sql)) {
+        return { rows: [row], rowsAffected: 0 };
+      }
+      throw new Error(`Unexpected SQL: ${sql}`);
+    });
+    return row;
+  }
+
+  it("claims an unscoped thread and reports the scope it won", async () => {
+    const row = mockRow(null, null);
+
+    expect(await adoptThreadScopeIfUnscoped("thread-1", designA)).toEqual(
+      designA,
+    );
+    expect(row.scope_id).toBe("design-a");
+  });
+
+  it("reports the winner's scope instead of retagging when another worker won", async () => {
+    const row = mockRow("design", "design-a");
+
+    expect(await adoptThreadScopeIfUnscoped("thread-1", designB)).toEqual({
+      type: "design",
+      id: "design-a",
+    });
+    expect(row.scope_id).toBe("design-a");
   });
 });

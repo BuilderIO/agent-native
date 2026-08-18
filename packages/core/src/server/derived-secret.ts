@@ -20,7 +20,11 @@ export function deriveServerSecret(
 }
 
 export function getWorkspaceA2ADerivedSecret(
-  purpose: "better-auth" | "oauth-state" | "short-lived-token",
+  purpose:
+    | "better-auth"
+    | "oauth-state"
+    | "short-lived-token"
+    | "secrets-encryption",
 ): string | undefined {
   if (!isWorkspaceRuntime()) return undefined;
   const rootSecret = process.env.A2A_SECRET?.trim();

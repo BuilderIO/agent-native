@@ -12,9 +12,11 @@ import {
 import type { FileUploadProvider } from "./types.js";
 
 const resolveBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
+const resolveHasBuilderPrivateKeyMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../server/credential-provider.js", () => ({
   resolveBuilderPrivateKey: resolveBuilderPrivateKeyMock,
+  resolveHasBuilderPrivateKey: resolveHasBuilderPrivateKeyMock,
 }));
 
 function makeProvider(
@@ -114,6 +116,30 @@ describe("file-upload registry", () => {
       await expect(getActiveFileUploadProviderForRequest()).resolves.toBe(s3);
       expect(s3.isConfiguredForRequest).toHaveBeenCalled();
     });
+
+    it("propagates request-scoped provider lookup failures", async () => {
+      const failure = new Error("credential store unavailable");
+      const s3 = {
+        ...makeProvider("s3", false),
+        isConfiguredForRequest: vi.fn(async () => {
+          throw failure;
+        }),
+      };
+      registerFileUploadProvider(s3);
+
+      await expect(getActiveFileUploadProviderForRequest()).rejects.toBe(
+        failure,
+      );
+    });
+
+    it("resolves a request-scoped Builder connection", async () => {
+      resolveHasBuilderPrivateKeyMock.mockResolvedValue(true);
+
+      await expect(getActiveFileUploadProviderForRequest()).resolves.toBe(
+        builderFileUploadProvider,
+      );
+      expect(resolveHasBuilderPrivateKeyMock).toHaveBeenCalled();
+    });
   });
 
   describe("uploadFile dispatch", () => {
@@ -176,7 +202,7 @@ describe("file-upload registry", () => {
       uploadSpy.mockRestore();
     });
 
-    it("returns null (SQL fallback signal) when no creds resolve", async () => {
+    it("returns null when no object-storage credentials resolve", async () => {
       resolveBuilderPrivateKeyMock.mockResolvedValue(null);
       const result = await uploadFile({ data: new Uint8Array([1]) });
       expect(result).toBeNull();

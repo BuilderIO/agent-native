@@ -328,12 +328,56 @@ npx @agent-native/core@latest deploy --preset netlify
 
 ワークスペース ビルドは、`dist/_workspace_static/` の下に静的アセットを書き込み、アセットを強制的にリダイレクトせずに各アプリを独自の Netlify 関数にルーティングします。そのため、サーバー関数がアプリのルートを処理する前に、`/mail/assets/...` のようなファイルが静的に提供されます。
 
+### Keep-warm とゼロスケール データベース {#netlify-keep-warm}
+
+有効にした場合、Netlify のビルドは **毎分** `/_agent-native/health` をリクエストするスケジュール関数を出力します。これによりサーバー関数とそのデータベースがウォームに保たれ、アイドル期間後の次の訪問者がコールドスタート（Neon では 1〜5 秒）を負担しなくなります。
+
+Keep-warm は、従量課金のゼロスケール データベースで自動サスペンドを妨げるため、**デフォルトでは無効**です。次の訪問者のレイテンシ短縮がデータベースの稼働時間に見合う場合は `AGENT_NATIVE_ENABLE_KEEP_WARM=1` を設定してください。
+
+| 変数                                        | 効果                                                                                                  |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | サーバーとデータベースのスケジュールウォームアップを有効にします。デフォルトでは未設定です。          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | 互換性のための無効化スイッチです。設定するとオプトイン設定より優先されます。                          |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 有効時のケイデンスを上書きします。デフォルトは `* * * * *` で、解析できない値はビルドを失敗させます。 |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Keep-warm 有効時にバックグラウンド関数のウォームアップだけを無効化し、サーバーはウォームに保ちます。  |
+
+無料プランやクォータ制限のあるデータベース プランを使っている場合は `AGENT_NATIVE_ENABLE_KEEP_WARM` を設定しないでください。有効にする場合は、より遅いケイデンスを選ぶか `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` を設定してください。
+
+### オンデマンド スキーマ DDL {#skip-ensure-tables}
+
+各ストアは最初のデータベース接触時に `ensureTable()` を呼び出し、`information_schema` / `pg_indexes` をプローブして、本当に欠けているものだけに `CREATE TABLE` / `ADD COLUMN` / `CREATE INDEX` を発行します。長時間稼働する Node サーバーではこのコストは起動ごとに一度だけで、目に見えません。サーバーレスでは「最初の接触」が **すべてのコールドスタート** で発生し、約 57 のストアにまたがります。つまりコールドなリクエストは、実際の処理を始める前に数百回の直列ラウンドトリップを支払うことがあります。
+
+これを減らす方法は 2 つあります。
+
+- プローブは、テーブル・カラム・インデックスごとに 1 クエリではなく、**データベースごとに 1 回のバッチ化されたイントロスペクション**（2 クエリ）から回答されます。これは自動で、設定は不要です。
+- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` はプローブと DDL の仕組みを完全にスキップします。利用できるコールドスタート遅延の改善として最大のものです。
+
+データベース スキーマがすでにマイグレーション済みで、アプリケーションの起動時にテーブルを作成・変更したくない場合は `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` を設定してください。実際のマイグレーション手順を持つ本番デプロイでは通常のケースです。
+
+<Callout tone="risk">
+
+**このフラグはフェイルクローズしません。また、できません。** スキーマが実際に欠けている場合、最初の実クエリはその場で修復されるのではなく、大きな音を立てて失敗します。それが狙いですが、マイグレーションの責任はあなたが負うことを意味します。テーブルの用意をアプリケーション起動に依存しているデプロイでは設定しないでください。
+
+</Callout>
+
 ## Cloudflare ページ {#cloudflare-pages}
 
 ```ts
 // vite.config.ts
 export default defineConfig({
   plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
+});
+```
+
+## Cloudflare Workers {#cloudflare-workers}
+
+SSR を有効にした Cloudflare Worker には、Nitro のネイティブなモジュール
+出力を使用します。`npx @agent-native/core@latest build` を実行し、その後
+`npx wrangler deploy --config .output/server/wrangler.json` でデプロイします。
+
+```ts
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
 });
 ```
 
@@ -355,31 +399,77 @@ export default defineConfig({
 });
 ```
 
+## SSR キャッシング {#ssr-caching}
+
+すべての SSR HTML レスポンスとすべての React Router `.data` レスポンスは、単一の非個人化された公開シェルです。`createH3SSRHandler` はレンダリング前に Cookie を取り除くため、同じバイト列がすべての訪問者に対して正しく、パーソナライズはすべて読み込み後にクライアント側で行われます。これにより、これらのレスポンスにデフォルトで単一のハードキャッシュ ポリシーを適用しても安全になります。
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+同じ値が `cdn-cache-control` と `netlify-cdn-cache-control` にもミラーされます。これにより、リクエストごとのレンダリングの代わりに、1 つの共有 CDN エントリがサイト全体を配信するようになります。これは初回レスポンスのレイテンシに対する最大のレバーです — 以下のケースのいずれかがデプロイメントに該当しない限り、有効のままにしてください。
+
+### `AGENT_NATIVE_SSR_CACHE` でオーバーライドする {#ssr-cache-env}
+
+デプロイ環境で `AGENT_NATIVE_SSR_CACHE` を設定すると、デプロイメント全体のポリシーを変更できます。
+
+| 値                                                  | 結果                                                                                     |
+| --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| 未設定、`on`、`default`、`true`、`1`                | 上記のデフォルト ポリシーのまま変更なし。推奨 — 最高のパフォーマンス。                   |
+| `off`、`false`、`0`、`none`、`no-store`、`disabled` | `cache-control`、`cdn-cache-control`、`netlify-cdn-cache-control` に `no-store` を設定。 |
+| 期間: `30`、`30s`、`5m`、`2h`                       | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`。                 |
+
+裸の数値は秒として扱われます。`stale-while-revalidate` は、カスタム期間に対して意図的に `max-age` をミラーします。短い鮮度ウィンドウにデフォルトの 7 日間の stale ウィンドウを組み合わせると、まさにオプトアウトしたはずの古さが返ってきてしまうためです。認識できない値はワーニングをログに出力し、デフォルトにフォールバックするため、タイプミスによって CDN が黙って無効化されることはありません。
+
+以下のいずれかに該当する場合は、キャッシュを弱めるかオフにしてください。
+
+1. **ホストがデプロイ時に CDN をパージしない場合。** Netlify と Vercel はパージしますが、一部のセルフマネージド構成ではパージされません。パージがない場合、公開済みのビルドは `max-age` に `stale-while-revalidate` を加えた期間、以前のシェルを配信し続ける可能性があります。
+2. **ローダーが可変の公開データを返す場合。** ミューテーションの成功後、`useRevalidator()` またはアクション後のリダイレクトによる再フェッチが、最新のローダー出力ではなく、ブラウザにキャッシュされた `.data` のコピーを読み込んでしまうことがあります。
+
+この設定は、公開シェルのすべてのサーフェスに適用されます: React Router の SSR HTML と `.data`、ログイン HTML シェル、`/_agent-native/speculation-rules.json` ルート、ドキュメント サイト、および forms テンプレートの公開フォーム SSR です。生成された Cloudflare Worker はこれをビルド時に解決するため、ビルドを実行する前にデプロイ環境で設定してください。
+
+留意すべき点が 3 つあります。
+
+- **キャッシュをオフにしても SSR がパーソナライズされるわけではありません。** Cookie は引き続きレンダリング前に取り除かれ、SSR ローダーは引き続き匿名ブランチを参照します。ユーザーごとのデータは引き続きクライアント側で解決する必要があります。この変数が制御するのはキャッシュの*期間*のみです。
+- **これは設計上、ルートごとではなくデプロイメント全体の設定です。** ルートごとまたはリクエストごとのキャッシュ オーバーライドは、ある訪問者のペイロードが別の訪問者の共有 CDN エントリに紛れ込む原因になるため、フレームワークはそれを提供しません — `guard:ssr-cache-shell` がこれを強制します。
+- **ミューテーション直後の最新データが必要な場合は、キャッシュを無効化するのではなく Actions を優先してください。** アプリ データは [Actions](/docs/actions-overview) に属し、クライアントからは `useActionQuery` / `useActionMutation` で読み取り、`useDbSync()` のポーリングによって最新の状態が保たれます。これらはいずれも SSR シェル キャッシュを経由しません。SSR ローダーには引き続き公開シェルをレンダリングさせ、この変数は本当にローダー データをより新鮮にしたい場合にのみ使用してください。
+
 ## 環境変数 {#environment-variables}
 
 ### ビルド / ランタイム {#env-runtime}
 
-| 変数                        | 説明                                                                                                                                                                                |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | サーバー ポート (Node.js のみ)                                                                                                                                                      |
-| `NITRO_PRESET`              | ビルド時にビルド プリセットをオーバーライドする                                                                                                                                     |
-| `APP_BASE_PATH`             | プレフィックス (例: `/mail`) の下でアプリをマウントします。 `npx @agent-native/core@latest deploy` によって自動的に設定されます。スタンドアロンの場合は未設定のままにしておきます。 |
-| `AGENT_PROD_CODE_EXECUTION` | オプションの実稼働コード実行モード: `off` (デフォルト)、`sandboxed`、または `trusted`。 [Production Code Execution](#production-code-execution) を参照してください。                |
+| 変数                                        | 説明                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | サーバー ポート (Node.js のみ)                                                                                                                                                                                                                                                                                                                                                                                |
+| `NITRO_PRESET`                              | ビルド時にビルド プリセットをオーバーライドする                                                                                                                                                                                                                                                                                                                                                               |
+| `APP_BASE_PATH`                             | プレフィックス (例: `/mail`) の下でアプリをマウントします。 `npx @agent-native/core@latest deploy` によって自動的に設定されます。スタンドアロンの場合は未設定のままにしておきます。                                                                                                                                                                                                                           |
+| `AGENT_PROD_CODE_EXECUTION`                 | オプションの実稼働コード実行モード: `off` (デフォルト)、`sandboxed`、または `trusted`。 [Production Code Execution](#production-code-execution) を参照してください。                                                                                                                                                                                                                                          |
+| `AGENT_NATIVE_SSR_CACHE`                    | デプロイメント全体の SSR シェル キャッシュ ポリシー: 未設定/`on` はデフォルトのハードキャッシュを維持し、`off` は `no-store` を送信し、`30s` / `5m` のような期間を指定すると鮮度期間を短縮します。 [SSR Caching](#ssr-caching) を参照してください。                                                                                                                                                           |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Netlify の keep-warm スケジュール関数を有効にします。デフォルトでは未設定です。[Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                                                           |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Netlify の keep-warm スケジュール関数の互換性用無効化スイッチです。[Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                                                                       |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 有効時の keep-warm ケイデンスを上書きします（デフォルト `* * * * *`）。解析できない値はビルドを失敗させます。[Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                             |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Keep-warm 有効時にバックグラウンド関数のウォームアップだけを無効化します。[Keep-warm](#netlify-keep-warm) を参照してください。                                                                                                                                                                                                                                                                                |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | プロセス内のバックストップ スイープ タイマー（オートメーションの再ディスパッチ、agent-teams の整合、サンドボックス実行の復旧）を停止します。サーバーレスではウォーム コンテナごとに実行されるため、クエリ レートはインスタンス数に比例します。同じ復旧を担う永続スケジューラーがすでにある場合に**のみ**設定してください。そうでないとキュー内の作業が再試行されません。                                      |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | オンデマンドのスキーマ DDL を完全にスキップします。すべてのコールドスタートが処理前に支払うスキーマ プローブのラウンドトリップを取り除きます。スキーマがマイグレーション済みであることが前提です — [オンデマンド スキーマ DDL](#skip-ensure-tables) を参照してください。                                                                                                                                      |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | プレビューに安全な Builder 認証リレー専用の、32 文字以上の共有 HMAC シークレット。認証を分離されたプレビュー データベースに保存する必要がある場合に限り、承認済みの企業コールバック デプロイメントとプレビュー デプロイメントの両方に同じ値を設定します。                                                                                                                                                     |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 企業コールバック専用の、完全一致する信頼済みプレビューオリジンをカンマ区切りで指定する許可リスト（例: `https://0123456789abcdef01234567--content.netlify.app`）。企業コールバックのデプロイメントにのみ設定します。Netlify オリジンには 24 桁の 16 進 ID を含む、不変かつデプロイ固有のパーマリンクが必要です。変更可能な `deploy-preview-*` エイリアス、ワイルドカード、ドメインサフィックスは拒否されます。 |
 
 データベース接続変数 (`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、アプリごとの `<APP_NAME>_DATABASE_URL`) は [Database](/docs/database#production) に存在します。
 
-### 本番環境では必須 {#env-required-prod}
+### 本番環境に関わる設定 {#env-required-prod}
 
-これらは、アプリを実際の本番環境にプロモートする前に設定する必要があります。欠損値がある場合は、フェールクローズされる (フレームワークが開始を拒否する/リクエストの処理を拒否する) か、大音量の警告とともに弱い動作に戻ります。
+これらは本番環境に関わる設定です。フレームワーク認証を使うスタンドアロンアプリには安定した `BETTER_AUTH_SECRET` と永続データベースが必要です。未設定の場合、公開 auth URL はリクエスト、テンプレート、ホスティングのコンテキストから推測されます。Workspace と A2A の設定は使用する機能に応じて必要になります。値がない場合はフェールクローズされるか、大きな警告とともに弱い動作に戻ります。
 
-| 変数                     | 説明                                                                                                                                                                                                                                                                                                        |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32 文字以上のランダムな文字列。署名セッション Cookie AND は、`OAUTH_STATE_SECRET` および `SECRETS_ENCRYPTION_KEY` のフォールバック HMAC です。必須: 運用環境に存在しない場合、フレームワークは起動時にスローされます。                                                                                      |
-| `BETTER_AUTH_URL`        | このアプリの公開元 (例: `https://mail.example.com`)。 Cookie ドメインと OAuth リダイレクト構築に使用されます。                                                                                                                                                                                              |
-| `ANTHROPIC_API_KEY`      | 組み込み実稼働エージェントの API キー。 **マルチテナント展開**では、ユーザーがユーザーごとのキーを持っていない場合、フレームワークはこれへのフォールバックを拒否します。つまり、自分のキーを持参する必要があります。シングルテナントの自己ホスト型インストールでは、これをグローバル キーとして使用します。 |
-| `OAUTH_STATE_SECRET`     | OAuth 状態エンベロープ用の専用 HMAC キー (Google、Atlassian、Zoom)。設定を解除すると `BETTER_AUTH_SECRET` に戻りますが、一方を回転させてももう一方が無効にならないように、専用の値を使用することをお勧めします。 `openssl rand -hex 32` 経由で生成します。                                                  |
-| `A2A_SECRET`             | アプリ間 A2A JSON ～ RPC の共有 HMAC。これがないと、本番環境ではすべての A2A エンドポイントと `/_agent-native/integrations/process-task` 自己起動エンドポイントは 503 を返します。                                                                                                                          |
-| `SECRETS_ENCRYPTION_KEY` | 暗号化された保存シークレット ボールトの AES-256-GCM キー。 `BETTER_AUTH_SECRET` にフォールバックします。両方が設定されていない場合、本番環境でハード障害が発生します。                                                                                                                                      |
+| 変数                                        | 説明                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32 文字以上のランダム文字列。セッション Cookie を署名し、`OAUTH_STATE_SECRET` とアプリローカルの暗号化値のフォールバックになります。既存の共有 Vault ciphertext を読むためのレガシー候補でもあります。本番環境では必須です。                                                                                |
+| `BETTER_AUTH_URL`                           | このアプリの公開元の任意の上書き (例: `https://mail.example.com`)。未設定の場合はリクエスト、テンプレート、ホスティングのコンテキストから推測されます。                                                                                                                                                     |
+| `ANTHROPIC_API_KEY`                         | 組み込み実稼働エージェントの API キー。 **マルチテナント展開**では、ユーザーがユーザーごとのキーを持っていない場合、フレームワークはこれへのフォールバックを拒否します。つまり、自分のキーを持参する必要があります。シングルテナントの自己ホスト型インストールでは、これをグローバル キーとして使用します。 |
+| `OAUTH_STATE_SECRET`                        | OAuth 状態エンベロープ用の専用 HMAC キー (Google、Atlassian、Zoom)。設定を解除すると `BETTER_AUTH_SECRET` に戻りますが、一方を回転させてももう一方が無効にならないように、専用の値を使用することをお勧めします。 `openssl rand -hex 32` 経由で生成します。                                                  |
+| `A2A_SECRET`                                | アプリ間 A2A JSON-RPC の共有 HMAC。専用のワークスペースキーが未設定なら、共有 Vault はこの値から用途別に導出したキーを使うため、この値のローテーションは Vault キーも変更します。                                                                                                                           |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | 共有ワークスペース Vault に推奨される安定した AES-256-GCM キー。読むすべてのアプリに同じ値を設定し、アプリ固有の OAuth 暗号化とは分離します。                                                                                                                                                               |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | ローテーション中に使う任意の前のワークスペースキー。新しいキーと同時に設定し、読み取りによる移行後に削除します。                                                                                                                                                                                            |
+| `SECRETS_ENCRYPTION_KEY`                    | アプリ固有の暗号化と Vault 用の従来の統合キー。引き続きサポートされますが、新しいマルチアプリ環境では専用キーを使用してください。                                                                                                                                                                           |
 
 ### 認証とアイデンティティ {#env-auth}
 
@@ -399,7 +489,7 @@ OAuth プロバイダー資格情報 (Google、GitHub)、静的 MCP ベアラー
 
 ### 強力な秘密の生成 {#env-generate-secrets}
 
-「32 文字以上のランダム」とマークされたシークレット (`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`SECRETS_ENCRYPTION_KEY`) については、次のコマンドを使用して新しい値を生成します。
+「32 文字以上のランダム」とマークされたシークレット (`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`WORKSPACE_SECRETS_ENCRYPTION_KEY`、`SECRETS_ENCRYPTION_KEY`、`AGENT_NATIVE_BUILDER_RELAY_SECRET`) については、次のコマンドを使用して新しい値を生成します。
 
 ```bash
 openssl rand -hex 32
@@ -416,22 +506,58 @@ openssl rand -hex 32
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+  },
 });
 ```
 
-- `databaseTools: "read"` — デフォルト。`db-schema` と `db-query` のみを登録します。
+```ts
+// server/plugins/core-routes.ts
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+- `database: "read"` — デフォルト。`db-schema` と `db-query` のみを登録します。
   エージェントは SQL でデータを検査しますが、書き込みには型付きアプリ actions を使用します。
-- `databaseTools: "write"` または `true` — 意図的な raw SQL メンテナンス用に
+- `database: "write"` または `true` — 意図的な raw SQL メンテナンス用に
   `db-exec` と `db-patch` も登録します。書き込みは現在のユーザー/組織に
   スコープされ、スキーマ変更はブロックされます。
-- `databaseTools: "off"` または `false` — 生のデータベース ツールを
+- `database: "off"` または `false` — 生のデータベース ツールを
   エージェント サーフェスのため、アプリの actions が唯一のデータ アクセス パスになります。
-- `extensionTools: false` — フレームワーク拡張管理 actions を削除し、
-  次のようなアプリに対するプロンプト ガイダンス (`create-extension`、`update-extension` など)
-  エージェントがサンドボックス化されたミニアプリを作成することを望まない。
+- `extensions: true` — フレームワークの拡張管理 actions と
+  ガイダンス（`create-extension`、`update-extension` など）をアプリで
+  有効にします。認証済み REST 作成も許可するには、両方の plugins に
+  設定します。拡張機能は既定で無効です。
+
+残りのグループは真偽値で、すべて既定で有効です: `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`。
+音声中心のアプリや単一目的のアプリでは `frameworkTools: "minimal"` を使って
+すべてを一度に無効化できます。1 つだけ残したい場合は
+`frameworkTools: { preset: "minimal", resources: true }` のように書きます。
+明示的なグループキーは常にプリセットより優先されます。
+
+グループを無効にすると、対話チャット・MCP・A2A・バックグラウンド実行という
+**エージェント**側のサーフェスからのみ削除されます。対応する HTTP action
+ルートはマウントされたままです。UI はクライアント hooks 経由でそれらを呼ぶため、
+`sharing` を無効にしても画面に出ている共有ダイアログが 404 になってはいけません。
+このパリティの代償を検討してください。UI にできることはエージェントにもできる、
+というのがフレームワークの契約です。共有ボタンが見えている状態での
+`sharing: false` は意図的な逸脱であり、そのサーフェス自体をアプリが持たない
+場合にのみ妥当です。
+
+このオプションとは独立に、フレームワークツールは既定で最初のモデルリクエストへ
+読み込まれなくなりました。検索可能なレジストリには残り、`tool-search` 経由で
+読み込まれます。アプリが `initialToolNames` に明記した場合は即時に読み込まれます。
+
+<Callout tone="warning">
+  トップレベルの `databaseTools` と `extensionTools` は非推奨で、
+  `frameworkTools.database` と `frameworkTools.extensions` に置き換わりました。
+  引き続き解釈されますが、トップレベルのフラグと `frameworkTools` 側の同等の
+  設定が矛盾する値の場合、誰も選んでいないツールサーフェスで起動するのではなく
+  plugin の起動時にエラーになります。
+</Callout>
 
 ## 本番コードの実行 {#production-code-execution}
 
@@ -458,17 +584,17 @@ export default createAgentChatPlugin({
 
 ## 本番環境での UI の更新 {#updating-ui-in-production}
 
-エージェント ネイティブの中核機能の 1 つは、エージェントがアプリのソース コード (コンポーネント、ルート、スタイル、actions) を変更できることです。ローカル開発中は、エージェントがファイルシステムに完全にアクセスできるため、これはシームレスに機能します。
+通常のデプロイ済みアプリのエージェントは、ソースへの暗黙のアクセスを受けず、actions、データベース、MCP、設定済み統合などのアプリツールを通じて動作します。ソース変更はリポジトリの開発ワークフローで行います。埋め込み、ローカル、Builder の frame は、workspace と書き込みツールが意図的に与えられた場合にリポジトリを編集できます。
 
 [production code execution](#production-code-execution) をオフにした標準的な運用環境では、エージェントはアプリ ツール (actions、データベース、MCP) にはアクセスできますが、ファイル システムにはアクセスできません。つまり、エージェントはデータの読み取りと書き込み、actions の実行、および外部サービスとの対話が可能ですが、React コンポーネントを編集したり、デプロイされたインスタンスに新しいルートを追加したりすることはできません。
 
 ### Builder.io: 本番環境でのビジュアル編集 {#builderio}
 
-[Builder.io](https://www.builder.io) は、エージェントが運用環境でアプリの UI を変更できる機能を保持するマネージド クラウド環境を提供することで、この問題を解決します。リポジトリを Builder.io に接続し、UI の変更を直接要求します。再デプロイは必要ありません。
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) は独立したマネージドなコード対応ワークフローで、エージェントが本番環境のアプリ UI を変更できます。リポジトリを Builder.io（無料プランあり）に接続して UI の変更を直接依頼でき、再デプロイは不要です。
 
 **仕組み:**
 
-1. エージェントネイティブ リポジトリを Builder.io に接続します
+1. エージェントネイティブ リポジトリを Builder.io（無料プランあり）に接続します
 2. Builder.io は、エージェント、ビジュアル編集、リアルタイム コラボレーションを備えたクラウド フレームを提供します
 3. エージェントに UI 変更を行うよう促します。コンポーネント、ルート、スタイルはライブで編集されます
 4. 変更はリポジトリにコミットされます

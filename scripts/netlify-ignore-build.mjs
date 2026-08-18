@@ -53,17 +53,6 @@ function main() {
     process.exit(0);
   }
 
-  const commitRef = process.env.COMMIT_REF;
-  if (commitExists(commitRef) && isVersionPackagesRelease(commitRef)) {
-    console.log(
-      `[netlify-ignore] Skipping ${targetName}: version-packages release commit ${commitRef.slice(
-        0,
-        8,
-      )} changes no deployed output.`,
-    );
-    process.exit(0);
-  }
-
   const packages = workspacePackages();
   const target = targetPackage(packages, targetName);
 
@@ -73,6 +62,53 @@ function main() {
   }
 
   const watchedPaths = watchedPathsForTarget(packages, target);
+  const commitRef = process.env.COMMIT_REF;
+
+  if (commitExists(commitRef) && isVersionPackagesRelease(commitRef)) {
+    const cachedRef = process.env.CACHED_COMMIT_REF;
+
+    if (!isTrustworthyCachedAncestor(cachedRef, commitRef)) {
+      console.log(
+        `[netlify-ignore] Build required for ${target.pkg.name}: version-packages release ${commitRef.slice(
+          0,
+          8,
+        )} has no trustworthy cached production ancestor.`,
+      );
+      process.exit(1);
+    }
+
+    const queuedTouch = newerNonVersionPackagesTouch(
+      cachedRef,
+      commitRef,
+      watchedPaths,
+    );
+
+    if (queuedTouch === null) {
+      process.exit(1);
+    }
+
+    if (queuedTouch) {
+      console.log(
+        `[netlify-ignore] Build required for ${target.pkg.name}: version-packages release ${commitRef.slice(
+          0,
+          8,
+        )} follows deployable commit ${queuedTouch.commit.slice(
+          0,
+          8,
+        )}, which changes ${queuedTouch.file}.`,
+      );
+      process.exit(1);
+    }
+
+    console.log(
+      `[netlify-ignore] Skipping ${target.pkg.name}: version-packages release commit ${commitRef.slice(
+        0,
+        8,
+      )} has no queued deployable changes for this target.`,
+    );
+    process.exit(0);
+  }
+
   const files = changedFiles();
 
   if (!files) {
@@ -244,6 +280,17 @@ function isAncestor(ancestorRef, descendantRef) {
   } catch {
     return false;
   }
+}
+
+export function isTrustworthyCachedAncestor(cachedRef, commitRef, opts = {}) {
+  const { commitExistsFn = commitExists, isAncestorFn = isAncestor } = opts;
+
+  return (
+    Boolean(cachedRef) &&
+    cachedRef !== commitRef &&
+    commitExistsFn(cachedRef) &&
+    isAncestorFn(cachedRef, commitRef)
+  );
 }
 
 function firstParent(ref) {

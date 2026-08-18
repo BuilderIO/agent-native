@@ -1,4 +1,5 @@
-import { useActionQuery, useT } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
 import { IconCalendar } from "@tabler/icons-react";
 import { subDays } from "date-fns";
@@ -166,10 +167,7 @@ export default function AnalyticsPage() {
               unit: t("analytics.daysUnit"),
             },
           ].map((stat) => (
-            <div
-              key={stat.label}
-              className="p-3 sm:p-4 rounded-xl bg-card/40 border border-border/30"
-            >
+            <div key={stat.label} className="p-3 sm:p-4 rounded-xl bg-card/40">
               <p className="text-[10px] uppercase tracking-widest text-muted-foreground font-medium mb-1.5 sm:mb-2">
                 {stat.label}
               </p>
@@ -186,7 +184,7 @@ export default function AnalyticsPage() {
         </div>
 
         {/* Calorie Trend Chart */}
-        <Card className="border-border/40 bg-card/60 backdrop-blur-md overflow-hidden">
+        <Card className="bg-card/60 backdrop-blur-md overflow-hidden">
           <CardHeader className="pb-4">
             <CardTitle className="text-base font-medium">
               Calorie Trend (
@@ -305,7 +303,7 @@ export default function AnalyticsPage() {
         </Card>
 
         {/* Weekly Net Calories */}
-        <Card className="border-border/40 bg-card/60 backdrop-blur-md overflow-hidden">
+        <Card className="bg-card/60 backdrop-blur-md overflow-hidden">
           <CardHeader className="pb-4">
             <CardTitle className="text-base font-medium">
               Weekly Net Calories vs Goal (
@@ -332,7 +330,7 @@ export default function AnalyticsPage() {
         </Card>
 
         {/* Weight Chart */}
-        <Card className="border-border/40 bg-card/60 backdrop-blur-md overflow-hidden">
+        <Card className="bg-card/60 backdrop-blur-md overflow-hidden">
           <CardHeader className="pb-4">
             <CardTitle className="text-base font-medium">
               Weight Trend (

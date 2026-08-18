@@ -94,7 +94,14 @@ const GENERATED_SKILLS: GeneratedSkill[] = [
     skill: "visual-edit",
     body: designEntry.extraSkills?.["visual-edit"] ?? "",
     references: designEntry.extraFiles?.["visual-edit"] ?? {},
-    targetDirs: [join("skills", "visual-edit")],
+    // The Design template keeps a real copy rather than a symlink because a
+    // scaffolded app gets this directory copied, not the repo's symlink tree.
+    // It is generated here so it cannot drift back into teaching the
+    // deprecated connect-localhost/create-design/add-localhost-screens flow.
+    targetDirs: [
+      join("skills", "visual-edit"),
+      join("templates", "design", ".agents", "skills", "visual-edit"),
+    ],
   },
 ];
 

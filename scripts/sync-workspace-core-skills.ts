@@ -7,9 +7,16 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
+  statSync,
 } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+
+import {
+  DEFAULT_WORKSPACE_SKILLS,
+  FRAMEWORK_TEMPLATE_SHARED_SKILLS,
+} from "../packages/core/src/cli/workspace-skill-policy.js";
+import { isRetiredCompatibilityTemplate } from "./template-standard/manifest.ts";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const rootDir = join(scriptDir, "..");
@@ -46,98 +53,32 @@ const headlessTemplateSkillsDir = join(
   "skills",
 );
 
-const workspaceSkillIncludes = [
-  "a2a-protocol",
-  "actions",
-  "agent-native-docs",
-  "agent-native-toolkit",
-  "adding-a-feature",
-  "address-feedback",
-  "audit-log",
-  "authentication",
-  "automations",
-  "capture-learnings",
-  "changelog",
-  "client-methods",
-  "client-side-routing",
-  "composable-mini-apps",
-  "context-awareness",
-  "context-xray",
-  "create-skill",
-  "data-programs",
-  "delegate-to-agent",
-  "extension-points",
-  "extensions",
-  "external-agents",
-  "frontend-design",
-  "generative-ui",
-  "harness-agents",
-  "internationalization",
-  "integration-webhooks",
-  "mvp-followup",
-  "observability",
-  "onboarding",
-  "performance",
-  "portability",
-  "qa",
-  "real-time-collab",
-  "real-time-sync",
-  "recurring-jobs",
-  "reliable-mutations",
-  "secrets",
-  "security",
-  "self-modifying-code",
-  "server-plugins",
-  "shadcn-ui",
-  "sharing",
-  "storing-data",
-  "tracking",
-  "upgrade-agent-native",
-  "visual-answer",
-  "voice-transcription",
-  "writing-agent-instructions",
-];
+const workspaceSkillIncludes = [...DEFAULT_WORKSPACE_SKILLS];
 
 // These are shared framework/best-practice skills that generated/default apps
 // and first-party templates often copy locally. Keep them byte-for-byte
 // canonical so generated apps, workspaces, and this repo do not learn different
 // architectural rules.
-const templateSharedSkillIncludes = [
-  "actions",
-  "agent-native-docs",
-  "agent-native-toolkit",
-  "adding-a-feature",
-  "capture-learnings",
-  "client-methods",
-  "create-skill",
-  "delegate-to-agent",
-  "frontend-design",
-  "internationalization",
-  "performance",
-  "real-time-collab",
-  "real-time-sync",
-  "security",
-  "self-modifying-code",
-  "shadcn-ui",
-  "storing-data",
-  "upgrade-agent-native",
-];
+const templateSharedSkillIncludes = [...DEFAULT_WORKSPACE_SKILLS];
 
 const requiredTemplateSharedSkills: Record<string, string[]> = {
   chat: ["agent-native-docs"],
 };
 
 /** Copied into every first-party template that uses shared skills. */
-const requiredAllTemplateSharedSkills = ["upgrade-agent-native"];
+const requiredAllTemplateSharedSkills = [...DEFAULT_WORKSPACE_SKILLS];
 
-const requiredDefaultTemplateSharedSkills = [
-  "internationalization",
-  "upgrade-agent-native",
-];
+const requiredDefaultTemplateSharedSkills = [...DEFAULT_WORKSPACE_SKILLS];
 
 const requiredHeadlessTemplateSharedSkills = [
+  "actions",
   "agent-native-docs",
-  "upgrade-agent-native",
+  "agent-native-toolkit",
+  "customizing-agent-native",
+  "delegate-to-agent",
+  "secrets",
+  "security",
+  "storing-data",
 ];
 
 const actionFirstInstructionFiles = [
@@ -195,22 +136,84 @@ const requiredActionGuidance = [
   },
 ];
 
-// Repo-maintenance workflows are useful in this repository, but generated
-// workspaces should not inherit branch/PR shipping behavior from our monorepo.
+const requiredAgentWorkflowGuidance = [
+  "packages/core/src/templates/default/AGENTS.md",
+  "packages/core/src/templates/workspace-root/AGENTS.md",
+  "packages/core/src/templates/workspace-core/AGENTS.md",
+  "registry/agent-native-app/AGENTS.md",
+  "templates/chat/AGENTS.md",
+].map((rel) => ({
+  rel,
+  pattern:
+    /Keep actions deterministic and focused[\s\S]*AgentSidebar[\s\S]*same\s+thread/,
+}));
+
+const requiredToolkitDiscoveryGuidance = [
+  "packages/core/src/templates/default/AGENTS.md",
+  "packages/core/src/templates/headless/AGENTS.md",
+  "packages/core/src/templates/workspace-core/AGENTS.md",
+  "packages/core/src/templates/workspace-root/AGENTS.md",
+  "registry/agent-native-app/AGENTS.md",
+  "templates/chat/AGENTS.md",
+];
+
+const requiredRegistryConventionSkills = [
+  "agent-native-toolkit",
+  "customizing-agent-native",
+];
+
+// Skills outside workspaceSkillIncludes are opt-in. Repo-maintenance workflows
+// are useful in this repository, but generated workspaces should not inherit
+// branch/PR shipping behavior from our monorepo.
+//
+// The trailing entries are symlinks under `.agents/skills/`, not real
+// directories: five point into `skills/` (shipped through the plugin
+// marketplace in `.claude-plugin/`) and `content-product-development` points
+// into the Content template. Copying them here would fork a second, silently
+// drifting copy of a skill another channel already owns.
 const workspaceSkillExcludes = [
   "babysit-pr",
+  "chat-first-workbench",
+  "concurrent-agents",
+  "delegating-work",
+  "fix-at-the-boundary",
+  "multi-frontier-desktop",
   "new-branch",
   "ship",
   "ship-desktop",
+  "verifying-changes",
+  "content-product-development",
+  "design-exploration",
+  "visual-edit",
+  "visual-plan",
+  "visual-recap",
+  "visualize-repo",
+  "writing-reference-docs",
 ];
 
 const check = process.argv.includes("--check");
-const includeSet = new Set(workspaceSkillIncludes);
 const excludeSet = new Set(workspaceSkillExcludes);
+const staleTemplateSharedSkills = FRAMEWORK_TEMPLATE_SHARED_SKILLS.filter(
+  (skill) => !templateSharedSkillIncludes.includes(skill),
+);
+
+// `Dirent.isDirectory()` reflects the entry's own type and returns false for
+// a symlink-to-directory (several root skills — visual-recap, visual-edit,
+// etc. — are symlinks). Follow the link with `statSync` before deciding.
+function isDirEntry(dir, entry) {
+  if (entry.isDirectory()) return true;
+  if (!entry.isSymbolicLink()) return false;
+  try {
+    return statSync(join(dir, entry.name)).isDirectory();
+  } catch {
+    // coercion-ok: broken symlink entries are intentionally excluded from generated skill copies.
+    return false; // broken symlink
+  }
+}
 
 function listSkillDirs(dir) {
   return readdirSync(dir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => isDirEntry(dir, entry))
     .map((entry) => entry.name)
     .sort();
 }
@@ -220,7 +223,7 @@ function listFiles(dir, base = dir) {
   const files = [];
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const abs = join(dir, entry.name);
-    if (entry.isDirectory()) {
+    if (isDirEntry(dir, entry)) {
       files.push(...listFiles(abs, base));
     } else if (entry.isFile()) {
       files.push(relative(base, abs));
@@ -237,9 +240,6 @@ function relSkillFiles(skillName) {
 
 function assertCategorized() {
   const sourceSkills = listSkillDirs(sourceDir);
-  const unknown = sourceSkills.filter(
-    (skill) => !includeSet.has(skill) && !excludeSet.has(skill),
-  );
   const missing = workspaceSkillIncludes.filter(
     (skill) => !sourceSkills.includes(skill),
   );
@@ -251,11 +251,6 @@ function assertCategorized() {
   );
 
   const errors = [];
-  if (unknown.length > 0) {
-    errors.push(
-      `Uncategorized root skills: ${unknown.join(", ")}. Add each one to workspaceSkillIncludes or workspaceSkillExcludes.`,
-    );
-  }
   if (missing.length > 0) {
     errors.push(
       `Included skills missing from ${sourceDir}: ${missing.join(", ")}`,
@@ -347,12 +342,15 @@ function listTemplateDirs() {
   if (!existsSync(templatesDir)) return [];
   return readdirSync(templatesDir, { withFileTypes: true })
     .filter((entry) => {
-      if (!entry.isDirectory()) return false;
+      if (!isDirEntry(templatesDir, entry)) return false;
       if (entry.name.startsWith(".") || entry.name === "node_modules") {
         return false;
       }
-      // Skip leftover/retired shells that no longer ship a package.json.
-      return existsSync(join(templatesDir, entry.name, "package.json"));
+      // Skip retired host compatibility packages; they are not live templates.
+      return (
+        existsSync(join(templatesDir, entry.name, "package.json")) &&
+        !isRetiredCompatibilityTemplate(entry.name)
+      );
     })
     .map((entry) => entry.name)
     .sort();
@@ -367,7 +365,7 @@ function listInstructionFiles() {
   return files.sort();
 }
 
-function checkActionFirstInstructionPhrases() {
+function checkGeneratedInstructionPhrases() {
   const findings = [];
   for (const file of listInstructionFiles()) {
     const content = readFileSync(file, "utf-8");
@@ -390,11 +388,75 @@ function checkActionFirstInstructionPhrases() {
     }
   }
 
+  for (const { rel, pattern } of requiredAgentWorkflowGuidance) {
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(`${rel}: missing required agent-workflow guidance file`);
+      continue;
+    }
+    const content = readFileSync(file, "utf-8");
+    if (!pattern.test(content)) {
+      findings.push(
+        `${rel}: missing deterministic-action versus AgentSidebar guidance`,
+      );
+    }
+  }
+
+  for (const rel of requiredToolkitDiscoveryGuidance) {
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(`${rel}: missing required Toolkit discovery guidance file`);
+      continue;
+    }
+    const content = readFileSync(file, "utf-8");
+    if (
+      !content.includes(
+        "Before building common workspace or agent UI, read `agent-native-toolkit`",
+      )
+    ) {
+      findings.push(`${rel}: missing canonical Toolkit discovery guidance`);
+    }
+    if (!content.includes("`customizing-agent-native`")) {
+      findings.push(`${rel}: missing customization ladder guidance`);
+    }
+  }
+
+  for (const template of listTemplateDirs()) {
+    const rel = `templates/${template}/AGENTS.md`;
+    const file = join(rootDir, rel);
+    if (!existsSync(file)) {
+      findings.push(`${rel}: missing template agent instructions`);
+      continue;
+    }
+    const content = readFileSync(file, "utf-8");
+    if (
+      !content.includes(
+        "Before building common workspace or agent UI, read `agent-native-toolkit`",
+      ) ||
+      !content.includes("`customizing-agent-native`")
+    ) {
+      findings.push(`${rel}: missing Toolkit discovery/customization guidance`);
+    }
+  }
+
+  const registry = JSON.parse(
+    readFileSync(join(rootDir, "registry.json"), "utf-8"),
+  );
+  const conventionPaths = new Set(
+    registry.items
+      ?.find((item) => item.name === "conventions")
+      ?.files?.map((file) => file.path) ?? [],
+  );
+  for (const skill of requiredRegistryConventionSkills) {
+    const expected = `.agents/skills/${skill}/SKILL.md`;
+    if (!conventionPaths.has(expected)) {
+      findings.push(`registry.json: conventions must install ${expected}`);
+    }
+  }
+
   if (findings.length > 0) {
     throw new Error(
-      `Action-first generated guidance is out of sync.\n\n${findings.join(
-        "\n",
-      )}`,
+      `Generated guidance is out of sync.\n\n${findings.join("\n")}`,
     );
   }
 }
@@ -452,6 +514,42 @@ function checkTemplateSharedSkillsInSync() {
   forEachExistingTemplateSharedSkill((label, skill, targetSkillDir) => {
     checkSkillDirInSync(label, skill, targetSkillDir);
   });
+  checkNoStaleTemplateSharedSkills();
+}
+
+function forEachTemplateSkillsDir(fn) {
+  fn(
+    "packages/core/src/templates/default/.agents/skills",
+    defaultTemplateSkillsDir,
+  );
+  fn(
+    "packages/core/src/templates/headless/.agents/skills",
+    headlessTemplateSkillsDir,
+  );
+  for (const template of listTemplateDirs()) {
+    fn(
+      `templates/${template}/.agents/skills`,
+      join(templatesDir, template, ".agents", "skills"),
+    );
+  }
+}
+
+function checkNoStaleTemplateSharedSkills() {
+  const extra = [];
+  forEachTemplateSkillsDir((label, skillsDir) => {
+    for (const skill of staleTemplateSharedSkills) {
+      if (existsSync(join(skillsDir, skill))) {
+        extra.push(`${label}/${skill}`);
+      }
+    }
+  });
+  if (extra.length > 0) {
+    throw new Error(
+      `Optional framework skills are still copied into templates:\n${extra.join(
+        "\n",
+      )}\n\nRun: pnpm sync:workspace-skills`,
+    );
+  }
 }
 
 function copySkill(skill, targetSkillDir) {
@@ -478,6 +576,11 @@ function syncTemplateSharedSkills() {
   forEachExistingTemplateSharedSkill((_template, skill, targetSkillDir) => {
     copySkill(skill, targetSkillDir);
   });
+  forEachTemplateSkillsDir((_label, skillsDir) => {
+    for (const skill of staleTemplateSharedSkills) {
+      rmSync(join(skillsDir, skill), { recursive: true, force: true });
+    }
+  });
 }
 
 try {
@@ -485,7 +588,7 @@ try {
   if (check) {
     checkInSync();
     checkTemplateSharedSkillsInSync();
-    checkActionFirstInstructionPhrases();
+    checkGeneratedInstructionPhrases();
     console.log(
       "Workspace-core, default-template, and template shared skills are in sync.",
     );
@@ -494,7 +597,7 @@ try {
     syncTemplateSharedSkills();
     checkInSync();
     checkTemplateSharedSkillsInSync();
-    checkActionFirstInstructionPhrases();
+    checkGeneratedInstructionPhrases();
     console.log(
       "Synced workspace-core, default-template, and template shared skills from .agents/skills.",
     );

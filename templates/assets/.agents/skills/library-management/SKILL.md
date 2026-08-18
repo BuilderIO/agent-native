@@ -1,6 +1,6 @@
 ---
 name: library-management
-description: Schema, CRUD, sharing, and cascade-delete patterns for asset libraries, collections, and assets.
+description: Schema, CRUD, sharing, URL style imports, and cascade-delete patterns for asset libraries, collections, and assets. Use when managing a library or importing visual brand evidence from a URL.
 ---
 
 # Library management
@@ -69,6 +69,12 @@ Libraries follow the standard framework sharing model:
 
 Generated assets and references inherit the parent library's visibility. v1 doesn't support per-asset overrides; the schema is forward-compatible (`image_generated_image_shares` could be added without disturbing existing rows) but not surfaced in the UI.
 
+## Duplicating a brand kit
+
+Use `duplicate-library` when a user wants a Brand Kit copy. The action creates a
+private, current-user-owned copy with durable kit contents remapped, without
+copying shares, visibility, generation runs, or handoff sessions.
+
 ## Cascade delete
 
 `delete-library` deletes in order:
@@ -92,6 +98,9 @@ The unified table simplifies access control (one `library_id`, one access check)
 
 ## Importing external references
 
+Ingest external brand or blog imagery with `import-asset-from-url`, then pin the
+returned asset to preset reference boards or set it as the canonical logo.
+
 Use `import-asset-from-url` when the agent has found a public HTTPS image that
 belongs in a brand kit, such as a blog hero, product shot, logo, campaign image,
 or diagram. Choose the narrowest reference `role` (`style_reference`,
@@ -108,6 +117,21 @@ URLs, import each URL into the target `libraryId`, then wire the returned
 for the exact logo. Imported assets are stored as `status: "reference"` with
 `sourceUrl` provenance, so downstream generation, preset boards, and logo
 compositing can use them like uploaded reference assets.
+
+## Importing a rendered visual system
+
+Use `import-style-from-url` when a public website should contribute more than
+images to a library or collection. It uses the same layered browser extractor
+as Design and Slides, so CSS-in-JS, Tailwind, hydration, web fonts, computed
+colors, component styles, spacing, radii, shadows, CSS variables, and logo
+references are captured from the live cascade. The action persists a bounded
+`designMd` summary plus structured fields in `styleBrief`, with the source URL
+and any browser/static-fallback warnings preserved for provenance.
+
+Prefer this action over copying raw HTML into a style brief. If the result is
+`partial`, the structured values are still usable but the warnings must remain
+visible to the agent; `failed` is an error and must not be treated as an empty
+style brief.
 
 ## When to add a collection
 

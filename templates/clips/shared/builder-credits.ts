@@ -1,7 +1,7 @@
 export const CLIPS_BUILDER_CREDITS_STATE_KEY = "clips-builder-credits";
 
 export const BUILDER_CREDITS_UPGRADE_URL =
-  "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=clips_builder_credits&agentNativeFlow=connect_llm&framework=agent-native";
+  "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=clips_builder_credits&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=clips_builder_credits";
 
 export const BUILDER_CREDIT_FEATURES = [
   "backup-transcription",

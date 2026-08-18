@@ -26,6 +26,7 @@ interface AutoscrollApi {
   markNearBottom: () => void;
   scrollToBottom: () => void;
   scrollToBottomAfterPaint: () => void;
+  resumeFollowing: () => void;
 }
 
 function bottomScrollTop(metrics: ScrollMetrics): number {
@@ -225,6 +226,67 @@ describe("useNearBottomAutoscroll", () => {
     expect(metrics.scrollTop).toBe(700);
   });
 
+  it("resumes following and reveals new content after a visible submit", async () => {
+    const apiRef = React.createRef<AutoscrollApi>();
+    const metrics = {
+      clientHeight: 200,
+      scrollHeight: 1000,
+      scrollTop: 800,
+    };
+    const scroller = renderHarness({
+      apiRef,
+      followKey: 1,
+      metrics,
+      streaming: true,
+    });
+
+    act(() => {
+      dispatchWheel(scroller, -48);
+      setUserScrollTop(scroller, 600);
+    });
+    expect(
+      container.querySelector('[data-testid="follow-state"]')?.textContent,
+    ).toBe("detached");
+
+    metrics.scrollHeight = 1180;
+    act(() => {
+      apiRef.current?.resumeFollowing();
+    });
+    await advanceAutoscrollTimers();
+
+    expect(metrics.scrollTop).toBe(980);
+    expect(
+      container.querySelector('[data-testid="follow-state"]')?.textContent,
+    ).toBe("following");
+  });
+
+  it("keeps following after downward wheel intent", async () => {
+    const apiRef = React.createRef<AutoscrollApi>();
+    const metrics = {
+      clientHeight: 200,
+      scrollHeight: 1000,
+      scrollTop: 800,
+    };
+    const scroller = renderHarness({
+      apiRef,
+      followKey: 1,
+      metrics,
+      streaming: true,
+    });
+
+    act(() => {
+      dispatchWheel(scroller, 48);
+    });
+    metrics.scrollHeight = 1160;
+    renderHarness({ apiRef, followKey: 2, metrics, streaming: true });
+    await advanceAutoscrollTimers();
+
+    expect(metrics.scrollTop).toBe(960);
+    expect(
+      container.querySelector('[data-testid="follow-state"]')?.textContent,
+    ).toBe("following");
+  });
+
   it("keeps following when upward wheel intent belongs to a nested scroller", async () => {
     const apiRef = React.createRef<AutoscrollApi>();
     const metrics = {
@@ -319,6 +381,26 @@ describe("useNearBottomAutoscroll", () => {
     expect(
       container.querySelector('[data-testid="follow-state"]')?.textContent,
     ).toBe("detached");
+  });
+
+  it("cancels pending scroll writes when the hook unmounts", async () => {
+    const apiRef = React.createRef<AutoscrollApi>();
+    const metrics = {
+      clientHeight: 200,
+      scrollHeight: 1000,
+      scrollTop: 800,
+    };
+    renderHarness({ apiRef, followKey: 1, metrics });
+
+    act(() => {
+      apiRef.current?.scrollToBottomAfterPaint();
+      root.unmount();
+    });
+    metrics.scrollHeight = 1400;
+    await advanceAutoscrollTimers();
+
+    // The delayed rAF/timeout chain must not write to a detached scroller.
+    expect(metrics.scrollTop).toBe(800);
   });
 
   it("stays anchored when content briefly collapses to the top", async () => {

@@ -53,18 +53,35 @@ describe("shared framework prompt rules", () => {
     expect(rule).toContain("not available");
   });
 
-  it("omits extension management guidance when extension tools are disabled", () => {
-    const rule = sharedRule8(
+  it("omits extension management guidance by default", () => {
+    const defaultRule = sharedRule8({
+      providerActions: ["github-search", "notion-search"],
+    });
+    const disabledRule = sharedRule8(
       {
         providerActions: ["github-search", "notion-search"],
       },
       { extensionTools: false },
     );
 
-    expect(rule).toContain("db-query");
-    expect(rule).not.toContain("list-extensions");
-    expect(rule).not.toContain("update-extension");
-    expect(rule).not.toContain("hide-extension");
-    expect(rule).not.toContain("delete-extension");
+    for (const rule of [defaultRule, disabledRule]) {
+      expect(rule).toContain("db-query");
+      expect(rule).not.toContain("list-extensions");
+      expect(rule).not.toContain("update-extension");
+      expect(rule).not.toContain("hide-extension");
+      expect(rule).not.toContain("delete-extension");
+    }
+  });
+
+  it("includes extension management guidance after an explicit opt-in", () => {
+    const rule = sharedRule8(
+      {
+        providerActions: ["github-search", "notion-search"],
+      },
+      { extensionTools: true },
+    );
+
+    expect(rule).toContain("list-extensions");
+    expect(rule).toContain("update-extension");
   });
 });

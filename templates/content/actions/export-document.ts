@@ -1,10 +1,80 @@
 import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
+import { asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { buildDocumentExport } from "../shared/document-export.js";
-import "../server/db/index.js";
+import { getDb, schema } from "../server/db/index.js";
+import { blocksContentHash } from "../shared/blocks-field-identity.js";
+import {
+  buildDocumentExport,
+  collectionItemsMarkdown,
+  type CollectionExportItem,
+} from "../shared/document-export.js";
+import {
+  isBlocksPropertyType,
+  isPrimaryBlocksField,
+} from "../shared/properties.js";
+import { resolveContentDocumentAccess } from "./_content-document-access.js";
+import { getDatabaseByDocumentId } from "./_database-utils.js";
+import { listPropertiesForAllDocumentDatabases } from "./_property-utils.js";
+
+const COLLECTION_EXPORT_ACCESS_CONCURRENCY = 8;
+
+async function databaseExportContent(documentId: string) {
+  const database = await getDatabaseByDocumentId(documentId);
+  if (!database) return null;
+
+  const members = await getDb()
+    .select({
+      documentId: schema.contentDatabaseItems.documentId,
+      bodyHydrationStatus: schema.contentDatabaseItems.bodyHydrationStatus,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, database.id))
+    .orderBy(
+      asc(schema.contentDatabaseItems.position),
+      asc(schema.contentDatabaseItems.createdAt),
+      asc(schema.contentDatabaseItems.id),
+    );
+  const items: CollectionExportItem[] = [];
+
+  for (
+    let offset = 0;
+    offset < members.length;
+    offset += COLLECTION_EXPORT_ACCESS_CONCURRENCY
+  ) {
+    const batch = members.slice(
+      offset,
+      offset + COLLECTION_EXPORT_ACCESS_CONCURRENCY,
+    );
+    const resolved = await Promise.all(
+      batch.map(async (member) => ({
+        member,
+        access: await resolveContentDocumentAccess(member.documentId),
+      })),
+    );
+
+    for (const { member, access } of resolved) {
+      if (!access || access.resource.trashedAt) continue;
+      if (
+        member.bodyHydrationStatus !== "hydrated" &&
+        member.bodyHydrationStatus !== "unavailable"
+      ) {
+        throw new Error(
+          `Database item "${member.documentId}" is not ready for export`,
+        );
+      }
+
+      items.push({
+        title: access.resource.title,
+        content: access.resource.content,
+      });
+    }
+  }
+
+  return collectionItemsMarkdown(items);
+}
 
 export default defineAction({
   description:
@@ -33,12 +103,48 @@ export default defineAction({
     if (!access) throw new Error(`Document "${id}" not found`);
 
     const doc = access.resource;
+    const properties = await listPropertiesForAllDocumentDatabases(doc);
+    const blocksFields = properties
+      .filter((property) => isBlocksPropertyType(property.definition.type))
+      .map((property) => {
+        if (!property.definition.databaseId) {
+          throw new Error(
+            `Blocks field "${property.definition.id}" is not attached to a database`,
+          );
+        }
+        if (!property.blocksField) {
+          throw new Error(
+            `Blocks field "${property.definition.id}" has no identity state`,
+          );
+        }
+        const markdown =
+          content !== undefined &&
+          isPrimaryBlocksField(property.definition.options)
+            ? content
+            : typeof property.value === "string"
+              ? property.value
+              : "";
+        const identity =
+          blocksContentHash(markdown) === property.blocksField.contentHash
+            ? property.blocksField
+            : { ...property.blocksField, identityStatus: "stale" as const };
+        return {
+          databaseId: property.definition.databaseId,
+          propertyId: property.definition.id,
+          name: property.definition.name,
+          position: property.definition.position,
+          markdown,
+          identity,
+        };
+      });
+    const collectionContent = await databaseExportContent(doc.id);
     const payload = buildDocumentExport({
       id: doc.id,
       title: title ?? doc.title,
-      content: content ?? doc.content,
+      content: collectionContent ?? content ?? doc.content,
       updatedAt: doc.updatedAt,
       format,
+      blocksFields,
     });
 
     return {

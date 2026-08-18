@@ -26,7 +26,7 @@ description: "에이전트 네이티브에 대한 일반적인 질문 - 그것�
 
 ### 기존 앱에 AI를 추가하는 것과 어떻게 다릅니까? {#how-is-this-different}
 
-대부분의 앱은 앱에서 실제로 _할_ 수 없는 일을 나중에 고려하여 AI를 추가합니다. 에이전트 네이티브 앱에서 에이전트는 동일한 actions, 데이터베이스 및 상태를 UI와 공유하는 일급 시민이므로 버튼으로 할 수 있는 모든 작업을 수행하고 앱 자체 코드를 수정할 수 있습니다. [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder)를 참조하세요.
+대부분의 앱은 앱에서 실제로 _할_ 수 없는 일을 나중에 고려하여 AI를 추가합니다. 에이전트 네이티브 앱에서 에이전트는 동일한 actions, 데이터베이스 및 상태를 UI와 공유하는 일급 시민이므로 버튼으로 할 수 있는 모든 작업을 수행할 수 있습니다. [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder)를 참조하세요.
 
 <Diagram id="doc-block-1uvo8lp" title={"추가 AI 대 agent-native"} summary={"고정된 채팅 사이드바는 그 자체의 세계에 살고 있습니다. agent-native 에이전트는 UI와 동일한 작업, 데이터베이스 및 상태를 공유합니다."}>
 
@@ -124,7 +124,7 @@ Anthropic Claude, OpenAI(GPT-5 제품군), Google Gemini 및 OpenAI API 형태�
 
 ### 템플릿을 맞춤설정할 수 있나요? {#can-i-customize-templates}
 
-그게 요점입니다. 템플릿을 포크하고 상담원에게 요청하여 맞춤설정하세요. "양식에 우선순위 필드를 추가합니다." "Salesforce 인스턴스에 연결하세요." "우리 브랜드에 맞게 색 구성표를 변경하세요." 에이전트가 코드를 수정하면 앱은 시간이 지남에 따라 발전합니다.
+그게 요점입니다. 템플릿에서 시작해 자체 저장소와 개발 워크플로에서 사용자 지정하세요. 임베디드 에이전트는 완성된 앱을 actions와 데이터를 통해 운영합니다.
 
 ### 템플릿에서 다루지 않는 것을 만들 수 있나요? {#build-from-scratch}
 
@@ -136,9 +136,9 @@ Anthropic Claude, OpenAI(GPT-5 제품군), Google Gemini 및 OpenAI API 형태�
 
 ## 에이전트 기능 {#agent-capabilities}
 
-### 에이전트가 실제로 앱 자체 코드를 수정할 수 있나요? {#can-the-agent-modify-code}
+### 임베디드 에이전트가 앱의 소스 코드를 편집하나요? {#can-the-agent-modify-code}
 
-예, 기능입니다. 에이전트는 구성 요소, 경로, 스타일 및 actions를 안전하게 편집할 수 있습니다. "동질 집단 분석 차트 추가"를 요청하면 에이전트가 차트를 작성합니다. "Stripe 계정에 연결"을 요청하면 에이전트가 통합을 작성합니다. 모든 것이 일반적인 Git 추적 코드이므로 잘못된 변경 사항은 쉽게 되돌릴 수 있습니다.
+기본적으로는 편집하지 않습니다. 호스트가 repository/workspace 쓰기 도구를 의도적으로 부여한 경우에만 편집할 수 있습니다. 그 외에는 actions, SQL 기반 상태 및 구성된 통합을 통해 작업합니다. 구성 요소, 경로, 스타일 또는 actions를 변경하려면 일반 저장소 워크플로 또는 별도의 코드 지원 개발/Builder 프레임을 사용하세요.
 
 ### 사용자가 앱 외부에서 상담원과 대화할 수 있나요? {#external-channels}
 

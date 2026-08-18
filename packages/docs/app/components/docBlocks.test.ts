@@ -103,7 +103,7 @@ describe("splitDocSegments", () => {
 
   it("parses Diagram MDX child code fences through the block registry", () => {
     const md = [
-      '<Diagram id="diagram" title="Flow" caption="Caption">',
+      '<Diagram id="diagram" title="Flow" caption="Caption" renderMode="design">',
       "",
       "```html",
       '<div class="flow">Flow</div>',
@@ -128,6 +128,7 @@ describe("splitDocSegments", () => {
       html: '<div class="flow">Flow</div>',
       css: ".flow { display: grid; }",
       caption: "Caption",
+      renderMode: "design",
     });
   });
 

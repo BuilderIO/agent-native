@@ -1,6 +1,7 @@
 import { runDashboardReportsOnce } from "../jobs/dashboard-report";
+import { isProductionServerlessRuntime } from "../lib/production-serverless-runtime";
 
-const INTERVAL_MS = 60_000;
+const DEFAULT_INTERVAL_MS = 60_000;
 let skippingLogged = false;
 
 declare global {
@@ -9,9 +10,18 @@ declare global {
 
 function platformSchedulerOwnsReports(): boolean {
   return (
-    process.env.NETLIFY === "true" ||
+    isProductionServerlessRuntime() ||
     globalThis.__AGENT_NATIVE_DASHBOARD_REPORT_SCHEDULED_RUNTIME__ === true
   );
+}
+
+function intervalMs(): number {
+  const raw = process.env.DASHBOARD_REPORT_INTERVAL_MS?.trim();
+  if (!raw) return DEFAULT_INTERVAL_MS;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed) && parsed >= 10_000
+    ? parsed
+    : DEFAULT_INTERVAL_MS;
 }
 
 export default function registerDashboardReportJobs(): void {
@@ -35,13 +45,14 @@ export default function registerDashboardReportJobs(): void {
     return;
   }
 
+  const ms = intervalMs();
   setInterval(() => {
     runDashboardReportsOnce().catch((err) =>
       console.error("[dashboard-report] interval failed:", err),
     );
-  }, INTERVAL_MS);
+  }, ms);
 
   console.log(
-    `[dashboard-report] Recurring dashboard report sweep every ${INTERVAL_MS / 1000}s.`,
+    `[dashboard-report] Recurring dashboard report sweep every ${ms / 1000}s.`,
   );
 }

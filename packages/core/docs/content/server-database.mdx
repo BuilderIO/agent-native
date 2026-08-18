@@ -1,0 +1,446 @@
+---
+title: "Database"
+description: "Connect a portable SQL database to your agent-native app: schema helpers, migrations, and the hosted database options."
+---
+
+# Database
+
+Every agent-native app stores its state in SQL. The UI and the agent both read and write the same tables through the same actions, using the same [Drizzle ORM](https://orm.drizzle.team) client. Live sync uses SSE with polling fallback, so changes appear in the other surface without a manual refresh.
+
+<Diagram id="doc-block-9mtx2f" title="How data flows to the database" summary="The UI and the agent both reach the database through the same Actions layer. Both callers use the same getDb() client and the same SQL tables. There is no separate backend for each.">
+
+```html
+<div class="diagram-dbr">
+  <div class="diagram-col">
+    <div class="diagram-node">Browser / UI</div>
+    <div class="diagram-node">Agent loop</div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>Actions</strong>
+    <small class="diagram-muted">defineAction</small>
+    <small class="diagram-muted">getDb() &middot; Drizzle ORM</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    SQL database<br /><small class="diagram-muted"
+      >dialect from DATABASE_URL</small
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-dbr {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-dbr .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.diagram-dbr .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px 16px;
+}
+.diagram-dbr .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Hosting Options {#hosting}
+
+The app detects which backend to use from `DATABASE_URL`. When the variable is unset, it falls back to a local SQLite file so you can start without any setup.
+
+### Default: SQLite file {#default-sqlite}
+
+When `DATABASE_URL` is not set, the app creates a SQLite database at `data/app.db`. No configuration required. Start the dev server and the file is created on first run.
+
+This is for local development only. Containers, serverless functions, and preview environments may reset their filesystem between restarts, so a local SQLite file can disappear. Set `DATABASE_URL` to a persistent hosted database before deploying.
+
+### Local Postgres: PGlite {#local-pglite}
+
+To develop locally against the Postgres dialect without Docker or a hosted database, install the optional PGlite package and set `DATABASE_URL`:
+
+```bash
+pnpm add @electric-sql/pglite@^0.5.3
+```
+
+```bash
+DATABASE_URL=pglite:./data/pglite
+```
+
+[PGlite](https://pglite.dev/) runs an in-process WASM Postgres database. It lets you catch Postgres-only schema issues before deploying, while keeping setup as simple as the SQLite default. Like SQLite, it is local-only storage. Do not use it for production or shared environments.
+
+### Production database {#production}
+
+Set `DATABASE_URL` in your `.env` file or deploy-provider environment to connect a hosted database:
+
+```bash
+# Neon Postgres
+DATABASE_URL=postgres://user:pass@ep-cool-name-123456.us-east-2.aws.neon.tech/mydb?sslmode=require
+
+# Supabase Postgres
+DATABASE_URL=postgres://postgres.xxxx:pass@aws-0-us-east-1.pooler.supabase.com:6543/postgres
+
+# Plain Postgres
+DATABASE_URL=postgres://user:pass@localhost:5432/mydb
+
+# Turso (libSQL). Also requires DATABASE_AUTH_TOKEN.
+DATABASE_URL=libsql://my-db-org.turso.io
+```
+
+The framework auto-detects the dialect from the URL prefix and configures Drizzle accordingly.
+
+### Builder.io managed database {#builder-managed}
+
+_Planned (not yet available):_ when connected to Builder.io, your app will be able to use a managed database provisioned automatically, with no connection strings required.
+
+## Setting Up the Database {#setup}
+
+An app that uses the database needs three files:
+
+- `server/db/schema.ts`: table definitions
+- `server/db/index.ts`: the typed DB client singleton
+- `server/plugins/db.ts`: app-owned migrations for local startup
+
+### 1. Define your schema {#schema}
+
+Import schema helpers from `@agent-native/core/db/schema`. Never import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` directly. The framework helpers produce dialect-agnostic definitions that work across all supported backends.
+
+```ts filename="server/db/schema.ts"
+import { integer, now, table, text } from "@agent-native/core/db/schema";
+
+export const tasks = table("tasks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  priority: integer("priority").notNull().default(0),
+  done: integer("done", { mode: "boolean" }).notNull().default(false),
+  ownerEmail: text("owner_email").notNull(),
+  createdAt: text("created_at").notNull().default(now()),
+});
+```
+
+| Helper    | Purpose                                                                |
+| --------- | ---------------------------------------------------------------------- |
+| `table`   | Define a table; dispatches to `pgTable` or `sqliteTable`               |
+| `text`    | Text column, supports `{ enum: [...] }`                                |
+| `integer` | Integer column, `{ mode: "boolean" }` maps to Postgres boolean         |
+| `real`    | Float column. Maps to `real` on SQLite, `double precision` on Postgres |
+| `now`     | Dialect-agnostic current timestamp for `.default(now())`               |
+
+<DataModel
+  id="doc-block-3hbven"
+  title="The tasks table"
+  summary={
+    "Defined once with the framework helpers; the dialect is chosen at runtime from DATABASE_URL."
+  }
+  entities={[
+    {
+      id: "tasks",
+      name: "tasks",
+      note: "Domain table. Add owner_email (or ...ownableColumns()) so SQL-level scoping can filter rows to the authenticated user.",
+      fields: [
+        {
+          name: "id",
+          type: "text",
+          pk: true,
+          nullable: false,
+        },
+        {
+          name: "title",
+          type: "text",
+          nullable: false,
+        },
+        {
+          name: "priority",
+          type: "integer",
+          nullable: false,
+          note: "default 0",
+        },
+        {
+          name: "done",
+          type: "integer (boolean mode)",
+          nullable: false,
+          note: "default false; maps to a Postgres boolean",
+        },
+        {
+          name: "owner_email",
+          type: "text",
+          nullable: false,
+          note: "enables data scoping",
+        },
+        {
+          name: "created_at",
+          type: "text",
+          nullable: false,
+          note: "default now()",
+        },
+      ],
+    },
+  ]}
+/>
+
+Tables that store per-user data must include an `owner_email` column so the framework can filter rows to the authenticated user. Tables that also support sharing with other users or orgs should spread `...ownableColumns()` instead, which adds `owner_email`, `org_id`, and `visibility` in one call. See [Scoping Data to Users](#scoping) below.
+
+### 2. Create the DB client {#db-client}
+
+Each app creates a lazy, singleton Drizzle client by calling `createGetDb(schema)`. The canonical location is `server/db/index.ts`:
+
+```ts filename="server/db/index.ts"
+import { createGetDb } from "@agent-native/core/db";
+import * as schema from "./schema.js";
+
+export const getDb = createGetDb(schema);
+```
+
+`createGetDb` returns a `getDb()` function that opens the database connection on first call and returns the same typed Drizzle instance on subsequent calls. It reads `DATABASE_URL` at runtime to determine which backend and dialect to use.
+
+Import `getDb` from this template-local path in actions and routes. Do not import from `@agent-native/core` directly. The core export is untyped; the local export carries your schema types.
+
+### 3. Write migrations {#migrations}
+
+For local development, schema changes can run through a Nitro plugin in
+`server/plugins/db.ts`. Use `runMigrations` from `@agent-native/core/db`:
+
+<AnnotatedCode
+  id="doc-block-7qwlpz"
+  title="A startup migration plugin"
+  filename="server/plugins/db.ts"
+  language="ts"
+  code={
+    'import { runMigrations } from "@agent-native/core/db";\n\nexport default runMigrations(\n  [\n    {\n      version: 1,\n      sql: `CREATE TABLE IF NOT EXISTS tasks (\n        id TEXT PRIMARY KEY,\n        title TEXT NOT NULL,\n        done INTEGER NOT NULL DEFAULT 0,\n        owner_email TEXT NOT NULL,\n        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP\n      )`,\n    },\n    {\n      version: 2,\n      sql: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0`,\n    },\n    {\n      // Dialect-gated: runs only on the matching backend.\n      version: 3,\n      sql: {\n        postgres: `ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tsv tsvector`,\n        sqlite: `SELECT 1`,\n      },\n    },\n  ],\n  { table: "my_app_migrations" },\n);'
+  }
+  annotations={[
+    {
+      lines: "6",
+      label: "Per-app version table",
+      note: "Each app tracks its own applied versions in a separate table. Use a name unique to your app so it doesn't collide with framework migrations or other apps sharing the same database.",
+    },
+    {
+      lines: "7",
+      label: "Initial table creation",
+      note: "`CREATE TABLE IF NOT EXISTS` is safe to re-run on every restart. Put the full table definition in version 1.",
+    },
+    {
+      lines: "17",
+      label: "Additive column adds",
+      note: "`ADD COLUMN IF NOT EXISTS` is the safe way to add columns after initial creation. Never drop or rename columns.",
+    },
+    {
+      lines: "22-25",
+      label: "Dialect gating",
+      note: "Pass an object keyed by dialect to run different SQL per backend. Use `SELECT 1` as a no-op on the dialect that doesn't need the change.",
+    },
+  ]}
+/>
+
+`runMigrations` runs each pending entry in order once, records it as applied, and
+skips it on later runs. Give new entries a stable `name`; named migrations are
+tracked independently of their version number.
+
+<Callout tone="warning">
+  For production or serverless deployments, run migrations in a release or
+  deploy step instead of on the first request. The Chat template provides `pnpm
+  migrate:production` for this.
+</Callout>
+
+<Callout tone="warning">
+  Give every new migration a stable `name` (e.g. `{ version: 4, name:
+  "tasks-priority-index", sql: "..." }`). The plain `version` number is only a
+  position in a shared sequence: if two branches each add their own
+  migrations at, say, `version: 4`, whichever branch deploys first "uses up"
+  that version number in the bookkeeping table, and the other branch's DDL
+  silently never runs when it merges — the table looks fully migrated even
+  though the second branch's columns or tables don't exist. A `name` is
+  tracked independently of `version`, so it applies exactly once regardless
+  of what version number it shipped under or which branch merged first.
+  Unnamed legacy migrations keep working as-is; add `name` to migrations you
+  write from now on.
+</Callout>
+
+<Callout tone="risk">
+  Never run `drizzle-kit push` against a production database. Template schemas
+  only define app-specific tables; they do not include central framework tables
+  (`user`, `session`, `application_state`, and others). Running `drizzle-kit
+  push` against production will detect those tables as unknown and attempt to
+  drop them, causing immediate data loss.
+</Callout>
+
+`drizzle.config.ts` at the root of each app configures drizzle-kit for local development schema inspection:
+
+```ts filename="drizzle.config.ts"
+import { createDrizzleConfig } from "@agent-native/core/db/drizzle-config";
+export default createDrizzleConfig();
+```
+
+Use `pnpm db:generate` to inspect your schema and `pnpm db:push` against a local database only.
+
+### 4. Query in actions {#querying}
+
+Call `getDb()` from your actions to get the typed Drizzle client. Use Drizzle's query builder and portable operators from `drizzle-orm`:
+
+```ts
+import { and, desc, eq } from "drizzle-orm";
+import { getDb } from "../server/db/index.js";
+import * as schema from "../server/db/schema.js";
+
+const db = getDb();
+
+const openTasks = await db
+  .select()
+  .from(schema.tasks)
+  .where(
+    and(eq(schema.tasks.ownerEmail, userEmail), eq(schema.tasks.done, false)),
+  )
+  .orderBy(desc(schema.tasks.createdAt));
+
+await db
+  .update(schema.tasks)
+  .set({ done: true })
+  .where(eq(schema.tasks.id, taskId));
+```
+
+## Scoping Data to Users {#scoping}
+
+All reads and writes against user-facing tables must be scoped to the authenticated user. The framework provides two patterns depending on whether the data is private or shareable.
+
+**Private data:** tables that belong to one user. Add `ownerEmail: text("owner_email").notNull()` to the schema and include `eq(table.ownerEmail, userEmail)` in every query:
+
+```ts
+.where(eq(schema.tasks.ownerEmail, userEmail))
+```
+
+**Shared resources:** tables that can be shared with other users or organizations. Spread `...ownableColumns()` in the schema instead of a bare `owner_email`. This adds `owner_email`, `org_id`, and `visibility` in one call, and creates a companion shares table with `createSharesTable`:
+
+```ts filename="server/db/schema.ts"
+import {
+  table,
+  text,
+  ownableColumns,
+  createSharesTable,
+} from "@agent-native/core/db/schema";
+
+export const decks = table("decks", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+export const deckShares = createSharesTable("deck_shares");
+```
+
+Then use `accessFilter` from `@agent-native/core/sharing` in list queries instead of a manual `eq` check:
+
+```ts
+import { accessFilter } from "@agent-native/core/sharing";
+
+const rows = await db
+  .select()
+  .from(schema.decks)
+  .where(accessFilter(schema.decks, schema.deckShares));
+```
+
+`accessFilter` builds a query that admits rows the caller owns, rows shared with their org, and rows explicitly shared with them. It does not expose rows from other users.
+
+See [Security — Data Scoping](/docs/security#data-scoping) and [Sharing](/docs/sharing#building) for the full model.
+
+## SQL-Backed Sync {#sync}
+
+Agent-native does not rely on filesystem watchers or sticky in-memory state. When an action writes to the database, a sync version increments. The client `useDbSync()` hook polls `/_agent-native/poll` and invalidates React Query caches when it sees a higher version.
+
+This works across serverless and multi-instance deployments because the database is the coordination point. If you write custom mutations outside actions, use framework helpers or emit the appropriate sync invalidation so open UIs refresh.
+
+<Diagram id="doc-block-qhkdv8" title="SQL-backed sync loop" summary="No watchers, no sticky state. A write bumps a version in SQL; every client polls the version and refetches.">
+
+```html
+<div class="diagram-db-sync">
+  <div class="diagram-box" data-rough>
+    Action / helper<br /><small class="diagram-muted">mutates data</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <strong>SQL database</strong
+    ><small class="diagram-muted">sync version increments</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&larr;</div>
+  <div class="diagram-col">
+    <div class="diagram-node">
+      useDbSync()<br /><small class="diagram-muted"
+        >polls /_agent-native/poll</small
+      >
+    </div>
+    <div class="diagram-pill ok">invalidate caches &rarr; UI refreshes</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-db-sync {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-db-sync .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+.diagram-db-sync .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+<Endpoint id="doc-block-1s11d2e" title="The poll endpoint" method="GET" path="/_agent-native/poll" summary="Return the current per-source database sync versions so the client can detect changes." auth="Session cookie (request-scoped identity)" responses={[
+  {
+    "status": "200",
+    "description": "Current sync versions keyed by source."
+  }
+]}>
+
+`useDbSync()` calls this on an interval and falls back to it when SSE is unavailable. When a returned version is higher than the client's last-seen value, the matching React Query caches are invalidated and refetch.
+
+</Endpoint>
+
+## Raw SQL {#raw-sql}
+
+For advanced queries, health checks, or one-off maintenance that the Drizzle query builder can't express, use `getDbExec` from `@agent-native/core/db`:
+
+```ts
+import { getDbExec, isPostgres, intType } from "@agent-native/core/db";
+
+const { rows } = await getDbExec().execute({
+  sql: `SELECT id, title FROM tasks WHERE owner_email = ? LIMIT ?`,
+  args: [userEmail, 50],
+});
+```
+
+`getDbExec` auto-converts `?` params to `$1`, `$2`, etc. for Postgres. Use `isPostgres()` to branch on dialect, and `intType()` to return the correct integer type for the current backend. Prefer the Drizzle query builder for normal reads and writes. Raw SQL bypasses type safety and is harder to maintain.
+
+## Environment Variables {#environment-variables}
+
+| Variable              | Purpose                                                                                                 |
+| --------------------- | ------------------------------------------------------------------------------------------------------- |
+| `DATABASE_URL`        | Persistent SQL connection string (unset = local SQLite; `pglite:./data/pglite` = local Postgres opt-in) |
+| `DATABASE_AUTH_TOKEN` | Auth token for providers that require a separate token, such as Turso/libSQL                            |
+
+## What's next {#whats-next}
+
+- [**Security — Data Scoping**](/docs/security#data-scoping): how `owner_email` and access helpers scope reads and writes
+- [**Sharing**](/docs/sharing#building): `ownableColumns()` and the visibility model for shared resources
+- [**Plugins**](/docs/server-plugins): the startup plugin lifecycle where migrations run
+- [**Actions**](/docs/actions-overview): the surface where actions call `getDb()` to read and write data
+- [**Deployment**](/docs/deployment#persistent-database): connecting a persistent database per deploy target
+- [**Real-Time Sync**](/docs/key-concepts#polling-sync): `useDbSync()` and the full client-side sync model

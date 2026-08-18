@@ -82,8 +82,7 @@ Três leituras actions estão disponíveis para o agente **e** o frontend em cad
 Crie um feed de atividades ou uma linha "quem mudou isto" chamando `list-audit-events` do UI com `useActionQuery` — nunca escreva manualmente uma busca na tabela de auditoria:
 
 ```tsx
-import { useActionQuery } from "@agent-native/core/client";
-
+import { useActionQuery } from "@agent-native/core/client/hooks";
 const { data } = useActionQuery("list-audit-events", {
   targetType: "recording",
   targetId: recordingId,
@@ -106,7 +105,7 @@ Configurar via ambiente:
 
 ## O que vem a seguir
 
-- [**Actions**](/docs/actions) — a costura `defineAction` onde a captura acontece
+- [**Actions**](/docs/actions-overview) — a costura `defineAction` onde a captura acontece
 - [**Human-in-the-Loop Approvals**](/docs/human-approval) — actions fechado, registrado como `denied`
 - [**Security & Data Scoping**](/docs/security) — a auditoria do modelo de propriedade indica reutilização
 - [**Observability**](/docs/observability) — telemetria executada pelo agente (o outro "o que aconteceu")

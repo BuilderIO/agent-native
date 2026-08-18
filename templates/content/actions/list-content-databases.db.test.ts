@@ -3,7 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { eq } from "drizzle-orm";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -14,6 +15,7 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let listContentDatabasesAction: typeof import("./list-content-databases.js").default;
+let describeContentDatabaseAction: typeof import("./describe-content-database.js").default;
 
 const OWNER = "owner@example.com";
 
@@ -24,6 +26,9 @@ beforeAll(async () => {
   schema = dbModule.schema;
   listContentDatabasesAction = (await import("./list-content-databases.js"))
     .default;
+  describeContentDatabaseAction = (
+    await import("./describe-content-database.js")
+  ).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60000);
@@ -38,15 +43,24 @@ async function createDatabaseDocument(args: {
   documentId: string;
   databaseId: string;
   title: string;
+  description?: string;
+  spaceId?: string;
+  systemRole?: string;
+  hideFromSearch?: boolean;
+  ownerEmail?: string;
 }) {
   const db = getDb();
   const now = new Date().toISOString();
+  const ownerEmail = args.ownerEmail ?? OWNER;
   await db.insert(schema.documents).values({
     id: args.documentId,
-    ownerEmail: OWNER,
+    ownerEmail,
+    spaceId: args.spaceId,
     parentId: null,
     title: args.title,
     content: "",
+    description: args.description ?? "",
+    hideFromSearch: args.hideFromSearch ? 1 : 0,
     position: 1,
     visibility: "private",
     createdAt: now,
@@ -54,9 +68,11 @@ async function createDatabaseDocument(args: {
   });
   await db.insert(schema.contentDatabases).values({
     id: args.databaseId,
-    ownerEmail: OWNER,
+    ownerEmail,
+    spaceId: args.spaceId,
     documentId: args.documentId,
     title: args.title,
+    systemRole: args.systemRole,
   });
 }
 
@@ -76,11 +92,317 @@ describe("list-content-databases", () => {
           {
             databaseId: "db-cmdk",
             documentId: "db-doc-cmdk",
+            spaceId: null,
             title: "CmdK Database TestDB",
+            description: "",
           },
         ],
+        pagination: {
+          offset: 0,
+          limit: 6,
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+          nextOffset: null,
+        },
       });
     });
+  });
+
+  it("searches user-authored descriptions and returns live identity metadata", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-described",
+      databaseId: "db-described",
+      title: "Intake Queue",
+      description: "Collects requests for editorial design review",
+      spaceId: "space-creative",
+    });
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ title: "Stale database title" })
+      .where(eq(schema.contentDatabases.id, "db-described"));
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({ query: "EDITORIAL DESIGN" }),
+      ).resolves.toEqual({
+        databases: [
+          {
+            databaseId: "db-described",
+            documentId: "db-doc-described",
+            spaceId: "space-creative",
+            title: "Intake Queue",
+            description: "Collects requests for editorial design review",
+          },
+        ],
+        pagination: {
+          offset: 0,
+          limit: 50,
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+          nextOffset: null,
+        },
+      });
+    });
+  });
+
+  it("resolves exact IDs and titles within an exact space", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-exact",
+      databaseId: "db-exact",
+      title: "Product Feedback",
+      description: "Captures product feedback",
+      spaceId: "space-product",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-exact-other-space",
+      databaseId: "db-exact-other-space",
+      title: "Product Feedback",
+      spaceId: "space-other",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const expected = {
+        databases: [
+          {
+            databaseId: "db-exact",
+            documentId: "db-doc-exact",
+            spaceId: "space-product",
+            title: "Product Feedback",
+            description: "Captures product feedback",
+          },
+        ],
+        pagination: {
+          offset: 0,
+          limit: 50,
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+          nextOffset: null,
+        },
+      };
+      await expect(
+        listContentDatabasesAction.run({ databaseId: "db-exact" }),
+      ).resolves.toEqual(expected);
+      await expect(
+        listContentDatabasesAction.run({ documentId: "db-doc-exact" }),
+      ).resolves.toEqual(expected);
+      await expect(
+        listContentDatabasesAction.run({
+          spaceId: "space-product",
+          title: "product feedback",
+        }),
+      ).resolves.toEqual(expected);
+
+      const description = await describeContentDatabaseAction.run({
+        databaseId: "db-exact",
+      });
+      expect(description).toMatchObject({
+        database: {
+          id: "db-exact",
+          documentId: "db-doc-exact",
+          title: "Product Feedback",
+          description: "Captures product feedback",
+        },
+        properties: [],
+      });
+      expect(description).not.toHaveProperty("items");
+    });
+  });
+
+  it("fails closed when exact title resolution is missing or ambiguous", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-ambiguous-a",
+      databaseId: "db-ambiguous-a",
+      title: "Shared Intake",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-ambiguous-b",
+      databaseId: "db-ambiguous-b",
+      title: "Shared Intake",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({ title: "Missing Intake" }),
+      ).rejects.toThrow(/No accessible Content database matched/);
+      await expect(
+        listContentDatabasesAction.run({ title: "Shared Intake", limit: 1 }),
+      ).rejects.toThrow(
+        /ambiguous across multiple accessible Content databases/,
+      );
+      await expect(
+        listContentDatabasesAction.run({ title: "   " }),
+      ).rejects.toThrow();
+    });
+  });
+
+  it("bounds ordinary discovery results", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-bounded-a",
+      databaseId: "db-bounded-a",
+      title: "Bounded Intake A",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-bounded-b",
+      databaseId: "db-bounded-b",
+      title: "Bounded Intake B",
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({ query: "Bounded Intake", limit: 1 }),
+      ).resolves.toMatchObject({ databases: [{ databaseId: "db-bounded-a" }] });
+    });
+  });
+
+  it("applies a default bound to ordinary discovery", async () => {
+    for (let index = 0; index < 51; index += 1) {
+      await createDatabaseDocument({
+        documentId: `db-doc-default-bound-${index}`,
+        databaseId: `db-default-bound-${index}`,
+        title: `Default Bound ${index}`,
+      });
+    }
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const result = await listContentDatabasesAction.run({
+        query: "Default Bound",
+      });
+      expect(result.databases).toHaveLength(50);
+      expect(result.pagination).toMatchObject({
+        offset: 0,
+        limit: 50,
+        returnedItems: 50,
+        hasMore: true,
+        nextOffset: 50,
+      });
+
+      const continuation = await listContentDatabasesAction.run({
+        query: "Default Bound",
+        offset: 50,
+      });
+      expect(continuation.databases).toHaveLength(1);
+      expect(continuation.pagination).toMatchObject({
+        offset: 50,
+        limit: 50,
+        returnedItems: 1,
+        hasMore: false,
+        nextOffset: null,
+      });
+    });
+  });
+
+  it("fills a bounded page after applying source-chain exclusions", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-fill-root",
+      databaseId: "db-fill-root",
+      title: "Fill Page Root",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-fill-a-child",
+      databaseId: "db-fill-a-child",
+      title: "Fill Page Child",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-fill-b-other",
+      databaseId: "db-fill-b-other",
+      title: "Fill Page Other",
+    });
+    const now = new Date().toISOString();
+    await getDb().insert(schema.contentDatabaseSources).values({
+      id: "src-fill-child-root",
+      ownerEmail: OWNER,
+      databaseId: "db-fill-a-child",
+      sourceType: "local-table",
+      sourceName: "Root",
+      sourceTable: "db-fill-root",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      const result = await listContentDatabasesAction.run({
+        excludeDatabaseIds: ["db-fill-root"],
+        query: "Fill Page",
+        limit: 1,
+      });
+
+      expect(result).toMatchObject({
+        databases: [{ databaseId: "db-fill-b-other" }],
+        pagination: {
+          totalItems: 1,
+          returnedItems: 1,
+          hasMore: false,
+        },
+      });
+    });
+  });
+
+  it("does not disclose system or inaccessible databases", async () => {
+    await createDatabaseDocument({
+      documentId: "db-doc-system",
+      databaseId: "db-system",
+      title: "System Files",
+      systemRole: "files",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-private-other",
+      databaseId: "db-private-other",
+      title: "Private Other",
+      ownerEmail: "other@example.com",
+    });
+    await createDatabaseDocument({
+      documentId: "db-doc-hidden",
+      databaseId: "db-hidden",
+      title: "Hidden Intake",
+      hideFromSearch: true,
+    });
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        listContentDatabasesAction.run({ databaseId: "db-system" }),
+      ).rejects.toThrow(/No accessible Content database matched/);
+      await expect(
+        listContentDatabasesAction.run({ databaseId: "db-private-other" }),
+      ).rejects.toThrow(/No accessible Content database matched/);
+      await expect(
+        listContentDatabasesAction.run({ databaseId: "db-hidden" }),
+      ).rejects.toThrow(/No accessible Content database matched/);
+      await expect(
+        describeContentDatabaseAction.run({ databaseId: "db-system" }),
+      ).rejects.toThrow("Content database not found.");
+
+      let inaccessibleError: unknown;
+      try {
+        await describeContentDatabaseAction.run({
+          documentId: "db-doc-private-other",
+        });
+      } catch (error) {
+        inaccessibleError = error;
+      }
+      expect(inaccessibleError).toBeInstanceOf(Error);
+      expect((inaccessibleError as Error).message).toBe(
+        "Content database not found.",
+      );
+      expect((inaccessibleError as Error).message).not.toContain(
+        "db-private-other",
+      );
+    });
+  });
+
+  it("preserves unexpected database discovery failures", async () => {
+    const discovery = vi
+      .spyOn(listContentDatabasesAction, "run")
+      .mockRejectedValueOnce(new Error("database unavailable"));
+
+    await runWithRequestContext({ userEmail: OWNER }, async () => {
+      await expect(
+        describeContentDatabaseAction.run({ databaseId: "db-exact" }),
+      ).rejects.toThrow("database unavailable");
+    });
+    discovery.mockRestore();
   });
 
   it("excludes a database when its document id is passed (no source attached yet)", async () => {
@@ -98,6 +420,7 @@ describe("list-content-databases", () => {
     await runWithRequestContext({ userEmail: OWNER }, async () => {
       const result = await listContentDatabasesAction.run({
         excludeDatabaseIds: ["db-doc-self"],
+        query: "Other",
       });
 
       expect(

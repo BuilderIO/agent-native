@@ -2,6 +2,7 @@ import { createHash } from "crypto";
 
 import { getDbExec } from "@agent-native/core/db";
 
+import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import { resolveCredential } from "./credentials";
 import {
   requireRequestCredentialContext,
@@ -239,6 +240,8 @@ export interface QueryResult {
   schema: { name: string; type: string }[];
   bytesProcessed: number;
   cached?: boolean;
+  /** True when BigQuery matched more rows than this first page returned. */
+  truncated?: boolean;
 }
 
 export interface RunQueryOptions {
@@ -381,7 +384,17 @@ function rowsToObjects(
  * Returns `null` when the query is valid; otherwise returns a short error
  * string suitable for bubbling back to the agent.
  */
-export async function dryRunQuery(sql: string): Promise<string | null> {
+export interface DryRunQueryOptions {
+  signal?: AbortSignal;
+}
+
+export async function dryRunQuery(
+  sql: string,
+  options: DryRunQueryOptions = {},
+): Promise<string | null> {
+  if (options.signal?.aborted) {
+    throw new Error("BigQuery validation was cancelled before it started");
+  }
   const { projectId, appEventsTable } = await getProjectInfo();
   const resolvedSql = await resolveTablePlaceholder(
     sql,
@@ -392,33 +405,57 @@ export async function dryRunQuery(sql: string): Promise<string | null> {
   const token = await getAccessToken();
   const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
 
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      configuration: {
-        dryRun: true,
-        query: { query: resolvedSql, useLegacySql: false },
-      },
-    }),
-  });
-
-  if (res.ok) return null;
-
-  const text = await res.text();
+  const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  options.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  let timedOut = false;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeoutMessage = `BigQuery validation timed out after ${Math.round(DASHBOARD_SQL_VALIDATION_TIMEOUT_MS / 1000)} seconds`;
   try {
-    const parsed = JSON.parse(text) as {
-      error?: { message?: string };
-    };
-    const msg = parsed.error?.message?.trim();
-    if (msg) return msg;
-  } catch {
-    // Fall through
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+        reject(new Error(timeoutMessage));
+      }, DASHBOARD_SQL_VALIDATION_TIMEOUT_MS);
+    });
+    const request = fetch(url, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        configuration: {
+          dryRun: true,
+          query: { query: resolvedSql, useLegacySql: false },
+        },
+      }),
+      signal: controller.signal,
+    });
+    const res = await Promise.race([request, timeout]);
+
+    if (res.ok) return null;
+
+    const text = await res.text();
+    try {
+      const parsed = JSON.parse(text) as {
+        error?: { message?: string };
+      };
+      const msg = parsed.error?.message?.trim();
+      if (msg) return msg;
+      // coercion-ok: malformed BigQuery error bodies use the status fallback below.
+    } catch {
+      // Fall through
+    }
+    return `BigQuery validation failed (${res.status})`;
+  } catch (error) {
+    if (timedOut) return timeoutMessage;
+    throw error;
+  } finally {
+    options.signal?.removeEventListener("abort", abortFromCaller);
+    if (timer !== undefined) clearTimeout(timer);
   }
-  return `BigQuery validation failed (${res.status})`;
 }
 
 export async function runQuery(
@@ -516,11 +553,19 @@ export async function runQuery(
   const rows = data.rows ? rowsToObjects(data.rows, fields) : [];
   const bytesProcessed = parseInt(data.totalBytesProcessed || "0", 10);
 
+  // BigQuery reports the full match count; `rows` only holds the first page. Reporting
+  // rows.length as the total made every partial result look complete to the agent.
+  const reportedTotal = Number.parseInt(data.totalRows || "", 10);
+  const totalRows = Number.isFinite(reportedTotal)
+    ? reportedTotal
+    : rows.length;
+
   const result: QueryResult = {
     rows,
-    totalRows: rows.length,
+    totalRows,
     schema,
     bytesProcessed,
+    ...(totalRows > rows.length ? { truncated: true } : {}),
   };
 
   setL1(cacheKey, result);

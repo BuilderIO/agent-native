@@ -15,7 +15,7 @@ import {
 } from "@agent-native/core/progress";
 
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Triage 128 unread emails",
   step: "Fetching inbox",
 });
@@ -100,7 +100,7 @@ Crie uma corrida. Retorna o `AgentRun` completo com um ID gerado.
 
 ```ts
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Ingest 1M rows",
   step: "Opening CSV",
   metadata: { jobId: "abc123", artifactPath: "s3://..." },
@@ -140,9 +140,9 @@ Também emite `run.progress.updated` com o status do terminal.
 ```ts
 import { listRuns, getRun, deleteRun } from "@agent-native/core/progress";
 
-const active = await listRuns("steve@builder.io", { activeOnly: true });
-const run = await getRun("run-id", "steve@builder.io");
-await deleteRun("run-id", "steve@builder.io");
+const active = await listRuns("user@example.com", { activeOnly: true });
+const run = await getRun("run-id", "user@example.com");
+await deleteRun("run-id", "user@example.com");
 ```
 
 ## HTTP API {#http}
@@ -233,7 +233,7 @@ Notificar me that run {{runId}} has failed.
 ## Como funciona {#internals}
 
 - **Escopo do proprietário** — cada linha tem uma coluna `owner`; cada consulta é filtrada nela. Os usuários veem apenas suas próprias corridas.
-- **Integração de pesquisa** — cada mutação chama `recordChange()` para que os modelos que usam [`useDbSync`](/docs/client) sejam invalidados automaticamente sem qualquer conexão extra.
+- **Integração de pesquisa** — cada mutação chama `recordChange()` para que os modelos que usam [`useDbSync`](/docs/client-data#usedbsync) sejam invalidados automaticamente sem qualquer conexão extra.
 - **Nome da tabela** — a estrutura também possui uma tabela `agent_runs` para rastreamento interno do ciclo de vida do turno de bate-papo entre agentes. A primitiva de progresso usa `progress_runs` para manter os dois interesses separados.
 - **Ajuste percentual** — os valores são fixados em `[0, 100]` e arredondados para um número inteiro na gravação.
 
@@ -241,4 +241,4 @@ Notificar me that run {{runId}} has failed.
 
 - [**Notifications**](/docs/notifications) — emparelhe com `manage-progress` (`action=complete`) para informar ao usuário quando o trabalho terminar
 - [**Automations**](/docs/automations) — execuções lentas do watchdog via `run.progress.updated`
-- [**Client**](/docs/client) — `useDbSync` para invalidação de cache em tempo real
+- [**Dados e sincronização**](/docs/client-data) — `useDbSync` para invalidação de cache em tempo real

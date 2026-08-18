@@ -11,6 +11,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export type ExportFormat = "png" | "jpg" | "svg" | "pdf" | "webp";
@@ -399,16 +404,29 @@ function ExportRow({
         aria-label={labels.suffix}
       />
 
-      {/* Remove row button — matches the design editor's × on each export entry */}
-      <button
-        type="button"
-        aria-label={labels.removeExport}
-        disabled={isDisabled || !canRemove}
-        className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-        onClick={() => onRemoveRow(row.id)}
-      >
-        <IconX className="size-3" />
-      </button>
+      {/* Remove row — only rendered once there is more than one export to
+          remove. A permanently disabled × cannot explain itself: `disabled`
+          suppresses pointer events, so it carries no tooltip either, and the
+          single-row default left an unexplained dead icon in the row. The span
+          keeps hover alive while a run is in flight and the button is disabled. */}
+      {canRemove ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="flex shrink-0">
+              <button
+                type="button"
+                aria-label={labels.removeExport}
+                disabled={isDisabled}
+                className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+                onClick={() => onRemoveRow(row.id)}
+              >
+                <IconX className="size-3" />
+              </button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="left">{labels.removeExport}</TooltipContent>
+        </Tooltip>
+      ) : null}
     </div>
   );
 }

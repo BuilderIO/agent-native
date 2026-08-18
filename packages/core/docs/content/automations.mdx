@@ -5,9 +5,17 @@ description: "Event-triggered and scheduled automations with natural-language co
 
 # Automations
 
-An **automation** is a rule: _when X happens, do Y_ — described in natural language. The agent executes the instructions, so automations have access to every action, tool, and MCP server the agent can use in an interactive chat.
+An **automation** is an agent-executed task that fires on a schedule or when an
+event occurs: _when X happens, do Y_. **Scheduled** and **Event** are the two
+trigger types, not separate products. The agent executes the instructions with
+the same action and tool lifecycle as interactive chat; connected MCP access is
+limited to the automation's explicit `mcpTools` allowlist.
 
-Automations extend [recurring jobs](/docs/recurring-jobs) with **event triggers**, **natural-language conditions**, and **outbound HTTP** via the `web-request` tool. They use the same `jobs/<name>.md` file format, storage, and "create three ways" workflow as recurring jobs — see [Recurring Jobs](/docs/recurring-jobs#job-file) for the shared format. This page covers only what's new for event-driven automations.
+The framework originally exposed scheduled automations as **Recurring Jobs**.
+That name, the `jobs/<name>.md` storage path, and the `manage-jobs` tool remain
+for compatibility. New product guidance uses **Automations** as the umbrella;
+see [Recurring Jobs](/docs/recurring-jobs) when maintaining a legacy
+schedule-only integration or working with scheduler internals.
 
 <Diagram id="doc-block-jdto24" title="When X happens, do Y" summary="An event fires on the bus, an optional natural-language condition gates it, and the agent runs the automation body with full tool access.">
 
@@ -72,9 +80,21 @@ Event triggers can include a `condition` — a natural-language string evaluated
 
 The agent discovers available events, confirms the plan, and writes the automation for you.
 
-### From the settings UI
+### From the Automations UI
 
-Automations appear in the settings panel. Users can view, enable/disable, and delete them there.
+Open **Automations** on the full-page Agent surface. It is the primary place to
+view scheduled and event-triggered automations, inspect status, pause or resume
+them, and delete them. Its compatibility URL remains `/agent#jobs`, so existing
+links and bookmarks continue to work.
+
+<Callout tone="info">
+
+**Personal and organization automations use the same management surface.**
+Organization event automations are visible to members but always run as their
+creator. An administrator can manage the definition, but cannot change who it
+runs as.
+
+</Callout>
 
 The third path — writing the `jobs/<name>.md` file by hand via `resourcePut` — works exactly as it does for [recurring jobs](/docs/recurring-jobs#creating). For an event-driven automation you add the event-trigger frontmatter below to that same file. An event-triggered job sets `schedule: ""` and supplies `triggerType: event`, an `event` name, and an optional `condition`:
 
@@ -123,6 +143,26 @@ Automations share every field in the [recurring-jobs frontmatter table](/docs/re
 | `domain`      | string                    | _(optional)_ | Grouping tag (mail, calendar, clips, etc.)                                                                                                    |
 
 For an event trigger, `schedule` is `""` (empty); for a schedule trigger it carries the cron expression. The dispatcher also writes the same managed `lastRun` / `lastStatus` / `lastError` fields the scheduler does, plus a `"skipped"` status when a condition evaluates to false.
+
+`model` selects a per-automation model. `mcpTools` is an explicit list of MCP
+tool names such as `mcp__server__tool`. The shared execution runner exposes
+only those configured MCP tools and fails clearly if a named tool or its
+connected grant is unavailable.
+
+### Organization execution identity {#organization-identity}
+
+Organization Scheduled and Event automations are shared for visibility and
+management, not execution identity:
+
+- `createdBy` is required for an organization event automation, and `runAs` is
+  `creator`.
+- Event automations match only events emitted for that creator. An
+  organization-scoped automation is not an organization-wide event broadcast.
+- Organization administrators may update or delete the automation, but cannot
+  replace `createdBy` or retarget its identity.
+- Before execution, the framework verifies that the creator still exists and
+  remains an organization member. If the creator was removed—or membership
+  cannot be verified—the automation does not run.
 
 ## The event bus {#event-bus}
 
@@ -174,11 +214,13 @@ emit(
     customerEmail: "jane@example.com",
     total: 49.99,
   },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
-The `owner` in the emit metadata scopes which automations fire — only automations owned by the same user (or shared automations) are evaluated.
+The `owner` in the emit metadata scopes which automations fire. Personal and
+organization event automations both require an exact match with their
+`createdBy` identity.
 
 ## Conditions {#conditions}
 
@@ -222,13 +264,19 @@ Placeholders are resolved **server-side** after the agent emits the tool call �
 
 ### Parameters {#web-request-params}
 
-| Parameter    | Type   | Default | Description                                         |
-| ------------ | ------ | ------- | --------------------------------------------------- |
-| `url`        | string | —       | Full URL. May contain `${keys.NAME}` references.    |
-| `method`     | string | `GET`   | HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD).  |
-| `headers`    | string | `{}`    | JSON object of headers. May contain `${keys.NAME}`. |
-| `body`       | string | —       | Request body. May contain `${keys.NAME}`.           |
-| `timeout_ms` | number | 15000   | Timeout in milliseconds (max 30000).                |
+| Parameter      | Type    | Default       | Description                                                                                                                                                    |
+| -------------- | ------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `url`          | string  | —             | Full URL. May contain `${keys.NAME}` references.                                                                                                               |
+| `method`       | string  | `GET`         | HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD).                                                                                                             |
+| `headers`      | string  | `{}`          | JSON object of headers. May contain `${keys.NAME}`.                                                                                                            |
+| `body`         | string  | —             | Request body. May contain `${keys.NAME}`.                                                                                                                      |
+| `timeout_ms`   | number  | 15000         | Timeout in milliseconds (max 30000).                                                                                                                           |
+| `maxChars`     | number  | 32000         | Maximum response characters to return (max 200000). Raise it to read a large page or dataset in full.                                                          |
+| `responseMode` | string  | `auto`        | How to return the response: `auto` (HTML becomes markdown, JSON/text stays raw), `raw`, `text`, `markdown`, `links`, `metadata`, or `matches` (with `search`). |
+| `extract`      | string  | `readability` | HTML extraction strategy: `readability`, `all-visible` (full visible body text), or `none` (full document).                                                    |
+| `includeLinks` | boolean | `true`        | Whether extracted HTML responses include a compact links list.                                                                                                 |
+| `search`       | object  | —             | Optional post-fetch search over the extracted content: `{ query, queries, terms, regex, regexFlags, source, maxMatches, contextChars, caseSensitive }`.        |
+| `saveToFile`   | string  | —             | Workspace file path to save the full response to instead of returning it inline — useful for large pages or API responses.                                     |
 
 ## Keys {#keys}
 
@@ -241,7 +289,8 @@ Keys are ad-hoc secrets created by users or the agent for automation use (e.g. `
 
 ## Agent tools {#agent-tools}
 
-All automation operations are accessed through a single `manage-automations` tool with an `action` parameter:
+Trigger-aware personal and organization operations use `manage-automations`
+with an `action` parameter:
 
 | Action        | Purpose                                                              |
 | ------------- | -------------------------------------------------------------------- |
@@ -253,6 +302,10 @@ All automation operations are accessed through a single `manage-automations` too
 | `fire-test`   | Emit a `test.event.fired` event to validate automations              |
 
 Additional tool: `web-request` — outbound HTTP with `${keys.NAME}` substitution.
+
+`define` and `update` accept personal or organization `scope`, a `model`
+override, and an `mcpTools` allowlist. `manage-jobs` remains the compatibility
+tool for existing schedule-only integrations and delivery metadata.
 
 ## API endpoints {#api}
 
@@ -277,7 +330,7 @@ Confirm an automation's wiring and condition without waiting for a real provider
 
 ## How dispatch works {#dispatch}
 
-<Diagram id="doc-block-1ee1cky" title="The dispatch path" summary="From a fired event to a completed agent run, gated by ownership scope and the natural-language condition.">
+<Diagram id="doc-block-1ee1cky" title="The dispatch path" summary="Event and schedule acquisition stay separate, then converge on one identity-checked background execution lifecycle.">
 
 ```html
 <div class="disp">
@@ -293,7 +346,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card">
     <span class="diagram-pill">scope</span
     ><small class="diagram-muted"
-      >keep only those owned by the event's owner (or shared)</small
+      >match <code>createdBy</code> to the event owner; verify org
+      membership</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -308,8 +362,8 @@ Confirm an automation's wiring and condition without waiting for a real provider
   <div class="diagram-card accent">
     <span class="diagram-pill accent">run</span
     ><small class="diagram-muted"
-      ><code>runAgentLoop</code> with body as prompt, payload as context, 5-min
-      timeout</small
+      >shared runner resolves identity, model, MCP allowlist, continuation,
+      delivery, and usage</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
@@ -374,6 +428,7 @@ notification to my webhook."_
 
 ```yaml filename="jobs/notify-on-plan-comment.md"
 ---
+schedule: ""
 triggerType: event
 event: plan.commented
 condition: "resolutionTarget is human or resolutionTarget is null"
@@ -389,13 +444,13 @@ POST to ${keys.NOTIFY_WEBHOOK} with a JSON body:
 Set `NOTIFY_WEBHOOK` to any HTTP endpoint — a Slack incoming webhook, a generic
 notification service, or a custom receiver. The `web-request` tool resolves
 `${keys.NOTIFY_WEBHOOK}` server-side; the raw URL never appears in the agent's
-context. See [Visual Plans — Events and notifications](/docs/template-plan#events)
+context. See [Events and Automations — Event reference](/docs/template-plan-automations#event-reference)
 for the full `plan.commented` payload reference and all four plan events.
 
 ## What's next
 
-- [**Recurring Jobs**](/docs/recurring-jobs) — schedule-triggered automations reuse the same scheduler
-- [**Actions**](/docs/actions) — automations can call any registered action via the agent loop
+- [**Recurring Jobs**](/docs/recurring-jobs) — legacy compatibility and advanced scheduled-job fields
+- [**Actions**](/docs/actions-overview) — automations can call any registered action via the agent loop
 - [**Workflow Connectors**](/docs/automation-connectors) — pre-configured n8n/Zapier-style workflow invocation, for when ad-hoc `web-request` isn't a strict enough contract
 - [**Security**](/docs/security) — input validation and secret handling
-- [**Visual Plans — Events**](/docs/template-plan#events) — plan events reference and automation recipes
+- [**Events and Automations**](/docs/template-plan-automations) — the Plan event reference and automation recipes

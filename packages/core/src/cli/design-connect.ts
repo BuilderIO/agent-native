@@ -11,6 +11,8 @@ import http, {
 import https from "node:https";
 import path from "node:path";
 
+import { injectDocumentMarkup } from "../shared/html-document.js";
+
 const DEFAULT_BRIDGE_PORT = 7331;
 const ROUTE_MANIFEST_FILE = path.join(".agent-native", "design-routes.json");
 const DEFAULT_DEV_SERVER_CANDIDATES = [
@@ -1108,6 +1110,27 @@ function resolvePreviewSnapshotUrl(
   return parsed.toString();
 }
 
+/**
+ * Remove a literal `previewToken` query pair via raw string splitting instead
+ * of `URLSearchParams`. `URLSearchParams` re-serializes the ENTIRE query
+ * string on mutation, turning a valueless pair like `?url` into `?url=` even
+ * when `previewToken` was never present — which silently changes which
+ * codepath Vite's dev server routes the request to (e.g. `?url` vs `?url=`
+ * resolve to different response bodies). Returns `search` untouched whenever
+ * `previewToken` is absent, so every other proxied query string reaches the
+ * dev server byte-for-byte.
+ */
+function stripPreviewTokenQueryParam(search: string): string {
+  if (!search.includes("previewToken")) return search;
+  const raw = search.startsWith("?") ? search.slice(1) : search;
+  const kept = raw
+    .split("&")
+    .filter(
+      (pair) => pair !== "previewToken" && !pair.startsWith("previewToken="),
+    );
+  return kept.length > 0 ? `?${kept.join("&")}` : "";
+}
+
 function resolvePreviewProxyUrl(
   devServerUrl: string,
   requestUrl: string | undefined,
@@ -1317,13 +1340,7 @@ function injectLiveEditBridge(
     targetPath,
   );
   if (!script) return withBase;
-  if (withBase.includes("</body>")) {
-    return withBase.replace("</body>", `${script}</body>`);
-  }
-  if (withBase.includes("</html>")) {
-    return withBase.replace("</html>", `${script}</html>`);
-  }
-  return `${withBase}${script}`;
+  return injectDocumentMarkup(withBase, script);
 }
 
 /** Read the full request body as a UTF-8 string. */
@@ -2227,7 +2244,23 @@ export async function startDesignConnectBridge(
 
       // ── Read-only preview routes (preview token required) ────────────────
 
-      if (pathname === "/" || pathname === "/manifest.json") {
+      // The injected <base href> re-points the proxied app's own
+      // <link rel="manifest" href="/manifest.json"> at the bridge, which
+      // would otherwise collide with the bridge's own control-plane manifest
+      // below. Browsers tag that fetch with Sec-Fetch-Dest: manifest (a
+      // request-metadata header Node's fetch never sends), so existing
+      // control-plane callers — the Design app and `fetchRunningBridgeManifest`
+      // (used by `design connect --json` / daemon self-detection) — keep
+      // hitting the bridge manifest unchanged, while the app's own manifest
+      // request falls through to the ordinary authenticated proxy below.
+      const isProxiedAppManifestRequest =
+        (req.method === "GET" || req.method === "HEAD") &&
+        pathname === "/manifest.json" &&
+        readHeader(req, "sec-fetch-dest") === "manifest";
+      if (
+        !isProxiedAppManifestRequest &&
+        (pathname === "/" || pathname === "/manifest.json")
+      ) {
         if (rejectInvalidPreviewToken()) return;
         sendJson(res, 200, manifest as unknown as Record<string, unknown>);
         return;
@@ -2676,7 +2709,13 @@ export async function startDesignConnectBridge(
         req.method &&
         ["GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"].includes(req.method)
       ) {
-        if (!previewTokenValid) {
+        // The browser's own manifest-link fetch algorithm omits credentials
+        // and custom headers by spec default, so it structurally cannot carry
+        // a previewToken. That is consistent with the proxied dev server,
+        // which already serves this exact path with no auth of its own — so
+        // this narrow, unspoofable (Sec-Fetch-Dest is a forbidden header,
+        // unsettable from page JS) case is exempted from the token gate.
+        if (!previewTokenValid && !isProxiedAppManifestRequest) {
           sendJson(res, 401, {
             ok: false,
             error: "invalid or missing preview token",
@@ -2686,10 +2725,9 @@ export async function startDesignConnectBridge(
         void (async () => {
           try {
             const proxyRequestUrl = new URL(req.url ?? "/", manifest.bridgeUrl);
-            proxyRequestUrl.searchParams.delete("previewToken");
             const targetUrl = resolvePreviewProxyUrl(
               manifest.devServerUrl,
-              `${proxyRequestUrl.pathname}${proxyRequestUrl.search}`,
+              `${proxyRequestUrl.pathname}${stripPreviewTokenQueryParam(proxyRequestUrl.search)}`,
             );
             const method = req.method ?? "GET";
             const requestBody =
@@ -2775,13 +2813,12 @@ export async function startDesignConnectBridge(
       );
       return;
     }
-    requestUrl.searchParams.delete("previewToken");
     let targetUrl: URL;
     try {
       targetUrl = new URL(
         resolvePreviewProxyUrl(
           manifest.devServerUrl,
-          `${requestUrl.pathname}${requestUrl.search}`,
+          `${requestUrl.pathname}${stripPreviewTokenQueryParam(requestUrl.search)}`,
         ),
       );
     } catch {
@@ -3088,25 +3125,58 @@ async function startDetachedDesignBridge(
   }
 
   const invocation = resolveCurrentCliInvocation(argv);
+  // A detached bridge that dies — port already taken, crash on boot, killed
+  // with its process group — used to do so with stdio "ignore", so the failure
+  // left no trace anywhere and Design silently fell back to non-editable
+  // iframes. Keep its output on disk so the death is diagnosable.
+  const logPath = await createDaemonLogPath(manifest.rootPath);
+  const logFd = await fs.open(logPath, "a");
   const child = spawn(invocation.command, invocation.args, {
     cwd: process.cwd(),
     detached: true,
     env: process.env,
-    stdio: "ignore",
+    stdio: ["ignore", logFd.fd, logFd.fd],
     shell: process.platform === "win32",
   });
   child.unref();
 
   if (await waitForBridgeHealth(manifest.bridgeUrl)) {
+    await logFd.close();
     console.error(`Design localhost bridge running at ${manifest.bridgeUrl}`);
+    console.error(`Bridge log: ${logPath}`);
     console.log(JSON.stringify(manifest, null, 2));
     return 0;
   }
 
+  const tail = await readDaemonLogTail(logPath);
+  await logFd.close();
   console.error(
-    `Timed out waiting for detached Design bridge at ${manifest.bridgeUrl}`,
+    [
+      `Timed out waiting for detached Design bridge at ${manifest.bridgeUrl}`,
+      `Bridge log: ${logPath}`,
+      tail ? `Last output:\n${tail}` : "The bridge produced no output.",
+    ].join("\n"),
   );
   return 1;
+}
+
+async function createDaemonLogPath(rootPath: string): Promise<string> {
+  const dir = path.join(rootPath, ".agent-native");
+  await fs.mkdir(dir, { recursive: true });
+  return path.join(dir, "design-connect.log");
+}
+
+async function readDaemonLogTail(
+  logPath: string,
+  maxBytes = 4000,
+): Promise<string> {
+  try {
+    const contents = await fs.readFile(logPath, "utf8");
+    return contents.slice(-maxBytes).trim();
+  } catch {
+    // An unreadable log must not mask the timeout the caller is reporting.
+    return "";
+  }
 }
 
 export async function runDesign(argv: string[]) {

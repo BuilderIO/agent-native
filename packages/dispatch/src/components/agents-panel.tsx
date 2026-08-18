@@ -1,4 +1,5 @@
-import { agentNativePath } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useOrgRole } from "@agent-native/core/client/org";
 import { IconExternalLink, IconTrash } from "@tabler/icons-react";
 import { useRef, useState, type FormEvent } from "react";
 
@@ -77,6 +78,11 @@ export function AgentsPanel({
   agents: ConnectedAgent[];
   onRefresh: () => void;
 }) {
+  const { org, isLoading: orgLoading, error: orgError } = useOrgRole();
+  const canManageSharedAgents =
+    !orgLoading &&
+    !orgError &&
+    (!org?.orgId || org.role === "owner" || org.role === "admin");
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
@@ -160,7 +166,7 @@ export function AgentsPanel({
   };
 
   return (
-    <section className="rounded-2xl border bg-card p-5">
+    <section className="rounded-2xl bg-card p-5">
       <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
         <div className="space-y-4">
           <div>
@@ -249,30 +255,35 @@ export function AgentsPanel({
                       <span>{agent.scope || "shared"}</span>
                     </div>
                   </div>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <IconTrash className="h-4 w-4" />
-                      </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Remove this agent?</AlertDialogTitle>
-                        <AlertDialogDescription>
-                          “{agent.name}” will be removed from the workspace. Any
-                          jobs or chats that delegate to it will stop working.
-                        </AlertDialogDescription>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          onClick={() => handleDelete(agent.resourceId)}
-                        >
-                          Remove
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                  {canManageSharedAgents && (
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="icon">
+                          <IconTrash className="h-4 w-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>
+                            Remove this agent?
+                          </AlertDialogTitle>
+                          <AlertDialogDescription>
+                            “{agent.name}” will be removed from the workspace.
+                            Any jobs or chats that delegate to it will stop
+                            working.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => handleDelete(agent.resourceId)}
+                          >
+                            Remove
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  )}
                 </div>
               ))}
               {workspaceAgents.length === 0 && customAgents.length === 0 && (
@@ -288,10 +299,20 @@ export function AgentsPanel({
           <div className="text-sm font-medium text-foreground">
             Add external agent
           </div>
-          <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            Add another A2A-compatible app by saving its agent endpoint here.
-          </p>
-          <form className="mt-4 space-y-3" onSubmit={handleAdd} noValidate>
+          {canManageSharedAgents ? (
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Add another A2A-compatible app by saving its agent endpoint here.
+            </p>
+          ) : !orgLoading ? (
+            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+              Only workspace owners and admins can add shared agents.
+            </p>
+          ) : null}
+          <form
+            className={`mt-4 space-y-3 ${canManageSharedAgents ? "" : "hidden"}`}
+            onSubmit={handleAdd}
+            noValidate
+          >
             <div className="space-y-1.5">
               <Input
                 ref={nameRef}
@@ -347,7 +368,11 @@ export function AgentsPanel({
                 {errors.form}
               </p>
             ) : null}
-            <Button type="submit" className="w-full" disabled={saving}>
+            <Button
+              type="submit"
+              className="w-full"
+              disabled={saving || !canManageSharedAgents}
+            >
               {saving ? "Saving..." : "Add agent"}
             </Button>
           </form>

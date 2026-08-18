@@ -1,9 +1,9 @@
+import { appApiPath } from "@agent-native/core/client/api-path";
 import {
-  appApiPath,
   callAction,
   useActionMutation,
   useActionQuery,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
 import type {
   CreateNotionPageRequest,
   Document,
@@ -15,6 +15,8 @@ import type {
 } from "@shared/api";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
+
+import { documentQueryFilter } from "./use-documents";
 
 // The server signs a `redirect` query param into the OAuth `state` and the
 // callback route sends the user back there once the connection completes. If
@@ -55,9 +57,7 @@ export function invalidateDocumentQueries(
   // path after every debounced editor save). Invalidating the bare ["action"]
   // key would refetch every mounted query app-wide (sidebar tree, comments,
   // database views, search, connection status, ...) on each cycle.
-  queryClient.invalidateQueries({
-    queryKey: ["action", "get-document", { id: documentId }],
-  });
+  queryClient.invalidateQueries(documentQueryFilter(documentId));
   queryClient.invalidateQueries({
     queryKey: ["action", "list-documents"],
   });
@@ -155,21 +155,23 @@ export function useDocumentSyncStatus(
 
     lastObservedSyncedAtRef.current = query.data.lastSyncedAt;
 
-    const cachedDocument = queryClient.getQueryData<Document>([
-      "action",
-      "get-document",
-      { id: normalizedDocumentId },
-    ]);
+    const cachedDocuments = queryClient
+      .getQueriesData<Document>(documentQueryFilter(normalizedDocumentId))
+      .map(([, document]) => document)
+      .filter((document): document is Document => !!document);
     const syncedLocalUpdatedAt = query.data.lastPushedLocalUpdatedAt;
 
     if (
-      cachedDocument?.updatedAt &&
+      cachedDocuments.some(
+        (cachedDocument) =>
+          !!cachedDocument.updatedAt &&
+          !!syncedLocalUpdatedAt &&
+          syncedLocalUpdatedAt > cachedDocument.updatedAt,
+      ) &&
       syncedLocalUpdatedAt &&
-      syncedLocalUpdatedAt > cachedDocument.updatedAt
+      cachedDocuments.length > 0
     ) {
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-document", { id: normalizedDocumentId }],
-      });
+      queryClient.invalidateQueries(documentQueryFilter(normalizedDocumentId));
       queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
     }
   }, [

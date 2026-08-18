@@ -18,7 +18,18 @@ LLMs — including Gemini Pro — degrade complex logos. They smear gradients, d
 6. `compositeLogo()` from `server/lib/image-processing.ts` (Sharp) loads the canonical logo PNG / SVG, resizes it to ~16% of the image width with reasonable inset, and composites it onto the generated image. Skeleton runs use `applyPresetSkeleton()` at the same seam.
 7. Output: the image with the actual logo, pixel-perfect, vector-quality if the source is SVG.
 
+Set `includeLogo` via `create-generation-preset` / `update-generation-preset`.
+`generate-image` / `generate-image-batch` stamp the library's pixel-perfect
+canonical logo onto the result when the resolved preset has it on, and it is a
+no-op if the library has no canonical logo. The model never draws the logo
+itself.
+
 ## Preset skeletons
+
+Preset skeletons live in `settings.skeletonSpec` on generation presets and are
+edited from `/brand-kits/:libraryId/presets/:presetId`. They composite a
+generated subject onto an uploaded brand background image and optional
+foreground layers.
 
 `settings.skeletonSpec` is the prototype storage shape:
 

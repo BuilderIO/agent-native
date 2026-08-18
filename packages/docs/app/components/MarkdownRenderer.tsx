@@ -1,19 +1,23 @@
-/**
- * Renders markdown content as HTML with:
- * - Syntax-highlighted code blocks (via Shiki)
- * - Heading anchor links (clickable # on h2/h3)
- * - Tailwind Typography styling via .docs-content
- *
- * Uses the 'marked' library for markdown→HTML conversion.
- */
-
-import { useT } from "@agent-native/core/client";
-import { marked, type RendererThis, type Tokens } from "marked";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  marked,
+  type MarkedExtension,
+  type RendererThis,
+  type Tokens,
+} from "marked";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { codeToHtml } from "shiki";
 
+import {
+  DEFAULT_DOCS_LOCALE,
+  localizeDocsHref,
+  type DocsLocale,
+} from "./docs-locale";
+import { slugifyHeading } from "./heading-slug";
+
 interface Props {
   markdown: string;
+  locale?: DocsLocale;
 }
 
 interface HighlightedMarkdownHtml {
@@ -26,8 +30,9 @@ interface ImageDimensions {
   height: number;
 }
 
-const DEFAULT_CODE_MAX_LINES = 30;
+const DEFAULT_CODE_MAX_LINES = 17;
 const MAX_CONFIGURED_CODE_LINES = 2000;
+const MAX_RENDERED_MARKDOWN_CACHE_ENTRIES = 64;
 
 const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
   "/screenshots/analytics.png": { width: 1400, height: 710 },
@@ -275,8 +280,32 @@ function imageDimensionsForHref(href: string): ImageDimensions | undefined {
   return DOCS_IMAGE_DIMENSIONS[decodeHtmlEntities(href).trim()];
 }
 
+/**
+ * Marked tokenizer extension: `[[Ctrl+K]]` → `<kbd>Ctrl+K</kbd>`
+ * Lets authors write keyboard shortcuts inline without raw HTML.
+ */
+const kbdExtension: MarkedExtension = {
+  extensions: [
+    {
+      name: "kbd",
+      level: "inline",
+      start: (src: string) => src.indexOf("[["),
+      tokenizer(src: string) {
+        const match = /^\[\[([^\]]+?)\]\]/.exec(src);
+        if (!match) return;
+        return { type: "kbd", raw: match[0], text: match[1] };
+      },
+      renderer(token: Tokens.Generic) {
+        return `<kbd class="docs-kbd">${escapeHtml(token.text as string)}</kbd>`;
+      },
+    },
+  ],
+};
+
+marked.use(kbdExtension);
+
 // Custom renderer to add IDs to headings and handle {#custom-id} syntax
-function createRenderer() {
+function createRenderer(locale: DocsLocale) {
   const renderer = new marked.Renderer();
 
   renderer.html = function ({ text }: Tokens.HTML) {
@@ -291,7 +320,8 @@ function createRenderer() {
     const text = this.parser.parseInline(token.tokens);
     if (!isSafeUrl(token.href, "link")) return text;
     const title = token.title ? ` title="${escapeHtml(token.title)}"` : "";
-    return `<a href="${escapeHtml(token.href)}"${title}>${text}</a>`;
+    const href = localizeDocsHref(token.href, locale);
+    return `<a href="${escapeHtml(href)}"${title}>${text}</a>`;
   };
 
   renderer.image = function (token: Tokens.Image) {
@@ -353,10 +383,7 @@ function createRenderer() {
     } else {
       displayHtml = rendered;
       const plain = rendered.replace(/<[^>]+>/g, "");
-      id = plain
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-")
-        .replace(/^-|-$/g, "");
+      id = slugifyHeading(plain);
     }
     const tag = `h${depth}`;
     return `<${tag} id="${id}">${displayHtml}</${tag}>\n`;
@@ -365,9 +392,29 @@ function createRenderer() {
   return renderer;
 }
 
-export function renderMarkdownToHtml(markdown: string): string {
-  const renderer = createRenderer();
-  return marked(markdown, { renderer, async: false }) as string;
+const renderedMarkdownCache = new Map<string, string>();
+
+export function renderMarkdownToHtml(
+  markdown: string,
+  locale: DocsLocale = DEFAULT_DOCS_LOCALE,
+): string {
+  const cacheKey =
+    locale === DEFAULT_DOCS_LOCALE ? markdown : `${locale}\0${markdown}`;
+  const cached = renderedMarkdownCache.get(cacheKey);
+  if (cached !== undefined) {
+    renderedMarkdownCache.delete(cacheKey);
+    renderedMarkdownCache.set(cacheKey, cached);
+    return cached;
+  }
+
+  const renderer = createRenderer(locale);
+  const html = marked(markdown, { renderer, async: false }) as string;
+  if (renderedMarkdownCache.size >= MAX_RENDERED_MARKDOWN_CACHE_ENTRIES) {
+    const oldest = renderedMarkdownCache.keys().next().value;
+    if (oldest !== undefined) renderedMarkdownCache.delete(oldest);
+  }
+  renderedMarkdownCache.set(cacheKey, html);
+  return html;
 }
 
 export function resolveRenderedMarkdownHtml(
@@ -379,7 +426,10 @@ export function resolveRenderedMarkdownHtml(
     : baseHtml;
 }
 
-export default function MarkdownRenderer({ markdown }: Props) {
+export default function MarkdownRenderer({
+  markdown,
+  locale = DEFAULT_DOCS_LOCALE,
+}: Props) {
   const articleRef = useRef<HTMLDivElement>(null);
   const t = useT();
   const [highlightedHtml, setHighlightedHtml] =
@@ -387,8 +437,8 @@ export default function MarkdownRenderer({ markdown }: Props) {
 
   // Convert markdown to HTML
   const baseHtml = useMemo(() => {
-    return renderMarkdownToHtml(markdown);
-  }, [markdown]);
+    return renderMarkdownToHtml(markdown, locale);
+  }, [markdown, locale]);
 
   // Highlight code blocks with Shiki after mount
   useEffect(() => {
