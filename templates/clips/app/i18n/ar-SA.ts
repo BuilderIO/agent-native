@@ -381,6 +381,9 @@ const messages = {
     aiNotes: "ملاحظات الذكاء الاصطناعي",
     summary: "الملخص",
     actionItems: "عناصر العمل",
+    addActionItem: "إضافة عنصر عمل",
+    removeActionItem: "إزالة عنصر العمل",
+    actionItemPlaceholder: "ما الذي يجب فعله؟",
     working: "عمل…",
     noActionItems:
       "لا توجد عناصر عمل حتى الآن. تظهر هنا بعد إنشاء الملاحظات من النص.",
@@ -987,7 +990,7 @@ const messages = {
   commentsPanel: {
     disabled: "تم تعطيل التعليقات لهذا التسجيل.",
     beFirst: "كن أول من يعلق",
-    leaveNotePanel: "اترك ملاحظة في أعلى هذه اللوحة.",
+    leaveNotePanel: "اترك ملاحظة في أسفل هذه اللوحة.",
     leaveNoteTimestamp: "اترك ملاحظة عند الطابع الزمني الحالي.",
     leaveComment: "اترك تعليقًا...",
     signInToComment: "سجّل الدخول لترك تعليق.",
@@ -1131,6 +1134,7 @@ const messages = {
     liveTranscriptDescription: "سيظهر النص المباشر هنا عند بدء الملاحظات.",
     me: "أنا",
     them: "هم",
+    unknownSpeaker: "المتحدث",
     searchTranscript: "البحث في النص",
     searchPlaceholder: "البحث في النص…",
     searchMatchCount: "{{current}} من {{total}}",
@@ -1431,6 +1435,10 @@ const messages = {
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيكمل Clips الحفظ.",
     connectStorageToRetryLoom:
       "صِل التخزين في الشاشة التالية: Builder.io (تخزين + ذكاء اصطناعي في الخطة المجانية) أو تخزين متوافق مع S3. سيعيد Clips محاولة الاستيراد.",
+    leaveConfirmTitle: "مغادرة هذه الصفحة وحذف التسجيل؟",
+    leaveConfirmDescription:
+      "لم يكتمل حفظ التسجيل الجاري بعد. مغادرة هذه الصفحة الآن ستؤدي إلى حذفه.",
+    leaveAndDiscard: "مغادرة وحذف",
   },
   importRoute: {
     pageTitle: "استيراد Loom — Clips",

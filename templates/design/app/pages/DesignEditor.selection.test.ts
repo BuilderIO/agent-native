@@ -759,6 +759,15 @@ describe("DesignEditor pending visual style edits", () => {
     ).toBe(true);
   });
 
+  it("uses runtime layers for URL-backed fusion screens too", () => {
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "fusion" },
+        content: "http://localhost:8080/builder-preview/design-1/",
+      }),
+    ).toBe(true);
+  });
+
   it("uses runtime layers only for URL-backed localhost screens", () => {
     expect(
       shouldUseRuntimeLayerProjection({
@@ -806,7 +815,7 @@ describe("DesignEditor pending visual style edits", () => {
     ).toBe(false);
   });
 
-  it("hides the apply styles affordance for non-localhost visual edits", () => {
+  it("hides the apply styles affordance for inline visual edits", () => {
     const edits = [
       {
         screenId: "generated-home",
@@ -826,12 +835,14 @@ describe("DesignEditor pending visual style edits", () => {
         screenSourceTypes: new Map([["generated-home", "inline"]]),
       }),
     ).toBe(false);
+    // A fusion screen is a running app: its markup lives in source, so the
+    // handoff is the only way an edit can land.
     expect(
       shouldShowPendingVisualStyleApply({
         edits,
         screenSourceTypes: new Map([["generated-home", "fusion"]]),
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -1526,7 +1537,7 @@ describe("DesignEditor URL state", () => {
     ).toBe("?view=overview&screen=screen-123&zoom=33.33");
   });
 
-  it("round-trips code panel state now that the Code rail tab ships", () => {
+  it("drops gated Code panel state from the editor URL", () => {
     expect(
       getDesignEditorStateUrlSearch({
         currentSearch:
@@ -1537,9 +1548,7 @@ describe("DesignEditor URL state", () => {
         codeFileId: "code-file",
         codeFilename: "app/routes/home.tsx",
       }),
-    ).toBe(
-      "?view=single&panel=code&fileId=code-file&screen=screen-123&mode=interact",
-    );
+    ).toBe("?view=single&screen=screen-123&mode=interact");
   });
 
   it("tracks the live non-default tool and removes a stale tool after returning to move", () => {

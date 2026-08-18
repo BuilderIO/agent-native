@@ -58,8 +58,11 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
+  clearSlideEditingActive,
   deckIdFromPathname,
   hasUnsavedDeckChanges,
+  markSlideEditingActive,
+  type Slide,
   useDecks,
   useSaveState,
 } from "@/context/DeckContext";
@@ -185,6 +188,7 @@ export default function DeckEditor() {
     updateSlide,
     deleteSlide,
     duplicateSlide,
+    pasteSlide,
     duplicateDeck,
     addSlide,
     flushDeckSave,
@@ -852,11 +856,107 @@ export default function DeckEditor() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [deck, id, activeSlideId, deleteSlideWithUndo, pinMode, drawMode]);
 
-  // Command/Ctrl+C then Command/Ctrl+V on the slide rail duplicates the
+  // Slide-level clipboard backing both the Cmd+C/Cmd+V shortcut below and the
+  // rail's right-click Cut/Copy/Paste menu. Holds a full slide snapshot
+  // (rather than just an id) so paste still works after Cut has already
+  // removed the original slide from the deck.
+  const slideClipboardRef = useRef<Slide | null>(null);
+  const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
+
+  const copySlide = useCallback(
+    (slideId: string) => {
+      const slide = deck?.slides.find((s) => s.id === slideId);
+      if (!slide) return;
+      slideClipboardRef.current = slide;
+      setHasSlideClipboard(true);
+    },
+    [deck],
+  );
+
+  const cutSlide = useCallback(
+    (slideId: string) => {
+      if (!deck || !id || deck.slides.length <= 1) return; // don't cut the last slide
+      const slide = deck.slides.find((s) => s.id === slideId);
+      if (!slide) return;
+      slideClipboardRef.current = slide;
+      setHasSlideClipboard(true);
+      const idx = deck.slides.findIndex((s) => s.id === slideId);
+      const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
+      deleteSlideWithUndo(id, slideId);
+      if (activeSlideId === slideId && nextSlide) {
+        setActiveSlideId(nextSlide.id);
+      }
+    },
+    [deck, id, activeSlideId, deleteSlideWithUndo],
+  );
+
+  const pasteSlideAfter = useCallback(
+    (targetSlideId: string) => {
+      const clipboard = slideClipboardRef.current;
+      if (!clipboard || !id) return;
+      const { id: _clipboardId, ...fields } = clipboard;
+      const newId = pasteSlide(id, targetSlideId, fields);
+      if (newId) setActiveSlideId(newId);
+    },
+    [id, pasteSlide],
+  );
+
+  // Handlers backing the slide rail's right-click menu.
+  const handleDeleteSlideFromRail = useCallback(
+    (slideId: string) => {
+      if (!deck || !id || deck.slides.length <= 1) return; // don't delete the last slide
+      const idx = deck.slides.findIndex((s) => s.id === slideId);
+      const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
+      deleteSlideWithUndo(id, slideId);
+      if (activeSlideId === slideId && nextSlide) {
+        setActiveSlideId(nextSlide.id);
+      }
+    },
+    [deck, id, activeSlideId, deleteSlideWithUndo],
+  );
+
+  const handleDuplicateSlideFromRail = useCallback(
+    (slideId: string) => {
+      if (!id) return;
+      const newId = duplicateSlide(id, slideId);
+      if (newId) setActiveSlideId(newId);
+    },
+    [id, duplicateSlide],
+  );
+
+  const handleNewSlideAfter = useCallback(
+    (afterSlideId: string) => {
+      if (!deck || !id) return;
+      const afterIdx = deck.slides.findIndex((s) => s.id === afterSlideId);
+      // Immediate persistence: mirrors handleAddEmptySlide, since this also
+      // opens the "describe this slide" popover right away.
+      const newId = addSlide(
+        id,
+        "blank",
+        afterIdx >= 0 ? afterIdx : undefined,
+        { persistence: "immediate" },
+      );
+      setActiveSlideId(newId);
+      setSidebarOpen(true);
+      setDescribeSlideId(newId);
+    },
+    [deck, id, addSlide],
+  );
+
+  const handleToggleSkipSlide = useCallback(
+    (slideId: string) => {
+      if (!deck || !id) return;
+      const slide = deck.slides.find((s) => s.id === slideId);
+      if (!slide) return;
+      updateSlide(id, slideId, { skipped: !slide.skipped });
+    },
+    [deck, id, updateSlide],
+  );
+
+  // Command/Ctrl+C then Command/Ctrl+V on the slide rail copies/pastes the
   // selected slide directly below itself. Only claims the shortcut when no
   // slide element is selected — SlideEditor owns Cmd+C/V for object copy/paste
   // in that case.
-  const copiedSlideIdRef = useRef<string | null>(null);
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !canEdit) return;
@@ -925,19 +1025,27 @@ export default function DeckEditor() {
 
       if (key === "c") {
         if (!activeSlideId) return;
-        copiedSlideIdRef.current = activeSlideId;
+        copySlide(activeSlideId);
         return;
       }
 
-      const copiedId = copiedSlideIdRef.current;
-      if (!copiedId || !deck.slides.some((s) => s.id === copiedId)) return;
+      if (!hasSlideClipboard || !activeSlideId) return;
       e.preventDefault();
-      const newId = duplicateSlide(id, copiedId);
-      if (newId) setActiveSlideId(newId);
+      pasteSlideAfter(activeSlideId);
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [deck, id, canEdit, activeSlideId, duplicateSlide, pinMode, drawMode]);
+  }, [
+    deck,
+    id,
+    canEdit,
+    activeSlideId,
+    copySlide,
+    hasSlideClipboard,
+    pasteSlideAfter,
+    pinMode,
+    drawMode,
+  ]);
 
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
@@ -1371,6 +1479,14 @@ export default function DeckEditor() {
                     setGeneratingSlideSelected(true);
                     if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
+                  hasSlideClipboard={hasSlideClipboard}
+                  onCutSlide={cutSlide}
+                  onCopySlide={copySlide}
+                  onPasteSlide={pasteSlideAfter}
+                  onDeleteSlide={handleDeleteSlideFromRail}
+                  onNewSlideAfter={handleNewSlideAfter}
+                  onDuplicateSlide={handleDuplicateSlideFromRail}
+                  onToggleSkipSlide={handleToggleSkipSlide}
                 />
               </DndContext>
             </div>
@@ -1447,11 +1563,15 @@ export default function DeckEditor() {
                 options,
               )
             }
-            onInlineEditStart={() => {
+            onInlineEditStart={(slideId) => {
               setInlineEditActive(true);
               markDeckDirty(id);
+              if (id) markSlideEditingActive(id, slideId);
             }}
-            onInlineEditEnd={() => setInlineEditActive(false)}
+            onInlineEditEnd={(slideId) => {
+              setInlineEditActive(false);
+              if (id) clearSlideEditingActive(id, slideId);
+            }}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {
               setReplaceImageSrc(src);

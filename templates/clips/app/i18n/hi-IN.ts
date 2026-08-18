@@ -382,6 +382,9 @@ const messages = {
     aiNotes: "एआई नोट्स",
     summary: "सारांश",
     actionItems: "एक्शन आइटम्स",
+    addActionItem: "एक्शन आइटम जोड़ें",
+    removeActionItem: "एक्शन आइटम हटाएं",
+    actionItemPlaceholder: "क्या करना है?",
     working: "कार्यरत…",
     noActionItems:
       "अभी तक कोई कार्रवाई आइटम नहीं. प्रतिलेख से नोट्स तैयार होने के बाद वे यहां दिखाई देते हैं।",
@@ -968,7 +971,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
   commentsPanel: {
     disabled: "इस रिकॉर्डिंग के लिए टिप्पणियां बंद हैं।",
     beFirst: "पहली टिप्पणी करें",
-    leaveNotePanel: "इस पैनल के शीर्ष पर एक नोट छोड़ें।",
+    leaveNotePanel: "इस पैनल के नीचे एक नोट छोड़ें।",
     leaveNoteTimestamp: "वर्तमान टाइमस्टैम्प पर एक नोट छोड़ें।",
     leaveComment: "टिप्पणी छोड़ें...",
     signInToComment: "टिप्पणी छोड़ने के लिए साइन इन करें।",
@@ -1110,6 +1113,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     liveTranscriptDescription: "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
     me: "मैं",
     them: "वे",
+    unknownSpeaker: "वक्ता",
     searchTranscript: "प्रतिलेख में खोजें",
     searchPlaceholder: "प्रतिलेख में खोजें…",
     searchMatchCount: "{{total}} में से {{current}}",
@@ -1410,6 +1414,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",
     connectStorageToRetryLoom:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips इंपोर्ट फिर से करेगा.",
+    leaveConfirmTitle: "इस रिकॉर्डिंग को छोड़कर हटाएं?",
+    leaveConfirmDescription:
+      "आपकी चल रही रिकॉर्डिंग अभी पूरी तरह सेव नहीं हुई है. अभी इस पेज से बाहर जाने पर यह हट जाएगी.",
+    leaveAndDiscard: "बाहर जाएं और हटाएं",
   },
   importRoute: {
     pageTitle: "Loom आयात करें — Clips",

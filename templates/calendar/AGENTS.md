@@ -22,6 +22,7 @@ Detailed event, availability, booking, storage, and UI rules live in
   thumbnails, or replay chunks in app tables, `application_state`, `settings`,
   or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use actions for events, availability, booking links, settings, navigation,
   Google Calendar connection, and sharing. Do not bypass app access checks.
 - The `get-settings` and `update-settings` actions expose the General week-start

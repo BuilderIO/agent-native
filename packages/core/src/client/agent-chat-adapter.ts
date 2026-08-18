@@ -144,6 +144,17 @@ const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
 // visibly (not silently) capped.
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
 const MAX_HISTORY_MESSAGES = 24;
+// Every provider prompt cache matches a byte-identical PREFIX. A window that
+// ends at the newest message and starts MAX_HISTORY_MESSAGES back moves its
+// START by one message per turn, so from the first turn past the cap onward no
+// cached prefix ever matches again and the whole conversation is re-billed at
+// full write price on every turn — the cache breakpoints the engines place
+// (system prefix, last tool, last user message) cannot save a prefix whose
+// first bytes changed. Quantizing where the window starts holds those bytes
+// identical for a stride of turns, so one turn in STRIDE pays the write and the
+// rest read. The window then holds up to MAX + STRIDE - 1 messages; the char
+// budgets below, not the message count, are what bound the payload.
+const HISTORY_WINDOW_STRIDE = 8;
 const MAX_HISTORY_TOTAL_CHARS = 64_000;
 // Budget for everything actually said in the thread — every user ask and every
 // assistant conclusion. Separate from MAX_HISTORY_TOTAL_CHARS, which bounds the
@@ -1012,7 +1023,10 @@ function limitPriorMessagesForRequest<
     attachments?: readonly AssistantUiAttachment[];
   },
 >(messages: readonly T[]): T[] {
-  const recent = messages.slice(-MAX_HISTORY_MESSAGES);
+  const overflow = Math.max(0, messages.length - MAX_HISTORY_MESSAGES);
+  const recent = messages.slice(
+    Math.floor(overflow / HISTORY_WINDOW_STRIDE) * HISTORY_WINDOW_STRIDE,
+  );
   const kept: T[] = [];
   let words = 0;
   let payload = 0;

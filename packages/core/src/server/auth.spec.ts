@@ -2604,6 +2604,46 @@ describe("server/auth", () => {
       expect(event.res.headers.get("access-control-allow-origin")).toBeNull();
     });
 
+    it("allows explicitly configured public ingest preflights without credentials", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        publicPaths: ["/api/public-ingest"],
+        publicCorsPaths: ["/api/public-ingest"],
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/api/public-ingest",
+        headers: {
+          origin: "https://clips.agent-native.com",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "content-type",
+        },
+      });
+      event.req.method = "OPTIONS";
+      event.node.req.method = "OPTIONS";
+
+      const result = await guard(event);
+
+      expect(result).toBe("");
+      expect(event.res.status).toBe(204);
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(
+        "https://clips.agent-native.com",
+      );
+      expect(event.res.headers.get("access-control-allow-credentials")).toBe(
+        null,
+      );
+    });
+
     it.each([
       "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
       "https://shakira-professor-conscious-frederick-trycloudflare-com.web-sandbox.oaiusercontent.com",

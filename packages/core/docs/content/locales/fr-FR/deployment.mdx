@@ -7,6 +7,31 @@ description: "Déployez des applications natives d'agent sur n'importe quelle pl
 
 Les applications natives d'agent utilisent [Nitro](https://nitro.build) sous le capot, ce qui signifie que vous pouvez les déployer sur n'importe quelle plate-forme sans aucune modification de configuration : il vous suffit de définir un préréglage.
 
+## Démarrage rapide : héberger une application Chat en local {#self-host-quickstart}
+
+Deux points de départ sont possibles :
+
+- **Vous construisez une application ?** Commencez par [Getting Started](/docs/getting-started), puis revenez ici lorsque vous voudrez la déployer durablement.
+- **Vous exploitez une application ?** Commencez par le parcours Docker local. Il reproduit la même combinaison de Node.js, Postgres, authentification et variables d'environnement que sur un petit serveur.
+
+La pile locale utilise volontairement un secret d'authentification d'exemple et un volume Postgres local. Elle est destinée à `localhost`, pas à une exposition sur Internet. Consultez le [démarrage rapide en anglais](https://www.agent-native.com/docs/deployment#self-host-quickstart) pour le fichier Compose complet et les étapes à copier.
+
+### 1. Créer l'application
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. Démarrer la pile locale
+
+```bash
+docker compose up --build
+```
+
+Ouvrez [http://localhost:3000](http://localhost:3000). Ajoutez `ANTHROPIC_API_KEY` à un fichier `.env` local si vous souhaitez utiliser l'agent intégré.
+
 ## Avant de déployer : choisissez une base de données persistante {#persistent-database}
 
 Chaque application déployée nécessite une base de données SQL persistante. Dans le développement local, l'agent natif s'appuie sur un fichier SQLite dans `data/app.db` ; c'est pratique sur votre machine, mais ce n'est pas durable dans les conteneurs, les aperçus ou les environnements sans serveur où le système de fichiers peut être réinitialisé.
@@ -247,6 +272,7 @@ COPY --from=build /app/.output .output
 # data/ est un répertoire SQLite créé au moment de l'exécution — ne copiez pas une base de données de développement dans prod.
 # Pour la production, définissez DATABASE_URL sur une instance hébergée de Postgres ou Turso.
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]

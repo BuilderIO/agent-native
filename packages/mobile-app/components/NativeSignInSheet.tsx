@@ -168,7 +168,7 @@ export function NativeSignInSheet({
       visible={visible}
       onClose={onClose}
       motion="sheet"
-      contentClassName="rounded-t-[26px] border border-border bg-card"
+      contentClassName="rounded-t-[26px] border border-border bg-card px-5 pt-3"
       overlayClassName="bg-black/55"
       accessibilityLabel={copy.close}
     >
@@ -176,168 +176,160 @@ export function NativeSignInSheet({
         behavior={Platform.OS === "ios" ? "padding" : undefined}
       >
         <SafeAreaView edges={["bottom"]}>
-          <View className="px-5 pt-3">
-            <View className="self-center h-1 w-10 rounded-full bg-zinc-600" />
-            <View className="items-end py-4">
+          <View className="self-center h-1 w-10 rounded-full bg-zinc-600" />
+          <View className="items-end py-4">
+            <Pressable
+              className="px-1 py-1 active:opacity-75"
+              onPress={onClose}
+              accessibilityRole="button"
+              accessibilityLabel={copy.close}
+            >
+              <Text className="text-text-muted text-[15px] font-medium">
+                {copy.close}
+              </Text>
+            </Pressable>
+          </View>
+
+          {magicLinkSentEmail && magicSubmitting ? (
+            <View className="items-center py-8">
+              <Text className="text-white text-[18px] font-semibold">
+                {copy.magicLinkSent}
+              </Text>
+              <Text className="mt-2 text-center text-text-muted text-[13px]">
+                {copy.magicLinkSentCopy} {magicLinkSentEmail}.
+              </Text>
               <Pressable
-                className="px-1 py-1 active:opacity-75"
-                onPress={onClose}
+                className="mt-5 h-9 items-center justify-center active:opacity-75"
+                onPress={() => setMagicLinkSentEmail(null)}
                 accessibilityRole="button"
-                accessibilityLabel={copy.close}
+                accessibilityLabel={copy.back}
               >
-                <Text className="text-text-muted text-[15px] font-medium">
-                  {copy.close}
+                <Text className="text-text-muted text-[13px] font-medium underline">
+                  {copy.back}
                 </Text>
               </Pressable>
             </View>
-
-            {magicLinkSentEmail && magicSubmitting ? (
-              <View className="items-center py-8">
-                <Text className="text-white text-[18px] font-semibold">
-                  {copy.magicLinkSent}
-                </Text>
-                <Text className="mt-2 text-center text-text-muted text-[13px]">
-                  {copy.magicLinkSentCopy} {magicLinkSentEmail}.
-                </Text>
-                <Pressable
-                  className="mt-5 h-9 items-center justify-center active:opacity-75"
-                  onPress={() => setMagicLinkSentEmail(null)}
-                  accessibilityRole="button"
-                  accessibilityLabel={copy.back}
-                >
-                  <Text className="text-text-muted text-[13px] font-medium underline">
-                    {copy.back}
-                  </Text>
-                </Pressable>
-              </View>
-            ) : (
-              <>
-                <Pressable
-                  className="mb-3 h-12 flex-row items-center justify-center gap-3 rounded-xl bg-primary active:opacity-75"
-                  onPress={() => void submitGoogle()}
-                  disabled={busy}
-                  accessibilityRole="button"
-                  accessibilityLabel={copy.googleButton}
-                >
-                  {googleSubmitting ? (
-                    <ActivityIndicator color={mutedForeground} />
-                  ) : (
-                    <>
-                      <GoogleLogo />
-                      <Text className="text-primary-foreground text-[15px] font-semibold">
-                        {copy.googleButton}
-                      </Text>
-                    </>
-                  )}
-                </Pressable>
-
-                <View className="mb-3 flex-row items-center gap-3">
-                  <View className="h-px flex-1 bg-border-dark" />
-                  <Text className="text-text-muted text-[12px]">
-                    {copy.dividerOr}
-                  </Text>
-                  <View className="h-px flex-1 bg-border-dark" />
-                </View>
-
-                <TextInput
-                  className="mb-3 h-12 rounded-xl border border-border-dark bg-background-dark px-3.5 text-white"
-                  value={email}
-                  onChangeText={(value) => {
-                    setEmail(value);
-                    setError(null);
-                  }}
-                  placeholder={copy.emailPlaceholder}
-                  placeholderTextColor={mutedForeground}
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  keyboardType="email-address"
-                  textContentType="emailAddress"
-                  autoComplete="email"
-                  accessibilityLabel={copy.email}
-                  onSubmitEditing={() =>
-                    void (authMode === "password"
-                      ? submit()
-                      : submitMagicLink())
-                  }
-                  returnKeyType={authMode === "password" ? "next" : "done"}
-                />
-
-                {authMode === "password" ? (
-                  <TextInput
-                    className="mb-2 h-12 rounded-xl border border-border-dark bg-background-dark px-3.5 text-white"
-                    value={password}
-                    onChangeText={(value) => {
-                      setPassword(value);
-                      setError(null);
-                    }}
-                    placeholder={copy.enterPasswordPlaceholder}
-                    placeholderTextColor={mutedForeground}
-                    secureTextEntry
-                    textContentType="password"
-                    autoComplete="password"
-                    accessibilityLabel={copy.password}
-                    onSubmitEditing={() => void submit()}
-                    returnKeyType="go"
-                  />
-                ) : null}
-
-                {error ? (
-                  <Text className="mb-2 text-error-text text-[13px]">
-                    {error}
-                  </Text>
-                ) : null}
-
-                <Pressable
-                  className={`mb-2 h-12 items-center justify-center rounded-xl ${canSubmit && !busy ? "bg-primary active:opacity-75" : "bg-zinc-800"}`}
-                  onPress={() =>
-                    void (authMode === "password"
-                      ? submit()
-                      : submitMagicLink())
-                  }
-                  disabled={!canSubmit || busy}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    authMode === "password" ? copy.signIn : copy.sendMagicLink
-                  }
-                >
-                  {busy && (authMode === "password" || magicSubmitting) ? (
-                    <ActivityIndicator color={mutedForeground} />
-                  ) : (
-                    <Text
-                      className={`text-[15px] font-semibold ${canSubmit && !busy ? "text-primary-foreground" : "text-zinc-500"}`}
-                    >
-                      {authMode === "password"
-                        ? copy.signIn
-                        : copy.sendMagicLink}
+          ) : (
+            <>
+              <Pressable
+                className="mb-3 h-12 flex-row items-center justify-center gap-3 rounded-xl border border-border-dark bg-white-pure active:opacity-75"
+                onPress={() => void submitGoogle()}
+                disabled={busy}
+                accessibilityRole="button"
+                accessibilityLabel={copy.googleButton}
+              >
+                {googleSubmitting ? (
+                  <ActivityIndicator color={mutedForeground} />
+                ) : (
+                  <>
+                    <GoogleLogo />
+                    <Text className="text-black text-[15px] font-semibold">
+                      {copy.googleButton}
                     </Text>
-                  )}
-                </Pressable>
+                  </>
+                )}
+              </Pressable>
 
-                <Pressable
-                  className="mb-3 h-9 items-center justify-center active:opacity-75"
-                  onPress={() => {
-                    setAuthMode((current) =>
-                      current === "magic-link" ? "password" : "magic-link",
-                    );
-                    setPassword("");
+              <View className="mb-3 flex-row items-center gap-3">
+                <View className="h-px flex-1 bg-border-dark" />
+                <Text className="text-text-muted text-[12px]">
+                  {copy.dividerOr}
+                </Text>
+                <View className="h-px flex-1 bg-border-dark" />
+              </View>
+
+              <TextInput
+                className="mb-3 h-12 rounded-xl border border-border-dark bg-background-dark px-3.5 text-white"
+                value={email}
+                onChangeText={(value) => {
+                  setEmail(value);
+                  setError(null);
+                }}
+                placeholder={copy.emailPlaceholder}
+                placeholderTextColor={mutedForeground}
+                autoCapitalize="none"
+                autoCorrect={false}
+                keyboardType="email-address"
+                textContentType="emailAddress"
+                autoComplete="email"
+                accessibilityLabel={copy.email}
+                onSubmitEditing={() =>
+                  void (authMode === "password" ? submit() : submitMagicLink())
+                }
+                returnKeyType={authMode === "password" ? "next" : "done"}
+              />
+
+              {authMode === "password" ? (
+                <TextInput
+                  className="mb-2 h-12 rounded-xl border border-border-dark bg-background-dark px-3.5 text-white"
+                  value={password}
+                  onChangeText={(value) => {
+                    setPassword(value);
                     setError(null);
                   }}
-                  accessibilityRole="button"
-                  accessibilityLabel={
-                    authMode === "password"
-                      ? copy.backToMagicLink
-                      : copy.usePasswordInstead
-                  }
-                >
-                  <Text className="text-text-muted text-[13px] font-medium underline">
-                    {authMode === "password"
-                      ? copy.backToMagicLink
-                      : copy.usePasswordInstead}
+                  placeholder={copy.enterPasswordPlaceholder}
+                  placeholderTextColor={mutedForeground}
+                  secureTextEntry
+                  textContentType="password"
+                  autoComplete="password"
+                  accessibilityLabel={copy.password}
+                  onSubmitEditing={() => void submit()}
+                  returnKeyType="go"
+                />
+              ) : null}
+
+              {error ? (
+                <Text className="mb-2 text-error-text text-[13px]">
+                  {error}
+                </Text>
+              ) : null}
+
+              <Pressable
+                className={`mb-2 h-12 items-center justify-center rounded-xl ${canSubmit && !busy ? "bg-primary active:opacity-75" : "bg-zinc-800"}`}
+                onPress={() =>
+                  void (authMode === "password" ? submit() : submitMagicLink())
+                }
+                disabled={!canSubmit || busy}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  authMode === "password" ? copy.signIn : copy.sendMagicLink
+                }
+              >
+                {busy && (authMode === "password" || magicSubmitting) ? (
+                  <ActivityIndicator color={mutedForeground} />
+                ) : (
+                  <Text
+                    className={`text-[15px] font-semibold ${canSubmit && !busy ? "text-primary-foreground" : "text-zinc-500"}`}
+                  >
+                    {authMode === "password" ? copy.signIn : copy.sendMagicLink}
                   </Text>
-                </Pressable>
-              </>
-            )}
-          </View>
+                )}
+              </Pressable>
+
+              <Pressable
+                className="mb-3 h-9 items-center justify-center active:opacity-75"
+                onPress={() => {
+                  setAuthMode((current) =>
+                    current === "magic-link" ? "password" : "magic-link",
+                  );
+                  setPassword("");
+                  setError(null);
+                }}
+                accessibilityRole="button"
+                accessibilityLabel={
+                  authMode === "password"
+                    ? copy.backToMagicLink
+                    : copy.usePasswordInstead
+                }
+              >
+                <Text className="text-text-muted text-[13px] font-medium underline">
+                  {authMode === "password"
+                    ? copy.backToMagicLink
+                    : copy.usePasswordInstead}
+                </Text>
+              </Pressable>
+            </>
+          )}
         </SafeAreaView>
       </KeyboardAvoidingView>
     </MobileSheet>

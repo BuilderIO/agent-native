@@ -369,6 +369,9 @@ const messages = {
     aiNotes: "AI 筆記",
     summary: "摘要",
     actionItems: "行動項目",
+    addActionItem: "新增行動項",
+    removeActionItem: "刪除行動項",
+    actionItemPlaceholder: "需要完成什麼？",
     working: "處理中…",
     noActionItems: "還沒有行動項目。從逐字稿產生筆記後，它們會出現在此處。",
     transcript: "逐字稿",
@@ -927,7 +930,7 @@ const messages = {
   commentsPanel: {
     disabled: "此錄製已停用評論。",
     beFirst: "成為第一個評論的人",
-    leaveNotePanel: "在此面板頂部留下備註。",
+    leaveNotePanel: "在此面板底部留下備註。",
     leaveNoteTimestamp: "在目前時間戳留下備註。",
     leaveComment: "留下評論...",
     signInToComment: "登入以發表評論。",
@@ -1069,6 +1072,7 @@ const messages = {
     liveTranscriptDescription: "開始紀錄後，即時轉錄會顯示在這裡。",
     me: "我",
     them: "對方",
+    unknownSpeaker: "說話者",
     searchTranscript: "搜尋逐字稿",
     searchPlaceholder: "搜尋逐字稿…",
     searchMatchCount: "第 {{current}} 項，共 {{total}} 項",
@@ -1352,6 +1356,10 @@ const messages = {
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將完成儲存。",
     connectStorageToRetryLoom:
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將重試匯入。",
+    leaveConfirmTitle: "離開並捨棄此錄製？",
+    leaveConfirmDescription:
+      "進行中的錄製尚未儲存完成。現在離開此頁面將會捨棄它。",
+    leaveAndDiscard: "離開並捨棄",
   },
   importRoute: {
     pageTitle: "匯入 Loom — Clips",

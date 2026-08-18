@@ -396,6 +396,9 @@ const messages = {
     aiNotes: "notas de IA",
     summary: "Resumen",
     actionItems: "Elementos de acción",
+    addActionItem: "Añadir elemento de acción",
+    removeActionItem: "Eliminar elemento de acción",
+    actionItemPlaceholder: "¿Qué hay que hacer?",
     working: "Laboral…",
     noActionItems:
       "Aún no hay elementos de acción. Aparecen aquí después de generar notas a partir de una transcripción.",
@@ -1003,7 +1006,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
   commentsPanel: {
     disabled: "Los comentarios están desactivados para esta grabación.",
     beFirst: "Sé la primera persona en comentar",
-    leaveNotePanel: "Deja una nota en la parte superior de este panel.",
+    leaveNotePanel: "Deja una nota en la parte inferior de este panel.",
     leaveNoteTimestamp: "Deja una nota en la marca de tiempo actual.",
     leaveComment: "Deja un comentario...",
     signInToComment: "Inicia sesión para dejar un comentario.",
@@ -1150,6 +1153,7 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "La transcripción en vivo aparecerá aquí cuando empiecen las notas.",
     me: "Yo",
     them: "Ellos",
+    unknownSpeaker: "Hablante",
     searchTranscript: "Buscar en la transcripción",
     searchPlaceholder: "Buscar en la transcripción…",
     searchMatchCount: "{{current}} de {{total}}",
@@ -1444,6 +1448,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips terminará de guardarlo.",
     connectStorageToRetryLoom:
       "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips reintentará la importación.",
+    leaveConfirmTitle: "¿Salir y descartar esta grabación?",
+    leaveConfirmDescription:
+      "Tu grabación en curso aún no ha terminado de guardarse. Si sales de esta página ahora, se descartará.",
+    leaveAndDiscard: "Salir y descartar",
   },
   importRoute: {
     pageTitle: "Importar Loom — Clips",

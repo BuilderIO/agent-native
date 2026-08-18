@@ -71,6 +71,7 @@ declare global {
       appUrl?: string;
       workspaceGatewayUrl?: string;
       workspaceOAuthOrigin?: string;
+      workspaceRuntime?: boolean;
       sentryDsn?: string;
       sentryEnvironment?: string;
       /**

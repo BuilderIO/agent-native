@@ -369,6 +369,9 @@ const messages = {
     aiNotes: "人工智能笔记",
     summary: "摘要",
     actionItems: "行动项目",
+    addActionItem: "添加行动项",
+    removeActionItem: "删除行动项",
+    actionItemPlaceholder: "需要完成什么？",
     working: "在职的…",
     noActionItems: "还没有行动项目。从记录生成笔记后，它们会出现在此处。",
     transcript: "成绩单",
@@ -935,7 +938,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
   commentsPanel: {
     disabled: "此录制已禁用评论。",
     beFirst: "成为第一个评论的人",
-    leaveNotePanel: "在此面板顶部留下备注。",
+    leaveNotePanel: "在此面板底部留下备注。",
     leaveNoteTimestamp: "在当前时间戳留下备注。",
     leaveComment: "留下评论...",
     signInToComment: "登录以发表评论。",
@@ -1076,6 +1079,7 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     liveTranscriptDescription: "开始记录后，实时转录会显示在这里。",
     me: "我",
     them: "对方",
+    unknownSpeaker: "说话人",
     searchTranscript: "搜索转录",
     searchPlaceholder: "搜索转录…",
     searchMatchCount: "第 {{current}} 项，共 {{total}} 项",
@@ -1374,6 +1378,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
       "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将完成保存。",
     connectStorageToRetryLoom:
       "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将重试导入。",
+    leaveConfirmTitle: "离开并丢弃此录制？",
+    leaveConfirmDescription:
+      "正在进行的录制尚未保存完成。现在离开此页面将丢弃它。",
+    leaveAndDiscard: "离开并丢弃",
   },
   importRoute: {
     pageTitle: "导入 Loom — Clips",

@@ -1,5 +1,171 @@
 # @agent-native/core
 
+## 0.161.22
+
+### Patch Changes
+
+- 8a7ba01: Restore formatter compliance in core schema sanitization code.
+
+## 0.161.21
+
+### Patch Changes
+
+- 0d81f46: Keep the core tool-schema seam regression test formatted with the current source formatter.
+- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
+
+## 0.161.20
+
+### Patch Changes
+
+- 814f0ad: Allow explicitly configured public ingestion routes to complete cross-origin preflight requests without enabling credentialed CORS.
+- c54d918: `useSemanticNavigationState` no longer reports an unserializable navigation state
+  once per render. The write-dedup token fell back to a fresh symbol, and
+  `navigationKeys` is typically a new array each render, so every re-render issued
+  another failing write and another `onError`. It now falls back to the state's own
+  identity, which still lets a genuinely different unserializable state reach the
+  write path and surface its real error.
+
+## 0.161.19
+
+### Patch Changes
+
+- efc5f92: Improve the self-hosting documentation with a fast local Docker quickstart and downloadable Chat fixture.
+- 9fed363: Teach generated workspaces to reuse shared settings, vault, OAuth, and onboarding primitives before building custom integration setup UI.
+
+## 0.161.18
+
+### Patch Changes
+
+- 9dd50a0: Drop JSON Schema keywords OpenAI's function validator rejects: unsupported
+  `format` values (`uri` from `z.string().url()` among them) and constraint-only
+  keywords like `patternProperties`, `not`, and `if`/`then`/`else`. Any one of them
+  400s the entire chat request, so a single `z.string().url()` in one tool broke
+  every turn that offered it.
+- f294ae3: Keep the Connect Builder and Custom keys actions side by side in the agent sidebar.
+
+## 0.161.17
+
+### Patch Changes
+
+- 34496d7: Sanitize every tool schema at the engine boundary, not just `defineAction` ones.
+  Hand-written tools (extensions, MCP, context tools) and third-party MCP server
+  schemas bypassed the sanitizer entirely, so `extension-data-set` shipped a `data`
+  property with no `type` and OpenAI 400'd the whole request — every tool in the
+  payload, not just that one.
+
+## 0.161.16
+
+### Patch Changes
+
+- c940f4c: Record a rejected Builder credential on the transcription path so it is not
+  retried forever. The chat engine already marks a 401/403 and stops reusing that
+  credential for the auth-failure TTL; transcription threw the raw upstream text
+  and marked nothing, so one unusable credential re-sent the same doomed request
+  on every attempt — 24 identical "Missing Authentication header" 401s in a day.
+
+## 0.161.15
+
+### Patch Changes
+
+- 551b583: Fix `CORS_ALLOWED_ORIGINS` exact-match comparison to tolerate operator formatting differences (scheme/host casing, a trailing slash, or a bare domain with no scheme) instead of silently rejecting an otherwise-legitimate configured origin.
+- 551b583: Stop sending unbounded inline base64 attachments to the model. Text attachments
+  were capped; binary ones were not, so a large screenshot or PDF went out as a
+  multi-megabyte `file_url` and OpenAI rejected the entire request ("string too
+  long", 4,149,128 against a 1,048,576 limit), killing the turn. The upload to
+  blob storage already happened — the hosted URL is now used in place of the bytes
+  when they exceed the cap, instead of being discarded.
+- 00025b1: Keep replayed conversations faithful to what the agent actually did.
+  - Resuming a run (chained background continuation, agent-teams `continue`) now
+    replays the tool calls and results stored in `thread_data` instead of
+    flattening each turn to its prose, so a resumed chunk can see the output of
+    work already committed rather than re-running it. Integration turns keep their
+    existing delivered-text-only replay policy, and each replayed result is bounded
+    with an in-band truncation notice.
+  - The outbound history window no longer slides by one message per turn. Every
+    prompt cache matches a byte-identical prefix, so a window that moved every turn
+    meant no cached prefix ever matched once a thread passed the message cap, and
+    the whole conversation was re-billed at write price on every turn. The window
+    start is now quantized to a stride.
+  - Anthropic `redacted_thinking` blocks survive normalization and replay verbatim.
+    They were silently dropped as an unknown block type, which left the next
+    iteration of a tool-use turn sending an assistant turn the API rejects.
+    Unrecognized content block types now warn instead of vanishing.
+
+## 0.161.14
+
+### Patch Changes
+
+- 96ecc13: Use compact app search and pin labels that stay on one line.
+- 96ecc13: Clear stale thread restore errors when an unavailable saved tab becomes a fresh chat.
+- 96ecc13: Give type-less tool-schema positions a concrete JSON value union. OpenAI rejects
+  any schema position without a `type` ("schema must have a 'type' key") and 400s
+  the entire chat request, the same way it rejected `oneOf`. Zod emits a bare `{}`
+  for `z.unknown()`/`z.any()`, of which there are 137 sites across the templates,
+  so this is answered at the same boundary rather than by retyping every action.
+
+## 0.161.13
+
+### Patch Changes
+
+- a269cc8: Keep failed MCP app iframes visible under a compact error overlay with a clear open-in-new-tab escape hatch.
+
+## 0.161.12
+
+### Patch Changes
+
+- 610103f: Page owners and admins when an app's chat stops answering. The detector already
+  existed as `scripts/chat-health.mjs --strict`, but nothing ran it and nothing
+  alerted, so a sustained outage was found by a user posting in Slack. The same
+  turn-scoring now runs on the durable sweep that already drives stale reaping,
+  scoped to the app it runs in so no cross-app credential is needed. "Not enough
+  turns to judge" and "could not read the ledger" are distinct outcomes from
+  "healthy" — a check that could not run never reports all-clear.
+- 610103f: Rewrite `oneOf` to `anyOf` in generated tool schemas. OpenAI's function-calling
+  validator rejects `oneOf` outright, and Zod v4 emits it for every
+  `z.discriminatedUnion`, so a single action carrying one 400'd the entire chat
+  request before any token streamed — every tool in the payload, not just that
+  action. Measured at 178k errors across 786 users over seven weeks. Also stops a
+  settings-read failure in the chat-health pager from reading as "never paged".
+- 2a7736a: Bound realtime polling, invalidation, collaboration, and autoscroll work so idle or rapidly changing surfaces do not retain unbounded state or repeat expensive refreshes.
+
+## 0.161.11
+
+### Patch Changes
+
+- 1e90670: Bound core client state retention and avoid repeating semantic route-state serialization on unrelated renders.
+
+## 0.161.10
+
+### Patch Changes
+
+- bee7146: Page owners and admins when an app's chat stops answering. The detector already
+  existed as `scripts/chat-health.mjs --strict`, but nothing ran it and nothing
+  alerted, so a sustained outage was found by a user posting in Slack. The same
+  turn-scoring now runs on the durable sweep that already drives stale reaping,
+  scoped to the app it runs in so no cross-app credential is needed. "Not enough
+  turns to judge" and "could not read the ledger" are distinct outcomes from
+  "healthy" — a check that could not run never reports all-clear.
+
+## 0.161.9
+
+### Patch Changes
+
+- 3c54d4e: Add `setAgentNativeApiDisabled(reason)` for surfaces framed by a host with no
+  agent-native session, so the client stops calling `/_agent-native/*` instead of
+  401-ing on every poll. Action queries do not fire, action fetches and
+  application-state reads/writes throw `AgentNativeApiDisabledError`, session reads
+  resolve as signed out, and the runtime-config ping is skipped.
+- 3c54d4e: `sendToBuilderChat` accepts a `targetOrigin` for embedders that verified the
+  Builder parent through a handshake. `getBuilderParentOrigin()` requires
+  `?builder.*` params to trust a loopback parent, so those embeds previously fell
+  back to posting `"*"`.
+
+## 0.161.8
+
+### Patch Changes
+
+- adf5cb0: Prioritize a selected A2A receiver's declared local capabilities before cross-app delegation.
+
 ## 0.161.7
 
 ### Patch Changes

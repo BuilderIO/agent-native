@@ -1364,6 +1364,10 @@ export class DesktopIdentityBroker {
     // matching session in place instead of minting another one-time ticket
     // and reloading the same WebView forever.
     if (await this.hasMatchingIdentitySession(app)) {
+      // The OAuth callback can install the child cookie before its WebView is
+      // mounted. Reload once when the broker first adopts that session so the
+      // WebView cannot remain on the pre-auth document.
+      this.reloadAppSafely(app);
       return true;
     }
     if (await this.hasAppSession(app)) {
@@ -2365,6 +2369,22 @@ export class DesktopIdentityBroker {
             ? error.message
             : "Could not reach the desktop sign-in exchange.",
         );
+      }
+
+      // A 5xx here is the gateway/runtime in front of our own route failing
+      // (cold start, transient Lambda/DB blip) — the exchange handler itself
+      // only ever answers 200/400/403. Treat it like "pending" and keep
+      // polling instead of aborting the whole sign-in ceremony on one
+      // transient hiccup during the multi-minute polling window.
+      if (response.status >= 500) {
+        await this.waitForCookiePoll(
+          Math.min(
+            DESKTOP_EXCHANGE_POLL_INTERVAL_MS,
+            Math.max(0, deadline - Date.now()),
+          ),
+          signal,
+        );
+        continue;
       }
 
       let payload: {

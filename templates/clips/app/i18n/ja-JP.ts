@@ -395,6 +395,9 @@ const messages = {
     aiNotes: "AIメモ",
     summary: "要約",
     actionItems: "アクションアイテム",
+    addActionItem: "アクション項目を追加",
+    removeActionItem: "アクション項目を削除",
+    actionItemPlaceholder: "何をする必要がありますか？",
     working: "働く…",
     noActionItems:
       "まだアクションアイテムはありません。これらは、トランスクリプトからメモが生成された後にここに表示されます。",
@@ -990,7 +993,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
   commentsPanel: {
     disabled: "この録画ではコメントが無効です。",
     beFirst: "最初にコメントする",
-    leaveNotePanel: "このパネルの上部にメモを残します。",
+    leaveNotePanel: "このパネルの下部にメモを残します。",
     leaveNoteTimestamp: "現在のタイムスタンプにメモを残します。",
     leaveComment: "コメントを残す...",
     signInToComment: "コメントするにはサインインしてください。",
@@ -1136,6 +1139,7 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "ノートが始まるとライブ文字起こしがここに表示されます。",
     me: "自分",
     them: "相手",
+    unknownSpeaker: "話者",
     searchTranscript: "文字起こしを検索",
     searchPlaceholder: "文字起こしを検索…",
     searchMatchCount: "{{total}} 件中 {{current}} 件目",
@@ -1439,6 +1443,10 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips が保存を完了します。",
     connectStorageToRetryLoom:
       "次の画面でストレージを接続してください: Builder.io (無料プランのストレージ + AI) または S3 互換ストレージ。Clips がインポートを再試行します。",
+    leaveConfirmTitle: "このページを離れて録画を破棄しますか?",
+    leaveConfirmDescription:
+      "録画中のデータはまだ保存が完了していません。今このページを離れると破棄されます。",
+    leaveAndDiscard: "離れて破棄する",
   },
   importRoute: {
     pageTitle: "Loom をインポート — Clips",
