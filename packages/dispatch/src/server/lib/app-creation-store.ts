@@ -52,6 +52,7 @@ const WORKSPACE_APPS_ENV_KEY = "AGENT_NATIVE_WORKSPACE_APPS_JSON";
 const WORKSPACE_APPS_MANIFEST_FILE = "workspace-apps.json";
 const WORKSPACE_APPS_GATEWAY_PATH = "/_workspace/apps";
 const WORKSPACE_APPS_GATEWAY_TIMEOUT_MS = 2_500;
+const WORKSPACE_APP_ACCESS_CONCURRENCY = 8;
 const MAX_PENDING_APPS = 50;
 const PENDING_WORKSPACE_APP_TTL_MS = 7 * 24 * 60 * 60 * 1_000;
 const AGENT_CARD_PATH = "/.well-known/agent-card.json";
@@ -1044,6 +1045,13 @@ function appRecordTimestamp(value: string | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
+function isMissingWorkspaceAppAccessSchema(error: unknown): boolean {
+  const message = String((error as { message?: unknown })?.message ?? error);
+  return /no such table|relation .* does not exist|does not exist/i.test(
+    message,
+  );
+}
+
 /**
  * Persist creator and visibility separately from the deploy manifest. The
  * manifest describes code; this SQL record is the access-control source of
@@ -1057,12 +1065,6 @@ async function ensureWorkspaceAppRecords(
   );
   if (readyApps.length === 0) return apps;
 
-  let viewerEmail: string;
-  try {
-    viewerEmail = currentOwnerEmail();
-  } catch {
-    return apps;
-  }
   const orgId = currentOrgId();
   const metadata = await readWorkspaceAppMetadataSettings();
   const defaultVisibility = await workspaceAppDefaultVisibility();
@@ -1077,21 +1079,37 @@ async function ensureWorkspaceAppRecords(
   >();
 
   try {
-    for (const app of readyApps) {
+    const existingRecords = new Map<
+      string,
+      { owner_email?: unknown; org_id?: unknown; visibility?: unknown }
+    >();
+    for (let start = 0; start < readyApps.length; start += 500) {
+      const ids = readyApps.slice(start, start + 500).map((app) => app.id);
       const result = await db.execute({
-        sql: `SELECT owner_email, org_id, visibility
-              FROM workspace_apps WHERE id = ? LIMIT 1`,
-        args: [app.id],
+        sql: `SELECT id, owner_email, org_id, visibility
+              FROM workspace_apps
+              WHERE id IN (${ids.map(() => "?").join(", ")})`,
+        args: ids,
       });
-      const existing = result.rows[0] as
-        | { owner_email?: unknown; org_id?: unknown; visibility?: unknown }
-        | undefined;
+      for (const row of result.rows) {
+        const id = cleanOptionalText((row as Record<string, unknown>).id);
+        if (id) {
+          existingRecords.set(id, row as Record<string, unknown>);
+        }
+      }
+    }
+
+    for (const app of readyApps) {
+      const existing = existingRecords.get(app.id);
       if (!existing) {
         const override = metadata.apps[app.id];
+        // Never infer ownership from the person who happened to list apps.
+        // Legacy manifests without trusted creation metadata remain
+        // ownerless until an admin-controlled migration/claim flow exists.
         const ownerEmail =
           cleanOptionalText(override?.createdBy) ??
           cleanOptionalText(app.createdBy) ??
-          viewerEmail;
+          "";
         const visibility: WorkspaceAppVisibility =
           override?.visibility === "private"
             ? "private"
@@ -1121,7 +1139,7 @@ async function ensureWorkspaceAppRecords(
           ownerEmail:
             typeof existing.owner_email === "string"
               ? existing.owner_email
-              : viewerEmail,
+              : "",
           orgId:
             (typeof existing.org_id === "string"
               ? existing.org_id
@@ -1152,28 +1170,51 @@ async function filterWorkspaceAppsByAccess(
     return apps;
   }
   const orgId = currentOrgId() ?? undefined;
-  const visible: WorkspaceAppSummary[] = [];
+  const visibleIds = new Set<string>();
+  const candidates: WorkspaceAppSummary[] = [];
   for (const app of apps) {
     if (app.status === "pending" || app.isDispatch) {
-      visible.push(app);
+      visibleIds.add(app.id);
       continue;
     }
-    try {
-      const access = await resolveAccess(
-        "workspace-app",
-        app.id,
-        { userEmail, orgId },
-        { skipResourceBody: true },
-      );
-      if (access) visible.push(app);
-    } catch (error) {
-      // Rolling deployments may discover an app before the additive access
-      // migrations have run. Keep discovery available until the next request.
-      console.warn("[dispatch] workspace app access lookup failed", error);
-      visible.push(app);
+    candidates.push(app);
+  }
+
+  for (
+    let start = 0;
+    start < candidates.length;
+    start += WORKSPACE_APP_ACCESS_CONCURRENCY
+  ) {
+    const batch = candidates.slice(
+      start,
+      start + WORKSPACE_APP_ACCESS_CONCURRENCY,
+    );
+    const decisions = await Promise.all(
+      batch.map(async (app) => {
+        try {
+          const access = await resolveAccess(
+            "workspace-app",
+            app.id,
+            { userEmail, orgId },
+            { skipResourceBody: true },
+          );
+          return { app, allowed: Boolean(access) };
+        } catch (error) {
+          // Rolling deployments may discover an app before the additive access
+          // migrations have run. Only the known missing-schema compatibility
+          // case may keep discovery available; an authorization/query failure
+          // must not expose private app metadata.
+          console.warn("[dispatch] workspace app access lookup failed", error);
+          return { app, allowed: isMissingWorkspaceAppAccessSchema(error) };
+        }
+      }),
+    );
+    for (const decision of decisions) {
+      if (decision.allowed) visibleIds.add(decision.app.id);
     }
   }
-  return visible;
+
+  return apps.filter((app) => visibleIds.has(app.id));
 }
 
 async function recordPendingWorkspaceApp(input: {

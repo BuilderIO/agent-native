@@ -43,6 +43,14 @@ export const workspaceConfig = z.object({
       env: ["WORKSPACE_GATEWAY_URL", "VITE_WORKSPACE_GATEWAY_URL"],
       doc: "URL of the workspace gateway fronting this app.",
     }),
+  orgDirectoryUrl: z
+    .string()
+    .min(1)
+    .optional()
+    .meta({
+      env: ["AGENT_NATIVE_ORG_DIRECTORY_URL"],
+      doc: "URL of the authoritative organization Dispatch directory.",
+    }),
   oauthOrigin: z
     .string()
     .min(1)

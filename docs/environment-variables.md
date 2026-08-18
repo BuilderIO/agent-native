@@ -325,6 +325,7 @@ no alias are settable only in code.
 | `workspace.isWorkspace`                | `AGENT_NATIVE_WORKSPACE`, `VITE_AGENT_NATIVE_WORKSPACE`                     | boolean | —       | Whether this app is mounted inside a shared workspace gateway.                                                                                |
 | `workspace.appsJson`                   | `AGENT_NATIVE_WORKSPACE_APPS_JSON`, `VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON` | string  | —       | Serialized workspace app manifest used by mounted app runtimes.                                                                               |
 | `workspace.gatewayUrl`                 | `WORKSPACE_GATEWAY_URL`, `VITE_WORKSPACE_GATEWAY_URL`                       | string  | —       | URL of the workspace gateway fronting this app.                                                                                               |
+| `workspace.orgDirectoryUrl`            | `AGENT_NATIVE_ORG_DIRECTORY_URL`                                            | string  | —       | URL of the authoritative organization Dispatch directory.                                                                                     |
 | `workspace.oauthOrigin`                | `WORKSPACE_OAUTH_ORIGIN`, `VITE_WORKSPACE_OAUTH_ORIGIN`                     | string  | —       | Shared origin workspace apps complete OAuth against.                                                                                          |
 
 <!-- END GENERATED: declared-app-config -->

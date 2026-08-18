@@ -221,7 +221,13 @@ export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
       });
     }
     const body = await readBody(event);
-    const visibility = normalizeWorkspaceAppDefaultVisibility(body?.visibility);
+    if (body?.visibility !== "private" && body?.visibility !== "org") {
+      throw createError({
+        statusCode: 400,
+        message: "visibility must be either private or org.",
+      });
+    }
+    const visibility: WorkspaceAppDefaultVisibility = body.visibility;
     await putOrgSetting(ctx.orgId, WORKSPACE_APP_DEFAULT_VISIBILITY_KEY, {
       visibility,
     });

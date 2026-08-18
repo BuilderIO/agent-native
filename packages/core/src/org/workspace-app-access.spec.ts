@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
@@ -17,6 +17,13 @@ vi.mock("../workspace-connections/groups.js", () => ({
 import { isWorkspaceAppAccessAllowed } from "./workspace-app-access.js";
 
 describe("isWorkspaceAppAccessAllowed", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
+    mocks.execute.mockReset();
+    mocks.includeUser.mockReset();
+  });
+
   it("allows the recorded owner in the app organization", async () => {
     mocks.execute.mockResolvedValueOnce({
       rows: [
@@ -70,6 +77,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       })
       .mockResolvedValueOnce({ rows: [{ role: "member" }] })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ principal_id: "gtm-team" }] });
     mocks.includeUser.mockResolvedValueOnce(true);
 
@@ -119,6 +127,7 @@ describe("isWorkspaceAppAccessAllowed", () => {
       })
       .mockResolvedValueOnce({ rows: [{ role: "member" }] })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] });
     mocks.includeUser.mockResolvedValueOnce(false);
 
@@ -128,5 +137,60 @@ describe("isWorkspaceAppAccessAllowed", () => {
         orgId: "org-1",
       }),
     ).resolves.toBe(false);
+  });
+
+  it("denies access when the local ACL record is missing", async () => {
+    mocks.execute.mockResolvedValueOnce({ rows: [] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("unregistered", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("uses the authoritative Dispatch registry when configured", async () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://dispatch.example.test",
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        new Response(
+          JSON.stringify([{ id: "allowed-app" }, { id: "another-app" }]),
+          { headers: { "content-type": "application/json" } },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      isWorkspaceAppAccessAllowed("allowed-app", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      isWorkspaceAppAccessAllowed("private-app", {
+        email: "member@example.com",
+        orgId: null,
+      }),
+    ).resolves.toBe(false);
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(String(fetchMock.mock.calls[0]?.[0])).toBe(
+      "https://dispatch.example.test/_agent-native/actions/list-workspace-apps?includeAgentCards=false&audience=all",
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual(
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          accept: "application/json",
+          Authorization: expect.stringMatching(/^Bearer /),
+        }),
+      }),
+    );
+    expect(mocks.execute).not.toHaveBeenCalled();
   });
 });
