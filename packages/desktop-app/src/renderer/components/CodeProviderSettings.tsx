@@ -83,6 +83,10 @@ const CODE_AGENT_PROVIDER_FIELDSETS: Array<{
   },
 ];
 
+const CUSTOM_KEY_PROVIDER_FIELDSETS = CODE_AGENT_PROVIDER_FIELDSETS.filter(
+  (provider) => provider.id !== "builder",
+);
+
 function providerStatusCopy(provider: CodeAgentProviderStatus | undefined): {
   label: string;
   description: string;
@@ -382,7 +386,7 @@ export function CodeProviderSettings({
           {showProviderKeys ? (
             <div className="settings-provider-key-panel">
               <div className="settings-provider-picker">
-                {CODE_AGENT_PROVIDER_FIELDSETS.map((definition) => {
+                {CUSTOM_KEY_PROVIDER_FIELDSETS.map((definition) => {
                   const provider = settings.providers.find(
                     (item) => item.id === definition.id,
                   );
