@@ -1530,8 +1530,9 @@ async function executeCodexCliRun(options: {
     process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   const additionalSkillsRoot =
     process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
+  const mcpConfig = await buildMergedConfig().catch(() => null);
   const args = [
-    ...codexMcpConfigArgs(),
+    ...codexMcpConfigArgs(mcpConfig),
     "--ask-for-approval",
     "never",
     "--sandbox",

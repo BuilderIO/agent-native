@@ -301,7 +301,12 @@ export class DesktopComputerMcpBridge {
             folder: z.string().min(1),
             name: z.string().trim().min(1),
           },
-          annotations: { openWorldHint: false },
+          annotations: {
+            readOnlyHint: false,
+            destructiveHint: false,
+            idempotentHint: true,
+            openWorldHint: false,
+          },
         },
         async ({ folder, name }) => {
           if (this.context().connector) {

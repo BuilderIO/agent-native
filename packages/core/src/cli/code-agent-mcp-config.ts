@@ -1,4 +1,8 @@
-import type { McpConfig, McpServerConfig } from "../mcp-client/config.js";
+import {
+  resolveDesktopChildComputerMcpServer,
+  type McpConfig,
+  type McpServerConfig,
+} from "../mcp-client/config.js";
 
 const DESKTOP_MCP_ALLOWLIST_ENV =
   "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST";
@@ -27,6 +31,9 @@ export function restrictCodeAgentMcpConfig(
     environment[DESKTOP_MCP_ALLOWLIST_ENV],
   );
   if (!allowlist || !config) return config;
+
+  const desktopServer = findDesktopChildComputerMcpServer(config, environment);
+  if (desktopServer) allowlist.add(desktopServer.id);
 
   const servers = Object.fromEntries(
     Object.entries(config.servers).filter(([id]) => allowlist.has(id)),
@@ -80,6 +87,27 @@ function parseMcpServers(
   ) as Record<string, McpServerConfig>;
 }
 
+function desktopChildComputerServerConfig(
+  environment: NodeJS.ProcessEnv,
+): McpServerConfig | null {
+  return resolveDesktopChildComputerMcpServer({}, environment)?.config ?? null;
+}
+
+function findDesktopChildComputerMcpServer(
+  config: McpConfig,
+  environment: NodeJS.ProcessEnv,
+): { id: string; config: McpServerConfig } | null {
+  const expected = desktopChildComputerServerConfig(environment);
+  if (!expected || expected.type !== "http") return null;
+  const match = Object.entries(config.servers).find(
+    ([, server]) =>
+      server.type === "http" &&
+      server.url === expected.url &&
+      server.headers?.Authorization === expected.headers?.Authorization,
+  );
+  return match ? { id: match[0], config: match[1] } : null;
+}
+
 /**
  * Add host-provided app/plugin servers to the normal merged config. The
  * filesystem and environment layers have different precedence rules, so the
@@ -90,13 +118,21 @@ export function mergeCodeAgentMcpConfig(
   environment: NodeJS.ProcessEnv = process.env,
 ): McpConfig | null {
   const environmentServers = parseMcpServers(environment);
-  if (Object.keys(environmentServers).length === 0) return config;
+  const servers = {
+    ...(config?.servers ?? {}),
+    ...environmentServers,
+  };
+  const existingDesktopServer = config
+    ? findDesktopChildComputerMcpServer(config, environment)
+    : null;
+  const desktopServer = existingDesktopServer
+    ? null
+    : resolveDesktopChildComputerMcpServer(servers, environment);
+  if (desktopServer) servers[desktopServer.id] = desktopServer.config;
+  if (Object.keys(servers).length === 0) return config;
   return {
     ...(config ?? { servers: {} }),
-    servers: {
-      ...(config?.servers ?? {}),
-      ...environmentServers,
-    },
+    servers,
     source: config?.source
       ? `${config.source}+desktop-environment`
       : "env:MCP_SERVERS",
@@ -110,22 +146,24 @@ export function mergeCodeAgentMcpConfig(
  * catalog.
  */
 export function codexMcpConfigArgs(
+  config: McpConfig | null = null,
   environment: NodeJS.ProcessEnv = process.env,
 ): string[] {
-  const servers = parseMcpServers(environment);
+  const servers =
+    restrictCodeAgentMcpConfig(
+      mergeCodeAgentMcpConfig(config, environment),
+      environment,
+    )?.servers ?? {};
   if (Object.keys(servers).length === 0) return [];
   const args: string[] = [];
   for (const [serverId, server] of Object.entries(servers)) {
     if (server.type !== "http" || !server.url) continue;
     const key = codexConfigKey(serverId);
-    args.push(
-      "-c",
-      `mcp_servers.${tomlString(key)}.url=${tomlString(server.url)}`,
-    );
+    args.push("-c", `mcp_servers.${key}.url=${tomlString(server.url)}`);
     if (server.headers && Object.keys(server.headers).length > 0) {
       args.push(
         "-c",
-        `mcp_servers.${tomlString(key)}.http_headers=${tomlInlineTable(server.headers)}`,
+        `mcp_servers.${key}.http_headers=${tomlInlineTable(server.headers)}`,
       );
     }
   }

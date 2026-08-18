@@ -73,6 +73,11 @@ export interface McpConfig {
 
 const DESKTOP_COMPUTER_SERVER_ID = "agent-native-desktop-computer";
 
+export interface DesktopChildComputerMcpServer {
+  id: string;
+  config: McpHttpServerConfig;
+}
+
 function isNode(): boolean {
   return (
     typeof process !== "undefined" &&
@@ -159,13 +164,14 @@ export function loadMcpConfig(startDir?: string): McpConfig | null {
  * the explicit child gate, loopback URL, and strong per-run bearer are all
  * required. Existing user servers always win on key collisions.
  */
-function mergeDesktopChildComputerConfig(
-  base: McpConfig | null,
-): McpConfig | null {
-  if (process.env.AGENT_NATIVE_DESKTOP_CHILD !== "1") return base;
-  const url = process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL?.trim();
-  const token = process.env.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN?.trim();
-  if (!url || !token || !/^[A-Za-z0-9_-]{32,}$/.test(token)) return base;
+export function resolveDesktopChildComputerMcpServer(
+  existingServers: Record<string, McpServerConfig>,
+  environment: NodeJS.ProcessEnv = process.env,
+): DesktopChildComputerMcpServer | null {
+  if (environment.AGENT_NATIVE_DESKTOP_CHILD !== "1") return null;
+  const url = environment.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL?.trim();
+  const token = environment.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN?.trim();
+  if (!url || !token || !/^[A-Za-z0-9_-]{32,}$/.test(token)) return null;
   try {
     const parsed = new URL(url);
     if (
@@ -175,25 +181,39 @@ function mergeDesktopChildComputerConfig(
       parsed.username ||
       parsed.password
     ) {
-      return base;
+      return null;
     }
   } catch {
-    return base;
+    return null;
   }
-  const servers = { ...(base?.servers ?? {}) };
   let serverId = DESKTOP_COMPUTER_SERVER_ID;
-  for (let suffix = 2; servers[serverId]; suffix += 1) {
+  for (let suffix = 2; existingServers[serverId]; suffix += 1) {
     serverId = `${DESKTOP_COMPUTER_SERVER_ID}-${suffix}`;
   }
-  servers[serverId] = {
-    type: "http",
-    url,
-    headers: { Authorization: `Bearer ${token}` },
-    description:
-      "Authenticated computer control for this Agent Native desktop task",
-  };
   return {
-    servers,
+    id: serverId,
+    config: {
+      type: "http",
+      url,
+      headers: { Authorization: `Bearer ${token}` },
+      description:
+        "Authenticated computer control for this Agent Native desktop task",
+    },
+  };
+}
+
+function mergeDesktopChildComputerConfig(
+  base: McpConfig | null,
+): McpConfig | null {
+  const desktopServer = resolveDesktopChildComputerMcpServer(
+    base?.servers ?? {},
+  );
+  if (!desktopServer) return base;
+  return {
+    servers: {
+      ...(base?.servers ?? {}),
+      [desktopServer.id]: desktopServer.config,
+    },
     source: base?.source ? `${base.source}+desktop-child` : "desktop-child",
   };
 }

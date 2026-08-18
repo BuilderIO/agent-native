@@ -130,6 +130,15 @@ describe("DesktopComputerMcpBridge", () => {
       false,
       openContentWorkingCopy,
     );
+    const tool = (await harness.client.listTools()).tools.find(
+      (candidate) => candidate.name === "content_open_local_working_copy",
+    );
+    expect(tool?.annotations).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    });
 
     const missingName = await harness.client.callTool({
       name: "content_open_local_working_copy",
