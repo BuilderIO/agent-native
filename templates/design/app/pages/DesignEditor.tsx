@@ -1057,6 +1057,8 @@ interface PendingStructureVerificationSession {
 }
 
 const PENDING_STRUCTURE_VERIFICATION_TIMEOUT_MS = 60_000;
+/** Auto-submitted turns report `generating` within a second; this is the giveup. */
+const HOST_TURN_START_TIMEOUT_MS = 15_000;
 const PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS = 15_000;
 const PENDING_STRUCTURE_SOURCE_POLL_MS = 750;
 const PENDING_STRUCTURE_RUNTIME_POLL_MS = 150;
@@ -2680,9 +2682,20 @@ function DesignEditor() {
   );
   // A handoff the host only prefilled. Its edits stay pending until a host turn
   // settles, which is the one signal that the prompt was actually run.
-  const stagedSourceHandoffRef = useRef(false);
+  // "awaiting-start" until the host reports generating: a turn that was already
+  // running when Apply was clicked would otherwise settle and be read as ours.
+  const stagedSourceHandoffRef = useRef<"idle" | "awaiting-start" | "running">(
+    "idle",
+  );
+  const stagedHandoffStartTimerRef = useRef<number | undefined>(undefined);
+  const [applyingViaHost, setApplyingViaHost] = useState(false);
   const clearPendingLiveEditState = useCallback(() => {
-    stagedSourceHandoffRef.current = false;
+    stagedSourceHandoffRef.current = "idle";
+    setApplyingViaHost(false);
+    if (stagedHandoffStartTimerRef.current !== undefined) {
+      window.clearTimeout(stagedHandoffStartTimerRef.current);
+      stagedHandoffStartTimerRef.current = undefined;
+    }
     cancelPendingStructureVerification();
     pendingVisualStyleUndoStackRef.current = [];
     pendingVisualStyleRedoStackRef.current = [];
@@ -3348,13 +3361,26 @@ function DesignEditor() {
         const next = data.data?.state;
         // Fires once per turn, not per file write: the agent edits source while
         // generating, so the container has rebuilt by the time it settles.
+        if (
+          next === "generating" &&
+          stagedSourceHandoffRef.current === "awaiting-start"
+        ) {
+          stagedSourceHandoffRef.current = "running";
+          if (stagedHandoffStartTimerRef.current !== undefined) {
+            window.clearTimeout(stagedHandoffStartTimerRef.current);
+            stagedHandoffStartTimerRef.current = undefined;
+          }
+        }
         if (hostChatGeneratingRef.current && next !== "generating") {
           reloadRunningAppPreviewFrames();
-          // The reload discards the inline overrides either way, so leaving the
-          // edits pending only offers to re-send a prompt for changes that are
-          // no longer on screen. A failed turn keeps them, so Apply can retry.
-          if (stagedSourceHandoffRef.current && next === "idle") {
-            clearPendingLiveEditStateRef.current();
+          if (stagedSourceHandoffRef.current === "running") {
+            stagedSourceHandoffRef.current = "idle";
+            // Released on failure too, or the only control left in the shell
+            // stays disabled with nothing to retry with.
+            setApplyingViaHost(false);
+            // The reload discarded the inline overrides either way, so keeping
+            // the edits only helps when the run failed and Apply can retry.
+            if (next === "idle") clearPendingLiveEditStateRef.current();
           }
         }
         hostChatGeneratingRef.current = next === "generating";
@@ -24926,11 +24952,23 @@ function DesignEditor() {
           );
           return;
         }
-        // A staged handoff is sitting in the host's composer unsent, so the
-        // edits are still pending: clearing them here loses the work if the
-        // user edits the prefill or dismisses it.
-        if (delivery.staged) stagedSourceHandoffRef.current = true;
-        else finalizeWithoutStructureVerification();
+        // The host is running the turn, so the edits stay pending until it
+        // settles: clearing them now would discard the work on a failed run.
+        if (delivery.awaitingHostTurn) {
+          stagedSourceHandoffRef.current = "awaiting-start";
+          setApplyingViaHost(true);
+          // A posted handoff is not an acknowledged one, so release the control
+          // if the host never starts a turn — the edits stay for a retry.
+          stagedHandoffStartTimerRef.current = window.setTimeout(() => {
+            stagedHandoffStartTimerRef.current = undefined;
+            if (stagedSourceHandoffRef.current !== "awaiting-start") return;
+            stagedSourceHandoffRef.current = "idle";
+            setApplyingViaHost(false);
+            toast.error(
+              t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
+            );
+          }, HOST_TURN_START_TIMEOUT_MS);
+        } else finalizeWithoutStructureVerification();
         if (delivery.target === "local") setActiveLeftPanel("agent");
         toast.success(t("designEditor.pendingVisualStyles.sentToast"));
         return;
@@ -32371,64 +32409,82 @@ function DesignEditor() {
                     >
                       <div className="pointer-events-auto flex w-fit max-w-full items-center overflow-x-auto">
                         <Button
-                          className="h-9 min-w-0 shrink-0 cursor-pointer rounded-r-none bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                          className={cn(
+                            // guard:allow-raw-color — primary-foreground inverts to near-black in dark mode
+                            "h-9 min-w-0 shrink-0 cursor-pointer bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400",
+                            !shellMode && "rounded-r-none",
+                          )}
                           aria-label={t(
                             "designEditor.pendingVisualStyles.applyAria",
                           )}
                           disabled={
+                            applyingViaHost ||
                             pendingAgentHandoffBusy ||
                             pendingStructureVerificationBusy
                           }
                           onClick={handleApplyPendingVisualStylesWithAgent}
                         >
+                          {applyingViaHost ? (
+                            <Spinner className="mr-2 h-4 w-4 shrink-0" />
+                          ) : null}
                           <span className="truncate">
                             {t(
-                              pendingStructureVerificationBusy
-                                ? "designEditor.pendingVisualStyles.verifying"
-                                : pendingStructureVerificationStatus ===
-                                    "conflict"
-                                  ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                  : "designEditor.pendingVisualStyles.applyDesignUpdates",
+                              applyingViaHost
+                                ? "designEditor.pendingVisualStyles.applying"
+                                : pendingStructureVerificationBusy
+                                  ? "designEditor.pendingVisualStyles.verifying"
+                                  : pendingStructureVerificationStatus ===
+                                      "conflict"
+                                    ? "designEditor.pendingVisualStyles.retryWithAgent"
+                                    : "designEditor.pendingVisualStyles.applyDesignUpdates",
                             )}
                           </span>
                         </Button>
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              className="h-9 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
-                              aria-label={t(
-                                "designEditor.pendingVisualStyles.previewLabel",
-                              )}
+                        {/* The host runs the turn and owns the chat, so copying
+                            the prompt or aborting into interact mode have no
+                            meaning here. */}
+                        {shellMode ? null : (
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                // guard:allow-raw-color — translucent divider on the branded blue Apply button
+                                className="h-9 w-8 shrink-0 cursor-pointer rounded-l-none border-l border-white/20 bg-blue-500 px-0 text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                                aria-label={t(
+                                  "designEditor.pendingVisualStyles.previewLabel",
+                                )}
+                              >
+                                <IconChevronDown className="h-4 w-4" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent
+                              align="end"
+                              className="design-editor-app-menu-content w-64"
                             >
-                              <IconChevronDown className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent
-                            align="end"
-                            className="design-editor-app-menu-content w-64"
-                          >
-                            <DropdownMenuLabel className="text-xs text-muted-foreground">
-                              {t(
-                                "designEditor.pendingVisualStyles.previewLabel",
-                              )}
-                            </DropdownMenuLabel>
-                            <DropdownMenuItem
-                              onClick={handleCopyPendingVisualStylePrompt}
-                            >
-                              <IconClipboard className="mr-2 h-4 w-4" />
-                              {t("designEditor.pendingVisualStyles.copyPrompt")}
-                            </DropdownMenuItem>
-                            <DropdownMenuItem
-                              className="text-destructive focus:text-destructive"
-                              onClick={handleAbortPendingVisualStyles}
-                            >
-                              <IconX className="mr-2 h-4 w-4" />
-                              {t(
-                                "designEditor.pendingVisualStyles.abortPreview",
-                              )}
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
+                              <DropdownMenuLabel className="text-xs text-muted-foreground">
+                                {t(
+                                  "designEditor.pendingVisualStyles.previewLabel",
+                                )}
+                              </DropdownMenuLabel>
+                              <DropdownMenuItem
+                                onClick={handleCopyPendingVisualStylePrompt}
+                              >
+                                <IconClipboard className="mr-2 h-4 w-4" />
+                                {t(
+                                  "designEditor.pendingVisualStyles.copyPrompt",
+                                )}
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                className="text-destructive focus:text-destructive"
+                                onClick={handleAbortPendingVisualStyles}
+                              >
+                                <IconX className="mr-2 h-4 w-4" />
+                                {t(
+                                  "designEditor.pendingVisualStyles.abortPreview",
+                                )}
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
+                        )}
                       </div>
                     </div>
                   ) : null}
