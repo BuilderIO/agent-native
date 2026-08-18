@@ -3219,7 +3219,9 @@ fn orphan_recording_id(path: &Path) -> Option<String> {
         return None;
     }
     let stem = path.file_stem().and_then(|value| value.to_str())?;
-    let value = if let Some(value) = stem.strip_prefix("rewind-") {
+    let value = if let Some(value) = stem.strip_prefix("clips-pending-recording-") {
+        value
+    } else if let Some(value) = stem.strip_prefix("rewind-") {
         value
     } else if let Some(value) = stem.strip_prefix("clips-fullscreen-") {
         value
@@ -3542,6 +3544,10 @@ mod orphan_recovery_tests {
             orphan_recording_id(Path::new("clips-fullscreen-e4esSx9NZCZa-1234.mov")),
             Some("e4esSx9NZCZa".into())
         );
+        assert_eq!(
+            orphan_recording_id(Path::new("clips-pending-recording-e4esSx9NZCZa-1234.mp4")),
+            Some("e4esSx9NZCZa".into())
+        );
         assert!(is_recording_segment_path(Path::new(
             "clips-fullscreen-e4esSx9NZCZa-1234-seg2.mp4"
         )));
@@ -3549,6 +3555,20 @@ mod orphan_recovery_tests {
             orphan_recording_id(Path::new("clips-fullscreen-e4esSx9NZCZa-1234-seg2.mp4")).is_none()
         );
         assert!(orphan_recording_id(Path::new("unrelated.mp4")).is_none());
+    }
+
+    #[test]
+    fn recovers_new_pending_recording_name_without_intent_sidecar() {
+        let intent = orphan_recording_intent(
+            Path::new("clips-pending-recording-recording-123-456.mp4"),
+            "https://clips.example.test/",
+        )
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(intent.recording_id, "recording-123");
+        assert_eq!(intent.server_url, "https://clips.example.test");
+        assert!(!intent.custom_pipeline);
     }
 
     #[test]

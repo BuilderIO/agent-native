@@ -2,7 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { MemoryRouter, useLocation } from "react-router";
+import { MemoryRouter, useLocation, useNavigate } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -16,7 +16,14 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 function LocationProbe() {
   const location = useLocation();
 
-  return <div data-testid="location">{location.pathname}</div>;
+  const navigate = useNavigate();
+
+  return (
+    <>
+      <div data-testid="location">{location.pathname}</div>
+      <button data-testid="history-back" onClick={() => navigate(-1)} />
+    </>
+  );
 }
 
 describe("BackToLibraryButton", () => {
@@ -31,7 +38,10 @@ describe("BackToLibraryButton", () => {
 
     act(() => {
       root.render(
-        <MemoryRouter initialEntries={["/r/recording-1"]}>
+        <MemoryRouter
+          initialEntries={["/library", "/r/recording-1"]}
+          initialIndex={1}
+        >
           <TooltipProvider delayDuration={0}>
             <BackToLibraryButton />
             <LocationProbe />
@@ -48,7 +58,7 @@ describe("BackToLibraryButton", () => {
     vi.clearAllMocks();
   });
 
-  it("renders an icon-only control that navigates directly to /library", () => {
+  it("renders an icon-only control and replaces the recording history entry", () => {
     const button = container.querySelector<HTMLButtonElement>(
       'button[aria-label="recordingPage.backToLibrary"]',
     );
@@ -62,6 +72,16 @@ describe("BackToLibraryButton", () => {
 
     act(() => {
       button?.click();
+    });
+
+    expect(
+      container.querySelector('[data-testid="location"]')?.textContent,
+    ).toBe("/library");
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>('[data-testid="history-back"]')
+        ?.click();
     });
 
     expect(

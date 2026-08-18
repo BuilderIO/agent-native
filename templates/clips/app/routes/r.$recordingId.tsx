@@ -198,7 +198,7 @@ export function BackToLibraryButton() {
           variant="ghost"
           size="icon"
           className="shrink-0"
-          onClick={() => navigate("/library")}
+          onClick={() => navigate("/library", { replace: true })}
           aria-label={t("recordingPage.backToLibrary")}
         >
           <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
