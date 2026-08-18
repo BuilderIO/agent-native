@@ -20,6 +20,16 @@ looked at. When several reports clearly describe the same underlying symptom,
 treat them as one similar-feedback cluster and leave one Builder thread for the
 cluster, with the representative report as its cursor anchor.
 
+This is a reply-producing workflow, not a reaction-only workflow. Apply the
+reply rules in `address-feedback-with-replies` to every actionable Slack item.
+The moment this skill adds `👀` to a Slack parent, that parent enters a
+mandatory reply ledger. Before the run ends, re-read every ledger item and
+confirm that Steve has posted either a concise **Fixed** reply or a concise
+**Clarification needed** question. A bot acknowledgement, another person's
+reply, or the `👀` reaction alone never satisfies the ledger. Do not finish the
+sweep or report success while an actionable parent that this run marked has
+only `👀` or an unrelated reply.
+
 ## Start cursor
 
 Use the product feedback Slack channel configured for the workspace. In this
@@ -52,20 +62,53 @@ clearly the same symptom into that cluster instead of reopening a new thread for
 each duplicate. Continue to older messages only after the cluster is recorded
 and every grouped report has an auditable disposition.
 
+## Full-thread evidence gate
+
+Before asking a reporter for anything, re-read the complete parent thread to
+the end, including every reply, reaction, attachment, linked artifact, and
+newer follow-up. Paginate until there are no more replies. Build a small
+evidence ledger for the thread with the values already known - surface or app,
+URL, account or session, repro steps, exact error, screenshot or file, run or
+request ID, and the answer to each earlier question - and a separate list of
+what is still missing. Keep a separate list of linked artifacts that are
+present but inaccessible because of permissions, expiry, connector gaps, or
+another read failure. Treat an attachment or an earlier reply as evidence to
+inspect, not as a reason to ask for the same thing again; inaccessible evidence
+is not the same as absent evidence.
+
+The clarification question must be derived from that missing-evidence list.
+Never ask for a URL, screenshot, error, run ID, or repro detail that is already
+in the parent or a reply. If the reporter supplies it later, re-read the whole
+thread before doing anything else, remove that field from the missing list,
+and try the fix from the new evidence before asking another question. If the
+answer only partially fills the gap, ask only for the one remaining field. If a
+needed linked artifact is inaccessible, ask for access or a fresh/replacement
+link rather than asking for the artifact's contents again. If the available
+evidence is enough without it, continue and record the limitation instead of
+creating a reporter blocker.
+
 ## Answered clarifications come first
 
 A clarification question is a pending state, not a disposition. Before scanning
 for new messages, re-read every thread this workflow asked a question in that
 has not since been fixed or otherwise dispositioned, oldest question first.
 
-- **The reporter replied** - that thread is the run's first work item. It
-  re-enters triage as a concrete bug carrying the new evidence, ahead of
-  anything newer in the channel: someone answered and is waiting on a fix.
+- **The reporter replied** - re-read the complete thread and rebuild its
+  evidence ledger first. That thread is the run's first work item. It re-enters
+  triage as a concrete bug carrying the new evidence, ahead of anything newer
+  in the channel: someone answered and is waiting on a fix.
 - **No reply yet** - leave it pending and record it in the recap with the date
   the question was asked, so an unanswered question stays visible instead of
   ageing out of the cursor.
 - **The reply does not supply what was asked** - ask the one remaining question
   only if it is still the blocker; otherwise fix from what is now available.
+
+When a reporter answers a question this workflow previously asked, do not just
+record the answer or leave the old clarification as the disposition. Read the
+entire thread again, use the new evidence to attempt the fix in this run, and
+post a new **Fixed** reply when the fix is verified. Ask another question only
+for the one remaining missing detail. An answered clarification is never a
+reason to skip the thread or continue scanning newer messages.
 
 Our own question is what makes a thread look owned to the cursor rule above,
 which is why this pass runs first. Without it every thread we asked about
@@ -88,28 +131,41 @@ Use the configured Slack, GitHub, and Sentry connectors when available:
    traces, route or component, frequency, affected release, and event links.
 
 If a connector or permission is missing, continue with the other sources and
-name the exact gap in the final recap. Do not infer a Sentry “no results” state
-from an unavailable API.
+name the exact gap in the final recap. Treat that as unavailable evidence, not
+as “nothing matched.” If the unavailable source is required to identify or
+verify a safe fix, ask for access or a fresh/replacement artifact; do not ask
+again for details that the inaccessible source was already known to contain.
+Do not infer a Sentry “no results” state from an unavailable API.
 
 ## Triage and fix-altitude gate
 
 Build one checklist per item with its source link, symptom, expected behavior,
 evidence, likely owner, and disposition. Use this order:
 
-1. **Concrete repo-owned bug** - reproduce or establish it from source,
-   tests, logs, a stack trace, or a linked run. Add `👀` to the Slack thread
-   immediately after classification, before investigation or delegation. Fix
-   it and keep working until the smallest meaningful verification is green.
-2. **Missing reporter evidence** - after reading the full thread and linked
-   evidence, ask one specific question naming the exact reproduction, input, or
-   surface needed to choose and verify a safe fix. Add `👀` before asking. If
-   only internal test, deployment, or tooling verification is unavailable,
-   keep that blocker internal and do not ask the reporter for it.
-3. **Subjective UX or product suggestion** - do not turn a preference into a
+1. **React first for actionable Slack feedback** - once a Slack item is
+   classified as a concrete repo-owned bug or missing-reporter-evidence case,
+   add `👀` to its parent immediately. This must be the first external action
+   for that Slack item: do it before reading linked evidence, delegating,
+   editing code, or asking a clarification. GitHub and Sentry items have no
+   Slack parent, so apply the same evidence-first triage without a reaction.
+   Do not react to status-only, subjective, duplicate, external, or non-repo-
+   owned items. A duplicate reaction is safe and should still be attempted
+   when the marker is not visible in the thread.
+2. **Concrete repo-owned bug** - after the `👀` marker, reproduce or establish
+   it from source, tests, logs, a stack trace, or a linked run. Fix it and keep
+   working until the smallest meaningful verification is green.
+3. **Missing reporter evidence** - after the `👀` marker and full-thread
+   review, ask one specific question naming the exact reproduction, input, or
+   surface needed to choose and verify a safe fix. If a needed linked artifact
+   is inaccessible, ask for access or a fresh/replacement link instead of
+   treating its contents as absent. If only internal test, deployment, or
+   tooling verification is unavailable, keep that blocker internal and do not
+   ask the reporter for it.
+4. **Subjective UX or product suggestion** - do not turn a preference into a
    code or prompt rule. Act only when the report identifies a concrete broken
    behavior, an existing product invariant, or repeated independent evidence;
    otherwise record it as deferred or informational.
-4. **Policy, bot-forward, status-only, duplicate, external, or non-repo-owned
+5. **Policy, bot-forward, status-only, duplicate, external, or non-repo-owned
    item** - do not react, reply, or edit code unless the user explicitly
    assigns a concrete repo action.
 
@@ -135,9 +191,9 @@ failure modes, surfaces, or owners.
 
 ## Investigation workflow
 
-1. Record the start cursor and ownership baseline with `git status --short`,
-   the current branch, worktrees, and leases. Treat unfamiliar dirty paths as
-   peer-owned. Never reset, clean, stash, switch, rebase, or overwrite them.
+1. Record the start cursor with `git status --short`, the current branch, and
+   worktrees. Read existing local changes before editing. Never reset, clean,
+   stash, switch, rebase, or overwrite them without explicit authorization.
 2. Read Slack threads, GitHub issues, and Sentry evidence in parallel when
    their write sets are independent. Search recent Slack, Git history, merged
    PRs, GitHub issues, and Sentry fingerprints for repeats or an existing fix
@@ -154,21 +210,36 @@ failure modes, surfaces, or owners.
    action read-back, browser path, or live check. For UI changes, exercise the
    running surface. For Sentry reports, confirm the affected release and
    distinguish a source fix from deployed and observed-live recovery.
-6. This skill is authorized to react to actionable Slack threads and post one
-   concise in-thread update for each actionable item it handles. Post only
-   after the fix or clarification is ready. A fix reply says only that it is
-   fixed and when it should be live; a clarification reply asks one concrete
-   question about missing reporter or product input. Keep implementation and
-   verification evidence in the internal recap, not the reporter-facing reply.
-   If the fix is complete but internal verification is unavailable, do not post
-   yet. Leave only the `👀` investigation marker; because that marker never
-   counts as handled, the next run will re-read the thread before scanning newer
-   feedback.
-   Do not post vague progress, technical internals, or a diagnosis that leaves
-   a safely fixable bug undone. Re-read every thread after posting. A fix reply
-   authored by this skill's own identity is a handled marker on the next run;
-   a clarification reply is not. A clarification reply marks the thread
-   pending an answer, to be re-read by the answered-clarifications pass.
+6. This skill is authorized to react to actionable Slack threads and must post
+   one concise in-thread update for every actionable parent it marked `👀`, not
+   only for items whose code it changed. Post only after the fix or
+   clarification is ready. A **Fixed** reply says that the fix is complete and
+   when it should be live. A **Clarification needed** reply asks one concrete
+   question about missing reporter or product input. Thank the reporter by name
+   when available and ask for the smallest useful evidence - such as a deck URL
+   and/or request ID - as help to investigate rather than as a terse demand.
+   Keep implementation and verification evidence in the internal recap, not the
+   reporter-facing reply. `👀` is the first external action, never the final
+   disposition. Do not end the run with an eye-only item, a bot-forward, a
+   generic acknowledgement, or a vague progress update. If internal
+   verification is unavailable, keep investigating or run the missing check; do
+   not turn an internal blocker into a reporter question or claim **Fixed**.
+   If a later classification discovers that an eye-marked item is a duplicate,
+   external, or informational, still clear the ledger with a concise honest
+   disposition rather than leaving the eye unexplained.
+   Before posting **Clarification needed**, run the full-thread evidence gate
+   again against the latest thread body. Confirm that the requested field is
+   absent from the parent, every reply, and every accessible linked artifact;
+   if it is present, use it and keep investigating instead of asking again. If
+   a needed linked artifact is recorded as inaccessible, the access or
+   replacement request is valid - do not describe its contents as absent. Do
+   not post vague progress, technical internals, or a diagnosis that leaves a
+   safely fixable bug undone. Re-read every thread after posting and confirm the
+   reply landed under the intended parent. A fix reply authored by this skill's
+   own identity is a handled marker on the next run; a clarification reply
+   satisfies this run's reply obligation but leaves the thread pending an
+   answer. The answered-clarifications pass must re-enter the thread and try the
+   fix when the reporter answers.
 7. Do not close, label, assign, or comment on GitHub issues or Sentry unless
    the invocation explicitly authorizes those mutations. Link the issue or
    event in the recap instead.
@@ -178,9 +249,8 @@ failure modes, surfaces, or owners.
 A worktree is a valid PR source. When this skill is run in an authorized
 worktree, use that worktree's current branch and cwd for its tests, commit,
 push, and PR creation or update. Do not copy changes into the shared checkout.
-The same ownership rules apply: stage explicit paths only, never `git add -A`,
-never use a whole-worktree ship helper when peer paths are present, and update
-an existing PR rather than opening a second one.
+When publishing is authorized, use `corepack pnpm ship:push` for the complete
+nonignored snapshot and update an existing PR rather than opening a second one.
 
 This skill may prepare a ready PR when the invocation grants publish
 authority. It must not merge or auto-approve its own fix unless the user also
@@ -206,6 +276,10 @@ Every run ends with a compact recap for every item inspected, including items
 skipped, duplicated, already owned, blocked by missing evidence, or blocked by
 an unavailable connector. Include direct links to the Slack message or thread,
 GitHub issue, Sentry event, PR, commit, and verification result when present.
+For Slack, include the reply-ledger result for every parent this run marked
+`👀`: Steve reply timestamp and disposition, or the exact reason the item was
+not marked. Never call a sweep complete while an actionable Slack parent in the
+ledger has no Steve reply.
 
 Use this shape:
 

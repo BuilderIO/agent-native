@@ -24,6 +24,7 @@ import {
 } from "../changelog/parse.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
+  inferAgentNativeDeploymentEnvironment,
   mergeAgentNativeConfigs,
   resolveAgentNativeConfig,
   type AgentNativeConfig,
@@ -1938,6 +1939,42 @@ function baseRedirectGuard(): Plugin {
   };
 }
 
+/**
+ * Force Nitro's dev middleware to treat extension-bearing framework endpoints
+ * as dynamic so they reach the h3 server instead of Vite's static pipeline.
+ *
+ * Nitro's Vite dev middleware routes paths with asset-like extensions through
+ * Vite unless a Nitro route matches them. Framework endpoints are registered
+ * as h3 middleware, so mounted `/_agent-native/*` and `/.well-known/*` paths
+ * can otherwise become dev-only 404s before reaching the framework handler.
+ */
+function frameworkDevDynamicForwarder(): Plugin {
+  return {
+    name: "agent-native-framework-dev-dynamic-forwarder",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const url = req.url;
+        if (url && isFrameworkDynamicDevPath(url, server.config.base)) {
+          const accept = req.headers["accept"];
+          if (typeof accept !== "string" || !/\btext\/html\b/.test(accept)) {
+            req.headers["accept"] = accept
+              ? `text/html,${accept}`
+              : "text/html";
+          }
+          // Embed-start uses document/iframe to select its transplant response.
+          // Only supply the classifier hint when the browser did not provide a
+          // destination; never overwrite the request's original intent.
+          if (req.headers["sec-fetch-dest"] === undefined) {
+            req.headers["sec-fetch-dest"] = "empty";
+          }
+        }
+        next();
+      });
+    },
+  };
+}
+
 const VITE_RUNTIME_PATH_PREFIXES = [
   "/@fs/",
   "/@id/",
@@ -2440,6 +2477,24 @@ export function isFrameworkDevPath(
     pathname === `${normalizedBase}/_agent-native` ||
     pathname.startsWith(`${normalizedBase}/_agent-native/`)
   );
+}
+
+/**
+ * Framework-owned dynamic dev paths whose responses are served by the h3 app:
+ * the `/_agent-native/*` API surface plus framework `/.well-known/*` documents.
+ */
+export function isFrameworkDynamicDevPath(
+  reqUrl: string,
+  base: string | undefined,
+): boolean {
+  if (isFrameworkDevPath(reqUrl, base)) return true;
+  const pathname = devPathname(reqUrl);
+  if (pathname.startsWith("/.well-known/")) return true;
+  if (base && base !== "/") {
+    const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
+    if (pathname.startsWith(`${normalizedBase}/.well-known/`)) return true;
+  }
+  return false;
 }
 
 /**
@@ -3384,6 +3439,7 @@ function createAgentNativePlugins(
     fullReloadOnOptimizeDep504(),
     embedDevFrameHeaders(),
     baseRedirectGuard(),
+    frameworkDevDynamicForwarder(),
     portExposer(),
     nitroStartupGate(),
     reactRouterVirtualInvalidationMirrorPlugin(),
@@ -3486,6 +3542,17 @@ function createAgentNativeConfig(
     ),
     configContext,
   );
+  const inferredDeploymentEnvironment =
+    appConfig.deployment?.environment ??
+    inferAgentNativeDeploymentEnvironment(process.env, mode);
+  const resolvedAppConfig =
+    appConfig.deployment?.environment === undefined &&
+    inferredDeploymentEnvironment !== undefined
+      ? {
+          ...appConfig,
+          deployment: { environment: inferredDeploymentEnvironment },
+        }
+      : appConfig;
   const buildId =
     process.env.DEPLOY_ID?.trim() ||
     process.env.COMMIT_REF?.trim() ||
@@ -3594,7 +3661,7 @@ function createAgentNativeConfig(
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",
       ),
-      __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(appConfig),
+      __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(resolvedAppConfig),
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),

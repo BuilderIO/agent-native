@@ -70,6 +70,19 @@ export interface UpdateCheckOptions {
 // registration, and the app menu isn't clickable until the app is ready).
 let deps: UpdatesIpcDeps | null = null;
 
+const UPDATE_CHECK_ERROR_MESSAGE =
+  "Couldn't check for updates. Please try again.";
+const UPDATE_DOWNLOAD_ERROR_MESSAGE =
+  "Couldn't download the update. Please try again.";
+const UPDATE_GENERIC_ERROR_MESSAGE =
+  "Couldn't complete the software update. Please try again.";
+
+function updateErrorMessage(error: unknown, message: string): string {
+  const detail = error instanceof Error ? error.message : String(error);
+  console.warn("[updates] update operation failed:", detail);
+  return message;
+}
+
 function getDeps(): UpdatesIpcDeps {
   if (!deps) {
     throw new Error("registerUpdatesIpc() must run before update checks.");
@@ -181,14 +194,22 @@ export async function checkForAppUpdates(
     updateCheckInFlight = withUpdateCheckTimeout(
       (async () => {
         const result = await autoUpdater.checkForUpdates();
-        await waitForDownloadedUpdate(result?.downloadPromise);
+        try {
+          await waitForDownloadedUpdate(result?.downloadPromise);
+        } catch (err) {
+          pendingDownloadedUpdate = null;
+          broadcastUpdateStatus({
+            state: "error",
+            message: updateErrorMessage(err, UPDATE_DOWNLOAD_ERROR_MESSAGE),
+          });
+        }
       })(),
     )
       .catch((err) => {
         pendingDownloadedUpdate = null;
         broadcastUpdateStatus({
           state: "error",
-          message: err instanceof Error ? err.message : String(err),
+          message: updateErrorMessage(err, UPDATE_CHECK_ERROR_MESSAGE),
         });
       })
       .finally(() => {
@@ -328,7 +349,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
       pendingDownloadedUpdate = null;
       broadcastUpdateStatus({
         state: "error",
-        message: err?.message ?? String(err),
+        message: updateErrorMessage(err, UPDATE_GENERIC_ERROR_MESSAGE),
       });
     });
   }
@@ -367,7 +388,7 @@ export function registerUpdatesIpc(ipcDeps: UpdatesIpcDeps): void {
       pendingDownloadedUpdate = null;
       broadcastUpdateStatus({
         state: "error",
-        message: err instanceof Error ? err.message : String(err),
+        message: updateErrorMessage(err, UPDATE_DOWNLOAD_ERROR_MESSAGE),
       });
     }
     return currentUpdateStatus;

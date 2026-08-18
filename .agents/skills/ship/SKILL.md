@@ -1,9 +1,9 @@
 ---
 name: ship
 description: >-
-  Commit and push the current agent's owned current-branch work, open a ready
-  PR, babysit it, merge when clean, then create a fresh branch. Use when the
-  user asks to ship, publish, or hand off the current agent's changes.
+  Commit and push the complete current-branch snapshot, open a ready PR,
+  babysit it, merge when clean, then create a fresh branch. Use when the user
+  asks to ship, publish, or hand off local changes.
 user-invocable: true
 scope: dev
 metadata:
@@ -12,54 +12,47 @@ metadata:
 
 # Ship
 
-Ship the current agent's owned work end-to-end: commit and push only those
-paths, open or update a ready PR, run `/babysit-pr`, merge when its normal gates
-are satisfied, then run `/new-branch` after the merge lands.
+Ship the complete nonignored current-branch snapshot end-to-end: commit and
+push it, open or update a ready PR, run `/babysit-pr`, merge when its normal
+gates are satisfied, then run `/new-branch` after the merge lands.
 
-`/ship` means this agent's owned work only. “Ship my latest local changes”
-does not turn every dirty path into this PR: record the shared-checkout
-ownership baseline, and leave unfamiliar or peer-created paths untouched and
-uncommitted. Re-check ownership before every stage, commit, and push.
+`/ship` means all nonignored local changes on the current branch. The shared
+checkout is the source of truth, so include concurrent-session changes in the
+same branch snapshot. The checkpoint helper excludes `learnings.md`,
+`bridge/**`, and `data/**`.
 
 ## Non-Negotiable Shipping Invariant
 
-`/ship` ships the current agent's **owned work**, not every dirty path in a
-shared checkout. At the start of the flow, record the status and ownership
-baseline. Commit and push only paths changed for this invocation. If another
-agent changes or adds a path during the flow, leave it untouched and
-uncommitted for that agent; never revert, stash, overwrite, or absorb it. A
-path appearing in `git status` is not ownership evidence and never authorizes
-staging it.
+`/ship` ships the complete nonignored branch snapshot, not a hand-selected
+subset of dirty paths. At the start of the flow, record the status and publish
+all current local changes with the checkpoint helper. If another session adds a
+path during the flow, include it in the next coherent snapshot; never revert,
+stash, or overwrite it.
 
 Invoking `/ship` is explicit authorization to merge this PR once the merge gates
 below pass, unless the user says not to merge. Do not ask again just to merge a
 clean PR. Do not stop after creating the PR; the default `/ship` outcome is a
 merged PR and a fresh post-merge branch.
 
-## Owned-Path Push
+## Branch-wide Push
 
 A worktree is a valid publishing checkout. When `/ship` is authorized from a
 worktree, use that worktree's current branch and cwd for validation, commit,
 push, and PR creation or update. Do not copy its changes into the shared
-checkout; the same owned-path and no-second-PR rules apply.
+checkout; update the existing PR and do not create a second one.
 
 ```bash
-git add -- <owned-paths>
-git commit -m "<message>"
-git push origin HEAD
+corepack pnpm ship:push
 ```
 
-Stage explicit owned paths only. Do not use `pnpm ship:push`, `git add -A`, or
-another whole-worktree helper when peer changes are present: those commands
-publish other agents' local work. Verify the push landed on the current branch
-and read the remote sha back. A dirty worktree containing only peer paths is
-allowed during the flow and is not a reason to stage them.
+The helper stages and commits the complete nonignored snapshot, excluding
+`learnings.md`, `bridge/**`, and `data/**`. Verify the push landed on the current
+branch and read the remote sha back.
 
 Treat these as an immediate call to it: `/ship`, "ship our latest local
-changes", or "push up my local changes". Push the first owned safe slice before
-long validation so CI and review can start, then push later owned slices as
-they become coherent. A live file lease means preserve that path, not publish
-it: if it is peer-owned or unexpectedly changed, leave it out of the commit.
+changes", or "push up my local changes". Push the first coherent branch
+snapshot before long validation so CI and review can start, then publish later
+snapshots as local work arrives.
 
 If the branch updates templates or publishable packages, shipping does not stop
 at merge. Treat the work as shipped only after the affected templates are live in
@@ -76,6 +69,18 @@ disposition table into the PR or ship recap. Every actionable item must have an
 owning source seam and focused verification, with one explicit disposition:
 fixed, awaiting reporter clarification, already owned or duplicate, deferred or
 informational, external or non-repo-owned, or unavailable/unverified.
+
+When deciding whether an awaiting clarification is already answered, treat the
+requested URL, error, screenshot, repro, run ID, or other evidence as present
+only when it is readable in the parent, a reply, or an accessible linked
+artifact. Keep a linked artifact that is present but inaccessible because of
+permissions, expiry, connector gaps, or another read failure separate from
+evidence that is absent. If that artifact is required to identify or verify
+the change, route the item back through the feedback workflow for a targeted
+request for access or a fresh/replacement link; do not suppress that request or
+ask again for contents already known to be in the inaccessible artifact. If the
+available evidence is enough without it, continue and record the limitation as
+unavailable/unverified in the ship ledger.
 
 Do not ship a feedback fix that is only a wording-specific rule or that lacks
 the evidence needed to identify its owner. Re-run or refresh the feedback sweep
@@ -122,9 +127,8 @@ branch, stay on it.
    worktree.
 
 2. **Check local changes**: run `git status --short` and `git diff --stat` to
-   establish the owned-path baseline. Multiple agents may have added work;
-   preserve those paths, but do not stage or push them automatically. If you
-   cannot establish ownership, leave the path out of this ship.
+   establish the branch snapshot. Multiple agents may have added work; include
+   those paths in the complete nonignored snapshot.
 
    Then confirm the base is current, before validating or pushing anything. A
    worktree can be created from a stale ref, and its local `main` ref is stale
@@ -150,16 +154,15 @@ branch, stay on it.
    record the exact failure, keep pushing stable slices, and let GitHub Actions
    be the validation gate that `/babysit-pr` monitors.
 
-4. **Publish the owned snapshot**: stage only the paths owned by this agent,
-   commit, and push the current branch. Never add `Co-Authored-By` or other
-   agent attribution.
+4. **Publish the branch snapshot**: run `corepack pnpm ship:push` to stage,
+   commit, and push all nonignored current-branch work. Never add
+   `Co-Authored-By` or other agent attribution.
 
    The first successful push is the review handoff point: open or update the
    ready PR immediately, before waiting on `pnpm prep`, a stability window, or
    additional concurrent work. Later commits update that same PR and let CI
    and review run in parallel with the rest of the ship workflow. Push each
-   later owned slice as soon as it is coherent; do not wait for peer files to
-   become commit-ready, and do not include them in an owned slice.
+   later coherent branch snapshot as soon as it is available.
 
 5. **Open or update a ready PR immediately after the first push**: use the
    current branch. PRs are ready for review by default, not drafts. Do not put
@@ -171,10 +174,10 @@ branch, stay on it.
 
 6. **Babysit immediately**: run `/babysit-pr <number>` and follow that skill’s
    tick loop exactly. Treat `babysit-pr` as the source of truth for how to watch
-   the PR. Its Step 0 checks ownership first, pushes only owned paths and
-   already-created owned commits, then checks mergeability, every unaddressed
-   review comment by reply state, and CI. Keep going until the PR is either
-   merged/closed or the user explicitly tells you to stop.
+   the PR. Its Step 0 publishes the current nonignored branch snapshot, then
+   checks mergeability, every unaddressed review comment by reply state, and CI.
+   Keep going until the PR is either merged/closed or the user explicitly tells
+   you to stop.
 
 7. **Merge when allowed**: because `/ship` includes merge authorization, merge
    with `gh pr merge <number> --squash --admin` only after `/babysit-pr`’s merge
@@ -207,10 +210,9 @@ branch, stay on it.
 ## Important
 
 - **Multiple agents run concurrently.** There will often be locally changed
-  files you didn't generate. This is normal. Preserve those paths and move
-  forward with explicit owned-path commits. Don't revert other agents' work or
-  publish it as part of this ship; fix real bugs if CI or review feedback flags
-  them.
+  files you didn't generate. This is normal. Include those paths in the next
+  complete branch snapshot. Don't revert or overwrite other agents' work; fix
+  real bugs if CI or review feedback flags them.
 - Never commit `learnings.md` or files in `.gitignore`.
 - If feedback appears in inline comments or review bodies, every item needs a
   fix or a reply before merge.

@@ -159,6 +159,56 @@ describe("create-folder action", () => {
     );
   });
 
+  it("creates a nested personal-library folder under the caller's own parent (e.g. an agent-created folder)", async () => {
+    // Slack thread 1786709106161379: creating a subfolder under a parent
+    // folder the agent created 500'd. The parent-not-found branch was already
+    // fixed to return a typed 404, but the success path — a caller nesting
+    // under their OWN personal-library (non-space) parent, which is exactly
+    // Manish's repro — had no coverage at all.
+    const insertBuilder = setupInsert();
+    const ownerPredicate = { kind: "owner-email-match" };
+    mockOwnerEmailMatches.mockReturnValue(ownerPredicate);
+    const parentSelect = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockImplementation((condition) => {
+        // The parent lookup must scope to the caller's own folders when
+        // there's no space — otherwise this fix could silently regress into
+        // letting anyone nest under anyone's personal folders.
+        expect(condition).toMatchObject({
+          op: "and",
+          args: expect.arrayContaining([ownerPredicate]),
+        });
+        return parentSelect;
+      }),
+      limit: vi.fn().mockResolvedValue([{ id: "parent_1", spaceId: null }]),
+    };
+    // No spaceId in this call, so the space-existence check select is
+    // skipped — only the parent lookup and the max-position query run.
+    const maxSelect = {
+      from: vi.fn().mockReturnThis(),
+      where: vi.fn().mockResolvedValue([{ max: -1 }]),
+    };
+    mockDb.select
+      .mockReturnValueOnce(parentSelect)
+      .mockReturnValueOnce(maxSelect);
+
+    const result = await action.run({
+      name: "Nested folder",
+      parentId: "parent_1",
+    });
+
+    expect(result).toMatchObject({
+      id: "folder_1",
+      parentId: "parent_1",
+      spaceId: null,
+      ownerEmail: "owner@example.com",
+      position: 0,
+    });
+    expect(insertBuilder.values).toHaveBeenCalledWith(
+      expect.objectContaining({ parentId: "parent_1", spaceId: null }),
+    );
+  });
+
   it("returns a typed not-found error when the parent folder is missing", async () => {
     setupInsert();
     const parentSelect = {

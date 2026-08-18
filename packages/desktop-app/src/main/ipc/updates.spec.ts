@@ -116,6 +116,58 @@ describe("desktop updates", () => {
     expect(focusMainWindow).not.toHaveBeenCalled();
   });
 
+  it("redacts transport details from a failed update check", async () => {
+    const error = new Error(
+      '502 "method: GET url: https://www.agent-native.com/api/desktop-updates/latest-mac.yml"',
+    );
+    updaterState.checkForUpdates.mockRejectedValue(error);
+    const refreshApplicationMenu = vi.fn();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    registerUpdatesIpc({
+      refreshApplicationMenu,
+      focusMainWindow: vi.fn(),
+    });
+
+    await expect(checkForAppUpdates()).resolves.toEqual({
+      state: "error",
+      message: "Couldn't check for updates. Please try again.",
+    });
+
+    expect(getCurrentUpdateStatus()).toEqual({
+      state: "error",
+      message: "Couldn't check for updates. Please try again.",
+    });
+    expect(refreshApplicationMenu).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      "[updates] update operation failed:",
+      error.message,
+    );
+  });
+
+  it("uses the download retry message when automatic staging fails", async () => {
+    const error = new Error("download failed");
+    updaterState.checkForUpdates.mockResolvedValue({
+      downloadPromise: Promise.reject(error),
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+    });
+
+    await expect(checkForAppUpdates()).resolves.toEqual({
+      state: "error",
+      message: "Couldn't download the update. Please try again.",
+    });
+
+    expect(warn).toHaveBeenCalledWith(
+      "[updates] update operation failed:",
+      error.message,
+    );
+  });
+
   it("does not advertise a macOS update until native staging finishes", async () => {
     let resolveDownload!: () => void;
     const downloadPromise = new Promise<void>((resolve) => {

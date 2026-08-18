@@ -174,6 +174,27 @@ function MissingDeckAccessPane({
   );
 }
 
+// The Cmd/Ctrl+C-then-V slide-duplicate shortcut can only tell "this key
+// event targets the slide rail/canvas" apart from "focus fell back to
+// nothing because a panel/dialog elsewhere just closed" by checking a
+// deny-list of known text surfaces — and that list can never be complete
+// (see the Andrew Rohman Slack thread this guards against: a slide copied
+// once early in a session kept silently re-duplicating on unrelated later
+// pastes). Bounding how long a copy stays "armed" turns a missed deny-list
+// entry from a silent, indefinite landmine into, at worst, a narrow window
+// that still covers the real copy-then-paste gesture.
+export const SLIDE_CLIPBOARD_ARM_WINDOW_MS = 30_000;
+
+/** True when a Cmd/Ctrl+V should still be treated as "paste the slide that
+ * was just copied" rather than unrelated clipboard activity landing outside
+ * every recognized text field. */
+export function isSlideClipboardStillArmed(
+  armedAt: number | null,
+  now: number = Date.now(),
+): boolean {
+  return armedAt !== null && now - armedAt <= SLIDE_CLIPBOARD_ARM_WINDOW_MS;
+}
+
 export default function DeckEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
@@ -861,6 +882,11 @@ export default function DeckEditor() {
   // (rather than just an id) so paste still works after Cut has already
   // removed the original slide from the deck.
   const slideClipboardRef = useRef<Slide | null>(null);
+  // Only gates the ambient document-level Cmd/Ctrl+V shortcut below — the
+  // rail's right-click "Paste" menu item is an explicit click with no
+  // ambiguity risk, so it keeps working off `hasSlideClipboard` alone however
+  // long ago the copy happened.
+  const slideClipboardArmedAtRef = useRef<number | null>(null);
   const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
 
   const copySlide = useCallback(
@@ -868,6 +894,7 @@ export default function DeckEditor() {
       const slide = deck?.slides.find((s) => s.id === slideId);
       if (!slide) return;
       slideClipboardRef.current = slide;
+      slideClipboardArmedAtRef.current = Date.now();
       setHasSlideClipboard(true);
     },
     [deck],
@@ -879,6 +906,7 @@ export default function DeckEditor() {
       const slide = deck.slides.find((s) => s.id === slideId);
       if (!slide) return;
       slideClipboardRef.current = slide;
+      slideClipboardArmedAtRef.current = Date.now();
       setHasSlideClipboard(true);
       const idx = deck.slides.findIndex((s) => s.id === slideId);
       const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
@@ -1029,7 +1057,12 @@ export default function DeckEditor() {
         return;
       }
 
-      if (!hasSlideClipboard || !activeSlideId) return;
+      if (
+        !hasSlideClipboard ||
+        !activeSlideId ||
+        !isSlideClipboardStillArmed(slideClipboardArmedAtRef.current)
+      )
+        return;
       e.preventDefault();
       pasteSlideAfter(activeSlideId);
     };

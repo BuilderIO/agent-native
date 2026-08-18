@@ -107,50 +107,49 @@ describe("desktop update asset route", () => {
     });
   });
 
-  it("serves updater metadata with durable stale-while-revalidate headers", async () => {
+  it("redirects updater metadata without proxying the release asset", async () => {
     vi.stubGlobal(
       "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          json: async () => [
-            {
-              tag_name: "v1.0.0",
-              name: "v1.0.0",
-              published_at: "2026-01-01T00:00:00Z",
-              draft: false,
-              prerelease: false,
-              assets: [
-                {
-                  name: "latest-mac.yml",
-                  browser_download_url: "https://example.com/latest-mac.yml",
-                  size: 123,
-                },
-                {
-                  name: "Agent-Native-arm64.dmg",
-                  browser_download_url:
-                    "https://example.com/Agent-Native-arm64.dmg",
-                  size: 123,
-                },
-              ],
-            },
-          ],
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          text: async () => "version: 1.0.0",
-        }),
+      vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => [
+          {
+            tag_name: "v1.0.0",
+            name: "v1.0.0",
+            published_at: "2026-01-01T00:00:00Z",
+            draft: false,
+            prerelease: false,
+            assets: [
+              {
+                name: "latest-mac.yml",
+                browser_download_url: "https://example.com/latest-mac.yml",
+                size: 123,
+              },
+              {
+                name: "Agent-Native-arm64.dmg",
+                browser_download_url:
+                  "https://example.com/Agent-Native-arm64.dmg",
+                size: 123,
+              },
+            ],
+          },
+        ],
+      }),
     );
 
     const event = createEvent("latest-mac.yml");
 
-    await expect(handler(event as any)).resolves.toBe("version: 1.0.0");
+    await handler(event as any);
+
+    expect(mockSendRedirect).toHaveBeenCalledWith(
+      event,
+      "https://example.com/latest-mac.yml",
+      302,
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
 
     expect(event.headers).toEqual({
-      "content-type": "application/x-yaml; charset=utf-8",
       "cache-control":
         "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
       "cdn-cache-control":

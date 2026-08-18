@@ -958,6 +958,7 @@ import {
   type ShapeTool,
   FOCUSED_SCREEN_ZOOM,
   SHOW_DESIGN_CODE_LEFT_PANEL,
+  SHOW_DESIGN_SECONDARY_LEFT_PANELS,
 } from "./design-editor/types";
 
 // Selection is tab-scoped (like navigation) so a second editor tab cannot
@@ -1304,26 +1305,34 @@ function DesignWorkspaceRail({
       label: t("designEditor.leftRail.agent"),
       icon: <IconMessage className="size-[15px]" />,
     },
-    {
-      panel: "assets",
-      label: t("designEditor.leftRail.assets"),
-      icon: <IconPhoto className="size-[15px]" />,
-    },
+    ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
+      ? [
+          {
+            panel: "assets" as const,
+            label: t("designEditor.leftRail.assets"),
+            icon: <IconPhoto className="size-[15px]" />,
+          },
+        ]
+      : []),
     {
       panel: "import",
       label: t("designEditor.leftRail.import"),
       icon: <IconFileImport className="size-[15px]" />,
     },
-    {
-      panel: "tools",
-      label: t("designEditor.leftRail.tools"),
-      icon: <IconPuzzle className="size-[15px]" />,
-    },
-    {
-      panel: "tokens",
-      label: t("designEditor.leftRail.tokens"),
-      icon: <IconAssembly className="size-[15px]" />,
-    },
+    ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
+      ? [
+          {
+            panel: "tools" as const,
+            label: t("designEditor.leftRail.tools"),
+            icon: <IconPuzzle className="size-[15px]" />,
+          },
+          {
+            panel: "tokens" as const,
+            label: t("designEditor.leftRail.tokens"),
+            icon: <IconAssembly className="size-[15px]" />,
+          },
+        ]
+      : []),
     ...(SHOW_DESIGN_CODE_LEFT_PANEL
       ? [
           {
@@ -24454,9 +24463,10 @@ function DesignEditor() {
     onShowLayersPanel: initialGenerationChromeLimited
       ? undefined
       : handleShowLayersPanel,
-    onShowAssetsPanel: initialGenerationChromeLimited
-      ? undefined
-      : handleShowAssetsPanel,
+    onShowAssetsPanel:
+      initialGenerationChromeLimited || !SHOW_DESIGN_SECONDARY_LEFT_PANELS
+        ? undefined
+        : handleShowAssetsPanel,
     onGroup: canEditDesign ? handleGroupSelection : undefined,
     onUngroup: canEditDesign ? handleUngroupSelection : undefined,
     onFrameSelection: canEditDesign ? handleFrameSelection : undefined,
@@ -31891,31 +31901,33 @@ function DesignEditor() {
                   />
                 )}
               </div>
-              <div
-                className={cn(
-                  "min-h-0 flex-1 flex-col overflow-hidden",
-                  activeLeftPanel === "assets" ? "flex" : "hidden",
-                )}
-              >
-                <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
-                  <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
-                    {t("designEditor.leftRail.assets")}
-                  </h3>
+              {SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
+                <div
+                  className={cn(
+                    "min-h-0 flex-1 flex-col overflow-hidden",
+                    activeLeftPanel === "assets" ? "flex" : "hidden",
+                  )}
+                >
+                  <div className="flex min-h-8 shrink-0 items-center border-b border-border/60 px-3">
+                    <h3 className="min-w-0 flex-1 truncate text-xs font-semibold text-foreground">
+                      {t("designEditor.leftRail.assets")}
+                    </h3>
+                  </div>
+                  {canEditDesign ? (
+                    <AssetLibraryPanel
+                      context={designExtensionContext}
+                      resolveScreenPoint={resolveAssetScreenPoint}
+                    />
+                  ) : (
+                    <ReadOnlyEditorPanel
+                      title={"Assets require editor access" /* i18n-ignore */}
+                      description={
+                        "Ask an owner for edit access before inserting assets into this design." /* i18n-ignore */
+                      }
+                    />
+                  )}
                 </div>
-                {canEditDesign ? (
-                  <AssetLibraryPanel
-                    context={designExtensionContext}
-                    resolveScreenPoint={resolveAssetScreenPoint}
-                  />
-                ) : (
-                  <ReadOnlyEditorPanel
-                    title={"Assets require editor access" /* i18n-ignore */}
-                    description={
-                      "Ask an owner for edit access before inserting assets into this design." /* i18n-ignore */
-                    }
-                  />
-                )}
-              </div>
+              ) : null}
               <div
                 className={cn(
                   "min-h-0 flex-1 flex-col overflow-hidden",
@@ -31943,71 +31955,77 @@ function DesignEditor() {
                   />
                 )}
               </div>
-              <div
-                className={cn(
-                  "min-h-0 flex-1 flex-col overflow-hidden",
-                  activeLeftPanel === "tools" ? "flex" : "hidden",
-                )}
-              >
-                {canEditDesign && !shellMode ? (
-                  <DesignExtensionsPanel
-                    context={designExtensionContext}
-                    hideAssetLibrary
-                    title={t("designEditor.leftRail.tools")}
-                  />
-                ) : (
-                  <ReadOnlyEditorPanel
-                    title={"Tools require editor access" /* i18n-ignore */}
-                    description={
-                      "Ask an owner for edit access before running tools for this design." /* i18n-ignore */
-                    }
-                  />
-                )}
-              </div>
-              <div
-                className={cn(
-                  "min-h-0 flex-1 flex-col overflow-hidden",
-                  activeLeftPanel === "tokens" ? "flex" : "hidden",
-                )}
-              >
-                {id && canEditDesign && !shellMode ? (
-                  <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
-                    <TokensPanel
-                      designId={id}
-                      onTokensApplied={handleTokensApplied}
-                    />
+              {SHOW_DESIGN_SECONDARY_LEFT_PANELS ? (
+                <>
+                  <div
+                    className={cn(
+                      "min-h-0 flex-1 flex-col overflow-hidden",
+                      activeLeftPanel === "tools" ? "flex" : "hidden",
+                    )}
+                  >
+                    {canEditDesign && !shellMode ? (
+                      <DesignExtensionsPanel
+                        context={designExtensionContext}
+                        hideAssetLibrary
+                        title={t("designEditor.leftRail.tools")}
+                      />
+                    ) : (
+                      <ReadOnlyEditorPanel
+                        title={"Tools require editor access" /* i18n-ignore */}
+                        description={
+                          "Ask an owner for editor access before running tools for this design." /* i18n-ignore */
+                        }
+                      />
+                    )}
                   </div>
-                ) : (
-                  <ReadOnlyEditorPanel
-                    title={"Tokens require editor access" /* i18n-ignore */}
-                    description={
-                      "Ask an owner for edit access before importing, creating, or applying tokens." /* i18n-ignore */
-                    }
-                  />
-                )}
-              </div>
-              <div
-                className={cn(
-                  "min-h-0 flex-1 flex-col overflow-hidden",
-                  activeLeftPanel === "code" ? "flex" : "hidden",
-                )}
-              >
-                {id && !shellMode ? (
-                  <CodeWorkbenchLoader
-                    designId={id}
-                    activeFileId={routeCodeFileId}
-                    activeFilename={routeCodeFilename}
-                    selectedNodeId={selectedElementLayerId}
-                    selectedSelector={selectedCanvasSelector}
-                    canEdit={canEditDesign}
-                    onActiveFileChange={setActiveCodeFile}
-                    localhostConnections={workbenchLocalhostConnections}
-                    onRequestLocalWriteConsent={
-                      handleWorkbenchLocalWriteConsent
-                    }
-                  />
-                ) : null}
-              </div>
+                  <div
+                    className={cn(
+                      "min-h-0 flex-1 flex-col overflow-hidden",
+                      activeLeftPanel === "tokens" ? "flex" : "hidden",
+                    )}
+                  >
+                    {id && canEditDesign && !shellMode ? (
+                      <div className="design-inspector-scroll min-h-0 flex-1 overflow-y-auto overscroll-contain">
+                        <TokensPanel
+                          designId={id}
+                          onTokensApplied={handleTokensApplied}
+                        />
+                      </div>
+                    ) : (
+                      <ReadOnlyEditorPanel
+                        title={"Tokens require editor access" /* i18n-ignore */}
+                        description={
+                          "Ask an owner for edit access before importing, creating, or applying tokens." /* i18n-ignore */
+                        }
+                      />
+                    )}
+                  </div>
+                  {SHOW_DESIGN_CODE_LEFT_PANEL ? (
+                    <div
+                      className={cn(
+                        "min-h-0 flex-1 flex-col overflow-hidden",
+                        activeLeftPanel === "code" ? "flex" : "hidden",
+                      )}
+                    >
+                      {id && !shellMode ? (
+                        <CodeWorkbenchLoader
+                          designId={id}
+                          activeFileId={routeCodeFileId}
+                          activeFilename={routeCodeFilename}
+                          selectedNodeId={selectedElementLayerId}
+                          selectedSelector={selectedCanvasSelector}
+                          canEdit={canEditDesign}
+                          onActiveFileChange={setActiveCodeFile}
+                          localhostConnections={workbenchLocalhostConnections}
+                          onRequestLocalWriteConsent={
+                            handleWorkbenchLocalWriteConsent
+                          }
+                        />
+                      ) : null}
+                    </div>
+                  ) : null}
+                </>
+              ) : null}
             </div>
             <div
               role="separator"
@@ -33136,7 +33154,11 @@ function DesignEditor() {
                     canEditDesign ? handleAlignSelection : undefined
                   }
                   onInteractionStateChange={handleInteractionStateChange}
-                  onEditCode={handleShaderEditCode}
+                  onEditCode={
+                    SHOW_DESIGN_CODE_LEFT_PANEL
+                      ? handleShaderEditCode
+                      : undefined
+                  }
                 />
               </div>
             ) : (
@@ -33235,7 +33257,9 @@ function DesignEditor() {
                   canEditDesign ? handleAlignSelection : undefined
                 }
                 onInteractionStateChange={handleInteractionStateChange}
-                onEditCode={handleShaderEditCode}
+                onEditCode={
+                  SHOW_DESIGN_CODE_LEFT_PANEL ? handleShaderEditCode : undefined
+                }
               />
             </div>
           </SheetContent>

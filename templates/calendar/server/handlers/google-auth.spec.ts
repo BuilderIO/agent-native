@@ -313,6 +313,32 @@ describe("Calendar Google auth-url handler", () => {
     );
   });
 
+  it("does not disclose which login owns a conflicting Google account", async () => {
+    const event = createEvent({ code: "google-code", state: "encoded-state" });
+    mocks.getSession.mockResolvedValue(null);
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://calendar.agent-native.com/_agent-native/google/add-account/callback",
+      owner: "second-login@example.com",
+      orgId: "org-123",
+    });
+    const conflict = Object.assign(new Error("owned by another user"), {
+      name: "OAuthAccountOwnedByOtherUserError",
+      accountId: "shared-calendar@gmail.com",
+      existingOwner: "first-login@example.com",
+      attemptedOwner: "second-login@example.com",
+    });
+    mocks.exchangeCode.mockRejectedValue(conflict);
+
+    await handleGoogleAddAccountCallback(event as any);
+
+    expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);
+    const [message] = mocks.oauthErrorPage.mock.calls[0];
+    expect(message).toContain("already connected to another login");
+    expect(message).not.toContain("first-login@example.com");
+    expect(message).not.toContain("second-login@example.com");
+  });
+
   it("returns a mobile session when Calendar connect came from the native app", async () => {
     const event = createEvent({
       code: "google-code",
