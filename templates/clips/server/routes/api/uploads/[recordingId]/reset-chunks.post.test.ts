@@ -246,6 +246,23 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
     });
   });
 
+  it("validates streaming MIME before changing upload state", async () => {
+    mockReadBody.mockResolvedValue({
+      requestStreaming: true,
+      mimeType: "text/plain",
+    });
+
+    await expect(handler({} as any)).resolves.toEqual({
+      error: "A supported video mimeType is required for retry",
+    });
+
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 400);
+    expect(mockDb.update).not.toHaveBeenCalled();
+    expect(mockDeleteRecordingChunks).not.toHaveBeenCalled();
+    expect(mockAbortSession).not.toHaveBeenCalled();
+    expect(mockDeleteResumableSession).not.toHaveBeenCalled();
+  });
+
   it("clears a recovery claim when the flag is disabled mid-retry", async () => {
     mockIsFeatureFlagEnabled.mockResolvedValue(false);
     mockExistingRecording.current.uploadAttemptId = "old-attempt";
@@ -528,6 +545,42 @@ describe("/api/uploads/:recordingId/reset-chunks route", () => {
       "rec-1",
       "generation-old",
     );
+    expect(mockPendingCleanup.current).toEqual(
+      expect.objectContaining({
+        generationId: "generation-old",
+        ownerGenerationId: expect.any(String),
+      }),
+    );
+    expect(mockStartSession).not.toHaveBeenCalled();
+  });
+
+  it("does not use buffered fallback when the stale local session cannot be deleted", async () => {
+    mockExistingRecording.current.uploadGenerationId = "generation-old";
+    mockReadBody.mockResolvedValue({
+      requestStreaming: true,
+      mimeType: "video/webm",
+      uploadGenerationId: "generation-old",
+      useGenerationFence: true,
+    });
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "test-provider",
+      sessionId: "old-session",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 12,
+    });
+    mockAllowsSqlRecordingChunkScratch.mockReturnValue(true);
+    mockAbortSession.mockRejectedValueOnce(
+      new Error("provider cleanup failed"),
+    );
+    mockDeleteResumableSession.mockRejectedValueOnce(
+      new Error("local cleanup failed"),
+    );
+
+    await expect(handler({} as any)).resolves.toEqual({
+      error:
+        "The previous recording upload could not be reset locally. Retry the upload restart.",
+    });
+
     expect(mockPendingCleanup.current).toEqual(
       expect.objectContaining({
         generationId: "generation-old",

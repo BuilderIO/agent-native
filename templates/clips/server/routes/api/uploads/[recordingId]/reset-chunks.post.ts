@@ -174,6 +174,14 @@ export default defineEventHandler(async (event: H3Event) => {
     uploadGenerationId?: string;
     useGenerationFence?: boolean;
   } | null;
+  const requestedStreamingMimeType =
+    body?.requestStreaming === true
+      ? normalizeVideoMimeType(body.mimeType)
+      : null;
+  if (body?.requestStreaming === true && !requestedStreamingMimeType) {
+    setResponseStatus(event, 400);
+    return { error: "A supported video mimeType is required for retry" };
+  }
   const recoveryEnabled = await isFeatureFlagEnabled(UPLOAD_RETRY_RESUME_FLAG, {
     userEmail: ownerEmail,
     userKey: ownerEmail,
@@ -400,9 +408,19 @@ export default defineEventHandler(async (event: H3Event) => {
     // Clear any stale resumable session so a buffered retry does not
     // accidentally route through handleResumableChunk with stale offsets.
     if (!discardedResumableSession || cleanupClaim || resumableCleanupFailed) {
-      await deleteResumableSession(recordingId, discardedGenerationId).catch(
-        () => {},
-      );
+      try {
+        await deleteResumableSession(recordingId, discardedGenerationId);
+      } catch (error) {
+        console.warn(
+          `[reset-chunks-${recordingId}] local resumable session cleanup failed`,
+          error,
+        );
+        setResponseStatus(event, 502);
+        return {
+          error:
+            "The previous recording upload could not be reset locally. Retry the upload restart.",
+        };
+      }
     }
 
     let uploadMode: UploadMode = "buffered";
@@ -411,7 +429,7 @@ export default defineEventHandler(async (event: H3Event) => {
     const shouldRetryStreaming =
       body?.requestStreaming === true && !resumableCleanupFailed;
     if (shouldRetryStreaming) {
-      const mimeType = normalizeVideoMimeType(body.mimeType);
+      const mimeType = requestedStreamingMimeType;
       if (!mimeType) {
         setResponseStatus(event, 400);
         return { error: "A supported video mimeType is required for retry" };
