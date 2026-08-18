@@ -194,7 +194,15 @@ export async function checkForAppUpdates(
     updateCheckInFlight = withUpdateCheckTimeout(
       (async () => {
         const result = await autoUpdater.checkForUpdates();
-        await waitForDownloadedUpdate(result?.downloadPromise);
+        try {
+          await waitForDownloadedUpdate(result?.downloadPromise);
+        } catch (err) {
+          pendingDownloadedUpdate = null;
+          broadcastUpdateStatus({
+            state: "error",
+            message: updateErrorMessage(err, UPDATE_DOWNLOAD_ERROR_MESSAGE),
+          });
+        }
       })(),
     )
       .catch((err) => {

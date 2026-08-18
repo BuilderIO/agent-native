@@ -145,6 +145,29 @@ describe("desktop updates", () => {
     );
   });
 
+  it("uses the download retry message when automatic staging fails", async () => {
+    const error = new Error("download failed");
+    updaterState.checkForUpdates.mockResolvedValue({
+      downloadPromise: Promise.reject(error),
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+    });
+
+    await expect(checkForAppUpdates()).resolves.toEqual({
+      state: "error",
+      message: "Couldn't download the update. Please try again.",
+    });
+
+    expect(warn).toHaveBeenCalledWith(
+      "[updates] update operation failed:",
+      error.message,
+    );
+  });
+
   it("does not advertise a macOS update until native staging finishes", async () => {
     let resolveDownload!: () => void;
     const downloadPromise = new Promise<void>((resolve) => {
