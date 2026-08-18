@@ -24,6 +24,7 @@ import {
 } from "../changelog/parse.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
+  inferAgentNativeDeploymentEnvironment,
   mergeAgentNativeConfigs,
   resolveAgentNativeConfig,
   type AgentNativeConfig,
@@ -3536,6 +3537,17 @@ function createAgentNativeConfig(
     ),
     configContext,
   );
+  const inferredDeploymentEnvironment =
+    appConfig.deployment?.environment ??
+    inferAgentNativeDeploymentEnvironment(process.env, mode);
+  const resolvedAppConfig =
+    appConfig.deployment?.environment === undefined &&
+    inferredDeploymentEnvironment !== undefined
+      ? {
+          ...appConfig,
+          deployment: { environment: inferredDeploymentEnvironment },
+        }
+      : appConfig;
   const buildId =
     process.env.DEPLOY_ID?.trim() ||
     process.env.COMMIT_REF?.trim() ||
@@ -3644,7 +3656,7 @@ function createAgentNativeConfig(
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",
       ),
-      __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(appConfig),
+      __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(resolvedAppConfig),
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),

@@ -973,9 +973,16 @@ async function ensureEmailVerifiedForRedirect(
       sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? AND (email_verified = FALSE OR email_verified IS NULL)',
       args: [email],
     });
-  } catch {
-    // Better Auth already handled the verification route. This repair is
-    // best-effort so response cookies/redirects are never lost to DB noise.
+  } catch (error) {
+    // Better Auth already handled the verification route, so this repair
+    // staying best-effort (never blocking the response) is correct. But a
+    // failure here must never be silent: "repair didn't run" and "there was
+    // nothing to repair" are the same observable outcome to a caller unless
+    // this is logged, which is exactly the shape of "clicked the verify
+    // link, login still says not verified" (Slack C0ATH3CCZT4, reported
+    // 2026-07-31 and 2026-08-05) — this UPDATE is the only place that would
+    // show whether Better Auth's own write is failing too.
+    captureAuthError(error, { route: "verify-email", email });
   }
 }
 

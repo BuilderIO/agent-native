@@ -968,6 +968,7 @@ describe("agent-native app config", () => {
     ).toEqual({
       version: 1,
       onboarding: { firstRun: "connect" },
+      deployment: { environment: "local" },
     });
   });
 
@@ -1025,6 +1026,7 @@ describe("agent-native app config", () => {
       ).toEqual({
         version: 1,
         onboarding: { firstRun: "connect" },
+        deployment: { environment: "local" },
       });
     } finally {
       process.chdir(previousCwd);
@@ -1061,6 +1063,7 @@ describe("agent-native app config", () => {
       ).toEqual({
         version: 1,
         onboarding: { firstRun: "connect" },
+        deployment: { environment: "local" },
       });
     } finally {
       process.chdir(previousCwd);
@@ -1150,6 +1153,7 @@ describe("agent-native app config", () => {
             required: ["NOTION_API_KEY", "GOOGLE_CLIENT_ID"],
           },
         },
+        deployment: { environment: "local" },
       });
     } finally {
       process.chdir(previousCwd);

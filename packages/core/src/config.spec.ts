@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   defineAgentNativeConfig,
+  inferAgentNativeDeploymentEnvironment,
   mergeAgentNativeConfigs,
   normalizeAgentNativeConfig,
   resolveAgentNativeConfig,
@@ -81,6 +82,34 @@ describe("agent-native app config", () => {
     });
   });
 
+  it("normalizes and merges the public deployment environment", () => {
+    expect(
+      normalizeAgentNativeConfig({ deployment: { environment: "beta" } }),
+    ).toEqual({ deployment: { environment: "beta" } });
+    expect(
+      mergeAgentNativeConfigs(
+        { deployment: { environment: "production" } },
+        { deployment: { environment: "beta" } },
+      ),
+    ).toEqual({ deployment: { environment: "beta" } });
+  });
+
+  it.each([
+    [{ BRANCH: "beta", CONTEXT: "branch-deploy" }, "beta"],
+    [{ BRANCH: "main", CONTEXT: "branch-deploy" }, "beta"],
+    [{ BRANCH: "beta", CONTEXT: "production" }, "production"],
+    [{ BRANCH: "production", CONTEXT: "production" }, "production"],
+    [{ BRANCH: "feature/auth", CONTEXT: "deploy-preview" }, "preview"],
+    [{}, "local"],
+  ] as const)(
+    "infers deployment environment from hosting facts",
+    (env, expected) => {
+      expect(inferAgentNativeDeploymentEnvironment(env, "development")).toBe(
+        expected,
+      );
+    },
+  );
+
   it("normalizes hosted harness capabilities and runtimes", () => {
     expect(normalizeAgentNativeConfig({ harness: true })).toEqual({
       harness: true,
@@ -123,6 +152,7 @@ describe("agent-native app config", () => {
     { translations: { locales: ["en-US", ""] } },
     { translations: { locales: ["en-US", 42] } },
     { changelog: { enabled: "yes" } },
+    { deployment: { environment: "staging" } },
     { harness: { runtimes: ["shell"] } },
     { harness: { enabled: true } },
     { harness: { ui: "desktop" } },
