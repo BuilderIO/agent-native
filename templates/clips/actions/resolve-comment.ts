@@ -53,9 +53,7 @@ export default defineAction({
       "viewer",
     );
     if (
-      isRecordingExpired(
-        (access.resource as { expiresAt?: string }).expiresAt,
-      )
+      isRecordingExpired((access.resource as { expiresAt?: string }).expiresAt)
     ) {
       throw new ForbiddenError("Recording has expired");
     }

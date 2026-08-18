@@ -133,6 +133,7 @@ export function PlayerControls(props: PlayerControlsProps) {
         reactions={reactions}
       />
 
+      {/* guard:allow-raw-color -- video controls overlay the dark player scrim itself, not themed app chrome, so text stays white regardless of light/dark mode */}
       <div className="relative flex min-w-0 items-center gap-1.5 text-white">
         <IconBtn
           onClick={onPlayPause}

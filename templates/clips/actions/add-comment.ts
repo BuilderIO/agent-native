@@ -52,7 +52,9 @@ export default defineAction({
     // recording, not just an explicitly-granted "commenter" role — the
     // `authorEmail` check below is what actually requires an account.
     const access = await assertAccess("recording", args.recordingId, "viewer");
-    if (isRecordingExpired((access.resource as { expiresAt?: string }).expiresAt)) {
+    if (
+      isRecordingExpired((access.resource as { expiresAt?: string }).expiresAt)
+    ) {
       throw new ForbiddenError("Recording has expired");
     }
 

@@ -274,7 +274,7 @@ export default defineEventHandler(async (event) => {
   // `resolveAccess` may not surface without an explicit share row.
   const viewerCanComment = Boolean(
     session?.email &&
-      (rec.visibility === "public" || viewerAccess || viewerIsOrgMember),
+    (rec.visibility === "public" || viewerAccess || viewerIsOrgMember),
   );
 
   // Expiry check
