@@ -22,6 +22,11 @@ const E2E_DATABASE_URL =
   process.env.E2E_DATABASE_URL ??
   `file:${path.join(import.meta.dirname, "data", "e2e.db")}`;
 const BROWSER_CHANNEL = process.env.E2E_BROWSER_CHANNEL;
+const SHOW_SECONDARY_PANELS_IN_E2E =
+  process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS !== "0";
+const SECONDARY_PANELS_ENV = SHOW_SECONDARY_PANELS_IN_E2E
+  ? "VITE_SHOW_DESIGN_SECONDARY_LEFT_PANELS=1 "
+  : "";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -56,7 +61,7 @@ export default defineConfig({
         // generic DATABASE_URL, but set both to an absolute SQLite URL so a
         // `.env` Postgres URL or a changed command cwd can never override this
         // throwaway local db.
-        command: `APP_NAME=design DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm dev`,
+        command: `APP_NAME=design ${SECONDARY_PANELS_ENV}DESIGN_DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} DATABASE_URL=${JSON.stringify(E2E_DATABASE_URL)} PORT=${PORT} corepack pnpm dev`,
         url: BASE_URL,
         reuseExistingServer: !process.env.CI,
         // Cold Vite dep-optimization on first boot can exceed two minutes.

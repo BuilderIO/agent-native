@@ -6,6 +6,8 @@ import { useAgentRouteState } from "@agent-native/core/client/navigation";
 import { useEffect } from "react";
 import { useLocation, useParams } from "react-router";
 
+import { normalizeDesignLeftPanel } from "@/pages/design-editor/tool-state";
+
 export interface NavigationState {
   view: string;
   designId?: string;
@@ -141,16 +143,7 @@ function normalizeLeftPanel(
   | "import"
   | "code"
   | undefined {
-  if (value === "extensions") return "tools";
-  return value === "file" ||
-    value === "agent" ||
-    value === "assets" ||
-    value === "tools" ||
-    value === "tokens" ||
-    value === "import" ||
-    value === "code"
-    ? value
-    : undefined;
+  return normalizeDesignLeftPanel(value);
 }
 
 function normalizeEditorMode(
