@@ -152,6 +152,11 @@ const requiredGeneratedGuidance = [
     message: "canonical action-first guidance",
   },
   {
+    rel: "registry/agent-native-app/AGENTS.md",
+    pattern: runtimeIntegrationGuidancePattern,
+    message: "runtime-visible integration preflight",
+  },
+  {
     rel: "packages/core/src/templates/workspace-root/AGENTS.md",
     pattern:
       /Before implementing an app that connects to an external service, inspect the\s+workspace\/provider connection catalog first\./,
