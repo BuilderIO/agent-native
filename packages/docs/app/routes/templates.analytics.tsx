@@ -14,7 +14,6 @@ import { Link } from "react-router";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
-import { TemplateDocsLink } from "../components/template-docs";
 import {
   TemplateActivationFrame,
   TemplateCapabilityGrid,
@@ -161,13 +160,7 @@ export default function AnalyticsTemplate() {
         }
       />
 
-      <TemplateActivationFrame
-        heading={
-          <h2 className="m-0 text-2xl font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-            {t("templateLanding.analytics.s009")}
-          </h2>
-        }
-      >
+      <TemplateActivationFrame>
         <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
           <a
             href="https://analytics.agent-native.com"
@@ -182,13 +175,8 @@ export default function AnalyticsTemplate() {
               });
             }}
           >
-            {t("templateLanding.analytics.s009")}
+            Talk to Your Data
           </a>
-          <TemplateDocsLink
-            template={template}
-            location="landing_page"
-            className={activationLinkClassName}
-          />
         </div>
       </TemplateActivationFrame>
 
