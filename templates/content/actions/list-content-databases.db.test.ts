@@ -609,7 +609,7 @@ describe("list-content-databases", () => {
             spaceId,
             databaseId: feedbackDatabaseId,
           }),
-        ).rejects.toThrow(/No accessible Content database/);
+        ).rejects.toThrow(/Not authorized for Content space/);
         await expect(
           listContentDatabasesAction.run({
             spaceId,

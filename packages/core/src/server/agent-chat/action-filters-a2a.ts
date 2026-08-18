@@ -316,6 +316,7 @@ export function assembleA2AFinalResponse(
     includeReferencedArtifacts: true,
     includePersistedArtifactMarker: true,
     persistedArtifactSecret: options.persistedArtifactSecret,
+    delegatedTaskId: options.delegatedTaskId,
   });
   const mutationReceipts = extractA2APersistedMutationReceipts(
     [...toolResults],

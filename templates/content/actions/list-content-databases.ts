@@ -94,8 +94,8 @@ export default defineAction({
       );
     }
     const db = getDb();
-    if (args.includeSystemCollections) {
-      await resolveContentSpaceAccess(args.spaceId!, "viewer", { db });
+    if (args.spaceId) {
+      await resolveContentSpaceAccess(args.spaceId, "viewer", { db });
     }
     const query = args.query?.trim();
     const pattern = query ? `%${escapeLike(query.toLowerCase())}%` : null;

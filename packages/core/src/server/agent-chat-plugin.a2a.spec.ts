@@ -784,15 +784,30 @@ describe("assembleA2AFinalResponse", () => {
     const assembled = assembleA2AFinalResponse(
       [{ type: "text", text: "Created feedback." }, { type: "done" }],
       toolResults,
-      { persistedArtifactSecret: secret },
+      {
+        persistedArtifactSecret: secret,
+        delegatedTaskId: "task-current",
+      },
     );
 
     expect(
       extractA2APersistedMutationReceipts(
         [{ tool: "call-agent", result: assembled.finalText }],
-        { persistedArtifactSecrets: [secret] },
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-current",
+        },
       ),
     ).toEqual([expect.objectContaining({ receiptId: "receipt-org-secret" })]);
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: assembled.finalText }],
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-other",
+        },
+      ),
+    ).toEqual([]);
     expect(assembled.mutationReceipts).toEqual([
       expect.objectContaining({ receiptId: "receipt-org-secret" }),
     ]);
