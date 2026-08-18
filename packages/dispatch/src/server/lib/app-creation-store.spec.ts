@@ -345,6 +345,49 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
+  it("projects exact custom SSO eligibility without exposing registry details", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      {
+        id: "workspace-reports",
+        name: "Workspace Reports",
+        path: "/workspace-reports",
+        url: "https://reports.example.com/workspace-reports",
+      },
+      {
+        id: "unregistered",
+        name: "Unregistered",
+        path: "/unregistered",
+        url: "https://unregistered.example.com",
+      },
+    ]);
+    vi.stubEnv(
+      "IDENTITY_SSO_APP_REGISTRY_JSON",
+      JSON.stringify([
+        {
+          appId: "workspace-reports",
+          clientId: "workspace-reports-client",
+          origin: "https://reports.example.com",
+          callbackPath: "/_agent-native/identity/callback",
+          capabilities: ["identity-sso"],
+        },
+      ]),
+    );
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "workspace-reports")).toMatchObject({
+      workspaceSso: true,
+    });
+    expect(apps.find((app) => app.id === "unregistered")).toMatchObject({
+      workspaceSso: false,
+    });
+  });
+
   it("filters workspace apps by audience", async () => {
     stubNoPendingContext();
     vi.stubEnv(

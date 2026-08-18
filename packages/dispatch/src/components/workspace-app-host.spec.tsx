@@ -309,7 +309,14 @@ describe("WorkspaceAppKeepAlive", () => {
 
     await act(async () => {
       root.render(
-        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Mail",
+            path: "/mail",
+            url: "https://mail.agent-native.com",
+          }}
+        />,
       );
       await Promise.resolve();
       await Promise.resolve();
@@ -317,10 +324,97 @@ describe("WorkspaceAppKeepAlive", () => {
 
     expect(clientState.workspaceSsoMutateAsync).toHaveBeenCalledWith({
       app: "mail",
-      path: "/mail",
+      url: "https://mail.agent-native.com",
       chrome: "minimal",
     });
     expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("uses the granted-app session when a mounted app reuses a canonical id", async () => {
+    clientState.workspaceSsoEnabled = true;
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Internal Mail",
+            path: "/mail",
+            url: "https://agent-workspace.builder.io/mail",
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "mail",
+      url: "https://agent-workspace.builder.io/mail",
+      chrome: "minimal",
+    });
+    expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("uses the granted-app session action for mounted apps outside the SSO registry", async () => {
+    clientState.workspaceSsoEnabled = true;
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "feedback-leaderboard",
+            name: "Feedback leaderboard",
+            path: "/feedback-leaderboard",
+            url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "feedback-leaderboard",
+      url: "https://agent-workspace.builder.io/feedback-leaderboard/leaderboard",
+      chrome: "minimal",
+    });
+    expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
+  });
+
+  it("mints custom SSO before navigating an embedded Dispatch surface", async () => {
+    clientState.workspaceSsoEnabled = true;
+    const navigateToTopWindow = vi.fn(() => true);
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+
+    await act(async () => {
+      root.render(
+        <WorkspaceAppFrame
+          app={{
+            id: "custom-sso",
+            name: "Custom SSO",
+            path: "/custom-sso",
+            url: "https://custom.example/custom-sso",
+            workspaceSso: true,
+          }}
+          navigateToTopWindow={navigateToTopWindow}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(clientState.workspaceSsoMutateAsync).toHaveBeenCalledWith({
+      app: "custom-sso",
+      url: "https://custom.example/custom-sso",
+      chrome: "minimal",
+    });
+    expect(navigateToTopWindow).toHaveBeenCalledWith("about:blank");
+    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
+    expect(container.querySelector("iframe")).toBeNull();
   });
 
   it("sends the parent theme on iframe load and when the parent changes", async () => {
@@ -420,7 +514,14 @@ describe("WorkspaceAppKeepAlive", () => {
 
     await act(async () => {
       root.render(
-        <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
+        <WorkspaceAppFrame
+          app={{
+            id: "mail",
+            name: "Mail",
+            path: "/mail",
+            url: "https://mail.agent-native.com",
+          }}
+        />,
       );
       await Promise.resolve();
       await Promise.resolve();

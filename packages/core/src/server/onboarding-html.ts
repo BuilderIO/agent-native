@@ -7,6 +7,7 @@
  * After first account exists, this page acts as a normal login page.
  */
 
+import { getAppConfig } from "../app-config/index.js";
 import { getLocaleInitScript } from "../localization/server.js";
 import {
   DEFAULT_LOCALE,
@@ -61,6 +62,30 @@ function getConnectionLabel(): string {
   if (url.startsWith("file:")) return "SQLite (local file)";
   if (url.startsWith("libsql://") || url.includes("turso.io")) return "Turso";
   return "SQL database";
+}
+
+function isWorkspaceRuntime(): boolean {
+  const workspace = getAppConfig().workspace;
+  return (
+    workspace.isWorkspace === true || typeof workspace.appsJson === "string"
+  );
+}
+
+function workspaceBasePathFromRequest(requestPath: string | undefined): string {
+  if (!isWorkspaceRuntime() || !requestPath) return "";
+  const pathname = requestPath.split(/[?#]/, 1)[0] || "/";
+  const firstSegment = pathname.split("/").find(Boolean);
+  if (
+    !firstSegment ||
+    firstSegment === "_agent-native" ||
+    firstSegment === "api" ||
+    firstSegment === "sign-in" ||
+    firstSegment === "login" ||
+    firstSegment === "signup"
+  ) {
+    return "";
+  }
+  return normalizeAppBasePath(`/${firstSegment}`);
 }
 
 function withAppBasePath(path: string): string {
@@ -1198,9 +1223,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   // for every visitor. A genuinely misconfigured server instead surfaces a
   // clear error at click time via the auth API.
   const renderGoogleButton = showGoogle || googleOnly;
-  const appBasePath = normalizeAppBasePath(
+  const configuredAppBasePath = normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
+  const appBasePath =
+    configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
+  const workspaceRuntime = isWorkspaceRuntime();
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
@@ -2366,7 +2394,17 @@ ${signupLocalModeNoteHtml}
     if (configured) return configured;
     var marker = '/_agent-native';
     var idx = window.location.pathname.indexOf(marker);
-    return idx > 0 ? window.location.pathname.slice(0, idx) : '';
+    if (idx > 0) return window.location.pathname.slice(0, idx);
+    if (${JSON.stringify(workspaceRuntime)}) {
+      var segments = window.location.pathname.split('/');
+      for (var i = 0; i < segments.length; i++) {
+        var segment = segments[i];
+        if (segment && segment !== '_agent-native' && segment !== 'api' && segment !== 'sign-in' && segment !== 'login' && segment !== 'signup') {
+          return '/' + segment;
+        }
+      }
+    }
+    return '';
   }
     function __anPath(path) {
       return __anBasePath() + path;
