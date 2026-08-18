@@ -1049,13 +1049,6 @@ function appRecordTimestamp(value: string | null | undefined): number {
   return Number.isFinite(parsed) ? parsed : Date.now();
 }
 
-function isMissingWorkspaceAppAccessSchema(error: unknown): boolean {
-  const message = String((error as { message?: unknown })?.message ?? error);
-  return /no such table|relation .* does not exist|does not exist/i.test(
-    message,
-  );
-}
-
 /**
  * Persist creator and visibility separately from the deploy manifest. The
  * manifest describes code; this SQL record is the access-control source of
@@ -1114,12 +1107,15 @@ async function ensureWorkspaceAppRecords(
           cleanOptionalText(override?.createdBy) ??
           cleanOptionalText(app.createdBy) ??
           "";
+        const hasTrustedCreationMetadata = Boolean(ownerEmail);
         const visibility: WorkspaceAppVisibility =
           override?.visibility === "private"
             ? "private"
             : override?.visibility === "org"
               ? "org"
-              : defaultVisibility;
+              : hasTrustedCreationMetadata
+                ? defaultVisibility
+                : "org";
         const createdAt = appRecordTimestamp(app.createdAt);
         await db.execute({
           sql: `INSERT INTO workspace_apps
@@ -1205,11 +1201,11 @@ async function filterWorkspaceAppsByAccess(
           return { app, allowed: Boolean(access) };
         } catch (error) {
           // Rolling deployments may discover an app before the additive access
-          // migrations have run. Only the known missing-schema compatibility
-          // case may keep discovery available; an authorization/query failure
-          // must not expose private app metadata.
+          // migrations have run. A missing schema is not an authorization
+          // result: returning the candidate would expose private metadata
+          // during a migration failure.
           console.warn("[dispatch] workspace app access lookup failed", error);
-          return { app, allowed: isMissingWorkspaceAppAccessSchema(error) };
+          return { app, allowed: false };
         }
       }),
     );

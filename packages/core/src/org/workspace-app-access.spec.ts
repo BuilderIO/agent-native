@@ -94,6 +94,30 @@ describe("isWorkspaceAppAccessAllowed", () => {
     );
   });
 
+  it("honors an explicit organization share for a private app", async () => {
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            owner_email: "owner@example.com",
+            org_id: "org-1",
+            visibility: "private",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] })
+      .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ 1: 1 }] });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(true);
+    expect(mocks.includeUser).not.toHaveBeenCalled();
+  });
+
   it("denies private apps outside the organization or without a share", async () => {
     mocks.execute
       .mockResolvedValueOnce({

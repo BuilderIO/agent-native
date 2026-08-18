@@ -5,8 +5,8 @@
  * 1. Direct ownership — `owner_email = currentUser`.
  * 2. Visibility — `'private' | 'org' | 'public'`. `org` grants read to anyone
  *    in the same org; `public` grants read to any authenticated user.
- * 3. Share rows — per-user or per-org grants in the `{type}_shares` table
- *    with a role (`viewer | commenter | editor | admin`).
+ * 3. Share rows — per-user, per-group, or per-org grants in the
+ *    `{type}_shares` table with a role (`viewer | commenter | editor | admin`).
  *
  * Use `applyAccessFilter()` on list/read queries to filter rows the current
  * user can see. Use `assertAccess()` at the top of write actions to reject
@@ -15,13 +15,17 @@
 
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
 
+import { isPostgres } from "../db/client.js";
 import { orgMembers } from "../org/schema.js";
 import {
   getRequestAuthCapability,
   getRequestUserEmail,
   getRequestOrgId,
 } from "../server/request-context.js";
-import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
+import {
+  workspaceUserGroupsIncludeUser,
+  workspaceUserGroupsTable,
+} from "../workspace-connections/groups.js";
 import {
   listShareableResources,
   requireShareableResource,
@@ -196,6 +200,41 @@ export function accessFilter(
                     and ${sharesTable.principalId} = ${orgId}
                     and ${shareScope}
                     and ${minRoleSql(minRole)})`,
+    );
+  }
+
+  if (reg?.supportsGroupShares && normalizedUserEmail && orgId) {
+    const groupTable = sql.raw(workspaceUserGroupsTable());
+    const groupMemberPredicate = isPostgres()
+      ? sql`exists (
+          select 1
+          from jsonb_array_elements_text(
+            workspace_group.member_emails_json::jsonb
+          ) as group_member(email)
+          where lower(group_member.email) = ${normalizedUserEmail}
+        )`
+      : sql`exists (
+          select 1
+          from json_each(workspace_group.member_emails_json) as group_member
+          where lower(group_member.value) = ${normalizedUserEmail}
+        )`;
+    clauses.push(
+      sql`exists (select 1 from ${sharesTable}
+                  where ${sharesTable.resourceId} = ${resourceTable.id}
+                    and ${sharesTable.principalType} = 'group'
+                    and ${minRoleSql(minRole)}
+                    and exists (
+                      select 1 from ${groupTable} as workspace_group
+                      where workspace_group.id = ${sharesTable.principalId}
+                        and workspace_group.org_id = ${resourceTable.orgId}
+                        and workspace_group.org_id = ${orgId}
+                        and exists (
+                          select 1 from ${orgMembers} as workspace_member
+                          where workspace_member.org_id = workspace_group.org_id
+                            and lower(workspace_member.email) = ${normalizedUserEmail}
+                        )
+                        and ${groupMemberPredicate}
+                    ))`,
     );
   }
 

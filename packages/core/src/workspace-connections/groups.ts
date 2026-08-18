@@ -40,7 +40,7 @@ export interface UpdateWorkspaceUserGroupMembersInput {
   orgId?: string | null;
 }
 
-function workspaceUserGroupsTable(): string {
+export function workspaceUserGroupsTable(): string {
   return isPostgres()
     ? "public.workspace_user_groups"
     : "workspace_user_groups";
