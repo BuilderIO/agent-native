@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  builderPreviewOrigin,
   InvalidBuilderPreviewUrlError,
   isBuilderPreviewUrl,
   parseBuilderPreviewUrl,
@@ -113,5 +114,19 @@ describe("loopback outside development", () => {
   it("still accepts a real Builder preview host in production", () => {
     process.env.NODE_ENV = "production";
     expect(isBuilderPreviewUrl("https://app.fly.dev/")).toBe(true);
+  });
+});
+
+describe("builderPreviewOrigin", () => {
+  it("drops the previewed route, query and fragment", () => {
+    expect(builderPreviewOrigin("https://x.builderio.xyz/about?a=1#b")).toBe(
+      "https://x.builderio.xyz",
+    );
+  });
+
+  it("throws rather than returning a half-valid base", () => {
+    expect(() => builderPreviewOrigin("https://evil.test/")).toThrow(
+      InvalidBuilderPreviewUrlError,
+    );
   });
 });

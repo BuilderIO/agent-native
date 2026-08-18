@@ -73,7 +73,10 @@ import {
   getBreakpointOverrideState,
   removeBreakpointMediaDeclaration,
 } from "@shared/breakpoint-media";
-import { isBuilderPreviewUrl } from "@shared/builder-preview-url";
+import {
+  builderPreviewOrigin,
+  isBuilderPreviewUrl,
+} from "@shared/builder-preview-url";
 import {
   parseCanvasFrameGeometryById,
   type CanvasFrameGeometry,
@@ -515,8 +518,9 @@ import {
 } from "@/lib/png-clipboard";
 import { prettyScreenName } from "@/lib/screen-names";
 import {
-  buildShellDesign,
   SHELL_DESIGN_ID,
+  buildShellDesign,
+  shellContextChanged,
   type ShellDesignInput,
 } from "@/lib/shell-design";
 import { cn } from "@/lib/utils";
@@ -3227,10 +3231,10 @@ function DesignEditor() {
   const [reviewAuditedAt, setReviewAuditedAt] = useState<string | null>(null);
   const [reviewAuditError, setReviewAuditError] = useState<string | null>(null);
 
-  // Two ways in: the legacy `design_host=builder` preview, and the embed the
-  // partner handshake generates, which never carries that param. Builder waits
-  // on `appReady` before sending theme or preview-URL changes, so gating the
-  // handshake on the param alone left the generated embed permanently unsynced.
+  // Two ways in: the legacy `design_host=builder` preview, and the shell route,
+  // which carries no such param. Builder waits on `appReady` before sending the
+  // preview URL, so gating on the param alone left the shell permanently
+  // unsynced.
   const builderHostProtocolActive = isBuilderDesignEmbed || hostEmbeddedEditor;
   useEffect(() => {
     if (!builderHostProtocolActive) return;
@@ -3275,7 +3279,7 @@ function DesignEditor() {
         if (typeof previewUrl === "string" && isBuilderPreviewUrl(previewUrl)) {
           setBuilderPreviewUrl(previewUrl);
           const nextShellInput: ShellDesignInput = {
-            previewOrigin: previewUrl,
+            previewOrigin: builderPreviewOrigin(previewUrl),
             routes: Array.isArray(routes)
               ? routes.flatMap((route: unknown) => {
                   const path = (route as { path?: unknown })?.path;
@@ -3290,12 +3294,40 @@ function DesignEditor() {
           // The host resends `design:init` on unrelated changes. Replacing this
           // state with an equivalent object rebuilds the design, which the canvas
           // reads as a new document and remounts every frame mid-session.
-          setShellInput((current) =>
-            current &&
-            JSON.stringify(current) === JSON.stringify(nextShellInput)
-              ? current
-              : nextShellInput,
+          setShellInput((current) => {
+            if (
+              current &&
+              JSON.stringify(current) === JSON.stringify(nextShellInput)
+            ) {
+              return current;
+            }
+            // Edits describe elements in the previous branch's running app, so
+            // handing them to the new branch's agent would apply them to the
+            // wrong source.
+            if (current && shellContextChanged(current, nextShellInput)) {
+              clearPendingLiveEditStateRef.current();
+            }
+            return nextShellInput;
+          }
           );
+        }
+      }
+
+      if (data.type === "design:previewUrlChanged") {
+        const nextPreviewUrl = data.data?.previewUrl;
+        if (
+          typeof nextPreviewUrl === "string" &&
+          isBuilderPreviewUrl(nextPreviewUrl)
+        ) {
+          setBuilderPreviewUrl(nextPreviewUrl);
+          const previewOrigin = builderPreviewOrigin(nextPreviewUrl);
+          setShellInput((current) => {
+            if (!current || current.previewOrigin === previewOrigin) {
+              return current;
+            }
+            clearPendingLiveEditStateRef.current();
+            return { ...current, previewOrigin };
+          });
         }
       }
 

@@ -128,8 +128,7 @@ export interface BuilderChatMessage {
 export function sendToBuilderChat(opts: BuilderChatMessage): boolean {
   if (typeof window === "undefined" || !opts.message?.trim()) return false;
   const hasParentFrame = window.parent !== window;
-  const targetOrigin =
-    opts.targetOrigin ?? getBuilderParentOrigin() ?? "*";
+  const targetOrigin = opts.targetOrigin ?? getBuilderParentOrigin() ?? "*";
   const payload = {
     type: "builder.submitChat",
     data: {

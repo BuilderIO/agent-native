@@ -35,6 +35,21 @@ export interface ShellDesign {
  */
 const SHELL_ACCESS_ROLE = "editor" as const;
 
+/**
+ * Whether pending edits still describe the app the host is now pointing at. A
+ * new route list is not a change of app; a new origin, branch or project is.
+ */
+export function shellContextChanged(
+  previous: ShellDesignInput,
+  next: ShellDesignInput,
+): boolean {
+  return (
+    previous.previewOrigin !== next.previewOrigin ||
+    previous.branchName !== next.branchName ||
+    previous.projectId !== next.projectId
+  );
+}
+
 export function buildShellDesign(input: ShellDesignInput): ShellDesign {
   const { screens, placedFrames } = buildShellScreens({
     previewOrigin: input.previewOrigin,

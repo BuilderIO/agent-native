@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  buildShellScreens,
   DEFAULT_SHELL_SCREEN_HEIGHT,
   DEFAULT_SHELL_SCREEN_WIDTH,
+  MAX_SHELL_SCREENS,
+  buildShellScreens,
 } from "./shell-screens";
 
 const build = (
@@ -90,5 +91,41 @@ describe("buildShellScreens", () => {
   it("returns nothing for no routes rather than throwing", () => {
     // The host may send design:init before it has resolved any routes.
     expect(build([])).toEqual({ screens: [], placedFrames: [] });
+  });
+
+  it("keeps every frame on the preview origin", () => {
+    // `//host` loses its slashes to the strip, but `/\\host` survives it and
+    // resolves protocol-relative — that one placed a frame on another origin.
+    const { screens } = buildShellScreens({
+      previewOrigin: "https://preview.test",
+      paths: ["/", "//evil.test", "/\\\\evil.test", "/about"],
+    });
+    for (const screen of screens) {
+      expect(new URL(screen.url).origin).toBe("https://preview.test");
+    }
+    expect(screens.some((screen) => screen.url.includes("evil.test/"))).toBe(
+      false,
+    );
+  });
+
+  it("resolves routes against the origin, not a previewed route", () => {
+    // Builder sends `interactiveFrameUrl`, which carries whatever route the
+    // user is on; nesting under it produced `/app.html/about`.
+    const { screens } = buildShellScreens({
+      previewOrigin: "https://preview.test",
+      paths: ["/about"],
+    });
+    expect(screens[1]?.url ?? screens[0]?.url).toBe(
+      "https://preview.test/about",
+    );
+  });
+
+  it("caps how many frames a route list can mount", () => {
+    const { screens, placedFrames } = buildShellScreens({
+      previewOrigin: "https://preview.test",
+      paths: Array.from({ length: MAX_SHELL_SCREENS + 25 }, (_, i) => `/r${i}`),
+    });
+    expect(screens.length).toBeLessThanOrEqual(MAX_SHELL_SCREENS);
+    expect(placedFrames.length).toBeLessThanOrEqual(MAX_SHELL_SCREENS);
   });
 });

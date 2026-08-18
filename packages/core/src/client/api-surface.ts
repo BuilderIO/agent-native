@@ -26,7 +26,9 @@ export class AgentNativeApiDisabledError extends Error {
 
   constructor(detail: string) {
     const reason = disabledReason ?? "unknown surface";
-    super(`agent-native API is disabled on this surface (${reason}): ${detail}`);
+    super(
+      `agent-native API is disabled on this surface (${reason}): ${detail}`,
+    );
     this.name = "AgentNativeApiDisabledError";
     this.reason = reason;
   }

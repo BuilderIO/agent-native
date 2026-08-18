@@ -50,9 +50,12 @@ describe("agent-native API surface switch", () => {
     vi.stubGlobal("fetch", fetchSpy);
     setAgentNativeApiDisabled("builder shell canvas");
 
-    const result = tryCallActionKeepalive("update-design" as never, {
-      id: "shell",
-    } as never);
+    const result = tryCallActionKeepalive(
+      "update-design" as never,
+      {
+        id: "shell",
+      } as never,
+    );
 
     expect(result.accepted).toBe(false);
     expect(result.accepted === false && result.reason).toBe("api-disabled");

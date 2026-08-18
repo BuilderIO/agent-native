@@ -15,6 +15,7 @@ export const SHELL_CANVAS_PATH = "/visual-edit/shell";
 export const DEFAULT_SHELL_SCREEN_WIDTH = 1280;
 export const DEFAULT_SHELL_SCREEN_HEIGHT = 900;
 const DEFAULT_SHELL_GAP = 160;
+export const MAX_SHELL_SCREENS = 100;
 
 export interface ShellScreen {
   fileId: string;
@@ -93,6 +94,7 @@ export function buildShellScreens(args: {
   const baseWithSlash = previewOrigin.endsWith("/")
     ? previewOrigin
     : `${previewOrigin}/`;
+  const baseOrigin = new URL(baseWithSlash).origin;
 
   const used = new Set<string>();
   const screens: ShellScreen[] = [];
@@ -100,11 +102,19 @@ export function buildShellScreens(args: {
   const seenPaths = new Set<string>();
   let nextX = startX;
 
-  for (const rawPath of paths) {
+  // The host assembles this list from a repo parse plus visited URLs, so a bad
+  // parse must not mount hundreds of live iframes. Well above any real route
+  // count, so it only ever trips on pathological input.
+  for (const rawPath of paths.slice(0, MAX_SHELL_SCREENS)) {
     const path = rawPath.startsWith("/") ? rawPath : `/${rawPath}`;
     // A duplicate path would otherwise get a second frame stacked on the first.
     if (seenPaths.has(path)) continue;
     seenPaths.add(path);
+
+    // `\\host` survives the leading-slash strip and resolves protocol-relative,
+    // so a route from the host could otherwise place a frame on another origin.
+    const resolved = new URL(path.replace(/^\/+/, ""), baseWithSlash);
+    if (resolved.origin !== baseOrigin) continue;
 
     const filename = uniqueFilename(path, used);
     const fileId = shellFileId(filename);
@@ -112,7 +122,7 @@ export function buildShellScreens(args: {
       fileId,
       filename,
       path,
-      url: new URL(path.replace(/^\/+/, ""), baseWithSlash).toString(),
+      url: resolved.toString(),
       title: titleFromPath(path),
       width,
       height,

@@ -93,6 +93,15 @@ export function parseBuilderPreviewUrl(raw: unknown): URL {
 }
 
 /** Non-throwing form, for UI that wants to branch instead of failing. */
+/**
+ * Origin only. `interactiveFrameUrl` carries whatever route the user is
+ * previewing, and resolving screen paths against that base nests them under it
+ * (`/app.html` + `/about` → `/app.html/about`).
+ */
+export function builderPreviewOrigin(raw: unknown): string {
+  return parseBuilderPreviewUrl(raw).origin;
+}
+
 export function isBuilderPreviewUrl(raw: unknown): boolean {
   try {
     parseBuilderPreviewUrl(raw);

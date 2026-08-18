@@ -689,7 +689,12 @@ export function tryCallActionKeepalive<
   // Reported as a refusal rather than thrown: callers keep the work queued on
   // `accepted: false`, which is the honest outcome for a surface with no backend.
   if (agentNativeApiDisabledReason()) {
-    return { accepted: false, bodyBytes, reason: "api-disabled", completion: null };
+    return {
+      accepted: false,
+      bodyBytes,
+      reason: "api-disabled",
+      completion: null,
+    };
   }
 
   if (bodyBytes > ACTION_KEEPALIVE_BODY_BUDGET_BYTES) {

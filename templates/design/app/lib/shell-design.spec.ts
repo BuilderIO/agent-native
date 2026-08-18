@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { buildShellDesign, SHELL_DESIGN_ID } from "./shell-design";
+import {
+  SHELL_DESIGN_ID,
+  buildShellDesign,
+  shellContextChanged,
+} from "./shell-design";
 
 const build = () =>
   buildShellDesign({
@@ -70,5 +74,29 @@ describe("buildShellDesign", () => {
     });
     expect(design.files).toEqual([]);
     expect(JSON.parse(design.data!).canvasFrames).toEqual({});
+  });
+});
+
+describe("shellContextChanged", () => {
+  const base = {
+    previewOrigin: "https://a.builderio.xyz",
+    routes: [{ path: "/" }],
+    projectId: "p1",
+    branchName: "b1",
+  };
+
+  it("ignores a new route list for the same app", () => {
+    // Routes change on ordinary navigation; pending edits still describe this app.
+    expect(
+      shellContextChanged(base, { ...base, routes: [{ path: "/" }, { path: "/x" }] }),
+    ).toBe(false);
+  });
+
+  it("reports a re-provisioned origin, a new branch and a new project", () => {
+    expect(
+      shellContextChanged(base, { ...base, previewOrigin: "https://b.builderio.xyz" }),
+    ).toBe(true);
+    expect(shellContextChanged(base, { ...base, branchName: "b2" })).toBe(true);
+    expect(shellContextChanged(base, { ...base, projectId: "p2" })).toBe(true);
   });
 });

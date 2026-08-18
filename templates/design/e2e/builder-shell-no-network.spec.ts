@@ -95,7 +95,14 @@ test("the Builder shell canvas makes no agent-native requests", async ({
 
     // Panels are where the editor reaches for per-design data, so an idle
     // canvas is not evidence on its own.
-    for (const label of ["Assets", "Import", "Tools", "Tokens", "Code", "File"]) {
+    for (const label of [
+      "Assets",
+      "Import",
+      "Tools",
+      "Tokens",
+      "Code",
+      "File",
+    ]) {
       await shell
         .getByText(label, { exact: true })
         .first()
