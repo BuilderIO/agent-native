@@ -22,10 +22,19 @@ export function resolveDesktopUpdateSupport(
   version: string,
   buildChannel = "release",
 ): DesktopUpdateSupport {
-  if (!isPackaged || buildChannel !== "release") {
+  if (!isPackaged) {
     return {
       supported: false,
-      reason: "Auto-update is disabled in development",
+      reason: "Auto-update is unavailable for local development builds",
+    };
+  }
+
+  // A locally packaged stable app still needs a recovery path to the current
+  // production release. Keep deliberately named non-stable channels isolated.
+  if (buildChannel !== "dev" && buildChannel !== "release") {
+    return {
+      supported: false,
+      reason: "Auto-update is unavailable for this Desktop build channel",
     };
   }
 

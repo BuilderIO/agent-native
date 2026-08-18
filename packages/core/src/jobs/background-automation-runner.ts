@@ -1,6 +1,5 @@
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
 import type { ActionAutomationContext, ActionCaller } from "../action.js";
-import { createBuilderEngine } from "../agent/engine/builder-engine.js";
 import {
   getStoredModelForEngine,
   normalizeModelForEngine,
@@ -29,7 +28,6 @@ import {
   organizationResourceOwner,
   type Resource,
 } from "../resources/store.js";
-import { resolveBuilderCredentialsDetailed } from "../server/credential-provider.js";
 import {
   runWithRequestContext,
   type RequestContext,
@@ -42,7 +40,7 @@ import {
 } from "./run-history.js";
 
 const BACKGROUND_RUN_STUCK_MS = 10 * 60_000;
-const BACKGROUND_RUN_HARD_TIMEOUT_MS = 5 * 60_000;
+export const BACKGROUND_RUN_HARD_TIMEOUT_MS = 10 * 60_000;
 
 export interface BackgroundAutomationContext {
   name: string;
@@ -376,25 +374,20 @@ async function executeBackgroundAutomation(
       const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
       const userApiKey = await getOwnerActiveApiKey(ownerEmail);
-      const resolvedEngine =
+      // The run manager invokes its detached callback after the scheduler's
+      // setup stack has yielded, so the engine's credentials must be captured
+      // now, while the owner/org identity is explicit. Passing
+      // `credentialIdentity` is what makes resolveEngine capture them, on the
+      // same gateway lane the interactive path uses — a Builder-credits site has
+      // no per-user connection to find, so resolving that lane by hand here once
+      // left every scheduled automation dead while chat still worked.
+      const engine =
         deps.engine ??
         (await resolveEngine({
           apiKey: userApiKey ?? deps.apiKey,
           appId: deps.appId,
+          credentialIdentity: { userEmail: ownerEmail, orgId },
         }));
-      // The run manager invokes its detached callback after the scheduler's
-      // setup stack has yielded. Capture the verified Builder pair while the
-      // owner/org identity is explicit, then keep it on the engine so a
-      // concurrent serverless run cannot make this call look unauthenticated.
-      const engine =
-        !deps.engine && resolvedEngine.name === "builder"
-          ? createBuilderEngine({
-              credentials: await resolveBuilderCredentialsDetailed({
-                userEmail: ownerEmail,
-                orgId,
-              }),
-            })
-          : resolvedEngine;
       const modelCandidate =
         automation.meta.model ??
         deps.model ??
@@ -482,6 +475,8 @@ async function executeBackgroundAutomation(
                 actionCaller: options.actionCaller,
                 automation: options.actionAutomation,
                 runId,
+                maxIterations: automation.meta.maxIterations,
+                maxRunInputTokens: automation.meta.maxRunInputTokens,
               },
               softTimeoutMs,
               { backgroundFunction: true },
@@ -527,7 +522,9 @@ async function executeBackgroundAutomation(
           if (activeRun.status === "running") {
             activeRun.abort.abort("background_automation_hard_timeout");
             reject(
-              new Error("Background automation timed out after 5 minutes"),
+              new Error(
+                `Background automation timed out after ${BACKGROUND_RUN_HARD_TIMEOUT_MS / 60_000} minutes`,
+              ),
             );
           }
         }, BACKGROUND_RUN_HARD_TIMEOUT_MS);

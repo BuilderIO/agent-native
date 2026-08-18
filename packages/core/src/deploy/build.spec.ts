@@ -62,6 +62,7 @@ import {
   resolveNitroBuildReplacements,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
+  shouldBundleYjsRuntimeForPreset,
   shouldBundleFfmpegStaticForServerless,
   writeSingleTemplateNetlifyRedirects,
 } from "./build.js";
@@ -74,13 +75,30 @@ describe("nitroNoExternalsForPreset", () => {
     expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
     expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
     expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
-    expect(nitroNoExternalsForPreset("node-server")).toEqual(["yjs"]);
+    expect(nitroNoExternalsForPreset("node")).toEqual([]);
+    expect(nitroNoExternalsForPreset("node-server")).toEqual([]);
   });
 
   it("bundles every dependency for edge output", () => {
     expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
     expect(nitroNoExternalsForPreset("cloudflare_module")).toBe(true);
     expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
+
+describe("shouldBundleYjsRuntimeForPreset", () => {
+  it("covers Node and serverless output but leaves edge presets to bundling", () => {
+    for (const preset of [
+      "node",
+      "node-server",
+      "netlify",
+      "vercel",
+      "aws-lambda",
+    ]) {
+      expect(shouldBundleYjsRuntimeForPreset(preset)).toBe(true);
+    }
+    expect(shouldBundleYjsRuntimeForPreset("cloudflare-pages")).toBe(false);
+    expect(shouldBundleYjsRuntimeForPreset("deno-deploy")).toBe(false);
   });
 });
 
@@ -189,6 +207,9 @@ describe("cloudflareWorkerStubAliasArgs", () => {
     const workerAlias = aliases.find((alias) =>
       alias.startsWith("--alias:pdf-parse/worker="),
     );
+    const pdfJsAlias = aliases.find((alias) =>
+      alias.startsWith("--alias:pdfjs-dist/legacy/build/pdf.mjs="),
+    );
     const packageAlias = aliases.find((alias) =>
       alias.startsWith("--alias:pdf-parse="),
     );
@@ -199,8 +220,17 @@ describe("cloudflareWorkerStubAliasArgs", () => {
     expect(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES).toHaveProperty(
       "pdf-parse/worker",
     );
+    expect(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES).toHaveProperty(
+      "pdfjs-dist/legacy/build/pdf.mjs",
+    );
     expect(workerAlias).toBe(
       `--alias:pdf-parse/worker=${path.join(stubDir, "pdf-parse__worker.js")}`,
+    );
+    expect(pdfJsAlias).toBe(
+      `--alias:pdfjs-dist/legacy/build/pdf.mjs=${path.join(
+        stubDir,
+        "pdfjs-dist__legacy__build__pdf.mjs.js",
+      )}`,
     );
     expect(packageAlias).toBe(
       `--alias:pdf-parse=${path.join(stubDir, "pdf-parse", "index.js")}`,
@@ -896,6 +926,7 @@ export default (event) =>
     );
     expect(html).toContain('import("/assets/entry.client-abc.js")');
     expect(html).toContain('href="/assets/root.css"');
+    expect(html).not.toContain('rel="manifest"');
     expect(html).toContain("streamController.enqueue");
     expect(html).not.toContain("dev server");
     expect(html).not.toContain("browser console");
@@ -1184,6 +1215,12 @@ describe("CLOUDFLARE_WORKER_ESBUILD_EXTERNALS", () => {
     expect(CLOUDFLARE_WORKER_STUB_MODULES["playwright-core"]).toContain(
       "chromium",
     );
+
+    const pdfJsStub =
+      CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES["pdfjs-dist/legacy/build/pdf.mjs"];
+    expect(pdfJsStub).toContain("export const OPS = new Proxy");
+    expect(pdfJsStub).toContain("export const Util = new Proxy");
+    expect(pdfJsStub).toContain("export const getDocument = unavailable");
   });
 
   it("stubs node builtins that Cloudflare Pages rejects at upload time", () => {
@@ -2604,25 +2641,120 @@ describe("durable-background Netlify function emit (single-template, default-on)
   it("fails a function that ships more than the per-function size budget", () => {
     const cwd = setupNetlifyOutput();
     prepareSingleTemplateNetlifyOutput(cwd);
-    const chromiumDir = path.join(
+    const serverDir = path.join(
       cwd,
       ".netlify",
       "functions-internal",
       "server",
+    );
+    // Sparse: getDirSize reports apparent size, which is what the deploy zip
+    // pays for, so the test costs no disk. Keep this outside known runtime
+    // package paths so it exercises ordinary bundle growth.
+    const fd = fs.openSync(path.join(serverDir, "runtime-growth.bin"), "w");
+    fs.ftruncateSync(fd, 130 * 1024 * 1024);
+    fs.closeSync(fd);
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /function server is 130\.0MB, over the 120\.0MB budget — largest: /,
+    );
+  });
+
+  it("allows the explicitly bundled ffmpeg runtime without hiding ordinary growth", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    const ffmpegDir = path.join(serverDir, "node_modules", "ffmpeg-static");
+    fs.mkdirSync(ffmpegDir, { recursive: true });
+    const ffmpegFd = fs.openSync(path.join(ffmpegDir, "ffmpeg"), "w");
+    fs.ftruncateSync(ffmpegFd, 76 * 1024 * 1024);
+    fs.closeSync(ffmpegFd);
+
+    const baseFd = fs.openSync(path.join(serverDir, "runtime-growth.bin"), "w");
+    fs.ftruncateSync(baseFd, 121 * 1024 * 1024);
+    fs.closeSync(baseFd);
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("applies the ffmpeg allowance only to the function that contains it", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    const ffmpegDir = path.join(serverDir, "node_modules", "ffmpeg-static");
+    fs.mkdirSync(ffmpegDir, { recursive: true });
+    const ffmpegFd = fs.openSync(path.join(ffmpegDir, "ffmpeg"), "w");
+    fs.ftruncateSync(ffmpegFd, 76 * 1024 * 1024);
+    fs.closeSync(ffmpegFd);
+
+    const serverBaseFd = fs.openSync(
+      path.join(serverDir, "runtime-growth.bin"),
+      "w",
+    );
+    fs.ftruncateSync(serverBaseFd, 121 * 1024 * 1024);
+    fs.closeSync(serverBaseFd);
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+
+    const backgroundDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server-agent-background",
+    );
+    const backgroundFd = fs.openSync(
+      path.join(backgroundDir, "runtime-growth.bin"),
+      "w",
+    );
+    fs.ftruncateSync(backgroundFd, 121 * 1024 * 1024);
+    fs.closeSync(backgroundFd);
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /function server-agent-background is .* over the 120\.0MB budget/,
+    );
+  });
+
+  it("caps combined browser and ffmpeg allowances below Netlify's hard limit", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd, { emitBackground: false });
+    const serverDir = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+    );
+    const chromiumDir = path.join(
+      serverDir,
       "node_modules",
       "@sparticuz",
       "chromium",
       "bin",
     );
     fs.mkdirSync(chromiumDir, { recursive: true });
-    // Sparse: getDirSize reports apparent size, which is what the deploy zip
-    // pays for, so the test costs no disk.
-    const fd = fs.openSync(path.join(chromiumDir, "chromium.br"), "w");
-    fs.ftruncateSync(fd, 130 * 1024 * 1024);
-    fs.closeSync(fd);
+    const chromiumFd = fs.openSync(path.join(chromiumDir, "chromium.br"), "w");
+    fs.ftruncateSync(chromiumFd, 85 * 1024 * 1024);
+    fs.closeSync(chromiumFd);
+
+    const ffmpegDir = path.join(serverDir, "node_modules", "ffmpeg-static");
+    fs.mkdirSync(ffmpegDir, { recursive: true });
+    const ffmpegFd = fs.openSync(path.join(ffmpegDir, "ffmpeg"), "w");
+    fs.ftruncateSync(ffmpegFd, 76 * 1024 * 1024);
+    fs.closeSync(ffmpegFd);
+
+    const baseFd = fs.openSync(path.join(serverDir, "runtime-growth.bin"), "w");
+    fs.ftruncateSync(baseFd, 90 * 1024 * 1024);
+    fs.closeSync(baseFd);
 
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
-      /function server is 130\.0MB, over the 120\.0MB budget — largest: @sparticuz/,
+      /over the 240\.0MB budget/,
     );
   });
 
@@ -2882,6 +3014,40 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(collab.doc.getText("x")).toBeInstanceOf(editor.Text);
     prepareSingleTemplateNetlifyOutput(cwd);
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("routes mixed Node Yjs consumers through one runtime module", async () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-node-yjs-"));
+    dirs.push(cwd);
+    const serverDir = path.join(cwd, ".output", "server");
+    const collabChunk = path.join(serverDir, "_chunks", "collab.mjs");
+    const bundledChunk = path.join(serverDir, "server.mjs");
+    fs.mkdirSync(path.dirname(collabChunk), { recursive: true });
+    fs.mkdirSync(path.join(serverDir, "_libs"), { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "_libs", "yjs.mjs"), "export {};");
+    fs.writeFileSync(collabChunk, 'import * as Y from "yjs";\nexport { Y };\n');
+    fs.writeFileSync(
+      bundledChunk,
+      'import { Text } from "./_libs/yjs.mjs";\nexport { Text };\n',
+    );
+
+    expect(bundleYjsRuntimeForServerlessOutput(serverDir, cwd)).toEqual([
+      collabChunk,
+    ]);
+    expect(
+      fs.existsSync(path.join(serverDir, "_libs", "yjs-runtime.mjs")),
+    ).toBe(true);
+    expect(fs.readFileSync(collabChunk, "utf8")).toContain(
+      'from "../_libs/yjs-runtime.mjs"',
+    );
+    expect(fs.readFileSync(bundledChunk, "utf8")).toContain(
+      'from "./_libs/yjs-runtime.mjs"',
+    );
+    const [collab, bundled] = await Promise.all([
+      import(`${pathToFileURL(collabChunk).href}?t=${Date.now()}`),
+      import(`${pathToFileURL(bundledChunk).href}?t=${Date.now()}`),
+    ]);
+    expect(collab.Y.Text).toBe(bundled.Text);
   });
 
   it("rejects unsupported Yjs subpath imports instead of rewriting their semantics", () => {

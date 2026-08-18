@@ -4,6 +4,7 @@ import {
   isDefaultWorkspaceAppHiddenId,
   isDispatchWorkspaceAppId,
   isWorkspaceAppVisibleInDefaultLaunchers,
+  mergeChatFirstWorkspaceApps,
   workspaceAppIdFromRoute,
   workspaceAppRoute,
 } from "./workspace-apps";
@@ -40,5 +41,55 @@ describe("workspace app routes", () => {
       }),
     ).toBe(false);
     expect(isWorkspaceAppVisibleInDefaultLaunchers({ id: "mail" })).toBe(true);
+  });
+
+  it("maps default first-party apps to their canonical hosted origins", () => {
+    const apps = mergeChatFirstWorkspaceApps(undefined);
+    expect(apps).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "content",
+          path: "/",
+          url: "https://content.agent-native.com",
+        }),
+        expect.objectContaining({
+          id: "design",
+          path: "/",
+          url: "https://design.agent-native.com",
+        }),
+        expect.objectContaining({
+          id: "mail",
+          path: "/",
+          url: "https://mail.agent-native.com",
+        }),
+        expect.objectContaining({
+          id: "calendar",
+          path: "/",
+          url: "https://calendar.agent-native.com",
+        }),
+        expect.objectContaining({
+          id: "clips",
+          path: "/",
+          url: "https://clips.agent-native.com",
+        }),
+      ]),
+    );
+  });
+
+  it("lets a mounted workspace app override a default row", () => {
+    const apps = mergeChatFirstWorkspaceApps([
+      {
+        id: "mail",
+        name: "Internal Mail",
+        path: "/internal-mail",
+        url: null,
+        status: "ready",
+      },
+    ]);
+    expect(apps.find((app) => app.id === "mail")).toMatchObject({
+      name: "Internal Mail",
+      path: "/internal-mail",
+      url: null,
+    });
   });
 });

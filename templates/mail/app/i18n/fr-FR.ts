@@ -486,6 +486,12 @@ const messages = {
     lastRun: "Dernière exécution :",
     automationsDescription:
       "Règles qui traitent automatiquement les nouveaux e-mails de la boîte de réception avec l’IA.",
+    allowAutomationSends:
+      "Autoriser les automatisations à envoyer des e-mails automatiquement",
+    allowAutomationSendsDescription:
+      "Désactivé par défaut. Activez cette option pour que les automatisations envoient des e-mails sans demander votre approbation à chaque fois.",
+    automationSendSettingSaveFailed:
+      "Impossible d’enregistrer le paramètre d’envoi automatique.",
     loadingModels: "Chargement des modèles",
     newRule: "Nouvelle règle",
     noAutomationRules: "Aucune règle d’automatisation pour le moment.",
@@ -506,6 +512,8 @@ const messages = {
     importFromGmail: "Importer depuis Gmail",
     signatureHelp:
       "Ajoutée aux nouveaux brouillons avant l’historique de réponse cité. Les liens et images Markdown sont pris en charge.",
+    addSignatureImage: "Ajouter une image",
+    signatureImageUploadFailed: "Impossible de téléverser l’image de signature",
     writingStyle: "Style d’écriture",
     writingStylePlaceholder:
       "Court, précis, chaleureux. Évitez le remplissage formel.",

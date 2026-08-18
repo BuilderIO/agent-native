@@ -77,12 +77,13 @@ Read the matching skill before deeper work:
 | `ask-brain` | Cited-answer endpoint with `federatedCoverage`. |
 | `get-knowledge` / `list-knowledge` | Read or list distilled knowledge. |
 | `get-capture` / `list-captures` | Read or list raw captures (redacted by default). |
-| `import-capture` / `import-transcript` | Ingest and queue a capture or transcript for distillation. |
+| `import-capture` / `import-transcript` / `import-markdown-files` | Ingest captures or a bounded Markdown batch and queue it for distillation. |
 | `enqueue-distillation` / `mark-capture-distilled` | Queue distillation; close the queue row. |
 | `write-knowledge` | Write/update knowledge; may return a pending proposal. |
 | `review-proposal` / `approve-proposal` / `reject-proposal` / `list-proposals` / `update-proposal` | Human review of gated writes. |
 | `set-knowledge-canonical` | Mirror approved knowledge into workspace resources. |
 | `create-source` / `update-source` / `delete-source` / `list-sources` / `get-source` | Source lifecycle. |
+| `set-resource-visibility` / `share-resource` | Set source visibility or grant explicit access. |
 | `sync-source` / `sync-due-sources` | Run one connector, or sweep all due sources. |
 | `get-brain-health` | Source health, sync freshness, queue/proposal counts. |
 | `list-connection-providers` | Provider readiness and credential health. |

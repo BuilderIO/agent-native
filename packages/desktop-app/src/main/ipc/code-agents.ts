@@ -16,6 +16,9 @@ import {
   type CodeAgentProjectSelectResult,
   type CodeAgentProviderSettings,
   type CodeAgentProviderSettingsUpdateResult,
+  type CodeAgentPortalTransferAllResult,
+  type CodeAgentPortalTransferResult,
+  type CodeAgentRemoteWaitlistResult,
   type CodeAgentRemoteConnectorControlResult,
   type CodeAgentRemoteConnectorPairResult,
   type CodeAgentRemoteConnectorStatus,
@@ -60,6 +63,9 @@ export interface CodeAgentsIpcDeps {
   normalizeCodeAgentRunId: (value: unknown) => string | null;
   listDesktopCodeAgentRuns: (goalId?: string) => CodeAgentRun[];
   createCodeAgentRun: (input: unknown) => Promise<CodeAgentCreateRunResult>;
+  submitCodeAgentRemoteWaitlist: (
+    input: unknown,
+  ) => Promise<CodeAgentRemoteWaitlistResult>;
   getCodeAgentModelList: () => CodeAgentModelListResult;
   readCodeAgentTranscript: (input: unknown) => CodeAgentTranscriptResult;
   removeCodeAgentTranscriptSubscription: (subscriptionId: string) => void;
@@ -78,6 +84,12 @@ export interface CodeAgentsIpcDeps {
     batch: Omit<CodeAgentTranscriptSubscriptionBatch, "subscriptionId">,
   ) => void;
   appendCodeAgentFollowUp: (input: unknown) => Promise<CodeAgentFollowUpResult>;
+  transferCodeAgentRun: (
+    input: unknown,
+  ) => Promise<CodeAgentPortalTransferResult>;
+  transferAllCodeAgentRuns: (
+    input?: unknown,
+  ) => Promise<CodeAgentPortalTransferAllResult>;
   updateCodeAgentRun: (input: unknown) => CodeAgentUpdateRunResult;
   retryCodeAgentRun: (input: unknown) => CodeAgentRetryRunResult;
   rerunCodeAgentRun: (input: unknown) => Promise<CodeAgentRerunResult>;
@@ -126,6 +138,7 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     normalizeCodeAgentRunId,
     listDesktopCodeAgentRuns,
     createCodeAgentRun,
+    submitCodeAgentRemoteWaitlist,
     getCodeAgentModelList,
     readCodeAgentTranscript,
     removeCodeAgentTranscriptSubscription,
@@ -134,6 +147,8 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     setCodeAgentTranscriptSubscription,
     sendCodeAgentTranscriptSubscriptionBatch,
     appendCodeAgentFollowUp,
+    transferCodeAgentRun,
+    transferAllCodeAgentRuns,
     updateCodeAgentRun,
     retryCodeAgentRun,
     rerunCodeAgentRun,
@@ -196,6 +211,15 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
       _event: IpcMainInvokeEvent,
       input: unknown,
     ): Promise<CodeAgentCreateRunResult> => createCodeAgentRun(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_REMOTE_WAITLIST,
+    (
+      _event: IpcMainInvokeEvent,
+      input: unknown,
+    ): Promise<CodeAgentRemoteWaitlistResult> =>
+      submitCodeAgentRemoteWaitlist(input),
   );
 
   ipcMain.handle(
@@ -270,6 +294,23 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
       _event: IpcMainInvokeEvent,
       input: unknown,
     ): Promise<CodeAgentFollowUpResult> => appendCodeAgentFollowUp(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_PORTAL_TRANSFER_RUN,
+    (
+      _event: IpcMainInvokeEvent,
+      input: unknown,
+    ): Promise<CodeAgentPortalTransferResult> => transferCodeAgentRun(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_PORTAL_TRANSFER_ALL,
+    (
+      _event: IpcMainInvokeEvent,
+      input?: unknown,
+    ): Promise<CodeAgentPortalTransferAllResult> =>
+      transferAllCodeAgentRuns(input),
   );
 
   ipcMain.handle(

@@ -25,6 +25,9 @@ A few are entry points rather than area guides:
 - `verifying-changes` — read before reporting a fix, feature, or deploy as
   done. Exercising the path that was broken is the step most often skipped,
   and skipping it is why the same bug gets reported twice.
+- `reporting-progress` — read during any run over a few minutes, and at the
+  moment you are tempted to stop and ask. Chasing status is the single most
+  frequent correction in this repo.
 - `concurrent-agents` — read before working in a shared checkout.
 
 Spawning a read-only investigator? Use `/sidecar <task>` instead of retyping the
@@ -41,6 +44,10 @@ contract.
 - Never add `Co-Authored-By` or other agent attribution to commits.
 - PRs use the current branch unless the user explicitly requests a new branch.
   PRs are ready for review by default, not drafts, unless requested.
+- Worktrees are valid PR sources. When the user authorizes shipping or opening
+  or updating a PR from a worktree, use that worktree's current branch and cwd
+  for the commit, push, and PR operation; do not copy changes into the shared
+  checkout.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
 - On every response, consider whether the chat title still matches the work.
@@ -48,9 +55,9 @@ contract.
   you were given and is not destructive, irreversible, or a spend/send/publish
   action, run it and report the result — deploys, database reads and writes,
   scripts, and browser checks included. Ask only for a missing credential, a
-  decision only the user can make, or a destructive action. On long runs, post
-  a progress note at each milestone and at least every ~15 minutes; if the user
-  has to ask "still going?", that is a miss.
+  decision only the user can make, or a destructive action. `reporting-progress`
+  is the authority on what to post while long work runs and on the one legal
+  shape of a mid-task stop.
 - Use sub-agents liberally for complex independent work when Agent Teams are
   available; keep the main thread focused on orchestration.
 - When adding package dependencies or framework integrations, verify the current
@@ -107,11 +114,19 @@ exist, and both are narrow on purpose.
 
 **Guards** (`pnpm guards`, and CI on every PR — these apply to Codex, Claude
 Code, and a human equally). `pnpm guards --list` prints the current set;
-`no-silent-coercion` and `no-raw-colors` check only lines this branch added, so
-the pre-existing backlog stays a separate cleanup. Each guard has a documented
+`no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`, and
+`no-heavy-dashboard-list-reads` check only lines this branch added, so the
+pre-existing backlog stays a separate cleanup. Each guard has a documented
 opt-out pragma, and every opt-out is a decision a reviewer should see.
 
-**One hook** (`scripts/hooks/file-lease.mjs`, registered in
+A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
+could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via
+`requireAddedLines`, and `pnpm guards` renders it SKIPPED and refuses to print
+"All checks passed" — in CI it fails the run. Never reintroduce an `exit(0)`
+for a check that inspected nothing; that is the flagship rule above, violated
+inside the thing that enforces it.
+
+**One hook** (`scripts/hooks/file-lease.mjs`, registered in the tracked
 `.claude/settings.json`): denies a write when another live session holds the
 file, or when it changed on disk under you. It exists because this is the only
 rule you cannot follow by reading instructions — no amount of guidance tells you
@@ -119,12 +134,29 @@ that a peer session is mid-edit in the same file right now. Re-read and build on
 their change; never force past it. It is a Claude Code mechanism only: it gives
 Codex sessions and plain human edits nothing, so it is a backstop, not a
 guarantee. Read `concurrent-agents` before working in a shared checkout.
+`guard:hooks-registered` keeps this section and that file from drifting apart.
 
-Everything else is guidance, because guidance is what actually worked: unasked
-branch creation went to zero within days of `new-branch` gaining its activation
-guard, and a tool-level block there would only have blocked the correct
-post-merge workflow. When a rule keeps getting broken, find the situation where
-the agent is tempted and write the positive workflow for it — do not add a wall.
+Everything else is guidance — but guidance nobody measures is guidance nobody
+can tell is working. `node scripts/agent-friction-report.mjs --weeks 2` counts
+how often the user has had to repeat each correction, and names the skill that
+was supposed to close it.
+
+**Before adding a rule to this file or to a skill, run that report.** Then:
+
+- Name the pattern key the rule is supposed to move. No key, no rule — add one
+  to `PATTERNS` first, so the rule is falsifiable.
+- If the pattern is climbing and already has owning guidance, do not restate
+  the guidance. Rewriting a rule that has already failed twice is how this repo
+  grew four copies of "push your work" across two skills while the worktree
+  stayed unpushed. Replace it with a mechanism, or with one command the agent
+  runs instead of remembering a procedure — `pnpm ship:push` is what that
+  looks like.
+- Delete the prose the mechanism replaces, in the same change.
+
+The earlier version of this section claimed unasked branch creation "went to
+zero" and used that to argue guidance beats mechanism. Measured on 2026-08-12
+it was 16 in two weeks. Keep the claim and the number in the same place, or the
+argument rots into exactly the patchwork it warns about.
 
 ## Architecture Contract
 
@@ -162,6 +194,11 @@ the agent is tempted and write the positive workflow for it — do not add a wal
   pagination mode, or payload, agents need a safe way to call it directly. If an
   app stores provider credentials on resource/share rows, add a scoped resolver
   that preserves those access checks before exposing raw provider requests.
+- For customer or third-party provider data, never read API keys or tokens from
+  `process.env`. Inspect the workspace connection catalog first, use the
+  granted connection's vault-backed credential refs, and only use scoped local
+  credentials when no reusable connection exists. Deployment environment
+  variables are for deploy-level configuration, not user/workspace data access.
 - Treat Clay as a credentialed GTM provider API, not as a messaging channel.
   Hosted access uses `CLAY_PUBLIC_API_KEY` through the provider API substrate;
   the optional local Clay CLI/MCP plugin has a separate browser-login session
@@ -177,6 +214,11 @@ the agent is tempted and write the positive workflow for it — do not add a wal
 - Application state belongs in SQL `application_state` so the agent can know
   the current navigation, selection, and focused object.
 - Polling keeps UIs in sync through `useDbSync()` and `/_agent-native/poll`.
+- Server configuration is one zod schema. Add a field under
+  `packages/core/src/app-config/` and read it with `getAppConfig()`; an
+  environment variable is a declared `.meta({ env })` alias into that field, not
+  a parallel namespace. Consumer code never reads `process.env` — four
+  resolvers do, and `configuration` names them.
 - Never do heavy work at serverless cold start — migrations, backfills,
   aggregation, index builds, provider handshakes, or warmup probes in module
   load or plugin init run on every cold Lambda and surface as sitewide slowness,
@@ -248,9 +290,20 @@ instructions, and application state.
 - Data loads use layout-matching `Skeleton` geometry, not a generic "Loading..."
   label; reserve `Spinner` for brief mutations, uploads, and progress actions.
 - For any user-facing UI change — including screenshot feedback, copy or density
-  cleanup, settings, and control placement — read `frontend-design`. Keep the
-  default surface high-information and low-chrome: do not add persistent controls
-  or explanatory copy without a specific user need.
+  cleanup, settings, and control placement — read `frontend-design`.
+- Default surface density is a hard default, not a judgment call. Do not add a
+  page title that repeats the nav item or route, a description or subtitle under
+  any title, an eyebrow, a breadcrumb beside a back arrow, a count/stat strip
+  over content already on screen, or an About section in settings. A card, panel,
+  tab, settings group, or row gets a title or a description, never both;
+  explanation goes in a tooltip, a `Manage` popover, or a menu. Rendering a
+  user's own stored `description` is content, not chrome — keep it, and render
+  nothing when it is empty. Prose props are always optional; never
+  `description: string`. `guard:no-default-chrome` checks lines this branch adds,
+  and `templates/forms/` is the reference implementation. This is the repo's
+  most-repeated correction (`text-heavy-ui`), so it is stated as a default you
+  apply rather than a tradeoff you weigh: if the user wants one of these, they
+  will ask.
 - Use the `frontend-design`, `shadcn-ui`, `client-side-routing`,
   `native-navigation`, `real-time-sync`, and `delegate-to-agent` skills for
   details.

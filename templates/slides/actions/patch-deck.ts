@@ -113,6 +113,12 @@ const SlideFieldsSchema = z.object({
     .describe(
       "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes.",
     ),
+  skipped: z
+    .boolean()
+    .optional()
+    .describe(
+      "Exclude this slide from Present/Presenter playback without deleting it.",
+    ),
 });
 
 /** Update fields on a single existing slide */
@@ -157,6 +163,15 @@ const AddSlideOp = z.object({
       notes: z.string().optional(),
       layout: z.string().optional(),
       background: z.string().optional(),
+      imageUrl: z.string().optional(),
+      imagePrompt: z.string().optional(),
+      excalidrawData: z.string().optional(),
+      transition: z
+        .enum(["instant", "none", "fade", "slide", "zoom"])
+        .optional(),
+      animations: z.array(z.unknown()).optional(),
+      splitByParagraph: z.boolean().optional(),
+      skipped: z.boolean().optional(),
     })
     .passthrough(),
 });
@@ -338,6 +353,7 @@ export function applyOperation(deck: any, op: Operation): void {
         slide.excalidrawData = fields.excalidrawData;
       if (fields.transition !== undefined) slide.transition = fields.transition;
       if (fields.animations !== undefined) slide.animations = fields.animations;
+      if (fields.skipped !== undefined) slide.skipped = fields.skipped;
       break;
     }
 
@@ -349,7 +365,7 @@ export function applyOperation(deck: any, op: Operation): void {
       if (slides.length === 0 && !op.allowEmpty) {
         slides.push({
           id: `slide-${Date.now()}-fallback`,
-          content: `<div class="fmd-slide" style="padding: 80px 110px; display: flex; flex-direction: column; justify-content: center;"><div style="font-size: 28px; font-weight: 600; color: rgba(255,255,255,0.4);">Double-click to edit</div></div>`,
+          content: `<div class="fmd-slide" style="box-sizing: border-box; width: 100%; height: 100%; padding: 80px 110px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;"><div style="font-size: 28px; font-weight: 600; color: hsl(var(--muted-foreground) / 0.4);">Double-click to edit</div></div>`,
           notes: "",
           layout: "blank",
         });
@@ -382,7 +398,10 @@ export function applyOperation(deck: any, op: Operation): void {
       // Idempotency: if the slide already exists (duplicate delivery), skip.
       if (slides.some((s: { id: string }) => s.id === slideId)) return;
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      // Copy every provided field: a duplicated or undo-restored slide has to
+      // keep its transition, animations, and image data, not just its text.
       const newSlide: any = {
+        ...fields,
         id: slideId,
         content:
           typeof fields.content === "string"
@@ -391,9 +410,7 @@ export function applyOperation(deck: any, op: Operation): void {
         notes: fields.notes ?? "",
         layout: fields.layout ?? "content",
       };
-      if (fields.background !== undefined) {
-        newSlide.background = fields.background;
-      }
+      delete newSlide.imageLoading;
       const insertAfterIdx = afterSlideId
         ? slides.findIndex((s: { id: string }) => s.id === afterSlideId)
         : -1;

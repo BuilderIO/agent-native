@@ -486,6 +486,11 @@ const messages = {
     lastRun: "Letzter Lauf:",
     automationsDescription:
       "Regeln, die neue Posteingangs-E-Mails automatisch mit KI verarbeiten.",
+    allowAutomationSends: "Automatisierungen dürfen E-Mails automatisch senden",
+    allowAutomationSendsDescription:
+      "Standardmäßig deaktiviert. Aktiviere diese Option, wenn Automatisierungen E-Mails ohne jede einzelne Genehmigung senden sollen.",
+    automationSendSettingSaveFailed:
+      "Die Einstellung für automatische E-Mails konnte nicht gespeichert werden.",
     loadingModels: "Modelle werden geladen",
     newRule: "Neue Regel",
     noAutomationRules: "Noch keine Automatisierungsregeln.",
@@ -506,6 +511,9 @@ const messages = {
     importFromGmail: "Aus Gmail importieren",
     signatureHelp:
       "Wird neuen Entwürfen vor dem zitierten Antwortverlauf hinzugefügt. Markdown-Links und Bilder werden unterstützt.",
+    addSignatureImage: "Bild hinzufügen",
+    signatureImageUploadFailed:
+      "Das Signaturbild konnte nicht hochgeladen werden",
     writingStyle: "Schreibstil",
     writingStylePlaceholder:
       "Kurz, konkret, warm. Vermeide formelle Füllwörter.",

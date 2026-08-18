@@ -11,16 +11,22 @@ Read the matching skill in `.agents/skills/` before working in that area.
 | Skill | Read before |
 | --- | --- |
 | `workspace-conventions` | Shared vs app-owned code, file/blob storage, env and secrets, scratch files, Dispatch Resources |
-| `adding-workspace-apps` | Creating, scaffolding, mounting, or branding an app under `apps/<app-name>` |
+| `adding-a-feature` | Adding a cross-cutting feature or capability |
 | `agent-native-docs` | Looking up version-matched framework docs, slugs, or the bundled source corpus |
 | `agent-native-toolkit` | Building workspace or agent UI, app chrome, settings, sharing, or collaboration |
 | `customizing-agent-native` | Adapting, overriding, or ejecting shared framework UI |
 | `delegate-to-agent` | Building agent-driven UI or any "AI" feature |
 | `actions` | Adding or changing an app operation the agent and UI share |
-| `composable-mini-apps` | Cross-app workflows, headless mini-apps, and A2A handoffs |
+| `frontend-design` | Any user-facing UI change |
+| `real-time-sync` | Keeping UI queries current after agent or action writes |
 | `shadcn-ui` | Adding, updating, or debugging a shadcn/ui primitive |
 | `security`, `sharing` | Access scoping, ownable data, and sharing user-authored resources |
-| `automations` | Event-triggered or scheduled background work (with `recurring-jobs`) |
+| `secrets`, `storing-data` | Credentials or persisted application data |
+| `self-modifying-code` | Agent-editable app source and protected paths |
+
+This is the complete default inherited set. Feature flags, translations,
+changelogs, integrations, automations, A2A workflows, and release/promotion
+helpers stay available as opt-in skills for the apps that use them.
 
 ## Shared Context
 

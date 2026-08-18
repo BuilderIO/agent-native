@@ -24,5 +24,13 @@ describe("getAgentSettingsSearchTabs", () => {
         }),
       ]),
     );
+    expect(integrations?.searchEntries).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ label: "Usage" })]),
+    );
+    expect(tabs).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ id: "usage", label: "Usage" }),
+      ]),
+    );
   });
 });

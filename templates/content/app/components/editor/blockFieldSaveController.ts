@@ -40,6 +40,8 @@ export interface BlockFieldSaveController {
   cancel(): void;
   /** Adopt `content` as the confirmed-saved baseline (no save scheduled). */
   mark(content: string): void;
+  /** Drop a rejected pending write so an unmount flush cannot retry it. */
+  discardPending(): void;
   /** The value last CONFIRMED persisted. */
   readonly lastSaved: string;
   /** The latest value the user has typed (may differ from lastSaved). */
@@ -160,6 +162,10 @@ export function createBlockFieldSaveController(args: {
       // The baseline is now server-provided content, not a local save the server
       // hasn't echoed — so server props are no longer "behind" this controller.
       hasSavedLocally = false;
+    },
+    discardPending() {
+      clearTimer();
+      pending = lastSaved;
     },
     get lastSaved() {
       return lastSaved;

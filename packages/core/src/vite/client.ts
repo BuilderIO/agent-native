@@ -61,6 +61,7 @@ import { actionTypesPlugin } from "./action-types-plugin.js";
 import {
   createAgentNativeConfigContext,
   loadAgentNativeConfigFile,
+  loadWorkspaceAgentNativeConfigFile,
   readAgentNativeJsonConfig,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
@@ -1093,6 +1094,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/notifications",
   "@agent-native/core/client/progress",
   "@agent-native/core/client/transcription/use-live-transcription",
+  "@agent-native/core/workspace-connections/credential-key-aliases",
   "@agent-native/core/voice",
 ];
 
@@ -1565,6 +1567,8 @@ function getCoreSourceAliases(
       coreSrc,
       "workspace-connections/index.ts",
     ),
+    "@agent-native/core/workspace-connections/credential-key-aliases":
+      path.join(coreSrc, "workspace-connections/credential-key-aliases.ts"),
     "@agent-native/core/provider-api": path.join(
       coreSrc,
       "provider-api/index.ts",
@@ -1955,6 +1959,68 @@ const EMBED_DEV_STATIC_ASSET_PATHS = new Set([
   "/manifest.json",
 ]);
 
+const VITE_RUNTIME_MODULE_QUERY_KEYS = new Set([
+  "commonjs-proxy",
+  "direct",
+  "html-proxy",
+  "import",
+  "inline",
+  "inline-css",
+  "no-inline",
+  "raw",
+  "sharedworker",
+  "style-attr",
+  "transform-only",
+  "url",
+  "worker",
+]);
+
+const VITE_STATIC_ASSET_EXTENSIONS = new Set([
+  ".aac",
+  ".apng",
+  ".avif",
+  ".bmp",
+  ".css",
+  ".cur",
+  ".eot",
+  ".flac",
+  ".gif",
+  ".ico",
+  ".jfif",
+  ".jpeg",
+  ".jpg",
+  ".jxl",
+  ".less",
+  ".m4a",
+  ".mp3",
+  ".mp4",
+  ".mov",
+  ".ogg",
+  ".otf",
+  ".pjp",
+  ".pjpeg",
+  ".pcss",
+  ".pdf",
+  ".png",
+  ".postcss",
+  ".opus",
+  ".sass",
+  ".scss",
+  ".svg",
+  ".styl",
+  ".stylus",
+  ".ttf",
+  ".txt",
+  ".vtt",
+  ".wasm",
+  ".wav",
+  ".webm",
+  ".webp",
+  ".webmanifest",
+  ".woff",
+  ".woff2",
+]);
+
 function mountedPathCandidates(
   reqUrl: string | undefined,
   base: string | undefined,
@@ -2041,9 +2107,58 @@ function mountedEmbedRuntimeModuleUrl(
   ) {
     return null;
   }
-  url.searchParams.delete(EMBED_TOKEN_QUERY_PARAM);
-  url.searchParams.delete(MCP_APP_CHAT_BRIDGE_QUERY_PARAM);
-  return `${url.pathname}${url.search}${url.hash}`;
+
+  // Vite distinguishes valueless module flags such as `?url` from `?url=`.
+  // Strip only the embed controls so those flags reach Vite byte-for-byte.
+  const hashStart = runtimeUrl.indexOf("#");
+  const searchStart = runtimeUrl.indexOf("?");
+  const search =
+    searchStart >= 0 && (hashStart < 0 || searchStart < hashStart)
+      ? runtimeUrl.slice(searchStart, hashStart < 0 ? undefined : hashStart)
+      : "";
+  return `${url.pathname}${stripMountedEmbedRuntimeQueryParams(search)}${url.hash}`;
+}
+
+function stripMountedEmbedRuntimeQueryParams(search: string): string {
+  if (!search) return "";
+  const kept = search
+    .slice(1)
+    .split("&")
+    .filter((pair) => {
+      const key = pair.split("=", 1)[0];
+      return (
+        key !== EMBED_TOKEN_QUERY_PARAM &&
+        key !== MCP_APP_CHAT_BRIDGE_QUERY_PARAM
+      );
+    });
+  return kept.length > 0 ? `?${kept.join("&")}` : "";
+}
+
+function isMountedEmbedStaticAssetRequest(
+  req: IncomingMessage,
+  runtimeUrl: string,
+): boolean {
+  const url = new URL(runtimeUrl, "http://agent-native.local");
+
+  const isViteModuleQuery = [...url.searchParams.keys()].some((key) =>
+    VITE_RUNTIME_MODULE_QUERY_KEYS.has(key),
+  );
+  if (isViteModuleQuery) return false;
+
+  const fetchDestination = String(
+    req.headers["sec-fetch-dest"] ?? "",
+  ).toLowerCase();
+  if (
+    ["audio", "font", "image", "style", "track", "video"].includes(
+      fetchDestination,
+    )
+  ) {
+    return true;
+  }
+
+  return VITE_STATIC_ASSET_EXTENSIONS.has(
+    path.extname(url.pathname).toLowerCase(),
+  );
 }
 
 function virtualModuleIdFromRuntimeUrl(runtimeUrl: string): string | null {
@@ -2081,6 +2196,7 @@ function serveMountedEmbedRuntimeModule(
   if (!hasValidEmbedRuntimeToken(req)) return false;
   const runtimeUrl = mountedEmbedRuntimeModuleUrl(req.url, base);
   if (!runtimeUrl) return false;
+  if (isMountedEmbedStaticAssetRequest(req, runtimeUrl)) return false;
 
   void loadMountedEmbedRuntimeModule(server, runtimeUrl)
     .then((code: string | null) => {
@@ -3714,16 +3830,25 @@ function createAgentNativeConfigPlugin(
     name: "agent-native-config",
     enforce: "pre",
     async config(config: UserConfig, env: ConfigEnv) {
+      const context = createAgentNativeConfigContext(env.command, env.mode);
+      const workspaceConfig = await loadWorkspaceAgentNativeConfigFile(
+        process.cwd(),
+      );
       const projectConfig =
-        options.agentNativeConfig === undefined
-          ? await loadAgentNativeConfigFile(process.cwd())
-          : undefined;
+        options.agentNativeConfig ??
+        (await loadAgentNativeConfigFile(process.cwd()));
+      const resolvedConfig = mergeAgentNativeConfigs(
+        workspaceConfig
+          ? resolveAgentNativeConfig(workspaceConfig, context)
+          : {},
+        projectConfig ? resolveAgentNativeConfig(projectConfig, context) : {},
+      );
       return createAgentNativeConfig(
         options,
         env.command,
         config,
         env.mode,
-        projectConfig,
+        resolvedConfig,
       );
     },
   };

@@ -5,6 +5,8 @@ export interface ConnectedAppSummary {
   name: string;
   description?: string;
   url: string;
+  /** Canonical app-home URL used for launchers; `url` remains the A2A endpoint. */
+  homeUrl?: string;
   color?: string;
   source?: "builtin" | "custom" | "workspace";
 }

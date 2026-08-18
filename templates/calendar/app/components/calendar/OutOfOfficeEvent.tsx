@@ -8,6 +8,7 @@ import { EventDetailPopover } from "./EventDetailPopover";
 interface OutOfOfficeEventProps {
   event: CalendarEvent;
   day: Date;
+  timezone?: string;
   hourHeight: number;
   color: string;
   label: string;
@@ -51,6 +52,7 @@ interface OutOfOfficeEventProps {
 export function OutOfOfficeEvent({
   event,
   day,
+  timezone,
   hourHeight,
   color,
   label,
@@ -76,7 +78,7 @@ export function OutOfOfficeEvent({
   onDraftDiscard,
   onOpenChange,
 }: OutOfOfficeEventProps) {
-  const segment = getOutOfOfficeSegment(event, day);
+  const segment = getOutOfOfficeSegment(event, day, timezone);
   const hasDragOverride =
     isBeingDragged &&
     isDragTargetDay &&
@@ -114,6 +116,7 @@ export function OutOfOfficeEvent({
       </div>
       <EventDetailPopover
         event={event}
+        timezone={timezone}
         onDelete={onDelete}
         isDraft={isDraft}
         defaultOpen={defaultOpen}

@@ -364,7 +364,7 @@ graph LR
 - **CLI:** `pnpm action fetch-data --source=signups` for scripting and agent dev loops.
 - **MCP tool / A2A tool:** when MCP server or A2A is enabled, the same action shows up there too.
 
-Every consumer calls the same underlying function, so there is only one implementation to write and maintain. See [Actions](/docs/actions) for the full reference.
+Every consumer calls the same underlying function, so there is only one implementation to write and maintain. See [Actions](/docs/actions-overview) for the full reference.
 
 ## Live sync {#polling-sync}
 
@@ -510,6 +510,10 @@ The vision and philosophy behind these rules.
 ### [Context Awareness](/docs/context-awareness)
 
 Navigation state, view-screen, and navigate commands in depth.
+
+### [Sync Internals](/docs/client-sync-internals)
+
+The change-version mechanism behind live sync, for syncing a raw `useQuery`.
 
 ### [Skills Guide](/docs/skills-guide)
 

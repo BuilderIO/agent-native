@@ -14,6 +14,7 @@ import type {
   CustomField,
   DaySchedule,
 } from "@shared/api";
+import { getWeekdayOrder, getWeekStartsOn } from "@shared/calendar-week";
 import {
   IconBrandGoogle,
   IconBrandZoom,
@@ -45,6 +46,7 @@ import {
   addMonths,
   subMonths,
   format,
+  parseISO,
   startOfDay,
   getDay,
 } from "date-fns";
@@ -112,8 +114,21 @@ import {
   useUpdateBookingLink,
   OPTIMISTIC_PREFIX,
 } from "@/hooks/use-booking-links";
+import {
+  useAvailableSlots,
+  type BookingAvailabilityPreview,
+} from "@/hooks/use-bookings";
 import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
+import { useSettings } from "@/hooks/use-settings";
 import { useZoomStatus, useConnectZoom } from "@/hooks/use-zoom-auth";
+import {
+  DEFAULT_TIME_SLOT,
+  addTimeSlot,
+  getEditableTimeSlots,
+  removeTimeSlot,
+  setDayEnabled,
+  updateTimeSlot,
+} from "@/lib/availability-schedule";
 import { copyTextToClipboard } from "@/lib/clipboard";
 import { cn } from "@/lib/utils";
 
@@ -175,7 +190,7 @@ const DAYS: { key: DayName }[] = [
 
 const DEFAULT_SCHEDULE: DaySchedule = {
   enabled: false,
-  slots: [{ start: "09:00", end: "17:00" }],
+  slots: [{ ...DEFAULT_TIME_SLOT }],
 };
 
 type Tab = "links" | "availability" | "bookings";
@@ -290,11 +305,12 @@ function formatAvailabilitySummary(
     dayLabel = enabledDays.map((d) => shortNames[d]).join(", ");
   }
 
-  // Find common time range
-  const slot = ws[enabledDays[0]].slots[0];
-  if (!slot) return dayLabel;
+  const slots = ws[enabledDays[0]].slots;
+  if (slots.length === 0) return dayLabel;
 
-  return `${dayLabel}, ${formatTime12(slot.start)} - ${formatTime12(slot.end)}`;
+  return `${dayLabel}, ${slots
+    .map((slot) => `${formatTime12(slot.start)} - ${formatTime12(slot.end)}`)
+    .join(", ")}`;
 }
 
 function BookingLinksListSkeleton() {
@@ -697,17 +713,36 @@ export default function BookingLinksPage({
   function updateDay(day: DayName, updates: Partial<DaySchedule>) {
     setSchedule((prev) => ({
       ...prev,
-      [day]: { ...prev[day], ...updates },
+      [day]:
+        typeof updates.enabled === "boolean"
+          ? setDayEnabled(prev[day], updates.enabled)
+          : { ...prev[day], ...updates },
     }));
   }
 
-  function updateDaySlot(day: DayName, field: "start" | "end", value: string) {
+  function updateDaySlot(
+    day: DayName,
+    slotIndex: number,
+    field: "start" | "end",
+    value: string,
+  ) {
     setSchedule((prev) => ({
       ...prev,
-      [day]: {
-        ...prev[day],
-        slots: [{ ...prev[day].slots[0], [field]: value }],
-      },
+      [day]: updateTimeSlot(prev[day], slotIndex, field, value),
+    }));
+  }
+
+  function addDaySlot(day: DayName) {
+    setSchedule((prev) => ({
+      ...prev,
+      [day]: addTimeSlot(prev[day]),
+    }));
+  }
+
+  function removeDaySlot(day: DayName, slotIndex: number) {
+    setSchedule((prev) => ({
+      ...prev,
+      [day]: removeTimeSlot(prev[day], slotIndex),
     }));
   }
 
@@ -796,6 +831,14 @@ export default function BookingLinksPage({
     !!selectedLink &&
     savedDraftSignature !== null &&
     draftSignature !== savedDraftSignature;
+  const availabilityPreview =
+    selectedLink && !selectedLink.id.startsWith(OPTIMISTIC_PREFIX)
+      ? ({
+          slug: slugify(draft.slug),
+          durations: draft.durations,
+          hosts: draft.hosts,
+        } satisfies BookingAvailabilityPreview)
+      : undefined;
 
   function handleCreate() {
     setCreateDialogOpen(true);
@@ -964,6 +1007,7 @@ export default function BookingLinksPage({
             <ShareButton
               resourceType="booking-link"
               resourceId={selectedLink.id}
+              allowedRoles={["viewer", "editor", "admin"]}
               resourceTitle={draft.title || selectedLink.title}
               variant="compact"
               shareUrl={previewUrl}
@@ -1504,6 +1548,13 @@ export default function BookingLinksPage({
                   customFields={draft.customFields}
                   isActive={draft.isActive}
                   availability={availability ?? undefined}
+                  bookingSourceSlug={
+                    selectedLink.id?.startsWith(OPTIMISTIC_PREFIX) ||
+                    !availabilityPreview
+                      ? undefined
+                      : selectedLink.slug
+                  }
+                  availabilityPreview={availabilityPreview}
                   bookingUrl={previewUrl}
                   onCopy={() => void copyPreviewUrl(draft.slug)}
                   openHref={bookingPreviewPath(draft.slug)}
@@ -1755,7 +1806,7 @@ export default function BookingLinksPage({
                 </div>
                 {DAYS.map(({ key }) => {
                   const day = schedule[key];
-                  const slot = day.slots[0] ?? { start: "09:00", end: "17:00" };
+                  const slots = getEditableTimeSlots(day);
                   const label = t(`bookingLinks.days.${key}`);
                   const short = t(`bookingLinks.days.${key}Short`);
                   return (
@@ -1777,26 +1828,65 @@ export default function BookingLinksPage({
                       </div>
 
                       {day.enabled ? (
-                        <div className="flex items-center gap-2">
-                          <Input
-                            type="time"
-                            value={slot.start}
-                            onChange={(e) =>
-                              updateDaySlot(key, "start", e.target.value)
-                            }
-                            className="w-28 sm:w-32"
-                          />
-                          <span className="text-muted-foreground">
-                            {t("bookingLinks.to")}
-                          </span>
-                          <Input
-                            type="time"
-                            value={slot.end}
-                            onChange={(e) =>
-                              updateDaySlot(key, "end", e.target.value)
-                            }
-                            className="w-28 sm:w-32"
-                          />
+                        <div className="min-w-0 flex-1 space-y-2">
+                          {slots.map((slot, slotIndex) => (
+                            <div
+                              key={`${key}-${slotIndex}`}
+                              className="flex flex-wrap items-center gap-2"
+                            >
+                              <Input
+                                type="time"
+                                value={slot.start}
+                                onChange={(e) =>
+                                  updateDaySlot(
+                                    key,
+                                    slotIndex,
+                                    "start",
+                                    e.target.value,
+                                  )
+                                }
+                                className="w-28 sm:w-32"
+                              />
+                              <span className="text-muted-foreground">
+                                {t("bookingLinks.to")}
+                              </span>
+                              <Input
+                                type="time"
+                                value={slot.end}
+                                onChange={(e) =>
+                                  updateDaySlot(
+                                    key,
+                                    slotIndex,
+                                    "end",
+                                    e.target.value,
+                                  )
+                                }
+                                className="w-28 sm:w-32"
+                              />
+                              {slots.length > 1 && (
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 px-2 text-muted-foreground hover:text-destructive"
+                                  onClick={() => removeDaySlot(key, slotIndex)}
+                                >
+                                  <IconTrash className="mr-1.5 h-3.5 w-3.5" />
+                                  {t("eventForm.delete")}
+                                </Button>
+                              )}
+                            </div>
+                          ))}
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2"
+                            onClick={() => addDaySlot(key)}
+                          >
+                            <IconPlus className="mr-1.5 h-3.5 w-3.5" />
+                            {t("bookingLinks.add")}
+                          </Button>
                         </div>
                       ) : (
                         <span className="text-sm text-muted-foreground">
@@ -1952,6 +2042,8 @@ function BookingPreview({
   customFields = [],
   isActive,
   availability,
+  bookingSourceSlug,
+  availabilityPreview,
   bookingUrl,
   onCopy,
   openHref,
@@ -1964,12 +2056,16 @@ function BookingPreview({
   customFields?: CustomField[];
   isActive: boolean;
   availability?: AvailabilityConfig;
+  bookingSourceSlug?: string;
+  availabilityPreview?: BookingAvailabilityPreview;
   bookingUrl?: string;
   onCopy?: () => void;
   openHref?: string;
   onCollapse?: () => void;
 }) {
   const t = useT();
+  const { data: settings } = useSettings();
+  const weekStartsOn = getWeekStartsOn(settings?.weekStart);
   const displayTitle = title.trim() || t("bookingLinks.untitledMeeting");
   const hasDurationChoice = durations.length > 1;
   const primaryDuration = durations[0] ?? 30;
@@ -1990,6 +2086,24 @@ function BookingPreview({
     fieldResponses: {},
   });
 
+  const liveAvailabilityDate =
+    bookingSourceSlug && selectedDate ? format(selectedDate, "yyyy-MM-dd") : "";
+  const liveAvailabilityDuration =
+    selectedDuration !== null && durations.includes(selectedDuration)
+      ? selectedDuration
+      : primaryDuration;
+  const {
+    data: liveSlots = [],
+    isLoading: liveSlotsLoading,
+    isError: liveSlotsError,
+  } = useAvailableSlots(
+    liveAvailabilityDate,
+    liveAvailabilityDuration,
+    bookingSourceSlug,
+    availabilityPreview,
+  );
+  const hasLiveAvailability = Boolean(bookingSourceSlug && selectedDate);
+
   // Reset selections when durations change
   useEffect(() => {
     setSelectedDuration(null);
@@ -2004,8 +2118,8 @@ function BookingPreview({
   // Calendar data for viewed month
   const monthStart = startOfMonth(viewMonth);
   const monthEnd = endOfMonth(viewMonth);
-  const calStart = startOfWeek(monthStart);
-  const calEnd = endOfWeek(monthEnd);
+  const calStart = startOfWeek(monthStart, { weekStartsOn });
+  const calEnd = endOfWeek(monthEnd, { weekStartsOn });
   const calDays = eachDayOfInterval({ start: calStart, end: calEnd });
 
   function isDayDisabled(day: Date) {
@@ -2020,37 +2134,47 @@ function BookingPreview({
 
   // Generate realistic time slots based on availability
   const timeSlots = useMemo(() => {
+    if (hasLiveAvailability) {
+      return liveSlots.map((slot) => format(parseISO(slot.start), "h:mm a"));
+    }
     if (!selectedDate || !availability) {
       return ["9:00 AM", "9:30 AM", "10:00 AM", "10:30 AM", "11:00 AM"];
     }
     const dayName = DAY_MAP[getDay(selectedDate)];
     const daySchedule = availability.weeklySchedule[dayName];
     if (!daySchedule?.enabled) return [];
-    const slot = daySchedule.slots[0];
-    if (!slot) return [];
 
     const dur = selectedDuration ?? primaryDuration;
-    const [startH, startM] = slot.start.split(":").map(Number);
-    const [endH, endM] = slot.end.split(":").map(Number);
-    const startMin = startH * 60 + startM;
-    const endMin = endH * 60 + endM;
     const slots: string[] = [];
-    const firstStart =
-      Math.ceil(startMin / BOOKING_SLOT_STEP_MINUTES) *
-      BOOKING_SLOT_STEP_MINUTES;
-    for (
-      let m = firstStart;
-      m + dur <= endMin;
-      m += BOOKING_SLOT_STEP_MINUTES
-    ) {
-      const h = Math.floor(m / 60);
-      const mm = m % 60;
-      const ampm = h >= 12 ? "PM" : "AM";
-      const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
-      slots.push(`${h12}:${mm.toString().padStart(2, "0")} ${ampm}`);
+    for (const slot of daySchedule.slots) {
+      const [startH, startM] = slot.start.split(":").map(Number);
+      const [endH, endM] = slot.end.split(":").map(Number);
+      const startMin = startH * 60 + startM;
+      const endMin = endH * 60 + endM;
+      const firstStart =
+        Math.ceil(startMin / BOOKING_SLOT_STEP_MINUTES) *
+        BOOKING_SLOT_STEP_MINUTES;
+      for (
+        let m = firstStart;
+        m + dur <= endMin;
+        m += BOOKING_SLOT_STEP_MINUTES
+      ) {
+        const h = Math.floor(m / 60);
+        const mm = m % 60;
+        const ampm = h >= 12 ? "PM" : "AM";
+        const h12 = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        slots.push(`${h12}:${mm.toString().padStart(2, "0")} ${ampm}`);
+      }
     }
     return slots;
-  }, [selectedDate, selectedDuration, primaryDuration, availability]);
+  }, [
+    selectedDate,
+    selectedDuration,
+    primaryDuration,
+    availability,
+    hasLiveAvailability,
+    liveSlots,
+  ]);
 
   // Determine which step to show
   const [forcedStep, setForcedStep] = useState<BookingPreviewStep | null>(null);
@@ -2306,14 +2430,17 @@ function BookingPreview({
 
               {/* Weekday headers */}
               <div className="grid grid-cols-7 mb-0.5">
-                {WEEKDAY_HEADER_KEYS.map((dayKey) => (
-                  <div
-                    key={dayKey}
-                    className="py-0.5 text-center text-[10px] font-medium text-muted-foreground/60"
-                  >
-                    {t(`bookingLinks.days.${dayKey}`)}
-                  </div>
-                ))}
+                {getWeekdayOrder(weekStartsOn).map((day) => {
+                  const dayKey = WEEKDAY_HEADER_KEYS[day];
+                  return (
+                    <div
+                      key={dayKey}
+                      className="py-0.5 text-center text-[10px] font-medium text-muted-foreground/60"
+                    >
+                      {t(`bookingLinks.days.${dayKey}`)}
+                    </div>
+                  );
+                })}
               </div>
 
               {/* Days grid */}
@@ -2383,7 +2510,17 @@ function BookingPreview({
                 {t("bookingLinks.availableTimes")}
               </p>
             )}
-            {timeSlots.length > 0 ? (
+            {liveSlotsLoading ? (
+              <div className="grid grid-cols-3 gap-1.5">
+                {Array.from({ length: 6 }).map((_, index) => (
+                  <Skeleton key={index} className="h-8 rounded-md" />
+                ))}
+              </div>
+            ) : liveSlotsError ? (
+              <p className="rounded-md border border-destructive/30 bg-destructive/[0.06] px-2.5 py-2 text-center text-xs text-destructive">
+                {t("bookingLinks.availabilityUnavailable")}
+              </p>
+            ) : timeSlots.length > 0 ? (
               <div className="grid grid-cols-3 gap-1.5">
                 {timeSlots.map((slot) => (
                   <button

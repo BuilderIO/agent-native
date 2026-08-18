@@ -348,7 +348,7 @@ graph LR
 - **CLI:** スクリプト作成やエージェント開発ループのための `pnpm action fetch-data --source=signups`。
 - **MCP ツール / A2A ツール:** MCP サーバーまたは A2A が有効な場合、同じアクションがそこにも表示されます。
 
-どのコンシューマーも同じ基盤となる関数を呼び出すため、記述・保守する実装は1つだけです。完全なリファレンスは [Actions](/docs/actions) を参照してください。
+どのコンシューマーも同じ基盤となる関数を呼び出すため、記述・保守する実装は1つだけです。完全なリファレンスは [Actions](/docs/actions-overview) を参照してください。
 
 ## ライブ同期 {#polling-sync}
 
@@ -492,6 +492,10 @@ UI はルート変更時にこれを書き込みます。エージェントは�
 ### [コンテキスト認識](/docs/context-awareness)
 
 ナビゲーション状態、view-screen、navigate コマンドについて詳しく解説します。
+
+### [同期の内部](/docs/client-sync-internals)
+
+ライブ同期を支えるチェンジバージョンの仕組みで、独自の `useQuery` を同期する方法です。
 
 ### [Skills ガイド](/docs/skills-guide)
 

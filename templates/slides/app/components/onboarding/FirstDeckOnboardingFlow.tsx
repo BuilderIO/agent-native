@@ -446,6 +446,7 @@ export function FirstDeckOnboardingFlow({
             className="mt-8"
             autoFocus
             attachmentsEnabled
+            voiceEnabled
             maxDocumentAttachmentBytes={MAX_REFERENCE_FILE_BYTES}
             documentAttachmentLimitLabel="Slides reference files"
             disabled={uploading}

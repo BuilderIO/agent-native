@@ -26,7 +26,7 @@ export const templates = [
     slug: "plan",
     cliCommand: "npx @agent-native/core@latest skills add visual-plan",
     demoUrl: "https://plan.agent-native.com",
-    color: "#52525B",
+    color: "#2F6FED",
     screenshot:
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F775bae8e78b34d309bd3b9be5d7137e8?format=webp&width=800&height=1200",
   },

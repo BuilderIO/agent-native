@@ -13,6 +13,7 @@ import {
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "./engine/error-detail.js";
 import type { EngineMessage } from "./engine/types.js";
 import type { AgentChatAttachment, RunEvent } from "./types.js";
 
@@ -30,6 +31,7 @@ interface ContentPart {
   completedSideEffect?: boolean;
   mcpApp?: AgentMcpAppPayload;
   chatUI?: ActionChatUIConfig;
+  activity?: boolean;
   approval?: { approvalKey: string; dismissed?: boolean };
 }
 
@@ -63,15 +65,29 @@ function isInternalContinuationError(event: {
   const code = String(event.errorCode ?? "").toLowerCase();
   const msg = event.error.toLowerCase();
   if (code === "builder_gateway_error") return false;
+  // An explicit `recoverable: false` outranks the code and message inference
+  // below, matching `isRecoverableContinuationError`. The background
+  // no-progress breaker stops a turn while PRESERVING the underlying transient
+  // code, so reading the code instead of the flag drops the one error the user
+  // was supposed to see out of the persisted turn.
+  if (event.recoverable === false) return false;
   return (
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
+    // Carries what `msg.includes("stream ended")` below used to: a
+    // Builder-credits deployment replaces that sentence with one visitor line,
+    // and the code is the only thing left that says the turn was truncated.
+    code === "builder_gateway_stream_ended" ||
     code === "stale_run" ||
     code === "timeout" ||
     code === "timeout_error" ||
     code === "http_408" ||
     code === "http_429" ||
     code === "http_500" ||
+    // The gateway's unhandled-500 envelope arriving in-stream. Without this the
+    // turn stored Builder's internal correlation id as the assistant's visible
+    // answer instead of a continuation.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
@@ -176,9 +192,27 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "tool_start") {
+      const explicitToolCallId = event.id?.trim();
+      // A tool_start whose id is already in this turn is a REPLAY, not a new
+      // call: the tool-call journal and zombie-ledger recovery paths re-emit
+      // tool_start/tool_done for calls that already ran in an interrupted
+      // chunk. The live client coalesces those onto the original card, so a
+      // blind push here persisted a second copy of a call the user had only
+      // ever seen once — the duplicate that appears only after a reload.
+      // Matching the tool name too, so an id reused across different tools
+      // stays two cards rather than being silently merged into one.
+      if (explicitToolCallId) {
+        const replayed = content.some(
+          (part) =>
+            part.type === "tool-call" &&
+            part.toolCallId === explicitToolCallId &&
+            part.toolName === (event.tool ?? "unknown"),
+        );
+        if (replayed) continue;
+      }
       toolCallCounter += 1;
       const toolCallId =
-        event.id?.trim() ||
+        explicitToolCallId ||
         (runId ? `${runId}:tc_${toolCallCounter}` : `tc_${toolCallCounter}`);
       const args = (event.input ?? {}) as Record<string, string>;
       content.push({
@@ -347,19 +381,34 @@ export function buildAssistantMessage(
   };
 }
 
+/**
+ * The rebuild half of the live client's `clearAssistantDraftContent`
+ * (client/sse-event-processor.ts). The two bodies are asserted identical by
+ * `keeps clearAssistantDraftContent identical to the live client copy` in
+ * thread-data-builder.spec.ts — a rebuild that clears more than the live stream
+ * did makes narration vanish on reload, which is worse than clearing nothing.
+ */
 function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined
+    ) {
+      return;
+    }
     if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
       continue;
     }
     if (part.type === "tool-call" && part.result === undefined) {
-      // Keep materialized in-flight tool cards across retry clears so persisted
-      // thread rebuilds match the live SSE processor and avoid hide→show flicker.
+      // Only drop ephemeral placeholders. Materialized in-flight tool cards
+      // (real args from tool_start) stay mounted so a retry/auto-continue clear
+      // does not hide→show the same call when the next chunk re-emits it.
       const isEphemeral =
-        (part as { activity?: boolean }).activity === true ||
+        part.activity === true ||
         part.argsText === "" ||
         Object.keys(part.args ?? {}).length === 0;
       if (isEphemeral) content.splice(index, 1);
@@ -792,6 +841,42 @@ export function threadDataToEngineMessages(
     messages.push({ role: m.role, content: [{ type: "text", text }] });
   }
   return messages;
+}
+
+const MAX_RECOVERED_HISTORY_MESSAGES = 12;
+const MAX_RECOVERED_HISTORY_CHARS = 32_000;
+
+function engineMessageTextLength(message: EngineMessage): number {
+  return message.content.reduce(
+    (total, part) =>
+      total + (part.type === "text" ? (part.text?.length ?? 0) : 0),
+    0,
+  );
+}
+
+/**
+ * The trailing window of what was actually said in a thread, for a request that
+ * arrived carrying no history of its own. The client trims history against a
+ * size budget, so one tool-heavy turn can zero it out; without this floor the
+ * model re-derives answers it already gave and re-asks questions the user
+ * already answered. Contiguous and bounded on purpose — this restores the
+ * conversation, not the tool transcript.
+ */
+export function recoverThreadHistoryForRequest(
+  threadData: string | Record<string, unknown> | null | undefined,
+  limits?: { maxMessages?: number; maxChars?: number },
+): EngineMessage[] {
+  const maxMessages = limits?.maxMessages ?? MAX_RECOVERED_HISTORY_MESSAGES;
+  const maxChars = limits?.maxChars ?? MAX_RECOVERED_HISTORY_CHARS;
+  const window = threadDataToEngineMessages(threadData).slice(-maxMessages);
+  let total = window.reduce(
+    (sum, message) => sum + engineMessageTextLength(message),
+    0,
+  );
+  while (window.length > 1 && total > maxChars) {
+    total -= engineMessageTextLength(window.shift()!);
+  }
+  return window;
 }
 
 const MAX_INTEGRATION_ARTIFACTS_IN_CONTEXT = 12;

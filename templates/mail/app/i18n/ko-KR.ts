@@ -481,6 +481,11 @@ const messages = {
     lastRun: "마지막 실행:",
     automationsDescription:
       "AI로 새 받은편지함 이메일을 자동 처리하는 규칙입니다.",
+    allowAutomationSends: "자동화가 이메일을 자동으로 보내도록 허용",
+    allowAutomationSendsDescription:
+      "기본값은 꺼짐입니다. 자동화가 매번 승인을 묻지 않고 이메일을 보내도록 하려면 켜세요.",
+    automationSendSettingSaveFailed:
+      "자동 이메일 전송 설정을 저장하지 못했습니다.",
     loadingModels: "모델 로드 중",
     newRule: "새 규칙",
     noAutomationRules: "아직 자동화 규칙이 없습니다.",
@@ -500,6 +505,8 @@ const messages = {
     importFromGmail: "Gmail에서 가져오기",
     signatureHelp:
       "새 초안에서 인용된 답장 기록 앞에 추가됩니다. Markdown 링크와 이미지를 지원합니다.",
+    addSignatureImage: "이미지 추가",
+    signatureImageUploadFailed: "서명 이미지를 업로드하지 못했습니다",
     writingStyle: "작성 스타일",
     writingStylePlaceholder:
       "짧고 구체적이며 따뜻하게. 형식적인 군더더기는 피하세요.",

@@ -6,11 +6,14 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
+import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import { emitChatFirstOpenApp } from "./chat-first.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
 import {
   humanizeToolLabelText,
   humanizeToolName,
+  isToolCallActive,
   runningToolLabel,
 } from "./tool-display.js";
 
@@ -104,6 +107,8 @@ export interface SSEEvent {
   upgradeUrl?: string;
   details?: string;
   recoverable?: boolean;
+  /** The engine said another attempt may succeed — see `AgentChatEvent`. */
+  providerRetryable?: boolean;
   maxIterations?: number;
 }
 
@@ -130,23 +135,35 @@ export interface AgentAutoContinueErrorInfo {
   upgradeUrl?: string;
 }
 
-const INTERRUPTED_TOOL_RESULT =
+/**
+ * Kept verbatim in sync with `INTERRUPTED_TOOL_RESULT_MARKER`
+ * (agent/production-agent.ts): the server matches this substring in replayed
+ * history to count how many times a write tool was interrupted, which is the
+ * only thing that tells "we do not know if it landed" apart from "it failed".
+ */
+export const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
 /**
  * Maximum number of assistant-ui repository updates we deliver in one browser
  * event-loop turn. Durable-run replay can put hundreds of SSE frames into the
- * stream queue before the client attaches; draining all of them through
- * assistant-ui without a macrotask boundary synchronously nests React external
- * store notifications until React throws "Maximum update depth exceeded."
+ * stream queue before the client attaches; allowing even a small burst through
+ * assistant-ui can synchronously nest React external-store notifications until
+ * React throws "Maximum update depth exceeded."
  *
- * A timer scheduled on the first result resets the count when the stream is
+ * A task scheduled on the first result resets the count when the stream is
  * naturally idle between network chunks. We only await it when results are
  * arriving densely enough to hit this bound, so normal live token streaming
  * keeps its existing latency while replay bursts yield cooperatively.
  */
-const SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN = 20;
+const SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN = 1;
+
+function waitForNextEventLoopTurn(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
+}
 
 export function settleInterruptedToolCalls(
   content: ContentPart[],
@@ -759,6 +776,17 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   const code = String(ev.errorCode ?? "").toLowerCase();
   const msg = errMsg.toLowerCase();
 
+  // An explicit `recoverable: false` outranks EVERY inference below — the code
+  // list as well as the message sniff — matching the server's own precedence in
+  // `isRecoverableContinuationError`. The repeat guards stop a turn with a
+  // message that names the looping tool, so a stop on
+  // `list-workspace-connections` matched the "connection" sniff and
+  // auto-continued the very loop it was emitted to break; the background
+  // no-progress breaker stops one while PRESERVING the underlying transient
+  // code (so the failure stays diagnosable), so reading the code instead of the
+  // flag re-POSTs the exact chain the server just refused to continue.
+  if (ev.recoverable === false) return false;
+
   if (
     code === "context_length_exceeded" ||
     code === "input_too_long" ||
@@ -820,12 +848,20 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "http_408" ||
     code === "http_429" ||
     code === "http_500" ||
+    // The gateway's unhandled-500 envelope delivered in-stream instead of as a
+    // status. Recoverable for the same reason `http_500` is.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
     code === "rate_limited" ||
     code === "too_many_concurrent_requests" ||
-    code === "overloaded_error"
+    code === "overloaded_error" ||
+    // A gateway stream that ended without a stop event. The partial turn is
+    // real, so this continues rather than retrying: the code carries what the
+    // message used to (`msg.includes("stream ended")` below), which a
+    // Builder-credits deployment replaces with its one visitor line.
+    code === "builder_gateway_stream_ended"
   ) {
     return true;
   }
@@ -833,6 +869,12 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   if (ev.recoverable === true) return true;
 
   if (msg.includes("daily gateway request cap")) return false;
+
+  // The engine's structural verdict, checked after every terminal code above so
+  // it can never revive a quota or auth rejection. It is the only retry signal
+  // left once the message is one visitor line: an upstream "Overloaded" carries
+  // no code, and its text is what the rewrite removed.
+  if (ev.providerRetryable === true) return true;
 
   // "gateway error" intentionally absent — that's the no-detail Builder
   // gateway fallback and the production-agent already retries it
@@ -1168,6 +1210,7 @@ export function appendMissingFinalResponseWarning(
   content: ContentPart[],
   completedToolNames?: Iterable<string>,
 ): { message: string; errorCode: string; recoverable: true } | null {
+  if (content.some((part) => isToolCallActive(part))) return null;
   const lastTextIndex = lastAssistantTextIndex(content);
   const successfulToolNames = [
     ...new Set(
@@ -1244,6 +1287,51 @@ function shouldDispatchStreamProgress(
   if (state?.streamProgressDispatched) return false;
   if (state) state.streamProgressDispatched = true;
   return true;
+}
+
+function emitFirstPartyOpenAppHandoff(ev: SSEEvent): void {
+  if (ev.type !== "tool_done" || (ev.tool ?? "unknown") !== "open_app") {
+    return;
+  }
+  if (ev.isError === true) return;
+  if (!ev.result?.trim()) {
+    console.warn(
+      "[chat-first] open_app completed without a readable result; no app pane opened",
+    );
+    return;
+  }
+
+  let result: Record<string, unknown>;
+  try {
+    const parsed: unknown = JSON.parse(ev.result);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      console.warn(
+        "[chat-first] open_app completed without a readable result; no app pane opened",
+      );
+      return;
+    }
+    result = parsed as Record<string, unknown>;
+  } catch {
+    // coercion-ok: unreadable tool output must not be treated as a successful handoff.
+    console.warn(
+      "[chat-first] open_app completed without a readable result; no app pane opened",
+    );
+    return;
+  }
+
+  const readString = (value: unknown): string | undefined =>
+    typeof value === "string" && value.trim() ? value : undefined;
+  const delivery = emitChatFirstOpenApp({
+    app: readString(result.app ?? result.appId ?? result.application),
+    path: readString(result.path ?? result.targetPath),
+    url: readString(result.url ?? result.href),
+    view: readString(result.view),
+  });
+  if (!delivery.delivered) {
+    console.warn(
+      `[chat-first] open_app was completed but not delivered (${delivery.reason ?? "unknown"})`,
+    );
+  }
 }
 
 /**
@@ -1558,6 +1646,7 @@ export function processEvent(
     if (findCompletedToolCallIndex(content, ev.id) >= 0) {
       return { action: "continue" };
     }
+    emitFirstPartyOpenAppHandoff(ev);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("agent-native:tool-done", {
@@ -1632,6 +1721,7 @@ export function processEvent(
                 : "Done";
           part.structuredMeta = {
             ...part.structuredMeta,
+            ...(ev.status === "pending" ? { agentPending: true } : {}),
             ...(ev.durationMs != null
               ? { agentDurationMs: ev.durationMs }
               : {}),
@@ -1978,10 +2068,26 @@ export function processEvent(
   return { action: "continue" };
 }
 
+/**
+ * Drop the draft the server is about to re-emit — the narration since the last
+ * completed tool, not the whole turn. A `clear` arrives on a final-answer-guard
+ * retry or a continuation, both of which resume AFTER the last completed tool
+ * call, so anything before that boundary is settled multi-step narration the
+ * retry will never re-send. Wiping it read to users as "it deleted its reply
+ * and started over", and `thread-data-builder` replays this same scoping on
+ * rebuild, so the loss survived a reload.
+ */
 function clearAssistantDraftContent(content: ContentPart[]): void {
   for (let index = content.length - 1; index >= 0; index--) {
     const part = content[index];
     if (!part) continue;
+    if (
+      part.type === "tool-call" &&
+      part.activity !== true &&
+      part.result !== undefined
+    ) {
+      return;
+    }
     if (part.type === "text" || part.type === "reasoning") {
       content.splice(index, 1);
       continue;
@@ -2038,15 +2144,20 @@ export async function* readSSEStream(
       ? Math.max(noProgressTimeoutMs, SSE_IN_FLIGHT_WORK_TIMEOUT_MS)
       : noProgressTimeoutMs;
 
-  const paceRenderUpdate = async (): Promise<void> => {
+  const paceRenderUpdate = async (hasBufferedEvent: boolean): Promise<void> => {
+    // A single event in a network chunk already has a natural read boundary.
+    // Avoid inserting a task into quiet streams so watchdogs and fake-clock
+    // consumers can continue to observe their own timers normally.
+    if (!hasBufferedEvent) {
+      renderUpdatesThisTurn = 0;
+      return;
+    }
+
     renderUpdatesThisTurn += 1;
     if (!nextEventLoopTurn) {
-      nextEventLoopTurn = new Promise<void>((resolve) => {
-        setTimeout(() => {
-          renderUpdatesThisTurn = 0;
-          nextEventLoopTurn = null;
-          resolve();
-        }, 0);
+      nextEventLoopTurn = waitForNextEventLoopTurn().then(() => {
+        renderUpdatesThisTurn = 0;
+        nextEventLoopTurn = null;
       });
     }
     if (renderUpdatesThisTurn >= SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN) {
@@ -2112,11 +2223,22 @@ export async function* readSSEStream(
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       let sawProgressEvent = false;
+      let bufferedDataEvents = lines.reduce(
+        (count, pendingLine) =>
+          count +
+          (pendingLine.startsWith("data: ") &&
+          pendingLine.slice(6).trim().length > 0
+            ? 1
+            : 0),
+        0,
+      );
 
-      for (const line of lines) {
+      for (let lineIndex = 0; lineIndex < lines.length; lineIndex += 1) {
+        const line = lines[lineIndex]!;
         if (!line.startsWith("data: ")) continue;
         const raw = line.slice(6).trim();
         if (!raw) continue;
+        bufferedDataEvents -= 1;
 
         let ev: SSEEvent;
         try {
@@ -2195,7 +2317,8 @@ export async function* readSSEStream(
               }
             : result;
         if (terminalResult) {
-          await paceRenderUpdate();
+          const hasBufferedEvent = bufferedDataEvents > 0;
+          await paceRenderUpdate(hasBufferedEvent);
           yield withStreamMetadata(terminalResult);
         }
         if (

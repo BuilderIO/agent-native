@@ -14,6 +14,7 @@ import {
   detectEngineFromUserSecrets,
   isAgentEngineSettingConfigured,
 } from "../agent/engine/registry.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   getActiveFileUploadProviderForRequest,
   registerFileUploadProvider,
@@ -360,11 +361,10 @@ const githubRepositoryStep: OnboardingStep = {
         const { resolveWorkspaceConnectionCredentialForApp } =
           await import("../workspace-connections/index.js");
         const result = await resolveWorkspaceConnectionCredentialForApp({
+          // Deliberately not `resolveOnboardingAppId()` — that normalizes, and
+          // this id is matched against a stored workspace connection grant.
           appId:
-            process.env.AGENT_NATIVE_APP_ID ||
-            process.env.APP_ID ||
-            process.env.npm_package_name ||
-            "app",
+            getAppConfig().app.id ?? getAppConfig().app.packageName ?? "app",
           provider: "github",
           key: "GITHUB_TOKEN",
           userEmail,

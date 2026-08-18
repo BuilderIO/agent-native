@@ -41,6 +41,7 @@ const messages = {
     unpinChat: "Chat lösen",
   },
   navigation: {
+    agents: "Agenten",
     chat: "Chat",
     collapseSidebar: "Seitenleiste einklappen",
     database: "Datenbank",
@@ -52,7 +53,7 @@ const messages = {
     openNavigation: "Navigation öffnen",
     settings: "Einstellungen",
     team: "Team",
-    triage: "Factory",
+    triage: "Factories",
   },
   triage: {
     title: "Factory",
@@ -131,6 +132,11 @@ const messages = {
     newFactoryDescription:
       "Beschreibe die Arbeit, die diese Factory in ausgelieferte Ergebnisse verwandelt.",
     selectFactory: "Factory auswählen",
+    backToFactories: "Zurück zu den Factorys",
+    workspaceIntegrations: "Arbeitsbereich-Integrationen",
+    sourceRouting: "Quellenrouting",
+    sourceRoutingProviders: "Slack, GitHub und Sentry",
+    agentAccess: "Agentenzugriff",
     askAI: "Factory-KI fragen",
     factoryViews: "Factory-Ansichten",
     observeFirst: "Beobachten zuerst · Shadow-Modus",
@@ -139,6 +145,8 @@ const messages = {
     mapHint:
       "Klicke auf einen Schritt oder eine Route, um sie zu prüfen. Doppelklicke auf einen Schritt, um zu kommentieren.",
     unsavedChanges: "Nicht gespeicherte visuelle Änderungen",
+    factoryListDescription:
+      "Wähle eine Factory aus, um Zweck, Ablauf, Automatisierungen und letzte Aktivitäten zu prüfen. Starte eine neue aus einem minimalen leeren Graphen, wenn du einen neuen Prüfpfad definieren möchtest.",
     inboxTitle: "Beobachtungs-Posteingang",
     inboxDescription: "Eingehende Belege vor autonomer Arbeit.",
     selectObservation:
@@ -147,6 +155,7 @@ const messages = {
     rulesDescription:
       "Jede Regel bleibt im Shadow-Modus, bis sie bewusst hochgestuft wird.",
     editRule: "Triage-Regel bearbeiten",
+    editFlow: "Flow bearbeiten",
     settingsDescription:
       "Verbinde Slack, GitHub und Sentry. Automatisierungen können kontrollierte Arbeit starten und ihre Prompts und Läufe unten anzeigen.",
     blueprintTitle: "Blueprint-Modus.",
@@ -157,6 +166,20 @@ const messages = {
     metricRuns: "Läufe",
     rulesTab: "Regeln",
     automationsTab: "Automatisierungen",
+    agentsTab: "Agenten",
+    agenticAppsTitle: "Agentische Apps",
+    agenticAppsEmpty: "Noch keine agentischen Apps in diesem Workspace.",
+    createApp: "App erstellen",
+    editAppDetails: "App-Details bearbeiten",
+    editAppDetailsDescription:
+      "Gemeinsamen Anzeigenamen und Beschreibung aktualisieren.",
+    appName: "Name",
+    appDescription: "Beschreibung",
+    openApp: "App öffnen",
+    saveChanges: "Änderungen speichern",
+    appDetailsUpdated: "App-Details aktualisiert",
+    savingChanges: "Speichern...",
+    agentsTitle: "Agenten",
     auditTab: "Audit",
     auditTitle: "Ausführungs-Audit",
     auditDescription:
@@ -182,6 +205,7 @@ const messages = {
     auditClearBug: "Klarer Fehler",
     auditUxImpact: "UX-Auswirkung",
     auditOwnerArea: "Verantwortungsbereich",
+    auditGuardsLabel: "Guards",
     automationsTitle: "Automatisierungen",
     automationsDescription: "Factory-Prompts planen und ausführen.",
     automationsLoading: "Automatisierungen werden geladen...",
@@ -236,6 +260,14 @@ const messages = {
       "Factory-Diagnosen konnten nicht geladen werden. Prüfe Zugriff, Deployment und Datenbankmigrationen und versuche es erneut.",
     automationEmailReadinessHint:
       "E-Mail verwendet den Dispatch-Tresor der Organisation. Konfiguriere dort einen Anbieter, wenn dies nicht bereit ist.",
+    rulesTitle: "Regeln",
+    shadowLabel: "Shadow",
+    rulesGuidance:
+      "Verwende Prompts für die Klassifizierung; halte die Sicherheit in strukturierten Guards.",
+    ruleNameLabel: "Name",
+    defaultFactoryLabel: "Standard-Factory",
+    savedFactoryLabel: "Gespeicherte Factory",
+    saveRule: "Regel speichern",
   },
   factoryCanvas: {
     dragHint: "Ziehe Knoten, um die Factory neu zu gestalten",
@@ -257,6 +289,16 @@ const messages = {
     stepName: "Schrittname",
     stepDescription: "Was passiert hier",
     agentOwner: "Agent oder Besitzer",
+    noTarget: "Kein verknüpftes Ziel",
+    customTarget: "Benutzerdefiniertes Ziel",
+    reusableAgents: "Wiederverwendbare Agenten",
+    agenticApps: "Agentische Apps",
+    agentTargetHint:
+      "Dieser Factory-Schritt verwendet den ausgewählten Agenten.",
+    appTargetHint:
+      "Dieser Factory-Schritt delegiert an die ausgewählte agentische App.",
+    customTargetHint:
+      "Verknüpfe einen gemeinsamen Agenten oder eine App, sobald der Schritt bereit ist.",
     optional: "Optional",
     connectStep: "Diesen Schritt verbinden",
     connectDescription:

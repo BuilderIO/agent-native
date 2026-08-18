@@ -20,10 +20,13 @@ import { nanoid } from "../server/lib/recordings.js";
 
 export default defineAction({
   description:
-    "Reply to an existing comment. Looks up the thread and parent and delegates to add-comment.",
+    "Reply to an existing comment with inline Markdown text (without headings). Looks up the thread and parent and delegates to add-comment.",
   schema: z.object({
     commentId: z.string().describe("Comment ID to reply to"),
-    content: z.string().min(1).describe("Reply text"),
+    content: z
+      .string()
+      .min(1)
+      .describe("Reply text; inline Markdown is supported, without headings"),
     authorName: z.string().optional(),
   }),
   run: async (args) => {
@@ -35,7 +38,7 @@ export default defineAction({
       .limit(1);
     if (!parent) throw new Error(`Comment not found: ${args.commentId}`);
 
-    await assertAccess("recording", parent.recordingId, "viewer");
+    await assertAccess("recording", parent.recordingId, "commenter");
 
     const authorEmail = getRequestUserEmail();
     if (!authorEmail) {

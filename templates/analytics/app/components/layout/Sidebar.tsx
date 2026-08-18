@@ -40,6 +40,7 @@ import {
   useRef,
   useMemo,
   Fragment,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
@@ -149,7 +150,9 @@ import {
   type PrefetchSnapshot,
 } from "@/lib/prefetch-keys";
 import type { ResourceAccess } from "@/lib/resource-access";
+import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
+import { resolveAskNavigationAction } from "./layout-route-policy";
 import { NewDashboardDialog } from "./NewDashboardDialog";
 import { SidebarLoadError } from "./SidebarLoadError";
 
@@ -490,6 +493,7 @@ function SortableRow({
     useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState(name);
+  const renameInputRef = useAutoFocusSelect<HTMLInputElement>(isRenaming);
 
   useEffect(() => {
     if (!isRenaming) setRenameValue(name);
@@ -648,6 +652,7 @@ function SortableRow({
       >
         {isRenaming ? (
           <input
+            ref={renameInputRef}
             autoFocus
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
@@ -1613,6 +1618,27 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     });
   }, []);
 
+  const handleAskClick = useCallback(
+    (event: ReactMouseEvent<HTMLAnchorElement>) => {
+      const action = resolveAskNavigationAction(
+        isAskRoute,
+        event.metaKey || event.ctrlKey || event.shiftKey || event.altKey,
+      );
+      if (action === "browser") return;
+
+      event.preventDefault();
+      if (action === "toggle") {
+        toggleAskOpen();
+        return;
+      }
+
+      setAskOpen(true);
+      setStoredBoolean(ASK_OPEN_KEY, true);
+      navigateWithAgentChatViewTransition(navigate, "/ask");
+    },
+    [isAskRoute, navigate, toggleAskOpen],
+  );
+
   // Fold per-source counters into sidebar list query keys so agent-driven
   // create/rename/archive/delete shows up without a manual refresh. We
   // Domain counters keep these lists targeted. Folding the generic `action`
@@ -2075,18 +2101,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       label: t("navigation.ask"),
       href: "/ask",
       active: location.pathname === "/ask",
-      onClick: (event: React.MouseEvent<HTMLAnchorElement>) => {
-        if (
-          location.pathname !== "/ask" &&
-          !event.metaKey &&
-          !event.ctrlKey &&
-          !event.shiftKey &&
-          !event.altKey
-        ) {
-          event.preventDefault();
-          navigateWithAgentChatViewTransition(navigate, "/ask");
-        }
-      },
+      onClick: handleAskClick,
     },
     {
       icon: IconChartBar,
@@ -2146,7 +2161,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       </TooltipTrigger>
       <TooltipContent side="top">
         {t("sidebar.searchShortcut", {
-          shortcut: `${shortcutModifierLabel()}+K`,
+          shortcut: `${shortcutModifierLabel()} K`,
         })}
       </TooltipContent>
     </Tooltip>
@@ -2201,7 +2216,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       )}
       {effectiveCollapsed ? (
         <>
-          <nav className="flex min-h-0 flex-1 flex-col items-center gap-1 overflow-y-auto px-1 py-2">
+          <nav className="flex min-h-0 flex-1 flex-col items-center gap-0.5 overflow-y-auto px-1 py-2">
             {collapsedNavItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -2212,7 +2227,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       onClick={item.onClick}
                       aria-label={item.label}
                       className={cn(
-                        "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                        "flex h-9 w-9 items-center justify-center rounded-md transition-colors",
                         item.active
                           ? "bg-sidebar-accent text-sidebar-accent-foreground"
                           : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-foreground",
@@ -2261,8 +2276,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </span>
             </Link>
           </div>
-          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
-            <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden py-2">
+            <nav className="min-h-0 min-w-0 flex flex-1 flex-col gap-1 overflow-x-hidden overflow-y-auto px-2 text-sm font-medium lg:px-4">
               {/* Ask section */}
               <div className="order-1 group/section min-w-0 space-y-1">
                 <div
@@ -2275,18 +2290,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 >
                   <Link
                     to="/ask"
-                    onClick={(event) => {
-                      if (
-                        !isAskRoute &&
-                        !event.metaKey &&
-                        !event.ctrlKey &&
-                        !event.shiftKey &&
-                        !event.altKey
-                      ) {
-                        event.preventDefault();
-                        navigateWithAgentChatViewTransition(navigate, "/ask");
-                      }
-                    }}
+                    onClick={handleAskClick}
                     className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2"
                   >
                     <IconMessageCircle className="h-4 w-4 shrink-0" />
@@ -2313,10 +2317,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     />
                   </button>
                 </div>
-                <AnalyticsChatsSection
-                  isAskRoute={isAskRoute}
-                  open={askOpen && isAskRoute}
-                />
+                <AnalyticsChatsSection isAskRoute={isAskRoute} open={askOpen} />
               </div>
 
               {/* Sessions link */}
@@ -2576,8 +2577,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
             </nav>
 
-            <div className="mt-auto min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">
-              <nav className="grid min-w-0 items-start space-y-1 pb-1">
+            <div className="shrink-0 min-w-0 px-2 pt-2 text-sm font-medium lg:px-4">
+              <nav className="flex min-w-0 flex-col gap-1 pb-1">
                 {bottomItems.map((item) => {
                   const Icon = item.icon;
                   const isActive = location.pathname === item.href;

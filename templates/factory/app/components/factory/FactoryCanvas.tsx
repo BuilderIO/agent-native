@@ -44,6 +44,8 @@ export type FactoryCanvasNode = {
     | "human"
     | "factory";
   agent?: string;
+  agentTargetType?: "agent" | "app";
+  agentTargetId?: string;
   metricsKey?: string;
   position: { x: number; y: number };
 };
@@ -73,16 +75,12 @@ const CANVAS_HEIGHT = 660;
 interface FactoryCanvasProps {
   graph: FactoryCanvasGraph;
   nodeMetrics?: Record<string, number>;
-  commentCounts?: Record<string, number>;
+  preview?: boolean;
   selectedNodeId?: string | null;
   selectedEdgeId?: string | null;
-  onSelectNode: (nodeId: string) => void;
-  onSelectEdge: (edgeId: string) => void;
+  onSelectNode?: (nodeId: string) => void;
+  onSelectEdge?: (edgeId: string) => void;
   onMoveNode?: (nodeId: string, position: { x: number; y: number }) => void;
-  onComment: (
-    targetType: "canvas" | "node" | "edge",
-    targetId?: string,
-  ) => void;
 }
 
 type DragState = {
@@ -97,13 +95,12 @@ const DRAG_THRESHOLD = 6;
 export function FactoryCanvas({
   graph,
   nodeMetrics = {},
-  commentCounts = {},
+  preview = false,
   selectedNodeId,
   selectedEdgeId,
   onSelectNode,
   onSelectEdge,
   onMoveNode,
-  onComment,
 }: FactoryCanvasProps) {
   const t = useT();
   const [zoom, setZoom] = useState(0.72);
@@ -165,7 +162,7 @@ export function FactoryCanvas({
     event: React.PointerEvent<HTMLButtonElement>,
     node: FactoryCanvasNode,
   ) {
-    if (!onMoveNode) return;
+    if (preview || !onMoveNode) return;
     const target = event.currentTarget.closest("[data-factory-canvas]");
     if (!(target instanceof HTMLElement)) return;
     const rect = target.getBoundingClientRect();
@@ -216,12 +213,11 @@ export function FactoryCanvas({
   }
 
   return (
-    <div className="relative min-h-[560px] overflow-hidden rounded-xl border bg-muted/20">
-      <div className="absolute inset-x-0 top-0 z-10 flex items-center justify-between border-b bg-background/90 px-3 py-2 backdrop-blur">
-        <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-          <span className="truncate">{t("factoryCanvas.dragHint")}</span>
-        </div>
-        <div className="flex items-center gap-1">
+    <div
+      className={`relative overflow-hidden rounded-xl bg-muted/20 ${preview ? "min-h-[360px]" : "min-h-[560px]"}`}
+    >
+      {!preview && (
+        <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg bg-background/75 p-1 shadow-sm backdrop-blur">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -280,9 +276,14 @@ export function FactoryCanvas({
             <TooltipContent>{t("factoryCanvas.fitToView")}</TooltipContent>
           </Tooltip>
         </div>
-      </div>
+      )}
 
-      <div ref={viewportRef} className="h-[560px] overflow-auto pt-12">
+      <div
+        ref={viewportRef}
+        className={
+          preview ? "h-[360px] overflow-hidden" : "h-[560px] overflow-auto"
+        }
+      >
         <div
           data-factory-canvas
           className="relative origin-top-left"
@@ -345,48 +346,48 @@ export function FactoryCanvas({
               })}
             </svg>
 
-            {graph.edges.map((edge) => {
-              const source = nodesById.get(edge.source);
-              const target = nodesById.get(edge.target);
-              if (!source || !target) return null;
-              const x1 = source.position.x + NODE_WIDTH;
-              const y1 = source.position.y + NODE_HEIGHT / 2;
-              const x2 = target.position.x;
-              const y2 = target.position.y + NODE_HEIGHT / 2;
-              const middle = x1 + (x2 - x1) / 2;
-              const path = `M ${x1} ${y1} C ${middle} ${y1}, ${middle} ${y2}, ${x2} ${y2}`;
-              return (
-                <button
-                  key={`${edge.id}-hitbox`}
-                  type="button"
-                  aria-label={t("factoryCanvas.selectRoute", {
-                    route: edge.label || edge.id,
-                  })}
-                  className="absolute inset-0 z-[1] block cursor-pointer bg-transparent text-left"
-                  style={{
-                    clipPath: "none",
-                    pointerEvents: "none",
-                  }}
-                  onClick={() => onSelectEdge(edge.id)}
-                >
-                  <span
-                    className="pointer-events-auto absolute h-4 w-full -translate-y-1/2 bg-transparent"
+            {!preview &&
+              graph.edges.map((edge) => {
+                const source = nodesById.get(edge.source);
+                const target = nodesById.get(edge.target);
+                if (!source || !target) return null;
+                const x1 = source.position.x + NODE_WIDTH;
+                const y1 = source.position.y + NODE_HEIGHT / 2;
+                const x2 = target.position.x;
+                const y2 = target.position.y + NODE_HEIGHT / 2;
+                const middle = x1 + (x2 - x1) / 2;
+                const path = `M ${x1} ${y1} C ${middle} ${y1}, ${middle} ${y2}, ${x2} ${y2}`;
+                return (
+                  <button
+                    key={`${edge.id}-hitbox`}
+                    type="button"
+                    aria-label={t("factoryCanvas.selectRoute", {
+                      route: edge.label || edge.id,
+                    })}
+                    className="absolute inset-0 z-[1] block cursor-pointer bg-transparent text-left"
                     style={{
-                      left: `${Math.min(x1, x2)}px`,
-                      top: `${Math.min(y1, y2)}px`,
-                      width: `${Math.abs(x2 - x1)}px`,
-                      transform: `rotate(${Math.atan2(y2 - y1, x2 - x1)}rad)`,
-                      transformOrigin: "left center",
+                      clipPath: "none",
+                      pointerEvents: "none",
                     }}
-                  />
-                  <span className="sr-only">{path}</span>
-                </button>
-              );
-            })}
+                    onClick={() => onSelectEdge?.(edge.id)}
+                  >
+                    <span
+                      className="pointer-events-auto absolute h-4 w-full -translate-y-1/2 bg-transparent"
+                      style={{
+                        left: `${Math.min(x1, x2)}px`,
+                        top: `${Math.min(y1, y2)}px`,
+                        width: `${Math.abs(x2 - x1)}px`,
+                        transform: `rotate(${Math.atan2(y2 - y1, x2 - x1)}rad)`,
+                        transformOrigin: "left center",
+                      }}
+                    />
+                    <span className="sr-only">{path}</span>
+                  </button>
+                );
+              })}
 
             {graph.nodes.map((node) => {
               const selected = selectedNodeId === node.id;
-              const comments = commentCounts[node.id] ?? 0;
               const metric = nodeMetrics[node.id] ?? 0;
               return (
                 <button
@@ -395,12 +396,13 @@ export function FactoryCanvas({
                   className={`absolute z-[2] flex h-[122px] w-[210px] flex-col rounded-xl border bg-card p-3 text-left shadow-sm transition-[border-color,box-shadow,transform] duration-150 ease-out hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${selected ? "border-primary shadow-md ring-2 ring-primary/15" : "border-border"}`}
                   style={{ left: node.position.x, top: node.position.y }}
                   onClick={() => {
-                    if (!dragMoved.current) onSelectNode(node.id);
+                    if (!dragMoved.current) onSelectNode?.(node.id);
                   }}
-                  onPointerDown={(event) => beginDrag(event, node)}
-                  onPointerMove={moveNode}
-                  onPointerUp={endDrag}
-                  onDoubleClick={() => onComment("node", node.id)}
+                  onPointerDown={
+                    preview ? undefined : (event) => beginDrag(event, node)
+                  }
+                  onPointerMove={preview ? undefined : moveNode}
+                  onPointerUp={preview ? undefined : endDrag}
                 >
                   <span className="flex items-start justify-between gap-2">
                     <span className="flex min-w-0 items-center gap-2">
@@ -423,16 +425,6 @@ export function FactoryCanvas({
                         ? t("factoryCanvas.signals")
                         : t("factoryCanvas.events")}
                     </span>
-                    {comments > 0 && (
-                      <span>
-                        {comments}{" "}
-                        {t(
-                          comments === 1
-                            ? "factoryCanvas.commentOne"
-                            : "factoryCanvas.commentMany",
-                        )}
-                      </span>
-                    )}
                   </span>
                 </button>
               );
@@ -440,13 +432,6 @@ export function FactoryCanvas({
           </div>
         </div>
       </div>
-      <button
-        type="button"
-        className="absolute bottom-3 left-3 rounded-md bg-background/90 px-2 py-1 text-xs text-muted-foreground shadow-sm ring-1 ring-border hover:text-foreground"
-        onClick={() => onComment("canvas")}
-      >
-        {t("factoryCanvas.commentFactory")}
-      </button>
     </div>
   );
 }

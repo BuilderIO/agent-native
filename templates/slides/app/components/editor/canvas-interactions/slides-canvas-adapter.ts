@@ -61,9 +61,9 @@ const slidesCanvasInteractionConfig = {
   minSize: MIN_SLIDE_OBJECT_SIZE,
   capabilities: {
     multiSelection: true,
-    snapping: false,
-    alignment: false,
-    distribution: false,
+    snapping: true,
+    alignment: true,
+    distribution: true,
     grouping: false,
     rotation: false,
     marquee: true,
@@ -151,8 +151,11 @@ export function resolveSlidesCanvasPointerIntent({
   ) {
     return "move-object-perimeter";
   }
+  // The interior of an editable text object belongs to native text selection.
+  // Only the measured outer edge is reserved for moving the selected object.
+  if (targetIsEditableText) return "edit-text";
   if (hasSelectedObject && targetWithinSelectedObject) {
     return "move-object-body";
   }
-  return targetIsEditableText ? "edit-text" : "none";
+  return "none";
 }

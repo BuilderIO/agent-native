@@ -14,6 +14,7 @@ import {
   type RuntimeConfigReport,
 } from "../shared/runtime-config.js";
 import { agentNativePath } from "./api-path.js";
+import { agentNativeApiDisabledReason } from "./api-surface.js";
 import { writeClipboardText } from "./clipboard.js";
 import { useT } from "./i18n.js";
 
@@ -47,6 +48,7 @@ export function RuntimeConfigNotice() {
 
   useEffect(() => {
     if (typeof window.fetch !== "function") return;
+    if (agentNativeApiDisabledReason()) return;
     const controller = new AbortController();
     let active = true;
     const timeout = window.setTimeout(() => controller.abort(), 5000);

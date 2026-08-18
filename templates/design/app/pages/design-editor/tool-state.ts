@@ -74,6 +74,19 @@ export function normalizeDesignTool(value: unknown): DesignTool | null {
     : null;
 }
 
+const DESIGN_EDITOR_MODES = new Set<EditorMode>([
+  "annotate",
+  "edit",
+  "interact",
+]);
+
+export function normalizeDesignMode(value: unknown): EditorMode | null {
+  return typeof value === "string" &&
+    DESIGN_EDITOR_MODES.has(value as EditorMode)
+    ? (value as EditorMode)
+    : null;
+}
+
 export function isSingleScreenAnnotationTool(tool: DesignTool): boolean {
   return tool === "draw" || tool === "comment";
 }
@@ -124,9 +137,12 @@ export type DesignBottomToolbarMode = "editor" | "commenter" | "hidden";
 export function getDesignBottomToolbarMode(args: {
   isSignedIn: boolean;
   canEditDesign: boolean;
+  canCommentDesign: boolean;
   hasActiveFile: boolean;
 }): DesignBottomToolbarMode {
-  if (!args.isSignedIn || !args.hasActiveFile) return "hidden";
+  if (!args.isSignedIn || !args.hasActiveFile || !args.canCommentDesign) {
+    return "hidden";
+  }
   return args.canEditDesign ? "editor" : "commenter";
 }
 

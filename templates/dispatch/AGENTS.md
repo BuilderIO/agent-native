@@ -13,10 +13,9 @@ Read the relevant skill before deeper work:
 
 ## Core Rules
 
-- Store large file/blob payloads in configured file/blob storage, not SQL: no
-  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
-  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
-  or `resources`; persist URLs, ids, or handles instead.
+- Store large file/blob payloads in configured file/blob storage, not SQL:
+  persist URLs, ids, or handles instead of base64, media, documents, archives,
+  screenshots, thumbnails, or replay chunks.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Treat Dispatch as workspace infrastructure. Prefer actions over raw SQL for
   vault, integrations, resource grants, messaging, routing, and approvals.
@@ -32,13 +31,22 @@ Read the relevant skill before deeper work:
   values or silently widen app access while doing this.
 - Use `view-screen` when the current integration, resource, approval, route, or
   setup item is unclear.
-- Dispatch keeps its primary navigation focused on Overview, Chat, Apps, and
-  the workspace app rail. Workspace management and operator tools live under
-  the top-level `/admin` control plane, which uses grouped navigation for
-  `/admin/operations`, `/admin/metrics`, `/admin/integrations`, `/admin/vault`,
-  `/admin/automations`, `/admin/approvals`, `/admin/destinations`,
-  `/admin/agents`, `/admin/workspace`, `/admin/messaging`, `/admin/identities`,
-  `/admin/audit`, `/admin/dreams`, and `/admin/thread-debug`.
+- Use `import-agent` to normalize safe Claude Markdown or JSON into an
+  `agents/<slug>.md` profile; it skips credentials, hooks, shell, and local env.
+- Use `import-agent-pack` for a Claude Project/Cowork-style folder. It keeps the
+  runnable profile at `agents/<slug>.md` and stores text references, context,
+  and agent-owned skills below `agents/<slug>/`. Use `list-agent-pack` to
+  inspect the files and the shared agent pack UI to edit them.
+- Use `connect-external-agent` for public HTTP/A2A metadata; authenticate through
+  the normal connection flow.
+- Dispatch's primary nav is Overview, Chat, Apps, Agents, and the app rail.
+  `/agents` creates/imports reusable profiles, opens per-agent chat, and can
+  hand a profile off to app creation; `/admin/agents` manages technical MCP/A2A
+  connections; other workspace/operator tools live under `/admin`.
+- Agent profiles and agentic apps are also managed from Factory's top-level
+  Agents tab. Factory embeds the same agent actions and pack editor and reads
+  mounted app metadata through the shared Dispatch database; it does not create
+  a second agent registry.
 - Keep approval and routing behavior explicit. Never silently widen access to
   secrets, apps, integrations, or workspace resources.
 - Curated workspace templates are private app sources. Use
@@ -65,9 +73,12 @@ Read the relevant skill before deeper work:
   preserve the returned per-source health instead of treating an unavailable
   source as zero failures.
 - For a Slack-linked issue, call `read-slack-thread-context` with the exact
-  permalink before diagnosing it. It resolves child links to the parent thread,
-  preserves attachments and related URLs, and reports whether pagination is
-  complete. Never treat an unreadable Slack thread as an empty one.
+  permalink before diagnosing it; preserve its pagination and readability
+  status instead of treating an unreadable thread as empty.
+- For usage investigations, use `list-dispatch-usage-metrics` with the smallest
+  useful scope and lookback. Treat `not-captured` and `unavailable` attribution
+  as gaps, not zero usage; use `view-screen` on `/admin/metrics` to align with
+  the visible scope and selected user.
 
 ## Application State
 
@@ -76,6 +87,9 @@ Read the relevant skill before deeper work:
 - On Thread Debug, `navigation.threadDebugMode`, `sourceId`,
   `inspectSourceId`, `ownerEmail`, `failureStatus`, `range`, `query`, `runId`,
   and `threadId` expose the visible failure or thread filters and selection.
+- On Metrics, `navigation.usageScope` exposes whether the visible usage view is
+  personal or workspace-wide, and `navigation.usageUserEmail` exposes the
+  selected workspace member filter.
 - `navigate` moves the UI to setup, vault, integrations, resources, routing,
   approval, and operator surfaces.
 

@@ -1,6 +1,8 @@
 import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
 
+import { CANONICAL_WORKSPACE_SSO_APP_ORIGINS } from "../shared/workspace-sso";
+
 export interface WorkspaceAppSummary {
   id: string;
   name: string;
@@ -25,6 +27,11 @@ export interface WorkspaceAppSummary {
   agentName?: string | null;
   agentSkillsCount?: number | null;
   archived?: boolean;
+}
+
+interface WorkspaceAppHrefSource {
+  path?: string | null;
+  url?: string | null;
 }
 
 export function isDispatchWorkspaceAppId(appId: string): boolean {
@@ -70,6 +77,83 @@ export function workspaceAppHref(app: WorkspaceAppSummary): string | null {
   return app.path || app.url || null;
 }
 
+export function workspaceAppEmbedTarget(
+  app: Pick<WorkspaceAppSummary, "path" | "url">,
+): { path?: string; url?: string } {
+  const url = app.url?.trim();
+  if (url) return { url };
+
+  const path = app.path.trim();
+  return path.startsWith("/") ? { path } : path ? { url: path } : {};
+}
+
+/**
+ * Resolve an app route without an embed ticket so the target can render its
+ * own error document when session setup fails.
+ */
+export function workspaceAppDirectHref(
+  app: WorkspaceAppHrefSource,
+  targetPath: string,
+): string | null {
+  const target = targetPath.trim();
+  if (!target || !target.startsWith("/") || target.startsWith("//")) {
+    return null;
+  }
+
+  let targetUrl: URL;
+  try {
+    targetUrl = new URL(target, "https://agent-native.invalid");
+  } catch {
+    // coercion-ok: invalid relative target input has no safe href.
+    return null;
+  }
+  const targetPathname = targetUrl.pathname || "/";
+
+  let absoluteBase: URL | null = null;
+  const rawUrl = app.url?.trim();
+  if (rawUrl) {
+    try {
+      const parsedBase = new URL(rawUrl);
+      if (parsedBase.protocol === "http:" || parsedBase.protocol === "https:") {
+        absoluteBase = parsedBase;
+      }
+      // coercion-ok: invalid app URLs use the mounted path fallback below.
+    } catch {
+      absoluteBase = null;
+    }
+  }
+
+  const mountedPath = app.path?.trim();
+  const basePath = absoluteBase
+    ? absoluteBase.pathname
+    : mountedPath
+      ? `/${mountedPath.replace(/^[/\\]+/, "").split(/[?#]/, 1)[0]}`
+      : null;
+  if (!basePath) return null;
+
+  const normalizedBasePath = basePath.replace(/\/+$/, "") || "/";
+  const targetIsMountedPath =
+    normalizedBasePath !== "/" &&
+    (targetPathname === normalizedBasePath ||
+      targetPathname.startsWith(`${normalizedBasePath}/`));
+  const resolvedPath = targetIsMountedPath
+    ? targetPathname
+    : normalizedBasePath === "/"
+      ? targetPathname
+      : targetPathname === "/"
+        ? normalizedBasePath
+        : `${normalizedBasePath}/${targetPathname.replace(/^\/+/, "")}`;
+
+  if (absoluteBase) {
+    absoluteBase.pathname = resolvedPath;
+    absoluteBase.search = targetUrl.search;
+    absoluteBase.hash = targetUrl.hash;
+    return absoluteBase.toString();
+  }
+
+  return `${resolvedPath}${targetUrl.search}${targetUrl.hash}`;
+}
+
 export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
   return app.status === "pending" && !!app.builderUrl;
 }
@@ -87,8 +171,11 @@ export function mergeChatFirstWorkspaceApps(
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
-      path: `/${id}`,
-      url: null,
+      // The five default rows are hosted sibling apps, not routes owned by
+      // Dispatch. Keep a mounted path for legacy callers, but give embed
+      // session resolution the exact canonical origin.
+      path: "/",
+      url: CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id],
       status: "ready",
     });
   }

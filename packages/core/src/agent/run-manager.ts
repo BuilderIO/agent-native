@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -10,6 +11,7 @@ import {
   isProviderConnectionError,
 } from "./engine/error-detail.js";
 import { EngineError } from "./engine/types.js";
+import type { EngineRequestShape } from "./engine/types.js";
 import {
   insertRun,
   insertRunEvent,
@@ -52,14 +54,17 @@ export interface ActiveRun {
   abort: AbortController;
   abortReason?: string;
   /**
-   * Terminal event to emit when a server-driven continuation has been handed
-   * off successfully. The continuation runs outside this process, so the
-   * normal loop-level auto_continue event is not sent through this run's
-   * `send` callback.
+   * Terminal event the completion callback installs in place of the one the
+   * loop stashed: `auto_continue` when a server-driven continuation has been
+   * handed off successfully (that continuation runs outside this process, so
+   * the loop-level auto_continue never goes through this run's `send`), or
+   * `error` when the callback decided the turn must stop here instead — the
+   * stashed error is recoverable by construction, so leaving it in place
+   * re-enters the very chain the callback just refused to continue.
    */
   continuationTerminalEvent?: Extract<
     AgentChatEvent,
-    { type: "auto_continue" }
+    { type: "auto_continue" } | { type: "error" }
   >;
   startedAt: number;
 }
@@ -428,6 +433,22 @@ function getRunErrorCode(err: unknown): string | undefined {
   return classifyTerminalErrorCode(describeErrorWithCauses(err));
 }
 
+/**
+ * Sentry tags are strings, and an absent shape must stay absent: a run that
+ * failed before the request was built did not send a zero-byte payload.
+ */
+export function engineRequestShapeTags(
+  shape: EngineRequestShape | undefined,
+): Record<string, string> {
+  if (!shape) return {};
+  return {
+    engineModel: shape.model,
+    enginePayloadBytes: String(shape.payloadBytes),
+    engineToolCount: String(shape.toolCount),
+    engineMessageCount: String(shape.messageCount),
+  };
+}
+
 function getEngineRunErrorDetails(err: EngineError): string | undefined {
   if (err.statusCode === 429) return err.message;
   return undefined;
@@ -450,6 +471,10 @@ function shouldCaptureRunError(err: unknown): boolean {
   return (
     !normalizedCode.startsWith("credits-limit") &&
     normalizedCode !== "builder_gateway_network_error" &&
+    // A truncated gateway stream, which the client continues. It arrived here as
+    // `builder_gateway_network_error` until the engine gave it its own code, so
+    // omitting it would turn a routine recovered interruption into Sentry noise.
+    normalizedCode !== "builder_gateway_stream_ended" &&
     normalizedCode !== PROVIDER_NETWORK_ERROR_CODE &&
     normalizedCode !== "provider_rate_limited" &&
     normalizedCode !== "rate_limit_exceeded"
@@ -589,11 +614,8 @@ export function resolveRunSoftTimeoutMs(
   if (typeof overrideMs === "number" && Number.isFinite(overrideMs)) {
     return clampHosted(Math.max(0, overrideMs));
   }
-  const envValue = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return clampHosted(raw);
-  }
+  const configured = getAppConfig().agent.runSoftTimeoutMs;
+  if (configured !== undefined) return clampHosted(configured);
   // A background-function run uses the full background budget by default; the
   // foreground default (40s) is unchanged.
   if (background) {
@@ -605,21 +627,17 @@ export function resolveRunSoftTimeoutMs(
 }
 
 export function resolveCompletedRunRetentionMs(): number {
-  const envValue = process.env.AGENT_RUN_RETENTION_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return raw;
-  }
-  return DEFAULT_COMPLETED_RUN_RETENTION_MS;
+  return (
+    getAppConfig().agent.completedRunRetentionMs ??
+    DEFAULT_COMPLETED_RUN_RETENTION_MS
+  );
 }
 
 export function resolveErroredRunRetentionMs(): number {
-  const envValue = process.env.AGENT_ERRORED_RUN_RETENTION_MS;
-  if (envValue !== undefined) {
-    const raw = Number(envValue);
-    if (Number.isFinite(raw) && raw >= 0) return raw;
-  }
-  return DEFAULT_ERRORED_RUN_RETENTION_MS;
+  return (
+    getAppConfig().agent.erroredRunRetentionMs ??
+    DEFAULT_ERRORED_RUN_RETENTION_MS
+  );
 }
 
 function isTerminalRunEvent(event: AgentChatEvent): boolean {
@@ -632,6 +650,39 @@ function isTerminalRunEvent(event: AgentChatEvent): boolean {
   );
 }
 
+/**
+ * A completed tool with no later assistant text is an unfinished turn, not a
+ * successful terminal response. Keep this predicate beside the run-manager's
+ * terminal synthesis so the run-manager and production continuation paths use
+ * the same boundary evidence.
+ */
+export function endsAfterCompletedToolWithoutAssistantFinal(
+  run: ActiveRun,
+): boolean {
+  let completedToolAfterLastAssistantText = false;
+  for (const { event } of run.events) {
+    if (event.type === "text" && event.text.trim().length > 0) {
+      completedToolAfterLastAssistantText = false;
+      continue;
+    }
+    if (event.type === "tool_done" && event.isError !== true) {
+      completedToolAfterLastAssistantText =
+        event.chatUI === undefined && event.mcpApp === undefined;
+      continue;
+    }
+    if (
+      event.type === "clear" ||
+      event.type === "error" ||
+      event.type === "missing_api_key" ||
+      event.type === "auto_continue" ||
+      event.type === "loop_limit"
+    ) {
+      completedToolAfterLastAssistantText = false;
+    }
+  }
+  return completedToolAfterLastAssistantText;
+}
+
 function terminalEventForcesErroredStatus(event: AgentChatEvent | null) {
   return event?.type === "error" || event?.type === "missing_api_key";
 }
@@ -642,6 +693,13 @@ function terminalReasonForRun(
   abortReason: string | undefined,
   completionError: unknown,
 ): string {
+  if (
+    finalStatus !== "aborted" &&
+    completionError &&
+    terminalEvent?.type === "auto_continue"
+  ) {
+    return "completion_error";
+  }
   if (terminalEvent?.type === "auto_continue") {
     return terminalEvent.reason || "auto_continue";
   }
@@ -1205,12 +1263,15 @@ export function startRun(
   // false-stale-reap zombie scenario where the reaper flipped the row while
   // this isolate was briefly unable to heartbeat (DB latency / GC pause).
   let lastAbortCheck = Date.now() - 3000;
-  // A read failure here used to be indistinguishable from "not aborted" —
-  // exactly the coerced-to-false pattern that lets a real Stop go unseen for
-  // the rest of the run. Count consecutive failures like the heartbeat-write
-  // handler above; past the same threshold, fail closed (self-abort with a
-  // reason outside TURN_ENDING_ABORT_REASONS/RECOVERABLE_ABORT_REASONS, so it
-  // surfaces as a typed error) instead of silently retrying forever.
+  // A read failure here is not "not aborted" — but it is not grounds to kill
+  // the run either. This check is only a cross-isolate backstop: the outage
+  // that hides a Stop from us hides it from every other reader too, so
+  // self-aborting delivers nobody's Stop any sooner while destroying in-flight
+  // work in the far more common case where nobody pressed Stop at all. Fail
+  // open and stay bounded by the soft timeout, no-progress backstop, and
+  // iteration/token limits — none of which touch the DB. Report the outage to
+  // Sentry (once at the threshold, then ~once a minute) so a long unreadable
+  // window is visible and its duration is queryable instead of silent.
   let consecutiveAbortCheckFailures = 0;
   const checkSqlAbort = () => {
     const now = Date.now();
@@ -1237,7 +1298,11 @@ export function startRun(
       })
       .catch((error) => {
         consecutiveAbortCheckFailures += 1;
-        if (consecutiveAbortCheckFailures >= 3) {
+        // 3 ticks ≈ 9s of unreadability, then every 20 ticks ≈ 60s.
+        if (
+          consecutiveAbortCheckFailures === 3 ||
+          consecutiveAbortCheckFailures % 20 === 0
+        ) {
           captureError(error, {
             route: "/_agent-native/agent-chat",
             tags: {
@@ -1246,11 +1311,12 @@ export function startRun(
               consecutiveFailures: String(consecutiveAbortCheckFailures),
             },
             aiTraceId: runId,
-            extra: { runId, threadId },
+            extra: {
+              runId,
+              threadId,
+              unreadableForMs: consecutiveAbortCheckFailures * 3000,
+            },
           });
-          if (!abort.signal.aborted) {
-            abortInMemoryRun(run, "abort_check_unavailable");
-          }
         }
       });
   };
@@ -1331,6 +1397,10 @@ export function startRun(
 
   const captureRunError = (error: unknown, phase: "run" | "completion") => {
     const errorCode = getRunErrorCode(error);
+    // A gateway error often arrives as one opaque user-facing sentence, so the
+    // structured fields EngineError already carries are the whole diagnostic.
+    // Dropping them here left operators with an error id and nothing to join on.
+    const engineError = error instanceof EngineError ? error : null;
     captureError(error, {
       route: "/_agent-native/agent-chat",
       aiTraceId: runId,
@@ -1341,6 +1411,16 @@ export function startRun(
         softTimedOut: softTimedOut ? "true" : "false",
         abortReason: run.abortReason,
         errorCode,
+        gatewayRequestId: engineError?.requestId,
+        statusCode:
+          engineError?.statusCode != null
+            ? String(engineError.statusCode)
+            : undefined,
+        // What we sent, in sizes and counts only. A gateway rejection describes
+        // nothing about the request behind it, so without these an oversized
+        // payload and an upstream outage produce the same capture — which is
+        // how one gateway 500 cost a night of guessing.
+        ...engineRequestShapeTags(engineError?.requestShape),
       },
       extra: {
         runId,
@@ -1461,6 +1541,32 @@ export function startRun(
         ...(err instanceof EngineError && err.upgradeUrl
           ? { upgradeUrl: err.upgradeUrl }
           : {}),
+        // The engine's own retry verdict, carried structurally. The client
+        // decides auto-continue from this, `recoverable` and the error code, and
+        // a deployment whose visitor copy replaces the message (Builder credits)
+        // leaves it nothing else to read: without this a provider throttle the
+        // engine marked retryable ends the turn on those sites only.
+        //
+        // NOT `recoverable`. That field is the server's own "this run stopped at
+        // an internal continuation boundary" signal, read by
+        // `isInternalContinuationError` (thread-data-builder) to drop the error
+        // from the persisted turn and by `isRecoverableContinuationError`
+        // (production-agent) to self-chain the next background chunk. Neither
+        // lists `rate_limited` or `too_many_concurrent_requests` today, so
+        // feeding them from the engine verdict would newly chain up to
+        // MAX_BACKGROUND_RUN_CONTINUATIONS invocations into a live throttle — on
+        // every lane, not just Builder credits.
+        ...(err instanceof EngineError && err.providerRetryable === true
+          ? { providerRetryable: true }
+          : {}),
+        // Same reasoning as `providerRetryable`: on the credits lane the message
+        // is the visitor line and the code is `invalid_request_error`, so this
+        // flag is the only thing left that says "trim and retry once". Dropping
+        // it here turns a recoverable overflow into a terminal failure on exactly
+        // the sites that cannot read the real reason.
+        ...(err instanceof EngineError && err.contextOverflow === true
+          ? { contextOverflow: true }
+          : {}),
       });
     })
     .finally(async () => {
@@ -1516,6 +1622,13 @@ export function startRun(
                 }
               : run;
           await onComplete(completionRun);
+          // `completionRun` is a shallow COPY whenever the loop stashed a
+          // terminal event, so a callback that installs its own terminal
+          // event writes it to the copy and `resolveTerminalEventForCompletion`
+          // below never sees it — the run then emits the pre-callback event
+          // the callback was overriding.
+          run.continuationTerminalEvent ??=
+            completionRun.continuationTerminalEvent;
         } catch (err) {
           completionError = err;
           captureRunError(err, "completion");
@@ -1543,6 +1656,22 @@ export function startRun(
               terminalEventForcesErroredStatus(terminalEvent)
             ? "errored"
             : "completed";
+      const shouldAutoContinueAfterCompletedTool =
+        finalStatus === "completed" &&
+        endsAfterCompletedToolWithoutAssistantFinal(run) &&
+        (!terminalEventForCompletion ||
+          (terminalEventForCompletion.event.type === "done" &&
+            terminalEventForCompletion.event.reason !== "user"));
+      const completedToolContinuationEvent =
+        shouldAutoContinueAfterCompletedTool
+          ? ({
+              type: "auto_continue" as const,
+              reason: "stream_ended" as const,
+            } satisfies Extract<AgentChatEvent, { type: "auto_continue" }>)
+          : null;
+      if (completedToolContinuationEvent) {
+        terminalEvent = completedToolContinuationEvent;
+      }
       const terminalReason = terminalReasonForRun(
         finalStatus,
         terminalEvent,
@@ -1577,19 +1706,25 @@ export function startRun(
         // insertRunEvent's `ON CONFLICT (run_id, seq) DO NOTHING`, so the
         // client would never see the terminal/continuation signal. We always
         // re-stamp the seq at emit time (max-seq+1) just below.
-        const terminalEvent: AgentChatEvent =
+        const terminalEventToEmit: AgentChatEvent =
           finalStatus === "completed"
-            ? (terminalEventForCompletion?.event ?? { type: "done" })
+            ? (completedToolContinuationEvent ??
+              terminalEventForCompletion?.event ?? { type: "done" })
             : terminalEventForCompletion?.event.type === "error" ||
                 terminalEventForCompletion?.event.type === "missing_api_key"
               ? terminalEventForCompletion.event
-              : terminalEventForCompletion?.event.type === "auto_continue"
+              : terminalEventForCompletion?.event.type === "auto_continue" &&
+                  run.continuationTerminalEvent
                 ? // The run was checkpointed at a soft-timeout/loop boundary and
                   // is recoverable: the partial turn is in agent_run_events and
-                  // the continuation run will re-attempt the thread_data save.
+                  // the handed-off continuation run will re-attempt the
+                  // thread_data save.
                   // Even though the completion save failed (finalStatus stays
                   // "errored" for SQL/diagnostics), re-emit the auto_continue so
-                  // the client resumes instead of seeing a dead chat.
+                  // the client resumes instead of seeing a dead chat. A
+                  // pending auto_continue without this handoff marker is not
+                  // recoverable: advertising it makes the client poll a dead
+                  // run until it reports background_run_lost.
                   terminalEventForCompletion.event
                 : {
                     type: "error",
@@ -1605,7 +1740,7 @@ export function startRun(
           // terminal event was stashed.
           const terminal: RunEvent = {
             seq: run.events.length,
-            event: terminalEvent,
+            event: terminalEventToEmit,
           };
           try {
             await emitRunEvent(terminal, { surfacePersistenceError: true });

@@ -51,10 +51,12 @@ describe("slack outbound installation selection", () => {
     vi.stubGlobal("fetch", fetchMock);
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
-    await slackAdapter().sendMessageToTarget!(
-      { text: "hello", platformContext: {} },
-      { destination: "C123", tenantId: "T1" },
-    );
+    await expect(
+      slackAdapter().sendMessageToTarget!(
+        { text: "hello", platformContext: {} },
+        { destination: "C123", tenantId: "T1" },
+      ),
+    ).rejects.toThrow("no bot token for outbound target");
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(errorSpy.mock.calls.flat().join(" ")).toContain(

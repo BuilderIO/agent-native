@@ -8,6 +8,7 @@ import {
   assertSourceImportSlidesCovered,
   clearOmittedAnimationsForAgentContentPatches,
   isAgentPatchCaller,
+  OperationSchema,
   resolveDeckColumnUpdates,
   withDeckLock,
   type Operation,
@@ -214,6 +215,27 @@ describe("applyOperation — add-slide", () => {
       "s2",
       "s3",
     ]);
+  });
+
+  it("keeps transition, animations, and image data on a duplicated slide", () => {
+    const deck = { slides: [{ id: "s1", content: "1" }] };
+    applyOperation(deck, {
+      op: "add-slide",
+      slideId: "s2",
+      afterSlideId: "s1",
+      fields: {
+        content: "<p>Copy</p>",
+        transition: "fade",
+        animations: [{ id: "a1", elementIndex: 0, type: "fade" }],
+        imageUrl: "https://example.com/slide.png",
+        imageLoading: true,
+      },
+    });
+    const copy = deck.slides[1];
+    expect(copy.transition).toBe("fade");
+    expect(copy.animations).toHaveLength(1);
+    expect(copy.imageUrl).toBe("https://example.com/slide.png");
+    expect(copy.imageLoading).toBeUndefined();
   });
 
   it("is idempotent — duplicate delivery is silently ignored", () => {
@@ -650,6 +672,52 @@ describe("patch-deck agent schema", () => {
     expect(parameters.properties.requireAllSourceSlides).toMatchObject({
       type: "boolean",
     });
+  });
+
+  // An untyped `animations` array sends callers probing a live deck to learn
+  // the shape, and hides that the field is a whole-list replacement.
+  it("spells out the animation entry shape and its replace semantics", () => {
+    const parameters = patchDeckAction.tool.parameters as any;
+    const slidePatch = parameters.properties.operations.items.anyOf.find(
+      (operation: any) => operation.properties?.op?.const === "patch-slide",
+    );
+    const animations = slidePatch.properties.fields.properties.animations;
+
+    expect(animations.description).toMatch(/complete ordered/i);
+    expect(animations.items.properties.type.enum).toEqual([
+      "appear",
+      "fade",
+      "slide-up",
+      "zoom",
+    ]);
+    expect(animations.items.properties).toHaveProperty("id");
+    expect(animations.items.properties).toHaveProperty("elementIndex");
+    expect(animations.items.properties).toHaveProperty("elementPath");
+  });
+
+  // Pins the compatibility boundary rather than endorsing it. The editor
+  // re-sends a slide's whole stored array on every animation edit, and
+  // `normalizeSlideAnimation` in shared/api.ts still reads entries that this
+  // schema rejects, so a deck holding one can no longer be saved from the
+  // panel. If that gap is ever closed, this expectation is what changes.
+  it("rejects stored entries that predate the required id/elementIndex/type", () => {
+    const pathOnlyEntry = OperationSchema.safeParse({
+      op: "patch-slide",
+      slideId: "s1",
+      fields: { animations: [{ elementPath: [0, 2], type: "fade" }] },
+    });
+    const fullyFormedEntry = OperationSchema.safeParse({
+      op: "patch-slide",
+      slideId: "s1",
+      fields: {
+        animations: [
+          { id: "a1", elementIndex: 2, elementPath: [0, 2], type: "fade" },
+        ],
+      },
+    });
+
+    expect(pathOnlyEntry.success).toBe(false);
+    expect(fullyFormedEntry.success).toBe(true);
   });
 });
 

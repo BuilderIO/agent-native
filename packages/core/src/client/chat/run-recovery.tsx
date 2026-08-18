@@ -23,8 +23,11 @@ import { useState, useEffect, useCallback, useRef } from "react";
 
 import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
-import { isProviderAuthenticationError } from "../error-format.js";
-import { useT } from "../i18n.js";
+import {
+  isProviderAuthenticationError,
+  localizeKnownChatErrorText,
+} from "../error-format.js";
+import { useFormatters, useT } from "../i18n.js";
 import { AgentProviderSetupForm } from "../settings/ProviderSetupForm.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { cn } from "../utils.js";
@@ -124,10 +127,17 @@ export function runErrorKey(info: RunErrorInfo): string {
   return `${info.runId ?? ""}:${info.errorCode ?? ""}:${info.message}`;
 }
 
-export function runErrorHeadline(info: RunErrorInfo): string {
-  return info.recoverable === true
-    ? "The agent stopped before finishing"
-    : "The agent hit an error";
+export function runErrorHeadline(
+  info: RunErrorInfo,
+  labels: {
+    recoverable: string;
+    terminal: string;
+  } = {
+    recoverable: "The agent stopped before finishing",
+    terminal: "The agent hit an error",
+  },
+): string {
+  return info.recoverable === true ? labels.recoverable : labels.terminal;
 }
 
 export function getRequestModeMetadata(
@@ -208,6 +218,7 @@ export function BuilderConnectCta({
   variant?: "primary" | "compact";
   onConnected?: () => void;
 }) {
+  const t = useT();
   const { configured, orgName, connecting, error, start } =
     useBuilderConnectFlow({
       trackingSource: "assistant_chat_builder_cta",
@@ -219,7 +230,9 @@ export function BuilderConnectCta({
       return (
         <span className="agent-builder-setup-card__builder-button inline-flex h-8 items-center gap-1.5 whitespace-nowrap rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground">
           <IconCheck size={11} className="text-emerald-500" />
-          {orgName ? `Connected to ${orgName}` : "Connected"}
+          {orgName
+            ? t("agentChat.setup.connectedTo", { organization: orgName })
+            : t("agentChat.setup.connected")}
         </span>
       );
     }
@@ -236,14 +249,14 @@ export function BuilderConnectCta({
           {connecting ? (
             <>
               <IconLoader2 size={10} className="animate-spin" />
-              Waiting…
+              {t("agentChat.common.waiting")}
             </>
           ) : (
-            "Connect Builder.io"
+            t("agentChat.setup.connectBuilder")
           )}
         </button>
         {error && (
-          <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-right">
+          <p className="max-w-[13rem] text-[10px] leading-snug text-destructive sm:text-end">
             {error}
           </p>
         )}
@@ -260,12 +273,16 @@ export function BuilderConnectCta({
         <div className="min-w-0 flex-1">
           <div className="text-xs font-medium text-foreground">Builder.io</div>
           <p className="text-[11px] text-muted-foreground mt-0.5">
-            {orgName ? `Connected — ${orgName}` : "Connected"}
+            {orgName
+              ? t("agentChat.setup.connectedOrganization", {
+                  organization: orgName,
+                })
+              : t("agentChat.setup.connected")}
           </p>
         </div>
-        <span className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
+        <span className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-emerald-500/10 px-2 py-0.5 text-[10px] font-medium text-emerald-500">
           <IconCheck size={10} />
-          Connected
+          {t("agentChat.setup.connected")}
         </span>
       </div>
     );
@@ -275,10 +292,10 @@ export function BuilderConnectCta({
     <div className={containerClass}>
       <div className="min-w-0 flex-1">
         <div className="text-xs font-medium text-foreground">
-          Connect Builder.io
+          {t("agentChat.setup.connectBuilder")}
         </div>
         <p className="text-[11px] text-muted-foreground mt-0.5 max-w-[220px]">
-          Free credits for LLM, hosting, and more — no API key needed
+          {t("agentChat.setup.freeCredits")}
         </p>
         {error && <p className="mt-1 text-[10px] text-destructive">{error}</p>}
       </div>
@@ -286,16 +303,16 @@ export function BuilderConnectCta({
         type="button"
         onClick={() => start()}
         disabled={connecting}
-        className="ml-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
+        className="ms-auto inline-flex items-center gap-1 shrink-0 rounded-md bg-foreground px-3 py-1.5 text-[11px] font-medium no-underline text-background hover:opacity-90 disabled:opacity-60 disabled:cursor-wait"
         aria-busy={connecting}
       >
         {connecting ? (
           <>
             <IconLoader2 size={10} className="animate-spin" />
-            Waiting…
+            {t("agentChat.common.waiting")}
           </>
         ) : (
-          "Connect"
+          t("agentChat.common.connect")
         )}
       </button>
     </div>
@@ -391,11 +408,13 @@ export function BuilderSetupContent({
 export function BuilderSetupCard({
   onConnected,
   bouncePulse,
+  attached = false,
   fullWidth,
   layout = "default",
 }: {
   onConnected?: () => void;
   bouncePulse?: number;
+  attached?: boolean;
   fullWidth?: boolean;
   layout?: BuilderSetupCardLayout;
 }) {
@@ -420,6 +439,7 @@ export function BuilderSetupCard({
       className={cn(
         "agent-builder-setup-card",
         sidebarLayout && "agent-builder-setup-card--sidebar",
+        attached && "agent-builder-setup-card--attached",
         fullWidth
           ? "w-full px-3 pb-2"
           : sidebarLayout
@@ -456,6 +476,7 @@ export function RunErrorRecoveryCard({
   onDismiss: () => void;
   onProviderConnected?: () => void;
 }) {
+  const t = useT();
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
     "idle",
@@ -484,7 +505,9 @@ export function RunErrorRecoveryCard({
   const isQueryError = isProviderQueryRunError(info);
   const isConnectionRecoveryError = isConnectionRecoveryRunError(info);
   const copyLabel =
-    info.runId || info.errorCode || info.details ? "Copy debug" : "Copy";
+    info.runId || info.errorCode || info.details
+      ? t("agentChat.recovery.copyDebug")
+      : t("agentChat.common.copy");
   const copyDetails = useCallback(() => {
     const text = [
       info.message,
@@ -521,14 +544,14 @@ export function RunErrorRecoveryCard({
     try {
       const result = await onFork();
       if (result === false) {
-        setForkError("Could not fork this chat. Try starting a new chat.");
+        setForkError(t("agentChat.recovery.forkFailed"));
       }
     } catch {
-      setForkError("Could not fork this chat. Try starting a new chat.");
+      setForkError(t("agentChat.recovery.forkFailed"));
     } finally {
       setForking(false);
     }
-  }, [forking, onFork]);
+  }, [forking, onFork, t]);
 
   useEffect(() => {
     if (builderReconnectResolved) {
@@ -544,10 +567,13 @@ export function RunErrorRecoveryCard({
         </span>
         <div className="min-w-0 flex-1">
           <div className="font-medium text-foreground">
-            {runErrorHeadline(info)}
+            {runErrorHeadline(info, {
+              recoverable: t("agentChat.error.stopped"),
+              terminal: t("agentChat.error.failed"),
+            })}
           </div>
           <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-            {info.message}
+            {localizeKnownChatErrorText(info.message, t)}
           </p>
           {isProviderAuthError && (
             <div className="mt-3 rounded-md border border-border/70 bg-background/60 p-2.5">
@@ -559,15 +585,12 @@ export function RunErrorRecoveryCard({
           )}
           {shouldShowBuilderReconnect && !builderReconnectResolved && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              The current Builder.io or model-provider credential was rejected.
-              Reconnect Builder.io (free tier available), then retry this
-              message.
+              {t("agentChat.recovery.credentialRejected")}
             </p>
           )}
           {isConnectionRecoveryError && (
             <p className="mt-2 text-xs leading-relaxed text-muted-foreground">
-              If retry lands on the same error, start a new chat session and
-              continue from what already changed.
+              {t("agentChat.recovery.newChatHint")}
             </p>
           )}
           {(info.runId || info.errorCode || info.details) && (
@@ -583,7 +606,7 @@ export function RunErrorRecoveryCard({
                   detailsOpen && "rotate-180",
                 )}
               />
-              Details
+              {t("agentChat.common.details")}
             </button>
           )}
           {detailsOpen && (
@@ -601,7 +624,7 @@ export function RunErrorRecoveryCard({
         <button
           type="button"
           onClick={onDismiss}
-          aria-label="Dismiss"
+          aria-label={t("agentChat.common.dismiss")}
           className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-background/80 hover:text-foreground"
         >
           <IconX size={14} />
@@ -619,8 +642,8 @@ export function RunErrorRecoveryCard({
               <IconLoader2 size={13} className="animate-spin" />
             ) : null}
             {builderReconnect.connecting
-              ? "Connecting Builder.io"
-              : "Reconnect Builder.io"}
+              ? t("agentChat.recovery.connectingBuilder")
+              : t("agentChat.recovery.reconnectBuilder")}
           </button>
         )}
         {canRecover && (
@@ -631,7 +654,7 @@ export function RunErrorRecoveryCard({
               className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
             >
               <IconPlayerPlay size={13} />
-              Continue
+              {t("agentChat.common.continue")}
             </button>
           </>
         )}
@@ -642,7 +665,9 @@ export function RunErrorRecoveryCard({
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
           >
             <IconRefresh size={13} />
-            {isQueryError ? "Diagnose and retry" : "Retry"}
+            {isQueryError
+              ? t("agentChat.recovery.diagnoseRetry")
+              : t("agentChat.common.retry")}
           </button>
         )}
         {canRecover && isConnectionRecoveryError && (
@@ -652,7 +677,7 @@ export function RunErrorRecoveryCard({
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent"
           >
             <IconPlus size={13} />
-            New chat
+            {t("agentChat.tabs.newChat")}
           </button>
         )}
         {canRecover && onFork && !isConnectionRecoveryError && (
@@ -660,8 +685,8 @@ export function RunErrorRecoveryCard({
             type="button"
             onClick={handleFork}
             disabled={forking}
-            title="Fork this conversation into a separate chat thread."
-            aria-label="Fork this conversation into a separate chat thread"
+            title={t("agentChat.recovery.forkDescription")}
+            aria-label={t("agentChat.recovery.forkDescription")}
             className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background px-3 text-xs font-medium text-foreground hover:bg-accent disabled:cursor-wait disabled:opacity-70"
           >
             {forking ? (
@@ -669,13 +694,15 @@ export function RunErrorRecoveryCard({
             ) : (
               <IconGitFork size={13} />
             )}
-            {forking ? "Forking..." : "Fork chat"}
+            {forking
+              ? t("agentChat.recovery.forking")
+              : t("agentChat.message.forkChat")}
           </button>
         )}
         <button
           type="button"
           onClick={copyDetails}
-          className="ml-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
+          className="ms-auto inline-flex h-8 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium text-muted-foreground hover:bg-background/80 hover:text-foreground"
         >
           {copyState === "copied" ? (
             <IconCheck size={13} />
@@ -686,9 +713,9 @@ export function RunErrorRecoveryCard({
           )}
           <span aria-live="polite">
             {copyState === "copied"
-              ? "Copied"
+              ? t("agentChat.common.copied")
               : copyState === "failed"
-                ? "Copy failed"
+                ? t("agentChat.recovery.copyFailed")
                 : copyLabel}
           </span>
         </button>
@@ -714,6 +741,8 @@ export function LoopLimitContinueCard({
   info: LoopLimitInfo;
   onContinue: () => void;
 }) {
+  const t = useT();
+  const { formatNumber } = useFormatters();
   const [settings, setSettings] = useState<AgentLoopSettingsResponse | null>(
     null,
   );
@@ -751,9 +780,11 @@ export function LoopLimitContinueCard({
   const scopeLabel =
     settings?.scope === "org"
       ? settings.orgName
-        ? `${settings.orgName} org`
-        : "org"
-      : "your account";
+        ? t("agentChat.limit.namedOrganization", {
+            organization: settings.orgName,
+          })
+        : t("agentChat.limit.organization")
+      : t("agentChat.limit.account");
 
   const saveLimit = useCallback(async (): Promise<boolean> => {
     if (!settings?.canUpdate) return false;
@@ -771,7 +802,10 @@ export function LoopLimitContinueCard({
       );
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body?.error ?? `Save failed (${res.status})`);
+        throw new Error(
+          body?.error ??
+            t("agentChat.common.saveFailedStatus", { status: res.status }),
+        );
       }
       setSettings(body as AgentLoopSettingsResponse);
       setValue(String((body as AgentLoopSettingsResponse).maxIterations));
@@ -782,12 +816,14 @@ export function LoopLimitContinueCard({
       setTimeout(() => setSaved(false), 2000);
       return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Save failed");
+      setError(
+        err instanceof Error ? err.message : t("agentChat.common.saveFailed"),
+      );
       return false;
     } finally {
       setSaving(false);
     }
-  }, [numericValue, settings?.canUpdate]);
+  }, [numericValue, settings?.canUpdate, t]);
 
   const handleContinue = useCallback(async () => {
     if (hasPendingChange) {
@@ -812,14 +848,16 @@ export function LoopLimitContinueCard({
         </span>
         <div className="min-w-0">
           <p className="text-sm font-medium text-foreground">
-            Step limit reached
+            {t("agentChat.limit.reached")}
           </p>
           <p className="mt-0.5 text-xs leading-relaxed text-muted-foreground">
-            The agent used{" "}
             {currentLimit
-              ? `${currentLimit.toLocaleString()} steps`
-              : "all available steps"}
-            . Keep going in a fresh turn, or raise the {scopeLabel} limit first.
+              ? t("agentChat.limit.descriptionWithCount", {
+                  count: currentLimit,
+                  formattedCount: formatNumber(currentLimit),
+                  scope: scopeLabel,
+                })
+              : t("agentChat.limit.descriptionAll", { scope: scopeLabel })}
           </p>
         </div>
       </div>
@@ -827,7 +865,7 @@ export function LoopLimitContinueCard({
       <div className="mt-3 flex flex-wrap items-end gap-2">
         <label className="min-w-[116px] flex-1 space-y-1">
           <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-            Max steps
+            {t("agentChat.limit.maxSteps")}
           </span>
           <input
             type="number"
@@ -853,7 +891,7 @@ export function LoopLimitContinueCard({
           ) : saved ? (
             <IconCheck size={12} />
           ) : (
-            "Save"
+            t("agentChat.common.save")
           )}
         </button>
         <button
@@ -862,22 +900,24 @@ export function LoopLimitContinueCard({
           className="inline-flex h-8 items-center gap-1 rounded-md border border-border px-2.5 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground"
         >
           <IconSettings size={12} />
-          Settings
+          {t("agentChat.common.settings")}
         </button>
         <button
           type="button"
           onClick={handleContinue}
           disabled={saving}
-          className="ml-auto inline-flex h-8 items-center gap-1 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:opacity-60"
+          className="ms-auto inline-flex h-8 items-center gap-1 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:opacity-60"
         >
-          {hasPendingChange ? "Save and keep going" : "Keep going"}
+          {hasPendingChange
+            ? t("agentChat.limit.saveAndContinue")
+            : t("agentChat.limit.keepGoing")}
           <IconArrowRight size={12} />
         </button>
       </div>
 
       {settings && !settings.canUpdate && (
         <p className="mt-2 text-[11px] text-muted-foreground">
-          Only organization owners and admins can change this limit.
+          {t("agentChat.limit.ownerOnly")}
         </p>
       )}
       {error && <p className="mt-2 text-[11px] text-destructive">{error}</p>}
@@ -902,12 +942,15 @@ export function PlanModeCallout({
   onImplementPlan: () => void;
   onSwitchToAct: () => void;
 }) {
+  const t = useT();
   return (
     <div className="agent-plan-mode-callout shrink-0 px-3">
-      <div className="ml-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 py-1.5 text-xs text-muted-foreground shadow-sm">
+      <div className="ms-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 py-1.5 text-xs text-muted-foreground shadow-sm">
         <IconClipboardList size={13} className="shrink-0" />
         <span className="min-w-0 truncate">
-          {canImplementPlan ? "Plan ready" : "Plan mode"}
+          {canImplementPlan
+            ? t("agentChat.plan.ready")
+            : t("agentChat.plan.mode")}
         </span>
         {canImplementPlan ? (
           <button
@@ -916,16 +959,16 @@ export function PlanModeCallout({
             className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full bg-foreground px-2.5 text-[11px] font-medium text-background hover:opacity-90"
           >
             <IconPlayerPlay size={12} />
-            Implement
+            {t("agentChat.plan.implement")}
           </button>
         ) : (
           <button
             type="button"
             onClick={onSwitchToAct}
             className="inline-flex h-6 shrink-0 items-center gap-1 rounded-full border border-border bg-background px-2.5 text-[11px] font-medium text-foreground hover:bg-accent"
-            aria-label="Switch to Act mode"
+            aria-label={t("agentChat.plan.switchToAct")}
           >
-            Act
+            {t("agentChat.plan.act")}
             <IconArrowRight size={12} />
           </button>
         )}

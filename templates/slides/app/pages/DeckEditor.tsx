@@ -24,7 +24,12 @@ import {
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import { useState, useCallback, useRef, useEffect } from "react";
-import { useParams, useSearchParams, useNavigate } from "react-router";
+import {
+  useBlocker,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
@@ -34,14 +39,31 @@ import { DeckEditorSkeleton } from "@/components/editor/DeckEditorSkeleton";
 import { EditorActionCluster } from "@/components/editor/EditorActionCluster";
 import EditorSidebar from "@/components/editor/EditorSidebar";
 import EditorToolbar from "@/components/editor/EditorToolbar";
+import { canExportPptxFromServer } from "@/components/editor/ExportMenu";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
-import { deckIdFromPathname, useDecks } from "@/context/DeckContext";
+import {
+  deckIdFromPathname,
+  hasUnsavedDeckChanges,
+  type Slide,
+  useDecks,
+  useSaveState,
+} from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
@@ -56,7 +78,11 @@ import {
   shouldShowDeckEditorSkeleton,
 } from "@/lib/deck-editor-loading";
 import { getPreset } from "@/lib/design-systems";
-import { exportDeckToGoogleSlides } from "@/lib/export-google-slides-client";
+import { shouldSuppressSlidesItalicShortcut } from "@/lib/editor-shortcuts";
+import {
+  exportDeckToGoogleSlides,
+  fetchDeckPptxFromServer,
+} from "@/lib/export-google-slides-client";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
 import { exportDeckAsPptx } from "@/lib/export-pptx-client";
 import {
@@ -65,6 +91,10 @@ import {
   shouldShowNewDeckGeneratingProgress,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
+import {
+  shouldBlockPendingDeckNavigation,
+  usePendingDeckUnloadGuard,
+} from "@/lib/pending-deck-changes";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
 import {
   insertDroppedImageIntoSlideHtml,
@@ -156,8 +186,10 @@ export default function DeckEditor() {
     updateSlide,
     deleteSlide,
     duplicateSlide,
+    pasteSlide,
     duplicateDeck,
     addSlide,
+    flushDeckSave,
     reorderSlides,
     markDeckDirty,
     undo,
@@ -165,9 +197,54 @@ export default function DeckEditor() {
     loadError,
   } = useDecks();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
+  const [inlineEditActive, setInlineEditActive] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
   const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
+  const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
+  const hasPendingDeckEdits =
+    inlineEditActive || (id ? hasUnsavedDeckChanges(id) : hasUnsavedSave);
+  usePendingDeckUnloadGuard(hasPendingDeckEdits);
+  const pendingDeckNavigationBlocker = useBlocker(
+    useCallback(
+      ({ currentLocation, nextLocation }) =>
+        shouldBlockPendingDeckNavigation({
+          hasPendingEdits: hasPendingDeckEdits,
+          currentPathname: currentLocation.pathname,
+          nextPathname: nextLocation.pathname,
+        }),
+      [hasPendingDeckEdits],
+    ),
+  );
+  const pendingDeckNavigationWarningOpen =
+    pendingDeckNavigationBlocker.state === "blocked";
+  const keepEditingAfterNavigationAttempt = useCallback(() => {
+    if (pendingDeckNavigationBlocker.state !== "blocked") return;
+    pendingDeckNavigationBlocker.reset();
+  }, [pendingDeckNavigationBlocker]);
+  const leaveWithPendingDeckChanges = useCallback(() => {
+    if (pendingDeckNavigationBlocker.state !== "blocked") return;
+    pendingDeckNavigationBlocker.proceed();
+  }, [pendingDeckNavigationBlocker]);
   const { generating } = useAgentGenerating();
+  // Dedicated instance (not the `generating` one above, which reflects ANY
+  // agent chat activity) so an unrelated concurrent run can't be mistaken
+  // for this one finishing and clear the flag early. Owning the submit call
+  // here — instead of in EditorSidebar, which unmounts when the rail closes
+  // on narrow viewports — keeps both the run-scoping and the completion
+  // tracking correct across a remount.
+  const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
+    useAgentGenerating();
+  const sawAddSlideAgentGeneratingRef = useRef(false);
+  useEffect(() => {
+    if (addSlideAgentGenerating) {
+      sawAddSlideAgentGeneratingRef.current = true;
+      return;
+    }
+    if (addSlideGenerating && sawAddSlideAgentGeneratingRef.current) {
+      sawAddSlideAgentGeneratingRef.current = false;
+      setAddSlideGenerating(false);
+    }
+  }, [addSlideGenerating, addSlideAgentGenerating]);
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
@@ -181,6 +258,14 @@ export default function DeckEditor() {
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
+  // The slide just inserted via the toolbar's New Slide button, so the rail
+  // can anchor the "describe this slide" popover to its thumbnail once it
+  // mounts — even though the button that sets this now lives in the
+  // toolbar, outside the rail.
+  const [describeSlideId, setDescribeSlideId] = useState<string | null>(null);
+  useEffect(() => {
+    setDescribeSlideId(null);
+  }, [id]);
   const [contextToolbarSlot, setContextToolbarSlot] =
     useState<HTMLDivElement | null>(null);
   const [wideContextToolbarSlot, setWideContextToolbarSlot] =
@@ -253,7 +338,7 @@ export default function DeckEditor() {
   // get the full editor. Only assume edit access while the role is still
   // loading when `createdByMe` already confirms ownership — otherwise a
   // viewer would briefly see (and could click) edit affordances.
-  const { canEdit } = useDeckRole(id, deck?.createdByMe === true);
+  const { canEdit, canComment } = useDeckRole(id, deck?.createdByMe === true);
   const isNewDeckGenerating = shouldShowNewDeckGeneratingProgress({
     generating,
     isNewDeckCreation: wasNewDeckCreation.current,
@@ -706,6 +791,18 @@ export default function DeckEditor() {
       document.removeEventListener("keydown", handleTextToolShortcut);
   }, [canEdit]);
 
+  useEffect(() => {
+    const handleItalicShortcut = (event: KeyboardEvent) => {
+      if (!shouldSuppressSlidesItalicShortcut(event)) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+    };
+
+    document.addEventListener("keydown", handleItalicShortcut, true);
+    return () =>
+      document.removeEventListener("keydown", handleItalicShortcut, true);
+  }, []);
+
   // Delete key deletes the current slide
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -756,6 +853,197 @@ export default function DeckEditor() {
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [deck, id, activeSlideId, deleteSlideWithUndo, pinMode, drawMode]);
+
+  // Slide-level clipboard backing both the Cmd+C/Cmd+V shortcut below and the
+  // rail's right-click Cut/Copy/Paste menu. Holds a full slide snapshot
+  // (rather than just an id) so paste still works after Cut has already
+  // removed the original slide from the deck.
+  const slideClipboardRef = useRef<Slide | null>(null);
+  const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
+
+  const copySlide = useCallback(
+    (slideId: string) => {
+      const slide = deck?.slides.find((s) => s.id === slideId);
+      if (!slide) return;
+      slideClipboardRef.current = slide;
+      setHasSlideClipboard(true);
+    },
+    [deck],
+  );
+
+  const cutSlide = useCallback(
+    (slideId: string) => {
+      if (!deck || !id || deck.slides.length <= 1) return; // don't cut the last slide
+      const slide = deck.slides.find((s) => s.id === slideId);
+      if (!slide) return;
+      slideClipboardRef.current = slide;
+      setHasSlideClipboard(true);
+      const idx = deck.slides.findIndex((s) => s.id === slideId);
+      const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
+      deleteSlideWithUndo(id, slideId);
+      if (activeSlideId === slideId && nextSlide) {
+        setActiveSlideId(nextSlide.id);
+      }
+    },
+    [deck, id, activeSlideId, deleteSlideWithUndo],
+  );
+
+  const pasteSlideAfter = useCallback(
+    (targetSlideId: string) => {
+      const clipboard = slideClipboardRef.current;
+      if (!clipboard || !id) return;
+      const { id: _clipboardId, ...fields } = clipboard;
+      const newId = pasteSlide(id, targetSlideId, fields);
+      if (newId) setActiveSlideId(newId);
+    },
+    [id, pasteSlide],
+  );
+
+  // Handlers backing the slide rail's right-click menu.
+  const handleDeleteSlideFromRail = useCallback(
+    (slideId: string) => {
+      if (!deck || !id || deck.slides.length <= 1) return; // don't delete the last slide
+      const idx = deck.slides.findIndex((s) => s.id === slideId);
+      const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
+      deleteSlideWithUndo(id, slideId);
+      if (activeSlideId === slideId && nextSlide) {
+        setActiveSlideId(nextSlide.id);
+      }
+    },
+    [deck, id, activeSlideId, deleteSlideWithUndo],
+  );
+
+  const handleDuplicateSlideFromRail = useCallback(
+    (slideId: string) => {
+      if (!id) return;
+      const newId = duplicateSlide(id, slideId);
+      if (newId) setActiveSlideId(newId);
+    },
+    [id, duplicateSlide],
+  );
+
+  const handleNewSlideAfter = useCallback(
+    (afterSlideId: string) => {
+      if (!deck || !id) return;
+      const afterIdx = deck.slides.findIndex((s) => s.id === afterSlideId);
+      // Immediate persistence: mirrors handleAddEmptySlide, since this also
+      // opens the "describe this slide" popover right away.
+      const newId = addSlide(
+        id,
+        "blank",
+        afterIdx >= 0 ? afterIdx : undefined,
+        { persistence: "immediate" },
+      );
+      setActiveSlideId(newId);
+      setSidebarOpen(true);
+      setDescribeSlideId(newId);
+    },
+    [deck, id, addSlide],
+  );
+
+  const handleToggleSkipSlide = useCallback(
+    (slideId: string) => {
+      if (!deck || !id) return;
+      const slide = deck.slides.find((s) => s.id === slideId);
+      if (!slide) return;
+      updateSlide(id, slideId, { skipped: !slide.skipped });
+    },
+    [deck, id, updateSlide],
+  );
+
+  // Command/Ctrl+C then Command/Ctrl+V on the slide rail copies/pastes the
+  // selected slide directly below itself. Only claims the shortcut when no
+  // slide element is selected — SlideEditor owns Cmd+C/V for object copy/paste
+  // in that case.
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!deck || !id || !canEdit) return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key !== "c" && key !== "v") return;
+      if (pinMode || drawMode) return;
+
+      // A live browser text selection (e.g. the user triple-clicked rendered,
+      // non-editable slide copy) means Cmd/Ctrl+C is a normal text copy —
+      // let it through instead of hijacking it into a slide duplicate.
+      if (key === "c" && (window.getSelection()?.toString().length ?? 0) > 0) {
+        return;
+      }
+
+      // Radix Popper positions Popover/DropdownMenu/Select/Tooltip content
+      // inside the same [data-radix-popper-content-wrapper]. A tooltip opens
+      // on plain hover, so treating every such wrapper as blocking would
+      // disable this shortcut just by mousing over a toolbar button; only
+      // wrappers that aren't tooltips (marked with data-agent-native-tooltip)
+      // should count as an open menu/popover/dialog owning the keystroke.
+      const isBlockingPopperWrapper = (el: Element) =>
+        el.matches("[data-radix-popper-content-wrapper]") &&
+        !el.querySelector("[data-agent-native-tooltip]");
+      const isInsideSafeZone = (el: Element | null) => {
+        if (!el) return false;
+        if (el instanceof HTMLInputElement) return true;
+        if (el instanceof HTMLTextAreaElement) return true;
+        if (el instanceof HTMLElement) {
+          if (el.isContentEditable) return true;
+          if (el.closest("[contenteditable='true']")) return true;
+          if (el.closest("input, textarea, [role='textbox']")) return true;
+          if (el.closest("[data-pin-popover]")) return true;
+          if (el.closest("[data-add-slide-popover]")) return true;
+          if (el.closest(".agent-panel-root")) return true;
+          if (el.closest("[role='dialog'], [role='alertdialog']")) return true;
+          const popperWrapper = el.closest(
+            "[data-radix-popper-content-wrapper]",
+          );
+          if (popperWrapper && isBlockingPopperWrapper(popperWrapper))
+            return true;
+        }
+        return false;
+      };
+      if (isInsideSafeZone(e.target as Element | null)) return;
+      if (isInsideSafeZone(document.activeElement)) return;
+      if (document.querySelector("[data-pin-popover]")) return;
+      if (document.querySelector("[data-add-slide-popover]")) return;
+      // A dialog/sheet/menu/popover owning focus elsewhere in the DOM (not
+      // just under the event target) still shouldn't let this document-level
+      // shortcut duplicate the slide underneath it.
+      if (
+        document.querySelector(
+          "[role='dialog'], [role='alertdialog'], [role='menu'], [role='listbox']",
+        )
+      )
+        return;
+      if (
+        Array.from(
+          document.querySelectorAll("[data-radix-popper-content-wrapper]"),
+        ).some(isBlockingPopperWrapper)
+      )
+        return;
+      if (document.querySelector("[data-slide-element-selected='true']"))
+        return;
+
+      if (key === "c") {
+        if (!activeSlideId) return;
+        copySlide(activeSlideId);
+        return;
+      }
+
+      if (!hasSlideClipboard || !activeSlideId) return;
+      e.preventDefault();
+      pasteSlideAfter(activeSlideId);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, [
+    deck,
+    id,
+    canEdit,
+    activeSlideId,
+    copySlide,
+    hasSlideClipboard,
+    pasteSlideAfter,
+    pinMode,
+    drawMode,
+  ]);
 
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
@@ -989,9 +1277,30 @@ export default function DeckEditor() {
 
   const handleAddEmptySlide = () => {
     const activeIdx = deck.slides.findIndex((s) => s.id === activeSlideId);
-    setActiveSlideId(
-      addSlide(id, "blank", activeIdx >= 0 ? activeIdx : undefined),
+    // Immediate persistence: this placeholder is immediately followed by an
+    // agent request to `update-slide` it, which can reach the server before
+    // the default 500ms debounce would have flushed the `add-slide` op.
+    const newId = addSlide(
+      id,
+      "blank",
+      activeIdx >= 0 ? activeIdx : undefined,
+      {
+        persistence: "immediate",
+      },
     );
+    setActiveSlideId(newId);
+    return newId;
+  };
+
+  const handleNewSlideClick = () => {
+    const newId = handleAddEmptySlide();
+    if (newId) {
+      // The rail owns the anchor node the describe-slide popover attaches
+      // to, so it must be mounted even if it started closed on a narrow
+      // viewport where the toolbar button is still reachable.
+      setSidebarOpen(true);
+      setDescribeSlideId(newId);
+    }
   };
 
   return (
@@ -1005,8 +1314,8 @@ export default function DeckEditor() {
         deckId={id}
         deckTitle={deck.title}
         canEdit={canEdit}
+        canComment={canComment}
         onTitleChange={(title) => updateDeck(id, { title })}
-        slideCount={deck.slides.length}
         currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
         sidebarOpen={sidebarOpen}
         onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
@@ -1018,6 +1327,8 @@ export default function DeckEditor() {
         onShowHistory={() => setHistoryOpen((open) => !open)}
         historyButtonRef={historyButtonRef}
         currentSlide={currentSlide}
+        onAddEmptySlide={canEdit ? handleNewSlideClick : undefined}
+        addSlideGenerating={addSlideGenerating}
         onWideContextToolbarSlotChange={setWideContextToolbarSlot}
         activeUsers={slideActiveUsers.filter((u) => u.email !== session?.email)}
         agentPresent={agentPresent}
@@ -1090,14 +1401,25 @@ export default function DeckEditor() {
           if (slides.length === 0) {
             throw new Error(t("deckEditor.deckHasNoSlides"));
           }
+          // Same routing as Export > PowerPoint: Google imports whichever file
+          // we upload, so an imported deck's shapes survive only if the server
+          // builds it. The server renders the persisted deck, hence the flush.
+          if (canExportPptxFromServer(deck)) {
+            await flushDeckSave(id);
+            return exportDeckToGoogleSlides(
+              deck.title,
+              slides,
+              deck.aspectRatio,
+              () =>
+                fetchDeckPptxFromServer(id, t("editorExport.exportPptxError")),
+            );
+          }
           return exportDeckToGoogleSlides(deck.title, slides, deck.aspectRatio);
         }}
-        currentSlideId={currentSlide?.id}
-        addSlideGenerating={addSlideGenerating}
-        onAddSlideGeneratingChange={setAddSlideGenerating}
-        onAddEmptySlide={handleAddEmptySlide}
-        onDuplicateCurrentSlide={
-          currentSlide ? () => duplicateSlide(id, currentSlide.id) : undefined
+        onChangeSlideTransition={
+          canEdit && currentSlide
+            ? (transition) => updateSlide(id, currentSlide.id, { transition })
+            : undefined
         }
       />
 
@@ -1126,6 +1448,13 @@ export default function DeckEditor() {
                   slides={deck.slides}
                   activeSlideId={currentSlide?.id || ""}
                   deckId={id}
+                  deckTitle={deck.title}
+                  describeSlideId={describeSlideId}
+                  onCloseDescribe={() => setDescribeSlideId(null)}
+                  onAwaitAddSlidePersisted={() => flushDeckSave(id)}
+                  onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
+                  addSlideAgentSubmit={addSlideAgentSubmit}
+                  onAddSlideGeneratingChange={setAddSlideGenerating}
                   onSelectSlide={(slideId) => {
                     setGeneratingSlideSelected(false);
                     setActiveSlideId(slideId);
@@ -1148,6 +1477,14 @@ export default function DeckEditor() {
                     setGeneratingSlideSelected(true);
                     if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
+                  hasSlideClipboard={hasSlideClipboard}
+                  onCutSlide={cutSlide}
+                  onCopySlide={copySlide}
+                  onPasteSlide={pasteSlideAfter}
+                  onDeleteSlide={handleDeleteSlideFromRail}
+                  onNewSlideAfter={handleNewSlideAfter}
+                  onDuplicateSlide={handleDuplicateSlideFromRail}
+                  onToggleSkipSlide={handleToggleSkipSlide}
                 />
               </DndContext>
             </div>
@@ -1204,19 +1541,15 @@ export default function DeckEditor() {
             contextToolbarLeading={
               canEdit ? (
                 <EditorActionCluster
-                  deckId={id}
-                  deckTitle={deck.title}
-                  currentSlideId={currentSlide.id}
-                  slideCount={deck.slides.length}
-                  currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
-                  addSlideGenerating={addSlideGenerating}
-                  onAddSlideGeneratingChange={setAddSlideGenerating}
-                  onAddEmptySlide={handleAddEmptySlide}
-                  onDuplicateCurrentSlide={() =>
-                    duplicateSlide(id, currentSlide.id)
-                  }
                   textBoxMode={textBoxMode}
                   onToggleTextBoxMode={toggleTextBoxMode}
+                  onAddEmptySlide={handleNewSlideClick}
+                  addSlideGenerating={addSlideGenerating}
+                  currentSlideId={currentSlide.id}
+                  slideTransition={currentSlide.transition}
+                  onChangeSlideTransition={(transition) =>
+                    updateSlide(id, currentSlide.id, { transition })
+                  }
                 />
               ) : undefined
             }
@@ -1228,7 +1561,11 @@ export default function DeckEditor() {
                 options,
               )
             }
-            onInlineEditStart={() => markDeckDirty(id)}
+            onInlineEditStart={() => {
+              setInlineEditActive(true);
+              markDeckDirty(id);
+            }}
+            onInlineEditEnd={() => setInlineEditActive(false)}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {
               setReplaceImageSrc(src);
@@ -1257,6 +1594,7 @@ export default function DeckEditor() {
             }
             recentEdits={deckRecentEdits}
             onComment={(quotedText) => {
+              if (!canComment) return;
               setPendingComment({ quotedText });
               setSidePanel("comments");
             }}
@@ -1284,6 +1622,7 @@ export default function DeckEditor() {
           <SlideCommentsPanel
             deckId={id}
             slideId={currentSlide?.id ?? null}
+            canComment={canComment}
             pendingComment={pendingComment}
             onPendingDone={() => setPendingComment(null)}
             onClose={() => {
@@ -1365,6 +1704,30 @@ export default function DeckEditor() {
         canRestore={canEdit}
         anchorRef={historyButtonRef}
       />
+
+      <AlertDialog open={pendingDeckNavigationWarningOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("deckEditor.unsavedChangesTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("deckEditor.unsavedChangesDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={keepEditingAfterNavigationAttempt}>
+              {t("deckEditor.keepEditing")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={leaveWithPendingDeckChanges}
+            >
+              {t("deckEditor.leaveWithoutSaving")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

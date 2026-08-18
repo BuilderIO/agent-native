@@ -406,7 +406,7 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 - **關閉快取並不會讓 SSR 變得個人化。** Cookie 在渲染前仍會被剝離，SSR 載入器仍然只會看到匿名分支。使用者專屬資料依然必須在用戶端解析。此變數只控制快取*時長*。
 - **它是部署範圍的設定，而非按路由，這是有意為之的設計。** 按路由或按請求的快取覆蓋，會導致一位訪客的負載最終出現在另一位訪客共用的 CDN 條目中，因此框架不提供這種選項——`guard:ssr-cache-shell` 會強制執行這一點。
-- **對於需要變更後立即新鮮的資料，優先使用 actions 而不是停用快取。** 應用程式資料屬於 [actions](/docs/actions)，透過 `useActionQuery` / `useActionMutation` 從用戶端讀取，並透過 `useDbSync()` 輪詢保持即時；這些都不會經過 SSR 外殼快取。讓 SSR 載入器繼續渲染公開外殼，只有在您確實需要更新鮮的載入器資料時，才使用此變數。
+- **對於需要變更後立即新鮮的資料，優先使用 actions 而不是停用快取。** 應用程式資料屬於 [actions](/docs/actions-overview)，透過 `useActionQuery` / `useActionMutation` 從用戶端讀取，並透過 `useDbSync()` 輪詢保持即時；這些都不會經過 SSR 外殼快取。讓 SSR 載入器繼續渲染公開外殼，只有在您確實需要更新鮮的載入器資料時，才使用此變數。
 
 ## 環境變數 {#environment-variables}
 

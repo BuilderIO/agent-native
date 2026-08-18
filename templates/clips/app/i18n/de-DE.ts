@@ -266,6 +266,44 @@ const messages = {
     linkExpired: "Link abgelaufen",
     linkExpiredMessage:
       "Der Ersteller hat für diesen Freigabelink ein Ablaufdatum festgelegt.",
+    privateClip: "Privater Clip",
+    privateClipMessage:
+      "Dieser Clip ist privat. Fordern Sie Zugriff an, und der Eigentümer wird benachrichtigt.",
+    privateClipSignedOutMessage:
+      "Dieser Clip ist privat. Melden Sie sich an oder geben Sie Ihre E-Mail-Adresse ein, um Zugriff anzufordern.",
+    requestAccess: "Zugriff anfordern",
+    requestAccessDialogTitle: "Zugriff anfordern",
+    requestAccessDialogDescription:
+      "Wählen Sie, woran der Eigentümer Sie beim Teilen dieses Clips erkennen soll.",
+    requestAccessSignIn: "Anmelden oder registrieren",
+    requestAccessOr: "oder",
+    requestAccessEmailLabel: "E-Mail-Adresse",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Melden Sie sich nach der Freigabe mit dieser E-Mail-Adresse an, um den Clip anzusehen.",
+    requestAccessWithEmail: "Per E-Mail Zugriff anfordern",
+    requestAccessEmailRequired: "Geben Sie eine gültige E-Mail-Adresse ein.",
+    requestingAccess: "Zugriff wird angefordert...",
+    accessRequested: "Zugriff angefordert",
+    accessRequestSent: "Der Eigentümer des Clips wurde benachrichtigt.",
+    accessRequestSentWithEmail:
+      "Der Eigentümer wurde gebeten, diesen Clip mit {{email}} zu teilen.",
+    accessRequestFailed:
+      "Zugriff konnte nicht angefordert werden. Versuchen Sie es erneut.",
+    accessApprovalTitle: "Zugriff gewährt",
+    accessApprovalAlreadyTitle: "Zugriff bereits gewährt",
+    accessApprovalMessage: "{{email}} kann diesen Clip jetzt ansehen.",
+    accessApprovalAlreadyMessage:
+      "{{email}} hat bereits Zugriff auf diesen Clip.",
+    accessApprovalErrorTitle: "Zugriff konnte nicht gewährt werden",
+    accessApprovalInvalid:
+      "Diese Zugriffsanfrage ist ungültig oder abgelaufen.",
+    accessApprovalSignInTitle: "Anmelden, um Zugriff zu gewähren",
+    accessApprovalSignInMessage:
+      "Melden Sie sich als Clip-Eigentümer oder Admin an, um diese Anfrage zu genehmigen.",
+    accessApprovalOpenClip: "Clip öffnen",
+    accessApprovalSignIn: "Anmelden",
+    accessApprovalLoading: "Zugriff wird gewährt...",
     clipUnavailable: "Clip nicht verfügbar",
     clipUnavailableMessage:
       "Diese Aufzeichnung ist nicht öffentlich oder der Link ist ungültig. Wenn es sich um Ihren Clip handelt, melden Sie sich an, um den Zugriff zu überprüfen.",
@@ -523,8 +561,13 @@ const messages = {
     },
     roles: {
       viewer: "Zuschauer",
+      commenter: "Kommentator",
       editor: "Editor",
       admin: "Admin",
+    },
+    recordingCommenter: {
+      label: "Kommentator",
+      description: "Kann ansehen, kommentieren und reagieren",
     },
   },
   quickAsk: {
@@ -998,6 +1041,8 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     includeTranscriptDescription:
       "Alle Personen mit Zugriff auf dieses Meeting können das vollständige Transkript lesen.",
     transcriptUnavailable: "Das Transkript ist noch nicht verfügbar.",
+    agentLinkDescription:
+      "Über diesen temporären Link können Agenten diese Meeting-Notizen lesen, ohne sie öffentlich zu machen. Er läuft nach zwei Stunden ab.",
     transcript: "Transkript",
     copyTranscript: "Transkript kopieren",
     transcriptCopied: "Transkript kopiert",
@@ -1024,8 +1069,13 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     pauseShortcut: "Pause (⌥⇧P)",
     stop: "Aufnahme stoppen",
     elapsed: "Verstrichene Zeit",
-    cancel: "Aufnahme abbrechen",
-    cancelShortcut: "Abbrechen (⌥⇧C)",
+    cancel: "Aufnahme verwerfen",
+    cancelShortcut: "Verwerfen (⌥⇧C)",
+    discardConfirmTitle: "Diese Aufnahme verwerfen?",
+    discardConfirmDescription:
+      "Dies kann nicht rückgängig gemacht werden. Deine bisherige Aufnahme wird endgültig gelöscht.",
+    resume: "Fortsetzen",
+    discardRecording: "Aufnahme verwerfen",
   },
   countdownOverlay: {
     startsIn: "Aufnahme startet in {{count}}",
@@ -1115,6 +1165,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     searchPrevMatch: "Vorheriger Treffer",
     searchNextMatch: "Nächster Treffer",
     searchClose: "Suche schließen",
+  },
+  bulletLink: {
+    jumpToTranscript: "Zu {{time}} im Transkript springen",
+    noMatchingMoment: "Kein passender Moment gefunden",
   },
   editorLayout: {
     trimmed: "Getrimmt",
@@ -1577,10 +1631,6 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (Lokalisiert)",
     connectGoogleCalendar: "Connect Google Calendar (Lokalisiert)",
-    googleMayShowWarning: "Google-Zugriff prüfen",
-    googleNotVerifiedTitle: "App vor dem Verbinden überprüfen",
-    googleWarningBeforeAdvanced:
-      "Prüfe, ob App-Name und angeforderter Kalenderzugriff zu der vertrauenswürdigen Clips-Bereitstellung passen. Wenn Google vor einer nicht verifizierten App warnt oder die Identität unbekannt aussieht, brich ab und wende dich an die Workspace-Administration.",
     desktopReminder:
       "Connect Google Calendar, keep Clips Desktop open, then click Start notes from the reminder or the menu bar when your meeting begins. (Lokalisiert)",
     getDesktopApp: "Get desktop app (Lokalisiert)",
@@ -1589,13 +1639,31 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     calendarConnected: "Calendar connected (Lokalisiert)",
     calendarDisconnected: "Calendar disconnected (Lokalisiert)",
     calendarSettings: "Calendar settings (Lokalisiert)",
+    calendarAccountsButton: "Kalender",
+    connectedAccounts: "Verbundene Konten",
+    calendarConnectedLabel: "Verbunden",
+    calendarNeedsReconnectLabel: "Erneute Verbindung erforderlich",
+    calendarDisconnectedLabel: "Getrennt",
+    calendarStatusUnavailable: "Status nicht verfügbar",
+    reconnectCalendar: "Kalender erneut verbinden",
+    addAnotherCalendarAccount: "Weiteres Konto hinzufügen",
+    connectCalendar: "Kalender verbinden",
+    disconnectCalendarAccount: "Konto trennen",
     connectCalendarReminder:
       "Connect Google Calendar for meeting reminders. (Lokalisiert)",
     disconnectGoogleCalendarTitle: "Disconnect Google Calendar? (Lokalisiert)",
     title: "Meetings (Lokalisiert)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Lokalisiert)",
-    searchPlaceholder: "Search meetings... (Lokalisiert)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (Lokalisiert)",
+    agendaTab: "Agenda (Lokalisiert)",
+    pastTab: "Past (Lokalisiert)",
+    now: "Now (Lokalisiert)",
+    noPastMeetings: "No past meetings yet (Lokalisiert)",
+    loadOlder: "Load older (Lokalisiert)",
+    searchFailed:
+      "Couldn't search meetings. Try again in a moment. (Lokalisiert)",
     clearSearch: "Clear search (Lokalisiert)",
     noMeetingsYet: "No meetings yet (Lokalisiert)",
     noMeetingsDescription:

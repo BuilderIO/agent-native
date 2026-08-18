@@ -160,14 +160,16 @@ export interface A2ASourceContextReference {
 }
 
 /**
- * Telemetry-only cross-app correlation, plus `callerModel` — a preference
- * hint. Receivers must never use any caller-supplied value here for identity,
- * ownership, org scoping, access, or approval decisions. `callerModel` widens
- * this channel to a preference, never to an authorization: it may at most pick
- * a model the receiver's already-resolved engine advertises.
+ * Bounded cross-app correlation and routing preferences. Receivers must never
+ * use any caller-supplied value here for identity, data ownership, org scoping,
+ * access, or approval decisions. `selectedReceiverApp` may only prioritize the
+ * matching receiver's local tool surface, while `callerModel` may only pick a
+ * model the receiver's already-resolved engine advertises.
  */
 export interface A2ACorrelationMetadata {
   callerApp?: string;
+  /** App the caller deliberately selected for this delegated objective. */
+  selectedReceiverApp?: string;
   callerThreadId?: string;
   parentRunId?: string;
   parentTurnId?: string;
@@ -244,10 +246,10 @@ export interface A2AConfig {
   version?: string;
   skills: AgentSkill[];
   /**
-   * Skills advertised only to a caller with a verified A2A identity — the set
-   * `actions/invoke` will actually run. Anonymous card fetches never see these.
-   * Without it the card advertises the public set, which is disjoint from the
-   * invocable set, so siblings are told nothing is directly callable.
+   * Skills advertised only to a caller with a verified A2A identity. Read-only
+   * skills may also be available through `actions/invoke`; mutating skills are
+   * message-only capabilities for delegation. Anonymous card fetches never see
+   * either set.
    */
   authenticatedSkills?: AgentSkill[];
   /** If true, public agent-card discovery includes only explicit public-safe skills. */

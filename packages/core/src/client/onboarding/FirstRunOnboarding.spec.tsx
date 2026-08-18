@@ -122,6 +122,27 @@ describe("FirstRunOnboarding", () => {
     vi.unstubAllGlobals();
   });
 
+  it("renders nothing while an ineligible member's status is resolving", () => {
+    mocks.useOnboarding.mockReturnValue({
+      firstRun: false,
+      loading: true,
+      error: null,
+      profile: null,
+      completeFirstRun: mocks.completeFirstRun,
+    });
+
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <FirstRunOnboarding />
+        </TooltipProvider>,
+      );
+    });
+
+    expect(document.body.querySelector("[data-onboarding-loading]")).toBeNull();
+    expect(document.body.querySelector("[data-onboarding-screen]")).toBeNull();
+  });
+
   it("shows the searchable integration catalog and keeps onboarding open after connecting", async () => {
     act(() => {
       root.render(
@@ -164,7 +185,7 @@ describe("FirstRunOnboarding", () => {
     );
     expect(
       document.body.querySelector(
-        'a[href="https://agent-native.com/docs/environment-variables"]',
+        'a[href="https://www.agent-native.com/docs/environment-variables"]',
       ),
     ).toBeTruthy();
 

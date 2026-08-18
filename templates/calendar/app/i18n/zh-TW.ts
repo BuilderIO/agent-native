@@ -246,6 +246,9 @@ const messages = {
     defaultDurationLabel: "預設事件時長（分鐘）",
     defaultDurationHelp:
       "新行事曆事件和預約時段的預設長度。預約連結可按連結覆蓋此設定。",
+    weekStartLabel: "每週開始日",
+    weekStartSunday: "週日 - 週六",
+    weekStartMonday: "週一 - 週日",
   },
   eventDialog: {
     eventUpdated: "事件已更新",
@@ -372,14 +375,6 @@ const messages = {
     connectToSync: "連線 Google 同步您的行事曆",
     hideSetup: "隱藏設定",
     followSteps: "請按照以下步驟連線您的 Google 帳戶。大約需要3分鐘。",
-    googleMayShowWarning: "Google 可能會顯示警告",
-    googleNotVerifiedTitle: "“Google 尚未驗證此應用程式”",
-    googleWarningBeforeAdvanced:
-      "您將看到此螢幕，因為行事曆是透過您自己的 Google Cloud 專案而不是經過 Google 審核的公開應用程式連線的。可以安全地繼續：點選",
-    googleWarningAdvanced: "Advanced",
-    googleWarningBetweenActions: "， 然後",
-    googleWarningUnsafe: "“Go to … (unsafe)”",
-    googleWarningAfterUnsafe: "完成連線。",
     accountConnectedElsewhere: "該帳戶已連線到另一個登入帳戶",
     googleConnectionFailed: "Google 連線失敗",
     managedCredentialsUnavailable: "Google Calendar 暫時無法使用",
@@ -629,6 +624,7 @@ const messages = {
     },
   },
   calendarView: {
+    addWorkingLocation: "新增工作地點",
     addTitleBeforeCreate: "建立事件前請新增標題",
     calendarSettingsLoading: "行事曆設定仍在載入。請稍後再試。",
     day: "日",
@@ -656,6 +652,11 @@ const messages = {
     updatingEvent: "正在更新事件...",
     updatingRecurringEvent: "正在更新重複事件...",
     week: "週",
+    timezoneSwitchTitle: "使用瀏覽器時區？",
+    timezoneSwitchDescription:
+      "行事曆固定使用 {{savedTimezone}}，但瀏覽器使用 {{browserTimezone}}。要切換行事曆時區嗎？",
+    timezoneSwitchKeep: "保留 {{timezone}}",
+    timezoneSwitchSwitch: "切換到 {{timezone}}",
   },
   eventForm: {
     addAttachment: "新增附件",

@@ -13,6 +13,8 @@ export interface CodeAgentRunnerInvocationOptions {
   resourcesPath: string;
   electronPath: string;
   repoRoot: string;
+  /** The checkout that the agent process must treat as its working directory. */
+  cwd?: string;
   environment?: NodeJS.ProcessEnv;
 }
 
@@ -26,6 +28,16 @@ export interface CodeAgentRunnerInvocation {
 export interface CodeAgentRunnerSignalProcess {
   once(signal: NodeJS.Signals, listener: () => void): unknown;
   removeListener(signal: NodeJS.Signals, listener: () => void): unknown;
+}
+
+type CodeAgentRunIdCollection = Pick<ReadonlySet<string>, "has">;
+
+export function isCodeAgentRunnerInFlight(
+  runId: string,
+  activeRunIds: CodeAgentRunIdCollection,
+  startingRunIds: CodeAgentRunIdCollection,
+): boolean {
+  return activeRunIds.has(runId) || startingRunIds.has(runId);
 }
 
 export async function runCodeAgentRunnerWithSignal<T>(
@@ -49,6 +61,10 @@ export function resolveCodeAgentRunnerInvocation(
   subcommand: CodeAgentRunnerSubcommand,
   runId: string,
 ): CodeAgentRunnerInvocation {
+  const workingDirectory =
+    options.cwd ??
+    (options.appIsPackaged ? options.resourcesPath : options.repoRoot);
+
   if (options.appIsPackaged) {
     return {
       command: options.electronPath,
@@ -63,7 +79,7 @@ export function resolveCodeAgentRunnerInvocation(
         subcommand,
         runId,
       ],
-      cwd: options.resourcesPath,
+      cwd: workingDirectory,
       env: { ELECTRON_RUN_AS_NODE: "1" },
     };
   }
@@ -75,13 +91,8 @@ export function resolveCodeAgentRunnerInvocation(
   if (fs.existsSync(localCli)) {
     return {
       command: "node",
-      args: [
-        path.relative(options.repoRoot, localCli),
-        "code",
-        subcommand,
-        runId,
-      ],
-      cwd: options.repoRoot,
+      args: [localCli, "code", subcommand, runId],
+      cwd: workingDirectory,
       env: { AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT: "1" },
     };
   }
@@ -91,6 +102,8 @@ export function resolveCodeAgentRunnerInvocation(
     return {
       command: packageManager,
       args: [
+        "--dir",
+        options.repoRoot,
         "--filter",
         "@agent-native/core",
         "exec",
@@ -100,7 +113,7 @@ export function resolveCodeAgentRunnerInvocation(
         subcommand,
         runId,
       ],
-      cwd: options.repoRoot,
+      cwd: workingDirectory,
       env: { AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT: "1" },
     };
   }
@@ -111,6 +124,8 @@ export function resolveCodeAgentRunnerInvocation(
       command: corepack,
       args: [
         "pnpm",
+        "--dir",
+        options.repoRoot,
         "--filter",
         "@agent-native/core",
         "exec",
@@ -120,7 +135,7 @@ export function resolveCodeAgentRunnerInvocation(
         subcommand,
         runId,
       ],
-      cwd: options.repoRoot,
+      cwd: workingDirectory,
       env: { AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT: "1" },
     };
   }
@@ -128,6 +143,8 @@ export function resolveCodeAgentRunnerInvocation(
   return {
     command: "pnpm",
     args: [
+      "--dir",
+      options.repoRoot,
       "--filter",
       "@agent-native/core",
       "exec",
@@ -137,7 +154,7 @@ export function resolveCodeAgentRunnerInvocation(
       subcommand,
       runId,
     ],
-    cwd: options.repoRoot,
+    cwd: workingDirectory,
     env: { AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT: "1" },
   };
 }

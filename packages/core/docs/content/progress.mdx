@@ -244,7 +244,7 @@ Notify me that run {{runId}} has failed.
 ## How it works {#internals}
 
 - **Owner scoping** — every row has an `owner` column; every query filters on it. Users see only their own runs.
-- **Poll integration** — every mutation calls `recordChange()` so templates using [`useDbSync`](/docs/client) auto-invalidate without any extra wiring.
+- **Poll integration** — every mutation calls `recordChange()` so templates using [`useDbSync`](/docs/client-data#usedbsync) auto-invalidate without any extra wiring.
 - **Table name** — the framework also has an `agent_runs` table for internal agent-chat turn lifecycle tracking. The progress primitive uses `progress_runs` to keep the two concerns separate.
 - **Percent clamping** — values are clamped to `[0, 100]` and rounded to an integer on write.
 
@@ -252,4 +252,4 @@ Notify me that run {{runId}} has failed.
 
 - [**Notifications**](/docs/notifications) — pair with `manage-progress` (`action=complete`) to tell the user when work finishes
 - [**Automations**](/docs/automations) — watchdog slow runs via `run.progress.updated`
-- [**Client**](/docs/client) — `useDbSync` for real-time cache invalidation
+- [**Data & Sync**](/docs/client-data) — `useDbSync` for real-time cache invalidation

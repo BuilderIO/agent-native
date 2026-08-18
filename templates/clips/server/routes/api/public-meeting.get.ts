@@ -6,7 +6,11 @@
  * of that share and is omitted unless the meeting owner enables it.
  */
 
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getSession,
+  runWithRequestContext,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import {
@@ -16,6 +20,10 @@ import {
   setResponseStatus,
 } from "h3";
 
+import {
+  CLIPS_MEETING_AGENT_ACCESS_PARAM,
+  CLIPS_MEETING_AGENT_RESOURCE_KIND,
+} from "../../../shared/meeting-agent-access.js";
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
@@ -43,16 +51,30 @@ function parseBullets(raw: string | null | undefined): Bullet[] {
   }
 }
 
+function queryString(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (Array.isArray(value) && typeof value[0] === "string") return value[0];
+  return "";
+}
+
 export default defineEventHandler(async (event) => {
   setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
   setResponseHeader(event, "Referrer-Policy", "no-referrer");
 
   const query = getQuery(event);
-  const meetingId = typeof query.id === "string" ? query.id : "";
+  const meetingId = queryString(query.id);
   if (!meetingId) {
     setResponseStatus(event, 400);
     return { error: "id is required" };
   }
+
+  const agentAccessToken = queryString(query[CLIPS_MEETING_AGENT_ACCESS_PARAM]);
+  const tokenAccess = agentAccessToken
+    ? verifyScopedAgentAccessToken(agentAccessToken, {
+        resourceKind: CLIPS_MEETING_AGENT_RESOURCE_KIND,
+        resourceId: meetingId,
+      })
+    : null;
 
   const session = await getSession(event).catch(() => null);
   const accessContext = {
@@ -61,14 +83,25 @@ export default defineEventHandler(async (event) => {
   };
 
   return runWithRequestContext(accessContext, async () => {
-    const access = await resolveAccess("meeting", meetingId, accessContext);
+    let db: ReturnType<typeof getDb> | undefined;
+    const access = tokenAccess?.ok
+      ? await (async () => {
+          db = getDb();
+          const [resource] = await db
+            .select()
+            .from(schema.meetings)
+            .where(eq(schema.meetings.id, meetingId))
+            .limit(1);
+          return resource ? { role: "viewer" as const, resource } : null;
+        })()
+      : await resolveAccess("meeting", meetingId, accessContext);
     const meeting = access?.resource;
     if (!meeting || meeting.trashedAt) {
       setResponseStatus(event, 404);
       return { error: "Not found" };
     }
 
-    const db = getDb();
+    db ??= getDb();
     const [participants, actionItems, transcriptRows] = await Promise.all([
       db
         .select({
@@ -115,6 +148,15 @@ export default defineEventHandler(async (event) => {
       : [];
     const role = access.role;
 
+    // The owner's email is only safe to disclose here when it's already
+    // public via the attendee list — an unauthenticated viewer must never
+    // learn an account email that isn't otherwise visible on this page.
+    const ownerEmailIsPublic = participants.some(
+      (participant) =>
+        participant.email.trim().toLowerCase() ===
+        meeting.ownerEmail?.trim().toLowerCase(),
+    );
+
     return {
       meeting: {
         id: meeting.id,
@@ -127,6 +169,7 @@ export default defineEventHandler(async (event) => {
         bullets: parseBullets(meeting.bulletsJson),
         participants,
         actionItems,
+        ownerEmail: ownerEmailIsPublic ? meeting.ownerEmail : null,
         ...(meeting.shareTranscript
           ? {
               transcript: transcript

@@ -169,7 +169,7 @@ const MAC_KEY_LABELS: Record<string, string> = {
   escape: "⎋",
 };
 
-/** Human-readable keybinding, e.g. "⇧⌘P" on macOS or "Ctrl+Shift+P". */
+/** Human-readable keybinding, e.g. "⇧⌘P" on macOS or "Ctrl Shift P". */
 export function formatKeybinding(binding: string): string {
   const parsed = parseKeybinding(binding);
   const keyLabel =
@@ -191,7 +191,7 @@ export function formatKeybinding(binding: string): string {
   if (parsed.alt) parts.push("Alt");
   if (parsed.shift) parts.push("Shift");
   parts.push(keyLabel.length === 1 ? keyLabel.toUpperCase() : keyLabel);
-  return parts.join("+");
+  return parts.join(" ");
 }
 
 /**

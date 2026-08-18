@@ -106,7 +106,7 @@ jobs:
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --mac --config --publish always
+        run: pnpm build:mac-assets && pnpm build && npx electron-builder --mac --config --publish always
 
   build-windows:
     needs: resolve-version
@@ -137,7 +137,7 @@ jobs:
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --win --config --publish always
+        run: pnpm build:chrome-extension && pnpm build && npx electron-builder --win --config --publish always
 
   build-linux:
     needs: resolve-version
@@ -168,7 +168,7 @@ jobs:
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --linux --config --publish always
+        run: pnpm build:chrome-extension && pnpm build && npx electron-builder --linux --config --publish always
 
   publish-release:
     needs: [resolve-version, build-mac, build-windows, build-linux]

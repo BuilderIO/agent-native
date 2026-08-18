@@ -759,6 +759,15 @@ describe("DesignEditor pending visual style edits", () => {
     ).toBe(true);
   });
 
+  it("uses runtime layers for URL-backed fusion screens too", () => {
+    expect(
+      shouldUseRuntimeLayerProjection({
+        screen: { sourceType: "fusion" },
+        content: "http://localhost:8080/builder-preview/design-1/",
+      }),
+    ).toBe(true);
+  });
+
   it("uses runtime layers only for URL-backed localhost screens", () => {
     expect(
       shouldUseRuntimeLayerProjection({
@@ -806,7 +815,7 @@ describe("DesignEditor pending visual style edits", () => {
     ).toBe(false);
   });
 
-  it("hides the apply styles affordance for non-localhost visual edits", () => {
+  it("hides the apply styles affordance for inline visual edits", () => {
     const edits = [
       {
         screenId: "generated-home",
@@ -826,12 +835,14 @@ describe("DesignEditor pending visual style edits", () => {
         screenSourceTypes: new Map([["generated-home", "inline"]]),
       }),
     ).toBe(false);
+    // A fusion screen is a running app: its markup lives in source, so the
+    // handoff is the only way an edit can land.
     expect(
       shouldShowPendingVisualStyleApply({
         edits,
         screenSourceTypes: new Map([["generated-home", "fusion"]]),
       }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 

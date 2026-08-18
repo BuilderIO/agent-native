@@ -68,6 +68,68 @@ describe("agent-native app config", () => {
     expect(config.onboarding?.firstRun).toBe("connect-and-integrations");
   });
 
+  it("keeps translations and changelog generation opt-in", () => {
+    expect(normalizeAgentNativeConfig({})).toEqual({});
+    expect(
+      normalizeAgentNativeConfig({
+        translations: { locales: ["en-US", " es-ES", "en-US"] },
+        changelog: { enabled: false },
+      }),
+    ).toEqual({
+      translations: { locales: ["en-US", "es-ES"] },
+      changelog: { enabled: false },
+    });
+  });
+
+  it("normalizes hosted harness capabilities and runtimes", () => {
+    expect(normalizeAgentNativeConfig({ harness: true })).toEqual({
+      harness: true,
+    });
+    expect(
+      normalizeAgentNativeConfig({
+        harness: {
+          runtimes: ["claude-code", "codex", "claude-code"],
+        },
+      }),
+    ).toEqual({
+      harness: {
+        runtimes: ["claude-code", "codex"],
+      },
+    });
+    expect(
+      mergeAgentNativeConfigs(
+        { harness: { runtimes: ["claude-code"] } },
+        { harness: { runtimes: ["codex"] } },
+      ),
+    ).toEqual({
+      harness: {
+        runtimes: ["claude-code", "codex"],
+      },
+    });
+  });
+
+  it("lets an app replace the inherited locale allowlist", () => {
+    expect(
+      mergeAgentNativeConfigs(
+        { translations: { locales: ["en-US"] } },
+        { translations: { locales: ["en-US", "fr-FR"] } },
+      ),
+    ).toEqual({
+      translations: { locales: ["en-US", "fr-FR"] },
+    });
+  });
+
+  it.each([
+    { translations: { locales: ["en-US", ""] } },
+    { translations: { locales: ["en-US", 42] } },
+    { changelog: { enabled: "yes" } },
+    { harness: { runtimes: ["shell"] } },
+    { harness: { enabled: true } },
+    { harness: { ui: "desktop" } },
+  ])("rejects invalid lightweight policy config: %o", (config) => {
+    expect(() => normalizeAgentNativeConfig(config)).toThrow();
+  });
+
   it("rejects unsupported onboarding modes", () => {
     expect(() =>
       normalizeAgentNativeConfig({

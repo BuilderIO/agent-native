@@ -96,8 +96,6 @@ Lorsque vous ouvrez l'application, la boîte de réception et l'affichage du fil
 
 Démo en direct : [mail.agent-native.com](https://mail.agent-native.com).
 
-> **Google peut afficher un avertissement :** La démo hébergée utilise l'application Google partagée de Agent-Native pour l'accès à Gmail. Google peut donc vous demander de confirmer avant de continuer. Exécutez localement pour utiliser votre propre client Google OAuth.
-
 Lorsque vous ouvrez l'application pour la première fois :
 
 1. Cliquez sur **Paramètres** dans la barre latérale.
@@ -349,7 +347,7 @@ Itinéraires dans le UI :
 
 C'est à vous de modifier le courrier. Tout ce qui est important se trouve dans une poignée d'endroits : commencez par là.
 
-**Ajout d'une fonctionnalité d'agent.** Ajoutez un nouveau fichier sous `templates/mail/actions/` à l'aide de `defineAction`. Votre action devient un outil d'agent, une commande CLI (`pnpm action <name>`) et une surface de hook frontal typée via `useActionQuery` / `useActionMutation`. Regardez `templates/mail/actions/star-email.ts` pour un court exemple ou `templates/mail/actions/manage-automations.ts` pour un exemple avec plusieurs sous-actions. Consultez la documentation [actions](/docs/actions) pour le modèle complet.
+**Ajout d'une fonctionnalité d'agent.** Ajoutez un nouveau fichier sous `templates/mail/actions/` à l'aide de `defineAction`. Votre action devient un outil d'agent, une commande CLI (`pnpm action <name>`) et une surface de hook frontal typée via `useActionQuery` / `useActionMutation`. Regardez `templates/mail/actions/star-email.ts` pour un court exemple ou `templates/mail/actions/manage-automations.ts` pour un exemple avec plusieurs sous-actions. Consultez la documentation [actions](/docs/actions-overview) pour le modèle complet.
 
 **Modification du UI.** Les itinéraires sont dans `templates/mail/app/routes/` et les composants dans `templates/mail/app/components/email/` et `templates/mail/app/components/layout/`. L'application utilise les primitives shadcn/ui de `app/components/ui/` et les icônes Tabler – respectez-les.
 
@@ -369,4 +367,4 @@ Effectuez ces modifications dans votre dépôt et votre flux de développement. 
 - [**Bien démarrer**](/docs/getting-started) — les principes fondamentaux du framework : actions, état de l’application et synchronisation en direct
 - [**Calendrier**](/docs/template-calendar) — un modèle de domaine associé pour la planification et les réservations
 - [**Automatisations**](/docs/automations) — le moteur déclenché par des événements sur lequel reposent les règles de tri automatique de Mail
-- [**Actions**](/docs/actions) — le système d’actions appelé par le chat, les raccourcis et les automatisations
+- [**Actions**](/docs/actions-overview) — le système d’actions appelé par le chat, les raccourcis et les automatisations

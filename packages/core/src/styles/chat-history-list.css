@@ -13,5 +13,5 @@ section[data-chat-first-chat-history]
   .an-chat-history-row__button {
   min-height: 28px;
   padding-block: 4px;
-  padding-inline: 8px 32px;
+  padding-inline: 8px;
 }

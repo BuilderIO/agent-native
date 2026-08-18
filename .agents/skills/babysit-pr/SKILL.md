@@ -9,24 +9,27 @@ metadata:
 
 Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot review feedback until everything is green and no new feedback arrives for 30 minutes.
 
-## Non-Negotiable Branch Ownership Rule
+A worktree is a valid PR checkout. When monitoring from one, keep Git and
+GitHub commands in that worktree's cwd and current branch; do not copy changes
+to the shared checkout or require that an agent publish from the root checkout.
 
-During `/babysit-pr`, the PR branch is the unit of ownership. Every tick must
-commit and push **all current** non-gitignored local changes on the current
-branch, including changes made by the user or other concurrent agents. Do not
-limit commits to files you personally edited. A live lease protects a peer's
-editing session but does not hold that file or the rest of the branch back:
-re-read and stage the whole current file, never a partial hunk. Private/generated
+## Non-Negotiable Path Ownership Rule
+
+During `/babysit-pr`, the PR remains the unit of review, but the shared
+checkout is not a license to publish every dirty path. At the first tick,
+record the status and ownership baseline. Every later tick must stage and push
+only paths owned by this agent or commits this agent already created. If a peer
+changes or adds a path, preserve it and leave it uncommitted for that peer.
+Never revert, stash, overwrite, or absorb peer work. Private/generated
 `bridge/**` and local `data/**` database or asset artifacts stay out of every
-slice. If the file-lease hook rejects one path, unstage only that path, push
-everything else immediately, and report the exact blocker. Do not stash, skip,
-or leave behind any other non-ignored path.
+slice.
 
-When the branch is actively changing, batch a slice for no more than two
+When the branch is actively changing, batch an owned slice for no more than two
 minutes, then push it to the existing PR so CI and review agents can work in
 parallel. Do not wait for a peer-owned file, generated mirror, or full prep
-before publishing the current snapshot. The final clean-tree and merge-soak
-gates still apply before merging.
+before publishing the owned snapshot. The final clean-tree and merge-soak
+gates still apply before merging, except when the user explicitly invokes
+`/ship-now`.
 
 **If no PR number is given**, auto-detect it: get the current branch (`git branch --show-current`), find the open PR for it (`gh pr list --head <branch> --state open --json number --limit 1`). If no open PR exists, check recent merged/closed PRs. Only ask the user if no PR can be found.
 
@@ -41,35 +44,47 @@ gates still apply before merging.
 - **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
 - **NEVER stall waiting.** Do not end a turn "waiting" for CI, a review, or a background command without a scheduled wake-up. If you kick off a background command (e.g. `pnpm run prep`), you may rely on its completion notification **but always also schedule a fallback `ScheduleWakeup`** — notifications can silently fail to fire, and an unguarded wait becomes an indefinite stall. The loop must keep ticking regardless.
 - **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
-- **Every tick, expect new local files.** On an active shared branch, concurrent agents commit into the same checkout continuously. Re-run Step 0 every single tick and push every current non-ignored path — never assume "I already pushed, the tree is clean".
+- **Every tick, expect new local files.** On an active shared branch, concurrent
+  agents may edit the checkout continuously. Re-run Step 0 every single tick,
+  classify new paths by ownership, and push only the current agent's owned
+  paths. Never assume a new peer file belongs in this PR.
 
 ## Each tick
 
 **Step 0 — always do this first, before anything else:**
 
-1. Run `git status --short` to check for local uncommitted changes from concurrent agents.
-2. If stable safe paths exist: look at `git diff --stat` for that slice, then write a descriptive commit message based on the actual changes (e.g. "feat(tools): add error toast + dark mode sync" or "fix(analytics): update sidebar layout"). Never use generic messages like "chore: sweep concurrent agent changes".
-3. Stage every current non-ignored path, including leased or peer-owned files,
-   excluding only partial hunks, `bridge/**`, `data/**`, `learnings.md`, and
-   ignored/personal files. Stage whole files. If the hook rejects one path,
-   unstage only it and run `git commit -m "<descriptive message>" && git push`
-   for the rest immediately.
-4. Run `git log --oneline origin/<branch>..HEAD` to check for local commits not yet on the remote.
-5. If any unpushed commits exist: `git push` immediately.
-6. If one path cannot be staged, name it and push the rest; do not wait for a
-   complete clean slice or for the whole branch to settle. Keep the two-minute
-   batching cadence.
+```bash
+git status --short
+git diff --name-only
+git log --oneline origin/$(git branch --show-current)..HEAD
+```
 
-This ensures every tick starts with the latest local snapshot on the PR while
-preserving peer editing boundaries. The worktree need not be clean until the
-final merge soak. Never skip this step.
+Stage only explicit owned paths, then commit and push them with ordinary git
+commands. Do not run `pnpm ship:push`, `git add -A`, or another whole-worktree
+helper when peer changes are present. A clean tree is not required if the only
+dirty paths are peer-owned; report those paths and leave them untouched. If the
+tree is clean but this agent has unpushed commits, push those commits directly.
 
-**Never `git stash` concurrent changes.** Stashes get orphaned, and a stash named `babysit-tickN-concurrent-work-*` left on the source branch while babysit-pr's PR ships without it is exactly how real work has been lost (2026-05-05: stash@{0} held a Sentry-instrumentation feature for clips, including a new `analytics.ts` module, that was meant to merge with PR #511's followup but stayed stuck in the stash list because babysit stashed instead of committing). If you see local changes you don't recognize, that's still other agents' work — commit it with a descriptive message based on the diff, don't hide it in a stash.
+Every tick starts here, no exceptions: on an active shared branch ownership can
+change within minutes, so re-check before every push. The worktree need not be
+clean until the final merge soak when only peer paths are dirty.
+
+**Never `git stash` concurrent changes.** Stashes get orphaned, and a stash named `babysit-tickN-concurrent-work-*` left on the source branch while babysit-pr's PR ships without it is exactly how real work gets lost. If you see local changes you don't recognize, preserve them for their owner; do not hide them in a stash or commit them here.
 
 **Step 1 — check for merge conflicts:**
 
 1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
-2. If `CONFLICTING`: bring `main` in and resolve. **Commit/push any local changes first (Step 0) so the tree is clean**, then prefer a **merge** over a rebase — `git fetch origin main && git merge --no-edit origin/main` — because this branch is shared with concurrent agents and a rebase would rewrite history and require a force-push that can clobber their unpushed commits. Resolve the conflicts (for `pnpm-lock.yaml`, take one side with `git checkout --theirs -- pnpm-lock.yaml` then regenerate with `pnpm install --lockfile-only` against the merged `package.json`), `git add` the resolved files, complete the merge commit, and push (a normal push, never `--force`). This resets the soak timer. Only rebase if the user explicitly asks for a linear history.
+2. If `CONFLICTING`: bring `main` in and resolve. **Push only this agent's
+   owned commits first (Step 0); leave peer paths untouched**, then prefer a
+   **merge** over a rebase — `git fetch origin main && git merge --no-edit
+   origin/main` — because this branch is shared with concurrent agents and a
+   rebase would rewrite history and require a force-push that can clobber their
+   unpushed commits. Resolve the conflicts (for `pnpm-lock.yaml`, take one side
+   with `git checkout --theirs -- pnpm-lock.yaml` then regenerate with `pnpm
+   install --lockfile-only` against the merged `package.json`), stage only
+   owned/resolved files, complete the merge commit, and push (a normal push,
+   never `--force`). This resets the soak timer. Only rebase if the user
+   explicitly asks for a linear history.
 3. If `MERGEABLE` or `UNKNOWN`: proceed. (`mergeStateStatus: BLOCKED` with `mergeable: MERGEABLE` just means required checks are still pending/red — that is not a conflict; keep going.)
 
 **Then proceed with PR checks:**
@@ -105,7 +120,7 @@ final merge soak. Never skip this step.
    - Read the relevant files
    - Fix the issues
    - Run `pnpm run prep` to verify locally
-   - Commit and push
+   - Stage, commit, and push only the owned fix paths
    - Reply inline to each addressed inline comment, or post a PR comment summarizing addressed items when the feedback was in a review body
    - Reset the 30-min timer
 
@@ -113,7 +128,7 @@ final merge soak. Never skip this step.
    - Investigate the failure logs
    - Fix the root cause
    - Run `pnpm run prep` locally
-   - Commit and push
+   - Stage, commit, and push only the owned fix paths
    - Reset the 30-min timer
 
    **Special case: missing changeset.** If the failing job is `Require changeset for publishable package changes` (from `.github/workflows/changeset-check.yml`), do NOT treat it as a code bug. The job log includes a structured line `MISSING_CHANGESET_PACKAGES: pkg1,pkg2`. Parse that, then write a `.changeset/<short-slug>.md` directly — do NOT run the interactive `pnpm changeset add`. Use the PR title and diff to decide bump type (default to `patch` for bugfixes / docs / refactors; `minor` for additive features; `major` only when the PR description clearly signals breaking). Shape:
@@ -163,15 +178,24 @@ Fix issues that are:
 
 **Never auto-merge by default.** Only merge when the user explicitly asks you to.
 
+`/ship-now` is an explicit fast-path exception. When it is invoked, follow
+`ship-now`'s local targeted-recovery gate and immediate admin-merge rule instead
+of waiting for this section's remote-CI and soak requirements.
+
 When the user does ask to merge, all of these must be true **simultaneously for 10 consecutive minutes** before merging:
 
-1. **No local uncommitted changes** — `git status --short` must be empty
-2. **No unpushed commits** — `git log --oneline origin/<branch>..HEAD` must be empty
+1. **No local uncommitted owned changes** — dirty paths must be explicitly
+   peer-owned, named in the report, and excluded from the PR
+2. **No unpushed owned commits** — `git log --oneline origin/<branch>..HEAD`
+   must contain no commits created by this agent
 3. **All GitHub Actions CI green** — Build, Lint, Test, Typecheck, Scaffold E2E, Guard
 4. **All review comments addressed** — every human/bot inline comment and review-body item has a fix or a reply
 5. **No merge conflicts** — `gh pr view --json mergeable --jq '.mergeable'` must be `MERGEABLE`
 
-The 10-minute soak timer **resets to zero** whenever you push anything, CI fails, a new review comment arrives, merge conflicts appear, or local changes are found and committed.
+The 10-minute soak timer **resets to zero** whenever this agent pushes
+anything, CI fails, a new review comment arrives, merge conflicts appear, or
+owned local changes are found and committed. Peer edits left uncommitted do not
+become a reason to publish them.
 
 Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> --squash --admin`.
 

@@ -228,7 +228,7 @@ Mantén los mensajes de seguimiento y revisión en el hilo existente de la barra
 
 Cuando la misma ruta está integrada como una aplicación MCP, enviada
 Las llamadas `sendToAgentChat()` se reenvían al chat del anfitrión cuando sea compatible; ver
-[Client](/docs/client#sendtoagentchat) para el comportamiento del puente de la aplicación MCP.
+[Chat del Agent](/docs/client-agent-chat#sendtoagentchat) para el comportamiento del puente de la aplicación MCP.
 
 Si desea un estado de carga, utilice el gancho `useSendToAgentChat()`; devuelve tanto `send` como `isGenerating`:
 
@@ -279,7 +279,7 @@ const { mutate, isPending } = useActionMutation("reply-to-email");
 </Button>;
 ```
 
-Los argumentos de tipo seguro provienen del esquema zod en su `defineAction()`. Consulte [Actions](/docs/actions) para conocer el sistema de acción completo.
+Los argumentos de tipo seguro provienen del esquema zod en su `defineAction()`. Consulte [Actions](/docs/actions-overview) para conocer el sistema de acción completo.
 
 <Callout id="doc-block-1757zi5" tone="decision">
 
@@ -337,7 +337,7 @@ El usuario ve un botón de chat en el encabezado, puede abrirlo y hablar con el 
 
 ## ¿Qué sigue?
 
-- [**Actions**](/docs/actions) — `defineAction()` y `useActionMutation()`
+- [**Actions**](/docs/actions-overview) — `defineAction()` y `useActionMutation()`
 - [**Context Awareness**](/docs/context-awareness) — selección, navegación, visualización de pantalla
 - [**Recursos del Agente**](/docs/agent-resources): qué contiene la pestaña Recursos del Agente (skills, memoria, servidores MCP, trabajos programados)
 - [**Voice Input**](/docs/voice-input) — el micrófono en el compositor de chat

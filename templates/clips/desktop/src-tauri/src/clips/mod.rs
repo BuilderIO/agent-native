@@ -70,7 +70,7 @@ const ONBOARDING_HEIGHT_LOGICAL: f64 = 640.0;
 const BUBBLE_SIZE_SMALL: u32 = 360;
 const BUBBLE_SIZE_MEDIUM: u32 = 504;
 const POPOVER_SHADOW_GUTTER_LOGICAL: f64 = 24.0;
-const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 360.0;
+const POPOVER_DEFAULT_WIDTH_LOGICAL: f64 = 320.0;
 const POPOVER_DEFAULT_HEIGHT_LOGICAL: f64 = 520.0;
 const OVERLAY_SHADOW_GUTTER_LOGICAL: f64 = 18.0;
 
@@ -1342,7 +1342,7 @@ pub async fn resize_popover(app: AppHandle, height: f64, width: Option<f64>) -> 
             })
             .unwrap_or(820.0);
         let clamped = height.clamp(200.0, max_logical_height);
-        let width = width.unwrap_or(360.0).clamp(320.0, 480.0);
+        let width = width.unwrap_or(320.0).clamp(320.0, 960.0);
         let (window_width, window_height) = popover_window_size_logical(width, clamped);
         let _ = w.set_size(tauri::Size::Logical(tauri::LogicalSize::new(
             window_width,

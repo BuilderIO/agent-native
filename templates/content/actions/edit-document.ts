@@ -17,6 +17,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  lockPrimaryBlocksFields,
+  persistBlocksFieldIdentity,
+} from "./_blocks-field-identity.js";
 
 interface TextEdit {
   find: string;
@@ -235,11 +239,24 @@ export default defineAction({
     // Persist. The fresh updatedAt is the signal the open editor uses to tell an
     // intentional external edit apart from a stale autosave echo.
     const db = getDb();
+    const now = new Date().toISOString();
     await db.transaction(async (tx: any) => {
+      const primaryBlocksFields = await lockPrimaryBlocksFields(tx, id);
       await tx
         .update(schema.documents)
-        .set({ content, updatedAt: new Date().toISOString() })
+        .set({ content, updatedAt: now })
         .where(eq(schema.documents.id, id));
+      for (const field of primaryBlocksFields) {
+        await persistBlocksFieldIdentity({
+          db: tx as unknown as ReturnType<typeof getDb>,
+          ownerEmail: field.ownerEmail,
+          documentId: id,
+          propertyId: field.propertyId,
+          previousMarkdown: existing.content ?? "",
+          markdown: content,
+          now,
+        });
+      }
       if (creativeContext) {
         await recordGenerationCreativeContext(
           {

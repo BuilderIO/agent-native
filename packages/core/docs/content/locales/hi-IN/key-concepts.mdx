@@ -348,7 +348,7 @@ graph LR
 - **CLI:** scripting और agent dev loops के लिए `pnpm action fetch-data --source=signups`।
 - **MCP tool / A2A tool:** जब MCP server या A2A enabled होता है, तो वही action वहां भी दिखाई देती है।
 
-हर consumer उसी underlying function को call करता है, इसलिए लिखने और maintain करने के लिए बस एक ही implementation है। पूरे reference के लिए देखें [Actions](/docs/actions)।
+हर consumer उसी underlying function को call करता है, इसलिए लिखने और maintain करने के लिए बस एक ही implementation है। पूरे reference के लिए देखें [Actions](/docs/actions-overview)।
 
 ## Live Sync {#polling-sync}
 
@@ -490,6 +490,10 @@ Framework embedded agent को ऐप के source code तक ambient access 
 ### [संदर्भ जागरूकता](/docs/context-awareness)
 
 Navigation state, view-screen, और navigate commands गहराई में।
+
+### [सिंक इंटरनल्स](/docs/client-sync-internals)
+
+Live sync के पीछे का change-version मैकेनिज्म, एक raw `useQuery` को सिंक करने के लिए।
 
 ### [Skills गाइड](/docs/skills-guide)
 

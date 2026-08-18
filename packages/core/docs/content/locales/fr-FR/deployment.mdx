@@ -406,7 +406,7 @@ Trois points à garder à l'esprit :
 
 - **Désactiver la mise en cache ne personnalise pas le SSR.** Les cookies sont toujours supprimés avant le rendu et les loaders SSR voient toujours la branche anonyme. Les données propres à l'utilisateur doivent toujours être résolues côté client. Cette variable ne contrôle que la _durée_ du cache.
 - **Elle s'applique à l'ensemble du déploiement, pas par route, c'est voulu.** Un remplacement de cache par route ou par requête est le moyen par lequel la charge utile d'un visiteur se retrouve dans l'entrée CDN partagée d'un autre visiteur, donc le framework n'en propose pas — `guard:ssr-cache-shell` l'impose.
-- **Pour des données fraîches après mutation, préférez les actions plutôt que de désactiver le cache.** Les données d'application appartiennent aux [actions](/docs/actions), lues côté client avec `useActionQuery` / `useActionMutation` et maintenues à jour par le polling `useDbSync()` ; rien de tout cela ne passe par le cache de la coque SSR. Laissez les loaders SSR continuer à rendre la coque publique, et n'utilisez cette variable que lorsque vous voulez vraiment des données de loader plus fraîches.
+- **Pour des données fraîches après mutation, préférez les actions plutôt que de désactiver le cache.** Les données d'application appartiennent aux [actions](/docs/actions-overview), lues côté client avec `useActionQuery` / `useActionMutation` et maintenues à jour par le polling `useDbSync()` ; rien de tout cela ne passe par le cache de la coque SSR. Laissez les loaders SSR continuer à rendre la coque publique, et n'utilisez cette variable que lorsque vous voulez vraiment des données de loader plus fraîches.
 
 ## Variables d'environnement {#environment-variables}
 

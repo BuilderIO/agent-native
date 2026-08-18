@@ -233,11 +233,11 @@ outside the full agent runtime.
 | `<AgentConversation>`                           | Render a list of normalized agent messages.                      |
 | `<AgentConversationMessageView>`                | Render one normalized message.                                   |
 | `normalizeCodeAgentTranscriptForConversation()` | Convert code-agent transcript events into conversation messages. |
-| `useNearBottomAutoscroll()`                     | Keep a custom transcript pinned to the bottom while streaming.   |
 
 This layer is intentionally data-first: you own where messages come from, and
 the renderer owns consistent markdown, attachments, notices, artifacts, and
-tool-call display.
+tool-call display. `<AgentConversation>` already keeps itself pinned to the
+bottom while streaming — do not add your own scroll handling on top of it.
 
 ## Native Tool Widgets {#native-tool-widgets}
 
@@ -526,7 +526,7 @@ reasoning.
 
 - [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentSidebar>` and `<AgentPanel>` with a tutorial-first walkthrough
 - [**Native Chat UI**](/docs/native-chat-ui) — the action result contract behind data widgets and custom renderers
-- [**Actions**](/docs/actions) — `defineAction()`, schemas, and the action surface these components call
+- [**Actions**](/docs/actions-overview) — `defineAction()`, schemas, and the action surface these components call
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — the collab hooks and presence components in depth
 - [**Sharing**](/docs/sharing) — `<ShareButton>` and `<ShareDialog>` wiring for ownable resources
 - [**Toolkit piece: Toolkit UI Primitives**](/docs/toolkit-ui) — the shared shadcn-style building blocks and app-adapter pattern behind these exports

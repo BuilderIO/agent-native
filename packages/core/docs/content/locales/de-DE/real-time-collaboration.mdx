@@ -17,7 +17,7 @@ Agent-natives Kollaborationsmodell.
 Das Bearbeiten zusammen mit dem Agenten fühlt sich an wie die Arbeit in einem kollaborativen Editor mit
 einem Kollegen, der sowohl spontan als auch unermüdlich ist:
 
-Wenn Sie UI nur zum Aktualisieren benötigen, wenn der Agent oder ein anderer Benutzer in SQL schreibt, brauchen Sie nichts davon – verwenden Sie [`useDbSync`](/docs/client). Diese Seite dient der gemeinsamen Bearbeitung eines einzelnen Rich-Text-Dokuments auf Zeichenebene (gemeinsame Cursor, konfliktfreies Zusammenführen). Beide nutzen denselben `/_agent-native/poll`-Kanal.
+Wenn Sie UI nur zum Aktualisieren benötigen, wenn der Agent oder ein anderer Benutzer in SQL schreibt, brauchen Sie nichts davon – verwenden Sie [`useDbSync`](/docs/client-data#usedbsync). Diese Seite dient der gemeinsamen Bearbeitung eines einzelnen Rich-Text-Dokuments auf Zeichenebene (gemeinsame Cursor, konfliktfreies Zusammenführen). Beide nutzen denselben `/_agent-native/poll`-Kanal.
 
 Dies basiert auf drei kampferprobten Technologien: **Yjs** (CRDT für konfliktfreies Zusammenführen), **TipTap** (Rich-Text-Editor) und **abfragebasierte Synchronisierung** (funktioniert in allen Bereitstellungsumgebungen, einschließlich Serverless und Edge).
 
@@ -774,7 +774,7 @@ Ebenen über dem gleichen Bewusstseinszustand.
 
 ## Verwandte Dokumente {#related}
 
-- [Real-Time Sync](/docs/client#usedbsync) – der `useDbSync` + `useChangeVersion`
+- [Sync-Interna](/docs/client-sync-internals) – der `useDbSync` + `useChangeVersion`
   System, das den `updatedAt` Bump-Drive-Editor-Abgleich ermöglicht.
 - [Security](/docs/security) — `registerShareableResource`, `resolveAccess`,
   und `assertAccess` für ressourcenbezogene Zusammenarbeit.

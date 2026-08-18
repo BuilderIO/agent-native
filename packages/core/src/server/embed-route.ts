@@ -15,13 +15,15 @@ import {
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
 import {
-  isMcpEmbedCorsOrigin,
+  isMcpEmbedTransplantOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import type { AuthSession } from "./auth.js";
+import { readCorsAllowedOrigins } from "./cors-origins.js";
 import {
   consumeEmbedSessionTicket,
+  type EmbedSessionTicketConsumeDiagnostic,
   isEmbedCapabilityScope,
   normalizeEmbedTargetPath,
   setEmbedSessionCookie,
@@ -90,7 +92,10 @@ function setEmbedStartResponseHeaders(event: H3Event): void {
 
 function embedStartCorsOrigin(event: H3Event): string | null {
   const origin = getHeader(event, "origin");
-  return isMcpEmbedCorsOrigin(origin) ? (origin ?? null) : null;
+  if (!origin) return null;
+  if (origin === "null") return origin;
+  if (isMcpEmbedTransplantOrigin(origin)) return origin;
+  return readCorsAllowedOrigins().includes(origin) ? origin : null;
 }
 
 function embedStartResponseHeaders(
@@ -128,6 +133,63 @@ function textResponse(
   });
 }
 
+function embedTargetOrigin(event: H3Event): string | null {
+  const host = getHeader(event, "host")?.trim();
+  if (!host) return null;
+  const forwardedProto = getHeader(event, "x-forwarded-proto")
+    ?.split(",", 1)[0]
+    ?.trim()
+    .toLowerCase();
+  const protocol =
+    forwardedProto === "http" || forwardedProto === "https"
+      ? forwardedProto
+      : "https";
+  return `${protocol}://${host}`;
+}
+
+function embedTargetAppId(origin: string | null): string {
+  if (origin) {
+    try {
+      const hostname = new URL(origin).hostname;
+      const suffix = ".agent-native.com";
+      if (hostname.endsWith(suffix) && hostname.length > suffix.length) {
+        return hostname.slice(0, -suffix.length);
+      }
+      // coercion-ok: diagnostic host parsing must never change the auth response.
+    } catch {
+      // The host is diagnostic context only; keep the response path independent.
+    }
+  }
+
+  const configured = [process.env.AGENT_NATIVE_APP_ID, process.env.APP_ID].find(
+    (value) => /^[a-z0-9][a-z0-9._-]{0,63}$/i.test(value?.trim() ?? ""),
+  );
+  if (configured) return configured.trim();
+  return "unknown";
+}
+
+function logEmbedConsumeResult(
+  event: H3Event,
+  diagnostic: EmbedSessionTicketConsumeDiagnostic,
+  responseStatus: number,
+): void {
+  const targetOrigin = embedTargetOrigin(event);
+  console.info("[agent-native] workspace embed consume", {
+    targetAppId: embedTargetAppId(targetOrigin),
+    targetOrigin,
+    ticketKey: diagnostic.ticketKey,
+    outcome: diagnostic.outcome,
+    ticketRowFound: diagnostic.ticketRowFound,
+    consumed: diagnostic.consumed,
+    expired: diagnostic.expired,
+    expectedOwnerKey: diagnostic.expectedOwnerKey,
+    ticketOwnerKey: diagnostic.ticketOwnerKey,
+    expectedOrgKey: diagnostic.expectedOrgKey,
+    ticketOrgKey: diagnostic.ticketOrgKey,
+    responseStatus,
+  });
+}
+
 function expiredEmbedSessionResponse(event: H3Event): Response {
   setEmbedStartResponseHeaders(event);
   return new Response(
@@ -144,19 +206,31 @@ function expiredEmbedSessionResponse(event: H3Event): Response {
     main { max-width: 520px; text-align: center; }
     h1 { margin: 0 0 8px; font-size: 16px; line-height: 1.25; }
     p { margin: 0; color: color-mix(in srgb, CanvasText 64%, Canvas); font-size: 13px; line-height: 1.5; }
+    button { margin-top: 16px; border: 1px solid color-mix(in srgb, CanvasText 24%, Canvas); border-radius: 6px; padding: 7px 12px; background: Canvas; color: CanvasText; font: inherit; font-size: 12px; cursor: pointer; }
+    button:hover { background: color-mix(in srgb, CanvasText 8%, Canvas); }
   </style>
 </head>
 <body>
   <main>
     <h1>Embedded app session expired</h1>
-    <p>This chat preview is refreshing. If it does not reload, ask the chat to open the app again.</p>
+    <p>This embedded app session expired. The app will try to reconnect automatically.</p>
+    <button type="button" id="retry">Retry</button>
   </main>
   <script>
-    try {
-      if (window.parent && window.parent !== window) {
-        window.parent.postMessage({ type: "agentNative.embedSessionExpired" }, "*");
+    function notifyParent() {
+      try {
+        if (window.parent && window.parent !== window) {
+          window.parent.postMessage({
+            type: "agentNative.embedSessionExpired",
+            embedStartUrl: window.location.href
+          }, "*");
+        }
+      } catch (error) {
+        void error;
       }
-    } catch {}
+    }
+    document.getElementById("retry")?.addEventListener("click", notifyParent);
+    notifyParent();
   </script>
 </body>
 </html>`,
@@ -184,6 +258,16 @@ function firstQueryValue(value: unknown): string {
 }
 
 function wantsTransplantLocationResponse(event: H3Event): boolean {
+  const origin = getHeader(event, "origin");
+  const fetchDestination = getHeader(event, "sec-fetch-dest")?.toLowerCase();
+  if (fetchDestination !== "document" && fetchDestination !== "iframe") {
+    return false;
+  }
+  const canReadLocation =
+    !origin ||
+    (origin !== "null" && embedStartCorsOrigin(event) !== null) ||
+    isMcpEmbedTransplantOrigin(origin);
+  if (!canReadLocation) return false;
   if (getHeader(event, "x-agent-native-embed-transplant") === "1") {
     return true;
   }
@@ -247,15 +331,28 @@ export function createEmbedStartRouteHandler(
     const existingSession = await options
       .getExistingSession?.(event)
       .catch(() => null);
+    let consumeDiagnostic: EmbedSessionTicketConsumeDiagnostic | null = null;
     const consumed = await consumeEmbedSessionTicket(ticket, {
-      expectedOrgId: existingSession?.orgId ?? null,
+      // Org ids are app-local in the workspace: the Dispatch parent and a
+      // target app can represent the same signed-in person with different
+      // ids. Bind an existing target session to the ticket owner instead.
+      expectedOwnerEmail: existingSession?.email ?? null,
+      onResult: (diagnostic) => {
+        consumeDiagnostic = diagnostic;
+      },
     });
     if (!consumed) {
+      if (consumeDiagnostic) {
+        logEmbedConsumeResult(event, consumeDiagnostic, 401);
+      }
       return expiredEmbedSessionResponse(event);
     }
 
     const target = normalizeEmbedTargetPath(consumed.targetPath);
     if (!target) {
+      if (consumeDiagnostic) {
+        logEmbedConsumeResult(event, consumeDiagnostic, 400);
+      }
       return textResponse(event, "Invalid embed target.", 400);
     }
 
@@ -284,7 +381,11 @@ export function createEmbedStartRouteHandler(
         appendEmbedParams(target, token, chatBridgeActive),
       ),
     );
-    if (wantsTransplantLocationResponse(event)) {
+    const transplant = wantsTransplantLocationResponse(event);
+    if (consumeDiagnostic) {
+      logEmbedConsumeResult(event, consumeDiagnostic, transplant ? 200 : 302);
+    }
+    if (transplant) {
       return transplantLocationResponse(event, location);
     }
     return redirectWithStagedCookies(event, location);

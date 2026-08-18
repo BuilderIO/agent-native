@@ -1,5 +1,78 @@
 # @agent-native/toolkit
 
+## 0.16.4
+
+### Patch Changes
+
+- 95ea873: Allow editor-owned controls outside TipTap's contenteditable surface to protect active edits from stale collaboration snapshots, and preserve a valid selection when collaborative documents initially hydrate block-only nodes.
+
+## 0.16.3
+
+### Patch Changes
+
+- 81fb79e: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.2
+
+### Patch Changes
+
+- 43fa797: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.1
+
+### Patch Changes
+
+- fb18771: Keep shared composer labels theme-safe and translatable.
+
+## 0.16.0
+
+### Minor Changes
+
+- 9e21e1b: Add a Core-free data grid kit with keyboard navigation, selection, resizing, typed editor slots, and app-owned persistence callbacks.
+
+### Patch Changes
+
+- 9e21e1b: Align chat history rail overflow actions with trailing timestamps.
+- 9e21e1b: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+
+## 0.15.1
+
+### Patch Changes
+
+- 73c4a97: Align chat history rail overflow actions with trailing timestamps.
+- 73c4a97: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
+
+## 0.15.0
+
+### Minor Changes
+
+- f07ec04: Localize the Core agent-chat interface and Toolkit composer across every supported locale, provide built-in Core translations with app-level catalog overrides, and guard the complete chat surface against new raw visible strings.
+
+## 0.14.3
+
+### Patch Changes
+
+- 89f194f: Fix toolkit canvas interaction and collaboration UI behavior.
+
+## 0.14.2
+
+### Patch Changes
+
+- 2db503b: Fix toolkit canvas interaction and collaboration UI behavior.
+
+## 0.14.1
+
+### Patch Changes
+
+- b3b4580: Render chat-history row action menus in a collision-aware portal so rail menus are not clipped by the scroll container.
+- b3b4580: Overlay chat row menus on timestamps and unread indicators without reserving a separate trailing column.
+
+## 0.14.0
+
+### Minor Changes
+
+- aa17e22: Support bounded XLS/XLSX workbook previews as source context for `/make-into-app` and allow Excel workbooks in the shared composer attachment flow.
+
 ## 0.13.10
 
 ### Patch Changes

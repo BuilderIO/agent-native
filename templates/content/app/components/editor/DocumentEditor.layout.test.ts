@@ -393,9 +393,10 @@ describe("document editor layout", () => {
       'awareness.setLocalStateField("canFlushDocument", false)',
     );
 
-    // Comments stay editor-only — viewers must not open the comment endpoints.
+    // Viewers can read comments; only comment-capable roles get composer
+    // affordances inside the shared sidebar.
     expect(documentEditorSource).toContain(
-      "canEdit && !isLocalFileDocument ? documentId : null",
+      "!isLocalFileDocument ? documentId : null",
     );
 
     expect(documentEditorSource).toContain(

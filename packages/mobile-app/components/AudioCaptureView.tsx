@@ -545,7 +545,7 @@ export default function AudioCaptureView({
                   className="items-center bg-primary rounded-3xl flex-row gap-2 justify-center h-14 px-7 active:opacity-75"
                 >
                   <IconPlayerPlayFilled color="#0b0b0c" size={22} />
-                  <Text className="text-background-dark text-base font-bold">
+                  <Text className="text-primary-foreground text-base font-bold">
                     Retry save
                   </Text>
                 </Pressable>
@@ -557,7 +557,7 @@ export default function AudioCaptureView({
                   className="items-center bg-primary rounded-3xl flex-row gap-2 justify-center h-14 px-7 active:opacity-75"
                 >
                   <IconPlayerPlayFilled color="#0b0b0c" size={22} />
-                  <Text className="text-background-dark text-base font-bold">
+                  <Text className="text-primary-foreground text-base font-bold">
                     Try again
                   </Text>
                 </Pressable>
@@ -573,7 +573,7 @@ export default function AudioCaptureView({
                   className="items-center bg-primary rounded-3xl flex-row gap-2 justify-center h-14 px-7 active:opacity-75"
                 >
                   <IconMicrophone color="#0b0b0c" size={24} />
-                  <Text className="text-background-dark text-base font-bold">
+                  <Text className="text-primary-foreground text-base font-bold">
                     {captureState === "checking-permission"
                       ? "Getting ready…"
                       : "Start"}

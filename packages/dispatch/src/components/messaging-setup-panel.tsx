@@ -57,6 +57,7 @@ import {
   CollapsibleTrigger,
 } from "./ui/collapsible";
 import { Input } from "./ui/input";
+import { Skeleton } from "./ui/skeleton";
 import { Switch } from "./ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
@@ -553,7 +554,11 @@ export function MessagingSetupPanel() {
                             : "Finish setup to connect"}
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
-                        {credentialSummary}
+                        {envLoading ? (
+                          <Skeleton className="h-3 w-32" />
+                        ) : (
+                          credentialSummary
+                        )}
                       </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -1115,8 +1120,10 @@ export function MessagingSetupPanel() {
       </Accordion>
 
       {loading ? (
-        <div className="rounded-2xl border border-dashed px-4 py-6 text-sm text-muted-foreground">
-          Loading messaging status...
+        <div className="space-y-3 rounded-2xl border border-dashed px-4 py-6">
+          <Skeleton className="h-4 w-40" />
+          <Skeleton className="h-3 w-2/3 max-w-md" />
+          <Skeleton className="h-9 w-full max-w-sm" />
         </div>
       ) : null}
     </div>

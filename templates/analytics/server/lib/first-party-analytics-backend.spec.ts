@@ -25,7 +25,9 @@ vi.mock("./credentials-context.js", () => ({
 import {
   backfillFirstPartyAnalyticsBatch,
   createFirstPartyAnalyticsInserter,
+  FirstPartyAnalyticsUnsupportedSqlError,
   getFirstPartyAnalyticsBackend,
+  getFirstPartyAnalyticsBigQueryMetrics,
   getFirstPartyAnalyticsTable,
   insertFirstPartyAnalyticsRows,
   renderFirstPartyAnalyticsBigQuerySql,
@@ -88,6 +90,25 @@ describe("first-party BigQuery backend", () => {
     expect(sql).toContain("'2026-08-05'");
   });
 
+  it("keeps union branches separated after source deduplication", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT * FROM analytics_events WHERE event_name = 'signup' UNION ALL SELECT * FROM analytics_events WHERE event_name = 'login'",
+      [],
+      {
+        projectId: "builder-3b0a2",
+        datasetId: "analytics",
+        tableId: "first_party_analytics_events_raw",
+        fullyQualified:
+          "builder-3b0a2.analytics.first_party_analytics_events_raw",
+      },
+    );
+
+    expect(sql).toContain(
+      "QUALIFY ROW_NUMBER() OVER (PARTITION BY id ORDER BY received_at DESC) = 1 UNION ALL",
+    );
+    expect(sql).not.toContain("= 1UNION ALL");
+  });
+
   it("translates the PostgreSQL date expressions used by dashboard SQL", () => {
     const sql = renderFirstPartyAnalyticsBigQuerySql(
       "SELECT to_char(CURRENT_DATE - INTERVAL '30 days', 'YYYY-MM-DD') AS start_date FROM analytics_events",
@@ -107,6 +128,170 @@ describe("first-party BigQuery backend", () => {
     expect(sql).not.toMatch(/to_char|INTERVAL '30 days'/i);
   });
 
+  it("keeps event_date comparisons typed as BigQuery dates", () => {
+    const table = {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+    const scopedDate = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT * FROM (SELECT * FROM analytics_events WHERE event_date <= ?) AS analytics_events WHERE event_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD')",
+      ["2026-08-14"],
+      table,
+    );
+
+    expect(scopedDate).toContain("event_date <= DATE '2026-08-14'");
+    expect(scopedDate).toContain(
+      "event_date >= CAST(DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) AS DATE)",
+    );
+    expect(scopedDate).not.toContain("event_date <= '2026-08-14'");
+  });
+
+  it("keeps derived cohort_date comparisons typed as BigQuery dates", () => {
+    const table = {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+    const scopedDate = renderFirstPartyAnalyticsBigQuerySql(
+      "WITH base AS (SELECT event_date AS cohort_date FROM analytics_events) SELECT * FROM base WHERE base.cohort_date >= to_char(CURRENT_DATE - INTERVAL '7 days', 'YYYY-MM-DD') AND base.cohort_date <= ?",
+      ["2026-08-14"],
+      table,
+    );
+
+    expect(scopedDate).toContain(
+      "base.cohort_date >= CAST(DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY) AS DATE)",
+    );
+    expect(scopedDate).toContain("base.cohort_date <= DATE '2026-08-14'");
+    expect(scopedDate).not.toContain("cohort_date >= FORMAT_DATE");
+  });
+
+  it("removes redundant COALESCE arguments from dashboard SQL", () => {
+    const table = {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT COALESCE(template, template, app) AS value FROM analytics_events",
+      [],
+      table,
+    );
+
+    expect(rendered).toContain("COALESCE(template, app)");
+    expect(rendered).not.toContain("COALESCE(template, template, app)");
+  });
+
+  // Every row here reproduced a real production BigQuery 400 or hard failure
+  // before the translator handled it, so the expectation is the output BigQuery
+  // accepts, not merely that it changed.
+  it.each([
+    [
+      "SELECT sum(amount)::numeric AS v FROM analytics_events",
+      "CAST(sum(amount) AS NUMERIC)",
+    ],
+    [
+      "SELECT count(*)::int AS v FROM analytics_events",
+      "CAST(count(*) AS INT64)",
+    ],
+    [
+      "SELECT (COALESCE(properties, '{}'))::text AS v FROM analytics_events",
+      "CAST((COALESCE(properties, '{}')) AS STRING)",
+    ],
+    [
+      "SELECT '2026-08-01'::date AS v FROM analytics_events",
+      "CAST('2026-08-01' AS DATE)",
+    ],
+    [
+      "SELECT properties::jsonb ->> '$ai_model' AS v FROM analytics_events",
+      `JSON_VALUE(properties, '$."$ai_model"')`,
+    ],
+    [
+      "SELECT properties::jsonb ->> 'page.title' AS v FROM analytics_events",
+      `JSON_VALUE(properties, '$."page.title"')`,
+    ],
+    [
+      "SELECT COALESCE(properties,'{}')::jsonb ->> 'k' AS v FROM analytics_events",
+      `JSON_VALUE(COALESCE(properties, '{}'), '$."k"')`,
+    ],
+    [
+      "SELECT date_trunc('month', event_date) AS v FROM analytics_events",
+      "DATE_TRUNC(CAST(event_date AS DATE), MONTH)",
+    ],
+    [
+      "SELECT date_trunc('day', event_date) AS v FROM analytics_events",
+      "DATE_TRUNC(CAST(event_date AS DATE), DAY)",
+    ],
+    [
+      // PostgreSQL weeks start Monday; a bare BigQuery WEEK starts Sunday.
+      "SELECT date_trunc('week', event_date) AS v FROM analytics_events",
+      "DATE_TRUNC(CAST(event_date AS DATE), WEEK(MONDAY))",
+    ],
+  ])("translates %s for BigQuery", (sql, expected) => {
+    const rendered = renderFirstPartyAnalyticsBigQuerySql(sql, [], {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    });
+
+    expect(rendered).toContain(expected);
+  });
+
+  it.each([
+    [
+      "SELECT date_trunc('hour', timestamp) AS d FROM analytics_events",
+      "date_trunc('hour', ...)",
+    ],
+    [
+      "SELECT DISTINCT ON (user_id) user_id FROM analytics_events",
+      "SELECT DISTINCT ON",
+    ],
+    [
+      "SELECT properties ->> 'plan' AS d FROM analytics_events",
+      "PostgreSQL JSON operators",
+    ],
+    [
+      "SELECT to_char(event_date, 'YYYY-MM') AS d FROM analytics_events",
+      "to_char(..., 'YYYY-MM')",
+    ],
+    [
+      "SELECT properties::json AS p FROM analytics_events",
+      "a PostgreSQL json cast",
+    ],
+    [
+      "SELECT id FROM analytics_events WHERE path ILIKE '%signup%'",
+      "ILIKE/SIMILAR TO",
+    ],
+  ])("names the unsupported construct for %s", (sql, construct) => {
+    const table = {
+      projectId: "builder-3b0a2",
+      datasetId: "analytics",
+      tableId: "first_party_analytics_events_raw",
+      fullyQualified:
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+    };
+
+    let thrown: unknown;
+    try {
+      renderFirstPartyAnalyticsBigQuerySql(sql, [], table);
+    } catch (error) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(FirstPartyAnalyticsUnsupportedSqlError);
+    expect((thrown as FirstPartyAnalyticsUnsupportedSqlError).construct).toBe(
+      construct,
+    );
+  });
+
   it("uses the Builder production project and isolated raw table by default", async () => {
     await expect(getFirstPartyAnalyticsTable()).resolves.toEqual({
       projectId: "builder-3b0a2",
@@ -115,6 +300,31 @@ describe("first-party BigQuery backend", () => {
       fullyQualified:
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
     });
+  });
+
+  it("compares BigQuery retention metrics against the copied non-http scope", async () => {
+    runQuery.mockResolvedValue({
+      rows: [
+        {
+          event_count: "12",
+          daily_rollup_rows: "3",
+          first_event_date: "2026-07-01",
+          last_event_date: "2026-08-01",
+        },
+      ],
+    });
+
+    await expect(
+      getFirstPartyAnalyticsBigQueryMetrics(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        { includeLegacyOwnerRows: false, startDate: "2026-07-01" },
+      ),
+    ).resolves.toMatchObject({ eventCount: 12, dailyRollupRows: 3 });
+
+    expect(runQuery).toHaveBeenCalledWith(
+      expect.stringContaining("event_name IS DISTINCT FROM 'http.response'"),
+    );
   });
 
   it("uses separate indexed tenant branches for the backfill cursor", async () => {
@@ -128,7 +338,7 @@ describe("first-party BigQuery backend", () => {
         "builder-3b0a2.analytics.first_party_analytics_events_raw",
         { now: () => "2026-08-08T00:00:00.000Z" },
       ),
-    ).resolves.toMatchObject({ copied: 0, complete: true });
+    ).resolves.toMatchObject({ nextCursor: null, copied: 0, complete: true });
 
     expect(execute).toHaveBeenCalledTimes(2);
     const [orgQuery] = execute.mock.calls[0] ?? [];
@@ -185,6 +395,47 @@ describe("first-party BigQuery backend", () => {
     expect(personalQuery.args).toEqual([
       "owner@example.com",
       "2026-06-09T00:00:00.000Z",
+      "2026-07-25T11:01:33.023Z",
+      "evt_last",
+      25,
+    ]);
+  });
+
+  it("keeps shard bounds disjoint while continuing from a shard cursor", async () => {
+    execute.mockResolvedValue({ rows: [] });
+
+    await expect(
+      backfillFirstPartyAnalyticsBatch(
+        { userEmail: "owner@example.com", orgId: "org_builder" },
+        JSON.stringify({
+          receivedAt: "2026-07-25T11:01:33.023Z",
+          id: "evt_last",
+        }),
+        25,
+        "builder-3b0a2.analytics.first_party_analytics_events_raw",
+        {
+          now: () => "2026-08-08T00:00:00.000Z",
+          rangeStart: {
+            receivedAt: "2026-07-25T00:00:00.000Z",
+            id: "",
+          },
+          rangeEnd: {
+            receivedAt: "2026-07-26T00:00:00.000Z",
+            id: "",
+          },
+          rangeEndInclusive: false,
+        },
+      ),
+    ).resolves.toMatchObject({ copied: 0, complete: true });
+
+    const [orgQuery] = execute.mock.calls[0] ?? [];
+    expect(orgQuery.sql).toContain("(received_at, id) < (?, ?)");
+    expect(orgQuery.sql).toContain("(received_at, id) > (?, ?)");
+    expect(orgQuery.args).toEqual([
+      "org_builder",
+      "2026-06-09T00:00:00.000Z",
+      "2026-07-26T00:00:00.000Z",
+      "",
       "2026-07-25T11:01:33.023Z",
       "evt_last",
       25,

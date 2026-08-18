@@ -24,6 +24,8 @@ Detailed event, availability, booking, storage, and UI rules live in
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for events, availability, booking links, settings, navigation,
   Google Calendar connection, and sharing. Do not bypass app access checks.
+- The `get-settings` and `update-settings` actions expose the General week-start
+  setting as `weekStart`: `sunday` or `monday`.
 - Use `connect-google-calendar` when the user asks to connect or reconnect
   Google Calendar. Return its link to the user; do not `fetch`
   `/_agent-native/google/auth-url` from the agent backend because that route

@@ -44,6 +44,7 @@ export default defineAction({
       .describe("Sentry stats category for mode=stats; defaults to error"),
   }),
   http: { method: "GET" },
+  grounding: true,
   run: async (args) => {
     const credentials = await requireActionCredentials(
       ["SENTRY_SERVER_TOKEN", "SENTRY_AUTH_TOKEN"],

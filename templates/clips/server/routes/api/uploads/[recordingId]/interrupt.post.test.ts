@@ -124,7 +124,7 @@ describe("/api/uploads/:recordingId/interrupt route", () => {
       expect.objectContaining({
         status: "failed",
         failureReason:
-          "Upload was interrupted. The local recording is safe; retry from the Clips desktop app.",
+          "Upload was interrupted. The local recording is safe; retry from the Clips desktop app. Last error: TypeError: Load failed",
       }),
     ]);
     expect(mockCompareAndSetAppState).toHaveBeenCalledWith(

@@ -235,6 +235,24 @@ describe("slackAdapter", () => {
     );
   });
 
+  it("converts bare Slack user IDs into mentions", () => {
+    const formatted = slackAdapter().formatAgentResponse(
+      "Please review this with @U0BNS6TLRK8's team.",
+    );
+
+    expect(formatted.text).toBe(
+      "Please review this with <@U0BNS6TLRK8>'s team.",
+    );
+  });
+
+  it("preserves existing Slack mentions", () => {
+    const formatted = slackAdapter().formatAgentResponse(
+      " cc <@U0BNS6TLRK8> and <@W0123456789>",
+    );
+
+    expect(formatted.text).toBe(" cc <@U0BNS6TLRK8> and <@W0123456789>");
+  });
+
   it("rejects Slack events in production when the team allowlist is missing", async () => {
     process.env.NODE_ENV = "production";
 
@@ -1536,6 +1554,35 @@ describe("slackAdapter", () => {
     expect(deliveryUrls.some((url) => url.includes("chat.postMessage"))).toBe(
       false,
     );
+  });
+
+  it("fails proactive delivery when no Slack bot token is configured", async () => {
+    await expect(
+      slackAdapter().sendMessageToTarget?.(
+        { text: "hello", platformContext: {} },
+        { platform: "slack", destination: "C123" },
+      ),
+    ).rejects.toThrow("no bot token for outbound target");
+  });
+
+  it("fails proactive delivery when Slack omits its message timestamp", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ ok: true }), {
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+
+    await expect(
+      slackAdapter().sendMessageToTarget?.(
+        { text: "hello", platformContext: {} },
+        { platform: "slack", destination: "C123" },
+      ),
+    ).rejects.toThrow("delivery was not confirmed");
   });
 
   it("keeps block-rich Slack replies when fallback text is blank", async () => {

@@ -484,6 +484,12 @@ const messages = {
     lastRun: "Última execução:",
     automationsDescription:
       "Regras que processam automaticamente novos emails da caixa de entrada usando IA.",
+    allowAutomationSends:
+      "Permitir que as automações enviem emails automaticamente",
+    allowAutomationSendsDescription:
+      "Desativado por padrão. Ative quando quiser que as automações enviem emails sem pedir aprovação todas as vezes.",
+    automationSendSettingSaveFailed:
+      "Não foi possível salvar a configuração de envio automático de emails.",
     loadingModels: "Carregando modelos",
     newRule: "Nova regra",
     noAutomationRules: "Ainda não há regras de automação.",
@@ -504,6 +510,8 @@ const messages = {
     importFromGmail: "Importar do Gmail",
     signatureHelp:
       "Adicionada a novos rascunhos antes do histórico de resposta citado. Links e imagens Markdown são compatíveis.",
+    addSignatureImage: "Adicionar imagem",
+    signatureImageUploadFailed: "Falha ao enviar a imagem da assinatura",
     writingStyle: "Estilo de escrita",
     writingStylePlaceholder:
       "Curto, específico e acolhedor. Evite formalidades vazias.",

@@ -470,6 +470,10 @@ const messages = {
     when: "当",
     lastRun: "上次运行：",
     automationsDescription: "使用 AI 自动处理新收件箱邮件的规则。",
+    allowAutomationSends: "允许自动化自动发送邮件",
+    allowAutomationSendsDescription:
+      "默认关闭。需要自动化在每次发送邮件时无需请求批准时，请打开此选项。",
+    automationSendSettingSaveFailed: "无法保存自动邮件发送设置。",
     loadingModels: "正在加载模型",
     newRule: "新建规则",
     noAutomationRules: "还没有自动化规则。",
@@ -488,6 +492,8 @@ const messages = {
     importFromGmail: "从 Gmail 导入",
     signatureHelp:
       "会添加到新草稿中，位于引用的回复历史之前。支持 Markdown 链接和图片。",
+    addSignatureImage: "添加图片",
+    signatureImageUploadFailed: "签名图片上传失败",
     writingStyle: "写作风格",
     writingStylePlaceholder: "简短、具体、温暖。避免正式套话。",
     saveDraftingSettings: "保存草稿设置",

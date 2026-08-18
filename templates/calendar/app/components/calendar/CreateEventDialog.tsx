@@ -71,14 +71,17 @@ import { getGoogleEventColorHex } from "@/lib/event-colors";
 import { buildEventFormInitializationKey } from "@/lib/event-form-initialization";
 import {
   attachmentsToDrafts,
+  buildRecurrenceRules,
   buildReminderPayload,
   createAttachmentDraft,
   createReminderDraft,
   dateTimeInTimezoneToIso,
   getEventEndValidationMessage,
-  getLocalTimezone,
+  getRecurrencePreset,
   remindersToDraftState,
+  resolveEventTimezone,
   type AttachmentDraft,
+  type RecurrencePreset,
   type ReminderDraft,
   type ReminderMode,
   validateAttachmentDrafts,
@@ -180,6 +183,10 @@ function dateTimePartsInTimezone(value: string, timezone: string) {
 
 function allDayEndDate(end: string | undefined, fallback: string) {
   if (!end) return fallback;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(end)) {
+    const previous = addDaysToDateString(end, -1);
+    return previous < fallback ? fallback : previous;
+  }
   const parsed = new Date(end);
   if (Number.isNaN(parsed.getTime())) return fallback;
   parsed.setDate(parsed.getDate() - 1);
@@ -236,7 +243,7 @@ export function CreateEventPopover({
   const defaultDurationMinutes = Number.isFinite(rawDefaultDuration)
     ? Math.max(5, rawDefaultDuration)
     : 30;
-  const defaultTimezone = settings?.timezone || getLocalTimezone();
+  const defaultTimezone = settings?.timezone || resolveEventTimezone();
   const fallbackStart = "09:00";
   const fallbackEnd = addMinutesToTimeString(
     fallbackStart,
@@ -261,6 +268,8 @@ export function CreateEventPopover({
   );
   const [availability, setAvailability] = useState<Availability>("opaque");
   const [visibility, setVisibility] = useState<Visibility>("default");
+  const [recurrencePreset, setRecurrencePreset] =
+    useState<RecurrencePreset>("none");
   const [timezone, setTimezone] = useState(defaultTimezone);
   const [colorId, setColorId] = useState<string | undefined>();
   const [reminderMode, setReminderMode] = useState<ReminderMode>("default");
@@ -279,6 +288,7 @@ export function CreateEventPopover({
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const isOutOfOffice = eventType === "outOfOffice";
   const timedOnlyStatus = eventType === "focusTime";
+  const eventTimezone = resolveEventTimezone(timezone);
 
   const createEvent = useCreateEvent();
   const delEvent = useDeleteEvent();
@@ -308,8 +318,9 @@ export function CreateEventPopover({
     }
 
     const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
-    const draftTimezone =
-      draft?.startTimeZone || draft?.endTimeZone || defaultTimezone;
+    const draftTimezone = resolveEventTimezone(
+      draft?.startTimeZone || draft?.endTimeZone || defaultTimezone,
+    );
     const initKey = buildEventFormInitializationKey({
       draftId: draft?.id,
       date: nextDate,
@@ -321,12 +332,14 @@ export function CreateEventPopover({
 
     if (draft) {
       const startParts = draft.start
-        ? draft.fullDay && /^\d{4}-\d{2}-\d{2}$/.test(draft.start)
+        ? (draft.fullDay || draft.allDay) &&
+          /^\d{4}-\d{2}-\d{2}$/.test(draft.start)
           ? { date: draft.start, time: "00:00" }
           : dateTimePartsInTimezone(draft.start, draftTimezone)
         : null;
       const endParts = draft.end
-        ? draft.fullDay && /^\d{4}-\d{2}-\d{2}$/.test(draft.end)
+        ? (draft.fullDay || draft.allDay) &&
+          /^\d{4}-\d{2}-\d{2}$/.test(draft.end)
           ? { date: draft.end, time: "00:00" }
           : dateTimePartsInTimezone(
               draft.end,
@@ -363,6 +376,7 @@ export function CreateEventPopover({
       );
       setAvailability(draft.transparency ?? "opaque");
       setVisibility(draft.visibility ?? "default");
+      setRecurrencePreset(getRecurrencePreset(draft.recurrence));
       setTimezone(draftTimezone);
       setColorId(draft.colorId);
       setReminderMode(reminderState.mode);
@@ -401,6 +415,7 @@ export function CreateEventPopover({
     setDeclineMessage("Declined because I am out of office");
     setAvailability("opaque");
     setVisibility("default");
+    setRecurrencePreset("none");
     setTimezone(defaultTimezone);
     setColorId(undefined);
     setReminderMode("default");
@@ -455,14 +470,19 @@ export function CreateEventPopover({
       ? date
       : effectiveAllDay
         ? new Date(`${date}T00:00:00`).toISOString()
-        : dateTimeInTimezoneToIso(date, startTime, timezone);
+        : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
         ? allDayEnd.toISOString()
-        : dateTimeInTimezoneToIso(endDate, endTime, timezone);
+        : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
     const attachmentResult = validateAttachmentDrafts(attachments);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
+    const recurrence = buildRecurrenceRules(
+      recurrencePreset,
+      effectiveAllDay ? date : startValue,
+      eventTimezone,
+    );
     const nextDraft: CalendarEventDraft = {
       id: draftId,
       createdAt: draft?.createdAt,
@@ -470,8 +490,8 @@ export function CreateEventPopover({
       description: isOutOfOffice ? "" : description,
       start: startValue,
       end: endValue,
-      startTimeZone: effectiveAllDay ? undefined : timezone,
-      endTimeZone: effectiveAllDay ? undefined : timezone,
+      startTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      endTimeZone: effectiveAllDay ? undefined : eventTimezone,
       location: isOutOfOffice ? "" : location,
       allDay: effectiveAllDay,
       fullDay: fullDayOutOfOffice,
@@ -491,6 +511,7 @@ export function CreateEventPopover({
             : "opaque",
       visibility: eventType === "workingLocation" ? "public" : visibility,
       ...reminderPatch,
+      recurrence: recurrence ?? undefined,
       colorId,
       attachments:
         attachmentResult.error ||
@@ -547,7 +568,8 @@ export function CreateEventPopover({
     declineMessage,
     availability,
     visibility,
-    timezone,
+    recurrencePreset,
+    eventTimezone,
     colorId,
     reminderMode,
     reminders,
@@ -578,7 +600,7 @@ export function CreateEventPopover({
         time: allDay
           ? t("eventForm.allDay")
           : t("eventForm.ai.timeRange", { startTime, endTime }),
-        timezone,
+        timezone: eventTimezone,
         location: location || t("eventForm.ai.none"),
         attendees:
           attendees.map((attendee) => attendee.email).join(", ") ||
@@ -636,11 +658,11 @@ export function CreateEventPopover({
   const effectiveAllDay = allDay && !isOutOfOffice && !timedOnlyStatus;
   const currentStartISO =
     !effectiveAllDay && date && startTime
-      ? dateTimeInTimezoneToIso(date, startTime, timezone)
+      ? dateTimeInTimezoneToIso(date, startTime, eventTimezone)
       : undefined;
   const currentEndISO =
     !effectiveAllDay && endDate && endTime
-      ? dateTimeInTimezoneToIso(endDate, endTime, timezone)
+      ? dateTimeInTimezoneToIso(endDate, endTime, eventTimezone)
       : undefined;
   const findTimeDurationMinutes =
     currentStartISO && currentEndISO
@@ -654,8 +676,8 @@ export function CreateEventPopover({
       : defaultDurationMinutes;
 
   function handleSelectFindTimeSlot(slot: { start: string; end: string }) {
-    const startParts = dateTimePartsInTimezone(slot.start, timezone);
-    const endParts = dateTimePartsInTimezone(slot.end, timezone);
+    const startParts = dateTimePartsInTimezone(slot.start, eventTimezone);
+    const endParts = dateTimePartsInTimezone(slot.end, eventTimezone);
     if (!startParts || !endParts) return;
     setAllDay(false);
     setDate(startParts.date);
@@ -708,12 +730,12 @@ export function CreateEventPopover({
       ? date
       : effectiveAllDay
         ? new Date(`${date}T00:00:00`).toISOString()
-        : dateTimeInTimezoneToIso(date, startTime, timezone);
+        : dateTimeInTimezoneToIso(date, startTime, eventTimezone);
     const endValue = fullDayOutOfOffice
       ? endDate
       : effectiveAllDay
         ? allDayEnd.toISOString()
-        : dateTimeInTimezoneToIso(endDate, endTime, timezone);
+        : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
 
     if (
       fullDayOutOfOffice
@@ -745,6 +767,11 @@ export function CreateEventPopover({
       ...trailingAttendees,
     ]);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
+    const recurrence = buildRecurrenceRules(
+      recurrencePreset,
+      effectiveAllDay ? date : startValue,
+      eventTimezone,
+    );
     const statusPatch =
       eventType === "default"
         ? {}
@@ -761,8 +788,8 @@ export function CreateEventPopover({
       description: isOutOfOffice ? "" : description,
       start: startValue,
       end: endValue,
-      startTimeZone: effectiveAllDay ? undefined : timezone,
-      endTimeZone: effectiveAllDay ? undefined : timezone,
+      startTimeZone: effectiveAllDay ? undefined : eventTimezone,
+      endTimeZone: effectiveAllDay ? undefined : eventTimezone,
       location: isOutOfOffice ? "" : location,
       accountEmail,
       allDay: effectiveAllDay,
@@ -780,6 +807,7 @@ export function CreateEventPopover({
             : "opaque",
       visibility: eventType === "workingLocation" ? "public" : visibility,
       ...reminderPatch,
+      recurrence: recurrence ?? undefined,
       ...statusPatch,
       color: colorId ? getGoogleEventColorHex(colorId) : undefined,
       colorId,
@@ -1403,6 +1431,50 @@ export function CreateEventPopover({
                   </div>
                 )}
 
+                <div className="space-y-1.5">
+                  <Label htmlFor="event-recurrence" className="text-xs">
+                    {t("eventForm.repeats")}
+                  </Label>
+                  <Select
+                    value={recurrencePreset}
+                    onValueChange={(value) =>
+                      setRecurrencePreset(value as RecurrencePreset)
+                    }
+                  >
+                    <SelectTrigger
+                      id="event-recurrence"
+                      className="h-8 text-sm"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none">
+                        {t("eventForm.doesNotRepeat")}
+                      </SelectItem>
+                      <SelectItem value="daily">
+                        {t("eventForm.daily")}
+                      </SelectItem>
+                      <SelectItem value="weekdays">
+                        {t("eventForm.everyWeekday")}
+                      </SelectItem>
+                      <SelectItem value="weekly">
+                        {t("eventForm.weekly")}
+                      </SelectItem>
+                      <SelectItem value="monthly">
+                        {t("eventForm.monthly")}
+                      </SelectItem>
+                      <SelectItem value="yearly">
+                        {t("eventForm.yearly")}
+                      </SelectItem>
+                      {recurrencePreset === "custom" && (
+                        <SelectItem value="custom" disabled>
+                          {t("eventForm.customSchedule")}
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+
                 {(!allDay || isOutOfOffice) && (
                   <div className="space-y-1.5">
                     <Label htmlFor="event-timezone" className="text-xs">
@@ -1459,7 +1531,7 @@ export function CreateEventPopover({
               (draft ? t("eventForm.invite") : t("eventForm.newEventLower"))
             }
             date={date}
-            timezone={timezone}
+            timezone={eventTimezone}
             durationMinutes={findTimeDurationMinutes}
             attendees={attendees}
             accountEmail={accountEmail}

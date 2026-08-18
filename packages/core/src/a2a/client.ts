@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 
 import * as jose from "jose";
 
+import { getAppConfig } from "../app-config/index.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
+import { canonicalA2AAudience } from "./audience.js";
 
 /**
  * A workspace serves every app from one gateway on loopback, so sibling A2A
@@ -11,16 +13,15 @@ import { ssrfSafeFetch } from "../extensions/url-safety.js";
  * itself — never a value that arrived on a request.
  */
 function workspacePrivateOrigins(): string[] {
+  const config = getAppConfig();
+  // No trimming or blank-dropping here: the config layer trims string values
+  // and `a2a.allowedOrigins` rejects empty entries, so the only thing left to
+  // drop is an unset optional.
   const origins = [
-    process.env.WORKSPACE_GATEWAY_URL,
-    process.env.APP_URL,
-    process.env.BETTER_AUTH_URL,
-    // Escape hatch for contexts that never receive the gateway manifest (the
-    // action CLI, one-off scripts). Comma-separated origins.
-    ...(process.env.AGENT_NATIVE_A2A_ALLOWED_ORIGINS ?? "").split(","),
-  ]
-    .map((value) => value?.trim())
-    .filter((value): value is string => !!value);
+    config.workspace.gatewayUrl,
+    config.app.url,
+    ...config.a2a.allowedOrigins,
+  ].filter((value): value is string => value !== undefined);
 
   // The gateway also hands each child the sibling manifest, and siblings are
   // reached on their own loopback ports rather than through the gateway.
@@ -169,10 +170,7 @@ export async function signA2AToken(
     );
   }
 
-  const appUrl =
-    process.env.APP_URL ||
-    process.env.BETTER_AUTH_URL ||
-    "http://localhost:3000";
+  const appUrl = getAppConfig().app.url ?? "http://localhost:3000";
 
   const jwt = new jose.SignJWT({
     ...(options?.extraClaims ?? {}),
@@ -250,6 +248,20 @@ export class A2AClient {
         // Try the next candidate.
       }
     }
+  }
+
+  /** Resolve the card-advertised endpoint without sending an RPC request. */
+  async resolveEndpointUrl(timeoutMs?: number): Promise<string> {
+    await this.ensureEndpointCandidates(timeoutMs);
+    const endpoint = this.endpointCandidates[0];
+    if (!endpoint) throw new Error("No A2A endpoint candidates available");
+    return endpoint;
+  }
+
+  /** Replace caller credentials without discarding resolved endpoint fallbacks. */
+  setAuthentication(apiKey?: string, fallbackApiKeys: string[] = []): void {
+    this.apiKey = apiKey;
+    this.apiKeyAttempts = uniqueAuthTokens([apiKey, ...fallbackApiKeys]);
   }
 
   private headers(apiKey = this.apiKey): Record<string, string> {
@@ -1217,17 +1229,36 @@ export async function callAction(
     throw new Error("A2A action input must be an object");
   }
 
-  const apiKeyAttempts = await buildA2AApiKeyAttempts(
+  const discoveryAudience = normalizeA2AAudience(url);
+  const discoveryApiKeyAttempts = await buildA2AApiKeyAttempts(
     opts,
-    normalizeA2AAudience(url),
+    discoveryAudience,
   );
-  const fallbackApiKeys = apiKeyAttempts
+  const discoveryFallbackApiKeys = discoveryApiKeyAttempts
     .slice(1)
     .filter((token): token is string => token !== undefined);
-  const client = new A2AClient(url, apiKeyAttempts[0], {
-    fallbackApiKeys,
+  const client = new A2AClient(url, discoveryApiKeyAttempts[0], {
+    fallbackApiKeys: discoveryFallbackApiKeys,
     requestTimeoutMs: opts?.requestTimeoutMs,
   });
+  const endpointUrl = await client.resolveEndpointUrl(opts?.requestTimeoutMs);
+  const invocationAudience = normalizeA2AAudience(endpointUrl);
+  if (invocationAudience !== discoveryAudience) {
+    const invocationApiKeyAttempts = await buildA2AApiKeyAttempts(
+      opts,
+      invocationAudience,
+    );
+    const combinedApiKeyAttempts = uniqueAuthTokens([
+      ...invocationApiKeyAttempts,
+      ...discoveryApiKeyAttempts,
+    ]);
+    client.setAuthentication(
+      combinedApiKeyAttempts[0],
+      combinedApiKeyAttempts
+        .slice(1)
+        .filter((token): token is string => token !== undefined),
+    );
+  }
   return client.invokeAction(actionName, input, {
     metadata: sanitizeA2ACorrelationMetadata(opts?.correlation),
   });
@@ -1287,15 +1318,7 @@ async function buildA2AApiKeyAttempts(
 function normalizeA2AAudience(url: string): string {
   const explicit = splitExplicitA2AEndpoint(url.replace(/\/$/, ""));
   const base = (explicit?.baseUrl ?? url).replace(/\/$/, "");
-  // Receivers derive their expected audience from APP_URL, which carries no
-  // app path. In a workspace every app is mounted under one gateway origin, so
-  // signing the path-qualified URL yields an audience the receiver can never
-  // match. The origin is the identifier both sides agree on.
-  try {
-    return new URL(base).origin;
-  } catch {
-    return base;
-  }
+  return canonicalA2AAudience(base);
 }
 
 function isA2AAuthRejection(err: unknown): boolean {

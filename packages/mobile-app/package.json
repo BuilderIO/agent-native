@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/mobile-app",
-  "version": "0.1.2",
+  "version": "0.1.17",
   "private": true,
   "bugs": {
     "url": "https://github.com/BuilderIO/agent-native/issues"
@@ -20,6 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
     "@bacons/apple-targets": "5.0.0",
     "@expo/dom-webview": "57.0.1",

@@ -41,7 +41,8 @@ let B call A.
 `createAgentChatPlugin` calls `mountA2A` for every app, so a generated app
 already serves:
 
-- `GET /.well-known/agent-card.json` — public discovery, never authenticated
+- `GET /.well-known/agent-card.json` — public discovery, with a larger
+  authenticated capability view for verified sibling callers
 - `POST /_agent-native/a2a` — JSON-RPC, authenticated
 
 Do not add a `mountA2A` server plugin to enable A2A; it is on. Hand-mounting is
@@ -146,11 +147,23 @@ log or return them.
 
 ## Advertising what this agent can do
 
-Card `skills` are derived from actions marked `publicAgent`. An app that marks
-none publishes `"skills": []`, but natural-language delegation still works
-because the receiving agent loads its own instructions, skills, data
-dictionary, credentials, and tools. Mark only stable machine contracts that a
-peer may intentionally invoke directly; leave implementation actions internal.
+Card `skills` are derived from actions marked `publicAgent`; do not maintain a
+second capability registry. Anonymous callers see only explicitly public-safe
+reads. Verified sibling callers see two concise kinds of capability:
+
+- Authenticated read-only actions selected by connector policy include their
+  input schemas and may be invoked directly.
+- Authenticated writes marked `publicAgent: { expose: true, readOnly: false,
+  requiresAuth: true }` are advertised without schemas as message-only
+  capabilities. A sibling delegates an objective; the receiving agent chooses
+  and validates its own local actions.
+
+`agentTool: false` and `externalAgents.denyActions` remove an action from both
+authenticated paths. An app that marks no actions still publishes
+`"skills": []`, and natural-language delegation still works because the
+receiver loads its own instructions, skills, data dictionary, credentials, and
+tools. Expose stable user-facing capabilities, not internal implementation
+actions.
 
 ## Calling another agent
 
@@ -203,8 +216,9 @@ const { result } = await invokeAgentAction({
 The receiver still owns schema validation, credentials, access scoping, audit
 attribution, and exposure policy. Direct invocation is available only for
 cataloged, authenticated, explicitly exposed read-only actions that do not
-require approval. Its JWT is audience-bound to the receiving app. Use normal
-message delegation whenever the receiver must interpret the request, choose a
+require approval. Its JWT is audience-bound to the receiving app's exact base
+URL, including a workspace path such as `/content`. Use normal message
+delegation whenever the receiver must interpret the request, choose a
 source, consult its data dictionary, plan, synthesize, join data, or perform a
 multi-step workflow.
 
@@ -224,10 +238,12 @@ change it when the work changes. Dedupe is scoped to the JWT-authenticated
 owner and verified org, and keys are limited to 128 characters.
 
 The caller also forwards bounded correlation metadata (`callerApp`,
-`callerThreadId`, `parentRunId`, `parentTurnId`, and direct-read
-`invocationId`). These fields
-are telemetry hints only. Receivers must continue to derive identity,
-ownership, org scope, access, and approval from the verified request context.
+`selectedReceiverApp`, `callerThreadId`, `parentRunId`, `parentTurnId`, and
+direct-read `invocationId`). `selectedReceiverApp` lets the matching receiver
+prioritize its declared local capabilities before loading cross-app tools; the
+other fields remain telemetry hints. Receivers must continue to derive
+identity, data ownership, org scope, access, and approval from the verified
+request context.
 Delegated model loops emit `$ai_generation` with A2A/MCP lineage, while direct
 reads emit the content-free `$a2a_read_invoke` event; neither event includes
 action arguments or results.

@@ -33,6 +33,9 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     path: string,
     options?: unknown,
   ) => clientState.navigateWithTransition(navigate, path, options),
+  orderChatFirstAppIds: (appIds: string[]) => appIds,
+  readChatFirstAppLayout: () => ({ pinnedIds: [], orderedIds: [] }),
+  writeChatFirstAppLayout: () => ({ ok: true }),
   useChatModels: clientState.useChatModels,
 }));
 
@@ -51,6 +54,11 @@ vi.mock("@agent-native/core/client/composer", () => ({
       </button>
     );
   },
+}));
+
+vi.mock("@agent-native/core/client/application-state", () => ({
+  readClientAppState: vi.fn(async () => null),
+  writeClientAppState: vi.fn(async () => null),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -129,6 +137,15 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).not.toContain("Open chat");
     expect(container.textContent).not.toContain("Also");
     expect(container.textContent).not.toContain("active");
+    expect(container.textContent).not.toContain(
+      "Summarize the current workspace health",
+    );
+    expect(container.textContent).toContain(
+      "Create an app for onboarding requests",
+    );
+    expect(container.textContent).toContain(
+      "Check which agents can help with analytics",
+    );
     expect(container.querySelector("nav")).toBeNull();
     expect(
       container.querySelector('[data-placeholder="Ask Dispatch anything..."]'),
@@ -231,7 +248,9 @@ describe("DispatchControlPlane", () => {
         id: "clips",
         name: "Clips",
         description: "Record and share",
-        url: "https://clips.agent-native.com",
+        url: "https://clips.agent-native.com/share/WrA8ZQ3oxa2T?ref=clip_share",
+        homeUrl: "https://clips.agent-native.com",
+        source: "builtin",
       },
       {
         id: "onboarding",
@@ -272,15 +291,37 @@ describe("DispatchControlPlane", () => {
     expect(container.textContent).toContain("Analytics");
     expect(container.textContent).toContain("Apps");
     expect(container.textContent).toContain("New");
+    const viewAllLink = Array.from(container.querySelectorAll("a")).find(
+      (link) => link.textContent?.trim() === "View all",
+    );
+    expect(viewAllLink?.className).toContain("text-muted-foreground");
     expect(container.textContent).not.toContain("Other apps");
     expect(container.textContent).not.toContain("available");
     expect(container.textContent).not.toContain("Archived app");
     expect(container.textContent).not.toContain("Duplicate onboarding");
     expect(container.textContent).not.toContain("CRM");
     expect(
-      Array.from(container.querySelectorAll("a")).filter((anchor) =>
-        anchor.getAttribute("href")?.includes("onboarding"),
+      container.querySelectorAll(
+        'button[aria-label="Open options for Onboarding"]',
       ),
     ).toHaveLength(1);
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Open options for Onboarding"]',
+        )
+        ?.dispatchEvent(
+          new MouseEvent("pointerdown", { bubbles: true, button: 0 }),
+        );
+    });
+    const onboardingNewTabLink = document.querySelector<HTMLAnchorElement>(
+      'a[href="/onboarding"][target="_blank"]',
+    );
+    expect(onboardingNewTabLink).not.toBeNull();
+    const clipsHref = Array.from(container.querySelectorAll("a"))
+      .map((anchor) => anchor.getAttribute("href"))
+      .find((href) => href?.includes("clips.agent-native.com"));
+    expect(clipsHref).toContain("https://clips.agent-native.com");
+    expect(clipsHref).not.toContain("/share/");
   });
 });

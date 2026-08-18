@@ -5,6 +5,8 @@ import * as googleCalendar from "../lib/google-calendar.js";
 import {
   generateAvailableSlotsForDate,
   getConflictItems,
+  parseBookingAvailabilityDraft,
+  resolveBookingLinkAvailabilityOverrides,
   resolveBookingCalendarAccount,
 } from "./bookings";
 
@@ -111,6 +113,68 @@ describe("booking availability", () => {
     ]);
   });
 
+  it("omits slots that overlap existing calendar conflicts", () => {
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 30,
+      config: availabilityConfig(),
+      conflictItems: [
+        {
+          start: "2026-07-20T16:30:00.000Z",
+          end: "2026-07-20T17:30:00.000Z",
+        },
+      ],
+    });
+
+    expect(slots.map((slot) => slot.start)).toEqual([
+      "2026-07-20T16:00:00.000Z",
+      "2026-07-20T17:30:00.000Z",
+      "2026-07-20T18:00:00.000Z",
+      "2026-07-20T18:30:00.000Z",
+    ]);
+  });
+
+  it("offers slots from each disjoint availability window", () => {
+    const config = availabilityConfig();
+    config.weeklySchedule.monday.slots = [
+      { start: "09:00", end: "10:00" },
+      { start: "14:00", end: "15:00" },
+    ];
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 30,
+      config,
+      conflictItems: [],
+    });
+
+    expect(slots.map((slot) => slot.start)).toEqual([
+      "2026-07-20T16:00:00.000Z",
+      "2026-07-20T16:30:00.000Z",
+      "2026-07-20T21:00:00.000Z",
+      "2026-07-20T21:30:00.000Z",
+    ]);
+  });
+
+  it("does not publish duplicate slots from overlapping availability windows", () => {
+    const config = availabilityConfig();
+    config.weeklySchedule.monday.slots = [
+      { start: "09:00", end: "12:00" },
+      { start: "11:00", end: "14:00" },
+    ];
+
+    const slots = generateAvailableSlotsForDate({
+      date: "2026-07-20",
+      duration: 60,
+      config,
+      conflictItems: [],
+    });
+
+    expect(new Set(slots.map((slot) => `${slot.start}/${slot.end}`)).size).toBe(
+      slots.length,
+    );
+  });
+
   it("marks owner availability unavailable when Google is not connected", async () => {
     vi.mocked(googleCalendar.isConnected).mockResolvedValue(false);
 
@@ -192,6 +256,50 @@ describe("booking availability", () => {
       unavailableReason:
         "Calendar availability unavailable for host@example.com",
     });
+  });
+
+  it("applies draft durations and co-hosts to preview availability", () => {
+    const parsed = parseBookingAvailabilityDraft(
+      JSON.stringify({
+        slug: "updated-meeting",
+        durations: [45, 60],
+        hosts: [{ email: "new-host@example.com" }],
+      }),
+    );
+    expect("draft" in parsed).toBe(true);
+    if (!("draft" in parsed)) return;
+
+    const overrides = resolveBookingLinkAvailabilityOverrides({
+      bookingLink: {
+        ownerEmail: "owner@example.com",
+        hosts: JSON.stringify([{ email: "old-host@example.com" }]),
+        duration: 30,
+        durations: JSON.stringify([30]),
+      } as Parameters<
+        typeof resolveBookingLinkAvailabilityOverrides
+      >[0]["bookingLink"],
+      draft: parsed.draft,
+    });
+
+    expect(overrides.hostEmails).toEqual([
+      "owner@example.com",
+      "new-host@example.com",
+    ]);
+    expect(overrides.durationSource).toEqual({
+      duration: 45,
+      durations: "[45,60]",
+    });
+  });
+
+  it("rejects malformed draft preview payloads", () => {
+    expect(parseBookingAvailabilityDraft("not-json")).toEqual({
+      error: "draft must be valid JSON",
+    });
+    expect(
+      parseBookingAvailabilityDraft(
+        JSON.stringify({ slug: "meeting", durations: [], hosts: [] }),
+      ),
+    ).toEqual({ error: "draft has an invalid booking-link configuration" });
   });
 });
 

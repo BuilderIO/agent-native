@@ -50,6 +50,18 @@ function oauthTokensTable(): string {
   return isPostgres() ? "public.oauth_tokens" : "oauth_tokens";
 }
 
+function isDuplicateColumnError(err: unknown): boolean {
+  const code = String((err as { code?: unknown })?.code ?? "");
+  const message = String((err as { message?: unknown })?.message ?? err)
+    .toLowerCase()
+    .trim();
+  return (
+    code === "42701" ||
+    message.includes("duplicate column") ||
+    message.includes("already exists")
+  );
+}
+
 async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
@@ -62,6 +74,7 @@ async function ensureTable(): Promise<void> {
           owner TEXT,
           tokens TEXT NOT NULL,
           updated_at ${intType()} NOT NULL,
+          revision ${intType()} NOT NULL,
           PRIMARY KEY (provider, account_id)
         )
       `;
@@ -93,15 +106,19 @@ async function ensureTable(): Promise<void> {
           "display_name",
           `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS display_name TEXT`,
         );
+        await ensureColumnExists(
+          "oauth_tokens",
+          "revision",
+          `ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS revision BIGINT`,
+        );
         // Backfill: set owner = account_id for existing rows without an owner
         await client.execute(
           `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
         );
-        // Older deployments have a 32-bit `updated_at`; on Postgres the
-        // `Date.now()` written on every token save overflows int4. Widen in place
-        // (no-op once done / on fresh DBs). Unqualified name — the helper scopes
-        // to the `public` schema.
-        await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"]);
+        await client.execute(
+          `UPDATE ${table} SET revision = updated_at WHERE revision IS NULL`,
+        );
+        await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"], client);
         return;
       }
 
@@ -110,26 +127,31 @@ async function ensureTable(): Promise<void> {
       // Migration: add owner column to existing tables
       try {
         await client.execute(`ALTER TABLE ${table} ADD COLUMN owner TEXT`);
-      } catch {
-        // Column already exists
+      } catch (err) {
+        if (!isDuplicateColumnError(err)) throw err;
       }
       // Migration: add display_name column
       try {
         await client.execute(
           `ALTER TABLE ${table} ADD COLUMN display_name TEXT`,
         );
-      } catch {
-        // Column already exists
+      } catch (err) {
+        if (!isDuplicateColumnError(err)) throw err;
+      }
+      try {
+        await client.execute(
+          `ALTER TABLE ${table} ADD COLUMN revision INTEGER`,
+        );
+      } catch (err) {
+        if (!isDuplicateColumnError(err)) throw err;
       }
       // Backfill: set owner = account_id for existing rows without an owner
       await client.execute(
         `UPDATE ${table} SET owner = account_id WHERE owner IS NULL`,
       );
-      // Older deployments have a 32-bit `updated_at`; on Postgres the
-      // `Date.now()` written on every token save overflows int4. Widen in place
-      // (no-op once done / on fresh DBs). Unqualified name — the helper scopes
-      // to the `public` schema.
-      await widenIntColumnsToBigInt("oauth_tokens", ["updated_at"]);
+      await client.execute(
+        `UPDATE ${table} SET revision = updated_at WHERE revision IS NULL`,
+      );
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -155,6 +177,124 @@ export async function getOAuthTokens(
   });
   if (rows.length === 0) return null;
   return parseStoredTokens(rows[0].tokens as string);
+}
+
+export interface OAuthTokenSnapshot {
+  tokens: Record<string, unknown>;
+  owner: string | null;
+  revision: number;
+  legacyRevision: number;
+  storageVersion: string;
+}
+
+/**
+ * Read one credential bundle together with the row revision used by
+ * refresh/revocation compare-and-swap writes.
+ */
+export async function getOAuthTokenSnapshot(
+  provider: string,
+  accountId: string,
+  owner: string,
+): Promise<OAuthTokenSnapshot | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const { rows } = await client.execute({
+    sql: `SELECT owner, tokens, revision, updated_at FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ?`,
+    args: [provider, accountId, owner],
+  });
+  if (rows.length === 0) return null;
+  return {
+    tokens: parseStoredTokens(rows[0].tokens as string),
+    owner: (rows[0].owner as string) ?? null,
+    revision: Number(rows[0].revision ?? 0),
+    legacyRevision: Number(rows[0].updated_at),
+    storageVersion: rows[0].tokens as string,
+  };
+}
+
+/** Read a legacy user-owned row without treating organization ids as case-insensitive. */
+export async function getOAuthTokenSnapshotForUserOwner(
+  provider: string,
+  accountId: string,
+  owner: string,
+): Promise<OAuthTokenSnapshot | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const { rows } = await client.execute({
+    sql: `SELECT owner, tokens, revision, updated_at FROM ${table} WHERE provider = ? AND account_id = ? AND LOWER(owner) = LOWER(?) AND LOWER(owner) LIKE 'user:%'`,
+    args: [provider, accountId, owner],
+  });
+  if (rows.length === 0) return null;
+  return {
+    tokens: parseStoredTokens(rows[0].tokens as string),
+    owner: (rows[0].owner as string) ?? null,
+    revision: Number(rows[0].revision ?? 0),
+    legacyRevision: Number(rows[0].updated_at),
+    storageVersion: rows[0].tokens as string,
+  };
+}
+
+/**
+ * Replace an existing credential bundle only when the caller still owns the
+ * revision it read. This prevents a slow refresh/revoke flow from overwriting
+ * a newer authorization completed in another process.
+ */
+export async function replaceOAuthTokensIfRevision(
+  provider: string,
+  accountId: string,
+  owner: string,
+  expectedRevision: number,
+  expectedLegacyRevision: number,
+  expectedStorageVersion: string,
+  tokens: Record<string, unknown>,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const nextRevision = Math.max(Date.now(), expectedRevision + 1);
+  const result = await client.execute({
+    sql: `UPDATE ${table} SET tokens = ?, revision = ?, updated_at = ? WHERE provider = ? AND account_id = ? AND owner = ? AND COALESCE(revision, 0) = ? AND updated_at = ? AND tokens = ?`,
+    args: [
+      serializeTokens(tokens),
+      nextRevision,
+      Math.floor(Date.now() / 1_000),
+      provider,
+      accountId,
+      owner,
+      expectedRevision,
+      expectedLegacyRevision,
+      expectedStorageVersion,
+    ],
+  });
+  return result.rowsAffected === 1;
+}
+
+/** Delete only the exact credential revision the caller inspected. */
+export async function deleteOAuthTokensIfRevision(
+  provider: string,
+  accountId: string,
+  owner: string,
+  expectedRevision: number,
+  expectedLegacyRevision: number,
+  expectedStorageVersion: string,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const table = oauthTokensTable();
+  const result = await client.execute({
+    sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ? AND owner = ? AND COALESCE(revision, 0) = ? AND updated_at = ? AND tokens = ?`,
+    args: [
+      provider,
+      accountId,
+      owner,
+      expectedRevision,
+      expectedLegacyRevision,
+      expectedStorageVersion,
+    ],
+  });
+  return result.rowsAffected === 1;
 }
 
 /**
@@ -187,6 +327,18 @@ export class OAuthAccountOwnedByOtherUserError extends Error {
     this.existingOwner = opts.existingOwner;
     this.attemptedOwner = opts.attemptedOwner;
   }
+}
+
+function ownersRepresentSameUser(
+  existingOwner: string,
+  attemptedOwner: string,
+) {
+  return (
+    existingOwner === attemptedOwner ||
+    (existingOwner.startsWith("user:") &&
+      attemptedOwner.startsWith("user:") &&
+      existingOwner.toLowerCase() === attemptedOwner.toLowerCase())
+  );
 }
 
 /**
@@ -235,7 +387,11 @@ export async function saveOAuthTokens(
   if (!owner) {
     // Token-refresh path: keep the existing owner/displayName unchanged.
     if (existingOwner) resolvedOwner = existingOwner;
-  } else if (existingOwner && owner && existingOwner !== owner) {
+  } else if (
+    existingOwner &&
+    owner &&
+    !ownersRepresentSameUser(existingOwner, owner)
+  ) {
     // Refuse to silently re-bind an account from one user to another.
     // This is the case the docstring promised but the previous
     // implementation didn't enforce — `ON CONFLICT DO UPDATE SET
@@ -256,19 +412,36 @@ export async function saveOAuthTokens(
     ...cleanedIncomingTokens,
   };
 
-  await client.execute({
+  const result = await client.execute({
     sql: isPostgres()
-      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at`
-      : `INSERT OR REPLACE INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+      ? `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=EXCLUDED.owner, display_name=COALESCE(EXCLUDED.display_name, ${table}.display_name), tokens=EXCLUDED.tokens, updated_at=EXCLUDED.updated_at, revision=GREATEST(COALESCE(${table}.revision, 0) + 1, EXCLUDED.revision) WHERE ${table}.owner = EXCLUDED.owner OR (LOWER(${table}.owner) = LOWER(EXCLUDED.owner) AND LOWER(${table}.owner) LIKE 'user:%' AND LOWER(EXCLUDED.owner) LIKE 'user:%')`
+      : `INSERT INTO ${table} (provider, account_id, owner, display_name, tokens, updated_at, revision) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT (provider, account_id) DO UPDATE SET owner=excluded.owner, display_name=COALESCE(excluded.display_name, ${table}.display_name), tokens=excluded.tokens, updated_at=excluded.updated_at, revision=MAX(COALESCE(${table}.revision, 0) + 1, excluded.revision) WHERE ${table}.owner = excluded.owner OR (LOWER(${table}.owner) = LOWER(excluded.owner) AND LOWER(${table}.owner) LIKE 'user:%' AND LOWER(excluded.owner) LIKE 'user:%')`,
     args: [
       provider,
       accountId,
       resolvedOwner,
       existingDisplayName,
       serializeTokens(tokensToStore),
+      Math.floor(Date.now() / 1_000),
       Date.now(),
     ],
   });
+  if (result.rowsAffected === 1) return;
+
+  const { rows: conflict } = await client.execute({
+    sql: `SELECT owner FROM ${table} WHERE provider = ? AND account_id = ?`,
+    args: [provider, accountId],
+  });
+  const conflictOwner = (conflict[0]?.owner as string | undefined) ?? "";
+  if (conflictOwner && !ownersRepresentSameUser(conflictOwner, resolvedOwner)) {
+    throw new OAuthAccountOwnedByOtherUserError({
+      provider,
+      accountId,
+      existingOwner: conflictOwner,
+      attemptedOwner: resolvedOwner,
+    });
+  }
+  throw new Error(`OAuth account ${provider}:${accountId} was not saved.`);
 }
 
 export async function deleteOAuthTokens(

@@ -2,6 +2,11 @@ import { messagesByLocale } from "../i18n-data";
 
 const messages = {
   ...messagesByLocale["en-US"],
+  designEditor: {
+    ...messagesByLocale["en-US"].designEditor,
+    commenterRoleLabel: "Commenter",
+    commenterRoleDescription: "Can view and add review comments",
+  },
   review: {
     comments: "Comments",
     commentsTab: "Comments · {{count}}",
@@ -20,7 +25,7 @@ const messages = {
     commentMode: "Comment",
     sendToAgent: "Send to agent",
     sendingToAgent: "Sending to agent…",
-    enterToPost: "Enter to post · Shift+Enter for a new line",
+    enterToPost: "Enter to post · Shift Enter for a new line",
     post: "Post",
     posting: "Posting…",
     postFailed: "Could not post this comment",
@@ -41,7 +46,7 @@ const messages = {
     applyFeedbackFailed: "Could not apply review feedback",
     sendToAgentFailed: "Could not send this thread to the agent",
     shareLinkDescription:
-      "Anyone with this link can view the design. Signed-in reviewers can comment.",
+      "Anyone with this link can view the design. Signed-in commenters can comment.",
     presentComments: "Comments",
     presentCommentMode: "Comment mode",
     closeComments: "Close comments",

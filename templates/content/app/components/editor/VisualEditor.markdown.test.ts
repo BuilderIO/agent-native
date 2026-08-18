@@ -8,7 +8,7 @@ import {
 } from "@shared/notion-markdown";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema } from "@tiptap/core";
-import type { Transaction } from "@tiptap/pm/state";
+import { NodeSelection, type Transaction } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import { act, createElement } from "react";
 import { createRoot } from "react-dom/client";
@@ -26,11 +26,14 @@ import { createPreviewDocumentSaveController } from "./previewDocumentSaveContro
 import { insertMediaPlaceholder } from "./SlashCommandMenu";
 import {
   createVisualEditorExtensions,
+  commitPendingImageUpload,
   didCommitMediaSource,
   EmptyLineParagraph,
   getRecentEditPresenceMarkerRect,
   hasAncestorType,
   parseNfmForCollabReconcile,
+  ensurePendingImageUpload,
+  restorePendingImagePicker,
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
@@ -171,6 +174,134 @@ describe("collaborative update persistence", () => {
   });
 });
 
+describe("slash image picker lifecycle", () => {
+  const request = {
+    pickerId: "image-picker-test",
+    position: 0,
+    attrs: { src: null, alt: "", uploadId: "image-picker-test" },
+  };
+
+  it("recreates a pending image after collaboration removes its placeholder", () => {
+    const editor = createFullEditor();
+    try {
+      expect(
+        ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+      ).toBe(true);
+      const image = editor
+        .getJSON()
+        .content?.find((node) => node.type === "image");
+      expect(image?.attrs).toMatchObject({
+        src: null,
+        uploadId: "image-upload-test",
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("commits the rendered image even if the pending node is reconciled away", () => {
+    const editor = createFullEditor();
+    try {
+      expect(
+        commitPendingImageUpload(editor.view, request, "image-upload-test", {
+          src: "https://cdn.example.com/diagram.png",
+          uploadId: null,
+        }),
+      ).toBe(true);
+      const image = editor
+        .getJSON()
+        .content?.find((node) => node.type === "image");
+      expect(image?.attrs).toMatchObject({
+        src: "https://cdn.example.com/diagram.png",
+        uploadId: null,
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("keeps the existing pending node identifiable until render validation completes", () => {
+    const editor = createFullEditor();
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "image", attrs: request.attrs }],
+      });
+      expect(
+        ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+      ).toBe(true);
+      expect(
+        commitPendingImageUpload(editor.view, request, "image-upload-test", {
+          src: "https://cdn.example.com/diagram.svg",
+          uploadId: "image-upload-test",
+        }),
+      ).toBe(true);
+      expect(editor.getJSON().content?.[0]?.attrs).toMatchObject({
+        src: "https://cdn.example.com/diagram.svg",
+        uploadId: "image-upload-test",
+      });
+
+      expect(
+        commitPendingImageUpload(editor.view, request, "image-upload-test", {
+          src: "https://cdn.example.com/diagram.svg",
+          uploadId: null,
+        }),
+      ).toBe(true);
+      expect(editor.getJSON().content?.[0]?.attrs).toMatchObject({
+        src: "https://cdn.example.com/diagram.svg",
+        uploadId: null,
+      });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("restores a usable empty image when the native picker is cancelled", () => {
+    const editor = createFullEditor();
+    try {
+      expect(restorePendingImagePicker(editor.view, request)).toBe(true);
+      const image = editor
+        .getJSON()
+        .content?.find((node) => node.type === "image");
+      expect(image?.attrs).toMatchObject({ src: null, uploadId: null });
+      expect(editor.state.selection).toBeInstanceOf(NodeSelection);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("removes a staged source when the committed image cannot render", () => {
+    const editor = createFullEditor();
+    try {
+      editor.commands.setContent({
+        type: "doc",
+        content: [{ type: "image", attrs: request.attrs }],
+      });
+      expect(
+        ensurePendingImageUpload(editor.view, request, "image-upload-test"),
+      ).toBe(true);
+      expect(
+        commitPendingImageUpload(editor.view, request, "image-upload-test", {
+          src: "https://cdn.example.com/broken.svg",
+          uploadId: "image-upload-test",
+        }),
+      ).toBe(true);
+      expect(
+        restorePendingImagePicker(editor.view, request, "image-upload-test"),
+      ).toBe(true);
+      const image = editor
+        .getJSON()
+        .content?.find((node) => node.type === "image");
+      expect(image?.attrs).toMatchObject({ src: null, uploadId: null });
+      expect(
+        editor.getJSON().content?.filter((node) => node.type === "image"),
+      ).toHaveLength(1);
+    } finally {
+      editor.destroy();
+    }
+  });
+});
+
 describe("media draft persistence", () => {
   it("detects a media source enrichment but not unrelated media movement", () => {
     const editor = createFullEditor();
@@ -247,11 +378,17 @@ describe("media draft persistence", () => {
             .content?.find((node) => node.type === "video");
           expect(video?.attrs?.sourcePanelOpen).toBe(true);
         }
+        if (type === "image") {
+          const image = editor
+            .getJSON()
+            .content?.find((node) => node.type === "image");
+          expect(image?.attrs?.uploadId).toMatch(/^image-picker-/);
+        }
 
         persistDraft();
         expect(persisted).toEqual([]);
 
-        editor.commands.updateAttributes(type, { src });
+        editor.commands.updateAttributes(type, { src, uploadId: null });
         persistDraft();
 
         expect(persisted).toHaveLength(1);
@@ -939,6 +1076,74 @@ describe("VisualEditor markdown round-tripping", () => {
         fragmentLength: 1,
       }),
     ).toBe(false);
+  });
+
+  it("hydrates a zero-child collaborative Toggle without an invalid TextSelection warning", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let root = createRoot(container);
+    const ydoc = new Y.Doc();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const content = [
+      "<details open>",
+      "<summary>Parent</summary>",
+      "</details>",
+      "",
+      "After",
+    ].join("\n");
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const renderEditor = () =>
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(TooltipProvider, {
+          delayDuration: 0,
+          children: createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(VisualEditor, {
+              content,
+              contentUpdatedAt: "2026-08-14T12:00:00.000Z",
+              onChange: () => {},
+              ydoc,
+              collabSynced: true,
+              editable: true,
+            }),
+          ),
+        }),
+      );
+
+    try {
+      act(() => root.render(renderEditor()));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      act(() => root.unmount());
+      root = createRoot(container);
+
+      act(() => root.render(renderEditor()));
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+      expect(
+        warning.mock.calls.some((args) =>
+          args.some((arg) =>
+            String(arg).includes(
+              "TextSelection endpoint not pointing into a node with inline content",
+            ),
+          ),
+        ),
+      ).toBe(false);
+      expect(
+        container.querySelector<HTMLInputElement>(".notion-toggle__summary")
+          ?.value,
+      ).toBe("Parent");
+    } finally {
+      await act(async () => root.unmount());
+      warning.mockRestore();
+      queryClient.clear();
+      ydoc.destroy();
+      container.remove();
+    }
   });
 
   it("keeps adjacent NFM blocks separate in collaborative external reconciles", () => {
@@ -1666,7 +1871,7 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
-  it("uses the editable empty paragraph as the toggle body placeholder", () => {
+  it("reserves the empty-toggle placeholder for zero-child toggles", () => {
     const editor = new Editor({
       extensions: createVisualEditorExtensions(),
       content: {
@@ -1697,7 +1902,7 @@ describe("VisualEditor markdown round-tripping", () => {
             "[data-notion-toggle-content] p, .notion-toggle__content p",
           )
           ?.getAttribute("data-placeholder"),
-      ).toBe("Empty toggle. Click or drop blocks inside.");
+      ).toBeNull();
     } finally {
       editor.destroy();
     }

@@ -1,183 +1,90 @@
 /**
  * Cross-app SSO ("Sign in with Agent-Native") — the CLIENT side.
  *
- * Each hosted `*.agent-native.com` app has its OWN Better Auth user store
- * (a separate database per app). This module lets an app federate sign-in to
- * an identity authority (Dispatch) so a user logged in there can land in this
- * app without re-entering credentials.
+ * Each hosted app has its own Better Auth store. Dispatch is the identity
+ * authority, but the browser only ever carries a short-lived, one-time
+ * authorization code. The client keeps the PKCE verifier in an HttpOnly,
+ * callback-scoped cookie and redeems the code server-to-server. Only that
+ * server-to-server response may contain the signed identity assertion.
  *
- * Opt-in, OFF by default, fully reversible. Direct web federation is gated on
- * `AGENT_NATIVE_IDENTITY_HUB_URL`; the packaged Desktop SSO Canary may use the
- * canonical Dispatch authority on canonical hosted apps, where Dispatch's
- * default-off feature flag controls rollout:
- *
- *   - UNSET  → normal browser requests remain protected and the login page
- *     renders no SSO button. Packaged Canary requests on canonical app origins
- *     may reach the flow, but Dispatch refuses them unless its rollout flag
- *     allows the user.
- *   - SET    (e.g. `https://dispatch.agent-native.com`) → two routes mount:
- *       GET /_agent-native/identity/login
- *         302 → `<HUB>/_agent-native/identity/authorize?app=<id>
- *                 &redirect_uri=<thisOrigin>/_agent-native/identity/callback
- *                 &state=<single-use CSRF state>`
- *       GET /_agent-native/identity/callback?token=<jwt>&state=<state>
- *         Verifies the hub-issued identity JWT (HS256 over the SHARED A2A
- *         secret — the exact verify path A2A / MCP `verifyAuth` use), checks
- *         `scope:"identity"`, `exp`, single-use CSRF `state`, and (best
- *         effort) `jti` replay, then JIT-links the verified email into this
- *         app's local Better Auth store and mints a normal framework session
- *         the SAME way the Google OAuth callback does.
- *
- * Crypto reuse: the hub signs with `jose.SignJWT(...).sign(A2A_SECRET)` (the
- * existing `signA2AToken` builder). We verify with the identical
- * `jose.jwtVerify(token, A2A_SECRET)` call `mcp/build-server.ts#verifyAuth`
- * uses — no new crypto, no new keys.
- *
- * Session reuse: a NEW email is created via `auth.api.signUpEmail` — the
- * exact Better Auth signup path `maybeAutoCreateDevSession` already uses, so
- * the adapter creates the `user` (+ adapter-managed credential `account`)
- * row schema-correctly and the normal `databaseHooks.user.create.after`
- * (org auto-join, analytics) fires. The framework session is then minted via
- * `createOAuthSession` — the literal Google-OAuth session-mint path
- * (`addSession` + `setFrameworkSessionCookie`). An EXISTING email is never
- * mutated: we only ADD an inert federated-provider `account` row (if absent)
- * and mint the same framework session. Removing the env returns the app to
- * its prior auth with no residue.
+ * Direct browser federation uses the canonical Dispatch authority for exact
+ * first-party hosted app origins and remains opt-in through
+ * `AGENT_NATIVE_IDENTITY_HUB_URL` for self-hosted deployments. The packaged
+ * Desktop Canary follows the same canonical-origin boundary.
  */
 
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 
 import type { H3Event } from "h3";
-import { getHeader, getMethod } from "h3";
+import { deleteCookie, getCookie, getHeader, getMethod, setCookie } from "h3";
 import * as jose from "jose";
 
+import { getAppConfig } from "../app-config/index.js";
 import {
   GOOGLE_AUTH_REQUIRED_MESSAGE,
   isGoogleSignInRequiredForEmail,
 } from "../org/auth-policy.js";
 import { SIGN_IN_ENTRY_PATH } from "../shared/sign-in-journey.js";
 import { getAppName } from "./app-name.js";
-import { getSession, safeReturnPath, isExpectedAuthFailure } from "./auth.js";
+import { getSession, isExpectedAuthFailure, safeReturnPath } from "./auth.js";
 import {
   getBetterAuth,
   getBetterAuthInternalAdapter,
 } from "./better-auth-instance.js";
 import { createOAuthSession, getOrigin } from "./google-oauth.js";
 import {
-  createSsoState,
   consumeSsoState,
-  isJtiReplayed,
+  createSsoState,
+  CANONICAL_IDENTITY_SSO_HUB_URL,
   getIdentityHubUrl,
-  isIdentitySsoEnabled,
   identitySsoLoginButtonHtml,
-  isCanonicalAgentNativeAppRequest,
-  isDesktopSsoCanaryUserAgent,
+  isCanonicalIdentitySsoClientRequest,
+  isDesktopSsoUserAgent,
+  isIdentitySsoExplicitlyEnabled,
+  isIdentitySsoEnabled,
+  isJtiReplayed,
+  SSO_STATE_TTL_MS,
 } from "./identity-sso-store.js";
 
-export { getIdentityHubUrl, isIdentitySsoEnabled, identitySsoLoginButtonHtml };
+export { getIdentityHubUrl, identitySsoLoginButtonHtml, isIdentitySsoEnabled };
 
-/**
- * The provider id recorded on the additive `account` row we link for an
- * EXISTING local user. Must match the value the Dispatch authority agent
- * expects to interoperate with — documented in the report so the two sides
- * stay in sync. Inert when this provider is unused, so removing the env var
- * leaves no behavioural residue.
- */
 export const IDENTITY_SSO_PROVIDER_ID = "agent-native";
-
-/**
- * The JWT `scope` claim the hub MUST set on the identity token. The callback
- * rejects any token whose `scope` is not exactly this value, so an A2A
- * delegation JWT (no scope, or `scope:"mcp-connect"`) can never be replayed
- * as an identity assertion.
- */
 export const IDENTITY_SSO_SCOPE = "identity";
-
 export const IDENTITY_SSO_DESKTOP_COMPLETE_PATH =
   "/_agent-native/identity/desktop-complete";
+export const IDENTITY_SSO_CALLBACK_PATH = "/_agent-native/identity/callback";
+export const IDENTITY_SSO_TOKEN_PATH = "/_agent-native/identity/token";
 
 const DESKTOP_COMPLETION_NONCE = /^[A-Za-z0-9_-]{32,128}$/;
-const DESKTOP_IDENTITY_HUB_URL = "https://dispatch.agent-native.com";
-
-/** Identity tokens older than this are rejected even if `exp` is generous. */
-const MAX_TOKEN_AGE_SECONDS = 10 * 60;
-
-/**
- * Direct web federation stays explicitly configured through
- * `AGENT_NATIVE_IDENTITY_HUB_URL`. The packaged Desktop SSO Canary may use the
- * canonical Dispatch authority without per-app deployment configuration, but
- * only for canonical HTTPS Agent Native app origins. Dispatch's default-off
- * feature flag remains the authoritative rollout gate.
- */
-export function resolveIdentityHubUrl(event: H3Event): string | undefined {
-  const configured = getIdentityHubUrl();
-  if (configured) return configured;
-  if (!isDesktopSsoCanaryUserAgent(getHeader(event, "user-agent"))) {
-    return undefined;
-  }
-
-  try {
-    if (
-      !isCanonicalAgentNativeAppRequest(
-        getHeader(event, "host"),
-        getHeader(event, "x-forwarded-proto"),
-      )
-    ) {
-      return undefined;
-    }
-    return DESKTOP_IDENTITY_HUB_URL;
-  } catch {
-    return undefined;
-  }
-}
-
-/**
- * A stable id for THIS app, sent to the hub as `?app=` so the authority can
- * record / display which app requested sign-in. Best-effort, non-secret,
- * never trusted for identity. Falls back to the request host.
- */
-function resolveAppId(event: H3Event): string {
-  const configured =
-    process.env.AGENT_NATIVE_APP_ID?.trim() ||
-    process.env.AGENT_NATIVE_WORKSPACE_APP_ID?.trim();
-  if (configured) return configured;
-  const name = getAppName();
-  if (name && name !== "app") return name;
-  try {
-    const origin = getOrigin(event);
-    return new URL(origin).hostname.split(".")[0] || "app";
-  } catch {
-    return "app";
-  }
-}
+const STATE_PATTERN = /^[A-Za-z0-9_-]{43}$/;
+const CODE = /^[A-Za-z0-9_-]{43}$/;
+const CODE_VERIFIER = /^[A-Za-z0-9._~-]{43,128}$/;
+const SSO_VERIFIER_COOKIE_PREFIX = "agent_native_sso_verifier_";
+const MAX_ASSERTION_AGE_SECONDS = 5 * 60;
+const LOCALHOST_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 function html(body: string, status = 200): Response {
   return new Response(body, {
     status,
-    headers: { "Content-Type": "text/html; charset=utf-8" },
+    headers: {
+      "Cache-Control": "no-store",
+      "Content-Type": "text/html; charset=utf-8",
+      "Referrer-Policy": "no-referrer",
+    },
   });
 }
 
 function redirect(event: H3Event, location: string): Response {
-  // Mirror any Set-Cookie staged on the event (e.g. the framework session
-  // cookie set by `createOAuthSession`) onto the 302. h3 v2's
-  // `prepareResponse` only merges staged Set-Cookie into a *2xx* web
-  // Response and drops them for non-2xx — so a bare
-  // `new Response("", { status: 302 })` here would silently lose the
-  // session cookie and the user would finish "Sign in with Agent-Native"
-  // still logged out. This mirrors the framework's `redirectWithStagedCookies`
-  // (auth.ts) exactly; it is a no-op when nothing is staged.
-  const headers = new Headers({ Location: location });
+  const headers = new Headers({
+    "Cache-Control": "no-store",
+    Location: location,
+    "Referrer-Policy": "no-referrer",
+  });
   const staged = (event as any).res?.headers?.getSetCookie?.() ?? [];
   for (const cookie of staged) headers.append("set-cookie", cookie);
   return new Response("", { status: 302, headers });
 }
 
-/**
- * Minimal self-contained error page (same inline-HTML approach as the auth /
- * connect pages). Used when the federated round-trip fails so the user gets
- * an actionable message instead of a raw 4xx. `message` is plain text.
- */
 function errorPage(message: string, loginPath: string): Response {
   const safe = message
     .replace(/&/g, "&amp;")
@@ -202,91 +109,140 @@ function errorPage(message: string, loginPath: string): Response {
   );
 }
 
-/**
- * Create a strong, random, NEVER-exposed credential for a JIT-created SSO
- * user. It is used once by Better Auth's signup path and is intentionally
- * unavailable to every login surface, including later SSO retries.
- */
 function createUnusableSsoCredential(): string {
   return `an-sso_${randomBytes(32).toString("base64url")}`;
 }
 
-/**
- * JIT-link the verified hub identity into THIS app's local Better Auth
- * store, strictly by verified email and strictly additively.
- *
- *   - EXISTING email → the local `user` / `session` / existing `account`
- *     rows are NEVER read-modify-written. We only ADD (if absent) one
- *     federated-provider `account` row via Better Auth's OWN
- *     `internalAdapter.linkAccount` — so id, timestamps, and schema stay
- *     adapter-correct. The row is inert (no template path reads
- *     `provider_id = "agent-native"`), so removing the env var leaves zero
- *     behavioural residue.
- *   - NEW email → created via the SAME `auth.api.signUpEmail` path the app
- *     already uses (`maybeAutoCreateDevSession` uses the identical call), so
- *     the adapter creates the `user` (+ a schema-correct credential
- *     `account`) and `databaseHooks.user.create.after` (org auto-join,
- *     analytics) fires exactly as for a normal first-time signup. Idempotent
- *     under a concurrent create (the "already exists" failure is swallowed).
- *
- * Returns nothing — success is implied by not throwing. Account-link
- * failures for an existing user are swallowed (the verified email already
- * authenticated them; the link row is bookkeeping and must never block the
- * session).
- */
-async function jitLinkIdentity(identity: VerifiedIdentity): Promise<void> {
-  const adapter = await getBetterAuthInternalAdapter();
-
-  // Look up the local user via Better Auth's own adapter (read-only).
-  let existing = adapter
-    ? await adapter
-        .findUserByEmail(identity.email, { includeAccounts: true })
-        .catch(() => null)
-    : null;
-
-  if (!existing) {
-    // No local user → create via the SAME signup path the app already uses.
-    const auth = await getBetterAuth();
-    try {
-      await auth.api.signUpEmail({
-        body: {
-          email: identity.email,
-          password: createUnusableSsoCredential(),
-          name: identity.name || identity.email.split("@")[0] || "User",
-        },
-      });
-    } catch (e) {
-      // "already exists" (concurrent create / pre-existing user the adapter
-      // lookup missed) is expected and fine — fall through to linking.
-      if (!isExpectedAuthFailure(e)) throw e;
+function normalizeAuthority(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (
+      (url.protocol !== "https:" &&
+        !(url.protocol === "http:" && LOCALHOST_HOSTS.has(url.hostname))) ||
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
     }
-    if (adapter) {
-      existing = await adapter
-        .findUserByEmail(identity.email, { includeAccounts: true })
-        .catch(() => null);
-    }
+    return `${url.protocol}//${url.host}${url.pathname}`.replace(/\/+$/, "");
+  } catch (error) {
+    void error;
+    return null;
   }
+}
 
-  // ADD the inert federated-provider link iff a local user resolved and the
-  // link is absent. Better Auth's `linkAccount` is the additive, schema-
-  // correct API — we never UPDATE/DELETE/RENAME any identity row.
-  if (adapter && existing?.user?.id) {
-    const accountId = identity.sub || identity.email;
-    const alreadyLinked = (existing.accounts ?? []).some(
-      (a) =>
-        a.providerId === IDENTITY_SSO_PROVIDER_ID && a.accountId === accountId,
-    );
-    if (!alreadyLinked) {
-      try {
-        await adapter.linkAccount({
-          userId: existing.user.id,
-          providerId: IDENTITY_SSO_PROVIDER_ID,
-          accountId,
-        });
-      } catch {
-        // Inert bookkeeping row — never block sign-in on a link failure.
-      }
+function resolveAppId(event: H3Event): string {
+  // Generic id first here, unlike credential scoping: SSO identifies this app
+  // instance to an authority, it does not look up a row keyed by the id a
+  // workspace deploy assigned.
+  const app = getAppConfig().app;
+  const configured = app.id ?? app.workspaceId;
+  if (configured) return configured;
+  const name = getAppName();
+  if (name && name !== "app") return name;
+  try {
+    return new URL(getOrigin(event)).hostname.split(".")[0] || "app";
+  } catch {
+    return "app";
+  }
+}
+
+function resolveClientId(appId: string): string {
+  return process.env.AGENT_NATIVE_SSO_CLIENT_ID?.trim() || appId;
+}
+
+function verifierCookieName(state: string): string {
+  return `${SSO_VERIFIER_COOKIE_PREFIX}${state}`;
+}
+
+function createPkceVerifier(): string {
+  return randomBytes(48).toString("base64url");
+}
+
+function createPkceChallenge(verifier: string): string {
+  return createHash("sha256").update(verifier).digest("base64url");
+}
+
+function requestUrl(event: H3Event): string {
+  return (event as any).node?.req?.url ?? event.path ?? "/";
+}
+
+function setPkceVerifierCookie(
+  event: H3Event,
+  state: string,
+  verifier: string,
+  secure: boolean,
+): void {
+  setCookie(event, verifierCookieName(state), verifier, {
+    httpOnly: true,
+    maxAge: Math.floor(SSO_STATE_TTL_MS / 1_000),
+    path: IDENTITY_SSO_CALLBACK_PATH,
+    sameSite: "lax",
+    secure,
+  });
+}
+
+function clearPkceVerifierCookie(event: H3Event, state: string): void {
+  deleteCookie(event, verifierCookieName(state), {
+    path: IDENTITY_SSO_CALLBACK_PATH,
+  });
+}
+
+interface SsoClientBinding {
+  appId: string;
+  clientId: string;
+  redirectUri: string;
+  authority: string;
+}
+
+function resolveClientBinding(
+  event: H3Event,
+  hub: string,
+): SsoClientBinding | null {
+  const appId = resolveAppId(event);
+  const clientId = resolveClientId(appId);
+  const redirectUri = `${getOrigin(event)}${IDENTITY_SSO_CALLBACK_PATH}`;
+  const authority = normalizeAuthority(hub);
+  if (!authority || !appId || !clientId || !redirectUri) return null;
+  return { appId, clientId, redirectUri, authority };
+}
+
+/**
+ * Canonical hosted apps may use Dispatch without per-app hub configuration.
+ * Self-hosted apps remain strictly env-gated. The exact-origin check is kept
+ * request-scoped so a missing deployment URL cannot broaden the trust set.
+ */
+export function resolveIdentityHubUrl(event: H3Event): string | undefined {
+  const configured = isIdentitySsoExplicitlyEnabled()
+    ? getIdentityHubUrl()
+    : undefined;
+  if (configured) return configured;
+  if (
+    isCanonicalIdentitySsoClientRequest(
+      getHeader(event, "host"),
+      getHeader(event, "x-forwarded-proto"),
+    )
+  ) {
+    return CANONICAL_IDENTITY_SSO_HUB_URL;
+  }
+  if (!isDesktopSsoUserAgent(getHeader(event, "user-agent"))) {
+    return undefined;
+  }
+  try {
+    if (
+      !isCanonicalIdentitySsoClientRequest(
+        getHeader(event, "host"),
+        getHeader(event, "x-forwarded-proto"),
+      )
+    ) {
+      return undefined;
     }
+    return CANONICAL_IDENTITY_SSO_HUB_URL;
+  } catch (error) {
+    void error;
+    return undefined;
   }
 }
 
@@ -294,60 +250,46 @@ interface VerifiedIdentity {
   email: string;
   name: string;
   orgDomain?: string;
+  authProvider?: "google";
   sub: string;
-  jti?: string;
+  jti: string;
 }
 
-/**
- * Verify the hub-issued identity JWT using the EXACT same path A2A / MCP use:
- * `jose.jwtVerify(token, A2A_SECRET)`. `jwtVerify` enforces `exp`
- * automatically. We additionally require:
- *   - `scope === "identity"` (so an A2A delegation token can't be replayed)
- *   - `aud` is THIS app's callback URL (so a token minted for one app cannot
- *     be replayed against another app's callback with a fresh state)
- *   - a non-empty `email` claim (the join key — comes ONLY from the verified
- *     token, never a query param)
- *   - issued no more than `MAX_TOKEN_AGE_SECONDS` ago (belt-and-braces on top
- *     of `exp` in case the hub mints long-lived tokens)
- *
- * Returns the verified identity, or `null` for ANY failure (bad signature,
- * expired, wrong scope, missing email, malformed). The caller maps `null` to
- * a generic error — it never leaks which check failed.
- */
-async function verifyIdentityToken(
-  token: string,
-  expectedAudience: string,
+/** Verify only the server-to-server assertion returned by Dispatch /token. */
+async function verifyIdentityAssertion(
+  assertion: string,
+  binding: SsoClientBinding,
 ): Promise<VerifiedIdentity | null> {
   const secret = process.env.A2A_SECRET;
-  if (!secret || !token) return null;
+  if (!secret || !assertion) return null;
   try {
     const { payload } = await jose.jwtVerify(
-      token,
+      assertion,
       new TextEncoder().encode(secret),
+      { audience: binding.redirectUri },
     );
     if (payload.scope !== IDENTITY_SSO_SCOPE) return null;
-    const aud = payload.aud;
-    const audienceMatches = Array.isArray(aud)
-      ? aud.includes(expectedAudience)
-      : aud === expectedAudience;
-    if (!audienceMatches) return null;
-    if (
-      typeof payload.redirect_uri === "string" &&
-      payload.redirect_uri !== expectedAudience
-    ) {
-      return null;
-    }
+    if (payload.identity_client_id !== binding.clientId) return null;
+    if (payload.redirect_uri !== binding.redirectUri) return null;
+    if (payload.identity_authority !== binding.authority) return null;
+    const issuer =
+      typeof payload.iss === "string" ? normalizeAuthority(payload.iss) : null;
+    if (issuer !== binding.authority) return null;
     const email =
       typeof payload.email === "string" && payload.email.includes("@")
         ? payload.email.trim().toLowerCase()
         : null;
     if (!email) return null;
-    const iat = typeof payload.iat === "number" ? payload.iat : undefined;
-    if (iat !== undefined && Date.now() / 1000 - iat > MAX_TOKEN_AGE_SECONDS) {
+    const iat = typeof payload.iat === "number" ? payload.iat : null;
+    if (
+      iat == null ||
+      iat > Date.now() / 1_000 + 60 ||
+      Date.now() / 1_000 - iat > MAX_ASSERTION_AGE_SECONDS
+    ) {
       return null;
     }
-    const sub =
-      typeof payload.sub === "string" && payload.sub ? payload.sub : email;
+    const jti = typeof payload.jti === "string" ? payload.jti : "";
+    if (!jti) return null;
     return {
       email,
       name:
@@ -358,72 +300,202 @@ async function verifyIdentityToken(
         typeof payload.org_domain === "string" && payload.org_domain
           ? payload.org_domain
           : undefined,
-      sub,
-      jti:
-        typeof payload.jti === "string" && payload.jti
-          ? payload.jti
-          : undefined,
+      authProvider:
+        payload.identity_auth_provider === "google" ? "google" : undefined,
+      sub: typeof payload.sub === "string" && payload.sub ? payload.sub : email,
+      jti,
     };
-  } catch {
-    // Bad signature / expired / malformed — never reveal which.
+  } catch (error) {
+    void error;
     return null;
   }
 }
 
-// ---------------------------------------------------------------------------
-// Route handler — single entry point; the core-routes-plugin dispatches the
-// subpath, mirroring `handleMcpConnect`.
-// ---------------------------------------------------------------------------
+async function exchangeIdentityCode(
+  hub: string,
+  binding: SsoClientBinding,
+  input: { code: string; state: string; codeVerifier: string },
+): Promise<string | null> {
+  if (!CODE.test(input.code) || !STATE_PATTERN.test(input.state)) return null;
+  if (!CODE_VERIFIER.test(input.codeVerifier)) return null;
+  const tokenEndpoint = `${hub}${IDENTITY_SSO_TOKEN_PATH}`;
+  try {
+    const response = await fetch(tokenEndpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        accept: "application/json",
+      },
+      body: JSON.stringify({
+        grant_type: "authorization_code",
+        code: input.code,
+        state: input.state,
+        app_id: binding.appId,
+        client_id: binding.clientId,
+        redirect_uri: binding.redirectUri,
+        code_verifier: input.codeVerifier,
+      }),
+      redirect: "error",
+    });
+    if (!response.ok) return null;
+    const body = (await response.json().catch((error) => {
+      void error;
+      return null;
+    })) as Record<string, unknown> | null;
+    return typeof body?.assertion === "string" ? body.assertion : null;
+  } catch (error) {
+    void error;
+    return null;
+  }
+}
 
-/**
- * Handle a `/_agent-native/identity/*` request. `subpath` is the part after
- * `/identity` (e.g. `/login`, `/callback`). Returns a 404 Response whenever
- * the feature is disabled so an unset env var is a true no-op even if the
- * route somehow gets mounted.
- */
+async function jitLinkIdentity(identity: VerifiedIdentity): Promise<void> {
+  const adapter = await getBetterAuthInternalAdapter();
+  let existing = adapter
+    ? await adapter
+        .findUserByEmail(identity.email, { includeAccounts: true })
+        .catch((error) => {
+          void error;
+          return null;
+        })
+    : null;
+
+  if (!existing) {
+    const auth = await getBetterAuth();
+    try {
+      await auth.api.signUpEmail({
+        body: {
+          email: identity.email,
+          password: createUnusableSsoCredential(),
+          name: identity.name || identity.email.split("@")[0] || "User",
+        },
+      });
+    } catch (error) {
+      if (!isExpectedAuthFailure(error)) throw error;
+    }
+    if (adapter) {
+      existing = await adapter
+        .findUserByEmail(identity.email, { includeAccounts: true })
+        .catch((error) => {
+          void error;
+          return null;
+        });
+    }
+  }
+
+  if (adapter && existing?.user?.id) {
+    const accountId = identity.sub || identity.email;
+    const alreadyLinked = (existing.accounts ?? []).some(
+      (account) =>
+        account.providerId === IDENTITY_SSO_PROVIDER_ID &&
+        account.accountId === accountId,
+    );
+    if (!alreadyLinked) {
+      try {
+        await adapter.linkAccount({
+          userId: existing.user.id,
+          providerId: IDENTITY_SSO_PROVIDER_ID,
+          accountId,
+        });
+      } catch (error) {
+        void error;
+        // The verified email already authenticates the user. This inert,
+        // additive bookkeeping link must never block session creation.
+      }
+    }
+  }
+}
+
+function safeRequestReturnPath(event: H3Event): string {
+  try {
+    const url = new URL(requestUrl(event), "http://an.invalid");
+    return safeReturnPath(url.searchParams.get("return"));
+  } catch {
+    return "/";
+  }
+}
+
 export async function handleIdentitySso(
   event: H3Event,
   subpath: string,
 ): Promise<Response> {
-  const hub = resolveIdentityHubUrl(event);
-  if (!hub) {
-    return new Response("Not found", { status: 404 });
-  }
-
   const method = getMethod(event);
   const sub = ("/" + subpath.replace(/^\/+/, "").replace(/\/+$/, "")).replace(
     /^\/$/,
     "",
   );
-  const origin = getOrigin(event);
   const loginPath = SIGN_IN_ENTRY_PATH;
 
-  // ---- GET /login → 302 to the hub authorize endpoint ------------------
+  // Dispatch is the identity authority, so it has no SSO hub for the
+  // browser to federate to. Its authenticated desktop completion page still
+  // lives on this route and must be reachable after ordinary sign-in.
+  if (sub === "/desktop-complete") {
+    if (method !== "GET" && method !== "HEAD") {
+      return new Response("Method not allowed", { status: 405 });
+    }
+    let nonce = "";
+    try {
+      nonce =
+        new URL(requestUrl(event), "http://an.invalid").searchParams.get(
+          "nonce",
+        ) || "";
+    } catch {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+    if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
+      return new Response("Invalid completion request", { status: 400 });
+    }
+    const current = await getSession(event).catch((error) => {
+      void error;
+      return null;
+    });
+    if (!current?.email) {
+      return new Response("Authentication required", { status: 401 });
+    }
+    return new Response(
+      '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
+        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
+        "<title>Signed in</title></head><body>Signed in. You can close this window.</body></html>",
+      {
+        status: 200,
+        headers: {
+          "Cache-Control": "no-store",
+          "Content-Security-Policy": "default-src 'none'; style-src 'none'",
+          "Content-Type": "text/html; charset=utf-8",
+          "Referrer-Policy": "no-referrer",
+        },
+      },
+    );
+  }
+
+  const hub = resolveIdentityHubUrl(event);
+  if (!hub) return new Response("Not found", { status: 404 });
+
   if (sub === "/login") {
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
     }
-    // Already signed in here? Skip the round-trip.
-    const existing = await getSession(event).catch(() => null);
-    let returnPath = "/";
-    try {
-      const u = new URL(
-        (event as any).node?.req?.url ?? event.path ?? "/",
-        "http://an.invalid",
-      );
-      returnPath = safeReturnPath(u.searchParams.get("return"));
-    } catch {
-      returnPath = "/";
-    }
-    if (existing?.email) {
-      return redirect(event, returnPath);
-    }
+    const existing = await getSession(event).catch((error) => {
+      void error;
+      return null;
+    });
+    const returnPath = safeRequestReturnPath(event);
+    if (existing?.email) return redirect(event, returnPath);
 
+    const binding = resolveClientBinding(event, hub);
+    if (!binding)
+      return errorPage("Federated sign-in is not configured.", loginPath);
+    const verifier = createPkceVerifier();
+    const challenge = createPkceChallenge(verifier);
     let state: string;
     try {
-      state = await createSsoState(returnPath === "/" ? null : returnPath);
-    } catch (e: any) {
-      if (e?.message === "RATE_LIMITED") {
+      state = await createSsoState({
+        returnPath: returnPath === "/" ? null : returnPath,
+        ...binding,
+        codeChallenge: challenge,
+      });
+    } catch (error: any) {
+      if (error?.message === "RATE_LIMITED") {
         return errorPage(
           "Too many sign-in attempts. Please wait a moment and try again.",
           loginPath,
@@ -435,39 +507,55 @@ export async function handleIdentitySso(
       );
     }
 
-    const redirectUri = `${origin}/_agent-native/identity/callback`;
+    setPkceVerifierCookie(
+      event,
+      state,
+      verifier,
+      binding.redirectUri.startsWith("https://"),
+    );
     const authorizeUrl =
       `${hub}/_agent-native/identity/authorize` +
-      `?app=${encodeURIComponent(resolveAppId(event))}` +
-      `&redirect_uri=${encodeURIComponent(redirectUri)}` +
-      `&state=${encodeURIComponent(state)}`;
+      `?response_type=code` +
+      `&app=${encodeURIComponent(binding.appId)}` +
+      `&client_id=${encodeURIComponent(binding.clientId)}` +
+      `&redirect_uri=${encodeURIComponent(binding.redirectUri)}` +
+      `&state=${encodeURIComponent(state)}` +
+      `&code_challenge=${encodeURIComponent(challenge)}` +
+      `&code_challenge_method=S256`;
     return redirect(event, authorizeUrl);
   }
 
-  // ---- GET /callback → verify token, JIT-link, mint session ------------
   if (sub === "/callback") {
     if (method !== "GET" && method !== "HEAD") {
       return new Response("Method not allowed", { status: 405 });
     }
-
-    let token = "";
-    let stateParam = "";
+    let code = "";
+    let state = "";
     try {
-      const u = new URL(
-        (event as any).node?.req?.url ?? event.path ?? "/",
-        "http://an.invalid",
-      );
-      token =
-        u.searchParams.get("token") || u.searchParams.get("id_token") || "";
-      stateParam = u.searchParams.get("state") || "";
+      const url = new URL(requestUrl(event), "http://an.invalid");
+      code = url.searchParams.get("code") || "";
+      state = url.searchParams.get("state") || "";
     } catch {
       return errorPage("Malformed sign-in response.", loginPath);
     }
+    if (!STATE_PATTERN.test(state) || !CODE.test(code)) {
+      return errorPage("Malformed sign-in response.", loginPath);
+    }
 
-    // CSRF: the state must be one we minted, unexpired, and never consumed.
-    // Consume it FIRST (single-use) so a replayed callback can't pass even
-    // with a still-valid token.
-    const stateResult = await consumeSsoState(stateParam);
+    const binding = resolveClientBinding(event, hub);
+    const verifier = getCookie(event, verifierCookieName(state));
+    clearPkceVerifierCookie(event, state);
+    if (!binding || !verifier) {
+      return errorPage(
+        "Your sign-in session expired or was already used. Please try again.",
+        loginPath,
+      );
+    }
+
+    const stateResult = await consumeSsoState(state, {
+      ...binding,
+      codeChallenge: createPkceChallenge(verifier),
+    });
     if (!stateResult.ok) {
       return errorPage(
         "Your sign-in session expired or was already used. Please try again.",
@@ -475,37 +563,27 @@ export async function handleIdentitySso(
       );
     }
 
-    // Identity comes ONLY from the signature-verified token. The query
-    // `email` (if any) is never trusted.
-    const expectedAudience = `${origin}/_agent-native/identity/callback`;
-    const identity = await verifyIdentityToken(token, expectedAudience);
-    if (!identity) {
+    const assertion = await exchangeIdentityCode(hub, binding, {
+      code,
+      state,
+      codeVerifier: verifier,
+    });
+    const identity = assertion
+      ? await verifyIdentityAssertion(assertion, binding)
+      : null;
+    if (!identity || (await isJtiReplayed(identity.jti))) {
       return errorPage(
         "We could not verify the sign-in response. Please try again.",
         loginPath,
       );
     }
-
-    // Replay guard (best-effort, defence in depth on top of single-use
-    // state): reject a token whose jti we've already accepted.
-    if (await isJtiReplayed(identity.jti)) {
-      return errorPage(
-        "This sign-in link was already used. Please try again.",
-        loginPath,
-      );
-    }
-
-    // Identity-hub federation is a separate provider from Google. Do not let
-    // it mint a legacy session that bypasses an org's Google-only policy.
-    if (await isGoogleSignInRequiredForEmail(identity.email)) {
+    if (
+      (await isGoogleSignInRequiredForEmail(identity.email)) &&
+      identity.authProvider !== "google"
+    ) {
       return errorPage(GOOGLE_AUTH_REQUIRED_MESSAGE, loginPath);
     }
 
-    // JIT link STRICTLY by verified email — additive only. Existing users
-    // are never mutated; new users are created via the app's own signup
-    // path; an inert federated `account` link is added via Better Auth's
-    // own adapter API. A failure here must not leave the user signed out
-    // mid-flow, so surface a retryable error rather than a half state.
     try {
       await jitLinkIdentity(identity);
     } catch {
@@ -514,10 +592,6 @@ export async function handleIdentitySso(
         loginPath,
       );
     }
-
-    // Mint a normal framework session EXACTLY the way the Google OAuth
-    // callback does (`createOAuthSession` → addSession + framework cookie).
-    // `hasProductionSession: false` so a fresh session cookie is always set.
     try {
       await createOAuthSession(event, identity.email, {
         hasProductionSession: false,
@@ -528,61 +602,12 @@ export async function handleIdentitySso(
         loginPath,
       );
     }
-
-    // Land the user back where they started (validated same-origin path).
-    const dest = safeReturnPath(stateResult.returnPath);
-    return redirect(event, dest);
-  }
-
-  if (sub === "/desktop-complete") {
-    if (method !== "GET" && method !== "HEAD") {
-      return new Response("Method not allowed", { status: 405 });
-    }
-
-    let nonce = "";
-    try {
-      const url = new URL(
-        (event as any).node?.req?.url ?? event.path ?? "/",
-        "http://an.invalid",
-      );
-      nonce = url.searchParams.get("nonce") || "";
-    } catch {
-      return new Response("Invalid completion request", { status: 400 });
-    }
-    if (!DESKTOP_COMPLETION_NONCE.test(nonce)) {
-      return new Response("Invalid completion request", { status: 400 });
-    }
-
-    const current = await getSession(event).catch(() => null);
-    if (!current?.email) {
-      return new Response("Authentication required", { status: 401 });
-    }
-
-    return new Response(
-      '<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">' +
-        '<meta name="viewport" content="width=device-width,initial-scale=1">' +
-        "<title>Signed in</title></head><body>Signed in. You can close this window.</body></html>",
-      {
-        status: 200,
-        headers: {
-          "Content-Type": "text/html; charset=utf-8",
-          "Cache-Control": "no-store",
-          "Content-Security-Policy": "default-src 'none'; style-src 'none'",
-          "Referrer-Policy": "no-referrer",
-        },
-      },
-    );
+    return redirect(event, safeReturnPath(stateResult.returnPath));
   }
 
   return new Response("Not found", { status: 404 });
 }
 
-/**
- * Whether the given (already base-path-stripped) request path is one of the
- * two SSO routes that must bypass the blanket auth guard. The handler makes
- * the request-scoped enablement decision and fails closed with 404; no other
- * identity subpath bypasses authentication.
- */
 export function isIdentitySsoBypassPath(p: string): boolean {
   if (!isIdentitySsoEnabled()) return false;
   return (

@@ -36,6 +36,7 @@ export default defineAction({
     to: z.string().optional().describe("Query end time in epoch ms"),
   }),
   readOnly: true,
+  grounding: true,
   run: async (args) => {
     const credentials = await requireActionCredentials(
       ["GRAFANA_URL", "GRAFANA_API_TOKEN"],

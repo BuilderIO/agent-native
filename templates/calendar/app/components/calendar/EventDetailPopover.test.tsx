@@ -110,8 +110,18 @@ vi.mock("@/components/ui/popover", () => ({
     </div>
   ),
   PopoverTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
-  PopoverContent: ({ children }: { children?: ReactNode }) => (
-    <div>{children}</div>
+  PopoverContent: ({
+    children,
+    className,
+    side,
+  }: {
+    children?: ReactNode;
+    className?: string;
+    side?: string;
+  }) => (
+    <div className={className} data-popover-side={side}>
+      {children}
+    </div>
   ),
 }));
 
@@ -257,6 +267,26 @@ describe("EventDetailPopover characterization", () => {
     expect(titleInput!.value).toBe("");
   });
 
+  it("bounds the detail panel to the available viewport space", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const content = document.querySelector<HTMLElement>(
+      'div[class*="radix-popover-content-available-height"]',
+    );
+    expect(content).toBeTruthy();
+    expect(content?.className).toContain("w-[min(420px,calc(100vw-2rem))]");
+  });
+
   it("keeps the fallback label out of the input when renaming an unnamed event", () => {
     act(() => {
       root.render(
@@ -385,7 +415,7 @@ describe("EventDetailPopover characterization", () => {
     expect(titleInput!.value).toBe("Out of office");
   });
 
-  it("does not show the event timezone as a standalone row", () => {
+  it("does not show the full event timezone label on the default detail surface", () => {
     const event = baseEvent({ startTimeZone: "America/Halifax" });
 
     act(() => {
@@ -400,9 +430,9 @@ describe("EventDetailPopover characterization", () => {
       );
     });
 
-    expect(
-      findByExactText("span", "Halifax (America/Halifax)"),
-    ).toBeUndefined();
+    expect(document.body.textContent).not.toContain(
+      "Halifax (America/Halifax)",
+    );
   });
 
   it("notifies parents when the visible popover opens and closes", () => {
@@ -783,5 +813,201 @@ describe("EventDetailPopover characterization", () => {
     });
 
     expect(openSpy).not.toHaveBeenCalled();
+  });
+
+  it("keeps working-location drafts all-day by default and converts them to timed bounds in the calendar timezone", () => {
+    const onDraftUpdate = vi.fn();
+    const event = baseEvent({
+      id: "working-location-draft",
+      title: "",
+      source: "local",
+      start: "2026-08-14",
+      end: "2026-08-15",
+      allDay: true,
+      eventType: "workingLocation",
+      workingLocationProperties: {
+        type: "homeOffice",
+        homeOffice: {},
+      },
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          timezone="America/Los_Angeles"
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onDraftUpdate={onDraftUpdate}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(findByExactText("span", "→")).toBeTruthy();
+
+    const allDaySwitch =
+      document.querySelector<HTMLButtonElement>('[role="switch"]');
+    expect(allDaySwitch?.getAttribute("aria-checked")).toBe("true");
+
+    act(() => {
+      allDaySwitch?.click();
+    });
+
+    expect(onDraftUpdate).toHaveBeenCalledWith(
+      "working-location-draft",
+      expect.objectContaining({
+        allDay: false,
+        start: "2026-08-14T16:00:00.000Z",
+        end: "2026-08-15T00:00:00.000Z",
+        startTimeZone: "America/Los_Angeles",
+        endTimeZone: "America/Los_Angeles",
+      }),
+    );
+  });
+
+  it("does not add an extra day when converting a midnight-ending timed location to all-day", () => {
+    const onDraftUpdate = vi.fn();
+    const event = baseEvent({
+      id: "working-location-draft",
+      title: "",
+      source: "local",
+      start: "2026-08-14T16:00:00.000Z",
+      end: "2026-08-15T00:00:00.000Z",
+      startTimeZone: "America/Los_Angeles",
+      endTimeZone: "America/Los_Angeles",
+      allDay: false,
+      eventType: "workingLocation",
+      workingLocationProperties: {
+        type: "homeOffice",
+        homeOffice: {},
+      },
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          timezone="America/Los_Angeles"
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onDraftUpdate={onDraftUpdate}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const allDaySwitch =
+      document.querySelector<HTMLButtonElement>('[role="switch"]');
+    expect(allDaySwitch?.getAttribute("aria-checked")).toBe("false");
+
+    act(() => {
+      allDaySwitch?.click();
+    });
+
+    expect(onDraftUpdate).toHaveBeenCalledWith(
+      "working-location-draft",
+      expect.objectContaining({
+        allDay: true,
+        start: "2026-08-14",
+        end: "2026-08-15",
+      }),
+    );
+  });
+
+  it("applies Home/Office/Other on a draft immediately and hides Save", () => {
+    const onDraftUpdate = vi.fn();
+    const event = baseEvent({
+      id: "working-location-draft",
+      title: "",
+      source: "local",
+      start: "2026-08-14",
+      end: "2026-08-15",
+      allDay: true,
+      eventType: "workingLocation",
+      workingLocationProperties: {
+        type: "homeOffice",
+        homeOffice: {},
+      },
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          timezone="America/Chicago"
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onDraftUpdate={onDraftUpdate}
+          onDraftCreate={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(findByExactText("button", "eventForm.save")).toBeUndefined();
+
+    const office = document.querySelector<HTMLInputElement>(
+      "#working-location-working-location-draft-officeLocation",
+    );
+    expect(office).toBeTruthy();
+    act(() => {
+      office?.click();
+    });
+
+    expect(onDraftUpdate).toHaveBeenCalledWith(
+      "working-location-draft",
+      expect.objectContaining({
+        workingLocationType: "officeLocation",
+      }),
+    );
+  });
+
+  it("blocks creating an Other working location until it has a name", () => {
+    const onDraftCreate = vi.fn();
+    const event = baseEvent({
+      id: "working-location-draft",
+      title: "",
+      location: "",
+      source: "local",
+      start: "2026-08-14",
+      end: "2026-08-15",
+      allDay: true,
+      eventType: "workingLocation",
+      workingLocationProperties: {
+        type: "customLocation",
+        customLocation: {},
+      },
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          timezone="America/Chicago"
+          isDraft
+          defaultOpen
+          onDelete={() => undefined}
+          onDraftCreate={onDraftCreate}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const createButton = findByExactText("button", "eventForm.createEvent");
+    expect(createButton).toBeTruthy();
+    expect((createButton as HTMLButtonElement).disabled).toBe(true);
+
+    act(() => {
+      (createButton as HTMLButtonElement).click();
+    });
+    expect(onDraftCreate).not.toHaveBeenCalled();
   });
 });

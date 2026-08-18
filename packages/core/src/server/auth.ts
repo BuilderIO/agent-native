@@ -14,6 +14,7 @@ import {
 } from "h3";
 import type { H3Event } from "h3";
 
+import { getAppConfig } from "../app-config/index.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -127,12 +128,14 @@ import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { getAppProductionUrl } from "./app-url.js";
 import {
   readAnalyticsAnonymousId,
+  readFirstTouchAttribution,
   signupAttributionFromCookieHeader,
 } from "./attribution.js";
 import { getAuthLoginMode } from "./auth-login-mode.js";
 import {
   createBetterAuthSessionForEmail,
   ensureGoogleAuthIdentity,
+  getAuthSecret,
   getBetterAuth,
   getBetterAuthSync,
   isDeployPreview,
@@ -176,10 +179,15 @@ import {
 } from "./google-oauth.js";
 import {
   isCanonicalAgentNativeAppRequest,
-  isDesktopSsoCanaryUserAgent,
-  isIdentitySsoEnabled,
+  isCanonicalIdentitySsoClientRequest,
+  isDesktopSsoUserAgent,
+  isIdentitySsoExplicitlyEnabled,
 } from "./identity-sso-store.js";
 import { ensureCanonicalUserForLegacySession } from "./legacy-auth-migration.js";
+import {
+  encodeMagicLinkSignupAttribution,
+  MAGIC_LINK_ATTRIBUTION_PARAM,
+} from "./magic-link-attribution.js";
 import { safeOAuthReturnUrl } from "./oauth-return-url.js";
 import {
   getOnboardingHtml,
@@ -308,18 +316,8 @@ export interface AuthOptions {
     tagline: string;
     description?: string;
     features?: string[];
+    /** @deprecated Local execution is no longer offered from auth pages. */
     runLocalCommand?: string;
-  };
-  /**
-   * Optional host-scoped notice shown before the built-in Google sign-in
-   * redirects to Google.
-   */
-  googleSignInNotice?: {
-    host?: string;
-    title: string;
-    body: string | string[];
-    continueLabel?: string;
-    cancelLabel?: string;
   };
   /**
    * Optional email signup legal copy for the built-in login page.
@@ -732,6 +730,19 @@ function getSetCookieHeaders(headers: Headers): string[] {
         .filter(Boolean);
 }
 
+function cookieNames(header: string | null | undefined): string[] {
+  return (header ?? "")
+    .split(";")
+    .map((part) => part.split("=", 1)[0]?.trim() ?? "")
+    .filter(Boolean);
+}
+
+function setCookieNames(headers: Headers): string[] {
+  return getSetCookieHeaders(headers)
+    .map((cookie) => cookie.split("=", 1)[0]?.trim() ?? "")
+    .filter(Boolean);
+}
+
 function extractSessionTokenFromSetCookies(
   response: Response,
 ): string | undefined {
@@ -879,7 +890,10 @@ function shouldExposeSessionTokenInBody(event: H3Event): boolean {
   // X-Request-Source; browsers can only use that cross-origin after our CORS
   // allowlist has approved the origin, and same-origin pages already receive
   // an equivalent httpOnly session cookie on successful login.
-  return !origin && getHeader(event, "x-request-source") === "clips-desktop";
+  const requestSource = getHeader(event, "x-request-source");
+  return (
+    !origin && (requestSource === "clips-desktop" || requestSource === "mobile")
+  );
 }
 
 function authLoginResponse(
@@ -1388,7 +1402,77 @@ interface AuthGuardConfig {
   workspaceAppProtectedPaths: string[];
 }
 let _authGuardConfig: AuthGuardConfig | null = null;
+// Pin the registry to globalThis so template plugins and framework routes that
+// load Core through different SSR bundle or pnpm peer graphs still share it.
+// Scope entries by H3 app so a route registered by one app cannot become public
+// in another app that happens to share the same Node realm.
+const AUTH_PUBLIC_PATHS_REGISTRY_KEY = Symbol.for(
+  "@agent-native/core/auth.publicPaths",
+);
+interface AuthPublicPathRegistry {
+  exactPathsByApp: WeakMap<object, Set<string>>;
+}
+interface GlobalWithAuthPublicPaths {
+  [AUTH_PUBLIC_PATHS_REGISTRY_KEY]?: AuthPublicPathRegistry;
+}
+
+const _registeredAuthExactPublicPaths = new Set<string>();
+
+function getAuthPublicPathRegistry(): AuthPublicPathRegistry {
+  const globals = globalThis as unknown as GlobalWithAuthPublicPaths;
+  return (globals[AUTH_PUBLIC_PATHS_REGISTRY_KEY] ??= {
+    exactPathsByApp: new WeakMap(),
+  });
+}
+
+function getRegisteredAuthExactPaths(app?: object): Set<string> {
+  if (!app) return _registeredAuthExactPublicPaths;
+  const registry = getAuthPublicPathRegistry();
+  let paths = registry.exactPathsByApp.get(app);
+  if (!paths) {
+    paths = new Set();
+    registry.exactPathsByApp.set(app, paths);
+  }
+  return paths;
+}
+
 const _genericGoogleOAuthRoutesEnabled = new WeakMap<object, boolean>();
+
+/**
+ * Allow framework routes with their own non-cookie authentication to reach
+ * the handler. The handler remains responsible for verifying the credential.
+ *
+ * Registered paths are exact matches. This is registered separately from
+ * template auth options because framework routes can be mounted after the auth
+ * plugin and must also work in custom workspace deployments that do not own a
+ * template auth file.
+ */
+export function registerAuthPublicPaths(
+  paths: readonly string[],
+  app?: object,
+): void {
+  const registeredPaths = getRegisteredAuthExactPaths(app);
+  for (const path of paths) {
+    const normalized = typeof path === "string" ? path.trim() : "";
+    if (!normalized.startsWith("/")) continue;
+    registeredPaths.add(normalized);
+  }
+}
+
+function resolveAuthPublicPaths(
+  paths: readonly string[] | undefined,
+): string[] {
+  return [...new Set(paths ?? [])];
+}
+
+function resolveAuthExactPublicPaths(app?: object): string[] {
+  return [
+    ...new Set([
+      ..._registeredAuthExactPublicPaths,
+      ...(app ? getRegisteredAuthExactPaths(app) : []),
+    ]),
+  ];
+}
 
 function getRequestHost(event: H3Event): string | undefined {
   return (
@@ -1442,7 +1526,6 @@ function getOnboardingHtmlOptions(
     authMode,
     googleOnly: options.googleOnly,
     marketing: options.marketing,
-    googleSignInNotice: options.googleSignInNotice,
     signupLegalNotice: options.signupLegalNotice,
     googleAuthMode: options.googleAuthMode,
     requestHost: event ? getRequestHost(event) : undefined,
@@ -1917,7 +2000,6 @@ function applyCorsHeaders(event: H3Event): {
       Boolean(getHeader(event, "authorization")));
   const allowedOrigin = getAllowedCorsOrigin(origin, {
     allowedOrigins: readCorsAllowedOrigins(),
-    allowLocalhostWhenNoAllowlist: true,
   });
   const responseOrigin = mcpEmbedCorsRequest ? origin : allowedOrigin;
   if (!responseOrigin) return { hasOrigin: true, allowed: false };
@@ -2108,6 +2190,282 @@ function escapeHtmlAttr(value: string): string {
     .replace(/"/g, "&quot;");
 }
 
+const DESKTOP_MAGIC_LINK_CALLBACK_PATH =
+  "/_agent-native/auth/magic-link/desktop-callback";
+const DESKTOP_MAGIC_LINK_LANDING_PATH =
+  "/_agent-native/auth/magic-link/desktop-landing";
+const BETTER_AUTH_MAGIC_LINK_VERIFY_PATH =
+  "/_agent-native/auth/ba/magic-link/verify";
+
+type MagicLinkVerificationRecord = {
+  expiresAt?: unknown;
+  value?: unknown;
+};
+
+type BetterAuthMagicLinkAdapter = {
+  findVerificationValue?: (
+    identifier: string,
+  ) => Promise<MagicLinkVerificationRecord | null>;
+};
+
+type BetterAuthWithMagicLinkContext = {
+  $context?: Promise<{
+    internalAdapter?: BetterAuthMagicLinkAdapter;
+  }>;
+};
+
+function magicLinkDigest(value: string): string {
+  return crypto.createHash("sha256").update(value).digest("hex").slice(0, 16);
+}
+
+function magicLinkStoredIdentifier(token: string): string {
+  return crypto.createHash("sha256").update(token).digest("base64url");
+}
+
+function redactMagicLinkUrl(value: string, baseURL?: string): string {
+  const redactUrl = (url: URL, depth: number): void => {
+    for (const key of ["token", "flow_id", "verifier", "state"]) {
+      if (url.searchParams.has(key)) url.searchParams.set(key, "[redacted]");
+    }
+    if (depth >= 4) return;
+    for (const key of [
+      "callbackURL",
+      "newUserCallbackURL",
+      "errorCallbackURL",
+      "return",
+    ]) {
+      const callback = url.searchParams.get(key);
+      if (!callback) continue;
+      try {
+        const callbackURL = new URL(callback, url.origin);
+        redactUrl(callbackURL, depth + 1);
+        url.searchParams.set(key, callbackURL.toString());
+      } catch {
+        url.searchParams.set(key, "[invalid]");
+      }
+    }
+  };
+
+  try {
+    const url = new URL(value, baseURL);
+    redactUrl(url, 0);
+    return `${url.pathname}${url.search}`;
+  } catch {
+    return "[invalid-url]";
+  }
+}
+
+function magicLinkRequestDetails(
+  event: H3Event,
+  values: Record<string, unknown>,
+  verificationURL?: URL,
+): Record<string, unknown> {
+  const token = typeof values.token === "string" ? values.token.trim() : "";
+  const callbackValue =
+    typeof values.callbackURL === "string" ? values.callbackURL : "";
+  let callback: URL | undefined;
+  try {
+    callback = callbackValue
+      ? new URL(callbackValue, getOrigin(event))
+      : undefined;
+  } catch {
+    callback = undefined;
+  }
+  return {
+    requestMethod: getMethod(event),
+    requestUrl: redactMagicLinkUrl(
+      event.node?.req?.url ?? event.path ?? "",
+      getOrigin(event),
+    ),
+    verificationUrl: verificationURL
+      ? redactMagicLinkUrl(verificationURL.toString(), getOrigin(event))
+      : undefined,
+    verificationMethod: verificationURL ? "GET" : undefined,
+    tokenPresent: Boolean(token),
+    tokenLength: token.length || undefined,
+    tokenDigest: token ? magicLinkDigest(token) : undefined,
+    expectedStoredIdentifierPrefix: token
+      ? magicLinkStoredIdentifier(token).slice(0, 16)
+      : undefined,
+    callbackURLPresent: Boolean(callbackValue),
+    callbackPath: callback?.pathname,
+    hasFlowId: Boolean(callback?.searchParams.get("flow_id")),
+    hasVerifier: Boolean(callback?.searchParams.get("verifier")),
+    hasState: Boolean(callback?.searchParams.get("state") || values.state),
+  };
+}
+
+async function inspectMagicLinkVerification(
+  auth: BetterAuthWithMagicLinkContext,
+  token: string,
+): Promise<Record<string, unknown>> {
+  const storedIdentifier = magicLinkStoredIdentifier(token);
+  try {
+    const context = await auth.$context;
+    const findVerificationValue =
+      context?.internalAdapter?.findVerificationValue;
+    if (typeof findVerificationValue !== "function") {
+      return {
+        lookup: "adapter-unavailable",
+        lookupKeyPrefix: storedIdentifier.slice(0, 16),
+      };
+    }
+    const record = await findVerificationValue(storedIdentifier);
+    if (!record) {
+      return {
+        lookup: "absent",
+        lookupKeyPrefix: storedIdentifier.slice(0, 16),
+      };
+    }
+    const expiresAt = new Date(String(record.expiresAt ?? ""));
+    const expiryState = Number.isFinite(expiresAt.getTime())
+      ? expiresAt.getTime() <= Date.now()
+        ? "expired"
+        : "valid"
+      : "invalid-expiry";
+    return {
+      lookup: "present",
+      lookupKeyPrefix: storedIdentifier.slice(0, 16),
+      expiryState,
+      expiresAt: Number.isFinite(expiresAt.getTime())
+        ? expiresAt.toISOString()
+        : undefined,
+      valuePresent: "value" in record,
+    };
+  } catch (error) {
+    return {
+      lookup: "lookup-error",
+      lookupKeyPrefix: storedIdentifier.slice(0, 16),
+      errorType: error instanceof Error ? error.constructor.name : "unknown",
+    };
+  }
+}
+
+function logMagicLinkDebug(
+  event: H3Event,
+  phase: string,
+  details: Record<string, unknown> = {},
+): void {
+  console.info("[agent-native][magic-link]", {
+    phase,
+    app: getOAuthStateAppId(),
+    agentNativeDesktop: /AgentNativeDesktop/i.test(
+      getHeader(event, "user-agent") || "",
+    ),
+    ...details,
+  });
+}
+
+function magicLinkResponseError(
+  response: Response,
+  baseURL: string,
+): string | undefined {
+  const location = response.headers.get("location");
+  if (!location) return undefined;
+  try {
+    return new URL(location, baseURL).searchParams.get("error") || undefined;
+    // coercion-ok: a malformed redirect cannot contain a diagnostic error code.
+  } catch {
+    return undefined;
+  }
+}
+
+function logMagicLinkVerificationResponse(
+  event: H3Event,
+  source: string,
+  response: Response,
+  preConsume: Record<string, unknown> | undefined,
+): void {
+  const error = magicLinkResponseError(response, getOrigin(event));
+  const invalidToken = error === "INVALID_TOKEN";
+  logMagicLinkDebug(event, "verify-response", {
+    source,
+    responseStatus: response.status,
+    responseLocation: redactMagicLinkUrl(
+      response.headers.get("location") || "",
+      getOrigin(event),
+    ),
+    producer: invalidToken ? "better-auth.magic-link.verify" : undefined,
+    reason: invalidToken ? "consumeVerificationValue returned null" : undefined,
+    requestCookieNames: cookieNames(getHeader(event, "cookie")),
+    responseSetCookieCount: getSetCookieHeaders(response.headers).length,
+    responseSetCookieNames: setCookieNames(response.headers),
+    preConsume,
+    classification: invalidToken
+      ? preConsume?.lookup === "present" && preConsume.expiryState === "valid"
+        ? "valid-row-before-consume"
+        : preConsume?.lookup === "present" &&
+            preConsume.expiryState === "expired"
+          ? "expired-row"
+          : preConsume?.lookup === "absent"
+            ? "row-absent-before-consume"
+            : "unresolved"
+      : undefined,
+  });
+}
+
+function desktopMagicLinkVerificationUrl(
+  event: H3Event,
+  values: Record<string, unknown>,
+): URL | undefined {
+  const value = (key: string): string =>
+    typeof values[key] === "string" ? values[key] : "";
+  const token = value("token").trim();
+  const callbackURL = value("callbackURL");
+  if (!token || !callbackURL) return undefined;
+
+  try {
+    const callback = new URL(callbackURL, getOrigin(event));
+    if (
+      callback.origin !== new URL(getOrigin(event)).origin ||
+      !callback.pathname.endsWith(DESKTOP_MAGIC_LINK_CALLBACK_PATH) ||
+      !normalizeDesktopFlowId(callback.searchParams.get("flow_id")) ||
+      !normalizeDesktopFlowVerifier(callback.searchParams.get("verifier"))
+    ) {
+      return undefined;
+    }
+
+    const verificationURL = new URL(
+      getAppUrl(event, BETTER_AUTH_MAGIC_LINK_VERIFY_PATH),
+    );
+    verificationURL.searchParams.set("token", token);
+    for (const key of [
+      "callbackURL",
+      "newUserCallbackURL",
+      "errorCallbackURL",
+    ]) {
+      const queryValue = value(key);
+      if (queryValue) verificationURL.searchParams.set(key, queryValue);
+    }
+    return verificationURL;
+    // coercion-ok: malformed user-supplied callback data is rejected as absent.
+  } catch {
+    return undefined;
+  }
+}
+
+function desktopMagicLinkLandingPage(
+  actionUrl: string,
+  fields: Record<string, string>,
+): Response {
+  const safeActionUrl = escapeHtmlAttr(actionUrl);
+  const hiddenInputs = Object.entries(fields)
+    .map(
+      ([name, value]) =>
+        `<input type="hidden" name="${escapeHtmlAttr(name)}" value="${escapeHtmlAttr(value)}">`,
+    )
+    .join("");
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Continue sign-in</title></head><body><main><h1>Continue signing in</h1><p>Click continue to finish signing in to the Agent Native desktop app.</p><form method="post" action="${safeActionUrl}" autocomplete="off">${hiddenInputs}<button type="submit">Continue</button></form></main></body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "cache-control": "no-store",
+      "content-type": "text/html; charset=utf-8",
+      "referrer-policy": "no-referrer",
+    },
+  });
+}
+
 function injectLoginSocialImageMeta(loginHtml: string, event: H3Event): string {
   const headCloseIdx = loginHtml.indexOf("</head>");
   if (headCloseIdx === -1) return loginHtml;
@@ -2188,13 +2546,16 @@ function isHtmlDocumentRequest(event: H3Event, pathname: string): boolean {
   return !accept || accept.includes("text/html") || accept.includes("*/*");
 }
 
-function createAuthGuardFn(): (
-  event: H3Event,
-) => Promise<Response | object | string | void> {
+function createAuthGuardFn(
+  app?: object,
+): (event: H3Event) => Promise<Response | object | string | void> {
   return async (event: H3Event) => {
     const config = _authGuardConfig;
     if (!config) return;
-    const { publicPaths } = config;
+    // Resolve on every request because a framework route can be mounted by a
+    // different Core module instance after this auth guard is initialized.
+    const publicPaths = resolveAuthPublicPaths(config.publicPaths);
+    const exactPublicPaths = resolveAuthExactPublicPaths(app);
 
     const url = event.node?.req?.url ?? event.path ?? "/";
     const queryStart = url.indexOf("?");
@@ -2374,27 +2735,47 @@ function createAuthGuardFn(): (
       return;
     }
 
+    // Remote hosts authenticate these relay calls with their device token,
+    // not a browser session. Keep this list exact: sibling remote routes such
+    // as register, enqueue, and computer controls are session-authenticated.
+    if (
+      p === "/_agent-native/integrations/remote/unregister" ||
+      p === "/_agent-native/integrations/remote/heartbeat" ||
+      p === "/_agent-native/integrations/remote/poll" ||
+      p === "/_agent-native/integrations/remote/result" ||
+      p === "/_agent-native/integrations/remote/run-events"
+    ) {
+      return;
+    }
+
     // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. Both the
     // `/login` entry point and the `/callback` (hit by a user who is, by
     // definition, NOT yet signed in to THIS app) must bypass the blanket
     // 401-for-/_agent-native/*: they resolve / mint the browser session
     // themselves and verify a signature-bound, single-use, CSRF-stated
     // hub token — not a cookie. The handler fails closed with 404 unless
-    // direct web SSO is configured or this is the packaged SSO Canary on a
-    // canonical app origin. Keeping the bypass exact lets that request-scoped
-    // decision happen without exposing any other identity subpath.
+    // direct web SSO is configured or the request is from an exact canonical
+    // hosted app origin. Keeping the bypass exact avoids exposing any other
+    // identity subpath.
     const isIdentitySsoEntryPath =
       p === "/_agent-native/identity/login" ||
       p === "/_agent-native/identity/callback";
-    const isDesktopCanaryIdentityRequest =
-      isDesktopSsoCanaryUserAgent(getHeader(event, "user-agent")) &&
+    const isDesktopIdentityRequest =
+      isDesktopSsoUserAgent(getHeader(event, "user-agent")) &&
       isCanonicalAgentNativeAppRequest(
+        getHeader(event, "host"),
+        getHeader(event, "x-forwarded-proto"),
+      );
+    const isCanonicalHostedIdentityRequest =
+      isCanonicalIdentitySsoClientRequest(
         getHeader(event, "host"),
         getHeader(event, "x-forwarded-proto"),
       );
     if (
       isIdentitySsoEntryPath &&
-      (isIdentitySsoEnabled() || isDesktopCanaryIdentityRequest)
+      (isIdentitySsoExplicitlyEnabled() ||
+        isDesktopIdentityRequest ||
+        isCanonicalHostedIdentityRequest)
     ) {
       return;
     }
@@ -2506,7 +2887,7 @@ function createAuthGuardFn(): (
     if (getMethod(event) === "GET" && p.startsWith("/_agent-native/avatar/")) {
       return;
     }
-    if (isPublicPath(normalizedUrl, publicPaths)) return;
+    if (isPublicPath(normalizedUrl, publicPaths, exactPublicPaths)) return;
     if (shouldBypassAuthForBuilderConnect(event, p)) return;
     if (isPublicWorkspacePageRequest(event, p, config)) {
       return;
@@ -2613,6 +2994,14 @@ async function hasAutoDevAccountUser(
 ): Promise<boolean> {
   const { rows } = await db.execute({
     sql: 'SELECT 1 FROM "user" WHERE email IN (?, ?) LIMIT 1',
+    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
+  });
+  return rows.length > 0;
+}
+
+async function hasRealUser(db: ReturnType<typeof getDbExec>): Promise<boolean> {
+  const { rows } = await db.execute({
+    sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
     args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
   });
   return rows.length > 0;
@@ -2746,11 +3135,7 @@ async function createOrReuseAutoDevSession(
   if (session) return { email: session.email, token: session.token };
 
   const db = getDbExec();
-  const { rows: realUsers } = await db.execute({
-    sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
-    args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
-  });
-  if (realUsers.length > 0) return null;
+  if (await hasRealUser(db)) return null;
 
   const devPassword = await createAutoDevAccountForSession(auth, db);
   if (!devPassword && !(await hasAutoDevAccountUser(db))) return null;
@@ -2768,8 +3153,40 @@ async function createOrReuseAutoDevSession(
   return session ? { email: session.email, token: session.token } : null;
 }
 
+type LocalDevAuthAvailability =
+  | { available: true }
+  | {
+      available: false;
+      reason: "not-allowed" | "existing-user" | "unreadable";
+    };
+
+async function getLocalDevAuthAvailability(
+  event: H3Event,
+  config?: BetterAuthConfig,
+): Promise<LocalDevAuthAvailability> {
+  if (!isLocalDevAuthAllowed(event)) {
+    return { available: false, reason: "not-allowed" };
+  }
+
+  try {
+    const db = getDbExec();
+    await getBetterAuth(config);
+    if (await hasAutoDevAccountUser(db)) return { available: true };
+    if (await hasRealUser(db)) {
+      return { available: false, reason: "existing-user" };
+    }
+    return { available: true };
+  } catch {
+    return { available: false, reason: "unreadable" };
+  }
+}
+
 function createLocalDevAuthHandler(config?: BetterAuthConfig) {
   return defineEventHandler(async (event) => {
+    if (getMethod(event) === "GET") {
+      setResponseHeader(event, "Cache-Control", "no-store");
+      return getLocalDevAuthAvailability(event, config);
+    }
     if (getMethod(event) !== "POST") {
       setResponseStatus(event, 405);
       return { error: "Method not allowed" };
@@ -2848,11 +3265,7 @@ async function maybeAutoCreateDevSession(
     // pre-fix local DB that still holds a `dev@local` row isn't treated
     // as having a "real user" (which would permanently disable
     // auto-create on that DB).
-    const { rows: realUsers } = await db.execute({
-      sql: 'SELECT 1 FROM "user" WHERE email NOT IN (?, ?) LIMIT 1',
-      args: [AUTO_DEV_ACCOUNT_EMAIL, LEGACY_AUTO_DEV_ACCOUNT_EMAIL],
-    });
-    if (realUsers.length > 0) return null;
+    if (await hasRealUser(db)) return null;
 
     // If the dev account already exists, this is not a freshly-scaffolded
     // app — the user has been through the auto-create flow at least
@@ -3178,7 +3591,7 @@ function isHttpsRequest(event: H3Event): boolean {
     const req: any = (event as any).req ?? event.node?.req;
     const url: string | undefined = req?.url;
     if (typeof url === "string" && url.startsWith("https://")) return true;
-    const appUrl = process.env.APP_URL || process.env.BETTER_AUTH_URL || "";
+    const appUrl = getAppConfig().app.url ?? "";
     if (appUrl.startsWith("https://")) return true;
   } catch {
     // ignore
@@ -3190,17 +3603,25 @@ function isHttpsRequest(event: H3Event): boolean {
 // Public path matching
 // ---------------------------------------------------------------------------
 
-function isPublicPath(url: string, publicPaths: string[]): boolean {
+function isPublicPath(
+  url: string,
+  publicPaths: string[],
+  exactPublicPaths: string[] = [],
+): boolean {
   const p = url.split("?")[0];
+  if (exactPublicPaths.some((candidate) => normalizePath(candidate) === p)) {
+    return true;
+  }
   return matchesPathList(p, publicPaths);
+}
+
+function normalizePath(path: string): string {
+  return path.length > 1 && path.endsWith("/") ? path.slice(0, -1) : path;
 }
 
 function matchesPathList(path: string, paths: string[]): boolean {
   return paths.some((candidate) => {
-    const normalized =
-      candidate.length > 1 && candidate.endsWith("/")
-        ? candidate.slice(0, -1)
-        : candidate;
+    const normalized = normalizePath(candidate);
     return path === normalized || path.startsWith(normalized + "/");
   });
 }
@@ -3337,7 +3758,7 @@ async function mountBetterAuthRoutes(
   app: H3App,
   options: AuthOptions,
 ): Promise<void> {
-  const publicPaths = [...(options.publicPaths ?? [])];
+  const publicPaths = resolveAuthPublicPaths(options.publicPaths);
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
   const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
@@ -3387,6 +3808,7 @@ async function mountBetterAuthRoutes(
         const q = getQuery(event);
         const desktop =
           isElectronRequest(event) || q.desktop === "1" || q.desktop === "true";
+        const mobile = q.mobile === "1" || q.mobile === "true";
         const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
         // Validate the caller's return param up front and only embed it
         // into the OAuth state when it normalises to a non-root path —
@@ -3410,6 +3832,7 @@ async function mountBetterAuthRoutes(
         const state = encodeOAuthState({
           redirectUri,
           desktop,
+          mobile,
           addAccount: false,
           app: getOAuthStateAppId(),
           returnUrl,
@@ -3420,6 +3843,7 @@ async function mountBetterAuthRoutes(
         logGoogleOAuthDebug(event, "auth-url", {
           flowId,
           desktop,
+          mobile,
           redirectPath: oauthDebugUrlPath(redirectUri),
           returnUrl,
           redirect: q.redirect === "1",
@@ -3467,12 +3891,14 @@ async function mountBetterAuthRoutes(
         if (callbackRelay) return callbackRelay;
         let callbackFlowId: string | undefined;
         let callbackDesktop = false;
+        let callbackMobile = false;
         try {
           const query = getQuery(event);
           const code = query.code as string;
           const {
             redirectUri,
             desktop,
+            mobile,
             returnUrl,
             flowId,
             signupAttribution,
@@ -3483,9 +3909,11 @@ async function mountBetterAuthRoutes(
           );
           callbackFlowId = flowId;
           callbackDesktop = desktop ?? false;
+          callbackMobile = mobile ?? false;
           logGoogleOAuthDebug(event, "callback-start", {
             flowId,
             desktop,
+            mobile,
             redirectPath: oauthDebugUrlPath(redirectUri),
             hasCode: !!code,
             returnUrl,
@@ -3608,6 +4036,7 @@ async function mountBetterAuthRoutes(
           const { sessionToken } = await createOAuthSession(event, email, {
             hasProductionSession: false,
             desktop,
+            mobile,
             trackSignup: {
               authProvider: "google",
               authUserId: typeof user.id === "string" ? user.id : undefined,
@@ -3619,6 +4048,7 @@ async function mountBetterAuthRoutes(
           logGoogleOAuthDebug(event, "callback-session-created", {
             flowId,
             desktop,
+            mobile,
             hasSessionToken: !!sessionToken,
             emailDomain: email.split("@")[1] || "",
           });
@@ -3634,6 +4064,7 @@ async function mountBetterAuthRoutes(
           return oauthCallbackResponse(event, email, {
             sessionToken,
             desktop,
+            mobile,
             returnUrl,
             flowId,
           });
@@ -3648,6 +4079,7 @@ async function mountBetterAuthRoutes(
           logGoogleOAuthDebug(event, "callback-error", {
             flowId: callbackFlowId,
             desktop: callbackDesktop,
+            mobile: callbackMobile,
             message: msg,
           });
           return oauthErrorPage(AUTH_GOOGLE_FALLBACK);
@@ -3752,6 +4184,7 @@ async function mountBetterAuthRoutes(
           message: entry.error.message,
           code: entry.error.code,
         });
+        setResponseStatus(event, 400);
         return { error: entry.error.message, ...entry.error };
       }
       // Make the exchange itself establish the app session. Older clients
@@ -3777,6 +4210,100 @@ async function mountBetterAuthRoutes(
   // Magic-link verification happens in the system browser, so native shells
   // need the verified browser session copied into the same one-time exchange
   // used by Google OAuth before they can establish their own WebView session.
+  // Keep the desktop email URL itself non-consuming: mail security scanners
+  // commonly prefetch GET links, while Better Auth consumes a magic-link token
+  // on the first verification GET. The explicit form action below is the only
+  // request that reaches Better Auth's consuming verification endpoint.
+  app.use(
+    DESKTOP_MAGIC_LINK_LANDING_PATH,
+    defineEventHandler(async (event) => {
+      if (getMethod(event) === "POST") {
+        const body = await readBody<Record<string, unknown>>(event);
+        const verificationURL = desktopMagicLinkVerificationUrl(event, body);
+        const requestDetails = magicLinkRequestDetails(
+          event,
+          body,
+          verificationURL,
+        );
+        if (!verificationURL) {
+          logMagicLinkDebug(event, "verify-rejected-before-better-auth", {
+            source: "desktop-landing",
+            ...requestDetails,
+            reason: "invalid-desktop-verification-url",
+          });
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop magic-link" };
+        }
+        const token = typeof body.token === "string" ? body.token.trim() : "";
+        const preConsume = await inspectMagicLinkVerification(
+          auth as unknown as BetterAuthWithMagicLinkContext,
+          token,
+        );
+        logMagicLinkDebug(event, "verify-request", {
+          source: "desktop-landing",
+          ...requestDetails,
+          preConsume,
+        });
+        // Verify inside the same request that received the explicit user
+        // confirmation. A browser redirect would create a second network
+        // hop where link scanners, redirect handling, or a fresh serverless
+        // request could consume or lose the one-time token before the
+        // desktop callback sees the Better Auth session cookie.
+        try {
+          const response = await auth.handler(
+            new Request(verificationURL, {
+              method: "GET",
+              headers: event.headers,
+            }),
+          );
+          if (response instanceof Response) {
+            logMagicLinkVerificationResponse(
+              event,
+              "desktop-landing",
+              response,
+              preConsume,
+            );
+          }
+          return response;
+        } catch (error) {
+          logMagicLinkDebug(event, "verify-exception", {
+            source: "desktop-landing",
+            ...requestDetails,
+            preConsume,
+            errorType:
+              error instanceof Error ? error.constructor.name : "unknown",
+          });
+          throw error;
+        }
+      }
+      if (!isReadMethod(event)) {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      const query = getQuery(event);
+      const verificationURL = desktopMagicLinkVerificationUrl(event, query);
+      if (!verificationURL) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop magic-link" };
+      }
+      const fields: Record<string, string> = {};
+      for (const key of [
+        "token",
+        "callbackURL",
+        "newUserCallbackURL",
+        "errorCallbackURL",
+      ]) {
+        if (typeof query[key] === "string" && query[key]) {
+          fields[key] = query[key];
+        }
+      }
+      return desktopMagicLinkLandingPage(
+        getAppUrl(event, DESKTOP_MAGIC_LINK_LANDING_PATH),
+        fields,
+      );
+    }),
+  );
+
   app.use(
     "/_agent-native/auth/magic-link/desktop-callback",
     defineEventHandler(async (event) => {
@@ -3786,19 +4313,61 @@ async function mountBetterAuthRoutes(
       }
       const flowId = normalizeDesktopFlowId(getQuery(event).flow_id);
       const verifier = normalizeDesktopFlowVerifier(getQuery(event).verifier);
+      const callbackError = getQuery(event).error;
       if (!flowId) {
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
       }
       if (!verifier) {
+        setDesktopExchangeError(flowId, {
+          message: AUTH_MAGIC_LINK_FALLBACK,
+          code: "missing_verifier",
+        });
+        return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
+      }
+      if (typeof callbackError === "string" && callbackError.trim()) {
+        const code = callbackError
+          .trim()
+          .replace(/[^a-z0-9_-]/gi, "_")
+          .slice(0, 64);
+        setDesktopExchangeError(flowId, {
+          message: AUTH_MAGIC_LINK_FALLBACK,
+          code: code || "callback_error",
+        });
+        logMagicLinkDebug(event, "callback-error", {
+          source: "desktop-callback",
+          flow: oauthDebugFlowId(flowId),
+          callbackError: code || "callback_error",
+          producer:
+            code === "INVALID_TOKEN"
+              ? "better-auth.magic-link.verify"
+              : "desktop-callback",
+          reason:
+            code === "INVALID_TOKEN"
+              ? "upstream-verifier-reported-invalid-token"
+              : "callback-carried-error",
+        });
+        logGoogleOAuthDebug(event, "magic-link-callback-error", {
+          flowId,
+          message: callbackError,
+          code: code || "callback_error",
+        });
         return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
 
+      logMagicLinkDebug(event, "callback-session-lookup", {
+        source: "desktop-callback",
+        flow: oauthDebugFlowId(flowId),
+        requestCookieNames: cookieNames(getHeader(event, "cookie")),
+      });
       const session = await getSession(event);
       if (!session?.email || !session.token) {
         setDesktopExchangeError(flowId, {
           message: AUTH_MAGIC_LINK_FALLBACK,
-          code: "callback_error",
+          code: "callback_session_missing",
+        });
+        logGoogleOAuthDebug(event, "magic-link-callback-session-missing", {
+          flowId,
         });
         return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
@@ -3814,23 +4383,33 @@ async function mountBetterAuthRoutes(
         });
         setDesktopExchangeError(flowId, {
           message: AUTH_MAGIC_LINK_FALLBACK,
-          code: "callback_error",
+          code: "callback_session_persist_failed",
         });
+        logGoogleOAuthDebug(
+          event,
+          "magic-link-callback-session-persist-failed",
+          {
+            flowId,
+          },
+        );
         return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
 
-      if (
-        !(await claimDesktopMagicLinkFlow(
+      const claimed = await claimDesktopMagicLinkFlow(
+        flowId,
+        verifier,
+        session.token,
+        session.email,
+      );
+      if (!claimed) {
+        logGoogleOAuthDebug(event, "magic-link-callback-flow-claim-failed", {
           flowId,
-          verifier,
-          session.token,
-          session.email,
-        ))
-      ) {
+        });
         return oauthErrorPage(AUTH_MAGIC_LINK_FALLBACK);
       }
       return oauthDesktopExchangePage(
         "Sign-in complete. You can return to the app.",
+        !isElectronRequest(event),
       );
     }),
   );
@@ -3867,11 +4446,39 @@ async function mountBetterAuthRoutes(
         getMethod(event) === "POST";
       const isMagicLinkRequest =
         reqPath.includes("/sign-in/magic-link") && getMethod(event) === "POST";
+      const isMagicLinkVerification =
+        reqPath.includes("/magic-link/verify") && getMethod(event) === "GET";
       const isSignOut =
         reqPath.includes("sign-out") && getMethod(event) === "POST";
       if (isSignOut) optOutOfAuthDisabledSession(event);
       const authRequest = toWebRequest(event);
       let requestForAuth = authRequest;
+      let magicLinkPreConsume: Record<string, unknown> | undefined;
+
+      if (isMagicLinkVerification) {
+        const verificationURL = new URL(authRequest.url);
+        const values = Object.fromEntries(
+          verificationURL.searchParams.entries(),
+        );
+        const requestDetails = magicLinkRequestDetails(
+          event,
+          values,
+          verificationURL,
+        );
+        const token =
+          typeof values.token === "string" ? values.token.trim() : "";
+        magicLinkPreConsume = token
+          ? await inspectMagicLinkVerification(
+              auth as unknown as BetterAuthWithMagicLinkContext,
+              token,
+            )
+          : undefined;
+        logMagicLinkDebug(event, "verify-request", {
+          source: "better-auth-catch-all",
+          ...requestDetails,
+          preConsume: magicLinkPreConsume,
+        });
+      }
 
       // Better Auth is also reachable directly, outside the legacy login
       // wrapper. Check its password endpoints before handing the request to
@@ -3958,11 +4565,7 @@ async function mountBetterAuthRoutes(
             let changed = false;
             for (const key of callbackKeys) {
               if (typeof body[key] !== "string") continue;
-              const callbackURL = betterAuthCallbackURL(
-                body[key],
-                false,
-                event,
-              );
+              const callbackURL = betterAuthCallbackURL(body[key], true, event);
               if (callbackURL !== body[key]) {
                 sanitizedBody[key] = callbackURL;
                 changed = true;
@@ -3986,11 +4589,33 @@ async function mountBetterAuthRoutes(
         }
       }
 
-      let response = await auth.handler(requestForAuth);
+      let response: Response;
+      try {
+        response = await auth.handler(requestForAuth);
+      } catch (error) {
+        if (isMagicLinkVerification) {
+          logMagicLinkDebug(event, "verify-exception", {
+            source: "better-auth-catch-all",
+            errorType:
+              error instanceof Error ? error.constructor.name : "unknown",
+            preConsume: magicLinkPreConsume,
+          });
+        }
+        throw error;
+      }
       const isResponse =
         response != null &&
         typeof (response as any).status === "number" &&
         typeof (response as any).headers?.get === "function";
+
+      if (isMagicLinkVerification && isResponse) {
+        logMagicLinkVerificationResponse(
+          event,
+          "better-auth-catch-all",
+          response,
+          magicLinkPreConsume,
+        );
+      }
 
       if (isResponse && (response as Response).status >= 400) {
         // The direct Better Auth surface is also reachable from the browser,
@@ -4199,6 +4824,28 @@ async function mountBetterAuthRoutes(
   app.use(
     "/_agent-native/auth/magic-link",
     defineEventHandler(async (event) => {
+      if (getMethod(event) === "GET") {
+        const query = getQuery(event);
+        if (typeof query.token === "string") {
+          const verificationUrl = new URL(
+            `${getAppBasePath()}/_agent-native/auth/ba/magic-link/verify`,
+            getOrigin(event),
+          );
+          for (const key of [
+            "token",
+            "callbackURL",
+            "newUserCallbackURL",
+            "errorCallbackURL",
+          ]) {
+            const value = query[key];
+            if (typeof value === "string") {
+              verificationUrl.searchParams.set(key, value);
+            }
+          }
+          return redirectWithStagedCookies(event, verificationUrl.toString());
+        }
+      }
+
       if (getMethod(event) !== "POST") {
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
@@ -4228,15 +4875,39 @@ async function mountBetterAuthRoutes(
           desktopFlow = await issueDesktopMagicLinkFlow();
           callbackPath = withDesktopMagicLinkFlow(callbackPath, desktopFlow);
         }
-        const callbackURL = betterAuthCallbackURL(callbackPath, false, event);
-        const newUserCallbackPath = `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackPath)}`;
+        const callbackURL = betterAuthCallbackURL(callbackPath, true, event);
+        const cookieHeader = getHeader(event, "cookie") ?? null;
+        const signupAttribution =
+          signupAttributionFromCookieHeader(cookieHeader);
+        const signupAnonymousId = readAnalyticsAnonymousId(cookieHeader);
+        const hasSignupAttribution =
+          !!readFirstTouchAttribution(cookieHeader) || !!signupAnonymousId;
+        const attributionToken = hasSignupAttribution
+          ? encodeMagicLinkSignupAttribution(
+              {
+                attribution: signupAttribution,
+                anonymousId: signupAnonymousId,
+              },
+              getAuthSecret(),
+            )
+          : undefined;
+        const newUserCallbackUrl = new URL(
+          `${getAppBasePath()}/_agent-native/auth/magic-link/new-user?return=${encodeURIComponent(callbackPath)}`,
+          getOrigin(event),
+        );
+        if (attributionToken) {
+          newUserCallbackUrl.searchParams.set(
+            MAGIC_LINK_ATTRIBUTION_PARAM,
+            attributionToken,
+          );
+        }
         await auth.api.signInMagicLink({
           body: {
             email,
             callbackURL,
             newUserCallbackURL: betterAuthCallbackURL(
-              newUserCallbackPath,
-              callbackURL !== callbackPath,
+              `${newUserCallbackUrl.pathname}${newUserCallbackUrl.search}`,
+              true,
               event,
             ),
           },
@@ -4272,8 +4943,8 @@ async function mountBetterAuthRoutes(
       const password = body?.password;
       const callbackURL =
         typeof body?.callbackURL === "string"
-          ? betterAuthCallbackURL(body.callbackURL, false, event)
-          : "/";
+          ? betterAuthCallbackURL(body.callbackURL, true, event)
+          : betterAuthCallbackURL("/", true, event);
 
       if (!email) {
         setResponseStatus(event, 400);
@@ -4479,7 +5150,7 @@ async function mountBetterAuthRoutes(
     workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
     workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
   };
-  const guardFn = createAuthGuardFn();
+  const guardFn = createAuthGuardFn(app);
   _authGuardFn = guardFn;
   app.use(defineEventHandler(guardFn));
 }
@@ -4690,12 +5361,7 @@ export async function autoMountAuth(
       customGetSession = options.getSession;
     }
     if (_authGuardConfig) {
-      if (
-        options.googleOnly ||
-        options.loginHtml ||
-        options.marketing ||
-        options.googleSignInNotice
-      ) {
+      if (options.googleOnly || options.loginHtml || options.marketing) {
         const loginHtmlConfig = getOnboardingLoginHtmlConfig(
           options,
           _authGuardConfig.authMode,
@@ -4744,7 +5410,7 @@ export async function autoMountAuth(
   // Reset globals
   customGetSession = null;
   sessionMaxAge = options.maxAge ?? DEFAULT_MAX_AGE;
-  const publicPaths = options.publicPaths ?? [];
+  const publicPaths = resolveAuthPublicPaths(options.publicPaths);
   const workspaceAppAudience = resolveWorkspaceAppAudience(options);
   const workspaceAppRouteAccess = resolveWorkspaceAppRouteAccess(options);
 
@@ -4800,7 +5466,7 @@ export async function autoMountAuth(
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
       workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
     };
-    const guardFn = createAuthGuardFn();
+    const guardFn = createAuthGuardFn(app);
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
 
@@ -4830,7 +5496,7 @@ export async function autoMountAuth(
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
       workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
     };
-    const guardFn = createAuthGuardFn();
+    const guardFn = createAuthGuardFn(app);
     _authGuardFn = guardFn;
     app.use(defineEventHandler(guardFn));
     console.log(

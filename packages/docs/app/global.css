@@ -556,17 +556,20 @@ h4 {
    Usage in MDX: <Cards> ### [Title](/link)\n\nDescription </Cards> */
 .docs-cards {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(var(--cards-cols, 3), 1fr);
   gap: 12px;
   list-style: none;
   margin: 24px 0;
   padding: 0;
 }
 
+@media (max-width: 640px) {
+  .docs-cards {
+    grid-template-columns: 1fr;
+  }
+}
+
 .docs-card {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
   padding: 16px;
   border: 1px solid var(--docs-border);
   border-radius: 8px;
@@ -582,6 +585,43 @@ h4 {
   border-color: var(--docs-accent);
 }
 
+/* Two-row grid so an icon centers on the title row specifically, not on the
+   title+body block as a whole — a flex row with align-items:center would
+   instead center the icon against the full (often multi-line) body height. */
+.docs-card-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  row-gap: 6px;
+}
+
+.docs-card-grid--icon {
+  grid-template-columns: auto 1fr;
+  column-gap: 12px;
+}
+
+.docs-card-grid--icon .docs-card-icon {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+}
+
+.docs-card-grid--icon .docs-card-title {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.docs-card-grid--icon .docs-card-body {
+  grid-column: 2;
+  grid-row: 2;
+}
+
+.docs-card-icon {
+  width: 22px;
+  height: 22px;
+  color: var(--docs-accent);
+  flex-shrink: 0;
+}
+
 .docs-card-title {
   font-size: 14px;
   font-weight: 600;
@@ -591,11 +631,6 @@ h4 {
 }
 
 .docs-card-link {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 6px;
   padding: 16px;
   color: var(--fg);
   text-decoration: none;
@@ -692,6 +727,341 @@ h4 {
 .docs-comparison-body p {
   margin: 0;
   font-size: 14px;
+}
+
+/* Signature: function/hook signature reference — call line + parameter/return
+   breakdown, collapsed to the call line until clicked.
+   Usage in MDX: <Signature name params={[...]} returns={{...}} /> */
+.docs-sig-wrap {
+  margin: 24px 0;
+}
+
+.docs-sig-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--fg-secondary);
+  margin: 0 0 8px;
+}
+
+.docs-sig-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 14px 16px;
+  background: var(--bg-secondary);
+  border: none;
+  border-bottom: 1px solid var(--docs-border);
+  border-radius: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  overflow-x: auto;
+}
+
+.docs-sig-line:hover {
+  background: color-mix(in srgb, var(--bg-secondary) 85%, var(--fg) 6%);
+}
+
+.docs-sig-line:focus-visible {
+  outline: 2px solid var(--docs-accent);
+  outline-offset: -2px;
+}
+
+.docs-sig-chevron {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+  color: var(--fg-secondary);
+  transition: transform 0.15s;
+}
+
+.docs-sig-line[aria-expanded="true"] .docs-sig-chevron {
+  transform: rotate(90deg);
+}
+
+.docs-sig-code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--fg);
+  white-space: pre;
+}
+
+.docs-sig-body {
+  border: 1px solid var(--docs-border);
+  border-top: none;
+  border-radius: 0;
+}
+
+.docs-sig-section {
+  padding: 16px;
+}
+
+.docs-sig-section + .docs-sig-section {
+  border-top: 1px solid var(--docs-border);
+}
+
+.docs-sig-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-secondary);
+  margin: 0 0 12px;
+}
+
+.docs-sig-params {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.docs-sig-param + .docs-sig-param {
+  padding-top: 14px;
+  border-top: 1px dashed var(--docs-border);
+}
+
+.docs-sig-field-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.docs-sig-field-name {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.docs-sig-field-type {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--docs-accent);
+}
+
+.docs-sig-field-tag {
+  font-size: 11px;
+  color: var(--fg-secondary);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-secondary);
+}
+
+.docs-sig-field-desc {
+  margin: 6px 0 0;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+}
+
+.docs-sig-field .docs-content {
+  margin-top: 6px;
+}
+
+.docs-sig-field .docs-content p {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--fg-secondary);
+  margin: 0;
+}
+
+.docs-sig-nested-fields {
+  margin: 10px 0 0 16px;
+  padding-left: 12px;
+  border-left: 1px solid var(--docs-border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Image / Video: full width, or aligned left/right with paired markdown text.
+   Usage in MDX: <Image src alt align width caption>paired text</Image>
+   and the same shape for <Video>. Shared layout lives in media-layout.tsx. */
+.docs-media {
+  margin: 24px 0;
+}
+
+.docs-media-full {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.docs-media-full .docs-media-figure {
+  width: 100%;
+}
+
+.docs-media-left,
+.docs-media-right {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.docs-media-left .docs-media-figure,
+.docs-media-right .docs-media-figure {
+  flex: 0 0 40%;
+  max-width: 45%;
+}
+
+.docs-media-text {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--fg-secondary);
+}
+
+.docs-media-text p {
+  margin: 0 0 12px;
+  font-size: 14px;
+}
+
+.docs-media-text p:last-child {
+  margin-bottom: 0;
+}
+
+.docs-media img,
+.docs-media video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--docs-border);
+  background: var(--bg-secondary);
+}
+
+.docs-media-figure-inner {
+  position: relative;
+}
+
+.docs-media-expand {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid var(--docs-border);
+  background: var(--bg);
+  color: var(--fg-secondary);
+  opacity: 0;
+  cursor: pointer;
+  transition:
+    opacity 0.15s,
+    color 0.15s;
+}
+
+.docs-media-figure-inner:hover .docs-media-expand,
+.docs-media-expand:focus-visible {
+  opacity: 1;
+}
+
+.docs-media-expand:hover {
+  color: var(--fg);
+}
+
+.docs-media-expand-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.docs-media-lightbox-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: rgba(0, 0, 0, 0.8);
+  padding: 24px;
+  cursor: zoom-out;
+}
+
+.docs-media-lightbox-panel {
+  max-height: 100%;
+  width: 100%;
+  max-width: 960px;
+  cursor: default;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--bg);
+  padding: 20px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+}
+
+.docs-media-lightbox-panel img,
+.docs-media-lightbox-panel video {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 8px;
+  border: 1px solid var(--docs-border);
+}
+
+.docs-media-lightbox-panel .docs-media-caption,
+.docs-media-lightbox-panel .docs-media-text {
+  margin-top: 12px;
+}
+
+.docs-media-lightbox-close {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  background: rgba(0, 0, 0, 0.4);
+  color: #fff;
+  cursor: pointer;
+}
+
+.docs-media-lightbox-close:hover {
+  background: rgba(0, 0, 0, 0.6);
+}
+
+.docs-media-lightbox-close-icon {
+  width: 16px;
+  height: 16px;
+}
+
+.docs-media-caption {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--fg-secondary);
+}
+
+.docs-media-caption p {
+  margin: 0;
+  font-size: 12px;
+}
+
+.docs-media-full .docs-media-caption {
+  text-align: center;
+}
+
+@media (max-width: 640px) {
+  .docs-media-left,
+  .docs-media-right {
+    flex-direction: column;
+  }
+  .docs-media-left .docs-media-figure,
+  .docs-media-right .docs-media-figure {
+    max-width: 100%;
+    flex-basis: auto !important;
+  }
 }
 
 /* Tone colors shared by Notice and Banner — same hues as the Callout block

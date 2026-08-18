@@ -41,6 +41,30 @@ async function assertBetterAuthUserIdentityColumns(): Promise<void> {
 }
 
 /**
+ * Better Auth encrypts persisted JWT private keys with the current auth
+ * secret. If that secret is rotated, the old row remains the newest key and
+ * every token-producing request fails before it can mint a replacement. Mark
+ * active rows expired during the release so Better Auth rotates the signing
+ * key without touching users or sessions. The JWKS endpoint keeps expired
+ * keys during its grace period, so already-issued short-lived tokens remain
+ * verifiable while the new key propagates.
+ */
+async function expireJwksKeysAfterAuthSecretRotation(): Promise<void> {
+  const { getDbExec, isPostgres } = await import("../db/client.js");
+  const now = isPostgres() ? new Date().toISOString() : Date.now();
+  const table = isPostgres() ? '"jwks"' : "jwks";
+  const result = await getDbExec().execute({
+    sql: `UPDATE ${table} SET expires_at = ? WHERE expires_at IS NULL OR expires_at > ?`,
+    args: [now, now],
+  });
+  if (result.rowsAffected > 0) {
+    console.info(
+      `[auth] Expired ${result.rowsAffected} Better Auth JWKS key(s) after auth-secret rotation; public keys remain in the verification grace period.`,
+    );
+  }
+}
+
+/**
  * Better Auth's framework-owned schema. This is deliberately a release
  * migration, not a fallback inside `getBetterAuth()`: request functions must
  * be able to construct the auth adapter without probing or creating tables.
@@ -236,6 +260,35 @@ export const BETTER_AUTH_MIGRATIONS: MigrationEntry[] = [
       `,
     },
     run: assertBetterAuthUserIdentityColumns,
+  },
+  {
+    version: 3,
+    name: "legacy-auth-sessions-table",
+    sql: {
+      // `addSession()` is still used by the mobile/deep-link OAuth flow and
+      // the workspace callback. Provision its legacy table in the release
+      // runtime so those request paths only perform normal row writes.
+      postgres: `
+        CREATE TABLE IF NOT EXISTS sessions (
+          token TEXT PRIMARY KEY,
+          email TEXT,
+          created_at BIGINT NOT NULL
+        )
+      `,
+      sqlite: `
+        CREATE TABLE IF NOT EXISTS sessions (
+          token TEXT PRIMARY KEY,
+          email TEXT,
+          created_at INTEGER NOT NULL
+        )
+      `,
+    },
+  },
+  {
+    version: 4,
+    name: "better-auth-jwks-key-rotation-recovery",
+    sql: {},
+    run: expireJwksKeysAfterAuthSecretRotation,
   },
 ];
 

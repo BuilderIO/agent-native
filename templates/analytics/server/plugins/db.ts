@@ -1,6 +1,11 @@
 import {
+  deferMigration,
   ensureAdditiveColumns,
+  createDbExec,
   getDbExec,
+  getDatabaseUrl,
+  isPostgres,
+  MIGRATION_DEFERRED,
   runMigrations,
   withMigrationRuntime,
 } from "@agent-native/core/db";
@@ -34,6 +39,102 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently — see the v75-v83 incident documented on v75 below.
+const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS = 15 * 60 * 1000;
+
+function getAnalyticsMigrationDatabaseUrl(): string {
+  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  const directUrl = appName
+    ? process.env[`${appName}_DATABASE_URL_UNPOOLED`]
+    : undefined;
+  const url =
+    directUrl ||
+    process.env.NETLIFY_DATABASE_URL_UNPOOLED ||
+    process.env.DATABASE_URL_UNPOOLED ||
+    getDatabaseUrl();
+  return url.replace(/-pooler(\.[a-z0-9.-]+\.neon\.tech)/, "$1");
+}
+
+const ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK =
+  "hashtext('agent-native:analytics-event-cursor-index-repair')";
+
+async function repairAnalyticsEventCursorIndexes(): Promise<
+  void | typeof MIGRATION_DEFERRED
+> {
+  if (!isPostgres()) return;
+
+  const repairIndexes = [
+    {
+      name: "analytics_events_org_received_id_non_http_idx",
+      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
+        ON analytics_events (org_id, received_at, id)
+        WHERE event_name IS DISTINCT FROM 'http.response'`,
+    },
+    {
+      name: "analytics_events_owner_received_id_non_http_idx",
+      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
+        ON analytics_events (owner_email, received_at, id)
+        WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response'`,
+    },
+    {
+      name: "analytics_event_daily_rollups_org_event_date_idx",
+      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_event_daily_rollups_org_event_date_idx
+        ON analytics_event_daily_rollups (org_id, event_date)`,
+    },
+    {
+      name: "analytics_user_days_org_event_date_idx",
+      createSql: `CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_user_days_org_event_date_idx
+        ON analytics_user_days (org_id, event_date)`,
+    },
+  ];
+
+  const exec = await createDbExec({ url: getAnalyticsMigrationDatabaseUrl() });
+  const query = (sql: string) =>
+    exec.execute({
+      sql,
+      timeoutMs: ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_TIMEOUT_MS,
+      maxAttempts: 1,
+    });
+
+  try {
+    const lockResult = await query(
+      `SELECT pg_try_advisory_lock(${ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK}) AS acquired`,
+    );
+    if (lockResult.rows[0]?.acquired !== true) return deferMigration();
+
+    let lockHeld = true;
+    try {
+      const { rows } = await query(`
+      SELECT c.relname, i.indisvalid, i.indisready
+      FROM pg_class c
+      JOIN pg_index i ON i.indexrelid = c.oid
+      WHERE c.relname IN (${repairIndexes.map(({ name }) => `'${name}'`).join(", ")})
+    `);
+      const readyIndexes = new Set(
+        rows
+          .filter((row) => row.indisvalid === true && row.indisready === true)
+          .map((row) => String(row.relname)),
+      );
+      const expectedIndexes = repairIndexes.map(({ name }) => name);
+      if (expectedIndexes.every((name) => readyIndexes.has(name))) return;
+
+      for (const { name, createSql } of repairIndexes) {
+        if (readyIndexes.has(name)) continue;
+        await query(`DROP INDEX CONCURRENTLY IF EXISTS ${name}`);
+        await query(createSql);
+      }
+    } finally {
+      if (lockHeld) {
+        await query(
+          `SELECT pg_advisory_unlock(${ANALYTICS_EVENT_CURSOR_INDEX_REPAIR_LOCK})`,
+        );
+        lockHeld = false;
+      }
+    }
+  } finally {
+    await exec.close?.();
+  }
+}
+
 export const runAnalyticsMigrations = runMigrations(
   [
     {
@@ -1574,6 +1675,128 @@ export const runAnalyticsMigrations = runMigrations(
       ON analytics_event_volume_usage (tenant_key, window_start);
     CREATE INDEX IF NOT EXISTS analytics_event_volume_usage_updated_at_idx
       ON analytics_event_volume_usage (updated_at)`,
+      },
+    },
+    {
+      version: 142,
+      name: "analytics-bigquery-backfill-shards",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_shards (
+      shard_id TEXT PRIMARY KEY,
+      job_id TEXT,
+      org_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      table_ref TEXT NOT NULL,
+      start_at TEXT NOT NULL,
+      start_id TEXT NOT NULL DEFAULT '',
+      end_at TEXT NOT NULL,
+      end_id TEXT NOT NULL DEFAULT '',
+      end_inclusive BOOLEAN NOT NULL DEFAULT FALSE,
+      batch_size INTEGER NOT NULL DEFAULT 250,
+      backfill_cursor TEXT,
+      backfill_cursor_at TEXT,
+      backfill_cursor_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed')),
+      copied_count INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      next_run_at TEXT NOT NULL DEFAULT (now()::text),
+      last_error TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (now()::text)
+    );
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_due_idx
+      ON analytics_bigquery_backfill_shards (status, next_run_at, lease_expires_at, updated_at);
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_scope_time_idx
+      ON analytics_bigquery_backfill_shards (org_id, owner_email, start_at, end_at)`,
+        sqlite: `CREATE TABLE IF NOT EXISTS analytics_bigquery_backfill_shards (
+      shard_id TEXT PRIMARY KEY,
+      job_id TEXT,
+      org_id TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      table_ref TEXT NOT NULL,
+      start_at TEXT NOT NULL,
+      start_id TEXT NOT NULL DEFAULT '',
+      end_at TEXT NOT NULL,
+      end_id TEXT NOT NULL DEFAULT '',
+      end_inclusive INTEGER NOT NULL DEFAULT 0,
+      batch_size INTEGER NOT NULL DEFAULT 250,
+      backfill_cursor TEXT,
+      backfill_cursor_at TEXT,
+      backfill_cursor_id TEXT,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed')),
+      copied_count INTEGER NOT NULL DEFAULT 0,
+      lease_token TEXT,
+      lease_expires_at TEXT,
+      next_run_at TEXT NOT NULL DEFAULT (datetime('now')),
+      last_error TEXT,
+      completed_at TEXT,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_due_idx
+      ON analytics_bigquery_backfill_shards (status, next_run_at, lease_expires_at, updated_at);
+    CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_scope_time_idx
+      ON analytics_bigquery_backfill_shards (org_id, owner_email, start_at, end_at)`,
+      },
+    },
+    {
+      version: 143,
+      name: "analytics-bigquery-backfill-shard-columns",
+      sql: {
+        postgres: `ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS job_id TEXT;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS start_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_inclusive BOOLEAN NOT NULL DEFAULT FALSE;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_at TEXT;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_id TEXT;
+        CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_job_due_idx
+          ON analytics_bigquery_backfill_shards (job_id, status, next_run_at, lease_expires_at, start_at);`,
+        sqlite: `ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS job_id TEXT;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS start_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_id TEXT NOT NULL DEFAULT '';
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS end_inclusive INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_at TEXT;
+        ALTER TABLE analytics_bigquery_backfill_shards ADD COLUMN IF NOT EXISTS backfill_cursor_id TEXT;
+        CREATE INDEX IF NOT EXISTS analytics_bigquery_backfill_shards_job_due_idx
+          ON analytics_bigquery_backfill_shards (job_id, status, next_run_at, lease_expires_at, start_at);`,
+      },
+    },
+    {
+      version: 144,
+      name: "analytics-events-backfill-filtered-cursor-index-repair",
+      sql: {
+        postgres: `DROP INDEX CONCURRENTLY IF EXISTS analytics_events_org_received_id_non_http_idx;
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_org_received_id_non_http_idx
+          ON analytics_events (org_id, received_at, id)
+          WHERE event_name IS DISTINCT FROM 'http.response';
+        DROP INDEX CONCURRENTLY IF EXISTS analytics_events_owner_received_id_non_http_idx;
+        CREATE INDEX CONCURRENTLY IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
+          ON analytics_events (owner_email, received_at, id)
+          WHERE org_id IS NULL AND event_name IS DISTINCT FROM 'http.response';`,
+        sqlite: `CREATE INDEX IF NOT EXISTS analytics_events_org_received_id_non_http_idx
+          ON analytics_events (org_id, received_at, id)
+          WHERE event_name IS NOT 'http.response';
+        CREATE INDEX IF NOT EXISTS analytics_events_owner_received_id_non_http_idx
+          ON analytics_events (owner_email, received_at, id)
+          WHERE org_id IS NULL AND event_name IS NOT 'http.response';`,
+      },
+    },
+    {
+      version: 145,
+      name: "analytics-events-backfill-filtered-cursor-index-direct-repair",
+      run: repairAnalyticsEventCursorIndexes,
+      sql: {
+        postgres: "SELECT 1",
+        sqlite: "SELECT 1",
+      },
+    },
+    {
+      version: 146,
+      name: "analytics-events-purge-inventory-index-direct-repair",
+      run: repairAnalyticsEventCursorIndexes,
+      sql: {
+        postgres: "SELECT 1",
+        sqlite: "SELECT 1",
       },
     },
   ],

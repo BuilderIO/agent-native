@@ -8,8 +8,12 @@ const calendar = TEMPLATE_APPS.find((a) => a.id === "calendar")!;
 
 export default function CalendarTab() {
   return (
-    <SafeAreaView className="flex-1 bg-background-dark">
-      <AppWebView url={getAppUrl(calendar)} />
+    <SafeAreaView edges={["top"]} className="flex-1 bg-background-dark">
+      <AppWebView
+        url={getAppUrl(calendar)}
+        captureSessionToken
+        workspaceAppId="calendar"
+      />
     </SafeAreaView>
   );
 }

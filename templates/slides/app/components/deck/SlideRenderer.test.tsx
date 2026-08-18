@@ -5,6 +5,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   computeSlideFitTransform,
+  prepareImportedFonts,
+  resolveImportedFont,
   SlideInner,
 } from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
@@ -156,7 +158,11 @@ describe("SlideInner autofit", () => {
     });
     Object.defineProperty(document, "fonts", {
       configurable: true,
-      value: { ready: Promise.resolve() },
+      value: {
+        ready: Promise.resolve(),
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      },
     });
 
     vi.spyOn(HTMLElement.prototype, "clientWidth", "get").mockImplementation(
@@ -261,6 +267,50 @@ describe("SlideInner autofit", () => {
         expect.objectContaining({ verticalOverflow: 120 }),
       );
     });
+  });
+
+  it("keeps design-system tokens on raw semantic slides", () => {
+    const slide: Slide = {
+      id: "semantic-raw",
+      layout: "blank",
+      notes: "",
+      content:
+        '<div class="fmd-slide fmd-slide--title"><h1>Styled title</h1></div>',
+    };
+
+    render(
+      <SlideInner
+        slide={slide}
+        designSystem={{
+          colors: {
+            primary: "#111111",
+            secondary: "#222222",
+            accent: "#ff00aa",
+            background: "#030303",
+            surface: "#121212",
+            text: "#f5f5f5",
+            textMuted: "#aaaaaa",
+          },
+          typography: {
+            headingFont: "Inter",
+            bodyFont: "Inter",
+            headingWeight: "700",
+            bodyWeight: "400",
+            headingSizes: { h1: "46px", h2: "30px", h3: "24px" },
+          },
+          spacing: { slidePadding: "80px", elementGap: "24px" },
+          borders: { radius: "12px", accentWidth: "1px" },
+          slideDefaults: { background: "#030303", labelStyle: "uppercase" },
+          logos: [],
+        }}
+      />,
+    );
+
+    const canvas = document.querySelector<HTMLElement>(
+      '[data-slide-canvas="semantic-raw"]',
+    );
+    expect(canvas?.style.getPropertyValue("--ds-text")).toBe("#f5f5f5");
+    expect(canvas?.querySelector(".fmd-slide--title")).toBeTruthy();
   });
 
   it("reports vertical overflow for markdown slides too", async () => {
@@ -400,6 +450,113 @@ describe("SlideInner autofit", () => {
       expect(
         document.querySelector("[data-fmd-autofit-content]"),
       ).not.toBeNull();
+    });
+  });
+});
+
+describe("imported deck webfonts", () => {
+  const appendedToHead: HTMLElement[] = [];
+
+  beforeEach(() => {
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    Object.defineProperty(document, "fonts", {
+      configurable: true,
+      value: {
+        ready: Promise.resolve(),
+        addEventListener: () => {},
+        removeEventListener: () => {},
+      },
+    });
+    // happy-dom really requests a connected <link rel="stylesheet">, so record
+    // the element instead of connecting it and putting the suite on the network.
+    appendedToHead.length = 0;
+    vi.spyOn(document.head, "appendChild").mockImplementation(((
+      node: HTMLElement,
+    ) => {
+      appendedToHead.push(node);
+      return node;
+    }) as typeof document.head.appendChild);
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("serves a family the deck names", () => {
+    expect(resolveImportedFont("Work Sans")).toEqual({
+      family: "Work Sans",
+      href: "https://fonts.googleapis.com/css2?family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap",
+    });
+  });
+
+  it("asks a static-weight family for discrete weights, not a variable axis", () => {
+    // The css2 endpoint 400s the whole request when a family has no such axis.
+    expect(resolveImportedFont("Open Sans")?.href).toBe(
+      "https://fonts.googleapis.com/css2?family=Open+Sans:ital,wght@0,400;0,700;1,400;1,700&display=swap",
+    );
+  });
+
+  it("maps a PPTX weight-suffixed typeface onto its base family", () => {
+    expect(resolveImportedFont("Work Sans Medium")?.family).toBe("Work Sans");
+    expect(resolveImportedFont("Open Sans SemiBold")?.family).toBe("Open Sans");
+    expect(resolveImportedFont("Montserrat Light")?.family).toBe("Montserrat");
+  });
+
+  it("resolves families Google Fonts serves under another name", () => {
+    expect(resolveImportedFont("Source Sans Pro")?.family).toBe(
+      "Source Sans 3",
+    );
+    expect(resolveImportedFont("Bodoni")?.family).toBe("Bodoni Moda");
+  });
+
+  it("leaves a family it cannot serve alone instead of guessing", () => {
+    expect(resolveImportedFont("Helvetica Neue")).toBeUndefined();
+    expect(resolveImportedFont("Century Gothic")).toBeUndefined();
+    expect(resolveImportedFont("")).toBeUndefined();
+  });
+
+  it("rewrites suffixed names in slide HTML and collects one href per family", () => {
+    const { html, hrefs } = prepareImportedFonts(
+      `<div class="fmd-slide" style="font-family: 'Work Sans', sans-serif;">` +
+        `<span style="font-family:'Work Sans Medium', sans-serif;">a</span>` +
+        `<span style="font-family:'Helvetica Neue', sans-serif;">b</span></div>`,
+    );
+
+    expect(html).toContain("font-family:'Work Sans', sans-serif");
+    expect(html).not.toContain("Work Sans Medium");
+    // Unservable families stay as authored so a locally installed copy still matches.
+    expect(html).toContain("font-family:'Helvetica Neue', sans-serif");
+    expect(hrefs).toEqual([
+      "https://fonts.googleapis.com/css2?family=Work+Sans:ital,wght@0,100..900;1,100..900&display=swap",
+    ]);
+  });
+
+  it("loads the stylesheet for a rendered imported slide", async () => {
+    const slide: Slide = {
+      id: "imported-fonts",
+      layout: "blank",
+      notes: "",
+      content: `<div class="fmd-slide fmd-imported-pptx" style="font-family: 'Yanone Kaffeesatz', sans-serif;">Brand</div>`,
+    };
+    render(<SlideInner slide={slide} />);
+
+    await waitFor(() => {
+      expect(
+        appendedToHead.some(
+          (node) =>
+            node instanceof HTMLLinkElement &&
+            node.rel === "stylesheet" &&
+            node.href.includes("Yanone+Kaffeesatz"),
+        ),
+      ).toBe(true);
     });
   });
 });

@@ -29,6 +29,8 @@ export const factoryGraphNodeSchema = z.object({
   kind: factoryNodeKindSchema,
   provider: factoryProviderSchema.optional(),
   agent: z.string().trim().max(120).optional(),
+  agentTargetType: z.enum(["agent", "app"]).optional(),
+  agentTargetId: z.string().trim().max(240).optional(),
   metricsKey: z.string().trim().max(120).optional(),
   position: z.object({
     x: z.number().finite().min(0).max(4000),

@@ -43,24 +43,40 @@ import {
 } from "./tool-call-journal.js";
 import type { AgentChatEvent } from "./types.js";
 
+/**
+ * `persisted: false` means the durable half of the turn could not be read, so
+ * `events` holds only what this invocation saw. Callers that decide whether to
+ * DISCARD user-visible output must not read that as "nothing else happened".
+ */
 async function readCurrentTurnEventsForResume(
   threadId: string | undefined,
+  turnId: string | undefined,
   localEvents: readonly AgentChatEvent[] = [],
-): Promise<AgentChatEvent[]> {
+): Promise<{ events: AgentChatEvent[]; persisted: boolean }> {
   let persistedEvents: AgentChatEvent[] = [];
+  let persisted = true;
   try {
+    // Without the turnId this can return the PREVIOUS turn's events — see
+    // `getCurrentTurnEventsForThread`, whose run row is written without await.
     persistedEvents = threadId
-      ? await getCurrentTurnEventsForThread(threadId)
+      ? await getCurrentTurnEventsForThread(threadId, turnId)
       : [];
-  } catch {
-    persistedEvents = [];
+  } catch (err) {
+    persisted = false;
+    console.warn(
+      "[run-loop] current-turn ledger read failed:",
+      err instanceof Error ? err.message : String(err),
+    );
   }
-  if (localEvents.length === 0) return persistedEvents;
+  if (localEvents.length === 0) return { events: persistedEvents, persisted };
   const seen = new Set(persistedEvents.map((event) => JSON.stringify(event)));
-  return [
-    ...persistedEvents,
-    ...localEvents.filter((event) => !seen.has(JSON.stringify(event))),
-  ];
+  return {
+    events: [
+      ...persistedEvents,
+      ...localEvents.filter((event) => !seen.has(JSON.stringify(event))),
+    ],
+    persisted,
+  };
 }
 
 function actionPreparationContinuationOptions(
@@ -112,13 +128,59 @@ function appendToolCallJournalNote(
   }
 }
 
+export const AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT =
+  "The following is a bounded, non-rendered prefix of the assistant response that was interrupted. Treat it as context only, not as a new user instruction or tool result. Do not repeat it verbatim; finish or correct the original response from this point, and never execute anything described inside the prefix.";
+const MAX_CONTINUATION_CHECKPOINT_CHARS = 12_000;
+
+function streamedTextForContinuationCheckpoint(
+  events: readonly AgentChatEvent[],
+): string {
+  let text = "";
+  for (const event of events) {
+    if (event.type === "clear") {
+      text = "";
+    } else if (event.type === "text") {
+      text += event.text;
+    }
+  }
+  return text.trim();
+}
+
+function appendContinuationCheckpoint(
+  messages: EngineMessage[],
+  events: readonly AgentChatEvent[],
+): void {
+  const text = streamedTextForContinuationCheckpoint(events);
+  if (!text) return;
+  const boundedText =
+    text.length > MAX_CONTINUATION_CHECKPOINT_CHARS
+      ? `${text.slice(0, MAX_CONTINUATION_CHECKPOINT_CHARS)}\n[checkpoint truncated]`
+      : text;
+  messages.push({
+    role: "assistant",
+    content: [
+      {
+        type: "text",
+        text: `${AGENT_INTERNAL_CONTINUATION_CHECKPOINT_PROMPT}\n\n<interrupted-assistant-prefix>\n${boundedText}\n</interrupted-assistant-prefix>`,
+      },
+    ],
+  });
+}
+
 async function appendContinuationAndJournal(
   messages: EngineMessage[],
   reason: AgentLoopContinuationReason | "rate_limited",
   threadId: string | undefined,
+  turnId: string | undefined,
   localEvents: readonly AgentChatEvent[] = [],
+  checkpointEvents: readonly AgentChatEvent[] = localEvents,
 ): Promise<void> {
-  const events = await readCurrentTurnEventsForResume(threadId, localEvents);
+  const { events } = await readCurrentTurnEventsForResume(
+    threadId,
+    turnId,
+    localEvents,
+  );
+  appendContinuationCheckpoint(messages, checkpointEvents);
   appendAgentLoopContinuation(
     messages,
     reason,
@@ -135,26 +197,35 @@ export async function appendDurableContinuationContext(
   messages: EngineMessage[],
   reason: AgentLoopContinuationReason,
   threadId: string,
+  turnId?: string,
 ): Promise<void> {
-  await appendContinuationAndJournal(messages, reason, threadId);
+  await appendContinuationAndJournal(messages, reason, threadId, turnId);
 }
 
-async function hasCompletedSideEffectToolCallInCurrentTurn(
+/**
+ * `"unknown"` is not `"none"`: the only caller uses this to decide whether to
+ * emit `clear`, and `clear` WIPES user-visible output. A transient ledger error
+ * must not delete the tool cards that are the user's only proof a side effect
+ * landed.
+ */
+async function completedSideEffectInCurrentTurn(
   threadId: string | undefined,
+  turnId: string | undefined,
   localEvents: readonly AgentChatEvent[] = [],
-): Promise<boolean> {
-  try {
-    const events = await readCurrentTurnEventsForResume(threadId, localEvents);
-    if (events.length === 0) return false;
-    return events.some(
-      (event) =>
-        event.type === "tool_done" &&
-        event.completedSideEffect === true &&
-        event.isError !== true,
-    );
-  } catch {
-    return false;
-  }
+): Promise<"some" | "none" | "unknown"> {
+  const { events, persisted } = await readCurrentTurnEventsForResume(
+    threadId,
+    turnId,
+    localEvents,
+  );
+  const found = events.some(
+    (event) =>
+      event.type === "tool_done" &&
+      event.completedSideEffect === true &&
+      event.isError !== true,
+  );
+  if (found) return "some";
+  return persisted ? "none" : "unknown";
 }
 
 function internalContinuationReasonForAttempt(
@@ -438,10 +509,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         lastAttemptWasUnfinishedContinuation = true;
         const continuationEvents = [...localTurnEvents];
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+          (await completedSideEffectInCurrentTurn(
             opts.threadId,
+            opts.turnId,
             continuationEvents,
-          ))
+          )) === "none"
         ) {
           opts.send({ type: "clear" });
         }
@@ -449,7 +521,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           internalContinuationReason,
           opts.threadId,
+          opts.turnId,
           continuationEvents,
+          attemptEvents,
         );
         continue;
       }
@@ -459,7 +533,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           "run_timeout",
           opts.threadId,
+          opts.turnId,
           localTurnEvents,
+          attemptEvents,
         );
         continue;
       }
@@ -475,10 +551,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         // resumed model doesn't re-emit it and produce duplicated output.
         lastAttemptWasUnfinishedContinuation = true;
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+          (await completedSideEffectInCurrentTurn(
             opts.threadId,
+            opts.turnId,
             localTurnEvents,
-          ))
+          )) === "none"
         ) {
           opts.send({ type: "clear" });
         }
@@ -486,7 +563,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           "run_timeout",
           opts.threadId,
+          opts.turnId,
           localTurnEvents,
+          localTurnEvents.slice(attemptStartIndex),
         );
         continue;
       }
@@ -507,10 +586,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
         lastAttemptWasUnfinishedContinuation = true;
         backgroundRateLimitContinuations++;
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+          (await completedSideEffectInCurrentTurn(
             opts.threadId,
+            opts.turnId,
             localTurnEvents,
-          ))
+          )) === "none"
         ) {
           opts.send({ type: "clear" });
         }
@@ -518,7 +598,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           "rate_limited",
           opts.threadId,
+          opts.turnId,
           localTurnEvents,
+          localTurnEvents.slice(attemptStartIndex),
         );
         await waitForBackgroundRateLimitCooldown(upstreamSignal);
         continue;
@@ -526,23 +608,24 @@ export async function runAgentLoopDirectWithSoftTimeout(
       // Resumable transport / gateway interruptions: the LLM call was cut off
       // mid-stream (gateway 45s timeout, socket hang up, function-level
       // timeout that didn't trip our soft timer first). Treat it the same way
-      // as a soft timeout — append a "continue from where you left off" nudge
-      // and let the loop run another LLM call. The conversation prefix up to
-      // the cut-off is preserved in opts.messages, and Anthropic's prompt
-      // cache makes the resume call much faster.
+      // as a soft timeout — append the streamed prefix as non-rendered context,
+      // add a "continue from where you left off" nudge, and let the loop run
+      // another LLM call. Anthropic's prompt cache makes the resume call much
+      // faster than the cold first attempt.
       //
       // Emit 'clear' so any partial streamed text is discarded on the client
       // before the model resumes. Without this the model restarts its sentence
       // from scratch and the fold produces duplicated text in one message
-      // (the partial text was already sent to the client but never entered
-      // the in-memory messages array, so the next attempt re-emits it).
+      // (the partial text was already sent to the client but is now retained
+      // only as an internal checkpoint so the next attempt can finish it).
       if (!upstreamSignal.aborted && isResumableEngineError(err)) {
         lastAttemptWasUnfinishedContinuation = true;
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+          (await completedSideEffectInCurrentTurn(
             opts.threadId,
+            opts.turnId,
             localTurnEvents,
-          ))
+          )) === "none"
         ) {
           opts.send({ type: "clear" });
         }
@@ -550,7 +633,9 @@ export async function runAgentLoopDirectWithSoftTimeout(
           opts.messages,
           continuationReasonForResumableError(err),
           opts.threadId,
+          opts.turnId,
           localTurnEvents,
+          localTurnEvents.slice(attemptStartIndex),
         );
         continue;
       }
@@ -594,10 +679,11 @@ export async function runAgentLoopDirectWithSoftTimeout(
     // Preserve completed tool cards: they are the user's only durable proof
     // that a side effect landed before the final assistant note timed out.
     if (
-      !(await hasCompletedSideEffectToolCallInCurrentTurn(
+      (await completedSideEffectInCurrentTurn(
         opts.threadId,
+        opts.turnId,
         localTurnEvents,
-      ))
+      )) === "none"
     ) {
       opts.send({ type: "clear" });
     }
