@@ -200,10 +200,12 @@ failure modes, surfaces, or owners.
    feedback.
    Before posting **Clarification needed**, run the full-thread evidence gate
    again against the latest thread body. Confirm that the requested field is
-   absent from the parent, every reply, and every linked artifact; if it is
-   present, use it and keep investigating instead of asking again. Do not post
-   vague progress, technical internals, or a diagnosis that leaves
-   a safely fixable bug undone. Re-read every thread after posting. A fix reply
+   absent from the parent, every reply, and every accessible linked artifact;
+   if it is present, use it and keep investigating instead of asking again. If
+   a needed linked artifact is recorded as inaccessible, the access or
+   replacement request is valid - do not describe its contents as absent. Do
+   not post vague progress, technical internals, or a diagnosis that leaves a
+   safely fixable bug undone. Re-read every thread after posting. A fix reply
    authored by this skill's own identity is a handled marker on the next run;
    a clarification reply is not. A clarification reply marks the thread
    pending an answer, to be re-read by the answered-clarifications pass.
