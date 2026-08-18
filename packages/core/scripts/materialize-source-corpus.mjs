@@ -147,6 +147,17 @@ function shouldSkipRelativePath(relativePath) {
   return shouldSkipFile(name);
 }
 
+export function shouldIncludeCorpusSourceFile(rootRel, sourcePath) {
+  const normalizedPath = sourcePath.split("\\").join("/");
+  if (rootRel !== "templates") return true;
+
+  const localeCatalog =
+    /^templates\/[^/]+\/app\/i18n\/([a-z]{2,3}-[A-Z]{2,4})\.[cm]?[jt]sx?$/.exec(
+      normalizedPath,
+    );
+  return !localeCatalog || localeCatalog[1] === "en-US";
+}
+
 function hasTextLikeName(relativePath) {
   const name = basename(relativePath);
   if (textFileNames.has(name)) return true;
@@ -227,7 +238,10 @@ function sourceFilesFor(rootRel) {
     tracked ?? listFilesystemFiles(join(repoRoot, rootRel), rootRel);
   return files
     .filter(
-      (file) => !shouldSkipRelativePath(file) && shouldIncludeSourceFile(file),
+      (file) =>
+        shouldIncludeCorpusSourceFile(rootRel, file) &&
+        !shouldSkipRelativePath(file) &&
+        shouldIncludeSourceFile(file),
     )
     .sort();
 }
@@ -260,13 +274,17 @@ function writeCorpusReadme(stats, baseDir) {
     "",
     "## Contents",
     "",
-    "- `core/` -- source and package files for `@agent-native/core`.",
     "- `templates/` -- source-only copies of first-party Agent Native templates.",
     "",
+    "Core and Toolkit source are not duplicated here: read the compiled sources",
+    "and declarations under `node_modules/@agent-native/core/dist`, the docs",
+    "under `node_modules/@agent-native/core/docs`, and Toolkit TypeScript under",
+    "`node_modules/@agent-native/toolkit/src`.",
+    "",
     "Runtime data, local env files, dependency folders, caches, tests, and build",
-    "output are intentionally excluded. Use this corpus for framework APIs,",
-    "reusable patterns, and template best practices; use the app's own files as",
-    "the source of truth for app-specific behavior.",
+    "output are intentionally excluded. Use this corpus for reusable patterns",
+    "and template best practices; use the app's own files as the source of truth",
+    "for app-specific behavior.",
     "",
     "Binary assets and other files that runtime source-search cannot read are",
     "also excluded.",
@@ -281,7 +299,6 @@ function writeCorpusReadme(stats, baseDir) {
     "",
     "## Generated Counts",
     "",
-    `- core files: ${stats.coreFiles}`,
     `- template files: ${stats.templateFiles}`,
     "",
   ];
@@ -351,13 +368,13 @@ export function materializeSourceCorpus() {
   rmSync(tempDir, { recursive: true, force: true });
   mkdirSync(tempDir, { recursive: true });
 
-  const coreStats = copySourceFiles("packages/core", "core", tempDir);
+  // Core and Toolkit source is deliberately not copied here: the tarball
+  // already carries dist/ and docs/, and Toolkit publishes its own src/, so a
+  // corpus copy was a second (and third) full copy of the same bytes in every
+  // install.
   const templateStats = copySourceFiles("templates", "templates", tempDir);
 
-  writeCorpusReadme(
-    { coreFiles: coreStats.files, templateFiles: templateStats.files },
-    tempDir,
-  );
+  writeCorpusReadme({ templateFiles: templateStats.files }, tempDir);
 
   const applied = swapCorpusDirIntoPlace(tempDir);
 
@@ -366,7 +383,7 @@ export function materializeSourceCorpus() {
     ? ""
     : " (accepted a concurrent run's equivalent corpus)";
   console.log(
-    `[agent-native] Materialized source corpus at ${size} (${coreStats.files} core files, ${templateStats.files} template files).${note}`,
+    `[agent-native] Materialized source corpus at ${size} (${templateStats.files} template files).${note}`,
   );
 }
 

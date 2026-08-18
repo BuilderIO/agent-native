@@ -7,10 +7,12 @@ canvas layouts from memory or paraphrase these rules per mode.
 
 <!-- SHARED-CORE:canvas-surface START -->
 
-**The coordinate rule.** The `surface` locks each artboard's footprint and
-aspect — never set artboard width/height and never use coordinates inside the
-wireframe HTML; board-level artboard `x`/`y` IS allowed when it creates clear
-lanes. Let canvas auto-placement handle simple one-row boards.
+**The coordinate rule.** The `surface` sets each artboard's default footprint
+and width — never set width or use coordinates inside the wireframe HTML.
+Board-level artboard `x`/`y` IS allowed when it creates clear lanes. A
+larger explicit artboard `height` is allowed when the screen's content needs
+more vertical room; canvas frames do not scroll, so reserve enough height to
+show the entire UI. Let canvas auto-placement handle simple one-row boards.
 
 **Lay out mixed canvases in lanes.** When a canvas contains broad browser /
 desktop frames plus compact `mobile`, `popover`, or `panel` surfaces, do not put
@@ -33,6 +35,14 @@ and move any frame whose label, connector, or annotation crosses another frame.
 - y-gap between rows of any surface: **≥ 1400** (includes frame height + section header + buffer)
 
 When in doubt, use larger values — the canvas auto-zooms to fit everything.
+
+**Full-content artboards.** Canvas frames are pan/zoom surfaces, not scroll
+containers. Keep wireframe HTML in natural document flow without an inner
+scroll region or fixed child height. If the screen is taller than the default
+surface preset, set the artboard's `height` to the measured content height plus
+breathing room; keep the surface width unchanged. Before handoff, inspect the
+bottom edge of every artboard at default zoom and confirm no control, row, or
+footer is clipped.
 
 **Canvas annotations are designer notes on the artboard.** When a top canvas is
 present, sprinkle design-review notes near the frames they explain: a short

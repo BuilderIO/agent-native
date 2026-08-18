@@ -76,23 +76,27 @@ describe("ORG_MIGRATIONS", () => {
     expect(sql).toMatch(/LOWER\(email\)/i);
   });
 
-  it("creates reusable groups and workspace-app access tables", () => {
-    const groups = ORG_MIGRATIONS.find((m) => m.name === "org-groups");
-    const groupMembers = ORG_MIGRATIONS.find(
-      (m) => m.name === "org-group-members",
+  it("adds the organization-level required auth provider column", () => {
+    const migration = ORG_MIGRATIONS.find((m) => m.version === 1014);
+    expect(migration).toBeDefined();
+    expect(migration?.sql).toMatch(
+      /ALTER TABLE organizations ADD COLUMN IF NOT EXISTS required_auth_provider TEXT/i,
     );
-    const apps = ORG_MIGRATIONS.find((m) => m.name === "workspace-apps");
-    const shares = ORG_MIGRATIONS.find(
-      (m) => m.name === "workspace-app-shares",
-    );
+  });
 
-    expect(groups?.sql).toMatch(/CREATE TABLE IF NOT EXISTS org_groups/i);
-    expect(groupMembers?.sql).toMatch(
-      /CREATE TABLE IF NOT EXISTS org_group_members/i,
-    );
+  it("creates the workspace app access tables and org visibility index", () => {
+    const apps = ORG_MIGRATIONS.find((m) => m.version === 1015);
+    const shares = ORG_MIGRATIONS.find((m) => m.version === 1016);
+    const indexes = ORG_MIGRATIONS.find((m) => m.version === 1017);
+
+    expect(apps?.sql).toMatch(/CREATE TABLE IF NOT EXISTS workspace_apps/i);
     expect(apps?.sql).toMatch(/visibility TEXT NOT NULL DEFAULT 'org'/i);
     expect(shares?.sql).toMatch(
       /CREATE TABLE IF NOT EXISTS workspace_app_shares/i,
     );
+    expect(shares?.sql).toMatch(/principal_type TEXT NOT NULL/i);
+    expect(shares?.sql).toMatch(/principal_id TEXT NOT NULL/i);
+    expect(shares?.sql).toMatch(/created_at TEXT NOT NULL/i);
+    expect(indexes?.sql).toMatch(/workspace_apps_org_visibility_idx/i);
   });
 });

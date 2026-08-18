@@ -56,9 +56,18 @@ export default defineAction({
         `by analyzing the transcript segments (gaps between segment.endMs and the next segment.startMs). ` +
         `For each gap > ${args.thresholdMs}ms, add a trim range covering the silence minus a 200ms ` +
         `buffer on each side so speech isn't clipped. Then call ` +
-        `\`trim-recording --recordingId=${args.recordingId} --startMs=<start> --endMs=<end>\` once for each silence.`,
+        `\`trim-recording --recordingId=${args.recordingId} --startMs=<start> --endMs=<end>\` once for each silence. ` +
+        `First call \`update-ai-request-status --recordingId=${args.recordingId} --kind=remove-silences --status=working\`. ` +
+        `After all trim calls finish, call the same action with --status=completed and a short result message. ` +
+        `If the work cannot finish, call it with --status=failed and explain why.`,
     };
 
+    await writeAppState(`clips-ai-request-status-${args.recordingId}`, {
+      kind: "remove-silences",
+      status: "queued",
+      message: null,
+      updatedAt: new Date().toISOString(),
+    });
     await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
     await writeAppState("refresh-signal", { ts: Date.now() });
 

@@ -1,4 +1,4 @@
-export { cn } from "@agent-native/core/client";
+export { cn } from "@agent-native/toolkit/utils";
 
 export function isMacPlatform(): boolean {
   return (
@@ -27,5 +27,5 @@ export function shortcutLabel(shortcut: string): string {
       if (lower === "space") return "Space";
       return token.length === 1 ? token.toUpperCase() : token;
     })
-    .join("+");
+    .join(" ");
 }

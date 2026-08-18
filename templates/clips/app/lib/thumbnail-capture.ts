@@ -1,9 +1,11 @@
-import { appBasePath } from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client/api-path";
 
 const PROBE_WIDTH = 40;
 const MIN_VISIBLE_MEAN_LUMA = 8;
 const MIN_VISIBLE_MAX_LUMA = 28;
 const MIN_VISIBLE_PIXEL_RATIO = 0.005;
+const SEEK_TOLERANCE_SECONDS = 0.25;
+const DEFAULT_SEEK_TIMEOUT_MS = 5_000;
 
 function resolveAppUrl(url: string | null | undefined): string | undefined {
   if (!url) return undefined;
@@ -119,6 +121,75 @@ export async function captureVideoThumbnailBlob(
 
   return new Promise((resolve) => {
     canvas.toBlob((blob) => resolve(blob), "image/jpeg", 0.85);
+  });
+}
+
+export function seekVideoToTime(
+  video: HTMLVideoElement,
+  timeMs: number,
+  options: { timeoutMs?: number } = {},
+): Promise<void> {
+  const targetSeconds = Math.max(0, timeMs) / 1000;
+  if (!Number.isFinite(targetSeconds)) {
+    return Promise.reject(new Error("Thumbnail time must be finite"));
+  }
+
+  const timeoutMs = options.timeoutMs ?? DEFAULT_SEEK_TIMEOUT_MS;
+  const hasTargetTime = () =>
+    Number.isFinite(video.currentTime) &&
+    Math.abs(video.currentTime - targetSeconds) <= SEEK_TOLERANCE_SECONDS;
+
+  if (video.readyState >= 2 && hasTargetTime()) return Promise.resolve();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+
+    const cleanup = () => {
+      video.removeEventListener("loadedmetadata", requestSeek);
+      video.removeEventListener("seeked", handleSeeked);
+      video.removeEventListener("error", handleError);
+      if (timeout) clearTimeout(timeout);
+    };
+
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve();
+    };
+
+    const handleSeeked = () => {
+      if (hasTargetTime()) {
+        finish();
+      } else {
+        finish(new Error("Thumbnail seek landed on the wrong frame"));
+      }
+    };
+
+    const handleError = () =>
+      finish(new Error("Thumbnail video could not seek"));
+
+    const requestSeek = () => {
+      if (settled) return;
+      try {
+        video.currentTime = targetSeconds;
+        if (video.readyState >= 2 && hasTargetTime()) finish();
+      } catch {
+        finish(new Error("Thumbnail video could not seek"));
+      }
+    };
+
+    video.addEventListener("loadedmetadata", requestSeek);
+    video.addEventListener("seeked", handleSeeked);
+    video.addEventListener("error", handleError);
+    timeout = setTimeout(
+      () => finish(new Error("Thumbnail seek timed out")),
+      timeoutMs,
+    );
+
+    if (video.readyState >= 1) requestSeek();
   });
 }
 

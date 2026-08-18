@@ -1,4 +1,5 @@
 import { getDbExec } from "../db/client.js";
+import { workspaceUserGroupsIncludeUser } from "../workspace-connections/groups.js";
 
 export interface WorkspaceAppAccessContext {
   email: string;
@@ -80,18 +81,17 @@ export async function isWorkspaceAppAccessAllowed(
     });
     if (userShare.rows.length > 0) return true;
 
-    const groupShare = await db.execute({
-      sql: `SELECT 1
-            FROM workspace_app_shares s
-            INNER JOIN org_group_members gm
-              ON gm.org_id = ?
-             AND gm.group_id = s.principal_id
-             AND LOWER(gm.email) = ?
-            WHERE s.resource_id = ? AND s.principal_type = 'group'
-            LIMIT 1`,
-      args: [orgId, email, normalizedAppId],
+    const groupShares = await db.execute({
+      sql: `SELECT principal_id FROM workspace_app_shares
+            WHERE resource_id = ? AND principal_type = 'group'`,
+      args: [normalizedAppId],
     });
-    return groupShare.rows.length > 0;
+    const groupIds = groupShares.rows
+      .map((row) =>
+        typeof row.principal_id === "string" ? row.principal_id : "",
+      )
+      .filter(Boolean);
+    return workspaceUserGroupsIncludeUser(resourceOrgId, groupIds, email);
   } catch (error) {
     // Older deployments may not have received the additive migrations yet.
     // Do not strand them before the framework can run migrations; once the

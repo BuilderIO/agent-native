@@ -105,7 +105,7 @@ import * as schema from "./schema.js";
 export const getDb = createGetDb(schema);
 ```
 
-Importieren Sie `getDb` aus diesem vorlagenlokalen Pfad – `../../server/db/index.js` in Routen, `../server/db/index.js` in actions – und nicht direkt aus `@agent-native/core`. Der Kernexport gibt eine generische, untypisierte Instanz zurück; Der `getDb()` der Vorlage trägt Ihre Schematypen. Unter [Server](/docs/server#request-context) erfahren Sie, wie actions und benutzerdefinierte Routen es jeweils importieren.
+Importieren Sie `getDb` aus diesem vorlagenlokalen Pfad – `../../server/db/index.js` in Routen, `../server/db/index.js` in actions – und nicht direkt aus `@agent-native/core`. Der Kernexport gibt eine generische, untypisierte Instanz zurück; Der `getDb()` der Vorlage trägt Ihre Schematypen. Unter [Server](/docs/server-routes#request-context) erfahren Sie, wie actions und benutzerdefinierte Routen es jeweils importieren.
 
 ## Dialektunabhängiges Schema und Abfragen {#schema}
 

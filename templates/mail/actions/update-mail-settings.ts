@@ -11,16 +11,20 @@ const settingsSchema = z.object({
   signature: z
     .string()
     .optional()
-    .describe("Markdown/plain-text signature to add to new drafts"),
+    .describe(
+      "Persistent Markdown/plain-text signature for new drafts. Preserve the existing signature unless the user asks to replace it.",
+    ),
   writingStyle: z
     .string()
     .optional()
-    .describe("Short notes describing how generated drafts should sound"),
+    .describe(
+      "Persistent writing rules for generated drafts. Read the current setting first, merge the requested change, and preserve unrelated rules.",
+    ),
 });
 
 export default defineAction({
   description:
-    "Update the user's mail drafting settings, including signature and writing style.",
+    "Update the user's persistent mail drafting settings, including signature and writing style. Use this for durable preferences, not email draft content. Read the current settings first and preserve fields the user did not ask to change.",
   schema: settingsSchema,
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();

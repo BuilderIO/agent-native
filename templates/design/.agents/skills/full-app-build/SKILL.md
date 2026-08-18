@@ -18,6 +18,18 @@ design. Screens are URL-backed iframes of that container's dev server, the
 same model as `/visual-edit` localhost screens (`sourceType: "fusion"`), but
 the container runs remotely instead of on the user's machine.
 
+## Design Source Modes
+
+A design's source mode is one of:
+
+- `inline` — the current SQL-backed default (HTML prototype files).
+- `localhost` — a running local app bridged as URL-backed screens (see
+  `visual-edit`).
+- `fusion` — flag-gated Builder Fusion cloud container (this skill).
+
+Preserve a design's `fusionApp` / localhost connection data verbatim; never
+invent it.
+
 ## Flag Gate
 
 This feature is gated by the code boolean `FULL_APP_BUILDING_ENABLED` in

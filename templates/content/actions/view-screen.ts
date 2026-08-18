@@ -4,7 +4,7 @@ import {
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, asc, inArray } from "drizzle-orm";
+import { and, asc, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -34,15 +34,9 @@ import {
   getContentDatabaseResponse,
   getDatabaseByDocumentId,
   getDatabaseItemByDocumentId,
+  getDocumentContextPath,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
-import { serializeDocumentSource } from "./_document-source.js";
-import {
-  getLocalFileDocument,
-  isContentLocalFileMode,
-  isLocalDocumentId,
-  localContentViewScreenSummary,
-} from "./_local-file-documents.js";
 import {
   listPropertiesForDocument,
   serializeDatabase,
@@ -195,6 +189,24 @@ function propertyValueTextForScreen(
 }
 
 export const DATABASE_CURRENT_VIEW_VISIBLE_ITEM_LIMIT = 50;
+export const SCREEN_DOCUMENT_PREVIEW_CHARS = 1_200;
+
+export function documentContentPreview(content: string) {
+  const normalized = content.trim();
+  if (normalized.length <= SCREEN_DOCUMENT_PREVIEW_CHARS) {
+    return {
+      contentPreview: normalized,
+      contentLength: content.length,
+      contentTruncated: false,
+    };
+  }
+
+  return {
+    contentPreview: `${normalized.slice(0, SCREEN_DOCUMENT_PREVIEW_CHARS).trimEnd()}... [document body truncated; call get-document for the full content]`,
+    contentLength: content.length,
+    contentTruncated: true,
+  };
+}
 
 function propertyForDatabaseItem(
   item: ContentDatabaseItem,
@@ -541,11 +553,13 @@ export function databaseCurrentViewSnapshot(
     {};
   const calculationResults =
     arrayValue(nav.databaseCalculationResults) ??
-    databaseCalculationSummariesForScreen(
-      calculations,
-      response.items,
-      visibleProperties,
-    );
+    (response.pagination?.hasMore
+      ? null
+      : databaseCalculationSummariesForScreen(
+          calculations,
+          response.items,
+          visibleProperties,
+        ));
   const groupByPropertyId =
     stringValue(nav.databaseGroupByPropertyId) ??
     activeView?.groupByPropertyId ??
@@ -631,9 +645,13 @@ export function databaseCurrentViewSnapshot(
     formQuestions:
       arrayValue(nav.databaseFormQuestions) ?? activeView?.formQuestions ?? [],
     visibleItemCount:
-      numberValue(nav.databaseVisibleItemCount) ?? response.items.length,
+      numberValue(nav.databaseVisibleItemCount) ??
+      response.pagination?.returnedItems ??
+      response.items.length,
     totalItemCount:
-      numberValue(nav.databaseTotalItemCount) ?? response.items.length,
+      numberValue(nav.databaseTotalItemCount) ??
+      response.pagination?.totalItems ??
+      response.items.length,
     visibleItems: arrayValue(nav.databaseVisibleItems) ?? fallbackVisibleItems,
     visibleItemLimit:
       numberValue(nav.databaseVisibleItemLimit) ??
@@ -651,54 +669,19 @@ interface NavigationState {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Reads navigation state and fetches matching data.",
+    "See what the user is currently looking at on screen. Returns bounded navigation, document previews, and the current database window; use get-document for full page content.",
   schema: z.object({}),
   http: false,
   run: async () => {
     const navigation = await readAppStateForCurrentTab("navigation");
     const localFilesState = await readAppState("local-files");
+    const contentSpaceState = await readAppState("content-space");
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
+    if (contentSpaceState) screen.contentSpace = contentSpaceState;
 
     const nav = navigation as NavigationState | null;
-    if (await isContentLocalFileMode()) {
-      screen.localFiles = {
-        ...(await localContentViewScreenSummary()),
-        actions: [
-          "list-documents",
-          "get-document",
-          "create-document",
-          "update-document",
-          "delete-document",
-          "share-local-file-document",
-        ],
-      };
-      if (nav?.documentId && isLocalDocumentId(nav.documentId)) {
-        screen.document = await getLocalFileDocument(nav.documentId);
-      } else if (nav?.documentId) {
-        const access = await resolveAccess("document", nav.documentId);
-        if (access) {
-          const doc = access.resource;
-          screen.document = {
-            id: doc.id,
-            parentId: doc.parentId,
-            title: doc.title,
-            content: doc.content,
-            icon: doc.icon,
-            position: doc.position,
-            isFavorite: parseDocumentFavorite(doc.isFavorite),
-            hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
-            visibility: doc.visibility,
-            source: serializeDocumentSource(doc),
-            createdAt: doc.createdAt,
-            updatedAt: doc.updatedAt,
-          };
-        }
-      }
-      return screen;
-    }
-
     const db = getDb();
 
     if (nav?.view === "local-files") {
@@ -720,27 +703,36 @@ export default defineAction({
         const doc = access.resource;
         const database = await getDatabaseByDocumentId(doc.id);
         const databaseMembership = await getDatabaseItemByDocumentId(doc.id);
+        const contentSummary = documentContentPreview(doc.content);
         screen.document = {
           id: doc.id,
           parentId: doc.parentId,
           title: doc.title,
-          content: doc.content,
+          ...contentSummary,
+          description: doc.description,
           icon: doc.icon,
           position: doc.position,
           isFavorite: parseDocumentFavorite(doc.isFavorite),
           hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
           visibility: doc.visibility,
-          database: database ? serializeDatabase(database) : undefined,
+          database: database
+            ? serializeDatabase(database, doc.description)
+            : undefined,
           databaseMembership: databaseMembership
             ? serializeDatabaseMembership(databaseMembership)
             : undefined,
           properties: await listPropertiesForDocument(doc),
           createdAt: doc.createdAt,
           updatedAt: doc.updatedAt,
+          contextPath: await getDocumentContextPath(doc),
         };
         if (database) {
           const databaseResponse = await getContentDatabaseResponse(
             database.id,
+            {
+              limit: DATABASE_CURRENT_VIEW_VISIBLE_ITEM_LIMIT,
+              includeSources: false,
+            },
           );
           screen.database = databaseResponse;
           screen.databaseCurrentView = databaseCurrentViewSnapshot(
@@ -764,6 +756,9 @@ export default defineAction({
               previewMembership?.database.id === database.id
             ) {
               const previewDoc = previewAccess.resource;
+              const previewContentSummary = documentContentPreview(
+                previewDoc.content,
+              );
               screen.databasePreview = {
                 itemId: previewMembership.item.id,
                 databaseId: previewMembership.database.id,
@@ -773,7 +768,8 @@ export default defineAction({
                   id: previewDoc.id,
                   parentId: previewDoc.parentId,
                   title: previewDoc.title,
-                  content: previewDoc.content,
+                  ...previewContentSummary,
+                  description: previewDoc.description,
                   icon: previewDoc.icon,
                   position: previewDoc.position,
                   isFavorite: parseDocumentFavorite(previewDoc.isFavorite),
@@ -786,6 +782,7 @@ export default defineAction({
                   properties: await listPropertiesForDocument(previewDoc),
                   createdAt: previewDoc.createdAt,
                   updatedAt: previewDoc.updatedAt,
+                  contextPath: await getDocumentContextPath(previewDoc),
                 },
               };
             }
@@ -795,11 +792,20 @@ export default defineAction({
     }
 
     const docs = await db
-      .select()
+      .select({
+        id: schema.documents.id,
+        parentId: schema.documents.parentId,
+        title: schema.documents.title,
+        icon: schema.documents.icon,
+        isFavorite: schema.documents.isFavorite,
+        hideFromSearch: schema.documents.hideFromSearch,
+        visibility: schema.documents.visibility,
+      })
       .from(schema.documents)
       .where(
         and(
           accessFilter(schema.documents, schema.documentShares),
+          isNull(schema.documents.trashedAt),
           documentDiscoveryFilter(),
         ),
       )
@@ -822,7 +828,17 @@ export default defineAction({
       const treeDatabases =
         treeDocs.length > 0
           ? await db
-              .select()
+              .select({
+                id: schema.contentDatabases.id,
+                ownerEmail: schema.contentDatabases.ownerEmail,
+                orgId: schema.contentDatabases.orgId,
+                documentId: schema.contentDatabases.documentId,
+                title: schema.contentDatabases.title,
+                systemRole: schema.contentDatabases.systemRole,
+                viewConfigJson: schema.contentDatabases.viewConfigJson,
+                createdAt: schema.contentDatabases.createdAt,
+                updatedAt: schema.contentDatabases.updatedAt,
+              })
               .from(schema.contentDatabases)
               .where(
                 inArray(

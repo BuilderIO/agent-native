@@ -1,15 +1,21 @@
+import { ChangelogSettingsCard } from "@agent-native/core/client/changelog";
+import { callAction } from "@agent-native/core/client/hooks";
+import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
+import { TeamPage } from "@agent-native/core/client/org";
 import {
-  AppearancePicker,
-  callAction,
-  ChangelogSettingsCard,
-  LanguagePicker,
+  AccountSettingsCard,
+  SettingsGroup,
+  SettingsRow,
   SettingsTabsPage,
   useAgentSettingsTabs,
-  type AppearancePresetId,
   type SettingsSearchEntry,
-  useT,
-} from "@agent-native/core/client";
-import { TeamPage } from "@agent-native/core/client/org";
+} from "@agent-native/core/client/settings";
+import {
+  AppearancePicker,
+  type AppearancePresetId,
+} from "@agent-native/core/client/ui";
+import type { CalendarWeekStart } from "@shared/calendar-week";
+import { isCalendarWeekStart } from "@shared/calendar-week";
 import {
   IconBrandZoom,
   IconExternalLink,
@@ -34,6 +40,13 @@ import {
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -51,6 +64,8 @@ import {
 import { shouldOfferGoogleOAuthSetup } from "@/lib/google-oauth-setup";
 
 import changelog from "../../CHANGELOG.md?raw";
+
+const AVAILABILITY_SETTINGS_PATH = "/booking-links?tab=availability";
 
 export default function Settings() {
   const t = useT();
@@ -79,6 +94,7 @@ export default function Settings() {
   const [bookingTitle, setBookingTitle] = useState("");
   const [bookingDescription, setBookingDescription] = useState("");
   const [defaultDuration, setDefaultDuration] = useState(30);
+  const [weekStart, setWeekStart] = useState<CalendarWeekStart>("sunday");
 
   useEffect(() => {
     if (settings) {
@@ -86,6 +102,9 @@ export default function Settings() {
       setBookingTitle(settings.bookingPageTitle);
       setBookingDescription(settings.bookingPageDescription);
       setDefaultDuration(settings.defaultEventDuration);
+      setWeekStart(
+        isCalendarWeekStart(settings.weekStart) ? settings.weekStart : "sunday",
+      );
     }
   }, [settings]);
 
@@ -96,6 +115,7 @@ export default function Settings() {
         bookingPageTitle: bookingTitle,
         bookingPageDescription: bookingDescription,
         defaultEventDuration: defaultDuration,
+        weekStart,
       },
       {
         onSuccess: () => toast.success(t("settings.saved")),
@@ -181,8 +201,15 @@ export default function Settings() {
       {
         id: "calendar-general",
         label: t("settings.general"),
-        keywords: "timezone booking duration defaults general",
+        keywords:
+          "timezone week start sunday monday booking duration defaults general",
         hash: "general-settings",
+      },
+      {
+        id: "calendar-availability",
+        label: t("bookingLinks.availability"),
+        keywords: "availability available hours booking schedule working hours",
+        hash: "availability",
       },
       {
         id: "calendar-appearance",
@@ -196,6 +223,7 @@ export default function Settings() {
 
   return (
     <SettingsTabsPage
+      account={<AccountSettingsCard />}
       generalLabel={t("settings.general")}
       teamLabel={t("navigation.team")}
       extraTabs={agentSettingsTabs}
@@ -206,20 +234,48 @@ export default function Settings() {
             {t("settings.description")}
           </p>
 
-          <Card id="language" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {t("settings.languageTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.languageDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="max-w-xs space-y-1.5">
-              <Label>{t("settings.languageLabel")}</Label>
-              <LanguagePicker label={t("settings.languageLabel")} />
-            </CardContent>
-          </Card>
+          <SettingsGroup>
+            <SettingsRow
+              id="language"
+              label={t("settings.languageTitle")}
+              description={t("settings.languageDescription")}
+              control={
+                <div className="w-56">
+                  <LanguagePicker label={t("settings.languageLabel")} />
+                </div>
+              }
+            />
+            <SettingsRow
+              id="appearance"
+              label={t("settings.appearance")}
+              description={t("settings.appearanceDescription")}
+            >
+              <AppearancePicker
+                onChange={(preset: AppearancePresetId) => {
+                  // Persist server-side so the choice survives reload and syncs
+                  // across devices; the local UI has already updated optimistically.
+                  callAction(
+                    "change-appearance" as any,
+                    { preset } as any,
+                  ).catch(() => {
+                    // Server write failed; the local DOM change still stands.
+                  });
+                }}
+              />
+            </SettingsRow>
+            <SettingsRow
+              id="availability"
+              label={t("bookingLinks.availability")}
+              description={t("bookingLinks.availabilityDescription")}
+              control={
+                <Button variant="outline" size="sm" asChild>
+                  <Link to={AVAILABILITY_SETTINGS_PATH}>
+                    {t("bookingLinks.availability")}
+                  </Link>
+                </Button>
+              }
+            />
+          </SettingsGroup>
 
           {/* Google Calendar Connection */}
           <Card id="google-calendar" className="scroll-mt-16">
@@ -392,6 +448,30 @@ export default function Settings() {
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="week-start">
+                  {t("settings.weekStartLabel")}
+                </Label>
+                <Select
+                  value={weekStart}
+                  onValueChange={(value) => {
+                    if (isCalendarWeekStart(value)) setWeekStart(value);
+                  }}
+                >
+                  <SelectTrigger id="week-start" className="w-full sm:w-56">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="sunday">
+                      {t("settings.weekStartSunday")}
+                    </SelectItem>
+                    <SelectItem value="monday">
+                      {t("settings.weekStartMonday")}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="booking-title">
                   {t("settings.bookingTitleLabel")}
                 </Label>
@@ -455,32 +535,6 @@ export default function Settings() {
                   </Link>
                 </Button>
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Appearance */}
-          <Card id="appearance" className="scroll-mt-16">
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {t("settings.appearance")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.appearanceDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <AppearancePicker
-                onChange={(preset: AppearancePresetId) => {
-                  // Persist server-side so the choice survives reload and syncs
-                  // across devices; the local UI has already updated optimistically.
-                  callAction(
-                    "change-appearance" as any,
-                    { preset } as any,
-                  ).catch(() => {
-                    // Server write failed; the local DOM change still stands.
-                  });
-                }}
-              />
             </CardContent>
           </Card>
         </div>

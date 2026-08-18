@@ -2,8 +2,8 @@ import { eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
-import { getDbExec } from "../../db/client.js";
 import { organizations } from "../../org/schema.js";
+import { listWorkspaceUserGroupsForOrg } from "../../workspace-connections/groups.js";
 import { resolveAccess } from "../access.js";
 import { requireShareableResource } from "../registry.js";
 
@@ -46,6 +46,7 @@ async function loadOrgDisplayNames(
 }
 
 async function loadGroupDisplayNames(
+  orgId: string | null | undefined,
   shares: Array<{ principalType: string; principalId: string }>,
 ): Promise<Map<string, string>> {
   const groupIds = Array.from(
@@ -55,18 +56,13 @@ async function loadGroupDisplayNames(
         .map((share) => share.principalId),
     ),
   );
-  if (!groupIds.length) return new Map();
+  if (!groupIds.length || !orgId) return new Map();
   try {
-    const result = await getDbExec().execute({
-      sql: `SELECT id, name FROM org_groups WHERE id IN (${groupIds
-        .map(() => "?")
-        .join(", ")})`,
-      args: groupIds,
-    });
+    const groups = await listWorkspaceUserGroupsForOrg(orgId, groupIds);
     return new Map(
-      result.rows.flatMap((row: any): Array<[string, string]> => {
-        const id = typeof row.id === "string" ? row.id : "";
-        const name = typeof row.name === "string" ? row.name.trim() : "";
+      groups.flatMap((group): Array<[string, string]> => {
+        const id = group.id;
+        const name = group.name.trim();
         return id && name ? [[id, name]] : [];
       }),
     );
@@ -98,7 +94,15 @@ export default defineAction({
         ? { supportsGroupShares: true }
         : {}),
     };
-    const access = await resolveAccess(args.resourceType, args.resourceId);
+    // Only `ownerEmail`/`orgId`/`visibility` are read below, all of which the
+    // projected load carries — so the share dialog never pulls a resource's
+    // body blob just to render who it is shared with.
+    const access = await resolveAccess(
+      args.resourceType,
+      args.resourceId,
+      undefined,
+      { skipResourceBody: true },
+    );
     if (!access)
       return { ownerEmail: null, visibility: null, shares: [], policy };
 
@@ -108,13 +112,17 @@ export default defineAction({
       .from(reg.sharesTable)
       .where(eq(reg.sharesTable.resourceId, args.resourceId));
     const orgDisplayNames = await loadOrgDisplayNames(db, shares);
-    const groupDisplayNames = await loadGroupDisplayNames(shares);
+    const groupDisplayNames = await loadGroupDisplayNames(
+      access.resource.orgId,
+      shares,
+    );
 
     return {
       ownerEmail: access.resource.ownerEmail ?? null,
       orgId: access.resource.orgId ?? null,
       visibility: access.resource.visibility ?? "private",
       role: access.role,
+      agentReadable: Boolean(reg.agentReadable),
       shares: shares.map((s: any) => ({
         id: s.id,
         principalType: s.principalType,

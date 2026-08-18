@@ -1,5 +1,5 @@
 /**
- * Finalize a meeting — runs the Gemini cleanup pass on its transcript and
+ * Finalize a meeting — runs the text-model cleanup pass on its transcript and
  * persists summary, bullets, and action items.
  *
  * Reads the linked recording's transcript (`recording_transcripts`) and
@@ -24,7 +24,7 @@ import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 
 // A forced claim still needs the same compare-and-set protection as the normal
 // path. It can recover a pending row only after that row has gone stale, which
-// handles crashed processes without stealing an active Gemini run.
+// handles crashed processes without stealing an active text-model run.
 const PENDING_STALE_MS = 2 * 60 * 1000;
 
 function trimContextValue(value: string, maxChars: number): string {
@@ -35,7 +35,7 @@ function trimContextValue(value: string, maxChars: number): string {
 
 export default defineAction({
   description:
-    "Finalize a meeting: run the Gemini 3.1 Flash-Lite cleanup pass on its transcript, persist summary + bullets + action items, and flip transcriptStatus to 'ready'. Editor access required.",
+    "Finalize a meeting: run the low-cost text-model cleanup pass on its transcript, persist summary + bullets + action items, and flip transcriptStatus to 'ready'. Editor access required.",
   schema: z.object({
     meetingId: z.string().describe("Meeting id"),
     overrideTranscript: z
@@ -88,13 +88,14 @@ export default defineAction({
     // Mark pending so the UI shows a spinner during the LLM call. This is
     // also the compare-and-swap that prevents two concurrent finalize calls
     // (e.g. the desktop stop-path and the web route's auto-finalize effect)
-    // from both running Gemini and clobbering meeting_action_items: only a
+    // from both running the text model and clobbering meeting_action_items: only a
     // call that observes 'ready' or 'failed' gets to flip the row to
     // 'pending' and proceed. `force` (the manual "Regenerate notes" flow)
     // additionally allows claiming a 'pending' row only when that claim is
     // stale (see PENDING_STALE_MS). A fresh 'pending' row may still be an
-    // active Gemini run, so it is left alone.
+    // active text-model run, so it is left alone.
     const staleBefore = new Date(Date.now() - PENDING_STALE_MS).toISOString();
+    const claimUpdatedAt = nowIso;
     const claimPredicate = args.force
       ? or(
           inArray(schema.meetings.transcriptStatus, ["ready", "failed"]),
@@ -112,7 +113,7 @@ export default defineAction({
 
     if (!claimed.length) {
       // Another finalize is already in flight (status is 'pending') — no-op
-      // quietly instead of re-running Gemini and re-writing action items.
+      // quietly instead of re-running the text model and re-writing action items.
       const [current] = await db
         .select()
         .from(schema.meetings)
@@ -241,10 +242,13 @@ export default defineAction({
 
     // Single transaction so the meetings write and the action-items
     // delete+insert can't interleave with a second concurrent finalize call.
-    // The meetings update is CAS-guarded on transcriptStatus='pending' (this
-    // call's own claim), and the action-items delete+insert only runs when
-    // that CAS actually matched.
+    // The meetings update is CAS-guarded on both transcriptStatus='pending'
+    // and the timestamp written by this call's claim. If a manual edit landed
+    // after the claim, finish the AI fields but preserve that edit's action
+    // items instead of replacing them with stale model output.
+    let persistedActionItems = actionItems;
     await db.transaction(async (tx) => {
+      const finalNow = new Date().toISOString();
       const written = await tx
         .update(schema.meetings)
         .set({
@@ -252,7 +256,45 @@ export default defineAction({
           summaryMd,
           bulletsJson: JSON.stringify(bullets),
           actionItemsJson: JSON.stringify(actionItems),
-          updatedAt: new Date().toISOString(),
+          updatedAt: finalNow,
+        })
+        .where(
+          and(
+            eq(schema.meetings.id, args.meetingId),
+            eq(schema.meetings.transcriptStatus, "pending"),
+            eq(schema.meetings.updatedAt, claimUpdatedAt),
+          ),
+        )
+        .returning({ id: schema.meetings.id });
+      if (written.length) {
+        // Replace the per-row action items so the dedicated table mirrors the
+        // JSON column. The meeting-row CAS above serializes this replacement
+        // with update-meeting's own meeting-row transaction.
+        await tx
+          .delete(schema.meetingActionItems)
+          .where(eq(schema.meetingActionItems.meetingId, args.meetingId));
+        if (actionItems.length) {
+          await tx.insert(schema.meetingActionItems).values(
+            actionItems.map((item) => ({
+              id: nanoid(),
+              meetingId: args.meetingId,
+              assigneeEmail: item.assigneeEmail ?? null,
+              text: item.text,
+              dueDate: item.dueDate ?? null,
+              completedAt: null,
+            })),
+          );
+        }
+        return;
+      }
+
+      const [preserved] = await tx
+        .update(schema.meetings)
+        .set({
+          transcriptStatus: "ready",
+          summaryMd,
+          bulletsJson: JSON.stringify(bullets),
+          updatedAt: finalNow,
         })
         .where(
           and(
@@ -260,24 +302,18 @@ export default defineAction({
             eq(schema.meetings.transcriptStatus, "pending"),
           ),
         )
-        .returning({ id: schema.meetings.id });
-      if (!written.length) return;
+        .returning({ actionItemsJson: schema.meetings.actionItemsJson });
+      if (!preserved?.actionItemsJson) return;
 
-      // Replace the per-row action items so the dedicated table mirrors the
-      // JSON column.
-      await tx
-        .delete(schema.meetingActionItems)
-        .where(eq(schema.meetingActionItems.meetingId, args.meetingId));
-      if (actionItems.length) {
-        await tx.insert(schema.meetingActionItems).values(
-          actionItems.map((item) => ({
-            id: nanoid(),
-            meetingId: args.meetingId,
-            assigneeEmail: item.assigneeEmail ?? null,
-            text: item.text,
-            dueDate: item.dueDate ?? null,
-            completedAt: null,
-          })),
+      try {
+        const currentActionItems = JSON.parse(preserved.actionItemsJson);
+        if (Array.isArray(currentActionItems)) {
+          persistedActionItems = currentActionItems;
+        }
+      } catch (error) {
+        console.warn(
+          "[finalize-meeting] preserved action items JSON was malformed; keeping dedicated rows",
+          error,
         );
       }
     });
@@ -288,7 +324,7 @@ export default defineAction({
       meetingId: args.meetingId,
       summaryMd,
       bullets,
-      actionItems,
+      actionItems: persistedActionItems,
       provider: result.provider,
     };
   },

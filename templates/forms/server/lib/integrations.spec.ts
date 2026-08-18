@@ -6,18 +6,30 @@ const fetchMock = vi.hoisted(() => ({
   requests: [] as Array<{ url: string; payload: any }>,
 }));
 
-vi.mock("@agent-native/core/tools/url-safety", () => ({
-  isBlockedToolUrl: () => false,
-  ssrfSafeToolFetch: async (url: string, init: { body?: unknown }) => {
+vi.mock("@agent-native/core/integrations", () => ({
+  escapeSlackMrkdwn: (value: string) =>
+    value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;"),
+  isWebhookUrlAllowed: () => true,
+  deliverJsonWebhook: async ({
+    url,
+    payload,
+  }: {
+    url: string;
+    payload: unknown;
+  }) => {
     fetchMock.requests.push({
       url,
-      payload: JSON.parse(String(init.body ?? "{}")),
+      payload,
     });
     return { ok: true, status: 200 };
   },
 }));
 
-import { buildSlackPayload, fireIntegrations } from "./integrations.js";
+import {
+  buildGoogleSheetsPayload,
+  buildSlackPayload,
+  fireIntegrations,
+} from "./integrations.js";
 
 const field: FormField = {
   id: "msg",
@@ -151,5 +163,30 @@ describe("buildSlackPayload page context", () => {
     );
     expect(payloadByType.get("google-sheets").submitterEmail).toBe("");
     expect(payloadByType.get("webhook").submitterEmail).toBeNull();
+  });
+});
+
+describe("buildGoogleSheetsPayload", () => {
+  it("includes response identity and preserves duplicate field labels", () => {
+    const result = buildGoogleSheetsPayload(
+      payload({
+        formId: "form-42",
+        responseId: "response-42",
+        fields: [
+          { ...field, id: "first", label: "Answer" },
+          { ...field, id: "second", label: "Answer" },
+        ],
+        data: { first: "one", second: "two" },
+      }),
+    );
+
+    expect(result).toMatchObject({
+      event: "form_submission",
+      eventVersion: 1,
+      formId: "form-42",
+      responseId: "response-42",
+      Answer: "one",
+      "Answer (second)": "two",
+    });
   });
 });

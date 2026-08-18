@@ -15,7 +15,7 @@ import {
 } from "@agent-native/core/progress";
 
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Triage 128 unread emails",
   step: "Fetching inbox",
 });
@@ -100,7 +100,7 @@ await completeRun(run.id, run.owner, "succeeded");
 
 ```ts
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Ingest 1M rows",
   step: "Opening CSV",
   metadata: { jobId: "abc123", artifactPath: "s3://..." },
@@ -140,9 +140,9 @@ await completeRun(run.id, run.owner, "succeeded", {
 ```ts
 import { listRuns, getRun, deleteRun } from "@agent-native/core/progress";
 
-const active = await listRuns("steve@builder.io", { activeOnly: true });
-const run = await getRun("run-id", "steve@builder.io");
-await deleteRun("run-id", "steve@builder.io");
+const active = await listRuns("user@example.com", { activeOnly: true });
+const run = await getRun("run-id", "user@example.com");
+await deleteRun("run-id", "user@example.com");
 ```
 
 ## HTTP API {#http}
@@ -233,7 +233,7 @@ mode: agentic
 ## 仕組み {#internals}
 
 - **所有者のスコープ** — すべての行に `owner` 列があります。すべてのクエリはそれをフィルターに掛けます。ユーザーには自分の実行のみが表示されます。
-- **ポーリング統合** — すべてのミューテーションが `recordChange()` を呼び出すため、[`useDbSync`](/docs/client) を使用するテンプレートは追加の配線なしで自動無効化されます。
+- **ポーリング統合** — すべてのミューテーションが `recordChange()` を呼び出すため、[`useDbSync`](/docs/client-data#usedbsync) を使用するテンプレートは追加の配線なしで自動無効化されます。
 - **テーブル名** — フレームワークには、内部エージェント チャット ターン ライフサイクル追跡用の `agent_runs` テーブルもあります。進行状況プリミティブは、`progress_runs` を使用して 2 つの懸念事項を分離します。
 - **パーセント クランプ** — 値は `[0, 100]` にクランプされ、書き込み時に整数に丸められます。
 
@@ -241,4 +241,4 @@ mode: agentic
 
 - [**Notifications**](/docs/notifications) — `manage-progress` (`action=complete`) と組み合わせて、作業の終了をユーザーに通知します
 - [**Automations**](/docs/automations) — `run.progress.updated` 経由でウォッチドッグが低速で実行されます
-- [**Client**](/docs/client) — リアルタイム キャッシュ無効化の場合は `useDbSync`
+- [**データと同期**](/docs/client-data) — リアルタイム キャッシュ無効化の場合は `useDbSync`

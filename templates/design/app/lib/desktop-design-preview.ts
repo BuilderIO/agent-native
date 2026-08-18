@@ -1,4 +1,4 @@
-import { getFrameOrigin } from "@agent-native/core/client";
+import { getFrameOrigin } from "@agent-native/core/client/host";
 import { useEffect, useRef, useState, type RefObject } from "react";
 
 const REQUEST_TYPE = "agentNative.designPreview.request";

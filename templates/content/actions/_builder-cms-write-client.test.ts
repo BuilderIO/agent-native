@@ -1,9 +1,8 @@
-import { EventEmitter } from "node:events";
-
 import { resolveBuilderCredential } from "@agent-native/core/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS,
   executeBuilderCmsWrite,
   extractBuilderCmsWriteEntryId,
 } from "./_builder-cms-write-client";
@@ -19,6 +18,10 @@ describe("Builder CMS write client", () => {
     vi.clearAllMocks();
     delete process.env.BUILDER_CONTENT_API_HOST;
     delete process.env.BUILDER_CMS_API_HOST;
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("does not call Builder when private credentials are not configured", async () => {
@@ -106,6 +109,7 @@ describe("Builder CMS write client", () => {
         authorization: "Bearer example-cms-private-key",
       });
       expect(JSON.parse(String(init?.body))).toEqual({
+        name: "Created title",
         data: { title: "Created title" },
         published: "draft",
       });
@@ -121,7 +125,11 @@ describe("Builder CMS write client", () => {
           method: "POST",
           path: "/api/v1/write/agent-native-blog-article-test",
           query: { triggerWebhooks: "false" },
-          body: { data: { title: "Created title" }, published: "draft" },
+          body: {
+            name: "Created title",
+            data: { title: "Created title" },
+            published: "draft",
+          },
         },
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
@@ -132,12 +140,13 @@ describe("Builder CMS write client", () => {
     });
   });
 
-  it("returns structured non-2xx failures without leaking the key", async () => {
+  it("returns safe validation detail without leaking the key", async () => {
     resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
     const fetchImpl = vi.fn(async () => {
-      return new Response(JSON.stringify({ message: "Invalid payload" }), {
-        status: 400,
-      });
+      return new Response(
+        JSON.stringify({ message: "Blurb must be at least 110 characters" }),
+        { status: 400 },
+      );
     });
 
     const result = await executeBuilderCmsWrite({
@@ -152,42 +161,74 @@ describe("Builder CMS write client", () => {
     expect(result).toMatchObject({
       ok: false,
       status: 400,
-      responseBody: { message: "Invalid payload" },
-      error: "Builder write request failed with HTTP 400.",
+      responseBody: { message: "Blurb must be at least 110 characters" },
+      error: "Builder validation failed: Blurb must be at least 110 characters",
     });
     expect(JSON.stringify(result)).not.toContain("example-private-key");
   });
 
-  it("falls back to node http transport when fetch throws", async () => {
+  it("does not expose arbitrary upstream error text", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    const fetchImpl = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({ message: "Database failed for user@example.com" }),
+        { status: 400 },
+      );
+    });
+
+    await expect(
+      executeBuilderCmsWrite({
+        request: {
+          method: "PATCH",
+          path: "/api/v1/write/agent-native-blog-article-test/entry-1",
+          body: { data: { title: "New title" } },
+        },
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      error: "Builder write request failed with HTTP 400.",
+    });
+  });
+
+  it("treats provider server errors as ambiguous without exposing their body", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    const fetchImpl = vi.fn(async () => {
+      return new Response(
+        JSON.stringify({
+          message: "Validation failed for customer alice@example.com",
+        }),
+        { status: 500 },
+      );
+    });
+
+    const result = await executeBuilderCmsWrite({
+      request: {
+        method: "PATCH",
+        path: "/api/v1/write/agent-native-blog-article-test/entry-1",
+        body: { data: { title: "New title" } },
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result).toMatchObject({
+      ok: false,
+      status: 500,
+      responseBody: null,
+      ambiguity: "provider",
+      error:
+        "Builder returned HTTP 500 after the write was dispatched; remote outcome is unknown.",
+    });
+    expect(result.error).not.toContain("alice@example.com");
+    expect(JSON.stringify(result)).not.toContain("alice@example.com");
+    expect(result.entryId).toBeUndefined();
+  });
+
+  it("does not dispatch a second PATCH after an ambiguous fetch failure", async () => {
     resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
     const fetchImpl = vi.fn(async () => {
       throw new Error("fetch failed");
     });
-    const writes: string[] = [];
-    const requestImpl = vi.fn((url, options, callback) => {
-      expect(url.href).toBe(
-        "https://builder.io/api/v1/write/agent-native-blog-article-test/entry-1",
-      );
-      expect(options.method).toBe("PATCH");
-      const request = new EventEmitter() as EventEmitter & {
-        write: (chunk: string) => void;
-        end: () => void;
-      };
-      request.write = (chunk: string) => {
-        writes.push(chunk);
-      };
-      request.end = () => {};
-      const response = new EventEmitter() as EventEmitter & {
-        statusCode: number;
-      };
-      response.statusCode = 200;
-      queueMicrotask(() => {
-        callback(response as never);
-        response.emit("data", JSON.stringify({ id: "entry-1" }));
-        response.emit("end");
-      });
-      return request as never;
-    });
+    const requestImpl = vi.fn();
 
     await expect(
       executeBuilderCmsWrite({
@@ -200,11 +241,13 @@ describe("Builder CMS write client", () => {
         nodeRequestImpl: requestImpl,
       }),
     ).resolves.toMatchObject({
-      ok: true,
-      status: 200,
-      entryId: "entry-1",
+      ok: false,
+      status: 0,
+      ambiguity: "transport",
+      error:
+        "Builder write transport failed after dispatch; remote outcome is unknown.",
     });
-    expect(writes).toEqual([JSON.stringify({ data: { title: "New title" } })]);
+    expect(requestImpl).not.toHaveBeenCalled();
   });
 
   it("does not retry create POST writes after a transport error", async () => {
@@ -214,6 +257,36 @@ describe("Builder CMS write client", () => {
     });
     const requestImpl = vi.fn();
 
+    const result = await executeBuilderCmsWrite({
+      request: {
+        method: "POST",
+        path: "/api/v1/write/agent-native-blog-article-test",
+        body: { data: { title: "Created title" } },
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      nodeRequestImpl: requestImpl,
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      status: 0,
+      ambiguity: "transport",
+      error: expect.stringContaining("remote outcome is unknown"),
+    });
+    expect(JSON.stringify(result)).not.toContain("socket closed");
+    expect(requestImpl).not.toHaveBeenCalled();
+  });
+
+  it("bounds provider calls and reports timeout ambiguity", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    const fetchImpl = vi.fn(
+      async (_input: URL, init?: RequestInit) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }),
+    );
+
     await expect(
       executeBuilderCmsWrite({
         request: {
@@ -222,15 +295,47 @@ describe("Builder CMS write client", () => {
           body: { data: { title: "Created title" } },
         },
         fetchImpl: fetchImpl as unknown as typeof fetch,
-        nodeRequestImpl: requestImpl,
+        timeoutMs: 5,
       }),
     ).resolves.toMatchObject({
       ok: false,
-      status: 0,
-      error:
-        "Builder write request failed: socket closed after request body was sent",
+      ambiguity: "timeout",
+      error: expect.stringContaining("remote outcome is unknown"),
     });
-    expect(requestImpl).not.toHaveBeenCalled();
+  });
+
+  it("allows slow hosted Builder writes up to the 30-second provider window", async () => {
+    vi.useFakeTimers();
+    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    const fetchImpl = vi.fn(
+      async (_input: URL, init?: RequestInit) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }),
+    );
+
+    const resultPromise = executeBuilderCmsWrite({
+      request: {
+        method: "PATCH",
+        path: "/api/v1/write/agent-native-blog-article-test/entry-1",
+        body: { published: "published" },
+      },
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    let settled = false;
+    void resultPromise.finally(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS - 1);
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(resultPromise).resolves.toMatchObject({
+      ok: false,
+      ambiguity: "timeout",
+      error: `Builder write timed out after ${DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS}ms; remote outcome is unknown.`,
+    });
   });
 
   it("extracts entry ids from common Builder response envelopes", () => {

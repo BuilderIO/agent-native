@@ -1,11 +1,18 @@
 import { defineAction } from "@agent-native/core";
-import { resolveSecret } from "@agent-native/core/server";
+import { createBuilderEngine } from "@agent-native/core/agent/engine";
+import {
+  resolveBuilderCredentials,
+  resolveSecret,
+} from "@agent-native/core/server";
 import type { GeneratedSlide } from "@shared/api";
 import { z } from "zod";
 
+const BUILDER_MODEL = "gpt-5-6-luna";
+const GEMINI_MODEL = "gemini-2.0-flash";
+
 export default defineAction({
   description:
-    "Legacy helper for the Generate Slides dialog. It returns markdown slide drafts, not the app's rendered slide HTML. Agent chat should create decks with create-deck slides: [] plus add-slide HTML instead of this action.",
+    "Legacy helper for the Generate Slides dialog that drafts a whole new deck outline (multiple slides) from a topic. It returns markdown slide drafts, not the app's rendered slide HTML. Agent chat should create decks with create-deck slides: [] plus add-slide HTML instead of this action. Do NOT use this for a request to generate one or more images/image variations for an existing slide — use generate-image-api for that. When Builder is connected, this uses GPT-5.6 Luna; otherwise it falls back to a user Gemini API key.",
   schema: z.object({
     topic: z.string().describe("Presentation topic"),
     slideCount: z.coerce
@@ -22,24 +29,14 @@ export default defineAction({
       .describe("Whether to include image prompts (default: true)"),
   }),
   run: async (args) => {
-    const apiKey = await resolveSecret("GEMINI_API_KEY");
-    if (!apiKey) {
-      throw new Error(
-        "Gemini API key not configured. Save GEMINI_API_KEY in settings.",
-      );
-    }
-
     const topic = args.topic;
-    // Cap at 10. Single-shot Gemini JSON generation reliably truncates
+    // Cap at 10. Single-shot JSON generation reliably truncates
     // beyond that — the resulting JSON fails to parse and the user sees
     // an error. Larger decks should be assembled with sequential
     // `add-slide` calls from the agent chat instead.
     const slideCount = Math.min(args.slideCount ?? 8, 10);
     const style = args.style;
     const includeImages = args.includeImages !== false;
-
-    const { GoogleGenAI } = await import("@google/genai");
-    const client = new GoogleGenAI({ apiKey });
 
     const imageInstruction = includeImages
       ? `For slides where a visual would enhance the message, set the layout to "image" and provide an "imagePrompt" field with a detailed description of what image to generate. The imagePrompt should describe a professional, high-quality image that supports the slide content. Include imagePrompt for roughly 30-40% of slides (not the title slide).`
@@ -65,22 +62,51 @@ Rules:
 - Last slide should be a summary or call-to-action
 - Content should be concise and presentation-ready (not paragraphs)
 - Use bullet points for lists, keep each point brief
+- Keep title, section, statement, and call-to-action slides centered with generous, even margins
+- Do not use emoji as decorative icons or bullets; use plain text bullets or HTML/CSS shapes instead
 - Do not invent factual numbers, metrics, URLs, source attributions, dates, success rates, benchmarks, customer names, or case-study results. Only include concrete factual claims if they are present in the topic/context. If a useful metric is unknown, use qualitative wording, [metric TBD], or clearly label it as a draft assumption.
 - ${imageInstruction}
 
 Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the JSON array.`;
 
-    const response = await client.models.generateContent({
-      model: "gemini-2.0-flash",
-      contents: [{ text: prompt }],
-      config: {
-        responseMimeType: "application/json",
-      },
-    });
+    const builderCreds = await resolveBuilderCredentials();
+    const builderConfigured = Boolean(
+      builderCreds.privateKey && builderCreds.publicKey,
+    );
+    let text: string | undefined;
+    let builderError: Error | null = null;
 
-    const text = response.candidates?.[0]?.content?.parts?.[0]?.text;
-    if (!text) {
-      throw new Error("No response from Gemini");
+    if (builderConfigured) {
+      try {
+        text = await callBuilderGateway(prompt);
+      } catch (error) {
+        builderError =
+          error instanceof Error ? error : new Error(String(error));
+      }
+    }
+
+    if (!text?.trim()) {
+      const apiKey = await resolveSecret("GEMINI_API_KEY");
+      if (!apiKey) {
+        throw (
+          builderError ??
+          new Error(
+            "Slides outline generation needs Builder.io Connect (free tier available) or GEMINI_API_KEY.",
+          )
+        );
+      }
+
+      const { GoogleGenAI } = await import("@google/genai");
+      const client = new GoogleGenAI({ apiKey });
+      const response = await client.models.generateContent({
+        model: GEMINI_MODEL,
+        contents: [{ text: prompt }],
+        config: {
+          responseMimeType: "application/json",
+        },
+      });
+      text = response.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (!text) throw new Error("No response from Gemini");
     }
 
     let slides: GeneratedSlide[];
@@ -113,3 +139,47 @@ Respond ONLY with valid JSON. No markdown code fences, no explanation. Just the 
     return { slides };
   },
 });
+
+async function callBuilderGateway(prompt: string): Promise<string> {
+  const engine = createBuilderEngine();
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 45_000);
+  let streamedText = "";
+  let finalText = "";
+  let terminalError: string | undefined;
+
+  try {
+    for await (const event of engine.stream({
+      model: BUILDER_MODEL,
+      systemPrompt:
+        "Return only the valid JSON requested by the user. Do not use markdown fences or commentary.",
+      messages: [{ role: "user", content: [{ type: "text", text: prompt }] }],
+      tools: [],
+      abortSignal: controller.signal,
+      maxOutputTokens: 16_000,
+      temperature: 0,
+    })) {
+      if (event.type === "text-delta") streamedText += event.text;
+      if (event.type === "assistant-content") {
+        finalText = event.parts
+          .filter((part) => part.type === "text")
+          .map((part) => part.text)
+          .join("")
+          .trim();
+      }
+      if (event.type === "stop" && event.reason === "error") {
+        terminalError = event.error ?? "Builder gateway returned an error";
+      }
+      if (event.type === "stop" && event.reason === "max_tokens") {
+        terminalError = "Builder gateway truncated the slide outline";
+      }
+    }
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  if (terminalError) throw new Error(terminalError);
+  const text = (finalText || streamedText).trim();
+  if (!text) throw new Error("Builder gateway returned no slide outline");
+  return text;
+}

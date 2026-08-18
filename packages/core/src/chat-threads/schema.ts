@@ -15,6 +15,9 @@ export const chatThreads = table("chat_threads", {
   pinnedAt: integer("pinned_at"),
   archivedAt: integer("archived_at"),
   shareTokenHash: text("share_token_hash"),
+  sourcePlatform: text("source_platform"),
+  sourceAppId: text("source_app_id"),
+  sourceUrl: text("source_url"),
   ...ownableColumns(),
 });
 

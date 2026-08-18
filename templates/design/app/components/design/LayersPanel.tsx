@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -11,9 +11,9 @@ import {
   IconFrame,
   IconLayersSubtract,
   IconLayersUnion,
+  IconLayoutGrid,
   IconLock,
   IconLockOpen,
-  IconLayoutGrid,
   IconPencil,
   IconPlus,
   IconSearch,
@@ -30,8 +30,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
   type DragEvent,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
   type Ref,
@@ -1159,12 +1159,22 @@ function LayersPanelImpl(
     [onRename, renameDraft],
   );
 
+  // L12: id of a layer whose rename was started externally (beginRename) and
+  // is waiting for its row to become visible/mounted so the input can be
+  // focused. Ancestor expansion is asynchronous (it flows out through
+  // onExpandedIdsChange and back in via the expandedIds prop), so we can't
+  // synchronously focus the input the same tick beginRename runs — the row
+  // may not exist in the DOM yet. The effect below watches for the row to
+  // appear in rowElementRefs and finishes the job once it does.
+  const pendingRenameFocusIdRef = useRef<string | null>(null);
+
   const startRename = useCallback(
     (node: LayersPanelNode) => {
       if (!onRename || node.renamable === false) return;
       renameOriginalNameRef.current = node.name;
       setRenamingId(node.id);
       setRenameDraft(node.name);
+      pendingRenameFocusIdRef.current = node.id;
     },
     [onRename],
   );
@@ -1179,15 +1189,6 @@ function LayersPanelImpl(
     },
     [],
   );
-
-  // L12: id of a layer whose rename was started externally (beginRename) and
-  // is waiting for its row to become visible/mounted so the input can be
-  // focused. Ancestor expansion is asynchronous (it flows out through
-  // onExpandedIdsChange and back in via the expandedIds prop), so we can't
-  // synchronously focus the input the same tick beginRename runs — the row
-  // may not exist in the DOM yet. The effect below watches for the row to
-  // appear in rowElementRefs and finishes the job once it does.
-  const pendingRenameFocusIdRef = useRef<string | null>(null);
 
   const focusSearch = useCallback(() => {
     setSearchOpen(true);
@@ -1722,6 +1723,7 @@ const LayerRow = memo(function LayerRow({
   // Tracks whether the user pressed Escape to cancel rename so that the
   // subsequent blur event does not commit the edit.
   const renameCancelledRef = useRef(false);
+  const preventContextMenuFocusRestoreRef = useRef(false);
   // L20: spring-loaded expand. Tracks the pending timer id for "hovering
   // this collapsed container during a drag" so a sustained hover expands it
   // (Figma-style) without requiring the user to drop and re-drag. Cleared on
@@ -1780,6 +1782,9 @@ const LayerRow = memo(function LayerRow({
   // doing so.
   const handleKeyDown = (event: KeyboardEvent<HTMLButtonElement>) => {
     if (event.key === "Enter" || event.key === " " || event.key === "Space") {
+      // Figma drills into the selection on Enter and walks up on Shift+Enter;
+      // re-selecting an already-selected row here would swallow both.
+      if (event.key === "Enter" && isSelected) return;
       event.preventDefault();
       if (!selectable) return;
       onSelect(node.id, {
@@ -1795,12 +1800,21 @@ const LayerRow = memo(function LayerRow({
       onStartRename(node);
       return;
     }
-    if (event.key === "ArrowRight" && hasChildren && !isExpanded) {
+    // Only the PLAIN chord toggles the chevron: Shift+Arrow is Figma's big
+    // nudge and every modified arrow belongs to the canvas hotkeys below.
+    const plainArrow =
+      !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey;
+    if (
+      plainArrow &&
+      event.key === "ArrowRight" &&
+      hasChildren &&
+      !isExpanded
+    ) {
       event.preventDefault();
       onToggleExpanded(node.id, true);
       return;
     }
-    if (event.key === "ArrowLeft" && hasChildren && isExpanded) {
+    if (plainArrow && event.key === "ArrowLeft" && hasChildren && isExpanded) {
       event.preventDefault();
       onToggleExpanded(node.id, false);
       return;
@@ -2047,7 +2061,7 @@ const LayerRow = memo(function LayerRow({
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
-          className="relative min-w-full"
+          className="relative w-max min-w-full"
           draggable={draggable}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
@@ -2075,19 +2089,24 @@ const LayerRow = memo(function LayerRow({
         >
           {activeDrop === "before" ? (
             <span
+              data-layer-drop-indicator="before"
               className="pointer-events-none absolute right-2 top-0 z-10 h-px bg-[var(--design-editor-accent-color)]"
               style={{ left: rowIndent(depth) }}
             />
           ) : null}
           {activeDrop === "after" ? (
             <span
+              data-layer-drop-indicator="after"
               className="pointer-events-none absolute bottom-0 right-2 z-10 h-px bg-[var(--design-editor-accent-color)]"
               style={{ left: rowIndent(depth) }}
             />
           ) : null}
           <div
+            data-layer-drop-indicator={
+              activeDrop === "inside" ? "inside" : undefined
+            }
             className={cn(
-              "group flex h-8 min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px]",
+              "group flex h-7 w-max min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px] bg-[var(--design-editor-panel-bg)]",
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
@@ -2186,24 +2205,21 @@ const LayerRow = memo(function LayerRow({
                     onCommitRename(node.id);
                   }}
                   onKeyDown={(event) => {
+                    // The input is rendered inside the row button, whose handler
+                    // treats Space as a layer-selection command. Keep every rename
+                    // keystroke local so spaces can be entered normally.
+                    event.stopPropagation();
                     if (event.key === "Enter") {
                       event.preventDefault();
-                      // Stop propagation so the keydown does not bubble up to the
-                      // parent row <button>'s handleKeyDown, which would fire
-                      // onSelect and potentially trigger canvas-level side effects
-                      // (e.g. switching to overview mode or selecting a wrong layer).
-                      event.stopPropagation();
                       onCommitRename(node.id);
                     } else if (event.key === "Tab") {
                       // Commit the rename on Tab (Figma behavior) and prevent the
                       // keydown from reaching the global design hotkeys handler which
                       // would cycle the active file when Tab fires outside an input.
                       event.preventDefault();
-                      event.stopPropagation();
                       onCommitRename(node.id);
                     } else if (event.key === "Escape") {
                       event.preventDefault();
-                      event.stopPropagation();
                       renameCancelledRef.current = true;
                       onCancelRename(node.id);
                     }
@@ -2233,72 +2249,92 @@ const LayerRow = memo(function LayerRow({
               ) : null}
             </button>
 
-            {lockable ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                      node.locked && "opacity-100",
-                      isSelected && "text-foreground",
-                    )}
-                    aria-label={node.locked ? labels.unlock : labels.lock}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggleLocked?.(node.id, !node.locked);
-                    }}
-                  >
-                    {node.locked ? (
-                      <IconLock className="size-3" />
-                    ) : (
-                      <IconLockOpen className="size-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {node.locked ? labels.unlock : labels.lock}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
+            {(lockable || hideable) && (
+              <div
+                className={cn(
+                  "sticky right-0 z-10 ml-auto flex shrink-0 items-center gap-1 bg-inherit",
+                  node.locked || node.hidden
+                    ? "w-auto overflow-visible pl-2 pr-1"
+                    : "w-0 overflow-hidden pl-0 pr-0 group-hover:w-auto group-hover:overflow-visible group-hover:pl-2 group-hover:pr-1 focus-within:w-auto focus-within:overflow-visible focus-within:pl-2 focus-within:pr-1",
+                )}
+              >
+                <div className="absolute inset-0 -z-20 bg-[var(--design-editor-panel-bg)]" />
+                <div className="absolute inset-0 -z-10 bg-inherit" />
+                {lockable ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          node.locked && "opacity-100",
+                          isSelected && "text-foreground",
+                        )}
+                        aria-label={node.locked ? labels.unlock : labels.lock}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleLocked?.(node.id, !node.locked);
+                        }}
+                      >
+                        {node.locked ? (
+                          <IconLock className="size-3" />
+                        ) : (
+                          <IconLockOpen className="size-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {node.locked ? labels.unlock : labels.lock}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
 
-            {hideable ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                      node.hidden && "opacity-100",
-                      isSelected && "text-foreground",
-                    )}
-                    aria-label={node.hidden ? labels.show : labels.hide}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggleHidden?.(node.id, !node.hidden);
-                    }}
-                  >
-                    {node.hidden ? (
-                      <IconEyeOff className="size-3" />
-                    ) : (
-                      <IconEye className="size-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {node.hidden ? labels.show : labels.hide}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
+                {hideable ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          node.hidden && "opacity-100",
+                          isSelected && "text-foreground",
+                        )}
+                        aria-label={node.hidden ? labels.show : labels.hide}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleHidden?.(node.id, !node.hidden);
+                        }}
+                      >
+                        {node.hidden ? (
+                          <IconEyeOff className="size-3" />
+                        ) : (
+                          <IconEye className="size-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {node.hidden ? labels.show : labels.hide}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       </ContextMenuTrigger>
       {showContextMenu ? (
-        <ContextMenuContent className="z-[300] min-w-[200px] text-[12px]">
+        <ContextMenuContent
+          className="z-[300] min-w-[200px] text-[12px]"
+          onCloseAutoFocus={(event) => {
+            if (!preventContextMenuFocusRestoreRef.current) return;
+            event.preventDefault();
+            preventContextMenuFocusRestoreRef.current = false;
+          }}
+        >
           {/* LIVE-VERIFIED Figma layer-row menu order: Copy, Paste to
               replace — Bring to front, Send to back — Group selection,
               (Ungroup, container rows only), Frame selection, Rename —
@@ -2393,7 +2429,10 @@ const LayerRow = memo(function LayerRow({
           {onRename && node.renamable !== false ? (
             <ContextMenuItem
               className="gap-2 text-[12px]"
-              onSelect={() => onStartRename(node)}
+              onSelect={() => {
+                preventContextMenuFocusRestoreRef.current = true;
+                onStartRename(node);
+              }}
             >
               <IconPencil className="size-3.5 text-muted-foreground" />
               {labels.rename}

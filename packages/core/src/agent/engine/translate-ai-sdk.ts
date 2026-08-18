@@ -7,6 +7,10 @@
  * `ModelMessage` shapes.
  */
 
+import {
+  classifyProviderError,
+  describeErrorWithCauses,
+} from "./error-detail.js";
 import { backfillEngineMessagesToolResults } from "./translate-anthropic.js";
 import type {
   EngineTool,
@@ -294,11 +298,22 @@ export function aiSdkPartToEngineEvents(part: any): EngineEvent[] {
     case "error": {
       const errMsg =
         part.error instanceof Error
-          ? part.error.message
+          ? describeErrorWithCauses(part.error)
           : typeof part.error === "string"
             ? part.error
             : JSON.stringify(part.error);
-      events.push({ type: "stop", reason: "error", error: errMsg });
+      // `streamText` reports a failed provider request as a stream part rather
+      // than a throw, so this is the arrival path for most provider HTTP
+      // failures. It used to emit the message alone, discarding the
+      // APICallError's statusCode/isRetryable — which is why they all landed as
+      // `unknown` and were retried only if their prose happened to match a
+      // keyword. Same classifier as the thrown path in ai-sdk-engine.ts.
+      events.push({
+        type: "stop",
+        reason: "error",
+        error: errMsg,
+        ...classifyProviderError(part.error),
+      });
       break;
     }
 

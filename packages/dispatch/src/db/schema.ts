@@ -185,7 +185,7 @@ export const workspaceResources = table("workspace_resources", {
   id: text("id").primaryKey(),
   ownerEmail: text("owner_email").notNull(),
   orgId: text("org_id"),
-  kind: text("kind").notNull(), // "skill" | "instruction" | "agent" | "knowledge" | "mcp-server"
+  kind: text("kind").notNull(), // "skill" | "instruction" | "agent" | "agent-file" | "knowledge" | "mcp-server"
   name: text("name").notNull(),
   description: text("description"),
   path: text("path").notNull(), // resource path, e.g. "skills/designer.md"

@@ -93,6 +93,7 @@ describe("/api/media-worker/callback", () => {
       status: "done",
       outputUrl:
         "https://cdn.builder.io/o/assets%2Forg%2Fasset%2Fcompressed?apiKey=org",
+      durationMs: 1_593_259,
     });
     const headers = signedHeaders(rawBody);
     mockReadRawBody.mockResolvedValue(rawBody);
@@ -113,8 +114,68 @@ describe("/api/media-worker/callback", () => {
       status: "done",
       outputUrl:
         "https://cdn.builder.io/o/assets%2Forg%2Fasset%2Fcompressed?apiKey=org",
-      durationMs: undefined,
+      durationMs: 1_593_259,
       error: undefined,
+    });
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 200);
+    expect(result).toEqual({ ok: true, status: 200, recordingId: "rec-1" });
+  });
+
+  it("rejects a signed done callback without a measured duration", async () => {
+    const rawBody = JSON.stringify({
+      jobId: "rec-1:compress",
+      status: "done",
+      outputUrl:
+        "https://cdn.builder.io/o/assets%2Forg%2Fasset%2Fcompressed?apiKey=org",
+    });
+    const headers = signedHeaders(rawBody);
+    mockReadRawBody.mockResolvedValue(rawBody);
+    mockGetRequestHeader.mockImplementation((_event, name) => {
+      if (name === MEDIA_WORKER_TIMESTAMP_HEADER) {
+        return headers[MEDIA_WORKER_TIMESTAMP_HEADER];
+      }
+      if (name === MEDIA_WORKER_SIGNATURE_HEADER) {
+        return headers[MEDIA_WORKER_SIGNATURE_HEADER];
+      }
+      return undefined;
+    });
+
+    const result = await handler({} as any);
+
+    expect(mockApplyMediaWorkerCallback).not.toHaveBeenCalled();
+    expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 400);
+    expect(result).toEqual({
+      ok: false,
+      error: "Invalid media worker callback payload",
+    });
+  });
+
+  it("accepts a failed callback without a duration", async () => {
+    const rawBody = JSON.stringify({
+      jobId: "rec-1:compress",
+      status: "failed",
+      error: "transcode failed",
+    });
+    const headers = signedHeaders(rawBody);
+    mockReadRawBody.mockResolvedValue(rawBody);
+    mockGetRequestHeader.mockImplementation((_event, name) => {
+      if (name === MEDIA_WORKER_TIMESTAMP_HEADER) {
+        return headers[MEDIA_WORKER_TIMESTAMP_HEADER];
+      }
+      if (name === MEDIA_WORKER_SIGNATURE_HEADER) {
+        return headers[MEDIA_WORKER_SIGNATURE_HEADER];
+      }
+      return undefined;
+    });
+
+    const result = await handler({} as any);
+
+    expect(mockApplyMediaWorkerCallback).toHaveBeenCalledWith({
+      jobId: "rec-1:compress",
+      status: "failed",
+      error: "transcode failed",
+      outputUrl: undefined,
+      durationMs: undefined,
     });
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 200);
     expect(result).toEqual({ ok: true, status: 200, recordingId: "rec-1" });

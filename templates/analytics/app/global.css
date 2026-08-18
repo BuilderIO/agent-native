@@ -35,7 +35,7 @@
   --accent-foreground: 0 0% 98%;
 
   /* Destructive - bright enough for text on dark surfaces */
-  --destructive: 0 84.2% 60.2%;
+  --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 98%;
 
   /* Borders - Subtle and thin */
@@ -138,19 +138,31 @@
   }
 }
 
-.analytics-chat-panel [data-agent-empty-state="centered"] {
-  justify-content: center;
-  padding-bottom: clamp(4rem, 12vh, 8rem);
+.analytics-dashboard-panel-skeleton {
+  background-color: hsl(var(--muted-foreground) / 0.12);
+  animation: analytics-dashboard-skeleton-pulse 1.6s ease-in-out infinite;
+}
+
+@keyframes analytics-dashboard-skeleton-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.74;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .analytics-dashboard-panel-skeleton {
+    animation: none;
+  }
 }
 
 .analytics-mobile-nav {
   height: 2.75rem;
   min-height: 2.75rem;
   background-color: hsl(var(--background)) !important;
-}
-
-.analytics-chat-panel .agent-thread-content {
-  padding-top: 4.5rem;
 }
 
 .analytics-chat-panel
@@ -186,7 +198,7 @@
   .analytics-chat-intro {
   display: grid;
   width: 100%;
-  max-width: min(570px, 90%);
+  max-width: min(684px, 90%);
   gap: 0.5rem;
   margin: 0 auto 1rem;
   text-align: center;
@@ -223,7 +235,7 @@
   [data-agent-empty-state="centered"]
   .agent-plan-mode-callout {
   width: 100%;
-  max-width: min(570px, 90%);
+  max-width: min(750px, 100%);
   padding: 0;
 }
 
@@ -245,35 +257,44 @@
   transform-origin: top left;
 }
 
-/* First-party visitor-cursor styles for rrweb playback. These are bundled
-   statically so the cursor stays visible even if the lazily imported
-   `@rrweb/replay/dist/style.css` sheet fails to load, and they replace the
-   default black arrow sprite with an app-styled indicator. The cursor lives
-   inside `.replayer-wrapper`, so it scales with the fit-to-stage transform. */
+/* INTENTIONAL — DO NOT REMOVE OR REPLACE WITH rrweb's STOCK CURSOR.
+   The recorded visitor cursor is a core session-replay affordance: users need
+   to see the Mac-style arrow where the visitor clicked, including on dark
+   recordings. rrweb's bundled cursor is a small black sprite that disappears
+   against those pages. Use the normal black Mac cursor with its white outline;
+   the small shadow below keeps it legible on either background. */
 .an-replay-stage-root .replayer-mouse {
   position: absolute;
   z-index: 2;
-  width: 1.125rem;
-  height: 1.5rem;
+  /* Render at 2x locally, then downscale to the compact 0.72rem x 0.96rem
+     screen size. This keeps the small cursor's rounded outline smooth. */
+  width: 1.44rem;
+  height: 1.92rem;
   border-radius: 0;
   background: transparent;
   background-image: none;
   box-shadow: none;
-  transform: none;
+  visibility: hidden;
+  /* The stage is fit-to-container, but the recorded cursor should stay at a
+     normal on-screen size. The stage supplies the inverse scale variable. */
+  transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5));
+  transform-origin: top left;
   transition:
     left 80ms linear,
     top 80ms linear;
   pointer-events: none;
 }
 
+.an-replay-stage-root .replayer-mouse.has-position {
+  visibility: visible;
+}
+
 .an-replay-stage-root .replayer-mouse::before {
   content: "";
   position: absolute;
   inset: 0;
-  background: hsl(0 0% 100%);
-  clip-path: polygon(0 0, 0 77%, 30% 57%, 48% 100%, 68% 92%, 50% 51%, 92% 51%);
-  filter: drop-shadow(0 0 1px hsl(0 0% 0% / 0.95))
-    drop-shadow(0 1px 3px hsl(0 0% 0% / 0.35));
+  background: url("./assets/replay-cursor.svg") center / contain no-repeat;
+  filter: drop-shadow(0 1px 1px hsl(0 0% 0% / 0.4));
 }
 
 .an-replay-stage-root .replayer-mouse::after {
@@ -283,8 +304,8 @@
   top: -0.5rem;
   width: 1rem;
   height: 1rem;
-  border-radius: 9999px;
   border: 2px solid hsl(217 91% 60%);
+  border-radius: 9999px;
   background: transparent;
   opacity: 0;
 }
@@ -436,6 +457,16 @@
   container: data-sources / inline-size;
 }
 
+.dashboard-overview-layout {
+  container: dashboard-overview / inline-size;
+}
+
+.dashboard-overview-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
 .data-sources-toolbar {
   display: flex;
   flex-direction: column;
@@ -451,7 +482,11 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   align-items: start;
-  gap: 0.75rem;
+  gap: 0.5rem 2rem;
+  overflow: visible;
+  border-radius: 0.75rem;
+  background: transparent;
+  padding: 0.5rem;
 }
 
 .data-source-card {
@@ -481,6 +516,13 @@
 
   .data-source-add-trigger {
     width: auto;
+  }
+}
+
+@container dashboard-overview (min-width: 640px) {
+  .dashboard-overview-toolbar {
+    flex-direction: row;
+    align-items: center;
   }
 }
 

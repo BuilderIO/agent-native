@@ -1,4 +1,4 @@
-export { cn } from "@agent-native/core/client";
+export { cn } from "@agent-native/toolkit/utils";
 
 export function formatLocalDate(date: Date): string {
   const year = date.getFullYear();

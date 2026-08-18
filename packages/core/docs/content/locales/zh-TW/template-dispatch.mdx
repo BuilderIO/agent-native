@@ -123,7 +123,7 @@ Dispatch 是**工作區控制平面**。其他範本是域應用程式（郵件�
   在不複製原始機密的情況下分派存取權限。應用程式特定來源
   設定保留在使用提供者的應用程式中。
 - **暴露一個 MCP 連線器。**新增
-  `https://dispatch.agent-native.com/_agent-native/mcp`，Claude、ChatGPT，
+  `https://dispatch.agent-native.com/mcp`，Claude、ChatGPT，
   Codex、Cursor 或其他 MCP 主機，然後選取要執行的工作區應用
   連線器可以從 Dispatch 的 **代理** 頁面進行存取。使用直接應用程式 URL
   僅當該主機應與一個應用隔離時。
@@ -304,7 +304,7 @@ _它的底層工作原理（對於開發人員）。_
   ]}
 />
 
-- **MCP 集線器模式。** Dispatch 仍然可以充當工作區的 [MCP hub](/docs/mcp-clients#hub)，因此工作區中的每個其他應用程式都會拉取相同的組織範圍 MCP 伺服器清單。另外，對於 Claude、ChatGPT 和其他應存取多個工作區應用的主機，Dispatch 自己的 `/_agent-native/mcp` 端點是推薦的外部 MCP 連線器。
+- **MCP 集線器模式。** Dispatch 仍然可以充當工作區的 [MCP hub](/docs/mcp-clients#hub)，因此工作區中的每個其他應用程式都會拉取相同的組織範圍 MCP 伺服器清單。另外，對於 Claude、ChatGPT 和其他應存取多個工作區應用的主機，Dispatch 自己的 `/mcp` 端點是推薦的外部 MCP 連線器。
 
 ## 夢想 {#dreams}
 
@@ -345,7 +345,7 @@ pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limi
 
 ```bash
 npx @agent-native/core@latest create my-platform
-# 在多選選取器中選取“Dispatch”，以及您想要的任何域應用程式
+# Dispatch 會自動包含。若只需 Dispatch，請取消選取 Chat；若需其他應用，請選取要與其一同產生的領域應用
 ```
 
 如果您更喜歡直接命名範本而不是使用選取器：

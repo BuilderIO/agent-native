@@ -68,9 +68,9 @@ a caixa, o scaffold, o acesso ao repositório e o compartilhamento de execução
 
 → [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
 
-## Adicione chat depois {#add-chat-later}
+## Adicione uma UI depois {#add-chat-later}
 
-`--headless` escolhe somente o scaffold inicial; não há um comando `agent-native` que converta no lugar um projeto existente apenas com actions em um app de chat. Quando as pessoas precisarem de uma conversa no navegador, use o [template Chat](/docs/template-chat) como referência de migração: mantenha as actions, os dados SQL, as instructions e as skills e adicione o shell do navegador, os server plugins, `<AgentChatSurface>` e um chat plugin que carregue as actions existentes. Verifique `pnpm typecheck` e um turno de chat que chame uma action existente. `agent-native add` é para integration blueprints, não para essa conversão.
+`--headless` escolhe somente o scaffold inicial; não há um comando `agent-native` que converta no lugar um projeto existente apenas com actions em um app de navegador. Quando as pessoas precisarem de uma UI, use o [template Chat](/docs/template-chat) como referência de migração: mantenha as actions, os dados SQL, as instructions e as skills e adicione o shell do navegador e os server plugins. Para uma superfície de chat, adicione `<AgentChatSurface>` e um chat plugin que carregue as actions existentes. Verifique `pnpm typecheck` e um fluxo de UI que chame uma action existente. `agent-native add` é para integration blueprints, não para essa conversão.
 
 ## O que vem a seguir
 
@@ -79,4 +79,4 @@ a caixa, o scaffold, o acesso ao repositório e o compartilhamento de execução
 - [**Dispatch**](/docs/template-dispatch) — o modelo de espaço de trabalho que é um excelente ponto de partida para agente puro
 - [**Messaging the agent**](/docs/messaging) — como os usuários conversam com o agente pela web, Slack, Telegram, e-mail
 - [**Recurring Jobs**](/docs/recurring-jobs) — prompts agendados que o agente executa sozinho
-- [**Actions**](/docs/actions) — as ferramentas que seu agente puro chamará
+- [**Actions**](/docs/actions-overview) — as ferramentas que seu agente puro chamará

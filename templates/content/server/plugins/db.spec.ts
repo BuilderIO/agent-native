@@ -192,4 +192,14 @@ describe("content db.ts wires ensureAdditiveColumns after runMigrations", () => 
       /CREATE INDEX IF NOT EXISTS content_database_items_body_hydration_idx ON content_database_items \(database_id, body_hydration_status\)/,
     );
   });
+
+  it("backfills legacy deleted database trees into explicit document Trash roots", () => {
+    expect(dbTsSource).toContain('name: "backfill-database-trash-roots"');
+    expect(dbTsSource).toMatch(
+      /WITH RECURSIVE legacy_database_trash[\s\S]*?child\.parent_id = legacy_database_trash\.document_id[\s\S]*?trash_root_id = \([\s\S]*?legacy_database_trash\.root_id/,
+    );
+    expect(dbTsSource).toMatch(
+      /child_database\.document_id = child\.id[\s\S]*?child_database\.deleted_at IS NOT NULL/,
+    );
+  });
 });

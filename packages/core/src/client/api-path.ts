@@ -1,4 +1,5 @@
-import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
+import { initializeAgentNativeClient } from "./client-bootstrap.js";
 
 const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
 
@@ -45,9 +46,17 @@ function pathMatchesBasePath(pathname: string, basePath: string): boolean {
 
 function isWorkspaceRuntime(): boolean {
   const env = clientEnv();
+  const projected =
+    typeof window !== "undefined" &&
+    (
+      window as Window & {
+        __AGENT_NATIVE_CONFIG__?: { workspaceRuntime?: unknown };
+      }
+    ).__AGENT_NATIVE_CONFIG__?.workspaceRuntime === true;
   return (
-    env?.VITE_AGENT_NATIVE_WORKSPACE === "1" ||
-    env?.AGENT_NATIVE_WORKSPACE === "1" ||
+    projected ||
+    isTruthyRuntimeValue(env?.VITE_AGENT_NATIVE_WORKSPACE) ||
+    isTruthyRuntimeValue(env?.AGENT_NATIVE_WORKSPACE) ||
     typeof env?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON === "string"
   );
 }
@@ -86,12 +95,12 @@ function externalEmbedTargetBasePath(): string {
 }
 
 export function appBasePath(): string {
-  ensureEmbedAuthFetchInterceptor();
+  initializeAgentNativeClient();
   const externalEmbed = externalEmbedTargetBasePath();
   if (externalEmbed) return externalEmbed;
   const configured = configuredBasePath();
   const derived = pathDerivedBasePath();
-  if (!configured) return derived;
+  if (!configured) return derived || workspacePathBasePath();
   if (typeof window === "undefined") return configured;
 
   const pathname = window.location.pathname;
@@ -100,6 +109,63 @@ export function appBasePath(): string {
   // In a multi-app workspace, a globally configured base can bleed from one
   // app build into another. Prefer the live mount path when they disagree.
   return derived || workspacePathBasePath() || configured;
+}
+
+function workspaceAppMountPaths(): Set<string> | null {
+  const raw = clientEnv()?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  if (typeof raw !== "string" || !raw.trim()) return null;
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    const entries = Array.isArray(parsed)
+      ? parsed
+      : parsed && typeof parsed === "object" && "apps" in parsed
+        ? (parsed as { apps?: unknown }).apps
+        : null;
+    if (!Array.isArray(entries)) return null;
+
+    const paths = entries
+      .map((entry) => {
+        if (!entry || typeof entry !== "object") return null;
+        const record = entry as Record<string, unknown>;
+        const rawPath =
+          typeof record.path === "string"
+            ? record.path
+            : typeof record.id === "string"
+              ? `/${record.id}`
+              : null;
+        return rawPath?.startsWith("/") ? normalizeBasePath(rawPath) : null;
+      })
+      .filter((path): path is string => Boolean(path));
+
+    return paths.length ? new Set(paths) : null;
+  } catch {
+    // coercion-ok: malformed manifests cannot authorize cross-app navigation
+    return null;
+  }
+}
+
+/**
+ * Returns true for a same-origin path mounted at a sibling workspace app.
+ * React Router treats root paths as local to its basename, so these targets
+ * must use the browser location instead of the app-local router.
+ */
+export function isWorkspaceAppPath(path: string): boolean {
+  if (typeof window === "undefined" || !path.startsWith("/")) return false;
+  if (!isWorkspaceRuntime()) return false;
+
+  const targetPath = path.split(/[?#]/, 1)[0] || "/";
+  const basePath = appBasePath();
+  if (!basePath) return false;
+  if (targetPath === basePath || targetPath.startsWith(`${basePath}/`)) {
+    return false;
+  }
+
+  const mounts = workspaceAppMountPaths();
+  if (!mounts) return false;
+  return [...mounts].some(
+    (mount) => targetPath === mount || targetPath.startsWith(`${mount}/`),
+  );
 }
 
 export function appPath(path: string): string {

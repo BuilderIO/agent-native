@@ -83,7 +83,7 @@ export default defineAction({
       sourceType === "inline" || hasCapability(caps, "applyEdit");
     const ctaRequired = !hasFullIndex || !canEditProps;
     const ctaMessage = !hasFullIndex
-      ? "Full prop controls (TypeScript prop types, cva variants, Storybook stories) require a connected Builder app. Connect Builder to unlock."
+      ? "Full prop controls (TypeScript prop types, cva variants, Storybook stories) require a connected Builder app. Connect Builder (free tier available) to unlock."
       : !canEditProps
         ? "Prop write-back requires the bridge applyEdit capability. Preview controls remain available until source write hardening is enabled."
         : undefined;

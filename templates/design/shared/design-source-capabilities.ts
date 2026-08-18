@@ -162,7 +162,9 @@ export const INLINE_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
   diffPatch: available(),
   captureSnapshot: available(),
   captureState: available(),
-  indexComponents: unavailable("Connect Builder to index real components"),
+  indexComponents: unavailable(
+    "Connect Builder (free tier available) to index real components",
+  ),
   indexTokens: available(),
   writeTokens: unavailable("Token source write-back requires a real app"),
   previewMotion: available(),
@@ -221,24 +223,38 @@ export const LOCALHOST_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
  * returns `true` and a branch project is configured.
  */
 export const FUSION_DISCONNECTED_CAPABILITIES: DesignSourceCapabilities = {
-  readFile: planned("Connect Builder to enable file reads on fusion sources"),
-  writeFile: unavailable("Connect Builder to enable source writes"),
-  applyEdit: unavailable("Connect Builder to enable source edits"),
+  readFile: planned(
+    "Connect Builder (free tier available) to enable file reads on fusion sources",
+  ),
+  writeFile: unavailable(
+    "Connect Builder (free tier available) to enable source writes",
+  ),
+  applyEdit: unavailable(
+    "Connect Builder (free tier available) to enable source edits",
+  ),
   resolveNodeToFile: available(),
   previewPatch: available(),
   diffPatch: available(),
   captureSnapshot: available(),
   captureState: available(),
-  indexComponents: unavailable("Connect Builder to index real components"),
+  indexComponents: unavailable(
+    "Connect Builder (free tier available) to index real components",
+  ),
   indexTokens: available(),
-  writeTokens: unavailable("Connect Builder to enable token write-back"),
+  writeTokens: unavailable(
+    "Connect Builder (free tier available) to enable token write-back",
+  ),
   previewMotion: available(),
   writeMotion: planned(
     "Motion write-back to real source requires bridge hardening",
   ),
-  branch: unavailable("Connect Builder to create branches"),
-  deployPreview: unavailable("Connect Builder to deploy previews"),
-  deploy: unavailable("Connect Builder to deploy"),
+  branch: unavailable(
+    "Connect Builder (free tier available) to create branches",
+  ),
+  deployPreview: unavailable(
+    "Connect Builder (free tier available) to deploy previews",
+  ),
+  deploy: unavailable("Connect Builder (free tier available) to deploy"),
 };
 
 /**

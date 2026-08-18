@@ -1,14 +1,14 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 
-import { AgentNativeI18nProvider } from "@agent-native/core/client";
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
 import { docsSlugFromPathname } from "./docs-locale";
-import { getDocsNavItems } from "./docsNavItems";
+import { getDocsNavItems, getDocsNavSections } from "./docsNavItems";
 import DocsSidebar from "./DocsSidebar";
 
 function renderSidebar(path: string) {
@@ -83,6 +83,28 @@ describe("DocsSidebar", () => {
     expect(html).not.toContain('aria-controls="docs-sidebar-section-0"');
   });
 
+  it("keeps Deployment directly discoverable in Overview", () => {
+    const sections = getDocsNavSections("en-US");
+    const overview = sections.find((section) => section.id === "overview");
+    const architecture = sections.find(
+      (section) => section.id === "core-architecture",
+    );
+
+    expect(overview?.items.some((item) => item.id === "deployment")).toBe(true);
+    expect(architecture?.items.some((item) => item.id === "deployment")).toBe(
+      false,
+    );
+  });
+
+  it("uses the Agent Resources section and canonical overview link", () => {
+    const html = renderSidebar("/docs/agent-resources");
+
+    expect(html).toContain("Agent Resources");
+    expect(html).toContain("Agent Resources Overview");
+    expect(html).toContain('href="/docs/agent-resources"');
+    expect(html).not.toContain('href="/docs/workspace"');
+  });
+
   it("expands the section that contains the active docs page", () => {
     const html = renderSidebar("/docs/tracking");
 
@@ -93,7 +115,7 @@ describe("DocsSidebar", () => {
     const activeLink = getLinkMarkup(html, "/docs/tracking");
     const closedLink = getLinkMarkup(html, "/docs/creating-templates");
 
-    expect(activeLink).toContain('data-an-prefetch="render"');
+    expect(activeLink).toContain('data-an-prefetch="viewport"');
     expect(activeLink).not.toContain("tabindex");
     expect(closedLink).not.toContain("data-an-prefetch");
     expect(closedLink).toContain('tabindex="-1"');
@@ -142,6 +164,6 @@ describe("DocsSidebar", () => {
     // The active child link is highlighted and the group is open.
     const activeLink = getLinkMarkup(html, "/docs/template-plan");
     expect(activeLink).toContain("is-active");
-    expect(activeLink).toContain('data-an-prefetch="render"');
+    expect(activeLink).toContain('data-an-prefetch="viewport"');
   });
 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ContentDatabaseSource } from "../shared/api";
 import type { BuilderCmsReadResult } from "./_builder-cms-read-client";
@@ -9,9 +9,15 @@ import addSourceFieldProperty, {
   sourceFieldPropertyValuesFromRows,
 } from "./add-content-database-source-field-property";
 import attachSource, {
+  assertDetailsSourceJoin,
+  builderAttachDurableItemCount,
   builderCmsAttachReadMetadata,
+  initialBuilderAttachmentSetupOptions,
+  readBeforeLocalDetailsBootstrap,
+  readCompleteBuilderCmsAttachSource,
   readInitialBuilderCmsAttachEntries,
   readInitialBuilderCmsAttachSource,
+  shouldBootstrapLocalDetailsSource,
 } from "./attach-content-database-source";
 import changeSourceRole, {
   readBuilderCmsEntriesForRoleChange,
@@ -25,7 +31,10 @@ import prepareExecution from "./prepare-builder-source-execution";
 import prepareReview, {
   BUILDER_SOURCE_REVIEW_PREPARE_LIMIT,
   buildBuilderSourceReviewPayload,
+  reviewPreparePriority,
 } from "./prepare-builder-source-review";
+import previewReview from "./preview-builder-source-review";
+import previewSourceAttach from "./preview-content-database-source-attach";
 import refreshSource from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
@@ -34,6 +43,20 @@ import stageBulkUpdate from "./stage-builder-source-bulk-update";
 import validateExecution from "./validate-builder-source-execution";
 
 describe("content database source actions", () => {
+  it("bounds Builder attachment previews to one database and safe field paths", () => {
+    expect(
+      previewSourceAttach.schema.parse({
+        documentId: "database-page",
+        sourceTable: "agent-native-blog-article-test",
+        fieldPaths: ["topics", "data.author"],
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      sourceTable: "agent-native-blog-article-test",
+      fieldPaths: ["topics", "data.author"],
+    });
+  });
+
   it("accepts database or document IDs for source status reads", () => {
     expect(getSource.schema.parse({ documentId: "database-page" })).toEqual({
       documentId: "database-page",
@@ -41,6 +64,51 @@ describe("content database source actions", () => {
     expect(getSource.schema.parse({ databaseId: "database" })).toEqual({
       databaseId: "database",
     });
+  });
+
+  it("bounds Builder review previews to an explicit selected scope", () => {
+    expect(
+      previewReview.schema.parse({
+        documentId: "database-page",
+        sourceId: "source-1",
+        scope: "selected",
+        documentIds: ["document-1"],
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      sourceId: "source-1",
+      scope: "selected",
+      documentIds: ["document-1"],
+    });
+  });
+
+  it("surfaces new Builder drafts before in-place updates in the same review state", () => {
+    const source = {
+      metadata: { writeMode: "publish_updates", pushMode: "publish" },
+      rows: [
+        {
+          documentId: "existing-document",
+          databaseItemId: "existing-item",
+          sourceRowId: "existing-entry",
+          sourceQualifiedId: "builder-cms://safe-model/existing-entry",
+          provenance: "Builder CMS read adapter",
+        },
+      ],
+    } as ContentDatabaseSource;
+    const create = {
+      id: "create",
+      documentId: "new-document",
+      state: "pending_push",
+    } as ContentDatabaseSource["changeSets"][number];
+    const update = {
+      id: "update",
+      documentId: "existing-document",
+      state: "pending_push",
+    } as ContentDatabaseSource["changeSets"][number];
+
+    expect(reviewPreparePriority(create, source)).toBeLessThan(
+      reviewPreparePriority(update, source),
+    );
   });
 
   it("accepts Builder source batch execution args", () => {
@@ -135,6 +203,71 @@ describe("content database source actions", () => {
     });
   });
 
+  it("keeps an ordinary local database primary when adding detail sources", () => {
+    expect(
+      shouldBootstrapLocalDetailsSource({
+        relationshipMode: "details",
+        hasExistingSource: false,
+      }),
+    ).toBe(true);
+    expect(
+      shouldBootstrapLocalDetailsSource({
+        relationshipMode: "details",
+        hasExistingSource: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldBootstrapLocalDetailsSource({
+        relationshipMode: "items",
+        hasExistingSource: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("rejects a details source without a match key before bootstrap", () => {
+    expect(() =>
+      assertDetailsSourceJoin({
+        relationshipMode: "details",
+        hasJoin: false,
+      }),
+    ).toThrow("Choose a match key before adding source details.");
+    expect(() =>
+      assertDetailsSourceJoin({
+        relationshipMode: "details",
+        hasJoin: true,
+      }),
+    ).not.toThrow();
+  });
+
+  it("does not bootstrap a local primary when the details source read fails", async () => {
+    const bootstrapLocalSource = vi.fn();
+
+    await expect(
+      readBeforeLocalDetailsBootstrap({
+        readCandidate: async () => {
+          throw new Error("source read failed");
+        },
+        bootstrapLocalSource,
+      }),
+    ).rejects.toThrow("source read failed");
+    expect(bootstrapLocalSource).not.toHaveBeenCalled();
+  });
+
+  it("does not bootstrap a local primary when the details source read is not live", async () => {
+    const bootstrapLocalSource = vi.fn();
+
+    await expect(
+      readBeforeLocalDetailsBootstrap({
+        readCandidate: async () => ({
+          readState: "error" as const,
+          readMessage: "source read failed",
+        }),
+        bootstrapLocalSource,
+      }),
+    ).rejects.toThrow("source read failed");
+    expect(bootstrapLocalSource).not.toHaveBeenCalled();
+  });
+
   it("accepts a bounded read-only Notion database details source", () => {
     expect(
       attachSource.schema.parse({
@@ -207,6 +340,47 @@ describe("content database source actions", () => {
     ]);
   });
 
+  it("reads complete projected metadata for the canonical Builder attachment", async () => {
+    const calls: Array<{
+      model: string;
+      limit?: number;
+      maxPages?: number;
+      fieldPaths?: readonly string[];
+    }> = [];
+    await readCompleteBuilderCmsAttachSource("blog-article", {
+      readModelFields: async () => [],
+      readEntries: async (args) => {
+        calls.push(args);
+        return {
+          state: "live",
+          entries: [],
+          fetchedAt: "2026-01-01T00:00:00.000Z",
+          message: null,
+          progress: {
+            requestedLimit: args.limit ?? 500,
+            pageSize: 100,
+            startOffset: 0,
+            nextOffset: 0,
+            fetchedEntryCount: 0,
+            hasMore: false,
+            partial: false,
+            readMode: "builder-api",
+          },
+        };
+      },
+      fieldPaths: ["topics", "tags"],
+    });
+
+    expect(calls).toEqual([
+      {
+        allowCached: true,
+        model: "blog-article",
+        fieldPaths: ["topics", "tags"],
+        limit: 10_000,
+      },
+    ]);
+  });
+
   it("fails Builder attachment preparation before durable source mutation when model discovery fails", async () => {
     const calls: string[] = [];
     await expect(
@@ -237,6 +411,56 @@ describe("content database source actions", () => {
       }),
     ).rejects.toThrow("model discovery unavailable");
     expect(calls).toEqual(["model-fields", "entries"]);
+  });
+
+  it("starts Builder field discovery and the projected first page together", async () => {
+    const calls: string[] = [];
+    let releaseFields!: () => void;
+    let releaseEntries!: () => void;
+    const fieldsReady = new Promise<void>((resolve) => {
+      releaseFields = resolve;
+    });
+    const entriesReady = new Promise<void>((resolve) => {
+      releaseEntries = resolve;
+    });
+    const pending = readInitialBuilderCmsAttachSource("blog-article", {
+      fieldPaths: ["topics", "data.author"],
+      readModelFields: async () => {
+        calls.push("model-fields");
+        await fieldsReady;
+        return [];
+      },
+      readEntries: async (args) => {
+        calls.push("entries");
+        expect(args.fieldPaths).toEqual(["topics", "data.author"]);
+        await entriesReady;
+        return {
+          state: "live",
+          entries: [],
+          fetchedAt: "2026-01-01T00:00:00.000Z",
+          message: null,
+          progress: {
+            requestedLimit: 500,
+            pageSize: 100,
+            startOffset: 0,
+            nextOffset: 0,
+            fetchedEntryCount: 0,
+            hasMore: false,
+            partial: false,
+            readMode: "builder-api",
+          },
+        };
+      },
+    });
+
+    await Promise.resolve();
+    expect(calls).toEqual(["model-fields", "entries"]);
+    releaseEntries();
+    releaseFields();
+    await expect(pending).resolves.toMatchObject({
+      read: { state: "live" },
+      modelFields: [],
+    });
   });
 
   it("fails role-change preparation before mappings can be rewritten when model discovery fails", async () => {
@@ -329,6 +553,54 @@ describe("content database source actions", () => {
     });
   });
 
+  it("binds a fully imported initial Builder page by exact document identity", () => {
+    const read = {
+      state: "live",
+      entries: [{ id: "entry-1" }, { id: "entry-2" }],
+    } as BuilderCmsReadResult;
+
+    expect(
+      initialBuilderAttachmentSetupOptions({
+        builderRead: read,
+        importedEntriesByDocumentId: new Map([
+          ["document-2", read.entries[1]!],
+          ["document-1", read.entries[0]!],
+        ]),
+      }),
+    ).toEqual({
+      documentIds: ["document-2", "document-1"],
+      limit: 2,
+      offset: 0,
+    });
+  });
+
+  it("keeps complete setup when an initial Builder entry was not imported", () => {
+    const read = {
+      state: "live",
+      entries: [{ id: "entry-1" }, { id: "entry-2" }],
+    } as BuilderCmsReadResult;
+
+    expect(
+      initialBuilderAttachmentSetupOptions({
+        builderRead: read,
+        importedEntriesByDocumentId: new Map([
+          ["document-1", read.entries[0]!],
+        ]),
+      }),
+    ).toBeUndefined();
+  });
+
+  it("reports all durably matched Builder rows when reattachment imports none", () => {
+    expect(
+      builderAttachDurableItemCount(
+        new Map([
+          ["document-1", { id: "entry-1" }],
+          ["document-2", { id: "entry-2" }],
+        ]),
+      ),
+    ).toBe(2);
+  });
+
   it("rejects unsafe source federation normalization formulas", () => {
     expect(() =>
       attachSource.schema.parse({
@@ -353,6 +625,18 @@ describe("content database source actions", () => {
   it("accepts refresh requests without external provider details", () => {
     expect(refreshSource.schema.parse({ databaseId: "database" })).toEqual({
       databaseId: "database",
+    });
+  });
+
+  it("accepts a guarded Builder continuation offset", () => {
+    expect(
+      refreshSource.schema.parse({
+        databaseId: "database",
+        expectedBuilderContinuationOffset: 400,
+      }),
+    ).toEqual({
+      databaseId: "database",
+      expectedBuilderContinuationOffset: 400,
     });
   });
 
@@ -558,17 +842,27 @@ describe("content database source actions", () => {
     expect(
       prepareReview.schema.parse({
         documentId: "database-page",
+        documentIds: ["document-1"],
         changeSetIds: ["change-set"],
-        pushModeConfirmation: "autosave",
-        publicationTransition: "unpublish",
-        confirmUnpublish: true,
+        pushModeConfirmation: "publish",
+        transitions: {
+          "change-set": {
+            publicationTransition: "unpublish",
+            confirmUnpublish: true,
+          },
+        },
       }),
     ).toEqual({
       documentId: "database-page",
+      documentIds: ["document-1"],
       changeSetIds: ["change-set"],
-      pushModeConfirmation: "autosave",
-      publicationTransition: "unpublish",
-      confirmUnpublish: true,
+      pushModeConfirmation: "publish",
+      transitions: {
+        "change-set": {
+          publicationTransition: "unpublish",
+          confirmUnpublish: true,
+        },
+      },
     });
   });
 
@@ -735,6 +1029,7 @@ describe("content database source actions", () => {
 
     expect(review.summary).toBe("1 Builder row has changes ready to review.");
     expect(review.rows[0]?.title).toBe("New title");
+    expect(review.rows[0]?.targetEntryId).toBe("builder-row");
     expect(review.rows[0]?.fieldChanges[0]?.sourceFieldKey).toBe("data.title");
     expect(review.result.message).toContain("Push will check the update only");
     expect(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT).toBe(100);

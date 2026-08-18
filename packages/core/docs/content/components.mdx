@@ -5,6 +5,12 @@ description: "Public React building blocks for custom agent UI, chat fields, con
 
 # Component API
 
+<Callout tone="info">
+
+**Developer page.** This page is for developers picking layers of the chat UI to build custom agent surfaces. For the end-user experience of working with the agent, see [Using Your Agent](/docs/using-your-agent).
+
+</Callout>
+
 Agent-Native ships a full sidebar, but the sidebar is not the contract. The
 contract is the runtime: chat streaming, thread state, actions, context,
 attachments, model selection, runs, and SQL-backed sync. Use the stock
@@ -13,7 +19,7 @@ components when you can, and drop down a layer when you need custom product UI.
 Import browser UI from focused client subpaths:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -186,6 +192,13 @@ for the connector usage, the normalized event stream, and when to reach for
 Use `@agent-native/core/client/composer` when you need to place the same chat
 field used by the sidebar inside custom UI.
 
+Toolkit owns the shared Tiptap and composer UI implementation. The
+`@agent-native/core/client/composer` entry is its framework-wired wrapper: it
+binds the Core runtime adapters used by attachments, mentions, skills, voice,
+and model selection. Reusable packages that need portable bare UI can import
+`@agent-native/toolkit/composer` instead, but must render it inside
+`ComposerRuntimeAdaptersProvider` and supply the required framework services.
+
 | API                               | Use when                                                                                                                                                            |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `<PromptComposer>`                | You need a ready-to-submit chat field with attachments, slash commands, references, pasted-text handling, draft persistence, voice input, and submission semantics. |
@@ -220,11 +233,11 @@ outside the full agent runtime.
 | `<AgentConversation>`                           | Render a list of normalized agent messages.                      |
 | `<AgentConversationMessageView>`                | Render one normalized message.                                   |
 | `normalizeCodeAgentTranscriptForConversation()` | Convert code-agent transcript events into conversation messages. |
-| `useNearBottomAutoscroll()`                     | Keep a custom transcript pinned to the bottom while streaming.   |
 
 This layer is intentionally data-first: you own where messages come from, and
 the renderer owns consistent markdown, attachments, notices, artifacts, and
-tool-call display.
+tool-call display. `<AgentConversation>` already keeps itself pinned to the
+bottom while streaming — do not add your own scroll handling on top of it.
 
 ## Native Tool Widgets {#native-tool-widgets}
 
@@ -394,14 +407,14 @@ const collab = useCollaborativeDoc({
 />;
 ```
 
-## Workspace Resources {#resources}
+## Agent Resources {#resources}
 
 Use `@agent-native/core/client/resources` when you want to expose the same
-workspace resource model that powers the agent panel's Workspace tab.
+agent resource model that powers the agent panel's Resources tab.
 
 | API                                                                   | Use when                                                                |
 | --------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `<ResourcesPanel>`                                                    | You want the complete Workspace tab as a page, drawer, or custom panel. |
+| `<ResourcesPanel>`                                                    | You want the complete Resources tab as a page, drawer, or custom panel. |
 | `<ResourceTree>`                                                      | You want to render your own resource browser around framework data.     |
 | `<ResourceEditor>`                                                    | You want the framework editor for a selected resource.                  |
 | `useResourceTree()`                                                   | You need a scoped tree for personal, shared, or workspace resources.    |
@@ -513,6 +526,7 @@ reasoning.
 
 - [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentSidebar>` and `<AgentPanel>` with a tutorial-first walkthrough
 - [**Native Chat UI**](/docs/native-chat-ui) — the action result contract behind data widgets and custom renderers
-- [**Actions**](/docs/actions) — `defineAction()`, schemas, and the action surface these components call
+- [**Actions**](/docs/actions-overview) — `defineAction()`, schemas, and the action surface these components call
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — the collab hooks and presence components in depth
 - [**Sharing**](/docs/sharing) — `<ShareButton>` and `<ShareDialog>` wiring for ownable resources
+- [**Toolkit piece: Toolkit UI Primitives**](/docs/toolkit-ui) — the shared shadcn-style building blocks and app-adapter pattern behind these exports

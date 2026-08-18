@@ -1,11 +1,157 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 export interface A2AToolResultSummary {
   tool: string;
   result: string;
+  isError?: boolean;
+  completedSideEffect?: boolean;
 }
 
 export interface A2AArtifactResponseOptions {
   baseUrl?: string;
   includeReferencedArtifacts?: boolean;
+  includePersistedArtifactMarker?: boolean;
+  persistedArtifactSecret?: string;
+}
+
+export interface GuardedA2AArtifactResponse {
+  text: string;
+  rejectedUnverifiedArtifactReferences: boolean;
+}
+
+export interface A2AArtifactIdentityOptions {
+  persistedArtifactSecrets?: readonly string[];
+}
+
+export interface A2AArtifactIdentity {
+  resourceType:
+    | "document"
+    | "deck"
+    | "dashboard"
+    | "analysis"
+    | "image"
+    | "design"
+    | "monitor"
+    | "form";
+  id: string;
+  sourceAction: string;
+  titleAtAction?: string;
+  url?: string;
+}
+
+const ARTIFACT_IDENTITY_WRITE_TOOLS = new Set([
+  "save-monitor",
+  "create-form",
+  "submit-content-database-form",
+  "add-database-item",
+  "create-document",
+  "update-document",
+  "set-document-property",
+  "create-deck",
+  "duplicate-deck",
+  "add-slide",
+  "update-slide",
+  "patch-deck",
+  "save-deck",
+  "import-pptx",
+  "restore-deck-version",
+  "update-dashboard",
+  "rename-dashboard",
+  "save-analysis",
+  "generate-image",
+  "edit-image",
+  "refine-image",
+  "restyle-image",
+  "save-generated-image",
+  "save-generated-asset",
+  "export-image",
+  "export-asset",
+  "generate-image-batch",
+  "create-design",
+  "generate-design",
+  "create-file",
+  "duplicate-design",
+]);
+
+const PERSISTED_ARTIFACT_MARKER = "agent-native:persisted-artifacts=";
+const PERSISTED_ARTIFACT_MARKER_PATTERN =
+  /\s*<!--\s*agent-native:persisted-artifacts=[A-Za-z0-9_-]+\.[a-f0-9]{64}\s*-->/g;
+const ARTIFACT_RESOURCE_TYPES = new Set<A2AArtifactIdentity["resourceType"]>([
+  "document",
+  "deck",
+  "dashboard",
+  "analysis",
+  "image",
+  "design",
+  "monitor",
+  "form",
+]);
+
+function persistedArtifactIdentitiesFromMarker(
+  result: string,
+  secrets: readonly string[] = process.env.A2A_SECRET
+    ? [process.env.A2A_SECRET]
+    : [],
+): A2AArtifactIdentity[] {
+  if (secrets.length === 0) return [];
+  const match = result.match(
+    /<!--\s*agent-native:persisted-artifacts=([A-Za-z0-9_-]+)\.([a-f0-9]{64})\s*-->/,
+  );
+  if (!match) return [];
+  try {
+    const payload = match[1];
+    const supplied = Buffer.from(match[2], "hex");
+    const verified = secrets.some((secret) => {
+      const expected = createHmac("sha256", secret).update(payload).digest();
+      return (
+        supplied.length === expected.length &&
+        timingSafeEqual(supplied, expected)
+      );
+    });
+    if (!verified) {
+      return [];
+    }
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString());
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .slice(0, 12)
+      .filter((identity): identity is A2AArtifactIdentity => {
+        const item = asRecord(identity);
+        return (
+          !!item &&
+          ARTIFACT_RESOURCE_TYPES.has(
+            item.resourceType as A2AArtifactIdentity["resourceType"],
+          ) &&
+          typeof item.id === "string" &&
+          typeof item.sourceAction === "string"
+        );
+      });
+  } catch {
+    return [];
+  }
+}
+
+function withPersistedArtifactMarker(
+  text: string,
+  toolResults: A2AToolResultSummary[],
+  secret = process.env.A2A_SECRET,
+): string {
+  const verificationSecrets = [secret, process.env.A2A_SECRET].filter(
+    (value, index, values): value is string =>
+      !!value && values.indexOf(value) === index,
+  );
+  const identities = extractA2AArtifactIdentities(toolResults, {
+    persistedArtifactSecrets: verificationSecrets,
+  }).slice(0, 12);
+  if (identities.length === 0 || !secret) return text;
+  const payload = Buffer.from(JSON.stringify(identities)).toString("base64url");
+  const signature = createHmac("sha256", secret).update(payload).digest("hex");
+  const marker = `<!-- ${PERSISTED_ARTIFACT_MARKER}${payload}.${signature} -->`;
+  return text ? `${text}\n\n${marker}` : marker;
+}
+
+export function stripA2APersistedArtifactMarkers(text: string): string {
+  return text.replace(PERSISTED_ARTIFACT_MARKER_PATTERN, "").trim();
 }
 
 interface CreatedDocumentArtifact {
@@ -372,25 +518,41 @@ function addImageArtifact(
   });
 }
 
-function isReadyDeckArtifact(parsed: Record<string, unknown>): boolean {
-  const slideCount = numberValue(parsed.slideCount);
-  if (slideCount !== undefined) return slideCount > 0;
-  if (Array.isArray(parsed.slides)) return parsed.slides.length > 0;
-  return true;
-}
-
 function addDeckArtifact(
   decks: Map<string, CreatedDeckArtifact>,
   parsed: Record<string, unknown>,
-  options: { requireReady: boolean },
 ): void {
   const id = deckIdValue(parsed);
   if (!id) return;
-  if (options.requireReady && !isReadyDeckArtifact(parsed)) return;
   decks.set(id, {
     id,
     url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
   });
+}
+
+// Deck writes are spread across a dozen actions (create-deck, add-slide,
+// patch-deck, save-deck, update-slide, import-*, restore-deck-version), so a
+// per-tool allow-list refuses a real deck URL every time an action is added.
+// Trust any successful result that names a deck the way the deck routes do: an
+// explicit deckId, or a canonical /deck/<id> URL the action itself returned.
+function addDeckArtifactFromAnyResult(
+  decks: Map<string, CreatedDeckArtifact>,
+  parsed: Record<string, unknown>,
+): void {
+  const url = stringValue(parsed.url) ?? stringValue(parsed.urlPath);
+  const deckId = stringValue(parsed.deckId);
+  if (deckId) {
+    decks.set(deckId, {
+      id: deckId,
+      url:
+        url && artifactUrlReferencesId(url, "deck", deckId) ? url : undefined,
+    });
+  }
+
+  const reference = url ? parseArtifactReferenceUrl(url) : null;
+  if (reference?.kind === "deck") {
+    decks.set(reference.id, { id: reference.id, url });
+  }
 }
 
 function addListedDeckArtifacts(
@@ -402,7 +564,7 @@ function addListedDeckArtifacts(
   for (const item of items) {
     const deck = asRecord(item);
     if (!deck) continue;
-    addDeckArtifact(decks, deck, { requireReady: false });
+    addDeckArtifact(decks, deck);
   }
 }
 
@@ -428,6 +590,8 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
   const forms = new Map<string, CreatedFormArtifact>();
 
   for (const toolResult of results) {
+    if (toolResult.isError === true || toolResult.completedSideEffect === false)
+      continue;
     if (toolResult.tool === "call-agent") {
       for (const artifact of parseDownstreamArtifactBlock(toolResult.result)) {
         if (artifact.kind === "deck") {
@@ -474,6 +638,8 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
     const parsed = parseToolResultJson(toolResult.result);
     if (!parsed) continue;
 
+    addDeckArtifactFromAnyResult(decks, parsed);
+
     if (toolResult.tool === "save-monitor") {
       const id = stringValue(parsed.id);
       const url = stringValue(parsed.monitorAppUrl);
@@ -515,11 +681,23 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       toolResult.tool === "create-document" ||
       toolResult.tool === "update-document"
     ) {
+      if (parsed.conflict === true) continue;
       const id = stringValue(parsed.id);
       if (id) {
         documents.set(id, {
           id,
           title: stringValue(parsed.title),
+          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
+        });
+      }
+      continue;
+    }
+
+    if (toolResult.tool === "set-document-property") {
+      const id = stringValue(parsed.documentId);
+      if (id) {
+        documents.set(id, {
+          id,
           url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
         });
       }
@@ -556,31 +734,15 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 
     if (
       toolResult.tool === "create-deck" ||
-      toolResult.tool === "duplicate-deck"
+      toolResult.tool === "duplicate-deck" ||
+      toolResult.tool === "get-deck"
     ) {
-      addDeckArtifact(decks, parsed, { requireReady: true });
-      continue;
-    }
-
-    if (toolResult.tool === "get-deck") {
-      addDeckArtifact(decks, parsed, { requireReady: false });
+      addDeckArtifact(decks, parsed);
       continue;
     }
 
     if (toolResult.tool === "list-decks") {
       addListedDeckArtifacts(decks, parsed);
-      continue;
-    }
-
-    if (toolResult.tool === "add-slide") {
-      const id = stringValue(parsed.deckId);
-      const slideCount = numberValue(parsed.slideCount);
-      if (id && slideCount !== undefined && slideCount > 0) {
-        decks.set(id, {
-          id,
-          url: stringValue(parsed.url) ?? stringValue(parsed.urlPath),
-        });
-      }
       continue;
     }
 
@@ -617,12 +779,22 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 
     if (
       toolResult.tool === "generate-image" ||
+      toolResult.tool === "edit-image" ||
       toolResult.tool === "refine-image" ||
+      toolResult.tool === "restyle-image" ||
       toolResult.tool === "get-asset" ||
       toolResult.tool === "save-generated-image" ||
+      toolResult.tool === "save-generated-asset" ||
       toolResult.tool === "export-image"
     ) {
       addImageArtifact(images, parsed);
+      continue;
+    }
+
+    if (toolResult.tool === "export-asset") {
+      if (stringValue(parsed.artifactType) === "image") {
+        addImageArtifact(images, parsed);
+      }
       continue;
     }
 
@@ -728,6 +900,118 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
     monitors: [...monitors.values()],
     forms: [...forms.values()],
   };
+}
+
+/**
+ * Extract a compact, verified identity ledger from successful artifact tools.
+ * The ledger deliberately excludes raw tool results so it is safe to retain in
+ * long-lived thread context and stable even when a resource is later renamed.
+ */
+export function extractA2AArtifactIdentities(
+  results: A2AToolResultSummary[],
+  options: A2AArtifactIdentityOptions = {},
+): A2AArtifactIdentity[] {
+  const identities = new Map<string, A2AArtifactIdentity>();
+
+  const remember = (identity: A2AArtifactIdentity) => {
+    identities.set(`${identity.resourceType}:${identity.id}`, identity);
+  };
+
+  for (const result of results) {
+    if (result.isError === true || result.completedSideEffect === false)
+      continue;
+    if (result.tool === "call-agent") {
+      for (const identity of persistedArtifactIdentitiesFromMarker(
+        result.result,
+        options.persistedArtifactSecrets,
+      )) {
+        remember({ ...identity, sourceAction: "call-agent" });
+      }
+      continue;
+    }
+    if (!ARTIFACT_IDENTITY_WRITE_TOOLS.has(result.tool)) continue;
+    const artifacts = collectArtifacts([result]);
+    for (const document of artifacts.documents) {
+      remember({
+        resourceType: "document",
+        id: document.id,
+        sourceAction: result.tool,
+        titleAtAction: document.title,
+        url: document.url,
+      });
+    }
+    for (const deck of artifacts.decks) {
+      remember({
+        resourceType: "deck",
+        id: deck.id,
+        sourceAction: result.tool,
+        url: deck.url,
+      });
+    }
+    for (const dashboard of artifacts.dashboards) {
+      remember({
+        resourceType: "dashboard",
+        id: dashboard.id,
+        sourceAction: result.tool,
+        titleAtAction: dashboard.title,
+        url: dashboard.url,
+      });
+    }
+    for (const analysis of artifacts.analyses) {
+      remember({
+        resourceType: "analysis",
+        id: analysis.id,
+        sourceAction: result.tool,
+        titleAtAction: analysis.title,
+        url: analysis.url,
+      });
+    }
+    for (const image of artifacts.images) {
+      remember({
+        resourceType: "image",
+        id: image.id,
+        sourceAction: result.tool,
+        titleAtAction: image.title,
+        url: image.url,
+      });
+    }
+    for (const design of artifacts.designShells) {
+      remember({
+        resourceType: "design",
+        id: design.id,
+        sourceAction: result.tool,
+        titleAtAction: design.title,
+      });
+    }
+    for (const design of artifacts.generatedDesigns) {
+      remember({
+        resourceType: "design",
+        id: design.id,
+        sourceAction: result.tool,
+        url: design.url,
+      });
+    }
+    for (const monitor of artifacts.monitors) {
+      remember({
+        resourceType: "monitor",
+        id: monitor.id,
+        sourceAction: result.tool,
+        titleAtAction: monitor.name,
+        url: monitor.url,
+      });
+    }
+    for (const form of artifacts.forms) {
+      remember({
+        resourceType: "form",
+        id: form.id,
+        sourceAction: result.tool,
+        titleAtAction: form.title,
+        url: form.url,
+      });
+    }
+  }
+
+  return [...identities.values()];
 }
 
 type DownstreamArtifact =
@@ -1123,14 +1407,22 @@ function formatUnverifiedArtifactMessage(
     : message;
 }
 
-export function appendA2AArtifactLinks(
+export function guardA2AArtifactResponse(
   responseText: string,
   toolResults: A2AToolResultSummary[],
   options: A2AArtifactResponseOptions = {},
-): string {
+): GuardedA2AArtifactResponse {
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const includeReferencedArtifacts =
     options.includeReferencedArtifacts ?? false;
+  const finalize = (value: string) =>
+    options.includePersistedArtifactMarker
+      ? withPersistedArtifactMarker(
+          value,
+          toolResults,
+          options.persistedArtifactSecret ?? process.env.A2A_SECRET,
+        )
+      : value;
   const {
     documents,
     decks,
@@ -1160,7 +1452,10 @@ export function appendA2AArtifactLinks(
     ) ||
       /\b(?:done|created|ready|here(?:'s| is)|complete|finished)\b/i.test(text))
   ) {
-    return formatIncompleteDesignMessage(incompleteShells);
+    return {
+      text: finalize(formatIncompleteDesignMessage(incompleteShells)),
+      rejectedUnverifiedArtifactReferences: false,
+    };
   }
 
   const unverifiedRefs = findUnverifiedArtifactReferences(
@@ -1174,16 +1469,21 @@ export function appendA2AArtifactLinks(
     generatedDesigns,
   );
   if (unverifiedRefs.length > 0) {
-    return formatUnverifiedArtifactMessage(
-      unverifiedRefs,
-      documents,
-      decks,
-      dashboards,
-      analyses,
-      images,
-      generatedDesigns,
-      baseUrl,
-    );
+    return {
+      text: finalize(
+        formatUnverifiedArtifactMessage(
+          unverifiedRefs,
+          documents,
+          decks,
+          dashboards,
+          analyses,
+          images,
+          generatedDesigns,
+          baseUrl,
+        ),
+      ),
+      rejectedUnverifiedArtifactReferences: true,
+    };
   }
 
   const missingLines: string[] = [];
@@ -1258,9 +1558,26 @@ export function appendA2AArtifactLinks(
     }
   }
 
-  if (missingLines.length === 0) return text;
+  if (missingLines.length === 0) {
+    return {
+      text: finalize(text),
+      rejectedUnverifiedArtifactReferences: false,
+    };
+  }
+
   const artifactBlock = `Artifacts:\n${missingLines.join("\n")}`;
-  return text ? `${text}\n\n${artifactBlock}` : artifactBlock;
+  return {
+    text: finalize(text ? `${text}\n\n${artifactBlock}` : artifactBlock),
+    rejectedUnverifiedArtifactReferences: false,
+  };
+}
+
+export function appendA2AArtifactLinks(
+  responseText: string,
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): string {
+  return guardA2AArtifactResponse(responseText, toolResults, options).text;
 }
 
 export function buildA2ARecoverableArtifactMessage(
@@ -1294,6 +1611,71 @@ export function buildA2ARecoverableArtifactMessage(
     "The agent is still working on the full response, but these verified artifacts already exist:",
     "",
     "Artifacts:",
+    ...lines,
+  ].join("\n");
+}
+
+function mutationReceiptUrl(
+  identity: A2AArtifactIdentity,
+  baseUrl: string | undefined,
+): string | undefined {
+  if (
+    identity.sourceAction === "call-agent" &&
+    (!identity.url || identity.url.startsWith("/"))
+  ) {
+    return undefined;
+  }
+  if (identity.url) {
+    return identity.url.startsWith("/")
+      ? artifactUrl(baseUrl, identity.url)
+      : identity.url;
+  }
+
+  const path =
+    identity.resourceType === "document"
+      ? `/page/${identity.id}`
+      : identity.resourceType === "deck"
+        ? `/deck/${identity.id}`
+        : identity.resourceType === "dashboard"
+          ? `/adhoc/${identity.id}`
+          : identity.resourceType === "analysis"
+            ? `/analyses/${identity.id}`
+            : identity.resourceType === "image"
+              ? `/image/${identity.id}`
+              : identity.resourceType === "design"
+                ? `/design/${identity.id}`
+                : undefined;
+  return path ? artifactUrl(baseUrl, path) : undefined;
+}
+
+/**
+ * Build a bounded participant-facing receipt from authenticated artifact writes.
+ * Unlike generic artifact recovery, this only trusts identities extracted from
+ * successful write actions (or a signed downstream write ledger), so a read or
+ * an unverified URL cannot be rounded up to a successful mutation.
+ */
+export function buildA2AVerifiedMutationReceipt(
+  toolResults: A2AToolResultSummary[],
+  options: A2AArtifactResponseOptions = {},
+): string | null {
+  const baseUrl = normalizeBaseUrl(options.baseUrl);
+  const identities = extractA2AArtifactIdentities(toolResults);
+  if (identities.length === 0) return null;
+
+  const lines = identities.map((identity) => {
+    const label =
+      identity.resourceType.charAt(0).toUpperCase() +
+      identity.resourceType.slice(1);
+    const url = mutationReceiptUrl(identity, baseUrl);
+    return url
+      ? `- ${label}: ${url} (ID: ${identity.id})`
+      : `- ${label} ID: ${identity.id}`;
+  });
+
+  return [
+    "A verified change was saved, but I couldn't generate the detailed summary.",
+    "",
+    "Saved artifacts:",
     ...lines,
   ].join("\n");
 }

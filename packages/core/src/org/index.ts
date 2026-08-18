@@ -8,7 +8,7 @@ export type {
   OrgInfo,
   OrgMember,
   OrgPendingInvitation,
-  OrgGroupSummary,
+  RequiredAuthProvider,
   WorkspaceAppDefaultVisibility,
 } from "./types.js";
 
@@ -30,13 +30,41 @@ export {
   createOrganization,
 } from "./context.js";
 
+export {
+  implicitServiceOrgRole,
+  parseServiceIdentityEmail,
+} from "./service-identity.js";
+
 export { acceptPendingInvitationsForEmail } from "./accept-pending.js";
 export type { AcceptPendingResult } from "./accept-pending.js";
 
 export { autoJoinDomainMatchingOrgs } from "./auto-join-domain.js";
 export type { AutoJoinDomainResult } from "./auto-join-domain.js";
 
+export {
+  defineAppRoles,
+  getRegisteredAppRoles,
+  listRegisteredAppRoles,
+  listAppMemberRoles,
+  resolveAppRole,
+  setAppMemberRole,
+} from "./app-roles.js";
+export type {
+  AppRoles,
+  AppRolesDescriptor,
+  AppRoleCaller,
+  AppRoleLookup,
+  AppMemberRoleRow,
+} from "./app-roles.js";
+
 export { ORG_MIGRATIONS } from "./migrations.js";
+
+export {
+  getRequiredAuthProviderForEmail,
+  getRequiredAuthProviderForOrg,
+  isGoogleSignInRequiredForEmail,
+  setRequiredAuthProvider,
+} from "./auth-policy.js";
 
 export { createOrgPlugin, defaultOrgPlugin } from "./plugin.js";
 
@@ -46,8 +74,7 @@ export {
   organizations,
   orgMembers,
   orgInvitations,
-  orgGroups,
-  orgGroupMembers,
+  appMemberRoles,
   workspaceApps,
   workspaceAppShares,
 } from "./schema.js";
@@ -68,16 +95,15 @@ export {
   setA2ASecretHandler,
   syncA2ASecretHandler,
   receiveA2ASecretHandler,
-  listGroupsHandler,
-  createGroupHandler,
-  updateGroupHandler,
-  deleteGroupHandler,
+  setRequiredAuthProviderHandler,
   setWorkspaceAppDefaultVisibilityHandler,
 } from "./handlers.js";
 
+export {
+  listAppRolesHandler,
+  setAppRoleHandler,
+} from "./app-roles-handlers.js";
+
 export { isFreeEmailProvider } from "./free-email-providers.js";
 
-export {
-  isWorkspaceAppAccessAllowed,
-  type WorkspaceAppAccessContext,
-} from "./workspace-app-access.js";
+export { isOrgMember } from "./membership.js";

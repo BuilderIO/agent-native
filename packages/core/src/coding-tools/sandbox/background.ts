@@ -160,6 +160,7 @@ export interface EnqueueSandboxExecutionInput {
   owner: string;
   orgId?: string | null;
   threadId?: string | null;
+  allowedActionNames?: readonly string[];
 }
 
 export interface EnqueueSandboxExecutionResult {
@@ -182,6 +183,7 @@ export async function enqueueSandboxExecution(
     code: input.code,
     timeoutMs: input.timeoutMs,
     maxOutputChars: input.maxOutputChars,
+    allowedActionNames: input.allowedActionNames,
   });
   let driveNote: string | undefined;
   try {
@@ -322,7 +324,14 @@ export async function processQueuedSandboxExecution(
       actionName: "run-code",
     };
     const output = await runWithRequestContext(
-      { userEmail: claimed.owner, orgId: claimed.orgId ?? undefined },
+      {
+        userEmail: claimed.owner,
+        orgId: claimed.orgId ?? undefined,
+        run:
+          claimed.allowedActionNames === undefined
+            ? undefined
+            : { allowedActionNames: claimed.allowedActionNames },
+      },
       () =>
         runner.execute({
           code: claimed.code,

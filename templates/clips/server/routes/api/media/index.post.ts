@@ -7,12 +7,12 @@
  *   Body: raw file bytes (Content-Type header determines the MIME type)
  *   Response: { url, filename, mimeType, size }
  *
- * Max size: 5 MB (logos). Storage: ./data/uploads.
+ * Max size: 5 MB (logos). Storage: the configured file-upload provider
+ * (Builder.io / S3 / …) via `uploadFile`. Fails closed with setup guidance
+ * when no provider is configured — bytes never touch SQL or local disk.
  */
 
-import fs from "node:fs";
-import path from "node:path";
-
+import { uploadFile } from "@agent-native/core/file-upload";
 import { getSession, runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
@@ -23,18 +23,10 @@ import {
   type H3Event,
 } from "h3";
 
-const UPLOADS_DIR = path.resolve("data/uploads");
 const MAX_BYTES = 5 * 1024 * 1024;
 
-// Ensure the uploads dir exists at startup (best effort — edge runtimes have
-// no filesystem, so we silently fall through and fail at write time).
-try {
-  if (!fs.existsSync(UPLOADS_DIR)) {
-    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
-  }
-} catch {
-  // no-op
-}
+const STORAGE_SETUP_REQUIRED_REASON =
+  "File storage is not connected yet. Connect Builder.io (free tier available) or configure S3-compatible storage in Settings → File uploads, then retry.";
 
 function randId(): string {
   const chars =
@@ -75,13 +67,6 @@ function hasExpectedImageSignature(bytes: Uint8Array, mimeType: string) {
     );
   }
   return false;
-}
-
-function appPath(path: string): string {
-  if (!path.startsWith("/")) return path;
-  const raw = process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
-  const base = raw.trim().replace(/^\/+/, "").replace(/\/+$/, "");
-  return base ? `/${base}${path}` : path;
 }
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -132,20 +117,23 @@ export default defineEventHandler(async (event: H3Event) => {
       const originalName =
         typeof query.filename === "string" ? query.filename : "upload";
 
-      const id = `${randId()}${ext}`;
-      const filePath = path.join(UPLOADS_DIR, id);
+      const filename = `logo-${randId()}${ext}`;
+      const uploaded = await uploadFile({
+        data: bytes,
+        mimeType,
+        filename,
+        ownerEmail: session.email,
+        recordAsset: false,
+      });
 
-      try {
-        fs.writeFileSync(filePath, bytes);
-      } catch (err) {
-        console.error("[clips media] write failed:", err);
-        setResponseStatus(event, 500);
-        return { error: "Upload failed" };
+      if (!uploaded?.url) {
+        setResponseStatus(event, 409);
+        return { error: STORAGE_SETUP_REQUIRED_REASON };
       }
 
       return {
-        url: appPath(`/api/media/${id}`),
-        filename: id,
+        url: uploaded.url,
+        filename,
         originalName,
         mimeType,
         size: bytes.byteLength,

@@ -1,4 +1,8 @@
-import { isInAgentEmbed, postNavigate, useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
+import {
+  isInAgentEmbed,
+  postNavigate,
+} from "@agent-native/core/client/navigation";
 import type { FormFieldType } from "@shared/types";
 import {
   IconAlertCircle,

@@ -4,10 +4,6 @@ export {
   useOrg,
   useOrgMembers,
   useOrgInvitations,
-  useOrgGroups,
-  useCreateOrgGroup,
-  useUpdateOrgGroup,
-  useDeleteOrgGroup,
   useCreateOrg,
   useUpdateOrg,
   useInviteMember,
@@ -15,13 +11,19 @@ export {
   useChangeMemberRole,
   useAcceptInvitation,
   useRemoveMember,
+  useDeleteOrg,
   useSwitchOrg,
   useJoinByDomain,
   useSetOrgDomain,
   useSetWorkspaceAppDefaultVisibility,
+  useSetOrgWorkspaceUrl,
+  useRevealA2ASecret,
   useSetA2ASecret,
   useSyncA2ASecret,
   useOrgRole,
+  useAppRoles,
+  useAppRole,
+  useSetAppMemberRole,
 } from "./hooks.js";
 
 export type {
@@ -30,14 +32,21 @@ export type {
   BulkInviteResult,
   SyncA2ASecretResult,
   UseOrgRoleResult,
+  AppRoleAssignment,
+  AppRolesInfo,
   WorkspaceAppDefaultVisibility,
 } from "./hooks.js";
+
+// Type-only re-export so templates can annotate the `appRoles` prop without
+// importing the server module.
+export type { AppRolesDescriptor } from "../../org/app-roles.js";
 
 export { OrgSwitcher, type OrgSwitcherProps } from "./OrgSwitcher.js";
 export {
   InvitationBanner,
   type InvitationBannerProps,
 } from "./InvitationBanner.js";
+export { WorkspaceNotice } from "./WorkspaceNotice.js";
 export { TeamPage, type TeamPageProps } from "./TeamPage.js";
 export {
   RequireActiveOrg,
@@ -70,7 +79,6 @@ export type {
   OrgInfo,
   OrgMember,
   OrgPendingInvitation,
-  OrgGroupSummary,
   OrgSummary,
   OrgInvitationSummary,
   DomainMatchOrg,

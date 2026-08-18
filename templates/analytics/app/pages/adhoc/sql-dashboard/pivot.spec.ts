@@ -37,4 +37,22 @@ describe("pivotRows", () => {
       { date: "2026-06-18", content: 4, unknown: 2 },
     ]);
   });
+
+  it("can preserve only returned date buckets for bar-chart auto sizing", () => {
+    const result = pivotRows(
+      [
+        { date: "2026-06-16", template: "content", count: 5 },
+        { date: "2026-06-18", template: "content", count: 8 },
+        { date: "2026-06-18", template: "plan", count: 2 },
+      ],
+      { xKey: "date", seriesKey: "template", valueKey: "count" },
+      { fillDateGaps: false },
+    );
+
+    expect(result.seriesKeys).toEqual(["content", "plan"]);
+    expect(result.rows).toEqual([
+      { date: "2026-06-16", content: 5, plan: 0 },
+      { date: "2026-06-18", content: 8, plan: 2 },
+    ]);
+  });
 });

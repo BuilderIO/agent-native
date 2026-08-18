@@ -4,12 +4,19 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { getDbExec } from "../../db/client.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
-import { renderEmail, emailStrong } from "../../server/email-template.js";
+import {
+  emailQuote,
+  emailStrong,
+  renderEmail,
+} from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
+import { getUserProfile } from "../../user-profile/store.js";
+import { assertWorkspaceUserGroupIds } from "../../workspace-connections/groups.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
+import type { ShareEmailExtras } from "../registry.js";
 import {
   getExtensionShareChangeTargets,
   notifyExtensionShareChanged,
@@ -144,7 +151,7 @@ async function isOrgMemberOrInvited(
 
 export default defineAction({
   description:
-    "Grant a user or org access to a shareable resource. Owner or admin role required.",
+    "Grant a user, group, or org access to a shareable resource. Owner or admin role required.",
   // (audit H5) Sharing-grant operations are admin-tier and let a caller
   // expand who can read/write a resource. Refuse from the tools iframe
   // bridge so a malicious shared tool can't silently re-share its
@@ -162,11 +169,15 @@ export default defineAction({
       ),
     principalId: z
       .string()
-      .describe("Email (user) or org id (org) of the principal."),
+      .describe(
+        "Email (user), group id (group), or org id (org) of the principal.",
+      ),
     role: z
-      .enum(["viewer", "editor", "admin"])
+      .enum(["viewer", "commenter", "editor", "admin"])
       .default("viewer")
-      .describe("Role to grant."),
+      .describe(
+        "Role to grant: viewer can only read; commenter can read and add comments; editor can edit; admin can edit and manage access.",
+      ),
     notify: z
       .boolean()
       .default(true)
@@ -178,6 +189,14 @@ export default defineAction({
       .optional()
       .describe(
         "Optional app-relative or same-origin URL recipients should open. External origins are ignored.",
+      ),
+    message: z
+      .string()
+      .trim()
+      .max(500)
+      .optional()
+      .describe(
+        "Optional short note included in the notification email to an individual recipient.",
       ),
   }),
   run: async (args) => {
@@ -202,6 +221,21 @@ export default defineAction({
       throw new Error(
         "User shares must use an email address, not an internal user id.",
       );
+    }
+    if (args.principalType === "group") {
+      const resourceOrgId = access.resource?.orgId as string | undefined | null;
+      if (!resourceOrgId) {
+        throw new ForbiddenError(
+          `${reg.displayName} can only be shared with a group from within an organization.`,
+        );
+      }
+      try {
+        await assertWorkspaceUserGroupIds([principalId], resourceOrgId);
+      } catch {
+        throw new ForbiddenError(
+          `${reg.displayName} can only be shared with a group from its own organization.`,
+        );
+      }
     }
     const beforeExtensionTargets = await getExtensionShareChangeTargets(
       args.resourceType,
@@ -233,15 +267,7 @@ export default defineAction({
           );
         }
       } else if (args.principalType === "group") {
-        const group = await getDbExec().execute({
-          sql: `SELECT 1 FROM org_groups WHERE id = ? AND org_id = ? LIMIT 1`,
-          args: [principalId, resourceOrgId],
-        });
-        if (!group.rows.length) {
-          throw new ForbiddenError(
-            `${reg.displayName} can only be shared with a group from its own organization.`,
-          );
-        }
+        // Group ownership was validated above against the resource org.
       }
     }
 
@@ -314,18 +340,111 @@ export default defineAction({
         );
         const appName =
           process.env.APP_NAME || process.env.VITE_APP_NAME || "Agent Native";
+        let brandLogoUrl: string | undefined;
+        if (reg.getLogoUrl) {
+          try {
+            brandLogoUrl = (await reg.getLogoUrl(resource)) ?? undefined;
+          } catch (err) {
+            console.error(
+              "[share-resource] brand logo resolver failed; using default logo:",
+              err,
+            );
+          }
+        }
+        let brandName = appName;
+        if (reg.getBrandName) {
+          try {
+            brandName = (await reg.getBrandName(resource))?.trim() || appName;
+          } catch (err) {
+            console.error(
+              "[share-resource] brand name resolver failed; using app name:",
+              err,
+            );
+          }
+        }
+        const senderProfile = await getUserProfile(actor);
+        const senderDisplayName = senderProfile.name?.trim() || actor;
+        let fromName: string | undefined;
+        let replyTo: string | undefined;
+        if (reg.getSender) {
+          try {
+            const sender = await reg.getSender(resource, {
+              sender: senderProfile,
+            });
+            fromName = sender?.fromName?.trim() || undefined;
+            replyTo = sender?.replyTo?.trim() || undefined;
+          } catch (err) {
+            console.error(
+              "[share-resource] sender resolver failed; using default sender:",
+              err,
+            );
+          }
+        }
+        let heroHtml: string | undefined;
+        if (reg.getHeroHtml) {
+          try {
+            heroHtml =
+              (await reg.getHeroHtml(resource, {
+                href: notificationUrl,
+                alt: resourceTitle,
+              })) ?? undefined;
+          } catch (err) {
+            console.error(
+              "[share-resource] hero html resolver failed; omitting preview:",
+              err,
+            );
+          }
+        }
+        let extras: ShareEmailExtras | undefined;
+        if (reg.getShareEmailExtras) {
+          try {
+            extras =
+              (await reg.getShareEmailExtras(resource, {
+                href: notificationUrl,
+                sender: senderProfile,
+                recipientEmail: principalId,
+              })) ?? undefined;
+          } catch (err) {
+            console.error(
+              "[share-resource] share email extras resolver failed; sending the plain notification:",
+              err,
+            );
+          }
+        }
         const subject = `${actor} shared "${resourceTitle}" with you on ${appName}`;
+        const messageParagraph = args.message?.trim()
+          ? emailQuote(args.message)
+          : null;
+        const defaultParagraphs = [
+          `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
+          ...(messageParagraph ? [messageParagraph] : []),
+          `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
+        ];
         const { html, text } = renderEmail({
+          brandName,
+          brandLogoUrl,
           preheader: subject,
-          heading: "You've been given access",
-          paragraphs: [
-            `${emailStrong(actor)} has shared the ${reg.displayName} ${emailStrong(resourceTitle)} with you as a ${emailStrong(args.role)}.`,
-            `Use the button below to open it. If prompted, sign in with ${emailStrong(principalId)}.`,
-          ],
+          heading: `${senderDisplayName} shared "${resourceTitle}" with you`,
+          paragraphs: extras?.paragraphs
+            ? messageParagraph
+              ? [messageParagraph, ...extras.paragraphs]
+              : extras.paragraphs
+            : defaultParagraphs,
+          heroHtml,
           cta: { label: `Open ${reg.displayName}`, url: notificationUrl },
+          secondaryCta: extras?.secondaryCta,
+          linkBlock: extras?.linkBlock,
+          closingParagraphs: extras?.closingParagraphs,
           footer: `You received this because ${actor} granted you ${args.role} access.`,
         });
-        await sendEmail({ to: principalId, subject, html, text });
+        await sendEmail({
+          to: principalId,
+          subject,
+          html,
+          text,
+          fromName,
+          replyTo,
+        });
       } catch (err) {
         console.error(
           "[share-resource] failed to send share notification:",

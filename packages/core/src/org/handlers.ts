@@ -36,7 +36,8 @@ function extractMemberEmail(event: H3Event): string | undefined {
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
-import { getDbExec } from "../db/client.js";
+import { getDbExec, isPostgres } from "../db/client.js";
+import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getSession } from "../server/auth.js";
@@ -44,16 +45,26 @@ import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
 import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
-import { putUserSetting } from "../settings/user-settings.js";
+import { setActiveOrgId } from "./active-org.js";
+import { setRequiredAuthProvider } from "./auth-policy.js";
+import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
+import { invalidateMemberOrgCaches } from "./request-org-cache.js";
 import type {
-  OrgGroupSummary,
   OrgRole,
+  RequiredAuthProvider,
   WorkspaceAppDefaultVisibility,
 } from "./types.js";
+import { parseWorkspaceUrl } from "./workspace-url.js";
 
 const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
+
+function normalizeWorkspaceAppDefaultVisibility(
+  value: unknown,
+): WorkspaceAppDefaultVisibility {
+  return value === "private" ? "private" : "org";
+}
 
 function getInviteAppUrl(event: H3Event): string {
   return getAppProductionUrl(event);
@@ -69,153 +80,6 @@ function requireAuthEmail(session: { email?: string } | null): string {
     throw createError({ statusCode: 401, message: "Authentication required" });
   }
   return email;
-}
-
-function normalizeWorkspaceAppDefaultVisibility(
-  value: unknown,
-): WorkspaceAppDefaultVisibility {
-  return value === "private" ? "private" : "org";
-}
-
-function canManageOrgAccess(role: OrgRole | null): boolean {
-  return role === "owner" || role === "admin";
-}
-
-function requireOrgAdmin(role: OrgRole | null): void {
-  if (!canManageOrgAccess(role)) {
-    throw createError({
-      statusCode: 403,
-      message: "Only organization admins can manage groups and app defaults.",
-    });
-  }
-}
-
-function extractGroupId(event: H3Event): string | undefined {
-  const fromRouter = getRouterParam(event, "id");
-  if (fromRouter) return fromRouter;
-  const path = getRequestURL(event).pathname;
-  const match =
-    path.match(/^\/([^/]+)\/?$/) ?? path.match(/\/org\/groups\/([^/]+)\/?$/);
-  return match?.[1] ? decodeURIComponent(match[1]) : undefined;
-}
-
-function normalizeGroupName(value: unknown): string {
-  return typeof value === "string" ? value.trim().replace(/\s+/g, " ") : "";
-}
-
-function normalizeGroupEmails(value: unknown): string[] {
-  const values = Array.isArray(value)
-    ? value
-    : typeof value === "string"
-      ? value.split(/[\s,;]+/)
-      : [];
-  return Array.from(
-    new Set(
-      values
-        .map((entry) => (typeof entry === "string" ? entry.trim() : ""))
-        .filter((entry) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(entry))
-        .map((entry) => entry.toLowerCase()),
-    ),
-  );
-}
-
-function groupId(): string {
-  return (
-    globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
-    Math.random().toString(36).slice(2) + Date.now().toString(36)
-  );
-}
-
-async function withGroupTransaction<T>(
-  fn: (client: Awaited<ReturnType<typeof exec>>) => Promise<T>,
-): Promise<T> {
-  const client = await exec();
-  if (client.transaction) return client.transaction(fn);
-  await client.execute("BEGIN");
-  try {
-    const result = await fn(client);
-    await client.execute("COMMIT");
-    return result;
-  } catch (error) {
-    await client.execute("ROLLBACK").catch(() => {});
-    throw error;
-  }
-}
-
-async function assertActiveOrgMembers(
-  orgId: string,
-  emails: string[],
-): Promise<void> {
-  if (emails.length === 0) return;
-  const e = await exec();
-  const result = await e.execute({
-    sql: `SELECT LOWER(email) AS email FROM org_members WHERE org_id = ? AND LOWER(email) IN (${emails
-      .map(() => "?")
-      .join(", ")})`,
-    args: [orgId, ...emails],
-  });
-  const found = new Set(
-    result.rows.map((row: any) => String(row.email ?? "").toLowerCase()),
-  );
-  const missing = emails.filter((email) => !found.has(email));
-  if (missing.length > 0) {
-    throw createError({
-      statusCode: 400,
-      message: `These group members are not active organization members: ${missing.join(", ")}`,
-    });
-  }
-}
-
-async function groupSummaries(
-  orgId: string,
-  search: string,
-  limit: number | null,
-  offset: number,
-): Promise<{
-  groups: OrgGroupSummary[];
-  hasMore: boolean;
-  nextOffset: number | null;
-}> {
-  const e = await exec();
-  const args: unknown[] = [orgId];
-  let sql = `SELECT id, name, created_at AS "createdAt"
-             FROM org_groups WHERE org_id = ?`;
-  if (search) {
-    sql += ` AND LOWER(name) LIKE ? ESCAPE '!'`;
-    args.push(`%${escapeLike(search)}%`);
-  }
-  sql += ` ORDER BY LOWER(name) ASC`;
-  if (limit !== null) {
-    sql += ` LIMIT ? OFFSET ?`;
-    args.push(limit + 1, offset);
-  }
-  const result = await e.execute({ sql, args });
-  const pageRows = limit === null ? result.rows : result.rows.slice(0, limit);
-  const groups = await Promise.all(
-    pageRows.map(async (row: any) => {
-      const membersResult = await e.execute({
-        sql: `SELECT email FROM org_group_members
-              WHERE org_id = ? AND group_id = ? ORDER BY LOWER(email) ASC`,
-        args: [orgId, String(row.id)],
-      });
-      const members = membersResult.rows.map((member: any) =>
-        String(member.email),
-      );
-      return {
-        id: String(row.id),
-        name: String(row.name),
-        memberCount: members.length,
-        members,
-        createdAt: Number(row.createdAt ?? row.created_at ?? 0),
-      } satisfies OrgGroupSummary;
-    }),
-  );
-  const hasMore = limit !== null && result.rows.length > limit;
-  return {
-    groups,
-    hasMore,
-    nextOffset: hasMore ? offset + groups.length : null,
-  };
 }
 
 /** GET /_agent-native/org/me — current user's active org, all orgs, pending invitations */
@@ -262,20 +126,29 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   let allowedDomain: string | null = null;
-  let a2aSecret: string | null = null;
+  let workspaceUrl: string | null = null;
+  let requiredAuthProvider: RequiredAuthProvider = null;
+  let a2aSecretSet = false;
   if (ctx.orgId) {
-    try {
-      const adRes = await e.execute({
-        sql: `SELECT allowed_domain, a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
-        args: [ctx.orgId],
-      });
-      if (adRes.rows[0]) {
-        allowedDomain =
-          String((adRes.rows[0] as any).allowed_domain ?? "") || null;
-        a2aSecret = String((adRes.rows[0] as any).a2a_secret ?? "") || null;
+    const adRes = await e.execute({
+      sql: `SELECT allowed_domain, a2a_secret, workspace_url, required_auth_provider
+            FROM organizations WHERE id = ? LIMIT 1`,
+      args: [ctx.orgId],
+    });
+    if (adRes.rows[0]) {
+      allowedDomain =
+        String((adRes.rows[0] as any).allowed_domain ?? "") || null;
+      workspaceUrl = String((adRes.rows[0] as any).workspace_url ?? "") || null;
+      const provider = String(
+        (adRes.rows[0] as any).required_auth_provider ?? "",
+      );
+      if (provider && provider !== "google") {
+        throw new Error(`Unsupported organization auth provider: ${provider}`);
       }
-    } catch {
-      // Column may not exist yet
+      requiredAuthProvider = provider === "google" ? "google" : null;
+      a2aSecretSet = Boolean(
+        String((adRes.rows[0] as any).a2a_secret ?? "").trim(),
+      );
     }
   }
 
@@ -318,16 +191,27 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     pendingInvitations,
     domainMatches,
     allowedDomain,
+    workspaceUrl,
+    requiredAuthProvider,
     workspaceAppDefaultVisibility,
-    a2aSecret: isOwnerOrAdmin ? a2aSecret : undefined,
+    // Never serialize the A2A secret here. This route runs on every page load,
+    // so the value would sit in JSON any script on the page can read, and it
+    // signs the JWTs peers accept as first-party callers. Reveal is an explicit
+    // owner/admin GET on /_agent-native/org/a2a-secret.
+    a2aSecretSet: isOwnerOrAdmin ? a2aSecretSet : undefined,
   };
 });
 
-/** PUT /_agent-native/org/workspace-app-default-visibility — org admins only */
+/** PUT /_agent-native/org/workspace-app-default-visibility - org admins only */
 export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
   async (event: H3Event) => {
     const ctx = await getOrgContext(event);
-    requireOrgAdmin(ctx.role);
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only organization admins can change app defaults.",
+      });
+    }
     if (!ctx.orgId) {
       throw createError({
         statusCode: 400,
@@ -364,7 +248,9 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
 /** GET /_agent-native/org/members — list org members */
 export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
-  if (!ctx.orgId) return { members: [], hasMore: false, nextOffset: null };
+  if (!ctx.orgId) {
+    return { members: [], totalCount: 0, hasMore: false, nextOffset: null };
+  }
 
   const url = getRequestURL(event);
   const search = (
@@ -386,10 +272,14 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
 
   const e = await exec();
   const args: unknown[] = [ctx.orgId];
+  const countArgs: unknown[] = [ctx.orgId];
   let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members WHERE org_id = ?`;
+  let countSql = `SELECT COUNT(*) AS "totalCount" FROM org_members WHERE org_id = ?`;
   if (search) {
     sql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
     args.push(`%${escapeLike(search)}%`);
+    countSql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
+    countArgs.push(`%${escapeLike(search)}%`);
   }
   sql += ` ORDER BY LOWER(email) ASC`;
   if (limit !== null) {
@@ -397,12 +287,23 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
     args.push(limit + 1, offset);
   }
 
+  const totalCountResult =
+    limit === null
+      ? undefined
+      : await e.execute({ sql: countSql, args: countArgs });
   const { rows } = await e.execute({
     sql,
     args,
   });
   const pageRows = limit !== null ? rows.slice(0, limit) : rows;
   const hasMore = limit !== null && rows.length > limit;
+  const totalCount =
+    totalCountResult === undefined
+      ? pageRows.length
+      : Number((totalCountResult.rows[0] as any)?.totalCount);
+  if (!Number.isSafeInteger(totalCount) || totalCount < 0) {
+    throw new Error("Organization member count was not returned");
+  }
   const members = pageRows.map((r: any) => ({
     email: String(r.email),
     role: String(r.role) as OrgRole,
@@ -410,156 +311,10 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   }));
   return {
     members,
+    totalCount,
     hasMore,
     nextOffset: hasMore ? offset + members.length : null,
   };
-});
-
-/** GET /_agent-native/org/groups — list reusable sharing groups */
-export const listGroupsHandler = defineEventHandler(async (event: H3Event) => {
-  const ctx = await getOrgContext(event);
-  if (!ctx.orgId) return { groups: [], hasMore: false, nextOffset: null };
-  const url = getRequestURL(event);
-  const search = (
-    url.searchParams.get("search") ??
-    url.searchParams.get("q") ??
-    ""
-  )
-    .trim()
-    .toLowerCase();
-  const shouldPaginate =
-    url.searchParams.has("limit") ||
-    url.searchParams.has("offset") ||
-    search.length > 0;
-  const limit = shouldPaginate
-    ? clampInteger(url.searchParams.get("limit"), 25, 1, 100)
-    : null;
-  const offset = shouldPaginate
-    ? clampInteger(url.searchParams.get("offset"), 0, 0, 100_000)
-    : 0;
-  return groupSummaries(ctx.orgId, search, limit, offset);
-});
-
-/** POST /_agent-native/org/groups — create a group (owner/admin only) */
-export const createGroupHandler = defineEventHandler(async (event: H3Event) => {
-  const ctx = await getOrgContext(event);
-  requireOrgAdmin(ctx.role);
-  if (!ctx.orgId)
-    throw createError({ statusCode: 400, message: "Organization required" });
-  const body = await readBody(event);
-  const name = normalizeGroupName(body?.name);
-  if (!name || name.length > 100) {
-    throw createError({
-      statusCode: 400,
-      message: "Group name must be 1-100 characters.",
-    });
-  }
-  const emails = normalizeGroupEmails(body?.emails);
-  if (emails.length === 0) {
-    throw createError({
-      statusCode: 400,
-      message: "Add at least one organization member.",
-    });
-  }
-  await assertActiveOrgMembers(ctx.orgId, emails);
-  const id = groupId();
-  const createdAt = Date.now();
-  await withGroupTransaction(async (client) => {
-    await client.execute({
-      sql: `INSERT INTO org_groups (id, org_id, name, created_by, created_at) VALUES (?, ?, ?, ?, ?)`,
-      args: [id, ctx.orgId, name, ctx.email, createdAt],
-    });
-    for (const email of emails) {
-      await client.execute({
-        sql: `INSERT INTO org_group_members (id, org_id, group_id, email, created_at) VALUES (?, ?, ?, ?, ?)`,
-        args: [groupId(), ctx.orgId, id, email, createdAt],
-      });
-    }
-  });
-  return { id, name, memberCount: emails.length, members: emails, createdAt };
-});
-
-/** PUT /_agent-native/org/groups/:id — update a group (owner/admin only) */
-export const updateGroupHandler = defineEventHandler(async (event: H3Event) => {
-  const ctx = await getOrgContext(event);
-  requireOrgAdmin(ctx.role);
-  if (!ctx.orgId)
-    throw createError({ statusCode: 400, message: "Organization required" });
-  const id = extractGroupId(event);
-  if (!id)
-    throw createError({ statusCode: 400, message: "Group id is required" });
-  const body = await readBody(event);
-  const e = await exec();
-  const existing = await e.execute({
-    sql: `SELECT id, name FROM org_groups WHERE id = ? AND org_id = ? LIMIT 1`,
-    args: [id, ctx.orgId],
-  });
-  if (!existing.rows[0])
-    throw createError({ statusCode: 404, message: "Group not found" });
-  const name =
-    body?.name === undefined
-      ? String(existing.rows[0].name)
-      : normalizeGroupName(body.name);
-  if (!name || name.length > 100) {
-    throw createError({
-      statusCode: 400,
-      message: "Group name must be 1-100 characters.",
-    });
-  }
-  const hasEmails = Object.prototype.hasOwnProperty.call(body ?? {}, "emails");
-  const emails = hasEmails ? normalizeGroupEmails(body?.emails) : null;
-  if (hasEmails && !emails?.length) {
-    throw createError({
-      statusCode: 400,
-      message: "Add at least one organization member.",
-    });
-  }
-  if (emails) await assertActiveOrgMembers(ctx.orgId, emails);
-  await withGroupTransaction(async (client) => {
-    await client.execute({
-      sql: `UPDATE org_groups SET name = ? WHERE id = ? AND org_id = ?`,
-      args: [name, id, ctx.orgId],
-    });
-    if (emails) {
-      await client.execute({
-        sql: `DELETE FROM org_group_members WHERE group_id = ? AND org_id = ?`,
-        args: [id, ctx.orgId],
-      });
-      for (const email of emails) {
-        await client.execute({
-          sql: `INSERT INTO org_group_members (id, org_id, group_id, email, created_at) VALUES (?, ?, ?, ?, ?)`,
-          args: [groupId(), ctx.orgId, id, email, Date.now()],
-        });
-      }
-    }
-  });
-  return {
-    id,
-    name,
-    ...(emails ? { memberCount: emails.length, members: emails } : {}),
-  };
-});
-
-/** DELETE /_agent-native/org/groups/:id — delete a group (owner/admin only) */
-export const deleteGroupHandler = defineEventHandler(async (event: H3Event) => {
-  const ctx = await getOrgContext(event);
-  requireOrgAdmin(ctx.role);
-  if (!ctx.orgId)
-    throw createError({ statusCode: 400, message: "Organization required" });
-  const id = extractGroupId(event);
-  if (!id)
-    throw createError({ statusCode: 400, message: "Group id is required" });
-  await withGroupTransaction(async (client) => {
-    await client.execute({
-      sql: `DELETE FROM org_group_members WHERE group_id = ? AND org_id = ?`,
-      args: [id, ctx.orgId],
-    });
-    await client.execute({
-      sql: `DELETE FROM org_groups WHERE id = ? AND org_id = ?`,
-      args: [id, ctx.orgId],
-    });
-  });
-  return { ok: true };
 });
 
 function clampInteger(
@@ -652,7 +407,14 @@ async function inviteOne(
         acceptUrl: getInviteAppUrl(event),
         inviter: ctx.email,
       });
-      await sendEmail({ to: email, subject, html, text });
+      await sendEmail({
+        to: email,
+        subject,
+        html,
+        text,
+        templateId: CORE_INVITE_EMAIL_ID,
+        orgId: ctx.orgId,
+      });
       emailSent = true;
     } catch (err) {
       emailError = err instanceof Error ? err.message : String(err);
@@ -814,7 +576,7 @@ export const acceptInvitationHandler = defineEventHandler(
         sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
         args: [invitationId],
       });
-      await putUserSetting(email, "active-org-id", { orgId: invOrgId });
+      await setActiveOrgId(email, invOrgId, "accepted invitation");
       return {
         orgId: invOrgId,
         orgName,
@@ -826,13 +588,14 @@ export const acceptInvitationHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
+    invalidateMemberOrgCaches();
 
     await e.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
       args: [invitationId],
     });
 
-    await putUserSetting(email, "active-org-id", { orgId: invOrgId });
+    await setActiveOrgId(email, invOrgId, "accepted invitation");
 
     return { orgId: invOrgId, orgName, role: inviteRole };
   },
@@ -895,6 +658,7 @@ export const removeMemberHandler = defineEventHandler(
       sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
       args: [ctx.orgId, memberEmailLower],
     });
+    invalidateMemberOrgCaches();
 
     return { success: true };
   },
@@ -974,6 +738,7 @@ export const changeMemberRoleHandler = defineEventHandler(
       sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
       args: [role, ctx.orgId, memberEmailLower],
     });
+    invalidateMemberOrgCaches();
 
     return { email: memberEmailLower, role };
   },
@@ -1006,8 +771,112 @@ export const updateOrgHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET name = ? WHERE id = ?`,
     args: [name, ctx.orgId],
   });
+  // `orgName` is joined into the cached membership rows, so a rename that skips
+  // this leaves every member's org context showing the old name for the TTL.
+  invalidateMemberOrgCaches();
 
   return { orgId: ctx.orgId, name };
+});
+
+/**
+ * DELETE /_agent-native/org — permanently delete the current organization
+ * (owner only). Body: { name: string } must match the org's current name
+ * (trim + case-insensitive) as a confirmation guard against misclicks.
+ *
+ * Deletes org_invitations, org-scoped settings, org_members, and the
+ * organizations row, then repoints the caller's active-org-id to another
+ * membership of theirs (or null for Personal) so they aren't left pointing
+ * at a deleted org.
+ */
+export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
+  const ctx = await getOrgContext(event);
+  if (!ctx.orgId) {
+    throw createError({ statusCode: 400, message: "No active organization" });
+  }
+  if (ctx.role !== "owner") {
+    throw createError({
+      statusCode: 403,
+      message: "Only the organization owner can delete an organization",
+    });
+  }
+
+  const body = await readBody(event);
+  const confirmName = String(body?.name ?? "").trim();
+
+  const e = await exec();
+  const orgRes = await e.execute({
+    sql: `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
+    args: [ctx.orgId],
+  });
+  if (orgRes.rows.length === 0) {
+    throw createError({ statusCode: 404, message: "Organization not found" });
+  }
+  const actualName = String((orgRes.rows[0] as any).name ?? "").trim();
+
+  if (confirmName.toLowerCase() !== actualName.toLowerCase()) {
+    throw createError({
+      statusCode: 400,
+      message: "Organization name does not match",
+    });
+  }
+
+  const settingsTable = isPostgres() ? "public.settings" : "settings";
+  const settingsPrefix = `o:${ctx.orgId}:`.replace(
+    /[!%_]/g,
+    (character) => `!${character}`,
+  );
+  const deleteStatements = [
+    {
+      sql: `DELETE FROM org_invitations WHERE org_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM app_secrets WHERE scope IN ('org', 'workspace') AND scope_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM ${settingsTable} WHERE key LIKE ? ESCAPE '!'`,
+      args: [`${settingsPrefix}%`],
+    },
+    {
+      sql: `DELETE FROM org_members WHERE org_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM organizations WHERE id = ?`,
+      args: [ctx.orgId],
+    },
+  ];
+
+  if (e.transaction) {
+    await e.transaction(async (tx) => {
+      for (const statement of deleteStatements) await tx.execute(statement);
+    });
+  } else if (e.atomicBatch) {
+    await e.atomicBatch(deleteStatements);
+  } else {
+    throw createError({
+      statusCode: 503,
+      message: "Organization deletion requires atomic database support",
+    });
+  }
+
+  invalidateMemberOrgCaches();
+
+  const nextRes = await e.execute({
+    sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,
+    args: [ctx.email.toLowerCase()],
+  });
+  const nextOrgId =
+    nextRes.rows.length > 0
+      ? String(
+          (nextRes.rows[0] as any).orgId ?? (nextRes.rows[0] as any).org_id,
+        )
+      : null;
+
+  await setActiveOrgId(ctx.email, nextOrgId, "deleted active organization");
+
+  return { success: true, orgId: ctx.orgId, nextOrgId };
 });
 
 /** PUT /_agent-native/org/switch — switch the user's active organization */
@@ -1019,7 +888,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   const orgId = body?.orgId;
 
   if (!orgId) {
-    await putUserSetting(email, "active-org-id", { orgId: null });
+    await setActiveOrgId(email, null, "cleared active organization");
     return { orgId: null, orgName: null, role: null };
   }
 
@@ -1039,7 +908,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  await putUserSetting(email, "active-org-id", { orgId });
+  await setActiveOrgId(email, orgId, "user switched organization");
 
   const row = membership.rows[0] as any;
   return {
@@ -1097,8 +966,9 @@ export const joinByDomainHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
       args: [nanoid(), orgId, email, Date.now()],
     });
+    invalidateMemberOrgCaches();
 
-    await putUserSetting(email, "active-org-id", { orgId });
+    await setActiveOrgId(email, orgId, "joined domain-matched organization");
 
     return {
       orgId,
@@ -1177,9 +1047,123 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
     args: [raw, ctx.orgId],
   });
+  // A domain that previously matched nothing now matches this org. Without this
+  // the negative cache keeps every account at that domain out of it for the
+  // rest of the TTL, right after an owner deliberately turned domain-join on.
+  invalidateDomainMatchCache();
+  // `allowedDomain` is joined into the cached membership rows too, and existing
+  // members read it to decide whether a domain auto-join is still needed.
+  invalidateMemberOrgCaches();
 
   return { domain: raw };
 });
+
+/**
+ * PUT /_agent-native/org/workspace-url — set or clear the org's own workspace
+ * origin (owner/admin only).
+ *
+ * Members who reach a shared hosted app from the template catalog land in a
+ * different deployment than their team's workspace, with the same org name in
+ * the switcher, and read the empty app as broken rather than as somewhere
+ * else. Setting this points them home from wherever they land.
+ *
+ * Body: { url: string | null } — a full URL or bare host; stored as an origin.
+ */
+export const setWorkspaceUrlHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({ statusCode: 400, message: "No active organization" });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can set the workspace URL",
+      });
+    }
+
+    const body = await readBody(event);
+    const raw = typeof body?.url === "string" ? body.url.trim() : "";
+
+    let workspaceUrl: string | null = null;
+    if (raw) {
+      const parsed = parseWorkspaceUrl(raw);
+      if (!parsed.ok) {
+        throw createError({ statusCode: 400, message: parsed.reason });
+      }
+      workspaceUrl = parsed.url;
+    }
+
+    const e = await exec();
+    await e.execute({
+      sql: `UPDATE organizations SET workspace_url = ? WHERE id = ?`,
+      args: [workspaceUrl, ctx.orgId],
+    });
+
+    return { url: workspaceUrl };
+  },
+);
+
+/** PUT /_agent-native/org/auth-provider — require Google sign-in (owner/admin only) */
+export const setRequiredAuthProviderHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({ statusCode: 400, message: "No active organization" });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can require Google sign-in",
+      });
+    }
+
+    const body = await readBody(event);
+    const provider = body?.provider;
+    if (provider !== "google" && provider !== null) {
+      throw createError({
+        statusCode: 400,
+        message: 'Provider must be "google" or null',
+      });
+    }
+
+    const result = await setRequiredAuthProvider(ctx.orgId, provider);
+    return { provider, ...result };
+  },
+);
+
+/**
+ * GET /_agent-native/org/a2a-secret — reveal the org's A2A secret
+ * (owner/admin only). Separate from `/org/me` so the secret is only ever sent
+ * to the browser when an operator explicitly asks to see or copy it.
+ */
+export const revealA2ASecretHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({
+        statusCode: 400,
+        message: "No active organization",
+      });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can read the A2A secret",
+      });
+    }
+
+    const e = await exec();
+    const res = await e.execute({
+      sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+      args: [ctx.orgId],
+    });
+
+    return {
+      a2aSecret: String((res.rows[0] as any)?.a2a_secret ?? "") || null,
+    };
+  },
+);
 
 /** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner/admin only) */
 export const setA2ASecretHandler = defineEventHandler(

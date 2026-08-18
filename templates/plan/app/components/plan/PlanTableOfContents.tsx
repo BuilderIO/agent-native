@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import type { PlanContent } from "@shared/plan-content";
 import { IconChevronRight } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState, type MouseEvent } from "react";

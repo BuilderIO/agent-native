@@ -1,176 +1,86 @@
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
-import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, sql } from "drizzle-orm";
+import { buildDeepLink } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import type { ContentDatabaseRowMutationResult } from "../shared/api.js";
 import {
-  isComputedPropertyType,
-  type DocumentPropertyType,
-} from "../shared/properties.js";
+  createDatabaseRow,
+  databaseMutationEnvelopeSchema,
+} from "./_database-row-mutation.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
-import {
-  databaseItemsPositionScope,
-  documentsPositionScope,
-  withPositionLock,
-} from "./_position-utils.js";
-import { nanoid, normalizedValueJson } from "./_property-utils.js";
+
+const schema = databaseMutationEnvelopeSchema.extend({
+  title: z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .optional()
+    .describe("New row page title"),
+  propertyValues: z
+    .record(z.string(), z.unknown())
+    .optional()
+    .describe("Strict property values keyed by property definition ID"),
+});
 
 export default defineAction({
-  description: "Add a page item to a content database table.",
-  schema: z.object({
-    databaseId: z.string().describe("Database ID"),
-    title: z.string().optional().describe("New row page title"),
-    propertyValues: z
-      .record(z.string(), z.unknown())
-      .optional()
-      .describe("Initial property values keyed by property definition ID"),
-  }),
-  run: async ({ databaseId, title, propertyValues }) => {
-    const db = getDb();
-    const [database] = await db
-      .select()
-      .from(schema.contentDatabases)
-      .where(
-        and(
-          eq(schema.contentDatabases.id, databaseId),
-          isNull(schema.contentDatabases.deletedAt),
-        ),
-      );
-    if (!database) throw new Error(`Database "${databaseId}" not found`);
-
-    const access = await assertAccess(
-      "document",
-      database.documentId,
-      "editor",
-    );
-    const databaseDocument = access.resource;
-    const now = new Date().toISOString();
-
-    const documentId = nanoid();
-    const itemId = nanoid();
-
-    await withPositionLock(
-      documentsPositionScope(database.ownerEmail, database.documentId),
-      async () => {
-        const [maxDocPos] = await db
-          .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-          .from(schema.documents)
-          .where(
-            and(
-              eq(schema.documents.ownerEmail, database.ownerEmail),
-              eq(schema.documents.parentId, database.documentId),
-            ),
-          );
-
-        await db.insert(schema.documents).values({
-          id: documentId,
-          ownerEmail: database.ownerEmail,
-          orgId: database.orgId,
-          parentId: database.documentId,
-          title: title?.trim() ?? "",
-          content: "",
-          icon: null,
-          position: (maxDocPos?.max ?? -1) + 1,
-          isFavorite: 0,
-          hideFromSearch: databaseDocument.hideFromSearch ?? 0,
-          visibility: databaseDocument.visibility ?? "private",
-          createdAt: now,
-          updatedAt: now,
-        });
+  description:
+    "Create one row in an exact ordinary Content database using its discovered schema revision. Strictly validates every non-Blocks property, applies the side effect once per idempotency key, and returns a verified receipt with stable row identity.",
+  publicAgent: {
+    expose: true,
+    readOnly: false,
+    requiresAuth: true,
+    isConsequential: true,
+    title: "Add Content Database Item",
+    description:
+      "Delegate creation of one page item in an existing Content database.",
+  },
+  schema,
+  audit: {
+    recordInputs: false,
+    target: (args) => ({
+      type: "content-database",
+      id: args.target.databaseId,
+      visibility: "private",
+    }),
+    summary: (_args, result) => {
+      const receipt = (result as ContentDatabaseRowMutationResult | null)
+        ?.receipt;
+      return receipt
+        ? `Created Content database row ${receipt.row.itemId}`
+        : "Created Content database row";
+    },
+  },
+  run: async (args): Promise<ContentDatabaseRowMutationResult> => {
+    const result = await createDatabaseRow(args);
+    const response = await getContentDatabaseResponse(
+      result.receipt.target.databaseId,
+      {
+        limit: 1,
+        offset: 0,
+        documentIds: [result.receipt.row.documentId],
       },
     );
-
-    await withPositionLock(databaseItemsPositionScope(databaseId), async () => {
-      const [maxItemPos] = await db
-        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-        .from(schema.contentDatabaseItems)
-        .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
-
-      await db.insert(schema.contentDatabaseItems).values({
-        id: itemId,
-        ownerEmail: database.ownerEmail,
-        orgId: database.orgId,
-        databaseId,
-        documentId,
-        position: (maxItemPos?.max ?? -1) + 1,
-        createdAt: now,
-        updatedAt: now,
-      });
-    });
-
-    const inheritedShares = await db
-      .select({
-        principalType: schema.documentShares.principalType,
-        principalId: schema.documentShares.principalId,
-        role: schema.documentShares.role,
-      })
-      .from(schema.documentShares)
-      .where(eq(schema.documentShares.resourceId, database.documentId));
-
-    if (inheritedShares.length > 0) {
-      await db.insert(schema.documentShares).values(
-        inheritedShares.map((share) => ({
-          id: nanoid(),
-          resourceId: documentId,
-          principalType: share.principalType,
-          principalId: share.principalId,
-          role: share.role,
-          createdBy: getRequestUserEmail() ?? database.ownerEmail,
-          createdAt: now,
-        })),
+    const createdItem = response.items[0];
+    if (!createdItem || createdItem.id !== result.receipt.row.itemId) {
+      throw new Error(
+        "Created row receipt did not resolve to its exact read-back.",
       );
     }
-
-    const initialValues = Object.entries(propertyValues ?? {});
-    if (initialValues.length > 0) {
-      const requestedPropertyIds = initialValues.map(
-        ([propertyId]) => propertyId,
-      );
-      const definitions = await db
-        .select()
-        .from(schema.documentPropertyDefinitions)
-        .where(
-          and(
-            eq(
-              schema.documentPropertyDefinitions.ownerEmail,
-              database.ownerEmail,
-            ),
-            eq(schema.documentPropertyDefinitions.databaseId, databaseId),
-            inArray(
-              schema.documentPropertyDefinitions.id,
-              requestedPropertyIds,
-            ),
-          ),
-        );
-      const definitionById = new Map(
-        definitions.map((definition) => [definition.id, definition]),
-      );
-
-      for (const [propertyId, value] of initialValues) {
-        const definition = definitionById.get(propertyId);
-        const type = definition?.type as DocumentPropertyType | undefined;
-        if (!definition || !type || isComputedPropertyType(type)) continue;
-        await db.insert(schema.documentPropertyValues).values({
-          id: nanoid(),
-          ownerEmail: database.ownerEmail,
-          documentId,
-          propertyId,
-          valueJson: normalizedValueJson(type, value),
-          createdAt: now,
-          updatedAt: now,
-        });
-      }
-    }
-
-    await writeAppState("refresh-signal", { ts: Date.now() });
-
+    return { ...result, createdItem };
+  },
+  link: ({ result }) => {
+    const documentId = (result as ContentDatabaseRowMutationResult | null)
+      ?.receipt.row.documentId;
+    if (!documentId) return null;
     return {
-      ...(await getContentDatabaseResponse(databaseId)),
-      createdItemId: itemId,
-      createdDocumentId: documentId,
+      url: buildDeepLink({
+        app: "content",
+        view: "editor",
+        params: { documentId },
+      }),
+      label: "Open database row",
+      view: "editor",
     };
   },
 });

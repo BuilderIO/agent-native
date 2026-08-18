@@ -6,11 +6,22 @@ const trackedFiles = execFileSync("git", ["ls-files"], {
 })
   .split("\n")
   .filter(Boolean);
+const deletedFiles = new Set(
+  execFileSync("git", ["diff", "--name-only", "--diff-filter=D"], {
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean),
+);
 
+// The repository-level Claude settings are source-controlled hook configuration,
+// not generated workspace state.
 const forbidden = trackedFiles.filter(
   (file) =>
-    /(^|\/)\.vercel\/output\//.test(file) ||
-    /(^|\/)\.claude\/settings\.json$/.test(file),
+    !deletedFiles.has(file) &&
+    file !== ".claude/settings.json" &&
+    (/(^|\/)\.vercel\/output\//.test(file) ||
+      /(^|\/)\.claude\/settings\.json$/.test(file)),
 );
 
 if (forbidden.length > 0) {

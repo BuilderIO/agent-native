@@ -151,7 +151,7 @@ export default defineAction({
   description:
     "Migrate an inline Alpine/HTML design to a real React + Tailwind app " +
     "by handing the design's HTML and tokens to the Builder cloud agent. " +
-    "Requires Builder.io to be connected (credentials + branch project ID). " +
+    "Requires Builder.io (free tier available) to be connected (credentials + branch project ID). " +
     "When Builder is NOT configured returns a connect CTA — never throws. " +
     "Snapshots the current design into design_versions before migrating so " +
     "the inline baseline is always recoverable. " +
@@ -211,13 +211,13 @@ export default defineAction({
             kind: "connect-builder" as const,
             label: "Make this a real app",
             description:
-              "Connect Builder.io to migrate this design to a real React app " +
+              "Connect Builder.io (free tier available) to migrate this design to a real React app " +
               "with components, props, data states, branches, and deploys.",
             primaryAction: "Connect Builder.io",
             connectUrl,
           },
           message:
-            "Builder is not connected. Call connect-builder-app to start " +
+            "Builder is not connected (free tier available). Call connect-builder-app to start " +
             "the OAuth flow, then retry migrate-inline-design-to-app.",
         };
       }

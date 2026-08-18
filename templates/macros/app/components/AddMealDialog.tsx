@@ -1,4 +1,5 @@
-import { useActionMutation, useT } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { Meal } from "@shared/types";
 import { IconPlus, IconChevronDown } from "@tabler/icons-react";

@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   body: { source: "clay" } as { source?: string },
   ctx: { userEmail: "user@example.test", orgId: "org-example" },
+  executeProviderApiRequest: vi.fn(),
+  resolveCredential: vi.fn(),
   resolveAnalyticsProviderCredential: vi.fn(),
 }));
 
@@ -11,11 +13,15 @@ vi.mock("@agent-native/core/server", () => ({
 }));
 
 vi.mock("../../lib/credentials", () => ({
-  resolveCredential: vi.fn(),
+  resolveCredential: mocks.resolveCredential,
   withRequestContextFromEvent: vi.fn(
     async (_event: unknown, run: (ctx: typeof mocks.ctx) => Promise<unknown>) =>
       run(mocks.ctx),
   ),
+}));
+
+vi.mock("../../lib/provider-api", () => ({
+  executeProviderApiRequest: mocks.executeProviderApiRequest,
 }));
 
 vi.mock("../../lib/provider-credentials", () => ({
@@ -30,9 +36,11 @@ vi.mock("../../lib/provider-credentials", () => ({
 
 import handler from "./test-connection.post";
 
-describe("test-connection Clay credentials", () => {
+describe("test-connection", () => {
   beforeEach(() => {
     mocks.body = { source: "clay" };
+    mocks.executeProviderApiRequest.mockReset();
+    mocks.resolveCredential.mockReset();
     mocks.resolveAnalyticsProviderCredential.mockReset();
     vi.stubGlobal("fetch", vi.fn());
   });
@@ -63,5 +71,103 @@ describe("test-connection Clay credentials", () => {
       error: "Missing Clay Public API key",
     });
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("tests HubSpot with the shared OAuth-or-legacy credential resolver", async () => {
+    mocks.body = { source: "hubspot" };
+    mocks.resolveAnalyticsProviderCredential.mockResolvedValue({
+      value: "hubspot-oauth-token",
+      source: "workspace_connection",
+      connectionId: "hubspot-connection",
+    });
+    vi.mocked(fetch).mockResolvedValue(new Response("{}", { status: 200 }));
+
+    await expect(handler({} as never)).resolves.toEqual({ ok: true });
+
+    expect(mocks.resolveAnalyticsProviderCredential).toHaveBeenCalledWith({
+      provider: "hubspot",
+      keys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
+      ctx: mocks.ctx,
+    });
+    expect(fetch).toHaveBeenCalledWith(
+      "https://api.hubapi.com/crm/v3/objects/contacts?limit=1",
+      {
+        headers: { Authorization: "Bearer hubspot-oauth-token" },
+      },
+    );
+  });
+
+  it("does not call HubSpot without an OAuth or legacy credential", async () => {
+    mocks.body = { source: "hubspot" };
+    mocks.resolveAnalyticsProviderCredential.mockResolvedValue(null);
+
+    await expect(handler({} as never)).resolves.toEqual({
+      ok: false,
+      error: "Missing HubSpot token",
+    });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("tests Mixpanel through the provider API substrate", async () => {
+    mocks.body = { source: "mixpanel" };
+    mocks.resolveCredential.mockImplementation(async (key: string) =>
+      key === "MIXPANEL_PROJECT_ID" ? "12345" : "user:secret",
+    );
+    mocks.executeProviderApiRequest.mockResolvedValue({
+      response: { ok: true, status: 200 },
+    });
+
+    await expect(handler({} as never)).resolves.toEqual({ ok: true });
+
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledWith({
+      provider: "mixpanel",
+      method: "GET",
+      path: "/events/top",
+      query: {
+        type: "general",
+        limit: 1,
+        project_id: "{projectId}",
+      },
+    });
+  });
+
+  it("preserves Mixpanel connection errors", async () => {
+    mocks.body = { source: "mixpanel" };
+    mocks.resolveCredential.mockResolvedValue("configured");
+    mocks.executeProviderApiRequest.mockResolvedValue({
+      response: { ok: false, status: 401, text: "Invalid credentials" },
+    });
+
+    await expect(handler({} as never)).resolves.toEqual({
+      ok: false,
+      error: "Mixpanel API error 401: Invalid credentials",
+    });
+  });
+
+  it("tests PostHog through the provider API substrate", async () => {
+    mocks.body = { source: "posthog" };
+    mocks.resolveCredential.mockResolvedValue("configured");
+    mocks.executeProviderApiRequest.mockResolvedValue({
+      response: { ok: true, status: 200 },
+    });
+
+    await expect(handler({} as never)).resolves.toEqual({ ok: true });
+
+    expect(mocks.executeProviderApiRequest).toHaveBeenCalledWith({
+      provider: "posthog",
+      method: "GET",
+      path: "/api/projects/{projectId}/",
+    });
+  });
+
+  it("keeps missing provider credentials as a connection-test result", async () => {
+    mocks.body = { source: "posthog" };
+    mocks.resolveCredential.mockResolvedValue(null);
+
+    await expect(handler({} as never)).resolves.toEqual({
+      ok: false,
+      error: "Missing credentials",
+    });
+    expect(mocks.executeProviderApiRequest).not.toHaveBeenCalled();
   });
 });
