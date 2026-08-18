@@ -126,13 +126,7 @@ export default function DispatchTemplate() {
         }
       />
 
-      <TemplateActivationFrame
-        heading={
-          <h2 className="m-0 text-2xl font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-            {t("templateLanding.dispatch.s009")}
-          </h2>
-        }
-      >
+      <TemplateActivationFrame>
         <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
           <a
             href="https://dispatch.agent-native.com"
