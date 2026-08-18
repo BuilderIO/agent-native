@@ -41,26 +41,31 @@ resolved locale/catalog into that script to avoid hydration mismatches.
 Each localized template keeps catalogs under `app/i18n/`:
 
 ```ts filename="app/i18n/index.ts"
+import { createAgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
 import enUS from "./en-US";
-import type { AgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
-export const i18nCatalog = {
-  sourceLocale: "en-US",
+
+export const i18nCatalog = createAgentNativeI18nCatalog({
   messages: enUS,
-  loadMessages: async (locale) => {
-    switch (locale) {
-      case "zh-CN":
-        return (await import("./zh-CN")).default;
-      default:
-        return null;
-    }
+  localeLoaders: {
+    "zh-CN": () => import("./zh-CN"),
+    "zh-TW": () => import("./zh-TW"),
+    "es-ES": () => import("./es-ES"),
+    "fr-FR": () => import("./fr-FR"),
+    "de-DE": () => import("./de-DE"),
+    "ja-JP": () => import("./ja-JP"),
+    "ko-KR": () => import("./ko-KR"),
+    "pt-BR": () => import("./pt-BR"),
+    "hi-IN": () => import("./hi-IN"),
+    "ar-SA": () => import("./ar-SA"),
   },
-} satisfies AgentNativeI18nCatalog;
+});
 ```
 
-Always bundle `en-US`. Dynamic-import non-English catalogs so users only
-download the active locale. The supported locale codes are `en-US`, `zh-CN`,
-`zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN`, and
-`ar-SA`.
+`messages` bundles `en-US` directly so it is always available before any
+locale loads. `localeLoaders` dynamic-imports every other catalog so users
+only download the active locale. The supported locale codes are `en-US`,
+`zh-CN`, `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`,
+`hi-IN`, and `ar-SA`.
 
 ## UI
 
@@ -121,8 +126,14 @@ action names, language tags, code snippets, JSON keys, and protocol names.
 
 Every app inherits:
 
-- `get-localization-preference` — read the current user's `{ locale }`
-- `set-localization-preference` — set `"system"` or a supported locale
+- `get-localization-preference` — read the current user's `{ locale, timezone }`
+- `set-localization-preference` — set `locale` and/or `timezone`, each optional
+
+`locale` is `"system"` or a supported BCP-47 locale. `timezone` is `"system"`
+or an IANA zone such as `America/New_York`. It exists so scheduled and
+automation work runs in the user's zone instead of the host's. Setting only
+one field leaves the other unchanged, because `set-localization-preference`
+merges onto the existing stored value instead of overwriting it.
 
 The durable value lives in user-scoped SQL settings under `localization`.
 `localStorage` is only used for pre-hydration and anonymous fallback. The active
@@ -137,10 +148,25 @@ Run:
 pnpm guard:i18n-catalogs
 ```
 
-The guard verifies supported locale filenames, key parity, placeholder parity,
-stale keys, and CLDR plural categories through `Intl.PluralRules`. It checks
-structure, not translation quality; high-visibility strings still need human
-review.
+For app and template catalogs, the guard checks:
+
+- Locale filenames, key parity, placeholder parity, and stale keys
+- Duplicate keys and leftover development-only markers
+- Wrong-script contamination, for example Chinese text inside an Arabic catalog
+- CLDR plural categories through `Intl.PluralRules`
+- `t()` calls in app source whose key is missing from the English catalog
+
+For localized docs under `packages/core/docs/content/locales/*`, the guard
+also checks that every English doc has a matching locale file and that prose
+inside `an-*` blocks and MDX segments has actually changed from the English
+source, not just been copied over. Reviewed, intentional exceptions, such as
+a mockup's HTML that stays in English by convention, are recorded in
+`scripts/i18n-localized-docs-baseline.txt` and
+`scripts/i18n-localized-doc-coverage-baseline.txt` instead of being silently
+skipped, so new debt still fails the guard.
+
+The guard checks structure, not translation quality. High-visibility strings
+still need human review.
 
 Do not translate stable identifiers such as action names, routes, enum values,
 app-state keys, database values, protocol fields, env var names, or provider
