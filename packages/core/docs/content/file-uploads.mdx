@@ -104,41 +104,46 @@ When your app is connected to Builder.io, file uploads are automatically routed 
 
 ## Custom Providers {#custom-providers}
 
-Register a custom provider in a server plugin to use any storage backend (S3, Cloudflare R2, GCS, etc.):
+The framework already ships a built-in provider for S3-compatible storage
+(AWS S3, Cloudflare R2, MinIO, and similar). Connect it with environment
+variables or through the sidebar onboarding checklist. No code is required.
+See [Onboarding](/docs/onboarding).
+
+Register a custom provider only for a different kind of backend. This
+example uploads through a generic HTTP API using `fetch()`:
 
 ```ts filename="server/plugins/file-upload.ts"
-import { S3 } from "@aws-sdk/client-s3";
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
-import { defineNitroPlugin, resolveSecret } from "@agent-native/core/server";
-
-const s3Client = new S3({ region: process.env.AWS_REGION });
+import { defineNitroPlugin } from "@agent-native/core/server";
 
 export default defineNitroPlugin(() => {
-  const readBucket = () => resolveSecret("S3_BUCKET");
-
   registerFileUploadProvider({
-    id: "s3",
-    name: "Amazon S3",
-    isConfigured: () => false,
-    isConfiguredForRequest: async () => !!(await readBucket()),
+    id: "my-storage",
+    name: "My Storage",
+    isConfigured: () => !!process.env.UPLOAD_ENDPOINT,
     upload: async ({ data, filename, mimeType }) => {
-      const bucket = await readBucket();
-      if (!bucket) throw new Error("S3 storage is not configured");
-      const key = `uploads/${Date.now()}-${filename}`;
-      await s3Client.putObject({
-        Bucket: bucket,
-        Key: key,
-        Body: data,
-        ContentType: mimeType,
-      });
-      return {
-        url: `https://${bucket}.s3.amazonaws.com/${key}`,
-        provider: "s3",
-      };
+      const endpoint = process.env.UPLOAD_ENDPOINT!;
+      const body = new FormData();
+      body.append("file", new Blob([data], { type: mimeType }), filename);
+
+      // This example assumes an upload API that accepts a multipart file
+      // and returns { url }. Adjust the request and response handling to
+      // match your own provider's actual contract.
+      const response = await fetch(endpoint, { method: "POST", body });
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      return { url, provider: "my-storage" };
     },
   });
 });
 ```
+
+Use `resolveSecret()` from `@agent-native/core/server` instead of an
+environment variable when the provider needs a real credential, such as an
+API key. See [Security — Secrets Management](/docs/security#secrets).
 
 ## Upload API {#upload-api}
 
