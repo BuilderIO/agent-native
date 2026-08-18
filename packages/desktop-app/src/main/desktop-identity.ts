@@ -483,6 +483,7 @@ export class DesktopIdentityBroker {
     randomBytes(16).toString("base64url");
   private status: DesktopIdentityStatus = "idle";
   private statusVerifiedAt = 0;
+  private statusRevalidationRetryAt = 0;
   private ceremonyGeneration = 0;
   private availability: "unknown" | "available" | "unavailable";
 
@@ -526,7 +527,8 @@ export class DesktopIdentityBroker {
     if (this.signOutOperation) return;
     if (
       this.status === "signed-in" &&
-      Date.now() - this.statusVerifiedAt <
+      Date.now() -
+        Math.max(this.statusVerifiedAt, this.statusRevalidationRetryAt) <
         (this.options.statusRevalidationIntervalMs ??
           DEFAULT_STATUS_REVALIDATION_INTERVAL_MS)
     ) {
@@ -586,9 +588,12 @@ export class DesktopIdentityBroker {
       ) {
         return;
       }
-      if (observedStatus !== "signed-in") {
-        this.setStatus("sign-in-required");
-      }
+      if (observedStatus === "signed-in") {
+        // Preserve the verified session through a transient outage, but
+        // bound retries so every tab activation does not start another remote
+        // request while the authority is unavailable.
+        this.statusRevalidationRetryAt = Date.now();
+      } else this.setStatus("sign-in-required");
       return;
     }
     if (
@@ -3097,6 +3102,7 @@ export class DesktopIdentityBroker {
     }
     this.status = status;
     this.statusVerifiedAt = status === "signed-in" ? Date.now() : 0;
+    this.statusRevalidationRetryAt = 0;
     this.options.onStatus?.(status);
   }
 }

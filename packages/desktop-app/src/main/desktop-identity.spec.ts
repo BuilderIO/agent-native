@@ -930,6 +930,44 @@ describe("DesktopIdentityBroker", () => {
     expect(identityFetch).toHaveBeenCalledTimes(2);
   });
 
+  it("bounds retries after a transient status refresh failure", async () => {
+    const now = vi.spyOn(Date, "now");
+    let currentTime = 1_000_000;
+    now.mockImplementation(() => currentTime);
+    try {
+      const authority = authorityFixture();
+      const identityFetch = vi
+        .fn()
+        .mockResolvedValueOnce(sessionResponse())
+        .mockRejectedValueOnce(new Error("temporary network failure"));
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: cookieStore([
+            sessionCookie("an_session_dispatch", authority.origin),
+          ]),
+          fetch: identityFetch,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        resolveApp: (id) => (id === authority.id ? authority : null),
+        createWindow: vi.fn() as never,
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+        statusRevalidationIntervalMs: 1_000,
+      });
+
+      await broker.refreshStatus(authority);
+      currentTime += 1_001;
+      await broker.refreshStatus(authority);
+      currentTime += 500;
+      await broker.refreshStatus(authority);
+
+      expect(broker.getStatus()).toBe("signed-in");
+      expect(identityFetch).toHaveBeenCalledTimes(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("preserves a verified session through server and malformed responses", async () => {
     const authority = authorityFixture();
     for (const response of [
