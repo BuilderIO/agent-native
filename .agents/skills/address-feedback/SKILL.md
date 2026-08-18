@@ -186,9 +186,10 @@ For every actionable item, use a plain-language label and one short status:
 - For any item that still needs verification: **Verification pending**.
 
 Add one timing phrase to every status. If the current ship is expected to
-finish that day, use "Expected live by EOD." If timing is not confirmed, use
-"Timing not confirmed yet." For items that are not planned or out of scope, use
-"No live date." Do not invent a release date.
+finish that day and the completed fix is confirmed to be included in that
+ship, use "Expected live by EOD." Otherwise use "Timing not confirmed yet."
+For items that are not planned or out of scope, use "No live date." Do not
+invent a release date.
 
 If a requested change is implemented but not yet verified, use
 "[plain-language item] - Verification pending. Timing not confirmed yet."
@@ -198,8 +199,12 @@ When this skill is used by `address-feedback-with-replies`, that skill's Slack
 reply states take precedence: a completed Slack thread must end as **Fixed** or
 **Clarification needed**. Do not post **Not fixed yet**, **Needs clarification**,
 or a bare **Verification pending** status in Slack. Ask one concrete,
-plain-language clarification question when the fix cannot be completed. Keep
-the no-technical-details rule in all cases.
+plain-language clarification question only when reporter or product input is
+missing. **Clarification needed** is the one timing exception: do not give a
+live estimate until the question is answered and the fix is complete. If only
+internal test, deployment, or tooling verification is unavailable, keep that
+blocker internal and do not turn it into a reporter question. Keep the
+no-technical-details rule in all cases.
 
 Use this format:
 

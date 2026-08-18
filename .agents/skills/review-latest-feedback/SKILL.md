@@ -100,9 +100,11 @@ evidence, likely owner, and disposition. Use this order:
    tests, logs, a stack trace, or a linked run. Add `👀` to the Slack thread
    immediately after classification, before investigation or delegation. Fix
    it and keep working until the smallest meaningful verification is green.
-2. **Missing evidence** - after reading the full thread and linked evidence,
-   ask one specific question naming the exact reproduction, input, or surface
-   needed to choose and verify a safe fix. Add `👀` before asking.
+2. **Missing reporter evidence** - after reading the full thread and linked
+   evidence, ask one specific question naming the exact reproduction, input, or
+   surface needed to choose and verify a safe fix. Add `👀` before asking. If
+   only internal test, deployment, or tooling verification is unavailable,
+   keep that blocker internal and do not ask the reporter for it.
 3. **Subjective UX or product suggestion** - do not turn a preference into a
    code or prompt rule. Act only when the report identifies a concrete broken
    behavior, an existing product invariant, or repeated independent evidence;
@@ -154,13 +156,15 @@ failure modes, surfaces, or owners.
    distinguish a source fix from deployed and observed-live recovery.
 6. This skill is authorized to react to actionable Slack threads and post one
    concise in-thread update for each actionable item it handles. Post only
-   after the fix or clarification is ready. A fix reply names what changed and
-   the evidence; a clarification reply asks one concrete question. Do not post
-   vague progress, technical internals, or a diagnosis that leaves a safely
-   fixable bug undone. Re-read every thread after posting. A fix reply
+   after the fix or clarification is ready. A fix reply says only that it is
+   fixed and when it should be live; a clarification reply asks one concrete
+   question about missing reporter or product input. Keep implementation and
+   verification evidence in the internal recap, not the reporter-facing reply.
+   Do not post vague progress, technical internals, or a diagnosis that leaves
+   a safely fixable bug undone. Re-read every thread after posting. A fix reply
    authored by this skill's own identity is a handled marker on the next run;
-   a clarification reply is not. A clarification reply marks the thread pending
-   an answer, to be re-read by the answered-clarifications pass.
+   a clarification reply is not. A clarification reply marks the thread
+   pending an answer, to be re-read by the answered-clarifications pass.
 7. Do not close, label, assign, or comment on GitHub issues or Sentry unless
    the invocation explicitly authorizes those mutations. Link the issue or
    event in the recap instead.
