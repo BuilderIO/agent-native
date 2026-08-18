@@ -66,8 +66,8 @@ describe("screen capture audio policy", () => {
     expect(
       screenCaptureDisplayOptions("browser", true).selfBrowserSurface,
     ).toBe("include");
-    expect(
-      screenCaptureDisplayOptions("window", true).selfBrowserSurface,
-    ).toBe("exclude");
+    expect(screenCaptureDisplayOptions("window", true).selfBrowserSurface).toBe(
+      "exclude",
+    );
   });
 });

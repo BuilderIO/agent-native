@@ -188,7 +188,9 @@ describe("create-folder action", () => {
       from: vi.fn().mockReturnThis(),
       where: vi.fn().mockResolvedValue([{ max: -1 }]),
     };
-    mockDb.select.mockReturnValueOnce(parentSelect).mockReturnValueOnce(maxSelect);
+    mockDb.select
+      .mockReturnValueOnce(parentSelect)
+      .mockReturnValueOnce(maxSelect);
 
     const result = await action.run({
       name: "Nested folder",

@@ -2372,6 +2372,9 @@ export class RecorderEngine {
   /** Best-effort — unsupported browsers or a denied request must never block capture. */
   private async acquireWakeLock(): Promise<void> {
     try {
+      // coercion-ok: optional chaining yields undefined only when the Wake
+      // Lock API itself is absent (older/other browsers) — a real rejection
+      // (denied request) is caught below, not coerced here.
       this.wakeLock = (await navigator.wakeLock?.request?.("screen")) ?? null;
     } catch {
       this.wakeLock = null;

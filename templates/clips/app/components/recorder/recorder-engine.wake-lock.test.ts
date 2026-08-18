@@ -60,14 +60,23 @@ describe("RecorderEngine screen wake lock", () => {
   it("requests a screen wake lock while display capture is live, and releases it on teardown", async () => {
     const release = vi.fn(async () => {});
     const request = vi.fn(async () => ({ release }));
-    const getDisplayMedia = vi.fn(async () => new FakeStream([new FakeTrack()]));
+    const getDisplayMedia = vi.fn(
+      async () => new FakeStream([new FakeTrack()]),
+    );
 
-    vi.stubGlobal("window", { setTimeout, clearTimeout, isSecureContext: true });
-    vi.stubGlobal("AudioContext", class {
-      close() {
-        return Promise.resolve();
-      }
+    vi.stubGlobal("window", {
+      setTimeout,
+      clearTimeout,
+      isSecureContext: true,
     });
+    vi.stubGlobal(
+      "AudioContext",
+      class {
+        close() {
+          return Promise.resolve();
+        }
+      },
+    );
     vi.stubGlobal("navigator", {
       mediaDevices: { getDisplayMedia, getUserMedia: vi.fn() },
       wakeLock: { request },
@@ -88,14 +97,23 @@ describe("RecorderEngine screen wake lock", () => {
   });
 
   it("never blocks capture when the Wake Lock API is unavailable", async () => {
-    const getDisplayMedia = vi.fn(async () => new FakeStream([new FakeTrack()]));
+    const getDisplayMedia = vi.fn(
+      async () => new FakeStream([new FakeTrack()]),
+    );
 
-    vi.stubGlobal("window", { setTimeout, clearTimeout, isSecureContext: true });
-    vi.stubGlobal("AudioContext", class {
-      close() {
-        return Promise.resolve();
-      }
+    vi.stubGlobal("window", {
+      setTimeout,
+      clearTimeout,
+      isSecureContext: true,
     });
+    vi.stubGlobal(
+      "AudioContext",
+      class {
+        close() {
+          return Promise.resolve();
+        }
+      },
+    );
     vi.stubGlobal("navigator", {
       mediaDevices: { getDisplayMedia, getUserMedia: vi.fn() },
       // no wakeLock property at all — older/other browsers
