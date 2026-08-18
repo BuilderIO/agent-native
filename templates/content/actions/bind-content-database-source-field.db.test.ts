@@ -7,6 +7,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import {
@@ -28,6 +29,8 @@ let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let bindAction: typeof import("./bind-content-database-source-field.js").default;
 let addSourceFieldPropertyAction: typeof import("./add-content-database-source-field-property.js").default;
+let configureProperty: typeof import("./configure-document-property.js").default;
+let removeRowsOwnedOnlyBySource: typeof import("./change-content-database-source-role.js").removeRowsOwnedOnlyBySource;
 
 const OWNER = "owner@example.com";
 
@@ -40,9 +43,14 @@ beforeAll(async () => {
   await plugin(undefined as any);
   bindAction = (await import("./bind-content-database-source-field.js"))
     .default;
+  configureProperty = (await import("./configure-document-property.js"))
+    .default;
   const addSourceFieldPropertyModule =
     await import("./add-content-database-source-field-property.js");
   addSourceFieldPropertyAction = addSourceFieldPropertyModule.default;
+  removeRowsOwnedOnlyBySource = (
+    await import("./change-content-database-source-role.js")
+  ).removeRowsOwnedOnlyBySource;
 }, 60000);
 
 afterEach(() => {
@@ -323,6 +331,73 @@ async function seedStaleBuilderTopicsSnapshot(rowCount = 2) {
 }
 
 describe("bind-content-database-source-field (row-union)", () => {
+  it("fails closed when the source field disappears before the bind update", async () => {
+    const f = await seedRowUnion();
+    const triggerName = `delete_bound_field_${counter}`;
+    await getDbExec().execute(
+      `CREATE TRIGGER ${triggerName}
+       BEFORE UPDATE OF property_id ON content_database_source_fields
+       WHEN OLD.id = '${f.fields.fieldACat}' AND NEW.property_id IS NOT NULL
+       BEGIN
+         DELETE FROM content_database_source_fields WHERE id = OLD.id;
+       END`,
+    );
+    try {
+      await expect(
+        asOwner(() =>
+          bindAction.run({
+            databaseId: f.databaseId,
+            sourceFieldId: f.fields.fieldACat,
+            propertyId: f.tagPropertyId,
+          }),
+        ),
+      ).rejects.toThrow(/deleted before its binding could be saved/i);
+    } finally {
+      await getDbExec().execute(`DROP TRIGGER IF EXISTS ${triggerName}`);
+    }
+  });
+
+  it("removes stable-key claims with memberships owned only by a converted source", async () => {
+    const f = await seedRowUnion();
+    const db = getDb();
+    const [claimedItem] = await db
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.documentId, f.docs.a1));
+    const now = new Date().toISOString();
+    await db.insert(schema.contentDatabaseItemKeyClaims).values({
+      id: `claim_${claimedItem.id}`,
+      ownerEmail: OWNER,
+      orgId: null,
+      databaseId: f.databaseId,
+      propertyId: f.tagPropertyId,
+      keyValueJson: JSON.stringify("external-a1"),
+      itemId: claimedItem.id,
+      documentId: f.docs.a1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await removeRowsOwnedOnlyBySource({
+      databaseId: f.databaseId,
+      sourceId: f.sourceA,
+    });
+
+    expect(
+      await db
+        .select({ id: schema.contentDatabaseItemKeyClaims.id })
+        .from(schema.contentDatabaseItemKeyClaims)
+        .where(
+          eq(schema.contentDatabaseItemKeyClaims.id, `claim_${claimedItem.id}`),
+        ),
+    ).toEqual([]);
+    const remainingItems = await db
+      .select({ documentId: schema.contentDatabaseItems.documentId })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, f.databaseId));
+    expect(remainingItems).toEqual([{ documentId: f.docs.b1 }]);
+  });
+
   it("backfills only the bound source's rows into the column", async () => {
     const f = await seedRowUnion();
     await asOwner(() =>
@@ -335,6 +410,47 @@ describe("bind-content-database-source-field (row-union)", () => {
     // Source A's row with a value gets it; source B's row is untouched.
     expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBe("Alpha");
     expect(await tagValue(f.docs.b1, f.tagPropertyId)).toBeUndefined();
+  });
+
+  it("serializes concurrent bind and unbind without mapping/value divergence", async () => {
+    const f = await seedRowUnion();
+    await asOwner(() =>
+      bindAction.run({
+        databaseId: f.databaseId,
+        sourceFieldId: f.fields.fieldACat,
+        propertyId: f.tagPropertyId,
+      }),
+    );
+
+    await Promise.allSettled([
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: null,
+        }),
+      ),
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: f.tagPropertyId,
+        }),
+      ),
+    ]);
+
+    const [field] = await getDb()
+      .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, f.fields.fieldACat));
+    if (field.propertyId === null) {
+      expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBeUndefined();
+      expect(await tagValue(f.docs.a2, f.tagPropertyId)).toBeUndefined();
+    } else {
+      expect(field.propertyId).toBe(f.tagPropertyId);
+      expect(await tagValue(f.docs.a1, f.tagPropertyId)).toBe("Alpha");
+      expect(await tagValue(f.docs.a2, f.tagPropertyId)).toBeUndefined();
+    }
   });
 
   it("clears a stale column value when the newly bound field is empty", async () => {
@@ -416,6 +532,40 @@ describe("bind-content-database-source-field (row-union)", () => {
     ).rejects.toThrow(/already feeds this column/i);
   });
 
+  it("serializes concurrent fields from one source competing for one column", async () => {
+    const f = await seedRowUnion();
+    const results = await Promise.allSettled([
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: f.tagPropertyId,
+        }),
+      ),
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldAOther,
+          propertyId: f.tagPropertyId,
+        }),
+      ),
+    ]);
+    expect(
+      results.filter((result) => result.status === "fulfilled"),
+    ).toHaveLength(1);
+
+    const mappings = await getDb()
+      .select({ id: schema.contentDatabaseSourceFields.id })
+      .from(schema.contentDatabaseSourceFields)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceFields.sourceId, f.sourceA),
+          eq(schema.contentDatabaseSourceFields.propertyId, f.tagPropertyId),
+        ),
+      );
+    expect(mappings).toHaveLength(1);
+  });
+
   it("rejects a multi-value field into a text column", async () => {
     const f = await seedRowUnion();
     await expect(
@@ -427,6 +577,89 @@ describe("bind-content-database-source-field (row-union)", () => {
         }),
       ),
     ).rejects.toThrow(/multi-value/i);
+  });
+
+  it("rejects binding a property that already owns stable-key claims", async () => {
+    const f = await seedRowUnion();
+    const db = getDb();
+    const [item] = await db
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.documentId, f.docs.a1));
+    const now = new Date().toISOString();
+    await db.insert(schema.contentDatabaseItemKeyClaims).values({
+      id: `claim_${f.databaseId}`,
+      ownerEmail: OWNER,
+      orgId: null,
+      databaseId: f.databaseId,
+      propertyId: f.tagPropertyId,
+      keyValueJson: '"claimed"',
+      itemId: item.id,
+      documentId: f.docs.a1,
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: f.tagPropertyId,
+        }),
+      ),
+    ).rejects.toThrow(/active stable-key claims/i);
+    const [field] = await db
+      .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, f.fields.fieldACat));
+    expect(field.propertyId).toBeNull();
+  });
+
+  it("serializes a real concurrent source binding and property type change", async () => {
+    const f = await seedRowUnion();
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, f.databaseId));
+    const [bindResult, configureResult] = await Promise.allSettled([
+      asOwner(() =>
+        bindAction.run({
+          databaseId: f.databaseId,
+          sourceFieldId: f.fields.fieldACat,
+          propertyId: f.tagPropertyId,
+        }),
+      ),
+      asOwner(() =>
+        configureProperty.run({
+          id: f.tagPropertyId,
+          documentId: database.documentId,
+          databaseId: f.databaseId,
+          name: "Tag",
+          type: "number",
+        }),
+      ),
+    ]);
+    expect(
+      [bindResult, configureResult].filter(
+        (result) => result.status === "fulfilled",
+      ),
+    ).toHaveLength(1);
+
+    const [field] = await getDb()
+      .select({ propertyId: schema.contentDatabaseSourceFields.propertyId })
+      .from(schema.contentDatabaseSourceFields)
+      .where(eq(schema.contentDatabaseSourceFields.id, f.fields.fieldACat));
+    const [property] = await getDb()
+      .select({ type: schema.documentPropertyDefinitions.type })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, f.tagPropertyId));
+    if (field.propertyId) {
+      expect(field.propertyId).toBe(f.tagPropertyId);
+      expect(property.type).toBe("text");
+    } else {
+      expect(property.type).toBe("number");
+    }
   });
 
   it("allows two different sources to feed one column, then unbinds", async () => {
@@ -469,6 +702,139 @@ describe("bind-content-database-source-field (row-union)", () => {
 });
 
 describe("add-content-database-source-field-property Builder refresh", () => {
+  it("creates an explicitly empty projected field without rereading Builder", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot();
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    await Promise.all(
+      rows.map((row) =>
+        db
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: JSON.stringify({
+              ...JSON.parse(row.sourceValuesJson),
+              "data.topics": null,
+            }),
+          })
+          .where(eq(schema.contentDatabaseSourceRows.id, row.id)),
+      ),
+    );
+    const readBuilderEntries = vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    );
+
+    const result = await asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+
+    expect(readBuilderEntries).not.toHaveBeenCalled();
+    expect(result.itemValues).toEqual([]);
+    const properties = await db
+      .select()
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, f.databaseId));
+    expect(properties).toHaveLength(1);
+  });
+
+  it("materializes a projected field without returning unrelated source content", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot();
+    const db = getDb();
+    const rows = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    await Promise.all(
+      rows.map((row, index) =>
+        db
+          .update(schema.contentDatabaseSourceRows)
+          .set({
+            sourceValuesJson: JSON.stringify({
+              ...JSON.parse(row.sourceValuesJson),
+              "data.topics": [
+                index === 0 ? "Agent Native" : "Developer Experience",
+              ],
+              "_builder.bodyContent": "unrelated".repeat(5_000),
+            }),
+          })
+          .where(eq(schema.contentDatabaseSourceRows.id, row.id)),
+      ),
+    );
+    const readBuilderEntries = vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    );
+
+    const result = await asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+
+    expect(readBuilderEntries).not.toHaveBeenCalled();
+    expect(result.itemValues).toEqual([
+      {
+        itemId: f.rows[0].itemId,
+        documentId: f.rows[0].documentId,
+        value: ["agent-native"],
+      },
+      {
+        itemId: f.rows[1].itemId,
+        documentId: f.rows[1].documentId,
+        value: ["developer-experience"],
+      },
+    ]);
+    expect(JSON.stringify(result)).not.toContain("_builder.bodyContent");
+    expect(JSON.stringify(result)).not.toContain("unrelated");
+  });
+
+  it("materializes 584 already-projected rows without rereading Builder", async () => {
+    const f = await seedStaleBuilderTopicsSnapshot(584);
+    const db = getDb();
+    await db
+      .update(schema.contentDatabaseSourceRows)
+      .set({
+        sourceValuesJson: JSON.stringify({
+          "data.topics": ["Agent Native"],
+          "_builder.bodyContent": "unrelated".repeat(500),
+        }),
+      })
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    const readBuilderEntries = vi.spyOn(
+      await import("./_builder-cms-read-client.js"),
+      "readBuilderCmsContentEntries",
+    );
+
+    const result = await asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
+
+    expect(readBuilderEntries).not.toHaveBeenCalled();
+    expect(result.itemValues).toHaveLength(584);
+    expect(result.itemValues[0]?.value).toEqual(["agent-native"]);
+    expect(JSON.stringify(result)).not.toContain("_builder.bodyContent");
+    const propertyValues = await db
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(
+        eq(
+          schema.documentPropertyValues.propertyId,
+          result.property.definition.id,
+        ),
+      );
+    expect(propertyValues).toHaveLength(584);
+  });
+
   it("refreshes a stale Builder snapshot before creating and populating a Topics property", async () => {
     const f = await seedStaleBuilderTopicsSnapshot();
     const readBuilderEntries = vi

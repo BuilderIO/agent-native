@@ -15,7 +15,7 @@ import { track } from "@agent-native/core/tracking";
 track(
   "order.completed",
   { total: 49.99, items: 3 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
 
@@ -91,7 +91,7 @@ env var를 설정하면 공급자가 서버 시작 시 자동 등록됩니다. �
 
 ## API {#api}
 
-### `track(name, properties?, meta?)` {#track}
+### `track(name, properties?, source?)` {#track}
 
 분석 이벤트를 실행합니다. 등록된 모든 제공업체에 팬 아웃됩니다.
 
@@ -101,9 +101,13 @@ import { track } from "@agent-native/core/tracking";
 track(
   "meal.logged",
   { mealName: "Salad", calories: 350 },
-  { userId: "steve@builder.io" },
+  { userId: "user@example.com" },
 );
 ```
+
+`source`에는 액션의 `ctx`를 그대로 전달하거나, `ctx`가 없는 호출자를 위해 `{ userId, anonymousId, sessionId }` 메타 객체를 전달합니다.
+
+브라우저 세션은 호출자가 직접 넘길 필요가 없습니다. 앰비언트 요청 컨텍스트(`RequestContext.browserSessionId`로, 액션 클라이언트·챗·브라우저 `track()`이 모두 보내는 `X-Agent-Native-Session-Id` 헤더에서 설정됩니다)에서 가져오므로, UI가 이벤트를 일으켰든 에이전트가 일으켰든 같은 방문으로 상관됩니다. 각 제공자는 이를 자체 세션 필드에 매핑합니다. PostHog는 `$session_id`로 매핑해 이벤트를 세션 리플레이와 연결하고, Mixpanel과 Amplitude는 `session_id` 속성으로, 웹훅과 Agent Native Analytics는 최상위 `sessionId`로 받습니다. 브라우저가 없는 호출자(cron, CLI, MCP, A2A)에서는 값이 없으며, 메타 객체의 `sessionId`가 이를 덮어씁니다.
 
 ### `identify(userId, traits?)` {#identify}
 
@@ -112,7 +116,7 @@ track(
 ```ts
 import { identify } from "@agent-native/core/tracking";
 
-identify("steve@builder.io", { plan: "pro", company: "Builder.io" });
+identify("user@example.com", { plan: "pro", company: "Builder.io" });
 ```
 
 사용자 정의 백엔드, 공급자 레지스트리 API 또는 일괄 처리/싱글톤 내부가 필요합니까? 마지막에 있는 [Advanced: custom providers & internals](#advanced)를 참조하세요.
@@ -142,7 +146,9 @@ export default defineAction({
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx?.userEmail });
+    // ctx를 그대로 전달합니다: 이벤트는 ctx.userEmail에 귀속되고 호출이 발생한
+    // 브라우저 세션에 연결됩니다.
+    track("project.created", { name, template }, ctx);
 
     return { ok: true, projectId: project.id };
   },
@@ -176,8 +182,7 @@ Identity is resolved **server-side** from the session — browser code never pas
 </Endpoint>
 
 ```ts
-import { track } from "@agent-native/core/client";
-
+import { track } from "@agent-native/core/client/analytics";
 // e.g. inside a click handler or effect
 track("checkout.completed", { total: 49.99, items: 3 });
 ```
@@ -196,8 +201,7 @@ track("checkout.completed", { total: 49.99, items: 3 });
 Agent Native 앱은 두 번째 분석 SDK를 추가하지 않고도 퍼스트파티 브라우저 세션 리플레이를 사용하도록 설정할 수 있습니다. 브라우저 루트에서 `configureTracking()`을 한 번 호출하고 Analytics 공개 키와 수집기 엔드포인트를 전달하세요.
 
 ```ts
-import { configureTracking } from "@agent-native/core/client";
-
+import { configureTracking } from "@agent-native/core/client/analytics";
 configureTracking({
   key: "anpk_...",
   endpoint: "https://analytics.example.com/api/analytics/track",
@@ -237,6 +241,8 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 - 민감한 영역은 `[data-sensitive]`, `.an-block`, `.an-private`, `data-an-block`, `data-an-private`와 같은 선택자, 그리고 신용카드/비밀번호/주민등록번호와 유사한 필드로 차단됩니다.
 - URL은 브라우저 분석에서 사용하는 것과 동일한 `scrubUrl()` 도우미로 정제됩니다.
 - 리플레이 캡처는 웹 전용이며 옵트인 방식입니다. 네이티브 데스크톱 화면은 기록하지 않습니다.
+
+확장 프로그램과 렌더링된 이메일 콘텐츠를 포함하여 프레임워크가 관리하는 iframe은 리플레이 캡처에 포함됩니다. 기록된 프레임 내부에도 동일한 마스킹 및 차단 선택자가 적용됩니다. 타사 교차 출처 iframe은 자체 문서가 교차 출처 iframe 기록을 활성화한 호환 rrweb 레코더를 실행하지 않는 한 불투명하게 유지되며, 부모 페이지에서 브라우저의 출처 경계를 우회할 수 없습니다.
 
 기록하는 동안 세션 리플레이는 브라우저 콘솔 출력(`log`, `info`, `warn`, `error`, `debug` 및 window `error` / `unhandledrejection`)과 네트워크 요청 메타데이터(`fetch` 및 XHR)를 태그가 지정된 rrweb 커스텀 이벤트로 캡처하므로, 에이전트와 리플레이 뷰어가 사용자가 보고한 문제를 디버그할 수 있습니다. 리플레이가 활성화되면 캡처는 기본적으로 켜져 있으며, `sessionReplay.console` 및 `sessionReplay.network` 옵션으로 조정하거나 비활성화할 수 있습니다. 각 옵션은 불리언 또는 옵션 객체(`{ maxEvents?: number }`)를 받으며, `network`는 추가로 `captureErrorBodies`와 `maxErrorBodyLength`를 받습니다. 요청 본문과 헤더는 절대 캡처되지 않으며, 응답 본문은 5xx(서버 오류) 응답에 한해서만 경계가 지정된 정제된 스니펫으로 캡처됩니다(`captureErrorBodies`, 기본값 `true`, `maxErrorBodyLength` 문자 수로 상한 설정, 기본값 2048) — 5xx가 아닌 응답과 네트워크 실패(상태 0) 응답에는 본문이 포함되지 않습니다. URL은 정제되며, 메시지는 잘리고, 레코더 자체의 수집/추적 트래픽은 제외되며, 세션당 한도(콘솔 1000개 / 네트워크 2000개 이벤트)를 초과하면 잘림 안내가 추가됩니다.
 
@@ -351,6 +357,6 @@ interface TrackingEvent {
 
 ## 다음 단계
 
-- [**Actions**](/docs/actions) — 대부분의 추적 통화가 발생하는 곳
-- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()`는 시작 시 핵심 경로 플러그인에서 실행됩니다.
+- [**Actions**](/docs/actions-overview) — 대부분의 추적 통화가 발생하는 곳
+- [**Server Plugins**](/docs/server-plugins) — `registerBuiltinProviders()`는 시작 시 핵심 경로 플러그인에서 실행됩니다.
 - [**보안 — 비밀 관리**](/docs/security#secrets) — 추적 제공자를 위한 API 키 관리

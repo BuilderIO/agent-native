@@ -1,4 +1,5 @@
-import { isReconcileLeadClient, useT } from "@agent-native/core/client";
+import { isReconcileLeadClient } from "@agent-native/core/client/collab";
+import { useT } from "@agent-native/core/client/i18n";
 import { Extension } from "@tiptap/core";
 import Collaboration from "@tiptap/extension-collaboration";
 import CollaborationCaret from "@tiptap/extension-collaboration-caret";

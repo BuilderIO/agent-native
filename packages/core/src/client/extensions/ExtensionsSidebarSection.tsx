@@ -18,6 +18,7 @@ import { useState, useCallback, useMemo } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 
 import { extensionPath, isExtensionPathname } from "../../extensions/path.js";
+import { docsUrl } from "../../shared/docs-url.js";
 import { sendToAgentChat } from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
 import {
@@ -47,7 +48,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
-import { PromptComposer } from "../composer/PromptComposer.js";
+import { PromptComposer } from "../composer/index.js";
 import { DEFAULT_LOCALE, useOptionalLocale, type LocaleCode } from "../i18n.js";
 import { cn } from "../utils.js";
 import {
@@ -149,7 +150,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     unhideForEveryone: "Unhide for everyone",
     hideFromEveryone: "Hide from everyone",
     removeFromMyList: "Remove from my list",
-    delete: "Delete",
+    delete: "Archive",
     showLess: "show less",
     showMore: "show more",
     loadError: "Couldn't load extensions.",
@@ -182,7 +183,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     unhideForEveryone: "对所有人取消隐藏",
     hideFromEveryone: "对所有人隐藏",
     removeFromMyList: "从我的列表中移除",
-    delete: "删除",
+    delete: "归档",
     showLess: "收起",
     showMore: "显示更多",
     loadError: "无法加载扩展。",
@@ -216,7 +217,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     unhideForEveryone: "對所有人取消隱藏",
     hideFromEveryone: "對所有人隱藏",
     removeFromMyList: "從我的清單移除",
-    delete: "刪除",
+    delete: "封存",
     showLess: "顯示較少",
     showMore: "顯示更多",
     loadError: "無法載入擴充功能。",
@@ -250,7 +251,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     unhideForEveryone: "Mostrar para todos",
     hideFromEveryone: "Ocultar para todos",
     removeFromMyList: "Quitar de mi lista",
-    delete: "Eliminar",
+    delete: "Archivar",
     showLess: "mostrar menos",
     showMore: "mostrar más",
     loadError: "No se pudieron cargar las extensiones.",
@@ -284,7 +285,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     unhideForEveryone: "Afficher pour tout le monde",
     hideFromEveryone: "Masquer pour tout le monde",
     removeFromMyList: "Retirer de ma liste",
-    delete: "Supprimer",
+    delete: "Archiver",
     showLess: "afficher moins",
     showMore: "afficher plus",
     loadError: "Impossible de charger les extensions.",
@@ -318,7 +319,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     unhideForEveryone: "Für alle einblenden",
     hideFromEveryone: "Für alle ausblenden",
     removeFromMyList: "Aus meiner Liste entfernen",
-    delete: "Löschen",
+    delete: "Archivieren",
     showLess: "weniger anzeigen",
     showMore: "mehr anzeigen",
     loadError: "Erweiterungen konnten nicht geladen werden.",
@@ -352,7 +353,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     unhideForEveryone: "全員に表示",
     hideFromEveryone: "全員に非表示",
     removeFromMyList: "自分のリストから削除",
-    delete: "削除",
+    delete: "アーカイブ",
     showLess: "少なく表示",
     showMore: "さらに表示",
     loadError: "拡張機能を読み込めませんでした。",
@@ -386,7 +387,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     unhideForEveryone: "모두에게 표시",
     hideFromEveryone: "모두에게 숨기기",
     removeFromMyList: "내 목록에서 제거",
-    delete: "삭제",
+    delete: "보관",
     showLess: "덜 보기",
     showMore: "더 보기",
     loadError: "확장 프로그램을 불러올 수 없습니다.",
@@ -420,7 +421,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     unhideForEveryone: "Mostrar para todos",
     hideFromEveryone: "Ocultar para todos",
     removeFromMyList: "Remover da minha lista",
-    delete: "Excluir",
+    delete: "Arquivar",
     showLess: "mostrar menos",
     showMore: "mostrar mais",
     loadError: "Não foi possível carregar as extensões.",
@@ -454,7 +455,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     unhideForEveryone: "सभी के लिए दिखाएं",
     hideFromEveryone: "सभी से छिपाएं",
     removeFromMyList: "मेरी सूची से हटाएं",
-    delete: "हटाएं",
+    delete: "संग्रहित करें",
     showLess: "कम दिखाएं",
     showMore: "और दिखाएं",
     loadError: "एक्सटेंशन लोड नहीं हो सके।",
@@ -488,7 +489,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     unhideForEveryone: "إظهار للجميع",
     hideFromEveryone: "إخفاء عن الجميع",
     removeFromMyList: "إزالة من قائمتي",
-    delete: "حذف",
+    delete: "أرشفة",
     showLess: "إظهار أقل",
     showMore: "إظهار المزيد",
     loadError: "تعذر تحميل الإضافات.",
@@ -932,7 +933,7 @@ export function ExtensionsSidebarSection() {
                     {copy.open}
                   </Link>
                   <a
-                    href="https://agent-native.com/docs/extensions"
+                    href={docsUrl("extensions")}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex h-8 items-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -974,13 +975,13 @@ export function ExtensionsSidebarSection() {
                   <Tooltip>
                     <TooltipTrigger asChild>
                       <a
-                        href="https://agent-native.com/docs/extensions"
+                        href={docsUrl("extensions")}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         aria-label={copy.learnMore}
                       >
-                        <IconHelpCircle className="size-4" />
+                        <IconHelpCircle className="size-3" />
                       </a>
                     </TooltipTrigger>
                     <TooltipContent>{copy.learnMore}</TooltipContent>

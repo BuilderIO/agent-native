@@ -144,7 +144,7 @@ pub(crate) mod macos {
         kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
         AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress,
     };
-    use objc2_foundation::{NSArray, NSError, NSLocale, NSString};
+    use objc2_foundation::{NSArray, NSBundle, NSError, NSLocale, NSString};
     use objc2_speech::{
         SFSpeechAudioBufferRecognitionRequest, SFSpeechRecognitionResult, SFSpeechRecognitionTask,
         SFSpeechRecognizer, SFSpeechRecognizerAuthorizationStatus,
@@ -153,6 +153,29 @@ pub(crate) mod macos {
     use tauri::{AppHandle, Emitter};
 
     use screencapturekit::audio_devices::AudioInputDevice;
+
+    const SPEECH_USAGE_DESCRIPTION_KEY: &str = "NSSpeechRecognitionUsageDescription";
+    const SPEECH_USAGE_DESCRIPTION_ERROR: &str =
+        "Clips cannot start macOS speech recognition because the app bundle is missing NSSpeechRecognitionUsageDescription.";
+
+    pub(crate) fn has_speech_usage_description() -> bool {
+        let bundle = NSBundle::mainBundle();
+        let Some(info) = bundle.infoDictionary() else {
+            return false;
+        };
+        let key = NSString::from_str(SPEECH_USAGE_DESCRIPTION_KEY);
+        info.objectForKey(&*key)
+            .and_then(|value| value.downcast::<NSString>().ok())
+            .is_some_and(|value| !value.is_empty())
+    }
+
+    fn ensure_speech_usage_description() -> Result<(), String> {
+        if has_speech_usage_description() {
+            Ok(())
+        } else {
+            Err(SPEECH_USAGE_DESCRIPTION_ERROR.into())
+        }
+    }
 
     /// Who owns an in-flight `SpeechSession`. Meetings fall back to this
     /// mic-only engine when whisper fails; a Fn/dictation press must not be
@@ -416,6 +439,11 @@ pub(crate) mod macos {
     /// system has an answer. The handler itself only sends a value on a
     /// channel; no ObjC interop, no UI work.
     fn ensure_authorized() -> Result<(), String> {
+        // macOS aborts the process, rather than returning an error, when
+        // Speech.framework is touched without this usage description. This
+        // guard keeps `tauri dev` and malformed bundles recoverable.
+        ensure_speech_usage_description()?;
+
         // Fast path: already known.
         let current = unsafe { SFSpeechRecognizer::authorizationStatus() };
         if current == SFSpeechRecognizerAuthorizationStatus::Authorized {
@@ -1548,6 +1576,20 @@ pub(crate) mod macos {
         Ok(())
     }
 
+    pub fn shutdown() {
+        let session = match session_slot().lock() {
+            Ok(mut slot) => slot.take(),
+            Err(poisoned) => poisoned.into_inner().take(),
+        };
+        if let Some(session) = session {
+            session.cancelled.store(true, Ordering::SeqCst);
+            session.stopped.store(true, Ordering::SeqCst);
+            unsafe { session.task.cancel() };
+            stop_engine_and_remove_tap(&session);
+        }
+        clear_warmed_raw_mic_engine();
+    }
+
     #[cfg(test)]
     mod tests {
         use super::{native_speech_voice_processing_mode, MicVoiceProcessingMode, SessionOwner};
@@ -1568,4 +1610,9 @@ pub(crate) mod macos {
             );
         }
     }
+}
+
+pub fn shutdown() {
+    #[cfg(target_os = "macos")]
+    macos::shutdown();
 }

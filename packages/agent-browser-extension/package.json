@@ -1,0 +1,27 @@
+{
+  "name": "@agent-native/agent-browser-extension",
+  "version": "0.1.183",
+  "private": true,
+  "description": "Public Agent Native browser context and chat extension.",
+  "type": "module",
+  "scripts": {
+    "build": "pnpm icons && vite build && vite build --config vite.capture-page.config.ts && tsx scripts/verify-capture-bundle.ts",
+    "icons": "tsx scripts/generate-icons.ts",
+    "package": "pnpm build && tsx scripts/package.ts",
+    "test": "pnpm icons && vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@agent-native/browser-control-extension-core": "workspace:*",
+    "@agent-native/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "0.2.2",
+    "happy-dom": "20.11.1",
+    "sharp": "0.35.3",
+    "tsx": "4.23.1",
+    "typescript-7": "npm:typescript@7.0.2",
+    "vite": "8.1.5",
+    "vitest": "4.1.10"
+  }
+}

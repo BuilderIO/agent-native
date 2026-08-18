@@ -123,7 +123,7 @@ Dispatch は、管理者と運用担当者がワークスペースの稼働を�
   生のシークレットをコピーせずにアクセスをディスパッチします。アプリ固有のソース
   設定は、プロバイダーを使用するアプリ内に残ります。
 - **1 つの MCP コネクタを公開します。** 追加
-  Claude、ChatGPT の `https://dispatch.agent-native.com/_agent-native/mcp`
+  Claude、ChatGPT の `https://dispatch.agent-native.com/mcp`
   Codex、カーソル、または別の MCP ホストから、どのワークスペース アプリを選択するかを選択します。
   コネクタは、Dispatch の **エージェント** ページからアクセスできます。直接アプリ URL を使用する
   そのホストを 1 つのアプリに分離する必要がある場合のみ。
@@ -304,7 +304,7 @@ _内部での仕組み (開発者向け)。_
   ]}
 />
 
-- **MCP ハブ モード。** Dispatch は引き続きワークスペースの [MCP hub](/docs/mcp-clients#hub) として機能できるため、ワークスペース内の他のすべてのアプリは同じ組織スコープの MCP サーバー リストを取得します。これとは別に、Dispatch 独自の `/_agent-native/mcp` エンドポイントは、複数のワークスペース アプリに接続する必要がある Claude、ChatGPT、およびその他のホストに推奨される外部 MCP コネクタです。
+- **MCP ハブ モード。** Dispatch は引き続きワークスペースの [MCP hub](/docs/mcp-clients#hub) として機能できるため、ワークスペース内の他のすべてのアプリは同じ組織スコープの MCP サーバー リストを取得します。これとは別に、Dispatch 独自の `/mcp` エンドポイントは、複数のワークスペース アプリに接続する必要がある Claude、ChatGPT、およびその他のホストに推奨される外部 MCP コネクタです。
 
 ## 夢 {#dreams}
 
@@ -345,7 +345,7 @@ pnpm action create-dream-report --allSources true --sourceTimeoutMs 30000 --limi
 
 ```bash
 npx @agent-native/core@latest create my-platform
-# 複数選択ピッカーで「Dispatch」と、必要なドメイン アプリを選択します
+# Dispatch は自動的に含まれます。Dispatch のみにするには Chat の選択を解除し、一緒に生成するドメインアプリがあれば選択します
 ```
 
 ピッカーを使用する代わりにテンプレートに直接名前を付けたい場合は、次のようにします。

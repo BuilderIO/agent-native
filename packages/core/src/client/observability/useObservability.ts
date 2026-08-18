@@ -108,13 +108,20 @@ export interface FeedbackEntry {
   createdAt: number;
 }
 
-export function useFeedbackList(sinceDays = 7, limit = 100) {
+export function useFeedbackList(
+  sinceDays = 7,
+  limit = 100,
+  feedbackType?: FeedbackEntry["feedbackType"],
+) {
   const sinceMs = Date.now() - sinceDays * 86_400_000;
+  const typeQuery = feedbackType
+    ? `&feedbackType=${encodeURIComponent(feedbackType)}`
+    : "";
   return useQuery({
-    queryKey: ["observability", "feedback", sinceDays, limit],
+    queryKey: ["observability", "feedback", sinceDays, limit, feedbackType],
     queryFn: () =>
       fetchJson<FeedbackEntry[]>(
-        `${BASE}/feedback?since=${sinceMs}&limit=${limit}`,
+        `${BASE}/feedback?since=${sinceMs}&limit=${limit}${typeQuery}`,
       ),
     refetchInterval: 30_000,
   });

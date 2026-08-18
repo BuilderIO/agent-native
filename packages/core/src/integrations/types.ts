@@ -104,6 +104,13 @@ export interface IncomingMessage {
     targetAgent?: string;
     instruction: string;
   };
+  /**
+   * Trusted app-side note about the caller's identity/visibility tier, set
+   * after execution-context resolution (e.g. an anonymous org-scoped Slack
+   * member). Surfaced to the agent as integration context. Adapters must not
+   * copy this from user-controlled webhook payload fields.
+   */
+  identityNote?: string;
   /** Provider-native message/activity reference for contextual replies. */
   replyRef?: string;
   /** Message timestamp (epoch ms) */
@@ -118,6 +125,26 @@ export interface OutgoingMessage {
   text: string;
   /** Platform-specific payload (e.g., Slack blocks, Telegram parse_mode) */
   platformContext: Record<string, unknown>;
+}
+
+/** Provider-confirmed references for a successfully delivered response. */
+export interface PlatformDeliveryReceipt {
+  status: "delivered";
+  /** Opaque provider message ids/timestamps; never message content. */
+  messageRefs?: string[];
+}
+
+export interface PlatformDeliveryOptions {
+  /** Provider-owned message reference that should be updated in place. */
+  placeholderRef?: string;
+  /** Stable logical delivery key for provider-side retry reconciliation. */
+  idempotencyKey?: string;
+  /** Earliest provider timestamp (epoch ms) that can contain this delivery. */
+  reconcileAfter?: number;
+  /** Abort provider I/O before the caller releases its durable delivery claim. */
+  signal?: AbortSignal;
+  /** Do not fall back to a fresh post if the stable target cannot be updated. */
+  strictTargetRef?: boolean;
 }
 
 /**
@@ -136,6 +163,13 @@ export interface OutboundTarget {
   tenantId?: string;
   /** Managed installation id when the caller already resolved it. */
   installationId?: string;
+  /**
+   * Provider installation key identifying which connected app to send as.
+   * Required when a tenant has more than one app of the same platform
+   * connected — without it the adapter cannot tell them apart and refuses to
+   * guess rather than posting under the wrong bot identity.
+   */
+  installationKey?: string;
 }
 
 /**
@@ -187,12 +221,20 @@ export interface PlatformRunProgress {
    * credentials, or provider payload.
    */
   ref?: PlatformRunProgressRef;
+  /** Stable provider message target that can receive the terminal answer. */
+  responseTargetRef?: string;
   /** Receive normalized agent events. Implementations should throttle writes. */
-  onEvent(event: AgentChatEvent): Promise<void> | void;
+  onEvent(
+    event: AgentChatEvent,
+    opts?: { signal?: AbortSignal },
+  ): Promise<void> | void;
   /** Finalize the provider-native progress surface with the answer. */
-  complete(message: OutgoingMessage): Promise<void>;
+  complete(
+    message: OutgoingMessage,
+    opts?: { signal?: AbortSignal },
+  ): Promise<void | PlatformDeliveryReceipt>;
   /** Mark the provider-native surface failed and leave a retryable explanation. */
-  fail?(message: string): Promise<void>;
+  fail?(message: string, opts?: { signal?: AbortSignal }): Promise<void>;
 }
 
 /**
@@ -275,6 +317,13 @@ export interface PlatformAdapter {
   hydrateIncomingMessage?(incoming: IncomingMessage): Promise<IncomingMessage>;
 
   /**
+   * Hydrate only verified sender identity before execution-context selection.
+   * This runs on the provider acknowledgement path and must avoid fetching
+   * conversation history or file bodies.
+   */
+  hydrateIncomingIdentity?(incoming: IncomingMessage): Promise<IncomingMessage>;
+
+  /**
    * Provider-specific response returned only after a message is verified and
    * durably enqueued. Discord uses this to return a type-5 deferred response
    * within its three-second interaction deadline.
@@ -301,7 +350,24 @@ export interface PlatformAdapter {
   sendResponse(
     message: OutgoingMessage,
     context: IncomingMessage,
-    opts?: { placeholderRef?: string },
+    opts?: PlatformDeliveryOptions,
+  ): Promise<void | PlatformDeliveryReceipt>;
+
+  /**
+   * Send a short best-effort system notice to the conversation the incoming
+   * message arrived on (polite identity declines, one-time access guidance).
+   * Bypasses agent formatting. When `dedupeKey` is provided, the adapter may
+   * drop the notice if the same key was sent recently. Callers must treat
+   * failures as non-fatal.
+   */
+  sendSystemNotice?(
+    incoming: IncomingMessage,
+    text: string,
+    opts?: {
+      dedupeKey?: string;
+      /** Dedupe window for `dedupeKey`. Adapters pick a default when omitted. */
+      dedupeTtlMs?: number;
+    },
   ): Promise<void>;
 
   /**
@@ -376,8 +442,10 @@ export function assertPlatformCapability(
 export interface IntegrationsPluginOptions {
   /** App identifier used by call-agent to prevent self-calls (e.g. "dispatch"). */
   appId?: string;
-  /** Platform adapters to enable. Default: all built-in adapters with configured env keys. */
+  /** Full adapter set to enable. Default: all built-in adapters. */
   adapters?: PlatformAdapter[];
+  /** Replace built-in adapters by platform without removing the other defaults. */
+  adapterOverrides?: PlatformAdapter[];
   /** System prompt for the agent (same as agent-chat). Inherited from agent-chat plugin if not set. */
   systemPrompt?: string;
   /** Actions registry (same as agent-chat). */
@@ -408,6 +476,13 @@ export interface IntegrationsPluginOptions {
     incoming: IncomingMessage,
   ) => IntegrationExecutionContext | Promise<IntegrationExecutionContext>;
   /**
+   * Explicitly allow an unlinked, verified Slack workspace member to run a DM
+   * with the installation organization's shared/service visibility. Disabled
+   * by default: DM identity resolution fails closed unless an app deliberately
+   * accepts this wider access tier.
+   */
+  allowAnonymousOrgScopedSlackDm?: boolean;
+  /**
    * Optional preprocessor for inbound platform messages. Can intercept special
    * commands (such as `/link`) before the agent loop runs.
    */
@@ -429,4 +504,10 @@ export interface IntegrationExecutionContext {
   principalType: "user" | "service";
   installationId?: string;
   scopeId?: string;
+  /**
+   * True when a hydrated full workspace member could not be matched to an
+   * organization member and runs with the anonymous org-scoped service
+   * principal (org-wide visibility only, nothing user-private).
+   */
+  anonymousMember?: boolean;
 }

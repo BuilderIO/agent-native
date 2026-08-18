@@ -324,10 +324,13 @@ describe("import-figma-frame", () => {
       },
     );
 
-    await expect(
-      action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any),
-    ).rejects.toThrow(/could not render.*required fallback layer/i);
-    expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
+    const result = await action.run({
+      fileKey: "abcDEF12345",
+      nodeId: "1:2",
+    } as any);
+    expect(result.fidelityReport.imageFallbacks).toHaveLength(1);
+    expect(result.fidelityReport.imageFallbacks[0]?.nodeId).toBe("1:3");
+    expect(mocks.saveImportedDesignFiles).toHaveBeenCalled();
   });
 
   it("mirrors expiring image-fill URLs before generated HTML is saved", async () => {
@@ -428,10 +431,13 @@ describe("import-figma-frame", () => {
       },
     );
 
-    await expect(
-      action.run({ fileKey: "abcDEF12345", nodeId: "1:2" } as any),
-    ).rejects.toThrow(/did not return.*required image fill/i);
-    expect(mocks.saveImportedDesignFiles).not.toHaveBeenCalled();
+    const result = await action.run({
+      fileKey: "abcDEF12345",
+      nodeId: "1:2",
+    } as any);
+    expect(result.fidelityReport.approximated).toHaveLength(1);
+    expect(result.fidelityReport.approximated[0]?.nodeId).toBe("1:4");
+    expect(mocks.saveImportedDesignFiles).toHaveBeenCalled();
   });
 
   it("bounds parallel Figma image downloads while mirroring every unique URL", async () => {

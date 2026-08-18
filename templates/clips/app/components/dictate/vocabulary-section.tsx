@@ -1,8 +1,8 @@
 import {
   useActionMutation,
   useActionQuery,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconBook2,
   IconChevronDown,
@@ -66,6 +66,7 @@ export function VocabularySection() {
   const removeTerm = useActionMutation<unknown, { id: string }>(
     "remove-vocabulary-term",
     {
+      method: "DELETE",
       onMutate: async (vars) => {
         await queryClient.cancelQueries({ queryKey: QUERY_KEY });
         const prev = queryClient.getQueryData(QUERY_KEY);

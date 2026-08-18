@@ -112,13 +112,13 @@ export default defineAction({
           kind: "connect-builder" as const,
           label: "Make this a real app",
           description:
-            "Connect Builder.io to unlock React components, live props, " +
+            "Connect Builder.io (free tier available) to unlock React components, live props, " +
             "data states, branches, and one-click deploys.",
           primaryAction: "Connect Builder.io",
           connectUrl,
         },
         message:
-          "Builder is not connected. Open connectUrl to start the OAuth flow.",
+          "Builder is not connected (free tier available). Open connectUrl to start the OAuth flow.",
       };
     }
 

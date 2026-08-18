@@ -2,9 +2,14 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_START_PATH,
   EMBED_TARGET_HEADER,
+  EMBED_TARGET_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
 } from "../shared/embed-auth.js";
+import {
+  SIGN_IN_ENTRY_PATH,
+  SIGN_IN_LEGACY_ENTRY_PATH,
+} from "../shared/sign-in-journey.js";
 
 let installed = false;
 let memoryToken: string | null = null;
@@ -19,6 +24,11 @@ const AUTH_FAILURE_HEADER = "x-agent-native-auth-circuit-breaker";
 const MCP_CHAT_BRIDGE_VIEWPORT_STYLE_ID =
   "agent-native-mcp-chat-bridge-viewport";
 const MCP_CHAT_BRIDGE_VIEWPORT_HEIGHT = 560;
+let pendingMcpChatBridgeViewportNotification: {
+  win: Window;
+  animationFrameId: number | null;
+  timeoutIds: number[];
+} | null = null;
 
 type AuthFailureRecord = {
   status: number;
@@ -242,11 +252,37 @@ function notifyMcpChatBridgeViewportHeight(win: Window): void {
     }
   };
 
+  const pending = pendingMcpChatBridgeViewportNotification;
+  pendingMcpChatBridgeViewportNotification = null;
+  if (pending) {
+    if (pending.animationFrameId !== null) {
+      pending.win.cancelAnimationFrame?.(pending.animationFrameId);
+    }
+    for (const id of pending.timeoutIds) pending.win.clearTimeout(id);
+  }
+
   notify();
+  const nextPending = {
+    win,
+    animationFrameId: null as number | null,
+    timeoutIds: [] as number[],
+  };
+  pendingMcpChatBridgeViewportNotification = nextPending;
+  const notifyIfCurrent = () => {
+    // Some hosts expose requestAnimationFrame/timers from a different clock
+    // than the one used by clearTimeout. The identity guard keeps a superseded
+    // setup from notifying even when cancellation cannot reach that clock.
+    if (pendingMcpChatBridgeViewportNotification !== nextPending) return;
+    notify();
+  };
   try {
-    win.requestAnimationFrame?.(() => notify());
-    win.setTimeout?.(notify, 250);
-    win.setTimeout?.(notify, 1000);
+    if (win.requestAnimationFrame) {
+      nextPending.animationFrameId = win.requestAnimationFrame(notifyIfCurrent);
+    }
+    if (win.setTimeout) {
+      nextPending.timeoutIds.push(win.setTimeout(notifyIfCurrent, 250));
+      nextPending.timeoutIds.push(win.setTimeout(notifyIfCurrent, 1000));
+    }
   } catch {
     // Timers are a progressive enhancement for late host bridge initialization.
   }
@@ -254,6 +290,14 @@ function notifyMcpChatBridgeViewportHeight(win: Window): void {
 
 /** Internal test helper. Do not use in app code. */
 export function _resetEmbedAuthForTests(): void {
+  if (pendingMcpChatBridgeViewportNotification) {
+    const pending = pendingMcpChatBridgeViewportNotification;
+    pendingMcpChatBridgeViewportNotification = null;
+    if (pending.animationFrameId !== null) {
+      pending.win.cancelAnimationFrame?.(pending.animationFrameId);
+    }
+    for (const id of pending.timeoutIds) pending.win.clearTimeout(id);
+  }
   installed = false;
   memoryToken = null;
   mcpChatBridgeActive = false;
@@ -362,7 +406,15 @@ function isAuthFailureStatus(status: number): boolean {
 function shouldGuardAuthFailure(method: string, url: URL): boolean {
   if (!GUARDED_METHODS.has(method)) return false;
   if (url.pathname === EMBED_START_PATH) return false;
-  if (url.pathname === "/_agent-native/sign-in") return false;
+  // Suffix, not equality: an app mounted under a base path serves
+  // `/<app>/sign-in` (or the legacy framework path), which an exact match
+  // would miss.
+  if (
+    url.pathname.endsWith(SIGN_IN_ENTRY_PATH) ||
+    url.pathname.endsWith(SIGN_IN_LEGACY_ENTRY_PATH)
+  ) {
+    return false;
+  }
   return true;
 }
 
@@ -461,6 +513,7 @@ function withEmbedAuthHeaders(
     isAgentNativeRuntimePath(url.pathname)
   ) {
     url.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+    url.searchParams.set(EMBED_TARGET_QUERY_PARAM, currentEmbedTarget(win));
     return [url.toString(), init];
   }
 

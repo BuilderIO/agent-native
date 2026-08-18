@@ -13,14 +13,9 @@ import { MultiScreenCanvas } from "./MultiScreenCanvas";
   globalThis as typeof globalThis & { IS_REACT_ACT_ENVIRONMENT: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-vi.mock("@agent-native/core/client", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("@agent-native/core/client")>();
-  return {
-    ...original,
-    useT: () => (key: string) => key,
-  };
-});
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
 
 const viewportRect = {
   x: 0,
@@ -116,6 +111,40 @@ describe("MultiScreenCanvas camera command delivery", () => {
     expect(world?.style.transform).toBe(
       `translate(${expected.x}px, ${expected.y}px) scale(${expected.zoom / 100})`,
     );
+  });
+
+  it("writes the chrome counter-scale on the same imperative tick as the world transform", async () => {
+    // applyViewToDom is the only place an imperative pan/zoom lands during a
+    // gesture — React state is not reconciled until the debounced commit. If
+    // the counter-scale is not written here, frame labels ride the world scale
+    // for the whole gesture and then ease back to size on settle.
+    const fitBounds = {
+      left: 0,
+      top: 0,
+      right: 400,
+      bottom: 300,
+      width: 400,
+      height: 300,
+      centerX: 200,
+      centerY: 150,
+    };
+    await renderCanvas({ fitBounds, nonce: 1 });
+    measurable = true;
+    await waitForAnimationFrame();
+
+    const world = container.querySelector<HTMLElement>(
+      "[data-multi-screen-canvas-world]",
+    );
+    const expected = getCameraForBounds(
+      fitBounds,
+      { width: 800, height: 600 },
+      { paddingScreenPx: 64, canvasPadding: SURFACE_PADDING },
+    );
+    const worldScale = expected.zoom / 100;
+    expect(world?.style.transform).toContain(`scale(${worldScale})`);
+    expect(
+      Number.parseFloat(world!.style.getPropertyValue("--an-chrome-scale")),
+    ).toBeCloseTo(1 / worldScale, 10);
   });
 
   it("cancels a stale zero-size nonce when a newer command supersedes it", async () => {

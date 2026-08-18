@@ -88,7 +88,7 @@
   --muted-foreground: 0 0% 60%;
   --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
-  --destructive: 0 63% 51%;
+  --destructive: 0 91% 71%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 24%;
   --input: 0 0% 24%;
@@ -2345,6 +2345,7 @@
   box-shadow: none;
   opacity: 0.55;
   pointer-events: none;
+  /* compositing-ok: drag preview — transient, transformed every frame. */
   will-change: transform;
 }
 .notion-drag-preview > * {

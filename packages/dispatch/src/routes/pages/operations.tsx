@@ -1,8 +1,6 @@
-import {
-  DbAdminPage,
-  ObservabilityDashboard,
-  useT,
-} from "@agent-native/core/client";
+import { DbAdminPage } from "@agent-native/core/client/db-admin";
+import { useT } from "@agent-native/core/client/i18n";
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 import {
   IconActivity,
   IconArrowUpRight,
@@ -32,17 +30,17 @@ function OperationsShortcuts() {
 
   const tools = [
     {
-      to: "/thread-debug",
+      to: "/admin/thread-debug",
       icon: IconMessages,
       title: t("dispatch.nav.threadDebug", { defaultValue: "Thread debug" }),
     },
     {
-      to: "/audit",
+      to: "/admin/audit",
       icon: IconHistory,
       title: t("dispatch.nav.audit"),
     },
     {
-      to: "/destinations",
+      to: "/admin/destinations",
       icon: IconSend,
       title: t("dispatch.pages.deliveryQueue"),
     },
@@ -107,11 +105,11 @@ export default function OperationsRoute() {
       >
         <TabsList className="w-fit">
           <TabsTrigger value="monitoring">
-            <IconActivity size={15} />
+            <IconActivity size={15} className="mr-1.5" />
             {t("dispatch.pages.monitoring")}
           </TabsTrigger>
           <TabsTrigger value="database">
-            <IconDatabase size={15} />
+            <IconDatabase size={15} className="mr-1.5" />
             {t("dispatch.pages.database")}
           </TabsTrigger>
         </TabsList>

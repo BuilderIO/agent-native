@@ -36,6 +36,10 @@ data/.sessions.json
 media/*.png
 media/theme.json
 
+# Generated report snapshot — contains live production analytics (traffic,
+# referral, and artifact-level data); never commit
+.report-preview/
+
 # Learnings (personal preferences and memory — use learnings.defaults.md for tracked defaults)
 learnings.md
 
@@ -45,6 +49,7 @@ build
 
 # Migration scratchpad (not for commit)
 .migration/
+.analytics-first-party-bigquery-backfill*.json
 
 # Stray SQLite files at the template root (real DB lives under data/)
 /app.db

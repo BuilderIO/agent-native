@@ -1,39 +1,26 @@
-import { agentNativePath, useT } from "@agent-native/core/client";
+import { agentNativePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import { isSelectableAudioInputDevice } from "@shared/media-device-selection";
 import {
+  IconArrowLeft,
   IconBrowser,
   IconCamera,
   IconChevronDown,
   IconDeviceDesktop,
   IconDeviceScreen,
-  IconLink,
   IconMicrophone,
-  IconPlayerRecord,
-  IconUpload,
   IconVideo,
 } from "@tabler/icons-react";
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type FormEvent,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { CaptureInstallInlineLink } from "@/components/capture-install-options";
+import { ImportMenu } from "@/components/import-menu";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
@@ -77,13 +64,15 @@ export interface PreRecordPanelProps {
   initialDisplaySurface?: DisplaySurface | null;
   /** Called when the user picks a local video file to upload. */
   onUpload?: (file: File) => void;
-  /** Called when the user submits a Loom URL to import. */
-  onImportLoom?: (url: string) => Promise<void> | void;
-  importingLoom?: boolean;
+  /** When set, includes an "Import Loom" option in the shared import menu. */
+  importLoomHref?: string;
   onCancel?: () => void;
   busy?: boolean;
   cameraSize?: CameraBubbleSize;
   onCameraSizeChange?: (size: CameraBubbleSize) => void;
+  /** Opens the file picker once on mount, e.g. when arriving from a
+   * dedicated upload entry point elsewhere in the app. */
+  autoOpenUpload?: boolean;
 }
 
 type MicTestState = {
@@ -126,6 +115,69 @@ type SurfaceOption = {
 
 const REQUEST_MIC_ACCESS_VALUE = "__clips_request_microphone_access__";
 
+function MicOffConfirmation({
+  onBack,
+  onUnmute,
+  onContinue,
+}: {
+  onBack: () => void;
+  onUnmute: () => void;
+  onContinue: () => void;
+}) {
+  const t = useT();
+
+  return (
+    <div className="fixed inset-0 z-50 flex min-h-screen flex-col overflow-y-auto bg-background text-foreground">
+      <header className="flex shrink-0 items-center px-6 py-5 sm:px-10">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-2 rounded-lg px-1 py-1 text-lg font-semibold transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <IconArrowLeft className="h-5 w-5 rtl:-scale-x-100" />
+          {t("recordingPage.back")}
+        </button>
+      </header>
+
+      <main className="flex flex-1 flex-col items-center justify-center px-6 py-12 text-center sm:py-16">
+        <div
+          className="relative flex h-28 w-28 items-center justify-center rounded-full bg-destructive/10 text-destructive"
+          aria-hidden="true"
+        >
+          <IconMicrophone className="h-12 w-12" strokeWidth={1.75} />
+          <span className="absolute h-1 w-20 rotate-45 rounded-full bg-destructive" />
+        </div>
+        <h1 className="mt-10 text-3xl font-semibold tracking-tight sm:text-4xl">
+          {t("preRecord.micOffConfirmTitle")}
+        </h1>
+        <p className="mt-4 max-w-md text-base leading-7 text-muted-foreground sm:text-lg">
+          {t("preRecord.micOffConfirmDescription")}
+        </p>
+      </main>
+
+      <footer className="flex shrink-0 justify-center border-t border-border bg-muted/20 px-6 py-6 sm:px-10">
+        <div className="flex w-full max-w-md gap-4">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onUnmute}
+            className="h-12 flex-1 rounded-xl text-base font-semibold"
+          >
+            {t("preRecord.unmuteMicrophone")}
+          </Button>
+          <Button
+            type="button"
+            onClick={onContinue}
+            className="h-12 flex-1 rounded-xl text-base font-semibold"
+          >
+            {t("preRecord.startWithoutMic")}
+          </Button>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
 function isPseudoMediaDeviceId(value: string | null | undefined): boolean {
   const id = value?.trim().toLowerCase();
   return !id || id === "default" || id === "communications";
@@ -151,16 +203,16 @@ export function PreRecordPanel({
   initialMode,
   initialDisplaySurface,
   onUpload,
-  onImportLoom,
-  importingLoom,
+  importLoomHref,
   onCancel,
   busy,
   cameraSize = "md",
   onCameraSizeChange,
+  autoOpenUpload,
 }: PreRecordPanelProps) {
   const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const loomInputRef = useRef<HTMLInputElement>(null);
+  const autoOpenUploadTriggeredRef = useRef(false);
   const browserTabCaptureSupported = useMemo(
     () => supportsBrowserTabCapture(),
     [],
@@ -178,9 +230,6 @@ export function PreRecordPanel({
   );
   const [sourceOpen, setSourceOpen] = useState(false);
   const [deviceSettingsOpen, setDeviceSettingsOpen] = useState(false);
-  const [loomImportOpen, setLoomImportOpen] = useState(false);
-  const [loomUrl, setLoomUrl] = useState("");
-  const [loomError, setLoomError] = useState<string | null>(null);
   const [mics, setMics] = useState<MediaDeviceInfo[]>([]);
   const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
   const [micId, setMicId] = useState<string>(
@@ -271,6 +320,13 @@ export function PreRecordPanel({
     }
     if (initialMode) setMode(initialMode);
   }, [initialMode, isMobile]);
+
+  useEffect(() => {
+    if (!autoOpenUpload || autoOpenUploadTriggeredRef.current) return;
+    if (!onUpload || busy) return;
+    autoOpenUploadTriggeredRef.current = true;
+    fileInputRef.current?.click();
+  }, [autoOpenUpload, busy, onUpload]);
 
   useEffect(() => {
     if (initialDisplaySurface) {
@@ -434,6 +490,49 @@ export function PreRecordPanel({
     );
   }, [micId, micLabel, mics, t]);
 
+  const [micWarningOpen, setMicWarningOpen] = useState(false);
+
+  const buildStartOpts = useCallback(
+    () => ({
+      // If the user toggled off the camera inside screen+camera mode,
+      // downgrade to screen-only so the recorder engine doesn't try
+      // to acquire a webcam stream.
+      mode: (mode === "screen+camera" && !needsCamera
+        ? "screen"
+        : mode) as RecordingMode,
+      displaySurface: normalizeDisplaySurfaceForRuntime(displaySurface),
+      micDeviceId: micId === "default" ? null : micId,
+      micDeviceLabel:
+        micId === "default" || micId === NO_MIC_DEVICE_ID
+          ? null
+          : selectedMicLabel,
+      cameraDeviceId: needsCamera && cameraId !== "default" ? cameraId : null,
+    }),
+    [mode, needsCamera, displaySurface, micId, selectedMicLabel, cameraId],
+  );
+
+  const handleStartClick = useCallback(() => {
+    if (micId === NO_MIC_DEVICE_ID) {
+      setMicWarningOpen(true);
+      return;
+    }
+    onStart(buildStartOpts());
+  }, [micId, buildStartOpts, onStart]);
+
+  const handleMicWarningBack = useCallback(() => {
+    setMicWarningOpen(false);
+  }, []);
+
+  const handleMicWarningUnmute = useCallback(() => {
+    chooseMic("default");
+    setMicWarningOpen(false);
+  }, [chooseMic]);
+
+  const handleMicWarningContinue = useCallback(() => {
+    setMicWarningOpen(false);
+    onStart(buildStartOpts());
+  }, [buildStartOpts, onStart]);
+
   const selectedCameraLabel = useMemo(() => {
     if (!needsCamera) return null;
     if (cameraId === "default") return t("preRecord.defaultCamera");
@@ -512,35 +611,6 @@ export function PreRecordPanel({
   const handleCameraPreviewChange = useCallback((hasPreview: boolean) => {
     setCameraTest((prev) => ({ ...prev, hasPreview }));
   }, []);
-
-  const handleLoomImport = useCallback(
-    async (event: FormEvent<HTMLFormElement>) => {
-      event.preventDefault();
-      const url = loomUrl.trim();
-      if (!url || !onImportLoom) return;
-
-      setLoomError(null);
-      try {
-        await onImportLoom(url);
-        setLoomUrl("");
-        setLoomImportOpen(false);
-      } catch (err) {
-        setLoomError(
-          err instanceof Error ? err.message : t("preRecord.loomImportFailed"),
-        );
-      }
-    },
-    [loomUrl, onImportLoom, t],
-  );
-
-  useEffect(() => {
-    if (!loomImportOpen) return;
-    const frame = window.requestAnimationFrame(() => {
-      loomInputRef.current?.focus();
-    });
-    return () => window.cancelAnimationFrame(frame);
-  }, [loomImportOpen]);
-
   useEffect(() => {
     if (needsCamera) return;
     setCameraTest({ status: "idle", error: null, hasPreview: false });
@@ -580,13 +650,6 @@ export function PreRecordPanel({
         testError: cameraTest.error,
       },
       updatedAt: new Date().toISOString(),
-      import: onImportLoom
-        ? {
-            loomPanelOpen: loomImportOpen,
-            loomUrlPresent: loomUrl.trim().length > 0,
-            loomImporting: Boolean(importingLoom),
-          }
-        : undefined,
     }).catch(() => {});
   }, [
     cameraId,
@@ -604,10 +667,6 @@ export function PreRecordPanel({
     mics.length,
     mode,
     needsCamera,
-    importingLoom,
-    loomImportOpen,
-    loomUrl,
-    onImportLoom,
     selectedCameraLabel,
     selectedMicLabel,
   ]);
@@ -627,6 +686,16 @@ export function PreRecordPanel({
     }
     return null;
   }, [audioEnabled, cameraTest.status, micTest.status, needsCamera, t]);
+
+  if (micWarningOpen) {
+    return (
+      <MicOffConfirmation
+        onBack={handleMicWarningBack}
+        onUnmute={handleMicWarningUnmute}
+        onContinue={handleMicWarningContinue}
+      />
+    );
+  }
 
   return (
     <div className="mx-auto w-full max-w-lg overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
@@ -941,114 +1010,22 @@ export function PreRecordPanel({
           )}
           <Button
             disabled={startDisabled}
-            onClick={() =>
-              onStart({
-                // If the user toggled off the camera inside screen+camera mode,
-                // downgrade to screen-only so the recorder engine doesn't try
-                // to acquire a webcam stream.
-                mode:
-                  mode === "screen+camera" && !needsCamera ? "screen" : mode,
-                displaySurface:
-                  normalizeDisplaySurfaceForRuntime(displaySurface),
-                micDeviceId: micId === "default" ? null : micId,
-                micDeviceLabel:
-                  micId === "default" || micId === NO_MIC_DEVICE_ID
-                    ? null
-                    : selectedMicLabel,
-                cameraDeviceId:
-                  needsCamera && cameraId !== "default" ? cameraId : null,
-              })
-            }
-            className={cn("h-12 gap-2", onCancel ? "flex-1" : "w-full")}
+            onClick={handleStartClick}
+            className={cn("h-12", onCancel ? "flex-1" : "w-full")}
           >
-            <IconPlayerRecord className="h-4 w-4" />
             {t("preRecord.startRecording")}
           </Button>
         </div>
 
-        {(onUpload || onImportLoom) && (
+        {(onUpload || importLoomHref) && (
           <>
-            <div
-              className={cn(
-                "grid gap-2",
-                onUpload && onImportLoom && "sm:grid-cols-2",
-              )}
-            >
-              {onUpload ? (
-                <button
-                  type="button"
-                  disabled={busy || importingLoom}
-                  onClick={() => fileInputRef.current?.click()}
-                  className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <IconUpload className="h-4 w-4" />
-                  {t("preRecord.uploadVideo")}
-                </button>
-              ) : null}
-
-              {onImportLoom ? (
-                <Popover
-                  open={loomImportOpen}
-                  onOpenChange={(open) => {
-                    setLoomImportOpen(open);
-                    setLoomError(null);
-                  }}
-                >
-                  <PopoverTrigger asChild>
-                    <button
-                      type="button"
-                      disabled={busy || importingLoom}
-                      className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <IconLink className="h-4 w-4" />
-                      {t("preRecord.importLoom")}
-                    </button>
-                  </PopoverTrigger>
-                  <PopoverContent
-                    align="end"
-                    className="w-80 max-w-[calc(100vw-2rem)] p-3"
-                    onOpenAutoFocus={(event) => {
-                      event.preventDefault();
-                      window.requestAnimationFrame(() => {
-                        loomInputRef.current?.focus();
-                      });
-                    }}
-                  >
-                    <form onSubmit={handleLoomImport}>
-                      <div className="flex gap-2">
-                        <Input
-                          ref={loomInputRef}
-                          value={loomUrl}
-                          onChange={(event) => {
-                            setLoomUrl(event.target.value);
-                            setLoomError(null);
-                          }}
-                          disabled={busy || importingLoom}
-                          placeholder="https://www.loom.com/share/..."
-                          className="h-9 text-sm"
-                          inputMode="url"
-                        />
-                        <Button
-                          type="submit"
-                          size="sm"
-                          className="h-9 shrink-0"
-                          disabled={busy || importingLoom || !loomUrl.trim()}
-                        >
-                          {importingLoom
-                            ? t("preRecord.importing")
-                            : t("preRecord.import")}
-                        </Button>
-                      </div>
-                      {loomError ? (
-                        <p className="mt-2 text-xs leading-relaxed text-destructive">
-                          {loomError}
-                        </p>
-                      ) : null}
-                    </form>
-                  </PopoverContent>
-                </Popover>
-              ) : null}
-            </div>
+            <ImportMenu
+              onUpload={
+                onUpload ? () => fileInputRef.current?.click() : undefined
+              }
+              importLoomHref={importLoomHref}
+              disabled={busy}
+            />
 
             {onUpload ? (
               <input

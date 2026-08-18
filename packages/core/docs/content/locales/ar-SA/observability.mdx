@@ -94,8 +94,7 @@ description: "تتبعات الوكيل، وعمليات التقييم، وال
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client";
-
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -383,5 +382,5 @@ export default createSentryPlugin();
 ## ما هي الخطوة التالية
 
 - [**Tracking**](/docs/tracking) — تحليلات المنتج (PostHog، Mixpanel، Amplitude) لأحداث تطبيقك الخاصة
-- [**Actions**](/docs/actions) — العمليات التي تظهر كاستدعاءات أداة في التتبع
+- [**Actions**](/docs/actions-overview) — العمليات التي تظهر كاستدعاءات أداة في التتبع
 - [**Security**](/docs/security) — تحديد نطاق البيانات ومعالجة بيانات الاعتماد

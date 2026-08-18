@@ -1,4 +1,4 @@
-import { appBasePath, appPath } from "@agent-native/core/client";
+import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 
 function stripBasePath(pathname: string): string {
   const basePath = appBasePath();
@@ -65,4 +65,17 @@ export function assetMediaUrl(
     return url;
   }
   return url;
+}
+
+export function triggerAssetDownload(url: string | null | undefined): boolean {
+  if (!url || typeof document === "undefined") return false;
+  const anchor = document.createElement("a");
+  anchor.href = url;
+  anchor.download = "";
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+  return true;
 }

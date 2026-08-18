@@ -69,9 +69,23 @@ test("share dialog uses editor panel chrome", async ({ page }, testInfo) => {
 
   await sendTab.click();
   await expect(page.getByText("Your agent", { exact: true })).toBeVisible();
+  const copyPromptButton = page.getByRole("button", {
+    name: "Copy agent prompt",
+  });
+  await expect(copyPromptButton).toBeVisible();
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"], {
+    origin: new URL(page.url()).origin,
+  });
+  await copyPromptButton.click();
   await expect(
-    page.getByRole("button", { name: "Copy agent prompt" }),
+    page.getByText("Agent prompt copied", { exact: true }),
   ).toBeVisible();
+  await expect(
+    page.getByText("Clipboard blocked", { exact: true }),
+  ).toHaveCount(0);
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
+    "Build this design as production code: E2E Seed Design",
+  );
 
   const popover = page
     .locator("[data-radix-popper-content-wrapper]")
@@ -279,6 +293,22 @@ test("left sidebar switches between all screens and focused screens", async ({
   await allScreens.click();
   await expect(allScreens).toHaveAttribute("aria-current", "page");
   await expect(homeScreen).not.toHaveAttribute("aria-current", "page");
+});
+
+test("hides the gated secondary panels and Assets picker when disabled", async ({
+  page,
+}) => {
+  test.skip(
+    process.env.E2E_SHOW_DESIGN_SECONDARY_LEFT_PANELS !== "0",
+    "The default E2E profile keeps advanced panels enabled for their existing coverage.",
+  );
+
+  for (const label of ["Assets", "Tools", "Tokens", "Code"]) {
+    await expect(
+      page.getByRole("button", { name: label, exact: true }),
+    ).toHaveCount(0);
+  }
+  await expect(page.locator('iframe[title="Assets picker"]')).toHaveCount(0);
 });
 
 test("clicking an element selects it and populates the inspector", async ({

@@ -367,6 +367,8 @@ export type PlanDiagramBlock = PlanBlockBase & {
      */
     html?: string;
     css?: string;
+    /** `design` forces clean HTML/CSS rendering without the sketch overlay. */
+    renderMode?: PlanVisualCanvasMode;
     caption?: string;
     /** Outer surface frame. `auto` lets the host choose the right default. */
     frame?: PlanVisualFrame;
@@ -851,6 +853,15 @@ export type PlanContentPatch =
       op: "set-metadata";
       title?: string;
       brief?: string;
+    }
+  | {
+      /**
+       * Persist the artifact's visual treatment for every viewer. `design`
+       * disables sketch rendering and preserves authored HTML/CSS; it is not
+       * the same as the viewer-local clean/sketchy preference.
+       */
+      op: "set-visual-render-mode";
+      renderMode: PlanVisualCanvasMode;
     }
   | {
       op: "set-prototype";
@@ -1396,6 +1407,7 @@ const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z
         message: "Diagram css must not include document or script tags.",
       })
       .optional(),
+    renderMode: visualCanvasModeSchema.optional(),
     caption: z.string().trim().max(600).optional(),
     frame: visualFrameSchema.optional(),
     nodes: z.array(diagramNodeSchema).max(80).optional(),
@@ -1483,12 +1495,27 @@ export const questionFormDataSchema: z.ZodType<PlanQuestionFormBlock["data"]> =
     submitLabel: z.string().trim().max(400).optional(),
   });
 
+/**
+ * Rich-text stores Markdown as runtime text. A fully escaped one-line payload
+ * ("### Heading\\n\\nBody") renders as one giant heading, so reject that shape at
+ * the shared schema instead of persisting a document that only looks valid.
+ * Escapes are still fine when they occur alongside real line breaks, such as
+ * an intentional `\\n` inside a code example.
+ */
+const planMarkdownSchema = z
+  .string()
+  .max(100_000)
+  .refine(
+    (value) => value.includes("\n") || !value.includes("\\n"),
+    "Rich-text Markdown must use actual line breaks, not a fully escaped `\\n` string.",
+  );
+
 export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
   z.discriminatedUnion("type", [
     baseBlockSchema.extend({
       type: z.literal("rich-text"),
       data: z.object({
-        markdown: z.string().max(100_000),
+        markdown: planMarkdownSchema,
       }),
     }),
     baseBlockSchema.extend({
@@ -2663,7 +2690,7 @@ const prototypeScreenPatchSchema = z
  * Raw (uncast) discriminated union behind `planContentPatchSchema`, kept as a
  * named const so `agentPlanContentPatchSchema` below can walk `.options` and
  * swap only the block-carrying ops for the compact `agentPlanBlockSchema`
- * instead of duplicating this whole 20-branch union.
+ * instead of duplicating this whole discriminated union.
  */
 const planContentPatchUnion = z.discriminatedUnion("op", [
   z
@@ -2675,6 +2702,12 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
     .refine((patch) => patch.title !== undefined || patch.brief !== undefined, {
       message: "Metadata patch must include title or brief.",
     }),
+  z.object({
+    op: z.literal("set-visual-render-mode"),
+    renderMode: visualCanvasModeSchema.describe(
+      "`design` persists polished HTML/CSS rendering and disables rough.js for every viewer; `wireframe` restores the viewer-controlled sketchy/clean treatment.",
+    ),
+  }),
   z.object({
     op: z.literal("set-prototype"),
     prototype: prototypeSchema,
@@ -2740,7 +2773,7 @@ const planContentPatchUnion = z.discriminatedUnion("op", [
     op: z.literal("update-rich-text"),
     blockId: idSchema,
     title: z.string().trim().min(1).max(180).optional(),
-    markdown: z.string().max(100_000).optional(),
+    markdown: planMarkdownSchema.optional(),
   }),
   z.object({
     op: z.literal("update-custom-html"),
@@ -2868,7 +2901,7 @@ const AGENT_WIREFRAME_NODE_PATCH_DESCRIPTION =
 
 /**
  * Compact ADVERTISED-ONLY stand-in for `planContentPatchSchema`, for use as
- * part of `defineAction`'s `agentInputSchema`. Same 20 `op` branches as the
+ * part of `defineAction`'s `agentInputSchema`. Same `op` branches as the
  * real union — only the ops that carry a deep block/wireframe union swap in
  * their compact stand-ins:
  * - `replace-block` / `append-block` / `replace-blocks`: `agentPlanBlockSchema`
@@ -2926,16 +2959,56 @@ export const agentPlanContentPatchesSchema = z
       "replace-block / replace-blocks / append-block.",
   );
 
+/**
+ * Model-facing patch vocabulary for edits to an existing hosted plan. Full
+ * block/content replacement remains valid at runtime for the browser editor
+ * and explicit callers, but advertising it to an agent makes it too easy to
+ * resend the whole document and hit the provider's streamed-JSON limit.
+ */
+const AGENT_INCREMENTAL_PATCH_EXCLUDED_OPS = new Set([
+  "set-prototype",
+  "replace-block",
+  "replace-blocks",
+  "replace-wireframe-screen",
+]);
+
+const agentIncrementalPlanContentPatchOptions =
+  agentPlanContentPatchOptions.filter((option) => {
+    const op = (option.shape as { op: { value: string } }).op.value;
+    return !AGENT_INCREMENTAL_PATCH_EXCLUDED_OPS.has(op);
+  });
+
+export const agentPlanIncrementalContentPatchesSchema = z
+  .array(
+    z.discriminatedUnion(
+      "op",
+      agentIncrementalPlanContentPatchOptions as unknown as Parameters<
+        typeof z.discriminatedUnion
+      >[1],
+    ),
+  )
+  .max(80)
+  .describe(
+    "Small targeted edits to an existing plan. Prefer append-block, update-rich-text, " +
+      "patch-wireframe-html, patch-prototype-html, or update-block. Do not " +
+      "resend the full plan; use get-visual-plan for context and keep each call incremental.",
+  );
+
 export function applyPlanContentPatches(
   content: PlanContent,
   patches: PlanContentPatch[],
 ): PlanContent {
   const next = cloneJson(planContentSchema.parse(content));
+  let pendingVisualRenderMode: PlanVisualCanvasMode | undefined;
 
   for (const patch of planContentPatchesSchema.parse(patches)) {
     if (patch.op === "set-metadata") {
       if (patch.title !== undefined) next.title = patch.title;
       if (patch.brief !== undefined) next.brief = patch.brief;
+      continue;
+    }
+    if (patch.op === "set-visual-render-mode") {
+      pendingVisualRenderMode = patch.renderMode;
       continue;
     }
     if (patch.op === "set-prototype") {
@@ -3271,12 +3344,100 @@ export function applyPlanContentPatches(
     }
   }
 
+  if (pendingVisualRenderMode) {
+    setVisualRenderMode(next, pendingVisualRenderMode);
+  }
   syncCanvasWireframes(next);
   return planContentSchema.parse(next);
 }
 
 function cloneJson<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+function setVisualRenderMode(
+  content: PlanContent,
+  renderMode: PlanVisualCanvasMode,
+) {
+  const hasLegacyBlock = (blocks: PlanBlock[]): boolean =>
+    blocks.some((block) => {
+      if (block.type === "legacy-wireframe") return true;
+      if (block.type === "tabs") {
+        return block.data.tabs.some((tab) => hasLegacyBlock(tab.blocks));
+      }
+      if (block.type === "columns") {
+        return block.data.columns.some((column) =>
+          hasLegacyBlock(column.blocks),
+        );
+      }
+      return false;
+    });
+  const hasLegacyFrame = content.canvas?.frames.some(
+    (frame) => frame.legacyWireframe,
+  );
+  if (hasLegacyBlock(content.blocks) || hasLegacyFrame) {
+    throw new Error(
+      "Cannot set visual render mode while the plan contains legacy-wireframe content. Replace legacy-wireframe blocks and canvas legacyWireframe fields with current wireframes in the same update, then set the render mode.",
+    );
+  }
+
+  let changed = false;
+
+  const updateBlock = (block: PlanBlock): PlanBlock => {
+    if (block.type === "wireframe") {
+      changed = true;
+      return { ...block, data: { ...block.data, renderMode } };
+    }
+    if (block.type === "tabs") {
+      return {
+        ...block,
+        data: {
+          ...block.data,
+          tabs: block.data.tabs.map((tab) => ({
+            ...tab,
+            blocks: tab.blocks.map(updateBlock),
+          })),
+        },
+      };
+    }
+    if (block.type === "columns") {
+      return {
+        ...block,
+        data: {
+          ...block.data,
+          columns: block.data.columns.map((column) => ({
+            ...column,
+            blocks: column.blocks.map(updateBlock),
+          })),
+        },
+      };
+    }
+    return block;
+  };
+
+  content.blocks = content.blocks.map(updateBlock);
+
+  if (content.canvas) {
+    content.canvas.mode = renderMode;
+    changed = true;
+    for (const frame of content.canvas.frames) {
+      if (!frame.wireframe) continue;
+      frame.wireframe.renderMode = renderMode;
+    }
+  }
+
+  if (content.prototype) {
+    for (const screen of content.prototype.screens) {
+      screen.renderMode = renderMode;
+      changed = true;
+    }
+  }
+
+  if (!changed) {
+    throw new Error(
+      "Cannot set visual render mode because the plan has no wireframes or prototype screens.",
+    );
+  }
 }
 
 function isWireframeBlock(

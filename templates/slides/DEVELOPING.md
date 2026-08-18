@@ -10,7 +10,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 - **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **UI components**: Radix UI primitives + Lucide icons
 - **Image generation**: Google Gemini via `@google/genai`
-- **State**: SQL-backed via `/api/decks`, in-memory undo/redo, share tokens
+- **State**: SQL-backed via deck actions, in-memory undo/redo, share tokens
 - **Logo lookup**: Logo.dev API (free tier with token) or Google Image Search fallback
 - **Path aliases**: `@/*` → app/, `@shared/*` → shared/
 
@@ -35,7 +35,7 @@ app/                           # React SPA frontend
 │   └── ui/                    # Reusable UI primitives (Radix-based)
 ├── data/                      # Shared data types and utilities
 ├── context/
-│   └── DeckContext.tsx        # Central state: decks, slides, undo/redo (fetches from /api/decks)
+│   └── DeckContext.tsx        # Central state: decks, slides, undo/redo (calls the deck actions)
 ├── lib/
 │   └── utils.ts               # cn() utility
 └── root.tsx               # HTML shell + global providers
@@ -43,7 +43,7 @@ app/                           # React SPA frontend
 server/                        # Nitro API server
 ├── routes/                    # File-based route-only endpoints (auto-discovered by Nitro)
 ├── handlers/                  # Route handler modules
-│   ├── decks.ts               # GET/PUT/POST/DELETE /api/decks (file-based CRUD)
+│   ├── decks.ts               # GET /api/decks/events (SSE) + notifyClients broadcast
 │   ├── image-gen.ts           # POST /api/image-gen/generate (Gemini)
 │   ├── generate-slides.ts     # POST /api/generate-slides (Gemini)
 │   └── share.ts               # POST /api/share, GET /api/share/:token
@@ -59,8 +59,8 @@ actions/                       # Shared app operations (defineAction; UI uses ac
 ├── run.ts                     # Script dispatcher
 ├── generate-image.ts          # Image generation with style references
 ├── image-gen-status.ts        # Check API key status
-├── image-search.ts            # Google Image search
-└── logo-lookup.ts             # Clearbit logo URL lookup
+├── search-images.ts           # Canonical Google image search
+└── search-logos.ts            # Canonical company/logo search
 ```
 
 ## Framework Basics (Nitro + @agent-native/core)

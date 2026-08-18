@@ -1,6 +1,8 @@
 import { McpClientManager } from "@agent-native/core/mcp-client";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import {
+  Client,
+  StreamableHTTPClientTransport,
+} from "@modelcontextprotocol/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { BrowserControlLoopbackBridge } from "../browser-control/bridge";
@@ -87,7 +89,10 @@ async function createHarness(
   });
   const url = await bridge.start();
   const registration = bridge.registerRun("run-server-owned", permissionMode);
-  const client = new Client({ name: "test", version: "1.0.0" });
+  const client = new Client(
+    { name: "test", version: "1.0.0" },
+    { versionNegotiation: { mode: "auto" } },
+  );
   await client.connect(
     new StreamableHTTPClientTransport(new URL(url), {
       requestInit: {
@@ -267,6 +272,22 @@ describe("DesktopComputerMcpBridge", () => {
     });
     await respond(attach.id, { tabId: 9, origin: "https://example.com" });
     expect((await attaching).isError).not.toBe(true);
+
+    const opening = harness.client.callTool({
+      name: "browser_open_tab",
+      arguments: { url: "https://example.com/next" },
+    });
+    const openTab = await poll();
+    expect(openTab.command).toMatchObject({
+      type: "open-tab",
+      url: "https://example.com/next",
+    });
+    await respond(openTab.id, {
+      url: "https://example.com/next",
+      origin: "https://example.com",
+      active: false,
+    });
+    expect((await opening).isError).not.toBe(true);
 
     const observing = harness.client.callTool({
       name: "browser_observe",

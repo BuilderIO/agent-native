@@ -6,22 +6,26 @@
  * grant (reads do not require user write consent, only editor access + a
  * valid bridge connection):
  *  1. assertAccess: the caller must have editor access to the design.
- *  2. Bridge URL resolution: only the current user's own connection row.
+ *  2. Bridge URL resolution: only the current user's own connection row, in
+ *     the caller's own org scope. A miss throws a classified 4xx from
+ *     server/lib/localhost-connection.ts so the client sees the actual
+ *     condition instead of a generic 500.
  *  3. Loopback check: bridgeUrl must resolve to localhost/127.0.0.1.
  *  4. Bridge token: the connection's stored bridge token is sent as
  *     X-Bridge-Token so the bridge can reject unauthorized callers.
  */
 
 import { defineAction } from "@agent-native/core";
-import {
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
-import { getDb, schema } from "../server/db/index.js";
+import {
+  fetchLocalhostBridge,
+  localhostBridgeRequestError,
+  requireLocalhostBridgeToken,
+  resolveLocalhostBridgeConnection,
+  resolveLocalhostConnectionScope,
+} from "../server/lib/localhost-connection.js";
 
 function isLoopbackHostname(hostname: string): boolean {
   const normalized = hostname.toLowerCase();
@@ -77,53 +81,25 @@ export default defineAction({
   run: async ({ designId, connectionId }) => {
     await assertAccess("design", designId, "editor");
 
-    const ownerEmail = getRequestUserEmail();
-    if (!ownerEmail) throw new Error("no authenticated user");
-    const orgId = getRequestOrgId() ?? null;
+    const scope = await resolveLocalhostConnectionScope();
+    const connection = await resolveLocalhostBridgeConnection({
+      connectionId,
+      ...scope,
+    });
+    const bridgeToken = requireLocalhostBridgeToken(
+      connectionId,
+      connection.bridgeToken,
+    );
 
-    const db = getDb();
-    const [connection] = await db
-      .select({
-        bridgeUrl: schema.designLocalhostConnections.bridgeUrl,
-        bridgeToken: schema.designLocalhostConnections.bridgeToken,
-      })
-      .from(schema.designLocalhostConnections)
-      .where(
-        and(
-          eq(schema.designLocalhostConnections.id, connectionId),
-          eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
-          orgId
-            ? eq(schema.designLocalhostConnections.orgId, orgId)
-            : isNull(schema.designLocalhostConnections.orgId),
-        ),
-      )
-      .limit(1);
-
-    if (!connection?.bridgeUrl) {
-      throw new Error(
-        `No bridge URL found for connection "${connectionId}". ` +
-          "Ensure the design bridge is running (npx @agent-native/core@latest design connect).",
-      );
-    }
-    if (!connection.bridgeToken) {
-      throw new Error(
-        `No bridge token found for connection "${connectionId}". ` +
-          "Reconnect via npx @agent-native/core@latest design connect.",
-      );
-    }
-
-    const bridgeUrl = normalizeBridgeUrl(connection.bridgeUrl);
-    const res = await fetch(`${bridgeUrl}/list-files`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Bridge-Token": connection.bridgeToken,
-      },
-      body: JSON.stringify({}),
+    const res = await fetchLocalhostBridge({
+      bridgeUrl: normalizeBridgeUrl(connection.bridgeUrl),
+      operation: "list-files",
+      bridgeToken,
+      body: {},
     });
     if (!res.ok) {
       const errText = await res.text().catch(() => res.statusText);
-      throw new Error(`Bridge list-files failed (${res.status}): ${errText}`);
+      throw localhostBridgeRequestError("list-files", res.status, errText);
     }
     const body = (await res.json()) as {
       files?: Array<{ path: string; size: number }>;

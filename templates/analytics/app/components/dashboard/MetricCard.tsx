@@ -19,7 +19,7 @@ export function MetricCard({
   error,
 }: MetricCardProps) {
   return (
-    <Card className="bg-card border-border/50">
+    <Card className="bg-card">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
         <CardTitle className="text-sm font-medium text-muted-foreground">
           {title}

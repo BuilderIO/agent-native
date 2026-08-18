@@ -1,6 +1,7 @@
-import { useActionMutation, useT } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconDots, IconDownload, IconTrash } from "@tabler/icons-react";
-import { useCallback, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import {
@@ -49,6 +50,7 @@ export function RecordingOptionsMenu({
   const t = useT();
   const [open, setOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const deletedWhileOpenRef = useRef(false);
   const showDownload = canDownload && Boolean(onDownload);
   const showDelete = canDelete;
   const trashRecording = useActionMutation<any, { id: string }>(
@@ -56,8 +58,11 @@ export function RecordingOptionsMenu({
     {
       onSuccess: () => {
         toast.success(t("deleteRecordingMenu.movedToTrash"));
+        // Keep the route mounted until Radix has finished removing the
+        // dialog portal. Navigating in the mutation callback can leave its
+        // body lock behind, which makes the destination look unclickable.
+        deletedWhileOpenRef.current = true;
         setOpen(false);
-        onDeleted?.();
       },
       onError: (err: any) =>
         toast.error(err?.message ?? t("deleteRecordingMenu.deleteFailed")),
@@ -122,7 +127,14 @@ export function RecordingOptionsMenu({
         </DropdownMenuContent>
       </DropdownMenu>
       {showDelete ? (
-        <AlertDialogContent>
+        <AlertDialogContent
+          onCloseAutoFocus={(event) => {
+            if (!deletedWhileOpenRef.current) return;
+            deletedWhileOpenRef.current = false;
+            event.preventDefault();
+            setTimeout(() => onDeleted?.(), 0);
+          }}
+        >
           <AlertDialogHeader>
             <AlertDialogTitle>
               {t("deleteRecordingMenu.moveTitle")}

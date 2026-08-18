@@ -16,6 +16,36 @@
 //!
 use tauri::AppHandle;
 
+/// One timestamped segment produced by bounded, offline-file transcription.
+/// Timestamps are relative to the supplied audio, never to wall-clock time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct OfflineTranscriptSegment {
+    pub start_ms: i64,
+    pub end_ms: i64,
+    pub text: String,
+}
+
+/// Transcribe already-decoded 16 kHz mono samples with the process-wide
+/// Whisper context. This is the reusable file-transcription entry point: the
+/// caller owns container decoding and the samples are never persisted here.
+///
+/// Blocking work -- call from a dedicated worker thread, not the async runtime.
+pub(crate) fn transcribe_offline_file_samples(
+    app: &AppHandle,
+    samples: &[f32],
+    language: Option<&str>,
+) -> Result<Vec<OfflineTranscriptSegment>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::transcribe_offline_file_samples(app, samples, language)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, samples, language);
+        Err("local Whisper file transcription is supported on macOS only".to_owned())
+    }
+}
+
 #[tauri::command]
 pub async fn whisper_transcription_start(
     app: AppHandle,
@@ -24,6 +54,7 @@ pub async fn whisper_transcription_start(
     mic_device_label: Option<String>,
     capture_system: bool,
     voice_processing: bool,
+    emit_partials: bool,
     owner: Option<String>,
 ) -> Result<(), String> {
     if !crate::config::feature_config(&app).whisper_model_enabled {
@@ -38,6 +69,7 @@ pub async fn whisper_transcription_start(
             mic_device_label,
             capture_system,
             voice_processing,
+            emit_partials,
             macos::SessionOwner::from_param(owner),
         )
         .await
@@ -51,6 +83,7 @@ pub async fn whisper_transcription_start(
             mic_device_label,
             capture_system,
             voice_processing,
+            emit_partials,
             owner,
         );
         Err("Whisper transcription is only supported on macOS.".into())
@@ -90,6 +123,11 @@ pub async fn whisper_transcription_stop(app: AppHandle) -> Result<(), String> {
     }
 }
 
+pub fn shutdown(app: &AppHandle) {
+    #[cfg(target_os = "macos")]
+    macos::stop(app);
+}
+
 #[tauri::command]
 pub async fn whisper_transcription_reset_timeline() -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -101,6 +139,7 @@ pub async fn whisper_transcription_reset_timeline() -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 mod macos {
+    use std::path::PathBuf;
     use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{Duration, Instant};
@@ -109,6 +148,10 @@ mod macos {
     use tauri::{AppHandle, Emitter};
     use whisper_rs::{FullParams, SamplingStrategy, WhisperContext, WhisperContextParameters};
 
+    use crate::capture_audio_bus::{
+        try_subscribe, AudioSources, AudioSubscription, SubscriptionAttempt,
+    };
+    use crate::echo_guard::EchoGuard;
     use crate::native_speech::macos::{
         start_raw_mic_capture, MicVoiceProcessingMode, RawMicCapture,
     };
@@ -117,6 +160,40 @@ mod macos {
         RawSckAudioCapture,
     };
     use crate::whisper_model::{ensure_model, model_file};
+
+    const MEETING_AUDIO_OWNER: &str = "meeting-whisper";
+
+    /// Emit every Nth shared-bus buffer as a meter level. Buffers land every
+    /// ~10-20 ms; the overlay only needs ~20 Hz to look live.
+    const SHARED_LEVEL_EVERY: u32 = 3;
+
+    /// Meter levels for the shared-producer path. Each physical capture path
+    /// emits `voice:audio-level` from its own tap, but a meeting that subscribes
+    /// to the Rewind audio bus opens none of those taps — the samples arrive
+    /// already mixed. Without this the recording pill's waveform reports silence
+    /// for the entire call while transcription runs perfectly.
+    fn shared_level_tap(
+        app: AppHandle,
+        source: &'static str,
+    ) -> impl Fn(&[f32]) + Send + Sync + 'static {
+        let tick = Arc::new(AtomicU32::new(0));
+        move |samples: &[f32]| {
+            if tick.fetch_add(1, Ordering::Relaxed) % SHARED_LEVEL_EVERY != 0 {
+                return;
+            }
+            // Sparse peak — a meter does not need every frame.
+            let step = (samples.len() / 64).max(1);
+            let level = samples
+                .iter()
+                .step_by(step)
+                .fold(0.0f32, |peak, sample| peak.max(sample.abs()))
+                .min(1.0);
+            let _ = app.emit(
+                "voice:audio-level",
+                serde_json::json!({ "level": level, "source": source }),
+            );
+        }
+    }
 
     /// One transcript segment with real timestamps from whisper, already
     /// offset onto the meeting timeline (ms since capture start).
@@ -151,21 +228,38 @@ mod macos {
         // the first call takes effect.
         whisper_rs::install_logging_hooks();
 
-        static CTX: OnceLock<Mutex<Option<Arc<WhisperContext>>>> = OnceLock::new();
+        struct CachedContext {
+            model_path: PathBuf,
+            context: Arc<WhisperContext>,
+        }
+
+        static CTX: OnceLock<Mutex<Option<CachedContext>>> = OnceLock::new();
         let slot = CTX.get_or_init(|| Mutex::new(None));
         let mut guard = slot.lock().map_err(|e| e.to_string())?;
-        if let Some(ctx) = guard.as_ref() {
-            return Ok(ctx.clone());
-        }
         let path = model_file(app)?;
+        if let Some(cached) = guard.as_ref() {
+            if cached.model_path == path {
+                return Ok(cached.context.clone());
+            }
+        }
         let path_str = path
             .to_str()
             .ok_or_else(|| "model path is not valid UTF-8".to_string())?;
-        let ctx = WhisperContext::new_with_params(path_str, WhisperContextParameters::default())
+        let mut params = WhisperContextParameters::default();
+        // The `metal` Cargo feature defaults `use_gpu` to true for every mac
+        // (Intel included) via whisper-rs's `_gpu` cfg. Metal offload only
+        // pays off on Apple Silicon's unified-memory GPU, so pin this
+        // explicitly instead of trusting that default — Intel Macs keep
+        // today's CPU decode path.
+        params.use_gpu(cfg!(target_arch = "aarch64"));
+        let ctx = WhisperContext::new_with_params(path_str, params)
             .map_err(|e| format!("whisper model load failed: {e}"))?;
-        let ctx = Arc::new(ctx);
-        *guard = Some(ctx.clone());
-        Ok(ctx)
+        let context = Arc::new(ctx);
+        *guard = Some(CachedContext {
+            model_path: path,
+            context: context.clone(),
+        });
+        Ok(context)
     }
 
     pub fn prewarm(app: &AppHandle) -> Result<(), String> {
@@ -175,10 +269,52 @@ mod macos {
         Ok(())
     }
 
+    pub(super) fn transcribe_offline_file_samples(
+        app: &AppHandle,
+        samples: &[f32],
+        language: Option<&str>,
+    ) -> Result<Vec<super::OfflineTranscriptSegment>, String> {
+        const CHUNK_SAMPLES: usize = 25 * 16_000;
+
+        let ctx = context(app)?;
+        let mut state = ctx
+            .create_state()
+            .map_err(|e| format!("whisper state init failed: {e}"))?;
+        let mut segments = Vec::new();
+        for (chunk_index, chunk) in samples.chunks(CHUNK_SAMPLES).enumerate() {
+            let chunk_offset_ms = chunk_index as i64 * 25_000;
+            segments.extend(infer(&mut state, chunk, language).into_iter().map(
+                |(start_ms, end_ms, text)| super::OfflineTranscriptSegment {
+                    start_ms: chunk_offset_ms.saturating_add(start_ms),
+                    end_ms: chunk_offset_ms.saturating_add(end_ms),
+                    text,
+                },
+            ));
+        }
+        Ok(segments)
+    }
+
     // ---- resampling -------------------------------------------------------
 
+    /// One linearly-interpolated 16 kHz output sample at output index `i`,
+    /// given `ratio = 16000 / src_rate`. Shared by `resample_to_16k` (one-shot,
+    /// full buffer) and `IncrementalResample` (append-only, growing buffer) so
+    /// both produce byte-identical values for the same input.
+    fn resample_linear_at(input: &[f32], ratio: f64, i: usize) -> f32 {
+        let src_pos = i as f64 / ratio;
+        let idx = src_pos as usize;
+        let frac = (src_pos - idx as f64) as f32;
+        let a = input.get(idx).copied().unwrap_or(0.0);
+        let b = input.get(idx + 1).copied().unwrap_or(a);
+        a + (b - a) * frac
+    }
+
     /// Linear-resample mono f32 to 16 kHz (Whisper's required rate). Per-buffer
-    /// resampling introduces negligible boundary error for speech.
+    /// resampling introduces negligible boundary error for speech. One-shot —
+    /// used only for the final flush on stop. The hot per-utterance path (an
+    /// utterance can be resampled repeatedly as it grows toward the 25 s cap)
+    /// uses `IncrementalResample` instead so it doesn't redo the whole buffer
+    /// every time.
     fn resample_to_16k(input: &[f32], src_rate: f64) -> Vec<f32> {
         if input.is_empty() {
             return Vec::new();
@@ -190,14 +326,93 @@ mod macos {
         let out_len = ((input.len() as f64) * ratio).floor() as usize;
         let mut out = Vec::with_capacity(out_len);
         for i in 0..out_len {
-            let src_pos = i as f64 / ratio;
-            let idx = src_pos as usize;
-            let frac = (src_pos - idx as f64) as f32;
-            let a = input.get(idx).copied().unwrap_or(0.0);
-            let b = input.get(idx + 1).copied().unwrap_or(a);
-            out.push(a + (b - a) * frac);
+            out.push(resample_linear_at(input, ratio, i));
         }
         out
+    }
+
+    /// Incrementally maintains a 16 kHz resample of a growing raw-sample
+    /// buffer so repeated inference calls (partials, then the final) within
+    /// one utterance only resample the audio that arrived since the last
+    /// call, not the whole utterance from scratch. Lives entirely on the
+    /// worker thread — not shared, no locking needed.
+    struct IncrementalResample {
+        src_rate: f32,
+        /// 16 kHz samples resampled so far. A prefix of what
+        /// `resample_to_16k(raw, src_rate)` would produce for the current
+        /// `raw`; `sync` extends it in place.
+        out: Vec<f32>,
+        /// Length of `out` that's permanent: every sample up to this point
+        /// used two real interpolation neighbors (never the same-sample
+        /// fallback `resample_to_16k` falls back to at the true tail), so it
+        /// can never change as more raw samples arrive. `sync` recomputes
+        /// anything past this on every call.
+        committed_len: usize,
+    }
+
+    impl IncrementalResample {
+        fn new() -> Self {
+            Self {
+                src_rate: -1.0,
+                out: Vec::new(),
+                committed_len: 0,
+            }
+        }
+
+        /// Discard all cached state. Call this everywhere the raw buffer it
+        /// tracks is cleared or front-drained (finalize, timeline reset) —
+        /// after either, raw sample indices no longer line up with what's
+        /// cached here, so the cheapest correct move is a clean rebuild on
+        /// the next `sync` (bounded by however little raw audio is left).
+        fn drop_all(&mut self) {
+            self.out.clear();
+            self.committed_len = 0;
+        }
+
+        /// Extend the cached resample to cover all of `raw`, byte-identical to
+        /// calling `resample_to_16k(raw, src_rate)` fresh. Only the samples
+        /// that arrived since the last call are actually resampled.
+        fn sync(&mut self, raw: &[f32], src_rate: f32) {
+            if (src_rate - self.src_rate).abs() > 0.5 {
+                self.src_rate = src_rate;
+                self.drop_all();
+            }
+            // Drop the small uncommitted tail from the previous call (its
+            // fallback neighbor may since have become a real sample) before
+            // recomputing it with the now-current buffer.
+            self.out.truncate(self.committed_len);
+
+            if raw.is_empty() {
+                return;
+            }
+            if (src_rate as f64 - 16000.0).abs() < 1.0 {
+                if raw.len() > self.out.len() {
+                    self.out.extend_from_slice(&raw[self.out.len()..]);
+                }
+                self.committed_len = self.out.len();
+                return;
+            }
+
+            let ratio = 16000.0 / src_rate as f64;
+            let full_len = ((raw.len() as f64) * ratio).floor() as usize;
+            while self.out.len() < full_len {
+                let i = self.out.len();
+                self.out.push(resample_linear_at(raw, ratio, i));
+            }
+            // Reserve the last couple of raw samples as lookahead: an output
+            // sample this close to the end may have used the same-sample
+            // fallback above because its true second neighbor hasn't arrived
+            // yet. Only commit up to where both neighbors are guaranteed
+            // real, so that sample gets redone (cheaply) once more audio
+            // confirms it instead of freezing the fallback value forever.
+            let safe_raw_len = raw.len().saturating_sub(2);
+            let safe_len = ((safe_raw_len as f64) * ratio).floor() as usize;
+            self.committed_len = safe_len.min(self.out.len());
+        }
+
+        fn samples(&self) -> &[f32] {
+            &self.out
+        }
     }
 
     // ---- per-stream worker ------------------------------------------------
@@ -228,6 +443,15 @@ mod macos {
         /// local counters that must be reset after the realtime callback clears
         /// the shared sample buffer.
         reset_generation: AtomicU32,
+        /// Whether this consumer renders live partial transcript updates.
+        /// Recording capture only persists finals and disables this expensive
+        /// repeated inference; meeting capture keeps it enabled.
+        emit_partials: bool,
+        /// Shared speaker-bleed reference, present only while both streams are
+        /// capturing. The system stream records what the speakers played into
+        /// it; the mic stream reads it back to drop its own echo of that
+        /// playback before inference. See `echo_guard`.
+        echo_guard: Option<Arc<EchoGuard>>,
     }
 
     impl WhisperStream {
@@ -238,6 +462,8 @@ mod macos {
             language: Option<String>,
             ctx: Arc<WhisperContext>,
             stream_start: Instant,
+            emit_partials: bool,
+            echo_guard: Option<Arc<EchoGuard>>,
         ) -> Arc<Self> {
             let done = Arc::new(AtomicBool::new(false));
             let stream = Arc::new(WhisperStream {
@@ -253,6 +479,8 @@ mod macos {
                     buffer_start: stream_start,
                 }),
                 reset_generation: AtomicU32::new(0),
+                emit_partials,
+                echo_guard,
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
@@ -271,6 +499,17 @@ mod macos {
         /// deliberately deferred to the worker so we never allocate/compute on
         /// the realtime audio thread.
         fn push(&self, frames: &[f32]) {
+            // A bus publish may already have cloned this callback when the
+            // subscription is dropped. Refuse that final in-flight delivery
+            // once teardown has signalled the worker to stop.
+            if !self.running.load(Ordering::SeqCst) {
+                return;
+            }
+            if self.source == "system" {
+                if let Some(guard) = &self.echo_guard {
+                    guard.note_playback(frames, self.src_rate.load(Ordering::SeqCst) as f64);
+                }
+            }
             if let Ok(mut buf) = self.buf.lock() {
                 buf.extend_from_slice(frames);
             }
@@ -293,13 +532,46 @@ mod macos {
                 .unwrap_or(0)
         }
 
-        /// Mark the start of a fresh buffer (called when the buffer is cleared
+        /// Mark the start of a fresh buffer (called when the buffer is drained
         /// on finalize) so the next utterance's whisper timestamps offset
-        /// correctly onto the meeting timeline.
-        fn reset_buffer_start(&self) {
+        /// correctly onto the meeting timeline. `pending` is how much audio
+        /// survived the drain, which is how far before now the buffer begins.
+        fn reset_buffer_start(&self, pending: Duration) {
+            let now = Instant::now();
             if let Ok(mut timeline) = self.timeline.lock() {
-                timeline.buffer_start = Instant::now();
+                timeline.buffer_start = buffer_start_after_drain(now, pending);
             }
+        }
+
+        /// Wall-clock start of the audio currently sitting in `buf`, used to
+        /// line that audio up against the playback reference.
+        fn buffer_start(&self) -> Instant {
+            self.timeline
+                .lock()
+                .map(|timeline| timeline.buffer_start)
+                .unwrap_or_else(|_| Instant::now())
+        }
+
+        /// Whether `samples` (16 kHz mono) is the speakers bleeding into the
+        /// microphone rather than someone talking. Only the mic can be
+        /// contaminated: a call app never plays the local user back.
+        fn is_playback_echo(&self, samples: &[f32]) -> bool {
+            if self.source != "mic" {
+                return false;
+            }
+            self.echo_guard
+                .as_ref()
+                .is_some_and(|guard| guard.is_playback_echo(samples, self.buffer_start()))
+        }
+
+        /// Clear whichever live partial this stream last rendered. Suppressed
+        /// echo emits no final, so without this the overlay would keep showing
+        /// the partial that led up to it.
+        fn clear_partial(&self) {
+            let _ = self.app.emit(
+                "voice:partial-transcript",
+                serde_json::json!({ "text": "", "source": self.source }),
+            );
         }
 
         /// Rebase timestamps to "now" and discard any audio captured while the
@@ -358,6 +630,60 @@ mod macos {
         }
     }
 
+    /// RNNoise's voice-activity output is more useful than a fixed amplitude
+    /// threshold for the meeting microphone. A muted call still leaves Clips
+    /// with the local microphone, and fans, keyboard noise, or room noise can
+    /// be loud enough to cross the old RMS-only gate. Keep this state on the
+    /// worker thread so the realtime capture callback stays allocation-free.
+    struct MicVoiceActivity {
+        state: Box<nnnoiseless::DenoiseState<'static>>,
+        pending: Vec<f32>,
+    }
+
+    impl MicVoiceActivity {
+        const SAMPLE_RATE: f32 = 48_000.0;
+        const INPUT_SCALE: f32 = 32_768.0;
+
+        fn new() -> Self {
+            Self {
+                state: nnnoiseless::DenoiseState::new(),
+                pending: Vec::new(),
+            }
+        }
+
+        fn reset(&mut self) {
+            self.state = nnnoiseless::DenoiseState::new();
+            self.pending.clear();
+        }
+
+        /// Return the highest RNNoise speech probability in `samples`.
+        /// `None` means this capture format is not the 48 kHz PCM that
+        /// RNNoise expects; callers retain the existing RMS fallback for
+        /// those legacy devices.
+        fn observe(&mut self, samples: &[f32], sample_rate: f32) -> Option<f32> {
+            if (sample_rate - Self::SAMPLE_RATE).abs() > 1.0 {
+                self.reset();
+                return None;
+            }
+
+            self.pending.extend(samples.iter().map(|sample| {
+                (sample * Self::INPUT_SCALE).clamp(-Self::INPUT_SCALE, Self::INPUT_SCALE)
+            }));
+
+            let frame_size = nnnoiseless::DenoiseState::FRAME_SIZE;
+            let mut highest_probability: f32 = 0.0;
+            while self.pending.len() >= frame_size {
+                let mut denoised = [0.0_f32; nnnoiseless::DenoiseState::FRAME_SIZE];
+                let probability = self
+                    .state
+                    .process_frame(&mut denoised, &self.pending[..frame_size]);
+                highest_probability = highest_probability.max(probability);
+                self.pending.drain(..frame_size);
+            }
+            Some(highest_probability)
+        }
+    }
+
     /// Run whisper over `samples` (16 kHz mono f32), returning each speech
     /// segment as `(start_ms, end_ms, text)` with buffer-relative timestamps.
     /// `language` is the forced language code (e.g. "en"); `None` lets whisper
@@ -368,10 +694,11 @@ mod macos {
         language: Option<&str>,
     ) -> Vec<(i64, i64, String)> {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_n_threads(4);
+        params.set_n_threads(2);
         params.set_language(language);
         params.set_translate(false);
         params.set_no_context(true);
+        params.set_suppress_nst(true);
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -382,14 +709,22 @@ mod macos {
         let mut out = Vec::new();
         for segment in state.as_iter() {
             let text = segment.to_string();
-            if is_speech(&text) {
-                // whisper timestamps are in centiseconds → ms.
-                out.push((
-                    segment.start_timestamp() * 10,
-                    segment.end_timestamp() * 10,
-                    text,
-                ));
+            if !is_speech(&text) || segment.no_speech_probability() >= MAX_NO_SPEECH_PROBABILITY {
+                continue;
             }
+            // Low average token confidence means whisper was guessing —
+            // typically a mis-detected-language hallucination that reads
+            // fluently but scores poorly. Drop it.
+            let confidence = segment_confidence(&segment);
+            if confidence < MIN_AVG_TOKEN_PROBABILITY {
+                continue;
+            }
+            // whisper timestamps are in centiseconds → ms.
+            out.push((
+                segment.start_timestamp() * 10,
+                segment.end_timestamp() * 10,
+                text,
+            ));
         }
         out
     }
@@ -415,6 +750,83 @@ mod macos {
     const SAMPLE_RATE_16K: f32 = 16000.0;
     /// RMS above this counts as speech for the silence/end-of-utterance timer.
     const VOICE_RMS_THRESHOLD: f32 = 0.006;
+    /// A second, model-level gate for ambient/no-speech Whisper segments.
+    const MAX_NO_SPEECH_PROBABILITY: f32 = 0.72;
+    /// RNNoise speech probability required for a 48 kHz microphone frame to
+    /// count as voice. System audio and non-48 kHz legacy mic captures keep
+    /// the RMS path because this VAD is trained for 48 kHz microphone PCM.
+    const MIN_MIC_VAD_PROBABILITY: f32 = 0.6;
+    /// Minimum average per-token probability for a segment to count as real
+    /// speech. On noisy/near-silent audio whisper mis-detects the language and
+    /// decodes fluent-looking gibberish in another language — but those tokens
+    /// are low-confidence under the hood. Dropping segments below this cutoff
+    /// removes that wrong-language garbage while keeping genuine multilingual
+    /// speech (which decodes with high confidence).
+    const MIN_AVG_TOKEN_PROBABILITY: f32 = 0.55;
+
+    /// Average the model's per-token probability across a segment. Returns 0.0
+    /// for an empty segment so it is treated as low-confidence. Special tokens
+    /// (timestamps, `[_BEG_]`, …) render as `[_…]` and are skipped so they
+    /// don't skew the average toward the text tokens we actually care about.
+    fn segment_confidence(segment: &whisper_rs::WhisperSegment<'_>) -> f32 {
+        let mut sum = 0.0f32;
+        let mut count = 0u32;
+        for i in 0..segment.n_tokens() {
+            let Some(token) = segment.get_token(i) else {
+                continue;
+            };
+            let is_special = token
+                .to_str_lossy()
+                .map(|t| t.starts_with("[_"))
+                .unwrap_or(false);
+            if is_special {
+                continue;
+            }
+            sum += token.token_probability();
+            count += 1;
+        }
+        if count == 0 {
+            return 0.0;
+        }
+        sum / count as f32
+    }
+
+    fn mic_voice_detected(rms: f32, vad_probability: Option<f32>) -> bool {
+        rms > VOICE_RMS_THRESHOLD
+            && vad_probability.is_none_or(|probability| probability >= MIN_MIC_VAD_PROBABILITY)
+    }
+
+    fn buffer_start_after_drain(now: Instant, pending: Duration) -> Instant {
+        now.checked_sub(pending).unwrap_or(now)
+    }
+
+    fn partial_inference_due(
+        emit_partials: bool,
+        had_voice: bool,
+        have_secs: f32,
+        since_last_infer: Duration,
+    ) -> bool {
+        emit_partials
+            && had_voice
+            && have_secs > 0.5
+            && since_last_infer > Duration::from_millis(1200)
+    }
+
+    fn partial_inference_timestamp(
+        previous: Instant,
+        inference_ran: bool,
+        now: Instant,
+    ) -> Instant {
+        if inference_ran {
+            now
+        } else {
+            previous
+        }
+    }
+
+    fn utterance_finalize_due(have_secs: f32, silence: Duration) -> bool {
+        (have_secs > 0.4 && silence > Duration::from_millis(800)) || have_secs > 25.0
+    }
 
     fn worker(stream: Arc<WhisperStream>, ctx: Arc<WhisperContext>) {
         let mut state = match ctx.create_state() {
@@ -429,7 +841,7 @@ mod macos {
             }
         };
         let lang = stream.language.as_deref();
-        let mut last_len = 0usize;
+        let mut last_raw_len = 0usize;
         let mut last_infer = Instant::now() - Duration::from_secs(10);
         let mut last_voice = Instant::now();
         // Whether the CURRENT utterance buffer ever crossed the voice
@@ -437,6 +849,12 @@ mod macos {
         // silent audio, so we NEVER run inference on a buffer with no voice.
         let mut had_voice = false;
         let mut seen_reset_generation = stream.reset_generation.load(Ordering::SeqCst);
+        // Growing-utterance resample cache — see `IncrementalResample`.
+        let mut resample_state = IncrementalResample::new();
+        // Only the microphone stream needs a speech/noise classifier. The
+        // system stream must preserve remote speech even when it is mixed
+        // with music or other non-voice audio.
+        let mut mic_voice_activity = (stream.source == "mic").then(MicVoiceActivity::new);
 
         while stream.running.load(Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(250));
@@ -444,59 +862,110 @@ mod macos {
             let reset_generation = stream.reset_generation.load(Ordering::SeqCst);
             if reset_generation != seen_reset_generation {
                 seen_reset_generation = reset_generation;
-                last_len = 0;
+                last_raw_len = 0;
                 last_voice = Instant::now();
                 last_infer = Instant::now() - Duration::from_secs(10);
                 had_voice = false;
+                resample_state.drop_all();
+                if let Some(vad) = mic_voice_activity.as_mut() {
+                    vad.reset();
+                }
                 continue;
             }
 
-            // Clone the raw buffer (cheap relative to inference), then resample
-            // to 16 kHz here on the worker rather than on the audio thread.
-            let raw = match stream.buf.lock() {
-                Ok(b) => b.clone(),
+            // Voice activity only needs the samples that arrived since the last
+            // poll. Inspect that tail in place instead of cloning + resampling
+            // the entire growing utterance four times per second. Full snapshots
+            // are reserved for an inference that is actually due.
+            let (raw_len, new_rms, new_mic_samples) = match stream.buf.lock() {
+                Ok(b) => {
+                    let raw_len = b.len();
+                    let (new_rms, new_mic_samples) = if raw_len > last_raw_len {
+                        let new = &b[last_raw_len..];
+                        (
+                            Some(
+                                (new.iter().map(|x| x * x).sum::<f32>() / new.len() as f32).sqrt(),
+                            ),
+                            (stream.source == "mic").then(|| new.to_vec()),
+                        )
+                    } else {
+                        (None, None)
+                    };
+                    (raw_len, new_rms, new_mic_samples)
+                }
                 Err(_) => continue,
             };
-            let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
-            let samples = resample_to_16k(&raw, src_rate);
             if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
                 continue;
             }
-            let len = samples.len();
-
-            // Track voice activity over the newly-arrived region.
-            if len > last_len {
-                let new = &samples[last_len..];
-                let rms = (new.iter().map(|x| x * x).sum::<f32>() / new.len() as f32).sqrt();
-                if rms > VOICE_RMS_THRESHOLD {
+            let src_rate = (stream.src_rate.load(Ordering::SeqCst) as f32).max(1.0);
+            if let Some(rms) = new_rms {
+                let vad_probability = mic_voice_activity
+                    .as_mut()
+                    .zip(new_mic_samples.as_deref())
+                    .and_then(|(vad, samples)| vad.observe(samples, src_rate));
+                if mic_voice_detected(rms, vad_probability) {
                     last_voice = Instant::now();
                     had_voice = true;
                 }
-                last_len = len;
             }
+            last_raw_len = raw_len;
 
-            let have_secs = len as f32 / SAMPLE_RATE_16K;
+            let have_secs = raw_len as f32 / src_rate;
             let silence = last_voice.elapsed();
 
             // Finalize on a real pause (>0.8 s silence with >0.4 s speech) or
             // when the buffer grows too long to keep as one utterance.
-            if (have_secs > 0.4 && silence > Duration::from_millis(800)) || have_secs > 25.0 {
+            if utterance_finalize_due(have_secs, silence) {
                 // Only transcribe if the utterance actually contained voice —
                 // otherwise we'd feed whisper silence and get a hallucinated
                 // "you" / "Thank you.".
+                let mut n_processed = raw_len;
                 if had_voice && have_secs > 0.4 {
-                    let segs = infer(&mut state, &samples, lang);
-                    stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
+                    match stream.buf.lock() {
+                        Ok(b) => {
+                            // Hold the lock only long enough to extend the
+                            // resample cache with the new tail (cheap) — NOT
+                            // through inference, so the realtime capture
+                            // callback (`push`) never blocks on whisper.
+                            resample_state.sync(&b, src_rate);
+                            n_processed = b.len();
+                        }
+                        Err(_) => continue,
+                    }
+                    if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
+                        continue;
+                    }
+                    if stream.is_playback_echo(resample_state.samples()) {
+                        // A dropped utterance is indistinguishable from silence
+                        // in the transcript, so say so here: this log is the
+                        // only way a false positive is diagnosable afterwards.
+                        eprintln!("[whisper-mic] suppressed {have_secs:.1}s of speaker bleed");
+                        stream.clear_partial();
+                    } else {
+                        let segs = infer(&mut state, resample_state.samples(), lang);
+                        stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
+                    }
                 }
-                let n_processed = raw.len();
+                let mut pending = 0usize;
                 if let Ok(mut b) = stream.buf.lock() {
                     let to_drain = n_processed.min(b.len());
                     b.drain(..to_drain);
+                    pending = b.len();
                 }
-                // New buffer begins now — advance the timeline offset so the
-                // next utterance's whisper timestamps map correctly.
-                stream.reset_buffer_start();
-                last_len = 0;
+                // Raw indices shift after the drain above (front-truncated),
+                // so the resample cache is invalid regardless of whether this
+                // utterance ran inference — rebuild fresh from whatever's left.
+                resample_state.drop_all();
+                if let Some(vad) = mic_voice_activity.as_mut() {
+                    vad.reset();
+                }
+                // Advance the timeline offset so the next utterance's whisper
+                // timestamps map correctly. Inference can take seconds, and
+                // audio kept arriving throughout it, so the new buffer starts
+                // as far back as the audio it already holds — not at "now".
+                stream.reset_buffer_start(Duration::from_secs_f32(pending as f32 / src_rate));
+                last_raw_len = 0;
                 had_voice = false;
                 last_infer = Instant::now();
                 continue;
@@ -504,10 +973,28 @@ mod macos {
 
             // Partial while speech is still accruing (only once real voice has
             // been heard in this utterance).
-            if had_voice && have_secs > 0.5 && last_infer.elapsed() > Duration::from_millis(1200) {
-                let segs = infer(&mut state, &samples, lang);
-                stream.emit_transcript("voice:partial-transcript", &segs, stream.offset_ms());
-                last_infer = Instant::now();
+            if partial_inference_due(
+                stream.emit_partials,
+                had_voice,
+                have_secs,
+                last_infer.elapsed(),
+            ) {
+                match stream.buf.lock() {
+                    Ok(b) => resample_state.sync(&b, src_rate),
+                    Err(_) => continue,
+                }
+                if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
+                    continue;
+                }
+                let inference_ran = if stream.is_playback_echo(resample_state.samples()) {
+                    stream.clear_partial();
+                    false
+                } else {
+                    let segs = infer(&mut state, resample_state.samples(), lang);
+                    stream.emit_transcript("voice:partial-transcript", &segs, stream.offset_ms());
+                    true
+                };
+                last_infer = partial_inference_timestamp(last_infer, inference_ran, Instant::now());
             }
         }
 
@@ -515,7 +1002,10 @@ mod macos {
         let raw = stream.buf.lock().map(|b| b.clone()).unwrap_or_default();
         let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
         let samples = resample_to_16k(&raw, src_rate);
-        if had_voice && samples.len() as f32 / SAMPLE_RATE_16K > 0.3 {
+        if had_voice
+            && samples.len() as f32 / SAMPLE_RATE_16K > 0.3
+            && !stream.is_playback_echo(&samples)
+        {
             let segs = infer(&mut state, &samples, lang);
             stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
         }
@@ -546,6 +1036,7 @@ mod macos {
             "thank you very much",
             "thanks for watching",
             "thank you for watching",
+            "ご視聴ありがとうございました",
             "please subscribe",
         ];
         if HALLUCINATIONS.contains(&normalized.as_str()) {
@@ -615,16 +1106,29 @@ mod macos {
     }
 
     struct Session {
+        app: AppHandle,
         // macOS 15+ meetings use a combined SCK capture, so there is no
         // competing AVAudioEngine / VoiceProcessingIO mic input to stop.
         mic_cap: Option<RawMicCapture>,
         // System capture is optional — skipped when the user turns system
         // audio off, so neither the recording nor the transcript include it.
         sys_cap: Option<RawSckAudioCapture>,
+        // When Rewind already owns the requested SCK audio sources, meeting
+        // Whisper receives fan-out PCM through this subscription and opens no
+        // physical mic/system recorder of its own.
+        _shared_audio: Option<AudioSubscription>,
+        temporary_audio: Option<crate::screen_memory::TemporaryAudioLease>,
         mic: Arc<WhisperStream>,
         sys: Option<Arc<WhisperStream>>,
         /// Who started this session — see `SessionOwner`.
         owner: SessionOwner,
+    }
+
+    impl Drop for Session {
+        fn drop(&mut self) {
+            drop(self._shared_audio.take());
+            release_temporary_audio(&self.app, self.temporary_audio.take());
+        }
     }
 
     // SAFETY: the capture handles hold refcounted ObjC objects (already
@@ -644,6 +1148,7 @@ mod macos {
         mic_device_label: Option<String>,
         capture_system: bool,
         voice_processing: bool,
+        emit_partials: bool,
         owner: SessionOwner,
     ) -> Result<(), String> {
         // Priority rule (D10): a meeting-owned session must never be
@@ -694,6 +1199,9 @@ mod macos {
         // competing VoiceProcessingIO mic input. Older macOS versions (and a
         // failed SCK start) keep the existing split-capture fallback.
         let session_start = Instant::now();
+        // Only a session that captures both streams can tell speaker bleed
+        // from speech, so a mic-only session leaves the guard unarmed.
+        let echo_guard = capture_system.then(|| Arc::new(EchoGuard::new()));
         let mic_stream = WhisperStream::new(
             app.clone(),
             "mic",
@@ -701,6 +1209,8 @@ mod macos {
             lang.clone(),
             ctx.clone(),
             session_start,
+            emit_partials,
+            echo_guard.clone(),
         );
         let sys_stream = capture_system.then(|| {
             WhisperStream::new(
@@ -710,6 +1220,8 @@ mod macos {
                 lang.clone(),
                 ctx.clone(),
                 session_start,
+                emit_partials,
+                echo_guard.clone(),
             )
         });
         let mic_for_cb = mic_stream.clone();
@@ -722,10 +1234,84 @@ mod macos {
                     as Arc<dyn Fn(&[f32]) + Send + Sync>
             });
 
-        let combined_cap = if should_use_combined_sck_capture(
-            owner,
-            supports_sck_microphone_capture(),
-        ) {
+        // If Rewind is running visuals-only, upgrade that one physical
+        // producer before touching the bus. Off/paused Rewind returns no lease
+        // and preserves the legacy meeting capture path.
+        let temporary_audio = if owner == SessionOwner::Meeting {
+            match crate::screen_memory::acquire_temporary_audio_consumer(
+                &app,
+                MEETING_AUDIO_OWNER,
+                crate::capture_graph::CaptureConsumer::Meeting,
+                true,
+                capture_system,
+            ) {
+                Ok(lease) => lease,
+                Err(error) => {
+                    mic_stream.stop();
+                    if let Some(sys_stream) = &sys_stream {
+                        sys_stream.stop();
+                    }
+                    return Err(error);
+                }
+            }
+        } else {
+            None
+        };
+
+        // Make the shared-vs-physical choice atomically inside the bus. If a
+        // Rewind producer exists but lacks a requested source, `try_subscribe`
+        // returns a typed error and we fail closed: no combined SCK fallback,
+        // RawMicCapture, or raw system capture is opened.
+        let shared_audio = if owner == SessionOwner::Meeting {
+            let mic_for_shared = mic_stream.clone();
+            let mic_level = shared_level_tap(app.clone(), "mic");
+            let shared_mic = Arc::new(move |samples: &[f32], sample_rate: f64| {
+                mic_for_shared.set_src_rate(sample_rate);
+                mic_for_shared.push(samples);
+                mic_level(samples);
+            });
+            let shared_system = sys_stream.as_ref().map(|stream| {
+                let stream = stream.clone();
+                let system_level = shared_level_tap(app.clone(), "system");
+                Arc::new(move |samples: &[f32], sample_rate: f64| {
+                    stream.set_src_rate(sample_rate);
+                    stream.push(samples);
+                    system_level(samples);
+                }) as crate::capture_audio_bus::AudioCallback
+            });
+            match try_subscribe(
+                AudioSources::new(true, capture_system),
+                Some(shared_mic),
+                shared_system,
+            ) {
+                Ok(SubscriptionAttempt::Subscribed(subscription)) => Some(subscription),
+                Ok(SubscriptionAttempt::NoProducer) => {
+                    if temporary_audio.is_some() {
+                        release_temporary_audio(&app, temporary_audio);
+                        mic_stream.stop();
+                        if let Some(sys_stream) = &sys_stream {
+                            sys_stream.stop();
+                        }
+                        return Err("shared-audio-producer-unavailable-after-upgrade".into());
+                    }
+                    None
+                }
+                Err(error) => {
+                    release_temporary_audio(&app, temporary_audio);
+                    mic_stream.stop();
+                    if let Some(sys_stream) = &sys_stream {
+                        sys_stream.stop();
+                    }
+                    return Err(error.to_string());
+                }
+            }
+        } else {
+            None
+        };
+
+        let combined_cap = if shared_audio.is_none()
+            && should_use_combined_sck_capture(owner, supports_sck_microphone_capture())
+        {
             match start_raw_meeting_capture(
                 app.clone(),
                 mic_device_id.clone(),
@@ -749,7 +1335,10 @@ mod macos {
             None
         };
 
-        let (mic_cap, sys_cap) = if let Some(combined_cap) = combined_cap {
+        let (mic_cap, sys_cap) = if shared_audio.is_some() {
+            eprintln!("[whisper] using shared Rewind microphone/system PCM producer");
+            (None, None)
+        } else if let Some(combined_cap) = combined_cap {
             // Both SCK outputs are configured at 48 kHz.
             mic_stream.set_src_rate(48000.0);
             (None, Some(combined_cap))
@@ -790,10 +1379,30 @@ mod macos {
             (Some(mic_cap), sys_cap)
         };
 
-        let mut slot = session_slot().lock().map_err(|e| e.to_string())?;
+        let mut slot = match session_slot().lock() {
+            Ok(slot) => slot,
+            Err(error) => {
+                drop(shared_audio);
+                release_temporary_audio(&app, temporary_audio);
+                mic_stream.stop();
+                if let Some(sys_stream) = &sys_stream {
+                    sys_stream.stop();
+                }
+                if let Some(mic_cap) = mic_cap {
+                    mic_cap.stop();
+                }
+                if let Some(sys_cap) = sys_cap {
+                    sys_cap.stop();
+                }
+                return Err(error.to_string());
+            }
+        };
         *slot = Some(Session {
+            app: app.clone(),
             mic_cap,
             sys_cap,
+            _shared_audio: shared_audio,
+            temporary_audio,
             mic: mic_stream,
             sys: sys_stream,
             owner,
@@ -825,12 +1434,23 @@ mod macos {
         eprintln!("[whisper] transcription timeline reset");
     }
 
-    pub fn stop(_app: &AppHandle) {
+    fn release_temporary_audio(
+        app: &AppHandle,
+        lease: Option<crate::screen_memory::TemporaryAudioLease>,
+    ) {
+        if let Some(lease) = lease {
+            if let Err(error) = crate::screen_memory::release_temporary_audio_consumer(app, lease) {
+                eprintln!("[whisper] Rewind audio lease release failed: {error}");
+            }
+        }
+    }
+
+    pub fn stop(app: &AppHandle) {
         let session = match session_slot().lock() {
             Ok(mut slot) => slot.take(),
-            Err(_) => return,
+            Err(poisoned) => poisoned.into_inner().take(),
         };
-        let Some(session) = session else {
+        let Some(mut session) = session else {
             return;
         };
         // Signal workers to stop. They flush a final transcript after the loop.
@@ -839,12 +1459,16 @@ mod macos {
             sys.stop();
         }
         // Stop captures so no more samples arrive while workers flush.
-        if let Some(mic_cap) = session.mic_cap {
+        if let Some(mic_cap) = session.mic_cap.take() {
             mic_cap.stop();
         }
-        if let Some(sys_cap) = session.sys_cap {
+        if let Some(sys_cap) = session.sys_cap.take() {
             sys_cap.stop();
         }
+        // Unsubscribe before a last-consumer release rotates the Rewind
+        // producer back to its persisted visuals-only mode.
+        drop(session._shared_audio.take());
+        release_temporary_audio(app, session.temporary_audio.take());
         // Wait up to 4 s for both workers to finish their final flush so
         // trailing speech is not lost when the frontend unregisters listeners.
         let deadline = Instant::now() + Duration::from_secs(4);
@@ -863,8 +1487,112 @@ mod macos {
 
     #[cfg(test)]
     mod tests {
-        use super::{should_use_combined_sck_capture, split_mic_capture_options, SessionOwner};
+        use std::time::{Duration, Instant};
+
+        use super::{
+            buffer_start_after_drain, clean_transcript, partial_inference_due,
+            partial_inference_timestamp, resample_to_16k, should_use_combined_sck_capture,
+            split_mic_capture_options, utterance_finalize_due, IncrementalResample, SessionOwner,
+        };
         use crate::native_speech::macos::MicVoiceProcessingMode;
+
+        #[test]
+        fn incremental_resample_matches_one_shot_resample_as_buffer_grows() {
+            let mut state = IncrementalResample::new();
+            let src_rate = 48000.0_f32;
+            let mut raw: Vec<f32> = Vec::new();
+            // Simulate audio arriving in small chunks and syncing after each —
+            // mirrors the worker polling `stream.buf` every 250 ms. A non-integer
+            // chunk size (137) deliberately avoids landing on a 48k/16k=3 boundary.
+            for chunk in 0..40u32 {
+                for i in 0..137u32 {
+                    raw.push(((chunk * 137 + i) as f32 * 0.013).sin());
+                }
+                state.sync(&raw, src_rate);
+                let expected = resample_to_16k(&raw, src_rate as f64);
+                assert_eq!(
+                    state.samples(),
+                    expected.as_slice(),
+                    "diverged after {} raw samples",
+                    raw.len()
+                );
+            }
+        }
+
+        #[test]
+        fn incremental_resample_rebuilds_cleanly_after_drop_all() {
+            let mut state = IncrementalResample::new();
+            let src_rate = 44100.0_f32;
+            let mut raw: Vec<f32> = (0..2_000).map(|i| (i as f32 * 0.02).sin()).collect();
+            state.sync(&raw, src_rate);
+            assert_eq!(
+                state.samples(),
+                resample_to_16k(&raw, src_rate as f64).as_slice()
+            );
+
+            // Utterance finalize: raw buffer is front-drained (indices shift),
+            // so the cache must be dropped, not incrementally patched.
+            raw.drain(..1_500);
+            state.drop_all();
+            state.sync(&raw, src_rate);
+            assert_eq!(
+                state.samples(),
+                resample_to_16k(&raw, src_rate as f64).as_slice()
+            );
+        }
+
+        #[test]
+        fn buffer_start_accounts_for_audio_captured_during_inference() {
+            let now = Instant::now();
+            let pending = Duration::from_millis(750);
+
+            assert_eq!(
+                buffer_start_after_drain(now, pending),
+                now.checked_sub(pending).unwrap()
+            );
+        }
+
+        #[test]
+        fn recording_mode_never_runs_live_partial_inference() {
+            assert!(!partial_inference_due(
+                false,
+                true,
+                10.0,
+                Duration::from_secs(10)
+            ));
+        }
+
+        #[test]
+        fn meeting_mode_keeps_existing_partial_inference_cadence() {
+            assert!(partial_inference_due(
+                true,
+                true,
+                1.0,
+                Duration::from_millis(1201)
+            ));
+            assert!(!partial_inference_due(
+                true,
+                true,
+                1.0,
+                Duration::from_millis(1200)
+            ));
+        }
+
+        #[test]
+        fn echo_suppressed_partial_does_not_reset_retry_cadence() {
+            let previous = Instant::now();
+            let now = previous + Duration::from_secs(2);
+
+            assert_eq!(partial_inference_timestamp(previous, false, now), previous);
+            assert_eq!(partial_inference_timestamp(previous, true, now), now);
+        }
+
+        #[test]
+        fn recording_mode_keeps_silence_and_long_utterance_finalization() {
+            assert!(utterance_finalize_due(1.0, Duration::from_millis(801)));
+            assert!(utterance_finalize_due(25.1, Duration::ZERO));
+            assert!(!utterance_finalize_due(25.0, Duration::from_millis(100)));
+        }
 
         #[test]
         fn combined_sck_capture_is_only_selected_for_supported_meetings() {
@@ -919,6 +1647,40 @@ mod macos {
                     voice_processing: MicVoiceProcessingMode::Enabled,
                     reuse_voice_processing_engine: false,
                 }
+            );
+        }
+
+        #[test]
+        fn mic_voice_gate_requires_speech_probability_on_supported_captures() {
+            assert!(!super::mic_voice_detected(0.02, Some(0.59)));
+            assert!(!super::mic_voice_detected(0.004, Some(0.99)));
+            assert!(super::mic_voice_detected(0.02, Some(0.6)));
+            assert!(super::mic_voice_detected(0.02, None));
+        }
+
+        #[test]
+        fn rnnoise_vad_rejects_steady_ambient_noise() {
+            let mut vad = super::MicVoiceActivity::new();
+            let samples: Vec<f32> = (0..(nnnoiseless::DenoiseState::FRAME_SIZE * 8))
+                .map(|index| {
+                    let value = index.wrapping_mul(1_103_515_245usize).wrapping_add(12_345);
+                    (((value >> 16) & 0x7fff) as f32 / 16_384.0 - 1.0) * 0.012
+                })
+                .collect();
+
+            let probability = vad.observe(&samples, 48_000.0).unwrap();
+            assert!(
+                probability < super::MIN_MIC_VAD_PROBABILITY,
+                "ambient noise was classified as speech: {probability:.3}"
+            );
+        }
+
+        #[test]
+        fn filters_multilingual_caption_hallucinations() {
+            assert_eq!(clean_transcript("ご視聴ありがとうございました"), None);
+            assert_eq!(
+                clean_transcript("Thanks for the update"),
+                Some("Thanks for the update".to_string())
             );
         }
     }

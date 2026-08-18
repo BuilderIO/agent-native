@@ -1,14 +1,17 @@
 import { readAppStateForCurrentTab } from "./_tab-state.js";
 
 /** A measurement record written by the editor after rendering a slide.
- * `verticalOverflow === 0` means the slide fits the canvas;
- * `verticalOverflow > 0` means the rendered content was too tall. */
+ * Both overflow fields must be zero for the slide to fit the canvas. */
 export interface SlideFitMeasurement {
   slideId: string;
   deckId?: string;
   contentHeight: number;
+  contentWidth?: number;
   viewportHeight: number;
+  viewportWidth?: number;
   verticalOverflow: number;
+  horizontalOverflow?: number;
+  contentHash?: string;
   measuredAt: number;
 }
 
@@ -45,6 +48,7 @@ export async function awaitLayoutFitCheck(
   slideId: string,
   since: number,
   timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  expectedContentHash?: string,
 ): Promise<SlideFitResult> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
@@ -63,11 +67,17 @@ export async function awaitLayoutFitCheck(
     if (
       m &&
       m.slideId === slideId &&
-      typeof m.measuredAt === "number" &&
+      (expectedContentHash === undefined ||
+        m.contentHash === expectedContentHash) &&
+      Number.isFinite(m.measuredAt) &&
       m.measuredAt >= since &&
-      typeof m.verticalOverflow === "number"
+      Number.isFinite(m.verticalOverflow) &&
+      Number.isFinite(m.contentHeight) &&
+      Number.isFinite(m.viewportHeight) &&
+      (m.horizontalOverflow === undefined ||
+        Number.isFinite(m.horizontalOverflow))
     ) {
-      return m.verticalOverflow > 0
+      return m.verticalOverflow > 0 || (m.horizontalOverflow ?? 0) > 0
         ? { status: "overflows", measurement: m }
         : { status: "fits", measurement: m };
     }
@@ -78,22 +88,47 @@ export async function awaitLayoutFitCheck(
 
 /** Format an overflow result into a short tool-result block that the agent
  * will see and act on. Includes the slide id, the exact overflow, and a
- * prioritized fix list. The wording is deliberately direct so the agent
- * follows up with a surgical `update-slide` patch rather than a full regen. */
+ * prioritized fix list. The wording is deliberately bounded so the agent
+ * makes one structural repair and verifies it instead of looping. */
 export function formatOverflowForTool(
   deckId: string,
   m: SlideFitMeasurement,
 ): string {
+  const hasHorizontal = (m.horizontalOverflow ?? 0) > 0;
+  const hasVertical = m.verticalOverflow > 0;
+
+  // A row of side-by-side cards/columns that's too wide is a *width formula*
+  // bug (fixed px flex-basis, a wrong container-width assumption, a missing
+  // `min-width: 0`), not a density bug. The old list was vertical-only —
+  // "tighten copy" / "fewer stacked cards" — which cannot shrink a fixed
+  // column width no matter how many times it's applied, so a horizontal
+  // overflow looped forever against fixes that could never touch the actual
+  // defect (see the Oliver Robertson Slack thread this regression test
+  // reproduces).
+  const fixes = [
+    ...(hasHorizontal
+      ? [
+          `Use percentage or flex-based column widths (e.g. \`flex: 1 1 0%\` with \`min-width: 0\`, or \`width: calc((100% - <gaps>) / <count>)\` measured against this slide's own content width) instead of a fixed pixel width per column.`,
+          `Reduce the number of side-by-side columns, or wrap to a second row, if the content cannot fit at the slide's actual content width.`,
+        ]
+      : []),
+    ...(hasVertical || !hasHorizontal
+      ? [
+          `Tighten copy — shorter headings/bullets, drop low-value lines.`,
+          `Reduce vertical density — fewer stacked cards, smaller gaps, body font no smaller than 16px.`,
+          `Reduce slide padding (e.g. 40px top/bottom instead of 60-80px).`,
+          `Split across two slides only if the content cannot be compressed.`,
+        ]
+      : []),
+  ];
+
   return [
     ``,
-    `⚠ Layout overflows the canvas vertically — this slide rendered ${m.contentHeight}px tall but the canvas content area is only ${m.viewportHeight}px (overflow: ${m.verticalOverflow}px).`,
+    `⚠ Layout overflows the canvas${hasVertical ? ` vertically by ${m.verticalOverflow}px` : ""}${hasHorizontal ? ` and horizontally by ${m.horizontalOverflow}px` : ""} — natural content is ${m.contentWidth ?? "unknown"}x${m.contentHeight}px inside a ${m.viewportWidth ?? "unknown"}x${m.viewportHeight}px content area.`,
     ``,
-    `**Auto-fix this now** with another \`update-slide --deckId ${deckId} --slideId ${m.slideId}\` call. Prefer small surgical patches (--find / --replace) over a full rewrite:`,
-    `1. Tighten copy — shorter headings/bullets, drop low-value lines.`,
-    `2. Reduce vertical density — fewer stacked cards, smaller gaps, body font no smaller than 16px.`,
-    `3. Reduce slide padding (e.g. 40px top/bottom instead of 60-80px).`,
-    `4. Split across two slides only if the content cannot be compressed.`,
+    `Make one structural repair now with \`update-slide --deckId ${deckId} --slideId ${m.slideId}\`. Prefer small surgical patches (--find / --replace) over a full rewrite:`,
+    ...fixes.map((fix, index) => `${index + 1}. ${fix}`),
     ``,
-    `Do **not** use \`transform: scale\`, \`overflow: scroll\`, or absolute positioning — the renderer no longer auto-shrinks, so only the HTML shape can fix it. After your patch the editor will re-measure; if the slide still overflows you'll see this message again and can iterate.`,
+    `Do **not** use zoom, \`transform: scale\`, clipping, \`overflow: scroll\`, or a smaller-than-16px body font. Preserve existing absolute text boxes and fix the normal-flow HTML. Verify the action result and then use \`view-screen\`; do not spin through another repair loop.`,
   ].join("\n");
 }

@@ -70,6 +70,8 @@ export default defineAction({
       .describe("Search term or phrase to find in documentation"),
   }),
   http: false,
+  readOnly: true,
+  publicAgent: { expose: true, readOnly: true },
   run: async ({ query }) => {
     const sections = await loadDocSections();
     const lower = query.toLowerCase();

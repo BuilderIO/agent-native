@@ -1,15 +1,38 @@
 import { describe, expect, it } from "vitest";
 
+import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
 import {
   BUILDER_SPACE_SETTINGS_URL,
   NEW_CHAT_ACTION_HREF,
   formatChatErrorText,
+  localizeKnownChatErrorText,
   normalizeChatError,
 } from "./error-format.js";
 
+function interpolate(
+  key: string,
+  options: Record<string, unknown> = {},
+): string {
+  const messages: Record<string, string> = {
+    "agentChat.errorMessages.builderAuthentication":
+      "Builder hat die verbundenen Anmeldedaten abgelehnt.",
+    "agentChat.errorMessages.providerAuthentication":
+      "Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.",
+    "agentChat.errorMessages.errorPrefix": "Fehler: {{message}}",
+    "agentChat.errorMessages.openBuilderSpaceSettings":
+      "Builder-Space-Einstellungen öffnen",
+    "agentChat.errorMessages.startNewChat": "Neuen Chat starten",
+    "agentChat.errorMessages.upgradeAtBuilder": "Upgrade bei Builder.io",
+  };
+  return (messages[key] ?? String(options.defaultValue ?? key)).replace(
+    /{{\s*(\w+)\s*}}/g,
+    (_, name: string) => String(options[name] ?? ""),
+  );
+}
+
 describe("formatChatErrorText", () => {
   const agentNativeUpgradeUrl =
-    "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native";
+    "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=gateway_quota_upgrade";
 
   it("adds a Builder space settings CTA for disabled gateway errors", () => {
     expect(
@@ -105,6 +128,22 @@ describe("formatChatErrorText", () => {
     expect(normalized.message).not.toContain("no body");
   });
 
+  it("normalizes overloaded provider JSON payloads without exposing raw details in the message", () => {
+    const raw =
+      '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_example"}';
+    const normalized = normalizeChatError(raw);
+
+    expect(normalized.message).toBe(
+      "The model provider is overloaded right now. Wait a moment, then retry.",
+    );
+    expect(normalized.details).toBe(raw);
+    expect(normalized.message).not.toContain("request_id");
+    expect(normalized.message).not.toContain("overloaded_error");
+    expect(formatChatErrorText(raw)).toBe(
+      "Error: The model provider is overloaded right now. Wait a moment, then retry.",
+    );
+  });
+
   it("formats provider rate limits as a plain retryable user message", () => {
     expect(
       formatChatErrorText(
@@ -117,17 +156,91 @@ describe("formatChatErrorText", () => {
     );
   });
 
+  it("normalizes the gateway's email-verification block into something actionable", () => {
+    // Arrives as a bare gateway 403 with no upgradeUrl, so with no case here
+    // it fell through to the raw upstream sentence under a generic "The agent
+    // hit an error" headline with no retry — a dead end, and in production the
+    // largest single cause of chat turns ending without an answer.
+    const raw =
+      "At least one user in this space must verify their email before using AI.";
+    const normalized = normalizeChatError(raw, "email_verification_required");
+
+    expect(normalized.message).toBe(
+      "AI is paused until an email address in this workspace is verified. Check the inbox for the verification link, then retry.",
+    );
+    expect(normalized.details).toBe(raw);
+  });
+
+  // The engine keeps the real reason on `errorCode` so the site owner can
+  // diagnose it, and this is the layer that turns a code back into copy. Every
+  // code below has a mapping here or in `formatChatErrorText`, so without the
+  // guard the render boundary undoes the server's rewrite and the visitor reads
+  // the owner instruction again — the guarantee has to hold HERE, not only at
+  // the engine that chose the message.
+  describe("a message the server already chose for a visitor", () => {
+    const ownerCodes = [
+      "builder_auth_error",
+      "builder_model_unauthorized",
+      "email_verification_required",
+      "provider_config_error",
+      "credits-limit-reached",
+      "rate_limit_exceeded",
+      "gateway_not_enabled",
+      "too_many_concurrent_requests",
+      "http_403",
+      "invalid_request",
+      "builder_gateway_stream_ended",
+      "missing_credentials",
+    ];
+
+    for (const errorCode of ownerCodes) {
+      it(`survives ${errorCode} unchanged`, () => {
+        const normalized = normalizeChatError(
+          GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+          errorCode,
+        );
+        expect(normalized).toStrictEqual({
+          message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+        });
+        // No owner CTA either: a link to Builder space settings is an action
+        // only the owner of an org the visitor is not in can take.
+        expect(
+          formatChatErrorText(
+            GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+            undefined,
+            errorCode,
+          ),
+        ).toBe(`Error: ${GATEWAY_UNAVAILABLE_VISITOR_MESSAGE}`);
+      });
+    }
+
+    it("still maps the same codes for an owner-facing message", () => {
+      expect(
+        normalizeChatError("Invalid token", "builder_auth_error").message,
+      ).toBe(
+        "Builder rejected the connected credentials. Reconnect Builder.io (free tier available) in Settings, then retry.",
+      );
+      expect(
+        formatChatErrorText(
+          "This space has not enabled the LLM gateway.",
+          undefined,
+          "gateway_not_enabled",
+        ),
+      ).toContain(BUILDER_SPACE_SETTINGS_URL);
+    });
+  });
+
   it("normalizes provider API key authentication failures", () => {
     const raw =
       '401 {"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"},"request_id":"req_example"}';
     const normalized = normalizeChatError(raw, "authentication_error");
 
     expect(normalized.message).toBe(
-      "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+      "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
     );
     expect(normalized.details).toBe(raw);
     expect(formatChatErrorText(raw, undefined, "authentication_error")).toBe(
-      "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+      "Error: The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
     );
   });
 
@@ -135,12 +248,146 @@ describe("formatChatErrorText", () => {
     const normalized = normalizeChatError("401 status code (no body)");
 
     expect(normalized.message).toBe(
-      "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+      "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
     );
     expect(normalized.details).toBe("401 status code (no body)");
     expect(normalized.message).not.toContain("no body");
     expect(formatChatErrorText("401 status code (no body)")).toBe(
-      "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+      "Error: The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
     );
+  });
+
+  it("normalizes the stored credential failure marker without an error code", () => {
+    expect(
+      normalizeChatError("The model provider rejected the saved API key."),
+    ).toMatchObject({
+      message:
+        "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
+    });
+  });
+
+  it("normalizes provider network failures into an actionable retry message", () => {
+    const normalized = normalizeChatError(
+      "provider_network_error",
+      "provider_network_error",
+    );
+
+    expect(normalized.message).toBe(
+      "The model provider could not be reached. Check your connection and retry.",
+    );
+    expect(normalized.details).toBe("provider_network_error");
+  });
+
+  it("normalizes generic connection failures into an actionable retry message", () => {
+    const normalized = normalizeChatError(
+      "connection_error",
+      "connection_error",
+    );
+
+    expect(normalized.message).toBe(
+      "The agent connection was interrupted. Check your connection and retry.",
+    );
+    expect(normalized.details).toBe("connection_error");
+  });
+});
+
+describe("Builder gateway internal-error envelope", () => {
+  const raw =
+    "Sorry, we ran into an issue processing your request. " +
+    "ERROR ID: bebaeb5da13441539790834b63ff955a";
+
+  it("replaces the apology with what actually broke and keeps the id", () => {
+    const normalized = normalizeChatError(
+      raw,
+      "builder_gateway_internal_error",
+    );
+    expect(normalized.message).not.toContain("ERROR ID");
+    expect(normalized.message).toContain("model gateway");
+    expect(normalized.details).toBe(raw);
+  });
+
+  it("has localizable copy", () => {
+    const normalized = normalizeChatError(
+      raw,
+      "builder_gateway_internal_error",
+    );
+    expect(
+      localizeKnownChatErrorText(normalized.message, (key, options) =>
+        key === "agentChat.errorMessages.gatewayInternalError"
+          ? "Interner Gateway-Fehler."
+          : String(options?.defaultValue ?? key),
+      ),
+    ).toBe("Interner Gateway-Fehler.");
+  });
+
+  it("leaves a visitor-rewritten message alone", () => {
+    expect(
+      normalizeChatError(
+        GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
+        "builder_gateway_internal_error",
+      ),
+    ).toEqual({ message: GATEWAY_UNAVAILABLE_VISITOR_MESSAGE });
+  });
+});
+
+describe("localizeKnownChatErrorText", () => {
+  it("localizes the normalized Builder authentication recovery message", () => {
+    const normalized = normalizeChatError(
+      "Builder rejected this request.",
+      "builder_auth_error",
+    );
+
+    expect(localizeKnownChatErrorText(normalized.message, interpolate)).toBe(
+      "Builder hat die verbundenen Anmeldedaten abgelehnt.",
+    );
+  });
+
+  it("localizes Core-owned errors and their markdown actions", () => {
+    expect(
+      localizeKnownChatErrorText(
+        "Error: The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.\n\n[Start new chat](agent-native:new-chat)",
+        interpolate,
+      ),
+    ).toBe(
+      "Fehler: Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.\n\n[Neuen Chat starten](agent-native:new-chat)",
+    );
+  });
+
+  it.each([
+    [
+      "Open Builder space settings",
+      BUILDER_SPACE_SETTINGS_URL,
+      "Builder-Space-Einstellungen öffnen",
+    ],
+    [
+      "Upgrade at builder.io",
+      "https://builder.io/upgrade",
+      "Upgrade bei Builder.io",
+    ],
+  ])("localizes the %s action label", (label, href, localizedLabel) => {
+    expect(
+      localizeKnownChatErrorText(
+        `Error: The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.\n\n[${label}](${href})`,
+        interpolate,
+      ),
+    ).toBe(
+      `Fehler: Der Modellanbieter hat den gespeicherten API-Schlüssel abgelehnt.\n\n[${localizedLabel}](${href})`,
+    );
+  });
+
+  it("localizes a known action when the error body is unknown", () => {
+    expect(
+      localizeKnownChatErrorText(
+        "Error: Monthly credits limit reached.\n\n[Start new chat](agent-native:new-chat)",
+        interpolate,
+      ),
+    ).toBe(
+      "Error: Monthly credits limit reached.\n\n[Neuen Chat starten](agent-native:new-chat)",
+    );
+  });
+
+  it("leaves raw provider details unchanged", () => {
+    const raw = "401 status code (no body)";
+    expect(localizeKnownChatErrorText(raw, interpolate)).toBe(raw);
   });
 });

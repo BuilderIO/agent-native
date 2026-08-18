@@ -1,8 +1,9 @@
-import { useLocale, useT } from "@agent-native/core/client";
+import { useLocale, useT } from "@agent-native/core/client/i18n";
 import { useState } from "react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
+import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { TemplateDocsLink } from "../components/template-docs";
 import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
@@ -53,7 +54,7 @@ function CliCopy() {
     <button
       onClick={handleCopy}
       data-template-cli-copy
-      className="group col-span-full flex w-full min-w-0 max-w-full items-center gap-3 rounded-lg border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
+      className="group col-span-full flex w-full min-w-0 max-w-full items-center gap-3 rounded-md border border-[var(--code-border)] bg-[var(--code-bg)] px-4 py-3 font-mono text-sm transition hover:border-[var(--fg-secondary)] sm:w-auto sm:max-w-[min(100%,36rem)] sm:px-5"
     >
       <span className="shrink-0 text-[var(--fg-secondary)]">$</span>
       <span
@@ -126,13 +127,14 @@ export default function DesignTemplate() {
                 href="https://design.agent-native.com"
                 target="_blank"
                 rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
-                onClick={() =>
+                className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+                onClick={(event) => {
+                  applyFirstTouchAttributionToLink(event.currentTarget);
                   trackEvent("try live demo", {
                     template: "design",
                     location: "landing_page",
-                  })
-                }
+                  });
+                }}
               >
                 {t("templateLanding.design.s008")}
                 <svg
@@ -318,7 +320,7 @@ export default function DesignTemplate() {
                 >
                   <polyline points="20 6 9 17 4 12" />
                 </svg>
-                SQL-backed design records you can fork and extend
+                SQL-backed design records you can customize and extend
               </li>
             </ul>
           </div>
@@ -456,14 +458,14 @@ export default function DesignTemplate() {
           <TemplateDocsLink
             template={template}
             location="landing_page_cta"
-            className="inline-flex items-center gap-2 rounded-full bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
+            className="inline-flex items-center gap-2 rounded-xl bg-black px-6 py-3 text-sm font-medium text-white no-underline transition hover:bg-gray-800 hover:no-underline dark:bg-white dark:text-black dark:hover:bg-gray-200"
           >
             {t("templateLanding.design.s059")}
           </TemplateDocsLink>
           <Link
-            data-an-prefetch="render"
+            data-an-prefetch="viewport"
             to={sitePathForLocale("/apps", locale)}
-            className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
+            className="inline-flex items-center gap-2 rounded-xl border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
           >
             {t("templateLanding.design.s060")}
           </Link>

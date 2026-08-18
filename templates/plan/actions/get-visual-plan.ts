@@ -20,7 +20,7 @@ const queryBooleanSchema = z.preprocess((value) => {
 
 export default defineAction({
   description:
-    "Get an Agent-Native Plan bundle, including structured editable content with stable block IDs, source-control friendly MDX, exported HTML, sections, comments, and recent activity. Call this before targeted contentPatches, source patches, or resolving feedback on a specific plan.",
+    "Get an Agent-Native Plan bundle, including structured editable content with stable block IDs, source-control friendly MDX, exported HTML, sections, comments, and recent activity. Call this before targeted contentPatches, source patches, or resolving feedback on a specific plan. For full content replacement, replace-blocks, or replace-file, pass the returned plan.updatedAt exactly as expectedUpdatedAt and reread after the write.",
   schema: z.object({
     id: z.string().describe("Plan ID"),
     includeMdx: queryBooleanSchema
@@ -39,13 +39,13 @@ export default defineAction({
           .boolean()
           .optional()
           .describe(
-            "Include the exported MDX folder in the response. Defaults to true for agents; set false to skip the Prettier-formatted MDX export when you only need structured content or HTML.",
+            "Include the exported MDX folder in the response. Defaults to false for agent reads; set true for an explicit source-control workflow.",
           ),
         html: z
           .boolean()
           .optional()
           .describe(
-            "Include the exported HTML bundle in the response. Defaults to true for legacy plans; set false to skip when you only need structured content.",
+            "Include the exported HTML bundle in the response. Defaults to false for agent reads; set true when you explicitly need the rendered legacy artifact.",
           ),
       })
       .optional()
@@ -80,10 +80,14 @@ export default defineAction({
     // for their iframe.
     const isFrontend = ctx?.caller === "frontend";
     const isModern = Boolean(bundle.plan.content);
-    // Caller-controlled opt-out; defaults preserve existing behavior.
-    const wantMdx = args.includeMdx ?? args.include?.mdx ?? true;
-    const wantHtml = args.includeHtml ?? args.include?.html ?? true;
-    const includeStoredPlanExportFields = !isFrontend || wantHtml || wantMdx;
+    const isAgentCaller =
+      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
+    // Agent reads default to the structured model only; source-control and
+    // legacy-rendered exports remain opt-in so they do not inflate the next
+    // tool turn.
+    const wantMdx = args.includeMdx ?? args.include?.mdx ?? !isAgentCaller;
+    const wantHtml = args.includeHtml ?? args.include?.html ?? !isAgentCaller;
+    const includeStoredPlanExportFields = wantHtml || wantMdx;
     return {
       ...bundle,
       planId: bundle.plan.id,

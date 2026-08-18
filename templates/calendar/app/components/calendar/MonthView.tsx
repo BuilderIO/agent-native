@@ -1,22 +1,36 @@
+import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
+import { getWeekdayOrder } from "@shared/calendar-week";
+import { IconPlus } from "@tabler/icons-react";
 import {
   startOfMonth,
   endOfMonth,
   startOfWeek,
   endOfWeek,
   eachDayOfInterval,
-  startOfDay,
-  addDays,
   isSameMonth,
   isSameDay,
-  isToday,
   format,
-  parseISO,
 } from "date-fns";
 import { memo, useState, useMemo } from "react";
 
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import {
+  dateToCalendarDateKey,
+  addCalendarDays,
+  dateKeyToDate,
+  eventOverlapsCalendarDay,
+  getBrowserTimezone,
+  getDateKeyInTimezone,
+  getEventDateKey,
+} from "@/lib/calendar-timezone";
+import { getFullDayOutOfOfficeDateRange } from "@/lib/out-of-office";
 import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
 import { cn } from "@/lib/utils";
 
@@ -26,7 +40,9 @@ import { EventDetailPopover } from "./EventDetailPopover";
 interface MonthViewProps {
   events: CalendarEvent[];
   selectedDate: Date;
+  timezone?: string;
   onDateSelect: (date: Date) => void;
+  onCreateWorkingLocation?: (date: Date) => void;
   onDeleteEvent?: (eventId: string) => void;
   onEventDrop?: (eventId: string, newDate: Date) => void;
   draftEventIds?: string[];
@@ -48,6 +64,7 @@ interface MonthViewProps {
   ) => void;
   onDraftDiscard?: (eventId: string) => void;
   isLoading?: boolean;
+  weekStartsOn?: 0 | 1;
 }
 
 // Skeleton pill widths per day-of-week (Sun–Sat), empty = no skeletons
@@ -76,7 +93,9 @@ interface DayOccurrence {
 export const MonthView = memo(function MonthView({
   events,
   selectedDate,
+  timezone = getBrowserTimezone(),
   onDateSelect,
+  onCreateWorkingLocation,
   onDeleteEvent,
   onEventDrop,
   draftEventIds = [],
@@ -84,7 +103,9 @@ export const MonthView = memo(function MonthView({
   onDraftCreate,
   onDraftDiscard,
   isLoading = false,
+  weekStartsOn = 0,
 }: MonthViewProps) {
+  const t = useT();
   const isMobile = useIsMobile();
   const { prefs } = useViewPreferences();
   const [dragOverDay, setDragOverDay] = useState<string | null>(null);
@@ -92,8 +113,8 @@ export const MonthView = memo(function MonthView({
 
   const monthStart = startOfMonth(selectedDate);
   const monthEnd = endOfMonth(selectedDate);
-  const calendarStart = startOfWeek(monthStart);
-  const calendarEnd = endOfWeek(monthEnd);
+  const calendarStart = startOfWeek(monthStart, { weekStartsOn });
+  const calendarEnd = endOfWeek(monthEnd, { weekStartsOn });
   const allDays = eachDayOfInterval({
     start: calendarStart,
     end: calendarEnd,
@@ -102,30 +123,50 @@ export const MonthView = memo(function MonthView({
     ? allDays.filter((d) => d.getDay() !== 0 && d.getDay() !== 6)
     : allDays;
   const colCount = prefs.hideWeekends ? 5 : 7;
-  const headers = prefs.hideWeekends
-    ? (isMobile ? WEEKDAY_HEADERS_SHORT : WEEKDAY_HEADERS).filter(
-        (_, i) => i !== 0 && i !== 6,
-      )
-    : isMobile
-      ? WEEKDAY_HEADERS_SHORT
-      : WEEKDAY_HEADERS;
+  const headerLabels = isMobile ? WEEKDAY_HEADERS_SHORT : WEEKDAY_HEADERS;
+  const headers = getWeekdayOrder(weekStartsOn)
+    .filter((day) => !prefs.hideWeekends || (day !== 0 && day !== 6))
+    .map((day) => headerLabels[day]);
 
   // Pre-group events by every day they overlap (not just their start day) so
   // multi-day events keep appearing as the grid moves past their start date.
   const eventsByDay = useMemo(() => {
     const map = new Map<string, DayOccurrence[]>();
     for (const e of events) {
-      const evStart = parseISO(e.start);
-      const evEnd = e.end ? parseISO(e.end) : addDays(evStart, 1);
-      for (const day of days) {
-        const dayStart = startOfDay(day);
-        const dayEnd = addDays(dayStart, 1);
-        if (evStart < dayEnd && evEnd > dayStart) {
-          const key = format(day, "yyyy-MM-dd");
+      const fullDayOutOfOfficeRange = getFullDayOutOfOfficeDateRange(e);
+      if (fullDayOutOfOfficeRange) {
+        for (const day of days) {
+          const key = dateToCalendarDateKey(day);
+          if (
+            key < fullDayOutOfOfficeRange.startDate ||
+            key >= fullDayOutOfOfficeRange.endDateExclusive
+          ) {
+            continue;
+          }
           const occurrence: DayOccurrence = {
             event: e,
-            isStart: evStart >= dayStart && evStart < dayEnd,
-            continuesNext: evEnd > dayEnd,
+            isStart: key === fullDayOutOfOfficeRange.startDate,
+            continuesNext:
+              addCalendarDays(key, 1) <
+              fullDayOutOfOfficeRange.endDateExclusive,
+          };
+          const list = map.get(key);
+          if (list) list.push(occurrence);
+          else map.set(key, [occurrence]);
+        }
+        continue;
+      }
+      for (const day of days) {
+        if (eventOverlapsCalendarDay(e, day, timezone)) {
+          const key = dateToCalendarDateKey(day);
+          const occurrence: DayOccurrence = {
+            event: e,
+            isStart: getEventDateKey(e, timezone) === key,
+            continuesNext: eventOverlapsCalendarDay(
+              e,
+              dateKeyToDate(addCalendarDays(key, 1)),
+              timezone,
+            ),
           };
           const list = map.get(key);
           if (list) list.push(occurrence);
@@ -134,7 +175,7 @@ export const MonthView = memo(function MonthView({
       }
     }
     return map;
-  }, [events, days]);
+  }, [days, events, timezone]);
 
   function handleDragOver(e: React.DragEvent, dayKey: string) {
     e.preventDefault();
@@ -176,11 +217,13 @@ export const MonthView = memo(function MonthView({
       >
         {days.map((day) => {
           const dayOccurrences =
-            eventsByDay.get(format(day, "yyyy-MM-dd")) ?? [];
+            eventsByDay.get(dateToCalendarDateKey(day)) ?? [];
           const inMonth = isSameMonth(day, selectedDate);
-          const today = isToday(day);
+          const today =
+            dateToCalendarDateKey(day) ===
+            getDateKeyInTimezone(new Date(), timezone);
           const selected = isSameDay(day, selectedDate);
-          const dayKey = day.toISOString();
+          const dayKey = dateToCalendarDateKey(day);
           const isDragTarget = dragOverDay === dayKey;
 
           return (
@@ -225,11 +268,25 @@ export const MonthView = memo(function MonthView({
                   {format(day, "d")}
                 </span>
 
-                {/* Subtle "+" on hover */}
-                {inMonth && (
-                  <span className="mr-0.5 text-xs text-muted-foreground opacity-0 transition-opacity group-hover:opacity-60">
-                    +
-                  </span>
+                {inMonth && onCreateWorkingLocation && (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        aria-label={t("calendarView.addWorkingLocation")}
+                        className="mr-0.5 flex size-5 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onCreateWorkingLocation(day);
+                        }}
+                      >
+                        <IconPlus aria-hidden="true" className="size-3.5" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="top">
+                      {t("calendarView.addWorkingLocation")}
+                    </TooltipContent>
+                  </Tooltip>
                 )}
               </div>
 
@@ -250,6 +307,7 @@ export const MonthView = memo(function MonthView({
                       <EventDetailPopover
                         key={event.id}
                         event={event}
+                        timezone={timezone}
                         onDelete={onDeleteEvent ?? (() => {})}
                         isDraft={draftEventIds.includes(event.id)}
                         onDraftUpdate={onDraftUpdate}

@@ -23,7 +23,7 @@ export interface TemplateMeta {
   /**
    * Internal icon-alias key (NOT a raw @tabler/icons-react export name).
    * Resolved to a Tabler icon by the ICON_MAP in
-   * packages/desktop-app/src/renderer/components/Sidebar.tsx (and the parallel
+   * packages/desktop-app/src/renderer/components/CodeAgentsAppIcon.tsx (and the parallel
    * maps in packages/core/src/client/org/OrgSwitcher.tsx and the mobile
    * AppCard). Unmapped keys fall back to a generic icon (IconStack2), so when
    * adding a template you must add a mapping in those ICON_MAP(s) too.
@@ -77,6 +77,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8083,
     prodUrl: "https://content.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["creative-context"],
     core: true,
   },
   {
@@ -84,8 +85,8 @@ export const TEMPLATES: TemplateMeta[] = [
     label: "Plan",
     hint: "Structured visual plans and PR recaps with diagrams, wireframes, prototypes, annotations, and sharing",
     icon: "LayoutBoard",
-    color: "#52525B",
-    colorRgb: "82 82 91",
+    color: "#2F6FED",
+    colorRgb: "47 111 237",
     devPort: 8105,
     prodUrl: "https://plan.agent-native.com",
     defaultMode: "prod",
@@ -101,7 +102,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8086,
     prodUrl: "https://slides.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint"],
+    requiredPackages: ["creative-context"],
     core: true,
   },
   {
@@ -139,6 +140,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8088,
     prodUrl: "https://analytics.agent-native.com",
     defaultMode: "prod",
+    requiredPackages: ["creative-context"],
     core: true,
   },
   {
@@ -187,7 +189,7 @@ export const TEMPLATES: TemplateMeta[] = [
     devPort: 8099,
     prodUrl: "https://design.agent-native.com",
     defaultMode: "prod",
-    requiredPackages: ["pinpoint", "embedding"],
+    requiredPackages: ["embedding", "creative-context"],
     core: true,
   },
   {
@@ -201,7 +203,7 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://assets.agent-native.com",
     defaultMode: "prod",
     defaultAgent: true,
-    requiredPackages: ["embedding"],
+    requiredPackages: ["embedding", "creative-context"],
     core: true,
   },
   {
@@ -218,9 +220,35 @@ export const TEMPLATES: TemplateMeta[] = [
     core: true,
   },
   {
+    name: "tasks",
+    label: "Tasks",
+    hint: "Task-list-first workspace — inbox capture, custom fields, and drag-and-drop ordering",
+    icon: "ListCheck",
+    color: "#6366F1",
+    colorRgb: "99 102 241",
+    devPort: 8091,
+    prodUrl: "https://tasks.agent-native.com",
+    defaultMode: "prod",
+    hidden: true,
+    core: false,
+  },
+  {
+    name: "crm",
+    label: "CRM",
+    hint: "Agent-native CRM over native SQL, HubSpot, or Salesforce — typed attributes, lists, pipelines, and evidence-grounded signals",
+    icon: "Users",
+    color: "#2563EB",
+    colorRgb: "37 99 235",
+    devPort: 8107,
+    prodUrl: "https://crm.agent-native.com",
+    hidden: true,
+    defaultMode: "dev",
+    core: false,
+  },
+  {
     name: "macros",
     label: "Macros",
-    hint: "Internal template — not shown in pickers",
+    hint: "Internal template - not shown in pickers",
     icon: "Code",
     color: "#71717A",
     colorRgb: "113 113 122",
@@ -228,6 +256,19 @@ export const TEMPLATES: TemplateMeta[] = [
     prodUrl: "https://macros.agent-native.com",
     hidden: true,
     defaultMode: "dev",
+  },
+  {
+    name: "factory",
+    label: "Factory",
+    hint: "Build agent factories with gates you control",
+    icon: "Users",
+    color: "#7C3AED",
+    colorRgb: "124 58 237",
+    devPort: 8108,
+    prodUrl: "https://agent-native-factory.netlify.app",
+    hidden: true,
+    defaultMode: "dev",
+    core: false,
   },
 ];
 

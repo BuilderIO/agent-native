@@ -10,6 +10,7 @@
     "dev": "pnpm run check:prereqs && pnpm run kill:installed && tauri dev",
     "build": "vite build",
     "build:tauri": "CLIPS_DESKTOP_LOCAL_BUILD=1 pnpm run check:prereqs && CLIPS_DESKTOP_LOCAL_BUILD=1 tauri build --config '{\"bundle\":{\"createUpdaterArtifacts\":false},\"plugins\":{\"updater\":{\"active\":false}}}' && node ./scripts/sign-macos-local.ts",
+    "build:alpha": "CLIPS_DESKTOP_LOCAL_BUILD=1 RUSTUP_TOOLCHAIN=1.88.0 pnpm run check:prereqs && CLIPS_DESKTOP_LOCAL_BUILD=1 RUSTUP_TOOLCHAIN=1.88.0 tauri build --debug --config src-tauri/tauri.alpha.conf.json && CLIPS_MACOS_APP_NAME='Clips Alpha' CLIPS_MACOS_BUILD_PROFILE=debug CLIPS_MACOS_BUNDLE_ID='com.clips.tray.alpha' node ./scripts/sign-macos-local.ts",
     "tauri": "tauri",
     "vite:dev": "vite",
     "vite:build": "vite build",
@@ -17,12 +18,15 @@
     "test": "vitest --run"
   },
   "dependencies": {
+    "@radix-ui/react-alert-dialog": "^1.1.23",
     "@radix-ui/react-popover": "^1.1.15",
     "@radix-ui/react-tooltip": "^1.2.8",
     "@sentry/browser": "10.62.0",
     "@tabler/icons-react": "catalog:",
     "@tauri-apps/api": "^2.11.0",
+    "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-fs": "2.5.1",
+    "@tauri-apps/plugin-notification": "^2.3.3",
     "@tauri-apps/plugin-process": "^2.3.1",
     "@tauri-apps/plugin-shell": "^2.3.5",
     "@tauri-apps/plugin-updater": "^2.10.1",
@@ -30,6 +34,7 @@
     "react-dom": "^19.2.5"
   },
   "devDependencies": {
+    "@agent-native/core": "workspace:*",
     "@tauri-apps/cli": "^2.11.2",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
