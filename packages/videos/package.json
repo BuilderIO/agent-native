@@ -1,0 +1,8 @@
+{
+  "name": "videos",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "pnpm exec tsx ../../scripts/build-retired-netlify-site.ts videos"
+  }
+}
