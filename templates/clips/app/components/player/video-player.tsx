@@ -183,6 +183,8 @@ export interface VideoPlayerProps {
   defaultSpeed?: number;
   /** Autoplay on mount. */
   autoPlay?: boolean;
+  /** Persist resume position for an authenticated viewer. */
+  persistPlaybackPosition?: boolean;
   /** Start time in ms. */
   startMs?: number;
   /** Comment + chapter overlays for the scrubber. */
@@ -247,6 +249,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       thumbnailUrl,
       defaultSpeed = 1.2,
       autoPlay,
+      persistPlaybackPosition = true,
       startMs,
       editsJson,
       comments,
@@ -520,6 +523,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       recordingId,
       videoEl: playbackVideoEl,
       durationMs,
+      enabled: persistPlaybackPosition,
       explicitStartMs: startMs,
       allowRestoreWhilePlaying: autoPlay,
       onRestore: restorePlaybackPosition,

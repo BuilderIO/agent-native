@@ -1,5 +1,23 @@
 # @agent-native/core
 
+## 0.161.19
+
+### Patch Changes
+
+- efc5f92: Improve the self-hosting documentation with a fast local Docker quickstart and downloadable Chat fixture.
+- 9fed363: Teach generated workspaces to reuse shared settings, vault, OAuth, and onboarding primitives before building custom integration setup UI.
+
+## 0.161.18
+
+### Patch Changes
+
+- 9dd50a0: Drop JSON Schema keywords OpenAI's function validator rejects: unsupported
+  `format` values (`uri` from `z.string().url()` among them) and constraint-only
+  keywords like `patternProperties`, `not`, and `if`/`then`/`else`. Any one of them
+  400s the entire chat request, so a single `z.string().url()` in one tool broke
+  every turn that offered it.
+- f294ae3: Keep the Connect Builder and Custom keys actions side by side in the agent sidebar.
+
 ## 0.161.17
 
 ### Patch Changes
