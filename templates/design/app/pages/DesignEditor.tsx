@@ -2671,8 +2671,10 @@ function DesignEditor() {
   // A handoff the host only prefilled. Its edits stay pending until a host turn
   // settles, which is the one signal that the prompt was actually run.
   const stagedSourceHandoffRef = useRef(false);
+  const [applyingViaHost, setApplyingViaHost] = useState(false);
   const clearPendingLiveEditState = useCallback(() => {
     stagedSourceHandoffRef.current = false;
+    setApplyingViaHost(false);
     cancelPendingStructureVerification();
     pendingVisualStyleUndoStackRef.current = [];
     pendingVisualStyleRedoStackRef.current = [];
@@ -24849,11 +24851,12 @@ function DesignEditor() {
           );
           return;
         }
-        // A staged handoff is sitting in the host's composer unsent, so the
-        // edits are still pending: clearing them here loses the work if the
-        // user edits the prefill or dismisses it.
-        if (delivery.staged) stagedSourceHandoffRef.current = true;
-        else finalizeWithoutStructureVerification();
+        // The host is running the turn, so the edits stay pending until it
+        // settles: clearing them now would discard the work on a failed run.
+        if (delivery.awaitingHostTurn) {
+          stagedSourceHandoffRef.current = true;
+          setApplyingViaHost(true);
+        } else finalizeWithoutStructureVerification();
         if (delivery.target === "local") setActiveLeftPanel("agent");
         toast.success(t("designEditor.pendingVisualStyles.sentToast"));
         return;
@@ -32294,27 +32297,41 @@ function DesignEditor() {
                     >
                       <div className="pointer-events-auto flex w-fit max-w-full items-center overflow-x-auto">
                         <Button
-                          className="h-9 min-w-0 shrink-0 cursor-pointer rounded-r-none bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400"
+                          className={cn(
+                            // guard:allow-raw-color — primary-foreground inverts to near-black in dark mode
+                            "h-9 min-w-0 shrink-0 cursor-pointer bg-blue-500 px-3.5 text-sm font-semibold text-white hover:bg-blue-400 focus-visible:ring-blue-400",
+                            !shellMode && "rounded-r-none",
+                          )}
                           aria-label={t(
                             "designEditor.pendingVisualStyles.applyAria",
                           )}
                           disabled={
+                            applyingViaHost ||
                             pendingAgentHandoffBusy ||
                             pendingStructureVerificationBusy
                           }
                           onClick={handleApplyPendingVisualStylesWithAgent}
                         >
+                          {applyingViaHost ? (
+                            <Spinner className="mr-2 h-4 w-4 shrink-0" />
+                          ) : null}
                           <span className="truncate">
                             {t(
-                              pendingStructureVerificationBusy
-                                ? "designEditor.pendingVisualStyles.verifying"
-                                : pendingStructureVerificationStatus ===
-                                    "conflict"
-                                  ? "designEditor.pendingVisualStyles.retryWithAgent"
-                                  : "designEditor.pendingVisualStyles.applyDesignUpdates",
+                              applyingViaHost
+                                ? "designEditor.pendingVisualStyles.applying"
+                                : pendingStructureVerificationBusy
+                                  ? "designEditor.pendingVisualStyles.verifying"
+                                  : pendingStructureVerificationStatus ===
+                                      "conflict"
+                                    ? "designEditor.pendingVisualStyles.retryWithAgent"
+                                    : "designEditor.pendingVisualStyles.applyDesignUpdates",
                             )}
                           </span>
                         </Button>
+                        {/* The host runs the turn and owns the chat, so copying
+                            the prompt or aborting into interact mode have no
+                            meaning here. */}
+                        {shellMode ? null : (
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
                             <Button
@@ -32352,6 +32369,7 @@ function DesignEditor() {
                             </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
+                        )}
                       </div>
                     </div>
                   ) : null}

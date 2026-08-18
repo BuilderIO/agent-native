@@ -22,12 +22,12 @@ describe("DesignEditor pending source handoff", () => {
     );
   });
 
-  it("resolves a staged handoff when the host's turn settles, not when it is prefilled", () => {
-    // The host only fills its composer, so nothing clears the pending edits at
-    // handoff time and the Apply control would otherwise never go away.
-    expect(handler).toContain(
-      "if (delivery.staged) stagedSourceHandoffRef.current = true;",
-    );
+  it("resolves the handoff when the host's turn settles, not when it is posted", () => {
+    // A posted handoff is not an applied one, and the Apply control would
+    // otherwise never go away.
+    expect(handler).toContain("if (delivery.awaitingHostTurn) {");
+    expect(handler).toContain("stagedSourceHandoffRef.current = true;");
+    expect(handler).toContain("setApplyingViaHost(true);");
     const chatState = source.slice(
       source.indexOf('if (data.type === "design:chatState")'),
       source.indexOf("const focusDesignInspectorForSelection"),
@@ -39,6 +39,27 @@ describe("DesignEditor pending source handoff", () => {
     expect(chatState.indexOf("reloadRunningAppPreviewFrames();")).toBeLessThan(
       chatState.indexOf("clearPendingLiveEditStateRef.current();"),
     );
+  });
+
+  it("offers only Apply in the host shell, and shows it working", () => {
+    // The host runs the turn and owns the chat, so copying the prompt or
+    // aborting into interact mode have nothing to act on there.
+    const start = source.indexOf("data-design-pending-visual-style-toolbar");
+    const toolbar = source.slice(
+      start,
+      source.indexOf('viewMode === "overview"', start),
+    );
+    expect(toolbar).not.toBe("");
+    expect(toolbar).toContain("{shellMode ? null : (");
+    expect(toolbar).toContain("<DropdownMenu>");
+    expect(toolbar.indexOf("{shellMode ? null : (")).toBeLessThan(
+      toolbar.indexOf("<DropdownMenu>"),
+    );
+    expect(toolbar).toContain(
+      '"designEditor.pendingVisualStyles.applying"',
+    );
+    expect(toolbar).toContain("applyingViaHost ||");
+    expect(toolbar).toContain("{applyingViaHost ? (");
   });
 
   it("drops the staged flag whenever pending edits are cleared", () => {

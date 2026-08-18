@@ -21,9 +21,11 @@ describe("DesignEditor pending live edits", () => {
     );
     expect(toolbar).not.toContain("sessionOnlyWarning");
     expect(toolbar).not.toContain("{pendingVisualEditCount}");
-    expect(toolbar).toContain('className="h-9 min-w-0');
+    // The primary button's classes moved into `cn()` so the split-button
+    // rounding can drop when the host shell hides the chevron.
+    expect(toolbar).toContain('"h-9 min-w-0');
     expect(toolbar).toContain('className="h-9 w-8');
-    expect(toolbar).not.toContain('className="h-11');
+    expect(toolbar).not.toContain('h-11');
 
     const messages = readFileSync(
       new URL("../i18n-data.ts", import.meta.url),
