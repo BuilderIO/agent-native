@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   appendA2AArtifactLinks,
+  appendA2APersistedMutationReceipts,
   buildA2ARecoverableArtifactMessage,
   buildA2AVerifiedMutationReceipt,
   extractA2AArtifactIdentities,
@@ -386,6 +387,16 @@ describe("appendA2AArtifactLinks", () => {
         { persistedArtifactSecrets: [organizationSecret] },
       ),
     ).toEqual([]);
+    expect(
+      appendA2APersistedMutationReceipts(
+        "Current task response.",
+        [{ tool: "call-agent", result: downstream }],
+        {
+          persistedArtifactSecret: secret,
+          delegatedTaskId: "task-other",
+        },
+      ),
+    ).toBe("Current task response.");
 
     const current = appendA2AArtifactLinks(
       "Current update finished.",

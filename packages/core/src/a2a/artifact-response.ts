@@ -1326,6 +1326,7 @@ export function appendA2APersistedMutationReceipts(
   const receiptSecret = options.persistedArtifactSecret ?? a2aSecret();
   const receipts = extractA2APersistedMutationReceipts(toolResults, {
     persistedArtifactSecrets: receiptSecret ? [receiptSecret] : [],
+    expectedDelegatedTaskId: options.delegatedTaskId,
   }).filter((receipt) => !text.includes(receipt.receiptId));
   if (receipts.length === 0) return text;
   const lines = receipts.map((receipt) => {
