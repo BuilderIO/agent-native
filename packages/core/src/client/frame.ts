@@ -1,3 +1,4 @@
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { agentNativePath } from "./api-path.js";
 
 /**
@@ -189,8 +190,7 @@ export function getCallbackOrigin(): string {
 }
 
 function envFlag(name: string): boolean {
-  const value = runtimeEnvValue(name);
-  return value === "1" || value === "true" || value === true;
+  return isTruthyRuntimeValue(runtimeEnvValue(name));
 }
 
 function runtimeEnvValue(name: string): string | boolean | undefined {
@@ -235,8 +235,11 @@ function workspaceOAuthOrigin(): string | null {
 }
 
 function shouldUseWorkspaceCallbackRelay(path: string): boolean {
+  const projectedWorkspaceRuntime =
+    typeof window !== "undefined" &&
+    window.__AGENT_NATIVE_CONFIG__?.workspaceRuntime === true;
   return (
-    envFlag("VITE_AGENT_NATIVE_WORKSPACE") &&
+    (projectedWorkspaceRuntime || envFlag("VITE_AGENT_NATIVE_WORKSPACE")) &&
     path.startsWith("/_agent-native/") &&
     (path.endsWith("/callback") || path.includes("/callback/"))
   );

@@ -1,6 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
+
 const FIRST_PARTY_COOKIE_DOMAIN = "agent-native.com";
 
 export interface AuthCookieNamespace {
@@ -21,8 +23,10 @@ export function resolveAuthCookieNamespace(
   cwd = process.cwd(),
 ): AuthCookieNamespace {
   const isWorkspaceMode =
-    env.AGENT_NATIVE_WORKSPACE === "1" ||
-    env.VITE_AGENT_NATIVE_WORKSPACE === "1";
+    isTruthyRuntimeValue(env.AGENT_NATIVE_WORKSPACE) ||
+    isTruthyRuntimeValue(env.VITE_AGENT_NATIVE_WORKSPACE) ||
+    Boolean(env.AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
+    Boolean(env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim());
   const configuredCookieDomain = normalizeCookieDomain(env.COOKIE_DOMAIN);
   const isFirstPartyCookieDomain =
     normalizeDomainForCompare(configuredCookieDomain) ===

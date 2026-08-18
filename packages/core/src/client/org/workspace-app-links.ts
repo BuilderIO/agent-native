@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { coreTemplates, getTemplate } from "../../cli/templates-meta.js";
+import { isTruthyRuntimeValue } from "../../shared/runtime-config.js";
 
 export interface OrgSwitcherAppLink {
   id: string;
@@ -38,11 +39,17 @@ function envString(env: RuntimeEnv, key: string): string | undefined {
 }
 
 function envFlag(env: RuntimeEnv, key: string): boolean {
-  const value = env[key];
-  if (value === true) return true;
+  return isTruthyRuntimeValue(env[key]);
+}
+
+function projectedWorkspaceRuntime(): boolean {
   return (
-    typeof value === "string" &&
-    ["1", "true", "yes", "on"].includes(value.trim().toLowerCase())
+    typeof window !== "undefined" &&
+    (
+      window as Window & {
+        __AGENT_NATIVE_CONFIG__?: { workspaceRuntime?: unknown };
+      }
+    ).__AGENT_NATIVE_CONFIG__?.workspaceRuntime === true
   );
 }
 
@@ -239,6 +246,7 @@ export function isWorkspaceAppEnvironment(
 ): boolean {
   return (
     envFlag(env, "VITE_AGENT_NATIVE_WORKSPACE") ||
+    projectedWorkspaceRuntime() ||
     Boolean(envString(env, "VITE_WORKSPACE_GATEWAY_URL")) ||
     Boolean(envString(env, "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON"))
   );

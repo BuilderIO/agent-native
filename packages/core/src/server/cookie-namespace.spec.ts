@@ -62,6 +62,20 @@ describe("resolveAuthCookieNamespace", () => {
     });
   });
 
+  it("keeps boolean-style workspace mode in the shared auth realm", () => {
+    expect(
+      resolveAuthCookieNamespace({
+        NODE_ENV: "production",
+        APP_NAME: "mail",
+        AGENT_NATIVE_WORKSPACE: "true",
+      }),
+    ).toMatchObject({
+      frameworkCookieName: "an_session_workspace",
+      betterAuthCookiePrefix: "an",
+      betterAuthCookieDomain: undefined,
+    });
+  });
+
   it("preserves explicit shared cookie domains for custom same-DB deploys", () => {
     expect(
       resolveAuthCookieNamespace({
