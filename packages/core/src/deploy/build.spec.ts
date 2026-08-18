@@ -1215,6 +1215,12 @@ describe("CLOUDFLARE_WORKER_ESBUILD_EXTERNALS", () => {
     expect(CLOUDFLARE_WORKER_STUB_MODULES["playwright-core"]).toContain(
       "chromium",
     );
+
+    const pdfJsStub =
+      CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES["pdfjs-dist/legacy/build/pdf.mjs"];
+    expect(pdfJsStub).toContain("export const OPS = new Proxy");
+    expect(pdfJsStub).toContain("export const Util = new Proxy");
+    expect(pdfJsStub).toContain("export const getDocument = unavailable");
   });
 
   it("stubs node builtins that Cloudflare Pages rejects at upload time", () => {

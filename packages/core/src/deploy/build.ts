@@ -389,7 +389,7 @@ export const CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES: Record<string, string> = {
   ].join("\n"),
   "pdfjs-dist/legacy/build/pdf.mjs": [
     "const unavailable = () => { throw new Error('pdfjs-dist unavailable in Cloudflare Pages worker'); };",
-    "export const OPS = {};",
+    "export const OPS = new Proxy({}, { get: unavailable });",
     "export const Util = new Proxy({}, { get: unavailable });",
     "export const getDocument = unavailable;",
     "export default { OPS, Util, getDocument };",
