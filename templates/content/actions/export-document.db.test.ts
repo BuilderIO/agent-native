@@ -94,7 +94,7 @@ async function addDatabaseItem(args: {
   databaseId: string;
   documentId: string;
   position: number;
-  bodyHydrationStatus?: "pending" | "hydrated";
+  bodyHydrationStatus?: "pending" | "hydrated" | "unavailable";
 }) {
   const now = new Date().toISOString();
   await getDb()
@@ -298,6 +298,36 @@ describe("export-document database collections", () => {
         }),
       ),
     ).rejects.toThrow('Database item "pending-page" is not ready for export');
+  });
+
+  it("exports a member whose provider body is terminally unavailable", async () => {
+    await createDatabase({
+      id: "unavailable-database",
+      documentId: "unavailable-database-document",
+      title: "Unavailable Database",
+    });
+    await createDocument({
+      id: "unavailable-page",
+      title: "Unavailable Page",
+    });
+    await addDatabaseItem({
+      id: "unavailable-item",
+      databaseId: "unavailable-database",
+      documentId: "unavailable-page",
+      position: 0,
+      bodyHydrationStatus: "unavailable",
+    });
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      exportDocumentAction.run({
+        id: "unavailable-database-document",
+        format: "markdown",
+      }),
+    );
+
+    expect(result.content).toBe(
+      "# Unavailable Database\n\n## Unavailable Page\n",
+    );
   });
 
   it("keeps ordinary page exports unchanged", async () => {

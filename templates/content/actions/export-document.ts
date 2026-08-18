@@ -57,7 +57,10 @@ async function databaseExportContent(documentId: string) {
 
     for (const { member, access } of resolved) {
       if (!access || access.resource.trashedAt) continue;
-      if (member.bodyHydrationStatus !== "hydrated") {
+      if (
+        member.bodyHydrationStatus !== "hydrated" &&
+        member.bodyHydrationStatus !== "unavailable"
+      ) {
         throw new Error(
           `Database item "${member.documentId}" is not ready for export`,
         );
