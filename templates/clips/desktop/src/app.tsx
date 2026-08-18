@@ -112,6 +112,7 @@ import {
   copyRecordingShareLink,
   recordingShareUrl,
 } from "./lib/recording-link";
+import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
 import {
@@ -3218,16 +3219,14 @@ export function App() {
         bubbleStreamTransferredToRecorder.current = false;
         recordingFlowGateRef.current = false;
         setRecordingFlowActive(false);
-        try {
-          await invoke("set_recording_state", { active: false });
-        } catch {
-          // ignore — best-effort
-        }
-        try {
-          await invoke("show_popover");
-        } catch {
-          // ignore — best-effort
-        }
+        // Bounded, not just best-effort: a plain unbounded await here would
+        // let a stuck native command (e.g. a ScreenCaptureKit handshake that
+        // never returns) turn this "always recovers" block into another
+        // permanent hang on top of the one that just failed — exactly the
+        // "stuck on Preparing…, have to restart" symptom this exists to
+        // prevent.
+        await boundedCleanup(invoke("set_recording_state", { active: false }));
+        await boundedCleanup(invoke("show_popover"));
       }
     }
 

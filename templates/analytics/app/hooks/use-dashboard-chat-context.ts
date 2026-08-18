@@ -5,13 +5,13 @@ import {
   type AgentSidebarStateChangeDetail,
   useAgentChatContext,
 } from "@agent-native/core/client/agent-chat";
-import {
-  deleteClientAppState,
-  readClientAppState,
-  setClientAppState,
-} from "@agent-native/core/client/hooks";
-import { useCallback, useEffect, useState } from "react";
+import { setClientAppState } from "@agent-native/core/client/hooks";
+import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  clearSelectedDashboardObjectIfOwned,
+  type SelectedDashboardObject,
+} from "@/lib/selected-object";
 import { TAB_ID } from "@/lib/tab-id";
 
 const DASHBOARD_CONTEXT_KEY = "analytics-selected-dashboard";
@@ -80,28 +80,6 @@ function dashboardContext(
   return lines.join("\n");
 }
 
-async function deleteSelectedObjectIfOwned(dashboardId: string) {
-  try {
-    const current = await readClientAppState<Record<string, unknown>>(
-      SELECTED_OBJECT_STATE_KEY,
-    );
-    if (current?.[SELECTED_OBJECT_SOURCE_FIELD] !== TAB_ID) return;
-    const selectedDashboardId =
-      current.type === "dashboard"
-        ? current.id
-        : current.type === "dashboard-panel"
-          ? current.dashboardId
-          : null;
-    if (selectedDashboardId !== dashboardId) return;
-    await deleteClientAppState(SELECTED_OBJECT_STATE_KEY, {
-      keepalive: true,
-      requestSource: TAB_ID,
-    });
-  } catch {
-    // Best effort only; avoid clearing another tab's selected object on errors.
-  }
-}
-
 function panelSelectionMarker(dashboardId: string, panelId: string): string {
   return `Analytics panel selection: dashboard=${encodeURIComponent(
     dashboardId,
@@ -153,6 +131,7 @@ export function useDashboardChatContext(
       ? panelSelection.panelId
       : null;
   const hasSelectedPanel = selectedPanelId !== null;
+  const publishedSelectionRef = useRef<SelectedDashboardObject | null>(null);
 
   const selectPanelForChat = useCallback(
     (
@@ -179,6 +158,20 @@ export function useDashboardChatContext(
           ? "Inspect this panel with get-sql-dashboard (includeConfig: true) before changing it, then use mutate-dashboard for edits."
           : "Inspect the linked Explorer config before changing this chart.",
       ].filter(Boolean);
+      const selection: SelectedDashboardObject = {
+        type: "dashboard-panel",
+        dashboardId: id,
+        dashboardKind: kind,
+        dashboardTitle: displayDashboardTitle,
+        panelId: panel.panelId,
+        panelTitle: displayPanelTitle,
+        panelKind: panel.panelKind,
+        chartType: panel.chartType || undefined,
+        source: panel.source || undefined,
+        configId: panel.configId || undefined,
+        extensionId: panel.extensionId || undefined,
+        [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
+      };
 
       // The panel context occupies one stable composer slot, so selecting a
       // different panel replaces the prior chip instead of accumulating chips.
@@ -189,27 +182,11 @@ export function useDashboardChatContext(
         openSidebar: options.openSidebar === true,
         focus: options.focus ?? false,
       });
-      setClientAppState(
-        SELECTED_OBJECT_STATE_KEY,
-        {
-          type: "dashboard-panel",
-          dashboardId: id,
-          dashboardKind: kind,
-          dashboardTitle: displayDashboardTitle,
-          panelId: panel.panelId,
-          panelTitle: displayPanelTitle,
-          panelKind: panel.panelKind,
-          chartType: panel.chartType || undefined,
-          source: panel.source || undefined,
-          configId: panel.configId || undefined,
-          extensionId: panel.extensionId || undefined,
-          [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
-        },
-        {
-          keepalive: true,
-          requestSource: TAB_ID,
-        },
-      ).catch(() => {});
+      setClientAppState(SELECTED_OBJECT_STATE_KEY, selection, {
+        keepalive: true,
+        requestSource: TAB_ID,
+      }).catch(() => {});
+      publishedSelectionRef.current = selection;
     },
     [id, isAgentSidebarOpen, kind, title],
   );
@@ -261,23 +238,21 @@ export function useDashboardChatContext(
   useEffect(() => {
     if (!id || hasSelectedPanel) return;
     const displayTitle = title?.trim() || id;
+    const selection: SelectedDashboardObject = {
+      type: "dashboard",
+      id,
+      kind,
+      title: displayTitle,
+      panelCount,
+      canEdit,
+      [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
+    };
     const timer = setTimeout(() => {
-      setClientAppState(
-        SELECTED_OBJECT_STATE_KEY,
-        {
-          type: "dashboard",
-          id,
-          kind,
-          title: displayTitle,
-          panelCount,
-          canEdit,
-          [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
-        },
-        {
-          keepalive: true,
-          requestSource: TAB_ID,
-        },
-      ).catch(() => {});
+      setClientAppState(SELECTED_OBJECT_STATE_KEY, selection, {
+        keepalive: true,
+        requestSource: TAB_ID,
+      }).catch(() => {});
+      publishedSelectionRef.current = selection;
     }, CONTEXT_PUBLISH_DELAY_MS);
     return () => clearTimeout(timer);
   }, [canEdit, hasSelectedPanel, id, kind, panelCount, title]);
@@ -293,7 +268,7 @@ export function useDashboardChatContext(
         key: DASHBOARD_PANEL_CONTEXT_KEY,
         openSidebar: false,
       });
-      deleteSelectedObjectIfOwned(id);
+      clearSelectedDashboardObjectIfOwned(publishedSelectionRef.current);
     };
   }, [id]);
 
