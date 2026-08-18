@@ -1444,6 +1444,10 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips terminará de guardarlo.",
     connectStorageToRetryLoom:
       "Conecta almacenamiento en la siguiente pantalla: Builder.io (almacenamiento + IA en el plan gratuito) o almacenamiento compatible con S3. Clips reintentará la importación.",
+    leaveConfirmTitle: "¿Salir y descartar esta grabación?",
+    leaveConfirmDescription:
+      "Tu grabación en curso aún no ha terminado de guardarse. Si sales de esta página ahora, se descartará.",
+    leaveAndDiscard: "Salir y descartar",
   },
   importRoute: {
     pageTitle: "Importar Loom — Clips",

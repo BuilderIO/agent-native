@@ -1374,6 +1374,10 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
       "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将完成保存。",
     connectStorageToRetryLoom:
       "在下一屏连接存储：Builder.io（免费套餐存储 + AI）或 S3 兼容存储。Clips 将重试导入。",
+    leaveConfirmTitle: "离开并丢弃此录制？",
+    leaveConfirmDescription:
+      "正在进行的录制尚未保存完成。现在离开此页面将丢弃它。",
+    leaveAndDiscard: "离开并丢弃",
   },
   importRoute: {
     pageTitle: "导入 Loom — Clips",
