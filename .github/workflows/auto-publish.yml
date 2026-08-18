@@ -324,7 +324,6 @@ jobs:
 
   publish-desktop:
     name: Publish desktop app
-    needs: []
     if: |
       (github.event_name == 'workflow_dispatch' && inputs.publishDesktop) ||
       contains(github.event.head_commit.modified, 'packages/desktop-app/package.json') ||
@@ -411,7 +410,9 @@ jobs:
 
       - name: Get version
         id: version
-        run: echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> $GITHUB_OUTPUT
+        run: |
+          version="$(node -p "require('./packages/desktop-app/package.json').version")"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Publish draft release
         env:
