@@ -62,6 +62,7 @@ import { ensureThread, warmThreads } from "@/lib/thread-cache";
 import { cn } from "@/lib/utils";
 
 import { EmailListItem } from "./EmailListItem";
+import { observeNextPage } from "./infinite-pagination";
 
 type EmailsPage = { emails: EmailMessage[]; nextPageToken?: string };
 type InfiniteEmails = InfiniteData<EmailsPage, string | undefined>;
@@ -1127,31 +1128,19 @@ export function EmailList({
   }, [focusedIndex, rowVirtualizer]);
 
   // Infinite scroll — fetch next page when the sentinel enters the viewport.
-  // isFetchingNextPage is read via ref (not a dep) because re-observe fires
-  // the callback synchronously with the current intersection state; if the
-  // sentinel is still visible after a fetch, a reconnecting observer would
-  // immediately fire again and we'd loop (visible to the user as "Loading
-  // more..." flashing every ~second while tab is idle).
+  // Re-arm the observer when a fetch completes so a still-visible sentinel can
+  // walk through consecutive pages with no client-side filtered matches.
   const sentinelRef = useRef<HTMLDivElement>(null);
-  const isFetchingNextPageRef = useRef(isFetchingNextPage);
-  isFetchingNextPageRef.current = isFetchingNextPage;
   useEffect(() => {
     const el = sentinelRef.current;
-    if (!el || !hasNextPage) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0].isIntersecting && !isFetchingNextPageRef.current) {
-          void fetchNextPage().catch(() => {
-            // React Query owns the visible error state; avoid a global
-            // unhandledrejection for transient list-page fetch failures.
-          });
-        }
-      },
-      { rootMargin: "200px" },
-    );
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [hasNextPage, fetchNextPage]);
+    if (!el) return;
+    return observeNextPage({
+      element: el,
+      hasNextPage: Boolean(hasNextPage),
+      isFetchingNextPage: Boolean(isFetchingNextPage),
+      fetchNextPage,
+    });
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Advance selection when an email is snoozed (same logic as archiveFocused)
   useEffect(() => {
