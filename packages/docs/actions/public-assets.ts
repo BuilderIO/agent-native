@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { getAppBasePath } from "@agent-native/core/server";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 
 const cachedAssets = new Map<string, Promise<unknown | undefined>>();
@@ -22,10 +23,8 @@ function publicAssetUrl(filename: string): string | undefined {
   const origin = getRequestContext()?.requestOrigin;
   if (!origin) return undefined;
 
-  const configuredBasePath =
-    process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH || "";
-  const basePath = configuredBasePath.trim().replace(/^\/+|\/+$/g, "");
-  const pathname = `/${basePath ? `${basePath}/` : ""}${filename}`;
+  const basePath = getAppBasePath();
+  const pathname = `${basePath ? `${basePath}/` : "/"}${filename}`;
   return new URL(pathname, origin).toString();
 }
 
