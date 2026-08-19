@@ -157,6 +157,54 @@ describe("useDashboardChatContext", () => {
     );
   });
 
+  it("clears dashboard context when a fresh chat starts", async () => {
+    await act(async () => {
+      root.render(<Harness id="dash-1" />);
+    });
+    await settleContextPublish();
+
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-chat:new-chat"));
+    });
+
+    expect(clientMocks.removeAgentChatContextItem).toHaveBeenCalledWith({
+      key: "analytics-selected-dashboard",
+      openSidebar: false,
+    });
+    expect(clientMocks.removeAgentChatContextItem).toHaveBeenCalledWith({
+      key: "analytics-selected-dashboard-panel",
+      openSidebar: false,
+    });
+    expect(clientMocks.callAction).toHaveBeenCalledWith(
+      "clear-selected-dashboard-object",
+      {
+        browserTabId: TAB_ID,
+        expectedSelection: expect.objectContaining({
+          id: "dash-1",
+          __agentNativeSelectedObjectSource: TAB_ID,
+        }),
+        source: TAB_ID,
+      },
+    );
+  });
+
+  it("does not let a pending dashboard publish resurrect context after new chat", async () => {
+    await act(async () => {
+      root.render(<Harness id="dash-1" />);
+    });
+    await act(async () => {
+      window.dispatchEvent(new Event("agent-chat:new-chat"));
+    });
+    await settleContextPublish();
+
+    expect(clientMocks.setAgentChatContextItem).not.toHaveBeenCalled();
+    expect(clientMocks.setClientAppState).not.toHaveBeenCalledWith(
+      "selected-object",
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   it("stages a selected panel for chat and app state", async () => {
     await act(async () => {
       root.render(<PanelHarness />);

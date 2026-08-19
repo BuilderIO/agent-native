@@ -132,6 +132,7 @@ export function useDashboardChatContext(
       : null;
   const hasSelectedPanel = selectedPanelId !== null;
   const publishedSelectionRef = useRef<SelectedDashboardObject | null>(null);
+  const suppressDashboardContextRef = useRef(false);
 
   const selectPanelForChat = useCallback(
     (
@@ -140,6 +141,7 @@ export function useDashboardChatContext(
     ) => {
       if (!id) return;
       if (options.openSidebar !== true && !isAgentSidebarOpen) return;
+      suppressDashboardContextRef.current = false;
       const displayDashboardTitle = title?.trim() || id;
       const displayPanelTitle = panel.panelTitle.trim() || panel.panelId;
       const contextLines = [
@@ -211,13 +213,38 @@ export function useDashboardChatContext(
       );
   }, []);
 
+  useEffect(() => {
+    const handleNewChat = () => {
+      removeAgentChatContextItem({
+        key: DASHBOARD_CONTEXT_KEY,
+        openSidebar: false,
+      });
+      removeAgentChatContextItem({
+        key: DASHBOARD_PANEL_CONTEXT_KEY,
+        openSidebar: false,
+      });
+      const publishedSelection = publishedSelectionRef.current;
+      publishedSelectionRef.current = null;
+      suppressDashboardContextRef.current = true;
+      if (publishedSelection) {
+        void clearSelectedDashboardObjectIfOwned(publishedSelection);
+      }
+    };
+
+    window.addEventListener("agent-chat:new-chat", handleNewChat);
+    return () =>
+      window.removeEventListener("agent-chat:new-chat", handleNewChat);
+  }, []);
+
   // Dashboard metadata lands in pieces — title first, then panel count, then
   // the access role. Publishing each piece costs a round-trip and a sync event
   // that invalidates every mounted query, so only the settled value is sent.
   useEffect(() => {
     if (!id) return;
+    suppressDashboardContextRef.current = false;
     const displayTitle = title?.trim() || id;
     const timer = setTimeout(() => {
+      if (suppressDashboardContextRef.current) return;
       setAgentChatContextItem({
         key: DASHBOARD_CONTEXT_KEY,
         title: `Dashboard: ${displayTitle}`,
@@ -237,6 +264,7 @@ export function useDashboardChatContext(
 
   useEffect(() => {
     if (!id || hasSelectedPanel) return;
+    if (suppressDashboardContextRef.current) return;
     const displayTitle = title?.trim() || id;
     const selection: SelectedDashboardObject = {
       type: "dashboard",
@@ -248,6 +276,7 @@ export function useDashboardChatContext(
       [SELECTED_OBJECT_SOURCE_FIELD]: TAB_ID,
     };
     const timer = setTimeout(() => {
+      if (suppressDashboardContextRef.current) return;
       setClientAppState(SELECTED_OBJECT_STATE_KEY, selection, {
         keepalive: true,
         requestSource: TAB_ID,
