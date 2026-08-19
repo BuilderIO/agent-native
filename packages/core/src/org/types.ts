@@ -6,6 +6,8 @@ export type OrgRole = "owner" | "admin" | "member";
 
 export type RequiredAuthProvider = "google" | null;
 
+export type WorkspaceAppDefaultVisibility = "private" | "org";
+
 export interface OrgContext {
   email: string;
   orgId: string | null;
@@ -50,6 +52,8 @@ export interface OrgInfo {
   workspaceUrl: string | null;
   /** Sign-in provider required for members of the active org. */
   requiredAuthProvider: RequiredAuthProvider;
+  /** Default visibility applied when a new workspace app is first registered. */
+  workspaceAppDefaultVisibility?: WorkspaceAppDefaultVisibility;
   /**
    * Whether the active org has an A2A secret. The value itself is never part
    * of this payload — owners/admins fetch it on demand from

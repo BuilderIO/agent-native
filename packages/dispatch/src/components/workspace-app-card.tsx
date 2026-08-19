@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -210,6 +211,17 @@ export function WorkspaceAppCard({
             pendingOpenLabel={pendingOpenLabel}
             onTogglePinned={onTogglePinned}
           />
+          {!isPending ? (
+            <div className="pointer-events-auto">
+              <ShareButton
+                resourceType="workspace-app"
+                resourceId={app.id}
+                resourceTitle={app.name}
+                trigger="icon"
+                triggerClassName={APP_CARD_ACTION_CLASS}
+              />
+            </div>
+          ) : null}
           <WorkspaceAppSettings
             app={app}
             isArchived={isArchived}

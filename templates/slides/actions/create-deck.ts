@@ -96,12 +96,13 @@ export default defineAction({
     "Create a new deck, optionally already populated with slides, or atomically replace all slides in an existing deck. " +
     "For short AI-generated decks in MCP app hosts, pass all generated slides in this call so the real deck editor opens inline already populated. " +
     "For longer decks or live in-app generation, create the deck with slides: [] and then use add-slide sequentially so progress appears live. " +
+    "Pass presenter-only speaker notes in each slide's `notes` field; keep them out of slide HTML. " +
     "Pass deckId to replace an existing deck. " +
     "Returns the deck id, title, and slide count.",
   schema: z.object({
     title: z.string().describe("Deck title"),
     slides: SlidesSchema.describe(
-      "Array of slides with id, content (HTML), and optional layout",
+      "Array of slides with id, content (HTML), optional layout, and presenter-only notes",
     ),
     deckId: z
       .string()

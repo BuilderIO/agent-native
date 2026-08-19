@@ -324,6 +324,11 @@ function extensionTargetsForRow(
       addExtensionTarget(targets, { owner: principalId });
     } else if (principalType === "org" && principalId) {
       addExtensionTarget(targets, { orgId: principalId });
+    } else if (principalType === "group" && orgId) {
+      // Group membership is org-scoped. Invalidating the org target is a
+      // conservative fallback that keeps group-share changes fresh for every
+      // member without making the poll layer own group-directory queries.
+      addExtensionTarget(targets, { orgId });
     }
   }
 
