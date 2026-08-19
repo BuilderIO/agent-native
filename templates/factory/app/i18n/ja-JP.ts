@@ -204,6 +204,48 @@ const messages = {
     auditUxImpact: "UXへの影響",
     auditOwnerArea: "担当領域",
     auditGuardsLabel: "ガード",
+    historyTab: "履歴",
+    historyTitle: "保存済みバージョン",
+    historyLoading: "保存済みバージョンを読み込んでいます",
+    historyLoadError: "Factory の履歴を読み込めませんでした。",
+    historyEmpty: "保存済みバージョンはまだありません",
+    historyEmptyHint:
+      "ビジュアルグラフを一度保存すると、Factory が各バージョンを確認と復元のためにここへ保持します。",
+    historyVersion: "バージョン {{version}}",
+    historyCurrent: "現在",
+    historySource: "ソース",
+    historySourceManual: "ビジュアルエディター",
+    historySourceAi: "エージェントの提案",
+    historySourceSeed: "Factory の初期版",
+    historySourceRestore: "復元",
+    historySourceSaved: "保存済みグラフ",
+    historyNodes: "ノード",
+    historyConnections: "接続",
+    historyChangeSummary: "変更の概要",
+    historyNoSummary: "変更の概要は記録されていません。",
+    historyCurrentHint: "これは現在 Factory が使用しているバージョンです。",
+    historyRestore: "このバージョンを復元",
+    historyRestoreTitle: "バージョン {{version}} を復元しますか？",
+    historyRestoreDescription:
+      "このスナップショットから新しい現在のバージョンを作成します。既存のバージョンは履歴に残ります。",
+    historyRestoreUnsaved:
+      "保存されていないビジュアル変更もあります。復元すると破棄されます。",
+    historyCancel: "キャンセル",
+    historyRestoreConfirm: "バージョンを復元",
+    historyRestored:
+      "バージョンを復元しました。新しい現在のバージョンを作成しました。",
+    historyRestoreFailed: "この Factory バージョンを復元できませんでした。",
+    historyRestoreConflict:
+      "復元中に Factory が変更されました。再試行する前に更新された履歴を確認してください。",
+    historyRefreshFailed:
+      "バージョンは復元されましたが、Factory ビューを更新できませんでした。",
+    historyLoadOlder: "以前のバージョンを読み込む",
+    historySnapshotLoadError:
+      "このバージョンのプレビューを読み込めませんでした。",
+    historyRestoreUnverified:
+      "復元は完了しましたが、結果を確認できませんでした。もう一度試す前に履歴を更新してください。",
+    saveConflictFallback:
+      "保存中に Factory が変更されました。Factory を更新してもう一度お試しください。",
     automationsTitle: "自動化",
     automationsDescription:
       "Factory のプロンプトをスケジュールして実行します。",
@@ -319,6 +361,9 @@ const messages = {
     addComment: "コメントを追加",
     savingGraph: "グラフを保存中...",
     saveGraph: "ファクトリーの変更を保存",
+    saveConflictHint:
+      "未保存の変更は保持されています。破棄して新しい Factory バージョンを読み込んでください。",
+    discardLocalChanges: "ローカル変更を破棄して現在のバージョンを読み込む",
     savedGraph: "ファクトリーを保存しました",
     saveNote:
       "新しいバージョンを保存します。既存の実行は元のコンテキストを保持します。",

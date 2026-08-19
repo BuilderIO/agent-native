@@ -31,6 +31,7 @@ import {
   type FactoryCanvasGraph,
   type FactoryCanvasNode,
 } from "@/components/factory/FactoryCanvas";
+import { FactoryHistoryView } from "@/components/factory/FactoryHistoryView";
 import { FactoryInspector } from "@/components/factory/FactoryInspector";
 import { TriageStatusPill } from "@/components/triage/triage-status-pill";
 import { Button } from "@/components/ui/button";
@@ -131,6 +132,7 @@ type WorkspaceTab =
   | "automations"
   | "agents"
   | "audit"
+  | "history"
   | "settings";
 
 type FactoryAutomationRun = {
@@ -184,9 +186,14 @@ export default function FactoryRoute() {
   const [creating, setCreating] = useState(false);
   const [draftGraph, setDraftGraph] = useState<FactoryCanvasGraph | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveConflictRemoteGraph, setSaveConflictRemoteGraph] =
+    useState<FactoryCanvasGraph | null>(null);
+  const [refreshingFactory, setRefreshingFactory] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [auditRefreshToken, setAuditRefreshToken] = useState(0);
+  const draftRevisionRef = useRef(0);
 
   function setActiveTab(tab: WorkspaceTab) {
     setSearchParams(
@@ -194,6 +201,10 @@ export default function FactoryRoute() {
         const next = new URLSearchParams(current);
         if (tab === "overview") next.delete("tab");
         else next.set("tab", tab);
+        if (tab === "history") {
+          next.delete("node");
+          next.delete("edge");
+        }
         return next;
       },
       { replace: true },
@@ -255,17 +266,17 @@ export default function FactoryRoute() {
   const graphData =
     rawGraphData?.factory.id === factoryId ? rawGraphData : undefined;
   const graph = draftGraph ?? graphData?.graph ?? null;
-  const graphVersion = graphData?.factory.graphVersion ?? graph?.version ?? 1;
+  const graphVersion = graph?.version ?? graphData?.factory.graphVersion ?? 1;
   const saveGraphMutation = useActionMutation("save-factory-graph");
   const factoryList = (factoryListQuery.data ?? []) as FactorySummary[];
 
   useEffect(() => {
-    if (!graphData || creating) return;
+    if (!graphData || creating || dirty) return;
     setDraftGraph(graphData.graph);
     setDirty(false);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
-  }, [creating, graphData]);
+  }, [creating, dirty, graphData]);
 
   useEffect(() => {
     setSelectedNodeId(searchParams.get("node"));
@@ -313,6 +324,9 @@ export default function FactoryRoute() {
   }
 
   function updateGraph(next: FactoryCanvasGraph) {
+    draftRevisionRef.current += 1;
+    setSaveError(null);
+    setSaveConflictRemoteGraph(null);
     setDraftGraph(next);
     setDirty(
       !graphData?.graph ||
@@ -396,20 +410,87 @@ export default function FactoryRoute() {
 
   async function saveGraph() {
     if (!graph || !selectedFactoryId) return;
-    await saveGraphMutation.mutateAsync({
-      factoryId: selectedFactoryId,
-      name: graph.name,
-      description: graph.description,
-      prompt: creating ? "" : (graphData?.factory.prompt ?? ""),
-      source: "manual",
-      changeSummary: creating
-        ? "Created from the Factory visual editor."
-        : "Updated in the Factory visual editor.",
-      graph,
-    });
-    setCreating(false);
+    const submittedDraftRevision = draftRevisionRef.current;
+    setSaveError(null);
+    try {
+      await saveGraphMutation.mutateAsync({
+        factoryId: selectedFactoryId,
+        name: graph.name,
+        description: graph.description,
+        prompt: creating ? "" : (graphData?.factory.prompt ?? ""),
+        source: "manual",
+        changeSummary: creating
+          ? "Created from the Factory visual editor."
+          : "Updated in the Factory visual editor.",
+        expectedGraphVersion: creating ? 0 : graph.version,
+        graph,
+      });
+      setCreating(false);
+      setDirty(draftRevisionRef.current !== submittedDraftRevision);
+      setSaveConflictRemoteGraph(null);
+      await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : t("factoryRoute.saveConflictFallback"),
+      );
+    }
+  }
+
+  async function refreshFactoryAfterSaveConflict() {
+    setRefreshingFactory(true);
+    try {
+      const results = await Promise.all([
+        graphQuery.refetch(),
+        factoryListQuery.refetch(),
+      ]);
+      if (results.some((result) => result.isError)) {
+        throw new Error("Factory refresh failed.");
+      }
+      const remoteGraph = (results[0].data as FactoryGraphResponse | undefined)
+        ?.graph;
+      if (dirty) {
+        if (!remoteGraph) throw new Error("Factory graph refresh failed.");
+        setSaveConflictRemoteGraph(remoteGraph);
+        setSaveError(t("factoryRoute.saveConflictFallback"));
+        return;
+      }
+      setSaveError(null);
+    } catch {
+      setSaveError(t("factoryRoute.saveConflictFallback"));
+    } finally {
+      setRefreshingFactory(false);
+    }
+  }
+
+  function discardLocalFactoryChanges() {
+    if (!saveConflictRemoteGraph) return;
+    setDraftGraph(saveConflictRemoteGraph);
+    setSaveConflictRemoteGraph(null);
+    setSaveError(null);
     setDirty(false);
-    await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
+    setCreating(false);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+  }
+
+  async function handleFactoryRestored(result?: { graph: FactoryCanvasGraph }) {
+    setCreating(false);
+    if (result?.graph) setDraftGraph(result.graph);
+    else setDraftGraph(null);
+    setDirty(false);
+    setSaveError(null);
+    setSaveConflictRemoteGraph(null);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+    const results = await Promise.all([
+      graphQuery.refetch(),
+      factoryListQuery.refetch(),
+    ]);
+    if (results.some((result) => result.isError)) {
+      throw new Error("Factory view refresh failed.");
+    }
   }
 
   if (!selectedFactoryId && activeTab === "agents") {
@@ -660,6 +741,12 @@ export default function FactoryRoute() {
               Activity
             </TabButton>
             <TabButton
+              active={activeTab === "history"}
+              onClick={() => setActiveTab("history")}
+            >
+              {t("factoryRoute.historyTab")}
+            </TabButton>
+            <TabButton
               active={activeTab === "settings"}
               onClick={() => setActiveTab("settings")}
             >
@@ -727,8 +814,13 @@ export default function FactoryRoute() {
               factoryId={factoryId}
               dirty={dirty}
               saving={saveGraphMutation.isPending}
+              saveError={saveError}
+              saveConflictNeedsResolution={Boolean(saveConflictRemoteGraph)}
+              refreshing={refreshingFactory}
               onGraphChange={updateGraph}
               onSave={() => void saveGraph()}
+              onRefresh={refreshFactoryAfterSaveConflict}
+              onDiscardLocalChanges={discardLocalFactoryChanges}
               onAddNode={addNode}
               onDeleteNode={deleteNode}
               onConnect={connectNodes}
@@ -746,6 +838,13 @@ export default function FactoryRoute() {
           <FactoryAuditView
             factoryId={factoryId}
             refreshToken={auditRefreshToken}
+          />
+        ) : activeTab === "history" ? (
+          <FactoryHistoryView
+            key={factoryId}
+            factoryId={factoryId}
+            hasUnsavedChanges={dirty}
+            onRestored={handleFactoryRestored}
           />
         ) : (
           <SettingsView t={t} />
@@ -783,6 +882,7 @@ function parseWorkspaceTab(value: string | null): WorkspaceTab {
     value === "automations" ||
     value === "agents" ||
     value === "audit" ||
+    value === "history" ||
     value === "settings"
     ? value
     : "overview";

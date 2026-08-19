@@ -197,6 +197,47 @@ const messages = {
     auditUxImpact: "UX प्रभाव",
     auditOwnerArea: "जिम्मेदारी का क्षेत्र",
     auditGuardsLabel: "गार्ड्स",
+    historyTab: "इतिहास",
+    historyTitle: "सहेजे गए संस्करण",
+    historyLoading: "सहेजे गए संस्करण लोड हो रहे हैं",
+    historyLoadError: "Factory इतिहास लोड नहीं हो सका।",
+    historyEmpty: "अभी कोई सहेजा गया संस्करण नहीं है",
+    historyEmptyHint:
+      "विज़ुअल ग्राफ़ को एक बार सहेजें और Factory हर संस्करण को समीक्षा और पुनर्स्थापना के लिए यहाँ रखेगा।",
+    historyVersion: "संस्करण {{version}}",
+    historyCurrent: "वर्तमान",
+    historySource: "स्रोत",
+    historySourceManual: "विज़ुअल एडिटर",
+    historySourceAi: "एजेंट का प्रस्ताव",
+    historySourceSeed: "Factory आरंभिक संस्करण",
+    historySourceRestore: "पुनर्स्थापना",
+    historySourceSaved: "सहेजा गया ग्राफ़",
+    historyNodes: "नोड्स",
+    historyConnections: "कनेक्शन",
+    historyChangeSummary: "बदलाव का सारांश",
+    historyNoSummary: "बदलाव का कोई सारांश दर्ज नहीं किया गया।",
+    historyCurrentHint:
+      "यह Factory द्वारा वर्तमान में उपयोग किया जाने वाला संस्करण है।",
+    historyRestore: "इस संस्करण को पुनर्स्थापित करें",
+    historyRestoreTitle: "संस्करण {{version}} पुनर्स्थापित करें?",
+    historyRestoreDescription:
+      "Factory इस स्नैपशॉट से एक नया वर्तमान संस्करण बनाएगा। मौजूदा संस्करण इतिहास में उपलब्ध रहेंगे।",
+    historyRestoreUnsaved:
+      "आपके पास सहेजे न गए विज़ुअल बदलाव भी हैं। पुनर्स्थापना उन्हें हटा देगी।",
+    historyCancel: "रद्द करें",
+    historyRestoreConfirm: "संस्करण पुनर्स्थापित करें",
+    historyRestored: "संस्करण पुनर्स्थापित हो गया। नया वर्तमान संस्करण बनाया गया।",
+    historyRestoreFailed: "यह Factory संस्करण पुनर्स्थापित नहीं हो सका।",
+    historyRestoreConflict:
+      "पुनर्स्थापना के दौरान Factory बदल गया। दोबारा प्रयास करने से पहले रीफ़्रेश किए गए इतिहास की समीक्षा करें।",
+    historyRefreshFailed:
+      "संस्करण पुनर्स्थापित हो गया, लेकिन Factory दृश्य रीफ़्रेश नहीं हो सका।",
+    historyLoadOlder: "पुराने संस्करण लोड करें",
+    historySnapshotLoadError: "इस संस्करण का पूर्वावलोकन लोड नहीं हो सका।",
+    historyRestoreUnverified:
+      "पुनर्स्थापना पूरी हो गई, लेकिन परिणाम सत्यापित नहीं किया जा सका। फिर से प्रयास करने से पहले इतिहास रीफ़्रेश करें।",
+    saveConflictFallback:
+      "सहेजते समय Factory बदल गया। Factory रीफ़्रेश करके फिर प्रयास करें।",
     automationsTitle: "ऑटोमेशन",
     automationsDescription: "Factory प्रॉम्प्ट शेड्यूल और रन करें।",
     automationsLoading: "ऑटोमेशन लोड हो रहे हैं...",
@@ -306,6 +347,9 @@ const messages = {
     addComment: "टिप्पणी जोड़ें",
     savingGraph: "ग्राफ़ सहेजा जा रहा है...",
     saveGraph: "फ़ैक्टरी बदलाव सहेजें",
+    saveConflictHint:
+      "आपके सहेजे न गए बदलाव सुरक्षित रखे गए हैं। नए Factory संस्करण को लोड करने के लिए उन्हें हटाएँ।",
+    discardLocalChanges: "स्थानीय बदलाव हटाएँ और वर्तमान संस्करण लोड करें",
     savedGraph: "फ़ैक्टरी सहेजी गई",
     saveNote: "नया संस्करण सहेजता है। मौजूदा रन अपना मूल संदर्भ बनाए रखते हैं।",
     factoryName: "फ़ैक्टरी का नाम",
