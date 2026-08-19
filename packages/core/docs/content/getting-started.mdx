@@ -5,9 +5,9 @@ description: "Create an Agent-Native app and call the same action from the agent
 
 # Getting Started
 
-Agent-Native is a framework for building apps that people and AI agents can both
-operate. It defines app operations as [actions](/docs/actions-overview): typed
-functions that the agent can call as tools and the UI can call from code.
+Agent-Native is a framework for building apps for both people and AI agents. It
+defines app functionality through [actions](/docs/actions-overview): typed
+functions that the UI calls from code and the agent uses as tools.
 
 In this guide, you'll create a Chat app and call its included `hello` action
 from the agent and the UI.
@@ -168,14 +168,14 @@ You created a Chat app, called its `hello` action from the agent, and rendered
 the same result in the UI. When you changed the action, both picked up the new
 behavior.
 
-That is the core Agent-Native pattern: define a product operation once, then
-let people use it through the UI and agents use it as a tool.
+That is the core Agent-Native pattern: define app functionality once, then make
+it available through the UI and as tools for agents.
 
 ## Next steps
 
 <Cards>
 
-### [Why Agent-Native?](/docs/why-agent-native)
+### [What is Agent-Native?](/docs/what-is-agent-native)
 
 Understand why the UI and agent share actions, data, and context.
 

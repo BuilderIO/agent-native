@@ -9,9 +9,9 @@ Common questions about agent-native, organized from "I'm just looking" to "I'm w
 
 ## The basics {#general}
 
-### What is agent-native? {#what-is-agent-native}
+### What is Agent-Native? {#what-is-agent-native}
 
-Agent-native is a framework for building apps where the AI agent and the product surface around it are equal partners. The usual path starts with chat, adds typed actions, renders structured results inline, and grows into durable pages around the same SQL state. The invariant is that agents and humans share the same actions, database, and state. See [What Is Agent-Native?](/docs/what-is-agent-native) for the full explanation.
+Agent-Native is a framework for building apps where the AI agent and the product surface around it are equal partners. The usual path starts with chat, adds typed actions, renders structured results inline, and grows into durable pages around the same SQL state. The invariant is that agents and humans share the same actions, database, and state. See [What is Agent-Native?](/docs/what-is-agent-native) for the full explanation.
 
 ### Who is this for? {#who-is-this-for}
 
@@ -26,7 +26,7 @@ Agent-native is for people who want a real app and an AI agent to work from the 
 
 ### How is this different from adding AI to an existing app? {#how-is-this-different}
 
-Most apps bolt AI on as an afterthought that can't actually _do_ things in the app. In an agent-native app the agent is a first-class citizen that shares the same actions, database, and state as the UI, so it can do anything the buttons can. See [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
+Most apps bolt AI on as an afterthought that can't actually _do_ things in the app. In an agent-native app the agent is a first-class citizen that shares the same actions, database, and state as the UI, so it can do anything the buttons can. See [Why build apps this way](/docs/what-is-agent-native#why-build-apps-this-way).
 
 <Diagram id="doc-block-1s6b04" title="Bolted-on AI vs. agent-native" summary="A bolted-on chat sidebar lives in its own world. An agent-native agent shares the same actions, database, and state as the UI.">
 
@@ -227,7 +227,7 @@ SSE gives same-process writes an immediate path to the browser, and a lightweigh
 
 AI is non-deterministic, so you need conversation flow to give feedback and iterate — not one-shot buttons — and the agent already has your codebase, instructions, skills, and history that an inline call lacks. Routing everything through the agent is also what lets the app be driven from Slack, Telegram, or another agent. See [Key Concepts — Agent chat bridge](/docs/key-concepts#agent-chat-bridge).
 
-### How do I upgrade an older Agent Native app? {#upgrade-older-app}
+### How do I upgrade an older agent-native app? {#upgrade-older-app}
 
 Run the supported upgrade path from the app or workspace root:
 
@@ -251,7 +251,7 @@ The shared database, live sync, actions system, and application state only work 
 ## What's next
 
 - [**Getting Started**](/docs/getting-started) — build your first action and render it inline in chat
-- [**What Is Agent-Native?**](/docs/what-is-agent-native) — the full explanation behind the answers above
+- [**What is Agent-Native?**](/docs/what-is-agent-native) — the full explanation behind the answers above
 - [**Templates**](/docs/cloneable-saas) — start from a complete SaaS product instead of starting from scratch
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, and portability
 - [**Deployment**](/docs/deployment) — host on your own domain or any Nitro-compatible provider
