@@ -481,9 +481,12 @@ describe("session replay", () => {
       );
       vi.stubGlobal("AbortController", undefined);
       let recordOptions: any;
+      let firstStopRecorder: ReturnType<typeof vi.fn> | undefined;
       recordMock.mockImplementation((options) => {
         recordOptions = options;
-        return vi.fn();
+        const stopRecorder = vi.fn();
+        firstStopRecorder ??= stopRecorder;
+        return stopRecorder;
       });
       const replay = await freshSessionReplay();
 
@@ -519,17 +522,18 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
-      const pendingRestart = await replay.startSessionReplay({
-        publicKey: "anpk_test",
-        endpoint: "https://analytics.example.test/restarted-replay",
-        maxEventsPerBatch: 1,
-        flushIntervalMs: 100_000,
+      let teardownStart: Promise<unknown> | undefined;
+      firstStopRecorder?.mockImplementation(() => {
+        // Recovery tears down the old recorder before it chooses the pending
+        // restart. This call happens in that teardown gap and must win over
+        // the stale implicit restart request.
+        teardownStart = replay.startSessionReplay({
+          publicKey: "anpk_test",
+          endpoint: "https://analytics.example.test/restarted-replay",
+          maxEventsPerBatch: 1,
+          flushIntervalMs: 100_000,
+        });
       });
-      expect(pendingRestart).toMatchObject({
-        started: false,
-        reason: "already-active",
-      });
-      await replay.stopSessionReplay("manual");
 
       // Once the original request settles, the old replay identity is retired.
       // The restarted recorder supplies a fresh Meta + FullSnapshot stream; it
@@ -537,6 +541,8 @@ describe("session replay", () => {
       resolveUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
       await blockedFlush;
+      expect(teardownStart).toBeDefined();
+      await teardownStart;
       expect(recordMock).toHaveBeenCalledTimes(2);
       recordOptions.emit({ type: 2, data: { href: "/reanchored" } });
       await vi.advanceTimersByTimeAsync(0);

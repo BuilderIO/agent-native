@@ -1898,12 +1898,6 @@ async function recoverAfterPendingReplayUpload(
   const wasActive = state.active;
   const suppressRestart =
     pending.reason === "pagehide" || pending.reason === "beforeunload";
-  const restartRequest = suppressRestart
-    ? null
-    : (state.pendingReplayStart ??
-      (wasActive && state.options
-        ? { options: state.options, sessionId: pending.payload.sessionId }
-        : null));
 
   // Never reuse the replay identity after a timeout. The server may have
   // accepted the old request even when this client observed an abort, so a
@@ -1916,6 +1910,17 @@ async function recoverAfterPendingReplayUpload(
   removeStoredReplaySession(pending.payload.replayId);
 
   if (wasActive) await stopSessionReplay("upload-timeout");
+
+  // Teardown yields while it flushes the final capture restoration. A caller
+  // can request a different replay configuration during that gap, so select
+  // the pending request only after teardown has finished instead of restarting
+  // with the stale request captured above.
+  const restartRequest = suppressRestart
+    ? null
+    : (state.pendingReplayStart ??
+      (wasActive && state.options
+        ? { options: state.options, sessionId: pending.payload.sessionId }
+        : null));
 
   // Capture restoration during stop can emit one last event. Keep it bounded
   // and discard it before the fresh recorder emits its own Meta + FullSnapshot.
