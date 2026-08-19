@@ -1,11 +1,10 @@
 import { DefaultSpinner } from "@agent-native/core/client/ui";
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 const SEO_TITLE = "Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
   "Open Source screen recorder and meeting-notes app with AI transcripts, summaries, search, dictation, and agent-readable share links.";
-const SSR_REDIRECT_CONTENT_TYPE = "text/html; charset=utf-8";
-
 export function meta() {
   return [
     { title: SEO_TITLE },
@@ -39,18 +38,15 @@ function buildTarget(url: URL): string {
 }
 
 export function loader({ url }: LoaderFunctionArgs) {
-  const response = redirect(buildTarget(url));
-  // The deploy adapter uses the HTML content type to apply Clips' public SSR
-  // cache policy. Without it, the root redirect reaches origin on every visit
-  // even though the /library shell is already cached at the edge.
-  response.headers.set("content-type", SSR_REDIRECT_CONTENT_TYPE);
-  throw response;
+  throw withSsrHtmlContentType(redirect(buildTarget(url)), {
+    varyByQuery: true,
+  });
 }
 
 export function clientLoader({ url }: LoaderFunctionArgs) {
-  const response = redirect(buildTarget(url));
-  response.headers.set("content-type", SSR_REDIRECT_CONTENT_TYPE);
-  throw response;
+  throw withSsrHtmlContentType(redirect(buildTarget(url)), {
+    varyByQuery: true,
+  });
 }
 
 export function HydrateFallback() {

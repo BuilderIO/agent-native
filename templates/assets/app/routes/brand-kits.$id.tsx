@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { ShareButton } from "@agent-native/core/client/sharing";
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   IconCheck,
@@ -311,7 +312,10 @@ function assetUpdatedTime(asset: any): number {
 
 export function loader({ params, request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
-  return redirect(`/library/${params.id}${url.search}`);
+  return withSsrHtmlContentType(
+    redirect(`/library/${params.id}${url.search}`),
+    { varyByQuery: true },
+  );
 }
 
 export default function BrandKitDetailRedirect() {
