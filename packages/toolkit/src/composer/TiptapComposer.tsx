@@ -2363,9 +2363,7 @@ export function TiptapComposer({
           }
         }
         onTextChangeRef.current?.(ed.state.doc.textContent.trim());
-      } catch {
-        // coercion-ok: draft persistence is optional; editor state remains authoritative.
-      }
+      } catch {}
     },
     onUpdate: ({ editor: ed }) => {
       // Drive the send button's enabled state from the actual editor contents;

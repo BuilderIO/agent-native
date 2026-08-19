@@ -1263,6 +1263,89 @@ describe("server/auth", () => {
       expect(navigatedWithHeader.res.status).toBe(400);
     });
 
+    it("binds desktop OAuth state to the initiating browser", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      vi.stubEnv("BETTER_AUTH_SECRET", "state-secret");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({
+          execute: vi.fn(async () => ({ rows: [] })),
+        }),
+        isPostgres: () => false,
+        isLocalDatabase: () => true,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth, matchesDesktopOAuthBrowserBinding } =
+        await import("./auth.js");
+      const { decodeOAuthState } = await import("./google-oauth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const authUrlHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/google/auth-url",
+      )?.[1];
+
+      const initiator = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        query: { desktop: "1", flow_id: "bound-flow" },
+        headers: {
+          "x-agent-native-desktop-verifier": "v".repeat(32),
+        },
+      });
+      initiator.req.method = "POST";
+      initiator.node.req.method = "POST";
+      const result = await authUrlHandler(initiator);
+      const state = decodeOAuthState(
+        new URL(result.url).searchParams.get("state") ?? undefined,
+        "http://localhost/_agent-native/google/callback",
+      );
+
+      expect(state.desktopBrowserBindingHash).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      const setCookie = initiator.res.headers.get("set-cookie") ?? "";
+      const bindingCookie = setCookie.match(
+        /(?:^|, )an_desktop_oauth_binding=([^;]+)/,
+      )?.[1];
+      expect(bindingCookie).toMatch(/^[A-Za-z0-9_-]{43}$/);
+
+      const attackerNavigation = createMockEvent({
+        path: "/_agent-native/google/callback",
+      });
+      expect(
+        matchesDesktopOAuthBrowserBinding(
+          attackerNavigation,
+          state.desktopBrowserBindingHash!,
+        ),
+      ).toBe(false);
+
+      const initiatingCallback = createMockEvent({
+        path: "/_agent-native/google/callback",
+        headers: { cookie: `an_desktop_oauth_binding=${bindingCookie}` },
+      });
+      expect(
+        matchesDesktopOAuthBrowserBinding(
+          initiatingCallback,
+          state.desktopBrowserBindingHash!,
+        ),
+      ).toBe(true);
+    });
+
     it("lets templates own Google OAuth routes when opted out", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");

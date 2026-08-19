@@ -1493,16 +1493,7 @@ export default function CodeAgentsApp({
   }, [loadRuns, onChatFirstMainKindChange, openRequest, selectRun]);
 
   useEffect(() => {
-    const request = newChatPromptRequest;
-    const prompt = request?.prompt.trim();
-    if (!request || !prompt) return;
-    if (handledNewChatPromptNonceRef.current === request.nonce) return;
-    handledNewChatPromptNonceRef.current = request.nonce;
-    const frame = window.requestAnimationFrame(() => {
-      newPromptRef.current?.insertText(prompt);
-      newPromptRef.current?.focus();
-    });
-    return () => window.cancelAnimationFrame(frame);
+    void newChatPromptRequest;
   }, [newChatPromptRequest]);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
