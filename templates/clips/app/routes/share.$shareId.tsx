@@ -315,6 +315,7 @@ export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
   return buildClipsShareMeta({
     recording: loaderData?.recording ?? null,
     origin: loaderData?.origin ?? null,
+    basePath: appBasePath(),
     shareUrl: loaderData?.shareUrl ?? null,
   });
 };

@@ -6,6 +6,7 @@ import {
   clipsSharePageTitle,
   displayRecordingTitle,
   preferredThumbnailVariant,
+  resolveClipsSocialImageUrl,
 } from "./share-meta";
 
 describe("Clips share metadata", () => {
@@ -66,6 +67,33 @@ describe("Clips share metadata", () => {
     });
   });
 
+  it("uses a video frame in crawler metadata when no thumbnail is stored", () => {
+    const meta = buildClipsShareMeta({
+      origin: "https://clips.example.com",
+      basePath: "/clips",
+      shareUrl: "https://clips.example.com/clips/share/rec-1",
+      recording: {
+        id: "rec-1",
+        title: "Launch notes",
+        description: "A short recording",
+        thumbnailUrl: null,
+        animatedThumbnailUrl: null,
+        visibility: "public",
+        status: "ready",
+      },
+    });
+
+    expect(meta).toContainEqual({
+      property: "og:image",
+      content:
+        "https://clips.example.com/clips/api/agent-frame.jpg?id=rec-1&atMs=350",
+    });
+    expect(meta).toContainEqual({
+      name: "twitter:card",
+      content: "summary_large_image",
+    });
+  });
+
   it("prefers the stable still thumbnail over an animated preview", () => {
     expect(
       preferredThumbnailVariant({
@@ -96,5 +124,53 @@ describe("Clips share metadata", () => {
         animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
       }),
     ).toBe("animated");
+  });
+
+  it("uses a public video frame when a recording has no stored thumbnail", () => {
+    const imageUrl = resolveClipsSocialImageUrl({
+      recording: {
+        id: "rec-1",
+        title: "Launch notes",
+        visibility: "public",
+        status: "ready",
+        thumbnailUrl: null,
+        animatedThumbnailUrl: null,
+      },
+      origin: "https://clips.example.com",
+    });
+
+    expect(imageUrl).toBe(
+      "https://clips.example.com/api/agent-frame.jpg?id=rec-1&atMs=350",
+    );
+  });
+
+  it("proxies public stored thumbnails through the same-origin image route", () => {
+    expect(
+      resolveClipsSocialImageUrl({
+        recording: {
+          id: "rec-1",
+          title: "Launch notes",
+          visibility: "public",
+          status: "ready",
+          thumbnailUrl: "https://cdn.example.com/preview.jpg",
+        },
+        origin: "https://clips.example.com",
+      }),
+    ).toBe("https://clips.example.com/api/thumbnail/rec-1");
+  });
+
+  it("does not expose generated frames for non-public recordings", () => {
+    expect(
+      resolveClipsSocialImageUrl({
+        recording: {
+          id: "rec-1",
+          visibility: "private",
+          status: "ready",
+          thumbnailUrl: null,
+          animatedThumbnailUrl: null,
+        },
+        origin: "https://clips.example.com",
+      }),
+    ).toBeUndefined();
   });
 });
