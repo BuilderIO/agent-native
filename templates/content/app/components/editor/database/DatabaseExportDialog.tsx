@@ -6,7 +6,7 @@ import type {
   ContentDatabaseSort,
 } from "@shared/api";
 import { IconDownload, IconLoader2 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -53,6 +53,13 @@ export function defaultDatabaseCsvPropertyIds(
   return properties
     .filter((property) => property.visible && property.type !== "blocks")
     .map((property) => property.id);
+}
+
+export function shouldInitializeDatabaseExportDialog(
+  wasOpen: boolean,
+  open: boolean,
+) {
+  return open && !wasOpen;
 }
 
 export function databaseCsvRequest(args: {
@@ -107,15 +114,18 @@ export function DatabaseExportDialog({
   const exportDocument = useActionMutation("export-document");
   const [scope, setScope] = useState<DatabaseExportScopeKind>(defaultScope);
   const [propertyIds, setPropertyIds] = useState<string[]>([]);
+  const wasOpenRef = useRef(false);
   const defaultPropertyIds = useMemo(
     () => defaultDatabaseCsvPropertyIds(context?.properties ?? []),
     [context],
   );
 
   useEffect(() => {
-    if (!open) return;
-    setScope(defaultScope);
-    setPropertyIds(defaultPropertyIds);
+    if (shouldInitializeDatabaseExportDialog(wasOpenRef.current, open)) {
+      setScope(defaultScope);
+      setPropertyIds(defaultPropertyIds);
+    }
+    wasOpenRef.current = open;
   }, [defaultPropertyIds, defaultScope, open]);
 
   const toggleProperty = (id: string, checked: boolean) => {

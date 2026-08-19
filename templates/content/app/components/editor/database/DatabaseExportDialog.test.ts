@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   databaseCsvRequest,
   defaultDatabaseCsvPropertyIds,
+  shouldInitializeDatabaseExportDialog,
   type DatabaseExportContext,
 } from "./DatabaseExportDialog";
 
@@ -39,6 +40,13 @@ describe("DatabaseExportDialog", () => {
     expect(defaultDatabaseCsvPropertyIds(context.properties)).toEqual([
       "visible-text",
     ]);
+  });
+
+  it("initializes selections only when the dialog opens", () => {
+    expect(shouldInitializeDatabaseExportDialog(false, true)).toBe(true);
+    expect(shouldInitializeDatabaseExportDialog(true, true)).toBe(false);
+    expect(shouldInitializeDatabaseExportDialog(true, false)).toBe(false);
+    expect(shouldInitializeDatabaseExportDialog(false, false)).toBe(false);
   });
 
   it("sends the exact all-members CSV payload", () => {
