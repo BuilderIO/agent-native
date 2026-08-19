@@ -5,10 +5,10 @@ description: "What Agent-Native is, how its shared action architecture works, an
 
 # What is Agent-Native?
 
-Agent-Native is an open-source TypeScript framework for building agentic apps.
-Define your app's functionality once, then make it available to people through
-a React UI and to AI agents as tools. The UI and agent work with shared data and
-application state, so work can move between them.
+Agent-Native is an open-source TypeScript framework for building apps that
+serve both people and AI agents. You define your app's functionality once as
+[actions](/docs/actions-overview)—typed functions that your React UI calls
+from code and agents use as tools.
 
 ## Why build apps this way
 
@@ -17,7 +17,7 @@ an agent introduces another way to use the product. For both to work as one
 product, three things need to be true:
 
 - **The agent needs access to the product.** If it receives a smaller, separate
-  set of tools, it remains constrained. The UI and agent also become two
+  set of tools, it remains constrained. You also end up maintaining two
   implementations that drift as the application changes.
 - **People still need an application UI.** Chat works well for delegating work,
   but not always for browsing information, comparing options, reviewing
@@ -54,7 +54,7 @@ Three shared foundations make this possible:
 - **[Shared data](/docs/database)** holds the work and information the
   application needs to preserve. Depending on the application, that might be
   customer records, project plans, conversations, or reports. The UI and agent
-  read and update the same data.
+  both read and update this shared data.
 - **[Shared application state](/docs/context-awareness)** describes what is
   happening right now, such as the current page, selected record, or active
   view. The framework gives relevant state to the agent as context, so it knows
@@ -96,16 +96,16 @@ the same work.
 
 ### [Getting Started](/docs/getting-started)
 
-Create an app and call the same action from the agent and the interface.
+Create an app and call the same action from the agent and UI.
 
 ### [Key Concepts](/docs/key-concepts)
 
 Learn how actions, SQL data, application context, access, and live sync fit
 together.
 
-### [App Patterns](/docs/agent-surfaces)
+### [Agent Surfaces](/docs/agent-surfaces)
 
-See how the same model supports apps led by an interface, conversation,
-automation, or another agent.
+See how the same model supports apps led by a UI, chat, automation, or another
+agent.
 
 </Cards>

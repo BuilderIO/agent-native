@@ -5,9 +5,10 @@ description: "Create an Agent-Native app and call the same action from the agent
 
 # Getting Started
 
-Agent-Native is a framework for building apps for both people and AI agents. It
-defines app functionality through [actions](/docs/actions-overview): typed
-functions that the UI calls from code and the agent uses as tools.
+Agent-Native is an open-source TypeScript framework for building apps that
+serve both people and AI agents. You define your app's functionality once as
+[actions](/docs/actions-overview)—typed functions that your React UI calls
+from code and agents use as tools.
 
 In this guide, you'll create a Chat app and call its included `hello` action
 from the agent and the UI.
@@ -147,20 +148,20 @@ return { message: `Welcome, ${name}.` };
 Refresh `/hello`, then ask the agent to call `hello` again. Both return the
 updated greeting because they call the same action.
 
-## Call actions from other interfaces
+## Call actions in other ways
 
-The agent and UI are the two interfaces you used in this guide. The same action
-definition can support other ways of calling your app:
+You called the same action from the agent and UI. The same action can also be
+called from:
 
-| Interface                               | Use it to                                                     |
+| Call from                               | Use it to                                                     |
 | --------------------------------------- | ------------------------------------------------------------- |
 | [HTTP API](/docs/http-api)              | Call an action from a script, backend, or integration.        |
 | [CLI](/docs/actions-other-surfaces#cli) | Run or test an action from a terminal.                        |
 | [MCP](/docs/actions-other-surfaces#mcp) | Let an external AI client discover and call actions as tools. |
 | [A2A](/docs/actions-other-surfaces#a2a) | Let another Agent-Native app ask this app to do work.         |
 
-Each interface uses the same action definition. You do not need to rebuild the
-operation for every place it can be called.
+Every caller uses the same action definition. You do not need a separate
+implementation for each one.
 
 ## What you built
 
@@ -186,6 +187,7 @@ together.
 
 ### [Actions](/docs/actions-overview)
 
-Define actions for reads, writes, approvals, and other interfaces.
+Define actions for reads, writes, and approvals, then call them from the UI,
+agents, and external clients.
 
 </Cards>
