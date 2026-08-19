@@ -13,6 +13,7 @@ import {
   IconFileText,
 } from "@tabler/icons-react";
 import { InputRule, type Editor } from "@tiptap/core";
+import { Code } from "@tiptap/extension-code";
 import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import { Selection } from "@tiptap/pm/state";
 import {
@@ -794,6 +795,10 @@ export const NotionSpanMark = Mark.create({
       },
     };
   },
+});
+
+export const CompatibleCode = Code.extend({
+  excludes: "",
 });
 
 export const NotionToggle = Node.create({

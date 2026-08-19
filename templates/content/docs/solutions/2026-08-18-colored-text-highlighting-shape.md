@@ -488,7 +488,7 @@ risk strategy invalidates implementation authority and returns to Shape.
 - Exact implementation revision: working tree based on
   `3132ab1bd8206dabd0b5cff92a0f5c5bb56bd4e8`, ledger
   `content-inline-color-work-v1-approved-dual-color`.
-- Automated proof: 173 focused editor/NFM tests passed; Content typecheck exited
+- Automated proof: 175 focused editor/NFM tests passed; Content typecheck exited
   0; all 55 repository guards passed; all 30 Content product-impact tests passed.
 - Successful-user-story proof: real Chromium created a disposable Content Page,
   selected text, used the rendered floating toolbar, and restored bold, red text,
@@ -513,8 +513,12 @@ both colors.`
   mixed paragraph/code-block regression test. The next review found that the
   mutation callback still relied on the schema to reject unmarkable text; it now
   applies the same explicit eligibility predicate, with a mixed-selection write
-  regression test. A new exact-head repository review and CI run are required
-  after push.
+  regression test. After rebase, review confirmed those repairs and found that
+  StarterKit's exclusive inline-code mark prevented the frozen code/color
+  composition behavior. Content now replaces that mark with an extension of the
+  same TipTap primitive whose exclusion set permits `notionSpan`, with a focused
+  coexistence regression test and an NFM serialization regression. A new
+  exact-head repository review and CI run are required after push.
 - Changelog: the template's `agent-native changelog add` command reported that
   changelog capture is disabled, so no manual entry was created.
 

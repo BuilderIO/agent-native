@@ -14,6 +14,7 @@ import {
   shouldShowBubbleToolbar,
 } from "./BubbleToolbar";
 import {
+  CompatibleCode,
   NotionInlineAtom,
   NotionSpanMark,
 } from "./extensions/NotionExtensions";
@@ -587,6 +588,27 @@ describe("BubbleToolbar", () => {
       }
     });
     expect(codeMarkCount).toBe(0);
+  });
+
+  it("composes color with inline code", () => {
+    editorElement = document.createElement("div");
+    document.body.append(editorElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [
+        StarterKit.configure({ code: false }),
+        CompatibleCode,
+        NotionSpanMark,
+      ],
+      content: "<p><code>inline</code></p>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 7 });
+
+    expect(selectionHasColorableText(editor.state, 1, 7)).toBe(true);
+    expect(setSelectionNotionSpanAttribute(editor, "color", "red")).toBe(true);
+    expect(
+      editor.state.doc.nodeAt(1)?.marks.map((mark) => mark.type.name),
+    ).toEqual(["notionSpan", "code"]);
   });
 
   it("hides the color control when a selection contains no text", () => {

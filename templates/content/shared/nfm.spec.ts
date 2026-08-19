@@ -756,6 +756,32 @@ describe("bug fixes — reliability sweep", () => {
   });
 
   describe("dual inline colors", () => {
+    it("serializes inline code without losing its color", () => {
+      const doc = {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "text",
+                text: "inline",
+                marks: [
+                  { type: "code" },
+                  {
+                    type: "notionSpan",
+                    attrs: { color: "red", bgColor: null },
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      } as any;
+
+      expect(docToNfm(doc)).toBe('<span color="red">`inline`</span>');
+    });
+
     it("keeps established single-color spellings stable", () => {
       expect(canonicalizeNfm('<span color="red">text</span>')).toBe(
         '<span color="red">text</span>',
