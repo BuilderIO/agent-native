@@ -22,6 +22,16 @@ function firstNonEmpty(
   return undefined;
 }
 
+function normalizeFallbackEnvironment(
+  value: string | undefined,
+): ReturnType<typeof resolveDeployEnvironment> | undefined {
+  const normalized = firstNonEmpty(value)?.toLowerCase();
+  if (normalized === "development" || normalized === "test") return "local";
+  return isAgentNativeDeploymentEnvironment(normalized)
+    ? normalized
+    : undefined;
+}
+
 /** The deploy environment name, e.g. `production`, `beta`, or `preview`. */
 export function resolveDeployEnvironment(): string {
   const explicit = firstNonEmpty(
@@ -39,6 +49,7 @@ export function resolveDeployEnvironment(): string {
   const context = firstNonEmpty(
     process.env.CONTEXT,
     process.env.NETLIFY_CONTEXT,
+    process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT,
   )?.toLowerCase();
   const branch = process.env.BRANCH?.trim().toLowerCase();
   const vercelEnv = process.env.VERCEL_ENV?.trim().toLowerCase();
@@ -61,13 +72,16 @@ export function resolveDeployEnvironment(): string {
 
   if (!context && !branch && !vercelEnv) {
     return (
-      firstNonEmpty(process.env.SENTRY_ENVIRONMENT, process.env.NODE_ENV) ??
-      "production"
+      normalizeFallbackEnvironment(
+        firstNonEmpty(process.env.SENTRY_ENVIRONMENT, process.env.NODE_ENV),
+      ) ?? "production"
     );
   }
 
   return (
-    firstNonEmpty(context, vercelEnv, process.env.NODE_ENV) ?? "production"
+    normalizeFallbackEnvironment(firstNonEmpty(context, vercelEnv)) ??
+    normalizeFallbackEnvironment(process.env.NODE_ENV) ??
+    "production"
   );
 }
 

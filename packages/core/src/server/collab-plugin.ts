@@ -28,7 +28,7 @@ import {
   postCollabText,
   postCollabSearchReplace,
 } from "../collab/routes.js";
-import { hasCollabState } from "../collab/storage.js";
+import { listCollabDocIds } from "../collab/storage.js";
 import {
   postCollabJson,
   getCollabJson,
@@ -107,6 +107,8 @@ export interface CollabPluginOptions {
   idColumn?: string;
   /** Whether to auto-seed existing documents on startup. Default: true */
   autoSeed?: boolean;
+  /** Map a source-table id to the id used by the collab document store. */
+  resolveCollabDocumentId?: (sourceId: string) => string;
   /**
    * Callback invoked after a collab update to sync the content column.
    * If not provided, the plugin auto-syncs using table/contentColumn/idColumn.
@@ -222,6 +224,8 @@ export function createCollabPlugin(
     autoSeed = true,
     maxPayloadBytes = DEFAULT_MAX_PAYLOAD_BYTES,
   } = options;
+  const resolveCollabDocumentId =
+    options.resolveCollabDocumentId ?? ((sourceId: string) => sourceId);
   const resourceType =
     normalizedAccess.mode === "resource"
       ? normalizedAccess.resourceType
@@ -489,18 +493,21 @@ export function createCollabPlugin(
       // Run in background so it doesn't block startup
       setTimeout(async () => {
         try {
-          // Keep the existence check in terms of the plugin's document ID.
-          // Integrations may map source IDs before storing collab state, so a
-          // source-table SQL predicate can suppress the wrong rows.
-          await hasCollabState("__agent_native_auto_seed_probe__");
+          // Read existing ids once, then apply the plugin's document-id
+          // mapping before filtering. A source-table SQL predicate can use
+          // the wrong id for integrations such as Analytics' dash-* docs.
+          const existingDocIds = await listCollabDocIds();
           const client = getDbExec();
           const { rows } = await client.execute(
             `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
           );
-          for (const row of rows) {
-            const docId = row[idColumn] as string;
-            const exists = await hasCollabState(docId);
-            if (exists) continue;
+          for (const { row, docId } of selectUnseededCollabRows(
+            rows,
+            idColumn,
+            existingDocIds,
+            resolveCollabDocumentId,
+          )) {
+            let seeded = false;
 
             if (isJson) {
               const raw = (row[seedColumn] as string) ?? "{}";
@@ -510,13 +517,16 @@ export function createCollabPlugin(
                   ? "array"
                   : "map";
                 await seedFromJson(docId, parsed, "data", inferredType);
+                seeded = true;
               } catch {
                 // Invalid JSON — skip
               }
             } else {
               const content = (row[seedColumn] as string) ?? "";
               await seedFromText(docId, content);
+              seeded = true;
             }
+            if (seeded) existingDocIds.add(docId);
           }
         } catch {
           // Table may not exist yet on first boot — that's fine
@@ -524,4 +534,24 @@ export function createCollabPlugin(
       }, 1000);
     }
   };
+}
+
+export function selectUnseededCollabRows(
+  rows: ReadonlyArray<Record<string, unknown>>,
+  idColumn: string,
+  existingDocIds: ReadonlySet<string>,
+  resolveCollabDocumentId: (sourceId: string) => string = (sourceId) =>
+    sourceId,
+): Array<{ row: Record<string, unknown>; docId: string }> {
+  const seenDocIds = new Set(existingDocIds);
+  const unseeded: Array<{ row: Record<string, unknown>; docId: string }> = [];
+  for (const row of rows) {
+    const sourceId = String(row[idColumn] ?? "");
+    if (!sourceId) continue;
+    const docId = resolveCollabDocumentId(sourceId);
+    if (seenDocIds.has(docId)) continue;
+    seenDocIds.add(docId);
+    unseeded.push({ row, docId });
+  }
+  return unseeded;
 }

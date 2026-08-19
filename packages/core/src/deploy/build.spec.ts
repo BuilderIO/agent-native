@@ -112,6 +112,14 @@ describe("resolveNitroBuildReplacements", () => {
       JSON.stringify("1"),
     );
   });
+
+  it("embeds the configured deployment lane into the Nitro server bundle", () => {
+    const replacements = resolveNitroBuildReplacements({}, " beta ");
+
+    expect(
+      replacements["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
+    ).toBe(JSON.stringify("beta"));
+  });
 });
 
 describe("isCloudflareModulePreset", () => {

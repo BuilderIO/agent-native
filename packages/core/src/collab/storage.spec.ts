@@ -1,6 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { loadYDocRecord, saveYDocState, trySaveYDocState } from "./storage.js";
+import {
+  listCollabDocIds,
+  loadYDocRecord,
+  saveYDocState,
+  trySaveYDocState,
+} from "./storage.js";
 
 const rows = vi.hoisted(
   () =>
@@ -27,6 +32,13 @@ vi.mock("../db/client.js", () => ({
       if (/^\s*SELECT yjs_state, version FROM _collab_docs/i.test(sql)) {
         const row = rows.get(String(args[0]));
         return { rows: row ? [row] : [], rowsAffected: 0 };
+      }
+
+      if (/^\s*SELECT doc_id FROM _collab_docs/i.test(sql)) {
+        return {
+          rows: [...rows.keys()].map((doc_id) => ({ doc_id })),
+          rowsAffected: 0,
+        };
       }
 
       if (/^\s*UPDATE _collab_docs\b/i.test(sql)) {
@@ -93,5 +105,12 @@ describe("collab storage optimistic saves", () => {
     expect(latest?.version).toBe(1);
     expect(latest?.state).toEqual(new Uint8Array([2]));
     expect(rows.get("doc-1")?.yjs_state).toBe(toBase64(new Uint8Array([2])));
+  });
+
+  it("lists existing document ids in one read", async () => {
+    await saveYDocState("doc-1", new Uint8Array([1]), "one");
+    await saveYDocState("doc-2", new Uint8Array([2]), "two");
+
+    expect(await listCollabDocIds()).toEqual(new Set(["doc-1", "doc-2"]));
   });
 });

@@ -35,4 +35,16 @@ describe("resolveDeployEnvironment", () => {
       expect(resolveDeployEnvironment()).toBe("preview");
     },
   );
+
+  it("does not treat an arbitrary Sentry environment as a deployment lane", () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
+    vi.stubEnv("SENTRY_ENVIRONMENT", "staging");
+    vi.stubEnv("CONTEXT", "");
+    vi.stubEnv("NETLIFY_CONTEXT", "");
+    vi.stubEnv("BRANCH", "");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "production");
+
+    expect(resolveDeployEnvironment()).toBe("production");
+  });
 });

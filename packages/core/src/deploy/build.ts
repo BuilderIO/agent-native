@@ -1165,6 +1165,17 @@ function normalizeExplicitDeploymentEnvironment(value) {
   return normalized;
 }
 
+function normalizeFallbackDeploymentEnvironment(value) {
+  const normalized = firstNonEmpty(value)?.toLowerCase();
+  if (normalized === "development" || normalized === "test") return "local";
+  return normalized === "local" ||
+    normalized === "beta" ||
+    normalized === "production" ||
+    normalized === "preview"
+    ? normalized
+    : undefined;
+}
+
 function resolveDeploymentEnvironment() {
   const env = globalThis.process?.env || {};
   const explicit = normalizeExplicitDeploymentEnvironment(
@@ -1175,6 +1186,9 @@ function resolveDeploymentEnvironment() {
   const context = firstNonEmpty(
     typeof env.CONTEXT === "string" ? env.CONTEXT : undefined,
     typeof env.NETLIFY_CONTEXT === "string" ? env.NETLIFY_CONTEXT : undefined,
+    typeof env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT === "string"
+      ? env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT
+      : undefined,
   )?.toLowerCase();
   const branch =
     typeof env.BRANCH === "string" ? env.BRANCH.trim().toLowerCase() : "";
@@ -1197,9 +1211,13 @@ function resolveDeploymentEnvironment() {
     return "preview";
   }
   if (!context && !branch && !vercelEnv && sentryEnvironment) {
-    return sentryEnvironment;
+    return normalizeFallbackDeploymentEnvironment(sentryEnvironment) || "production";
   }
-  return firstNonEmpty(context, vercelEnv, env.NODE_ENV) || "production";
+  return (
+    normalizeFallbackDeploymentEnvironment(firstNonEmpty(context, vercelEnv)) ||
+    normalizeFallbackDeploymentEnvironment(env.NODE_ENV) ||
+    "production"
+  );
 }
 
 function getSentryClientConfigScript() {
@@ -4738,7 +4756,11 @@ function createBrowserOnlyServerStubPlugin() {
 
 export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
+  deploymentEnvironment?: string,
 ): Record<string, string> {
+  const configuredDeploymentEnvironment =
+    deploymentEnvironment?.trim() ||
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
   return {
     // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
     // function so preview OAuth relays can target this immutable deployment
@@ -4760,8 +4782,15 @@ export function resolveNitroBuildReplacements(
       env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
     ),
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
-      env.CONTEXT?.trim() || "",
+      env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
     ),
+    ...(configuredDeploymentEnvironment
+      ? {
+          "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(
+            configuredDeploymentEnvironment,
+          ),
+        }
+      : {}),
   };
 }
 
@@ -4865,7 +4894,10 @@ export default bundle;
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
-    replace: resolveNitroBuildReplacements(),
+    replace: resolveNitroBuildReplacements(
+      process.env,
+      nitroAgentConfig.deployment?.environment,
+    ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
     // Excalidraw into a shared vendor chunk imported statically by the SSR render

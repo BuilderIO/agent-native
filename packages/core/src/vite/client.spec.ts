@@ -876,6 +876,16 @@ describe("route warmup config", () => {
     }
   });
 
+  it("embeds the configured deployment lane into the server bundle", () => {
+    const config = defineConfig({
+      agentNativeConfig: { deployment: { environment: "beta" } },
+    });
+
+    expect(
+      config.define?.["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
+    ).toBe(JSON.stringify("beta"));
+  });
+
   it("exposes the build-time GTM container id for SSR bundles", () => {
     const previous = process.env.GTM_CONTAINER_ID;
     process.env.GTM_CONTAINER_ID = "  gtm-UNITTEST123  ";
