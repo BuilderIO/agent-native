@@ -484,7 +484,7 @@ export default function ClipsTemplate() {
             <p className="m-0 px-6 pb-6 pt-6 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#9a9997] sm:px-8 lg:px-10 lg:pb-10">
               {t("templateLanding.clips.s017")}
             </p>
-            <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[#e0e0d7] sm:px-8 lg:px-10">
+            <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[#e0e0d7] sm:px-8 lg:mt-auto lg:px-10">
               <li className="flex items-center gap-4 py-3">
                 <svg
                   className="shrink-0"
@@ -548,7 +548,7 @@ export default function ClipsTemplate() {
             <p className="m-0 px-6 pb-6 pt-6 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[var(--fg-secondary)] sm:px-8 lg:px-10 lg:pb-10">
               {t("templateLanding.clips.s022")}
             </p>
-            <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[var(--fg)] sm:px-8 lg:px-10">
+            <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[var(--fg)] sm:px-8 lg:mt-auto lg:px-10">
               <li className="flex items-center gap-4 py-3">
                 <svg
                   className="shrink-0"
