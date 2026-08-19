@@ -79,6 +79,8 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+const SCHEDULED_CHAT_PROMPT_EVENT = "agent-native:scheduled-chat-prompt";
+
 import {
   CODE_AGENT_GOALS,
   DEFAULT_CODE_AGENT_PERMISSION_MODE,
@@ -363,8 +365,6 @@ export interface CodeAgentsAppProps {
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
-  /** Request a new chat with a host-provided prompt already in the composer. */
-  newChatPromptRequest?: { prompt: string; nonce: number };
   /** Desktop-native shortcuts for app and chat navigation. */
   keyboardNavigation?: ChatFirstKeyboardNavigation;
   /** Route first-party MCP open_app results through the shared app pane. */
@@ -717,7 +717,6 @@ export default function CodeAgentsApp({
   refreshKey = 0,
   brandIconUrl,
   onOpenSettings,
-  newChatPromptRequest,
   mainToolbarSlot,
   railWorkspaceSlot,
   railFooterSlot,
@@ -1493,8 +1492,39 @@ export default function CodeAgentsApp({
   }, [loadRuns, onChatFirstMainKindChange, openRequest, selectRun]);
 
   useEffect(() => {
-    void newChatPromptRequest;
-  }, [newChatPromptRequest]);
+    const handleScheduledPrompt = (event: Event) => {
+      const prompt = (event as CustomEvent<{ prompt?: unknown }>).detail
+        ?.prompt;
+      if (typeof prompt !== "string" || !prompt.trim()) return;
+
+      let attempts = 0;
+      let frame = 0;
+      const insertPrompt = () => {
+        const editor = document.querySelector<HTMLElement>(
+          '[contenteditable="true"]',
+        );
+        if (!editor || !editor.isConnected) {
+          attempts += 1;
+          if (attempts < 30) frame = window.requestAnimationFrame(insertPrompt);
+          return;
+        }
+
+        editor.focus();
+        document.execCommand("insertText", false, prompt.trim());
+      };
+
+      frame = window.requestAnimationFrame(insertPrompt);
+      const cleanup = () => window.cancelAnimationFrame(frame);
+      window.addEventListener("beforeunload", cleanup, { once: true });
+    };
+
+    window.addEventListener(SCHEDULED_CHAT_PROMPT_EVENT, handleScheduledPrompt);
+    return () =>
+      window.removeEventListener(
+        SCHEDULED_CHAT_PROMPT_EVENT,
+        handleScheduledPrompt,
+      );
+  }, []);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;

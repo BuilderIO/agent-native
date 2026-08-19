@@ -18,8 +18,10 @@ const mocks = vi.hoisted(() => ({
   oauthCallbackResponse: vi.fn(),
   oauthDesktopExchangePage: vi.fn(),
   oauthErrorPage: vi.fn(),
+  prepareDesktopOAuthBrowserBinding: vi.fn(),
   putUserSetting: vi.fn(),
   readBody: vi.fn(),
+  matchesDesktopOAuthBrowserBinding: vi.fn(),
   resolveOAuthOwner: vi.fn(),
   resolveOAuthRedirectUri: vi.fn(),
   registerDesktopExchange: vi.fn(),
@@ -49,7 +51,9 @@ vi.mock("@agent-native/core/server", () => ({
   oauthCallbackResponse: mocks.oauthCallbackResponse,
   oauthDesktopExchangePage: mocks.oauthDesktopExchangePage,
   oauthErrorPage: mocks.oauthErrorPage,
+  prepareDesktopOAuthBrowserBinding: mocks.prepareDesktopOAuthBrowserBinding,
   readBody: mocks.readBody,
+  matchesDesktopOAuthBrowserBinding: mocks.matchesDesktopOAuthBrowserBinding,
   resolveOAuthOwner: mocks.resolveOAuthOwner,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,
   registerDesktopExchange: mocks.registerDesktopExchange,
@@ -120,6 +124,8 @@ describe("Mail Google auth-url handlers", () => {
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
     mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
+    mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("b".repeat(43));
+    mocks.matchesDesktopOAuthBrowserBinding.mockReturnValue(true);
     mocks.safeReturnPath.mockImplementation((value: string) => value);
   });
 

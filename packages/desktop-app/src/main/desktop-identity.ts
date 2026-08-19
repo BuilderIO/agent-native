@@ -990,7 +990,7 @@ export class DesktopIdentityBroker {
         height: 720,
         title: "Sign in to Agent Native",
         show: true,
-        backgroundColor: "#111111",
+        backgroundColor: "#111111", // guard:allow-raw-color - native auth window stays neutral before app theme loads.
         parent: this.options.parentWindow?.() ?? undefined,
         webPreferences: {
           nodeIntegration: false,

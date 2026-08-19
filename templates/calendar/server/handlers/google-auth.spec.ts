@@ -14,7 +14,9 @@ const mocks = vi.hoisted(() => ({
   oauthCallbackResponse: vi.fn(),
   oauthDesktopExchangePage: vi.fn(),
   oauthErrorPage: vi.fn(),
+  prepareDesktopOAuthBrowserBinding: vi.fn(),
   readBody: vi.fn(),
+  matchesDesktopOAuthBrowserBinding: vi.fn(),
   resolveOAuthOwner: vi.fn(),
   resolveOAuthRedirectUri: vi.fn(),
   registerDesktopExchange: vi.fn(),
@@ -48,7 +50,9 @@ vi.mock("@agent-native/core/server", () => ({
   oauthCallbackResponse: mocks.oauthCallbackResponse,
   oauthDesktopExchangePage: mocks.oauthDesktopExchangePage,
   oauthErrorPage: mocks.oauthErrorPage,
+  prepareDesktopOAuthBrowserBinding: mocks.prepareDesktopOAuthBrowserBinding,
   readBody: mocks.readBody,
+  matchesDesktopOAuthBrowserBinding: mocks.matchesDesktopOAuthBrowserBinding,
   resolveGoogleSignInCredentials: () => {
     const clientId = process.env.GOOGLE_SIGN_IN_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_SIGN_IN_CLIENT_SECRET;
@@ -141,6 +145,8 @@ describe("Calendar Google auth-url handler", () => {
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
     mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
+    mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("b".repeat(43));
+    mocks.matchesDesktopOAuthBrowserBinding.mockReturnValue(true);
     mocks.createOAuthSession.mockResolvedValue({
       sessionToken: "owner-session-token",
     });
@@ -210,6 +216,7 @@ describe("Calendar Google auth-url handler", () => {
     expect(mocks.registerDesktopExchange).toHaveBeenCalledWith(
       "flow-post",
       verifier,
+      "b".repeat(43),
     );
   });
 
@@ -254,6 +261,7 @@ describe("Calendar Google auth-url handler", () => {
       addAccount: true,
       flowId: "flow-123",
       desktopVerifierHash: "desktop-verifier-hash",
+      desktopBrowserBindingHash: "browser-binding-hash",
     });
     mocks.resolveOAuthOwner.mockResolvedValue({
       owner: "owner@example.com",
@@ -312,6 +320,7 @@ describe("Calendar Google auth-url handler", () => {
       desktop: true,
       flowId: "flow-456",
       desktopVerifierHash: "desktop-verifier-hash",
+      desktopBrowserBindingHash: "browser-binding-hash",
     });
     mocks.exchangeCode.mockResolvedValue("secondary@example.com");
     mocks.oauthCallbackResponse.mockReturnValue("ok");
