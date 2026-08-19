@@ -98,9 +98,16 @@ describe("DocsSidebar", () => {
     expect(overview?.items.some((item) => item.id === "deployment")).toBe(
       false,
     );
-    expect(buildApps?.items.some((item) => item.id === "deployment")).toBe(
-      true,
+    expect(
+      overview?.items.some((item) => item.id === "deployment-section"),
+    ).toBe(false);
+    const deploymentSection = buildApps?.items.find(
+      (item) => item.id === "deployment-section",
     );
+    expect(deploymentSection).toBeDefined();
+    expect(
+      deploymentSection?.children?.some((item) => item.id === "deployment"),
+    ).toBe(true);
   });
 
   it("uses the Agent Resources section and canonical overview link", () => {

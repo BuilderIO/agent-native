@@ -2,7 +2,6 @@
 # Keep this file sorted. Remove entries as localized coverage improves.
 # Format: locale|relative/doc-slug
 ar-SA|agent-native-config
-ar-SA|agents
 ar-SA|automation-connectors
 ar-SA|docs-components
 ar-SA|durable-background-runs
@@ -75,7 +74,6 @@ ar-SA|toolkit-setup-connections
 ar-SA|toolkit-sharing
 ar-SA|toolkit-ui
 de-DE|agent-native-config
-de-DE|agents
 de-DE|automation-connectors
 de-DE|docs-components
 de-DE|durable-background-runs
@@ -148,7 +146,6 @@ de-DE|toolkit-setup-connections
 de-DE|toolkit-sharing
 de-DE|toolkit-ui
 es-ES|agent-native-config
-es-ES|agents
 es-ES|automation-connectors
 es-ES|docs-components
 es-ES|durable-background-runs
@@ -221,7 +218,6 @@ es-ES|toolkit-setup-connections
 es-ES|toolkit-sharing
 es-ES|toolkit-ui
 fr-FR|agent-native-config
-fr-FR|agents
 fr-FR|automation-connectors
 fr-FR|docs-components
 fr-FR|durable-background-runs
@@ -294,7 +290,6 @@ fr-FR|toolkit-setup-connections
 fr-FR|toolkit-sharing
 fr-FR|toolkit-ui
 hi-IN|agent-native-config
-hi-IN|agents
 hi-IN|automation-connectors
 hi-IN|docs-components
 hi-IN|durable-background-runs
@@ -367,7 +362,6 @@ hi-IN|toolkit-setup-connections
 hi-IN|toolkit-sharing
 hi-IN|toolkit-ui
 ja-JP|agent-native-config
-ja-JP|agents
 ja-JP|automation-connectors
 ja-JP|docs-components
 ja-JP|durable-background-runs
@@ -440,7 +434,6 @@ ja-JP|toolkit-setup-connections
 ja-JP|toolkit-sharing
 ja-JP|toolkit-ui
 ko-KR|agent-native-config
-ko-KR|agents
 ko-KR|automation-connectors
 ko-KR|docs-components
 ko-KR|durable-background-runs
@@ -513,7 +506,6 @@ ko-KR|toolkit-setup-connections
 ko-KR|toolkit-sharing
 ko-KR|toolkit-ui
 pt-BR|agent-native-config
-pt-BR|agents
 pt-BR|automation-connectors
 pt-BR|docs-components
 pt-BR|durable-background-runs
@@ -586,7 +578,6 @@ pt-BR|toolkit-setup-connections
 pt-BR|toolkit-sharing
 pt-BR|toolkit-ui
 zh-CN|agent-native-config
-zh-CN|agents
 zh-CN|automation-connectors
 zh-CN|docs-components
 zh-CN|durable-background-runs
@@ -659,7 +650,6 @@ zh-CN|toolkit-setup-connections
 zh-CN|toolkit-sharing
 zh-CN|toolkit-ui
 zh-TW|agent-native-config
-zh-TW|agents
 zh-TW|automation-connectors
 zh-TW|docs-components
 zh-TW|environment-variables

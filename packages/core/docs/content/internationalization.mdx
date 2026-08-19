@@ -1,6 +1,6 @@
 ---
 title: "Internationalization"
-description: "Localize Agent Native apps with shared locale catalogs, a language picker, browser-language fallback, and locale-aware docs content."
+description: "Localize Agent Native apps with shared locale catalogs, a language picker, and browser-language fallback."
 ---
 
 # Internationalization
@@ -41,88 +41,78 @@ resolved locale/catalog into that script to avoid hydration mismatches.
 Each localized template keeps catalogs under `app/i18n/`:
 
 ```ts filename="app/i18n/index.ts"
+import { createAgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
 import enUS from "./en-US";
-import type { AgentNativeI18nCatalog } from "@agent-native/core/client/i18n";
-export const i18nCatalog = {
-  sourceLocale: "en-US",
+
+export const i18nCatalog = createAgentNativeI18nCatalog({
   messages: enUS,
-  loadMessages: async (locale) => {
-    switch (locale) {
-      case "zh-CN":
-        return (await import("./zh-CN")).default;
-      default:
-        return null;
-    }
+  localeLoaders: {
+    "zh-CN": () => import("./zh-CN"),
+    "zh-TW": () => import("./zh-TW"),
+    "es-ES": () => import("./es-ES"),
+    "fr-FR": () => import("./fr-FR"),
+    "de-DE": () => import("./de-DE"),
+    "ja-JP": () => import("./ja-JP"),
+    "ko-KR": () => import("./ko-KR"),
+    "pt-BR": () => import("./pt-BR"),
+    "hi-IN": () => import("./hi-IN"),
+    "ar-SA": () => import("./ar-SA"),
   },
-} satisfies AgentNativeI18nCatalog;
+});
 ```
 
-Always bundle `en-US`. Dynamic-import non-English catalogs so users only
-download the active locale. The supported locale codes are `en-US`, `zh-CN`,
-`zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`, `hi-IN`, and
-`ar-SA`.
+`messages` bundles `en-US` directly so it is always available before any
+locale loads. `localeLoaders` dynamic-imports every other catalog so users
+only download the active locale. The supported locale codes are `en-US`,
+`zh-CN`, `zh-TW`, `es-ES`, `fr-FR`, `de-DE`, `ja-JP`, `ko-KR`, `pt-BR`,
+`hi-IN`, and `ar-SA`.
+
+This list is fixed by the framework. It is not just what this example
+happens to bundle. `LocaleCode` is a TypeScript union of exactly these
+codes, and `set-localization-preference` rejects anything else at runtime.
+Each locale also needs framework-curated metadata, such as text direction
+for right-to-left languages. Adding a new locale means extending the
+framework itself, not adding a catalog file to your app.
+
+`createAgentNativeI18nCatalog` also accepts an optional `sourceLocale`,
+which defaults to `en-US`, and an optional `supportedLocales` array. Set
+`supportedLocales` when an app ships translations for only some of the
+framework's locales instead of all ten. It defaults to every locale the
+framework supports. `LanguagePicker` only lists locales in this set, and any
+detected or requested locale outside it falls back to `sourceLocale`.
 
 ## UI
 
-Use `useT()` for interface strings and put `<LanguagePicker />` on the app's
-`/settings` page. Sidebar apps should expose **Settings** in the app sidebar;
-the header language icon is only a shortcut.
+Use `useT()` to translate interface strings:
 
 ```tsx
-import { LanguagePicker, useT } from "@agent-native/core/client/i18n";
-import { openAgentSettings } from "@agent-native/core/client/navigation";
-function SettingsPage() {
-  const t = useT();
-  return (
-    <>
-      <h2>{t("settings.languageTitle")}</h2>
-      <LanguagePicker label={t("settings.languageLabel")} />
+import { useT } from "@agent-native/core/client/i18n";
 
-      <h2>{t("settings.agentTitle")}</h2>
-      <p>{t("settings.agentDescription")}</p>
-      <button type="button" onClick={() => openAgentSettings()}>
-        {t("settings.openAgentSettings")}
-      </button>
-    </>
-  );
+function Greeting({ name }: { name: string }) {
+  const t = useT();
+  return <p>{t("greeting.hello", { name })}</p>;
 }
 ```
-
-The "Agent settings" control should open the right agent sidebar's Settings tab
-for model, API key, automation, voice, and other framework-level controls.
-Apps may duplicate high-value framework settings in their own settings page
-when the setting is central to the app, but the sidebar settings tab remains the
-source of truth.
 
 Use `useFormatters()` for dates, numbers, relative time, and lists. Do not put
 locale-sensitive date/number formatting inside translation strings.
 
-## Docs Site Content {#docs-site-content}
-
-Public docs pages use the same core provider, but with
-`persistPreference={false}` so anonymous docs traffic uses localStorage and the
-browser language instead of SQL settings actions. The English source remains in
-`packages/core/docs/content/*.mdx`. Localized page overrides live next to it under
-`packages/core/docs/content/locales/<locale>/<slug>.mdx`.
-
-Use the same BCP-47 locale codes as app catalogs. Keep the same slug as the
-English source, preserve stable anchors with `{#anchor}` on translated headings,
-and leave routes, action names, protocol fields, env vars, and provider names
-untranslated. If a locale has no translated Markdown for a page, the docs site
-falls back to English for that page while still localizing navigation and chrome.
-
-Docs Markdown may include structured `an-*` visual blocks. Translate their
-user-facing prose fields where it makes sense, such as file-tree titles and
-`entries[].note`, callout bodies, tab labels, and annotated-code labels/notes.
-Keep stable identifiers unchanged: filenames, paths, env vars, route strings,
-action names, language tags, code snippets, JSON keys, and protocol names.
+Put `<LanguagePicker />` wherever the app lets a user change their language.
+See [Toolkit: Settings](/docs/toolkit-settings) for the standard settings
+page pattern, including where `openAgentSettings()` fits in.
 
 ## Actions And Persistence
 
 Every app inherits:
 
-- `get-localization-preference` — read the current user's `{ locale }`
-- `set-localization-preference` — set `"system"` or a supported locale
+- `get-localization-preference` — read the current user's `{ locale, timezone }`
+- `set-localization-preference` — set `locale` and/or `timezone`, each optional
+
+`locale` is `"system"` or a supported BCP-47 locale. `timezone` is `"system"`
+or an IANA zone such as `America/New_York`. It exists so scheduled and
+automation work runs in the user's zone instead of the host's. Setting only
+one field leaves the other unchanged, because `set-localization-preference`
+merges onto the existing stored value instead of overwriting it.
 
 The durable value lives in user-scoped SQL settings under `localization`.
 `localStorage` is only used for pre-hydration and anonymous fallback. The active
@@ -137,10 +127,16 @@ Run:
 pnpm guard:i18n-catalogs
 ```
 
-The guard verifies supported locale filenames, key parity, placeholder parity,
-stale keys, and CLDR plural categories through `Intl.PluralRules`. It checks
-structure, not translation quality; high-visibility strings still need human
-review.
+For app and template catalogs, the guard checks:
+
+- Locale filenames, key parity, placeholder parity, and stale keys
+- Duplicate keys and leftover development-only markers
+- Wrong-script contamination, for example Chinese text inside an Arabic catalog
+- CLDR plural categories through `Intl.PluralRules`
+- `t()` calls in app source whose key is missing from the English catalog
+
+The guard checks structure, not translation quality. High-visibility strings
+still need human review.
 
 Do not translate stable identifiers such as action names, routes, enum values,
 app-state keys, database values, protocol fields, env var names, or provider

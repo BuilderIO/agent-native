@@ -170,7 +170,7 @@ Adopting the framework is valuable mostly because of what you stop having to bui
 
 ## Data in SQL {#data-in-sql}
 
-All application state lives in a SQL database via Drizzle ORM. Schemas are provider-agnostic; the supported databases, `DATABASE_URL` config, and portability rules live in [Database](/docs/database).
+All application state lives in a SQL database via Drizzle ORM. Schemas are provider-agnostic; the supported databases, `DATABASE_URL` config, and portability rules live in [Database](/docs/server-database).
 
 Core SQL stores are auto-created and available in every template:
 
@@ -295,7 +295,7 @@ should also expose scoped `db-exec` / `db-patch`; set `database: "off"` /
 sharing, review comments, version history, feature flags, localization, audit,
 context X-Ray, profile, automations, docs, resources, web, cross-app delegation,
 chat, and email. See
-[Production Agent Tools](/docs/deployment#production-agent-tools) for the full
+[Production Agent Tools](/docs/actions-agent-tools#production-agent-tools) for the full
 list, the `"minimal"` preset, and why disabling a group leaves its HTTP routes
 mounted.
 
@@ -484,7 +484,7 @@ without source changes, use [Extensions](/docs/extensions).
 
 Two architectural rules keep apps portable across databases and hosts:
 
-- **Database-agnostic.** Write schemas with `@agent-native/core/db/schema` and reads/writes with Drizzle's portable query DSL so the same code runs on any supported provider. Use raw SQL only for additive migrations or one-off maintenance, kept parameterized and dialect-agnostic. See [Database](/docs/database).
+- **Database-agnostic.** Write schemas with `@agent-native/core/db/schema` and reads/writes with Drizzle's portable query DSL so the same code runs on any supported provider. Use raw SQL only for additive migrations or one-off maintenance, kept parameterized and dialect-agnostic. See [Database](/docs/server-database).
 - **Hosting-agnostic.** The server runs on Nitro and compiles to any deployment target. Never use Node-specific APIs (`fs`, `child_process`, `path`) in server routes or plugins, and never assume a persistent server process. Serverless and edge are stateless, so keep all state in SQL. See [Deployment](/docs/deployment).
 
 ## Agent Resources {#workspace}

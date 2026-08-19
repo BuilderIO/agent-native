@@ -1,0 +1,38 @@
+---
+title: "Vercel"
+description: "Implementa una aplicación nativa del agente en Vercel con el ajuste preestablecido de Nitro para Vercel, de forma independiente o como espacio de trabajo."
+---
+
+# Vercel
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Implementa mediante la CLI de Vercel o con `git push`:
+
+```bash
+vercel deploy
+```
+
+Para un espacio de trabajo, compila todas las aplicaciones en un único paquete de la Vercel Build Output API:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+Para implementaciones de Vercel mediante Git, establece el comando de compilación en:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+La compilación del espacio de trabajo copia la salida `vercel` de Nitro de cada aplicación en la raíz `.vercel/output`, le da a cada función su propio entorno de ruta de montaje, y escribe la configuración de rutas que sirve las aplicaciones en `/<app-id>`.
+
+## Qué sigue
+
+- [**Implementación**](/docs/deployment) — elige una base de datos persistente y un ajuste preestablecido antes de tu primera implementación en producción
+- [**Implementación de espacios de trabajo**](/docs/workspace-deployment) — la compilación de espacio de trabajo `deploy --preset vercel` en detalle
+- [**Node.js y Docker**](/docs/node-docker), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare) y [**Otras plataformas**](/docs/other-platforms) — los demás ajustes preestablecidos de Nitro

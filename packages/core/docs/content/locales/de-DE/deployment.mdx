@@ -1,158 +1,134 @@
 ---
 title: "Bereitstellung"
-description: "Stellen Sie agentennative Apps auf jeder Plattform mit Nitro-Voreinstellungen bereit – Node.js, Vercel, Netlify, Cloudflare, AWS und mehr."
+description: "Stellen Sie agentennative Apps mit Nitro-Voreinstellungen auf jeder Plattform bereit. Unterstützt Node.js, Vercel, Netlify, Cloudflare, AWS und mehr."
 ---
 
 # Bereitstellung
 
-Agent-native Apps verwenden unter der Haube [Nitro](https://nitro.build), was bedeutet, dass Sie sie ohne Konfigurationsänderungen auf jeder Plattform bereitstellen können – legen Sie einfach eine Voreinstellung fest.
+Agentennative Apps verwenden unter der Haube [Nitro](https://nitro.build). Das bedeutet, Sie können ohne Konfigurationsänderungen auf jeder Plattform bereitstellen. Legen Sie einfach eine Voreinstellung fest.
 
-## Schnellstart: eine Chat-App lokal selbst hosten {#self-host-quickstart}
+## Vor der Bereitstellung: Eine persistente Datenbank wählen {#persistent-database}
 
-Es gibt zwei gute Einstiegspunkte:
+Eine **persistente** Datenbank ist eine, deren Daten Neustarts, erneute Bereitstellungen und den gleichzeitigen Betrieb auf mehr als einer Serverinstanz überstehen. Das braucht jede bereitgestellte App.
 
-- **Sie bauen eine App?** Beginnen Sie mit [Getting Started](/docs/getting-started) und kehren Sie hierher zurück, wenn Sie die App dauerhaft bereitstellen möchten.
-- **Sie betreiben eine App?** Verwenden Sie zuerst den lokalen Docker-Pfad. Er nutzt dieselbe Form aus Node.js, Postgres, Authentifizierung und Umgebungsvariablen wie ein kleiner Server.
+<Comparison>
 
-Der lokale Stack verwendet absichtlich ein Beispiel-Auth-Secret und ein lokales Postgres-Volume. Er ist für `localhost`, nicht für eine Bereitstellung im Internet gedacht. Die vollständige Compose-Datei und kopierbaren Schritte finden Sie im [englischen Schnellstart](https://www.agent-native.com/docs/deployment#self-host-quickstart). Dieser Schnellstart verwendet das Volume-Layout von PostgreSQL 18. Verwenden Sie kein Volume wieder, das von PostgreSQL 17 oder älter erstellt wurde. Sichern und migrieren Sie vorhandene Daten, bevor Sie Image oder Mount-Pfad ändern.
+### Vorher
 
-### 1. App erstellen
+Die lokale Entwicklung greift auf eine SQLite-Datei unter `data/app.db` zurück. Das ist auf Ihrem Rechner praktisch, aber die Datei liegt auf dem lokalen Dateisystem, das Container, Vorschauumgebungen und serverlose Plattformen jederzeit zurücksetzen können.
 
-```bash
-npx @agent-native/core@latest create my-app --standalone --template chat
-cd my-app
-pnpm install
-```
+### Nachher
 
-### 2. Lokalen Stack starten
+Produktion braucht eine persistente Datenbank, etwa Postgres oder Turso/libSQL, die Neustarts, erneute Bereitstellungen und den gleichzeitigen Betrieb auf mehr als einer Instanz übersteht.
 
-```bash
-docker compose up --build
-```
+</Comparison>
 
-Öffnen Sie [http://localhost:3000](http://localhost:3000). Fügen Sie `ANTHROPIC_API_KEY` zu einer lokalen `.env`-Datei hinzu, wenn Sie den eingebetteten Agenten verwenden möchten.
+Eine Datenbank zu verbinden dauert drei Schritte:
 
-## Vor der Bereitstellung: Wählen Sie eine persistente Datenbank {#persistent-database}
+<Steps>
 
-Jede bereitgestellte App benötigt eine persistente SQL-Datenbank. Bei der lokalen Entwicklung greift Agent-nativ auf eine SQLite-Datei unter `data/app.db` zurück; Das ist praktisch auf Ihrem Computer, aber in Containern, Vorschauen oder serverlosen Umgebungen, in denen das Dateisystem zurückgesetzt werden kann, ist es nicht dauerhaft.
+### Einen Anbieter wählen
 
-Legen Sie `DATABASE_URL` in Ihrem Bereitstellungsanbieter fest, bevor Sie eine App in die Produktion hochstufen. Agent-native verwendet Drizzle für Schemata und Abfragen, sodass die Datenschicht über Drizzle-kompatible SQL-Backends portierbar ist und das Framework den Dialekt von URL automatisch erkennt. Die Adapterliste und Dialektdetails finden Sie unter [Database](/docs/database#production).
+Jeder Postgres-kompatible Host (Neon, Supabase, Railway, RDS und ähnliche) oder eine libSQL/Turso-Datenbank funktioniert. Agent-native liest und schreibt über [Drizzle](https://orm.drizzle.team), eine TypeScript-Bibliothek, die Ihr Schema statt handgeschriebenem SQL in typsichere Abfragen verwandelt, sodass derselbe App-Code gegen jede von ihnen läuft.
 
-Verwenden Sie `DATABASE_AUTH_TOKEN` nur, wenn Ihr Datenbankanbieter ein separates Token erfordert, z. B. Turso/libSQL. Für Arbeitsbereiche erben alle Apps standardmäßig das Stammverzeichnis `DATABASE_URL`; Legen Sie `<APP_NAME>_DATABASE_URL` fest, wenn eine App eine andere Datenbank verwenden soll.
+### Eine Verbindungszeichenfolge erhalten
 
-## Workspace Deploy: Ein Ursprung, viele Apps {#workspace-deploy}
+Ihr Anbieter gibt Ihnen eine URL, die die Datenbank identifiziert und zeigt, wie sie zu erreichen ist, zum Beispiel `postgres://user:pass@host:5432/dbname`.
 
-Wenn es sich bei Ihrem Projekt um ein [workspace](/docs/multi-app-workspace) handelt, können Sie jede darin enthaltene App mit einem einzigen Befehl an einen einzigen Ursprung senden:
+### `DATABASE_URL` festlegen
 
-```bash
-npx @agent-native/core@latest deploy
-# https://your-agents.com/mail/*       → apps/mail
-# https://your-agents.com/calendar/*   → apps/calendar
-# https://your-agents.com/forms/*      → apps/forms
-```
+Legen Sie sie vor Ihrer ersten Produktionsbereitstellung in den Umgebungsvariablen Ihres Deploy-Anbieters fest. Agent-native liest die URL und erkennt automatisch, mit welchem **Dialekt** (welcher zugrunde liegenden Datenbank-Engine, Postgres oder SQLite/libSQL) gesprochen werden soll. Die vollständige Adapterliste finden Sie unter [Datenbank](/docs/server-database#production).
 
-Jede App wird mit `APP_BASE_PATH=/<name>` und `VITE_APP_BASE_PATH=/<name>` erstellt und dann für die Zielvoreinstellung Nitro gepackt. Cloudflare Pages ist die Standardvoreinstellung und verwendet einen generierten Dispatcher-Worker unter `dist/_worker.js`; Netlify verwendet eine Funktion pro App in `.netlify/functions-internal/<app>-server` plus generierte Weiterleitungen; Vercel schreibt mithilfe der Build-Ausgabe API einen `.vercel/output` auf Arbeitsbereichsebene.
+</Steps>
 
-<Diagram id="doc-block-wpj2ad" title="Ein Ursprung, viele Apps" summary={"Jede Workspace-App wird mit einem eigenen Basispfad erstellt und unter einem Pfadpräfix auf einem einzigen Ursprung bereitgestellt – Anmeldung und anwendungsübergreifendes A2A sind also vom gleichen Ursprung und kostenlos."}>
+<Callout tone="info">
+
+Verwenden Sie Turso oder einen anderen libSQL-Anbieter, der sich mit einem separaten Token authentifiziert? Legen Sie `DATABASE_AUTH_TOKEN` zusätzlich zu `DATABASE_URL` fest. Bauen Sie einen [Arbeitsbereich](/docs/multi-app-workspace) mit mehr als einer App? Jede App erbt standardmäßig die Root-`DATABASE_URL`. Legen Sie `<APP_NAME>_DATABASE_URL` nur für die eine App fest, die eine andere Datenbank benötigt.
+
+</Callout>
+
+### Automatische Schema-Einrichtung {#skip-ensure-tables}
+
+Sie brauchen keinen separaten Migrationsschritt, um loszulegen. Beim ersten Datenbankzugriff eines beliebigen Teils Ihrer App prüft agent-native, ob die benötigten Tabellen, Spalten und Indizes bereits existieren, und legt an, was fehlt. Das passiert einmal pro Server-Boot und bleibt im normalen Betrieb unsichtbar.
+
+<Diagram id="doc-block-2ddlboot1" title="Was beim ersten Zugriff passiert" summary={"Jeder Datenspeicher prüft sein eigenes Schema einmal pro Boot und legt an, was fehlt, bevor eine echte Anfrage bedient wird."}>
 
 ```html
-<div class="diagram-ws">
-  <div class="diagram-panel" data-rough>
-    <strong>https://your-agents.com</strong>
-    <div class="diagram-row">
-      <span class="diagram-pill accent">/mail/*</span
-      ><small class="diagram-muted">apps/mail</small>
-    </div>
-    <div class="diagram-row">
-      <span class="diagram-pill accent">/calendar/*</span
-      ><small class="diagram-muted">apps/calendar</small>
-    </div>
-    <div class="diagram-row">
-      <span class="diagram-pill accent">/forms/*</span
-      ><small class="diagram-muted">apps/forms</small>
-    </div>
+<div class="diagram-boot">
+  <div class="diagram-box" data-rough>Server startet</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">ensureTable()</span
+    ><small class="diagram-muted">prüft das Schema jedes Stores</small>
   </div>
-  <div class="diagram-col wins">
-    <span class="diagram-pill ok">shared login session</span
-    ><span class="diagram-pill ok">Zero-Config-A2A zwischen Apps</span>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    Bereit<br /><small class="diagram-muted"
+      >fehlende Tabellen/Spalten erstellt</small
+    >
   </div>
 </div>
 ```
 
 ```css
-.diagram-ws {
+.diagram-boot {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
 }
-.diagram-ws .diagram-panel {
+.diagram-boot .center {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  align-items: center;
+  gap: 4px;
   padding: 14px 16px;
 }
-.diagram-ws .diagram-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.diagram-ws .wins {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  align-items: flex-start;
+.diagram-boot .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
 }
 ```
 
 </Diagram>
 
-Mit der Same-Origin-Bereitstellung erhalten Sie zwei große Gewinne kostenlos:
+Konkret ruft jeder Datenspeicher beim ersten Gebrauch eine interne Funktion `ensureTable()` auf. Diese Funktion prüft den eigenen Katalog der Datenbank (zum Beispiel Postgres' `information_schema`) und gibt nur dann `CREATE TABLE`, `ADD COLUMN` oder `CREATE INDEX` aus, wenn wirklich etwas fehlt. Das sind **DDL**-Anweisungen, kurz für Data Definition Language, der Teil von SQL, der Tabellen formt, statt die darin enthaltenen Zeilen zu lesen oder zu schreiben.
 
-- **Gemeinsame Anmeldesitzung** – Melden Sie sich bei jeder App an, jede App ist angemeldet.
-- **Zero-config Cross-App A2A** – das Markieren von `@calendar` aus E-Mails ist ein Abruf mit demselben Ursprung; kein CORS, kein JWT, der zwischen Geschwistern signiert.
+### Kaltstart-Latenz bei Serverless reduzieren {#reducing-cold-start}
 
-Veröffentlichen Sie die Ausgabe mit:
+Auf einem langlebigen Server läuft diese Prüfung einmal pro Boot, und Sie bemerken sie wahrscheinlich nie. Serverlose Plattformen funktionieren anders. Ein **Kaltstart** ist der Moment, in dem die Plattform eine brandneue Instanz Ihres Servers hochfährt, um eine Anfrage zu bedienen. Bei Serverless kann „erster Zugriff“ jeden Kaltstart bedeuten, über etwa 57 verschiedene Stores hinweg. Das summiert sich auf einige Hundert Roundtrips, bevor eine Anfrage überhaupt echte Arbeit leistet.
 
-```bash
-wrangler pages deploy dist
-```
+Drei Dinge halten das im Zaum:
 
-Verwenden Sie für einheitliche Netlify-Bereitstellungen die Netlify-Voreinstellung:
+- **Gebündelte Introspektion.** Statt einer Abfrage pro Tabelle, Spalte und Index laufen die obigen Prüfungen als ein einziger Introspektionsdurchgang pro Datenbank, insgesamt nur zwei Abfragen. Das geschieht automatisch und braucht keine Konfiguration.
+- **Automatisches Überspringen bei verwaltetem Serverless.** Netlify Functions, AWS Lambda und Vercel Functions überspringen diese Prüfung in Produktion vollständig, ohne dass eine Einrichtung nötig ist.
+- **`AGENT_NATIVE_SKIP_ENSURE_TABLES=1`.** Legen Sie das für Bereitstellungen fest, die das automatische Überspringen nicht abdeckt, etwa ein langlebiger Node-Server, Docker oder ein anderes selbstgehostetes Setup, sobald Ihr Schema bereits migriert ist und Sie nicht möchten, dass der App-Boot Tabellen erstellt oder ändert.
 
-```bash
-npx @agent-native/core@latest deploy --preset netlify
-```
+<Callout tone="risk">
 
-Verwenden Sie für einheitliche Vercel-Bereitstellungen die Vercel-Voreinstellung:
+Weder das Flag noch das automatische serverlose Überspringen können fail-closed ausfallen. Fehlt eine Tabelle wirklich, schlägt die erste echte Abfrage, die sie braucht, laut fehl, statt still repariert zu werden. Das ist beabsichtigt (eine stille Reparatur würde einen echten Migrationsfehler verbergen), bedeutet aber, dass Sie ab hier für die Migration verantwortlich sind. Setzen Sie dieses Flag nicht und verlassen Sie sich nicht auf das automatische Überspringen bei einer Bereitstellung, die darauf angewiesen ist, dass der App-Boot ihre eigenen Tabellen erstellt.
 
-```bash
-npx @agent-native/core@latest deploy --preset vercel
-```
+</Callout>
 
-Verwenden Sie beim Konfigurieren eines Provider-Build-Befehls denselben Befehl mit `--build-only`. Vercel sollte `npx @agent-native/core@latest deploy --preset vercel --build-only` ausführen; Der Befehl schreibt `.vercel/output` direkt, sodass für das Workspace-Routing kein `vercel.json` erforderlich ist.
-
-Gehostete Workspace-Builds erfordern `A2A_SECRET` in der Bereitstellungsanbieterumgebung.
-Dadurch nehmen Slack, eingehender webhooks und appübergreifender A2A die Arbeit über signiert wieder auf
-Hintergrundprozessoren. Lokale `--build-only`-Artefaktprüfungen werden auch ohne ausgeführt.
-
-Die unabhängige Bereitstellung pro App wird weiterhin unterstützt – nur `cd apps/<name> && npx @agent-native/core@latest build` wie ein eigenständiges Gerüst.
+Mehr als eine App auf einen einzigen Ursprung bereitzustellen oder einen
+Arbeitsbereich mit Docker Compose selbst zu hosten, ist eine eigene Seite:
+siehe [Workspace-Bereitstellung](/docs/workspace-deployment).
 
 ## Wie es funktioniert {#how-it-works}
 
-Wenn Sie `npx @agent-native/core@latest build` ausführen, erstellt Nitro sowohl den Client SPA als auch den Server API in `.output/`:
+Wenn Sie `npx @agent-native/core@latest build` ausführen, baut Nitro sowohl die Client-SPA als auch die Server-API in `.output/`:
 
 <FileTree
-  id="doc-block-7ve5w2"
+  id="doc-block-1vbo81"
   title="Build-Ausgabe"
   entries={[
     {
       path: ".output/",
-      note: "Eigenständig: in jede Umgebung kopieren und ausführen",
+      note: "eigenständig, in jede Umgebung kopieren und ausführen",
     },
     {
       path: ".output/public/",
-      note: "Gebuildete SPA (statische Assets)",
+      note: "gebaute SPA (statische Assets)",
     },
     {
       path: ".output/server/index.mjs",
@@ -165,17 +141,17 @@ Wenn Sie `npx @agent-native/core@latest build` ausführen, erstellt Nitro sowohl
   ]}
 />
 
-Die Ausgabe ist in sich geschlossen – kopieren Sie `.output/` in eine beliebige Umgebung und führen Sie sie aus.
+Die Ausgabe ist eigenständig. Kopieren Sie `.output/` in jede beliebige Umgebung und führen Sie sie aus.
 
-<Diagram id="doc-block-1roxbh9" title="Zum Bereitstellen erstellen" summary={"Ein Quellbaum wird nach einer Nitro-Voreinstellung erstellt; Dieselbe eigenständige Ausgabe läuft auf Node, Vercel, Netlify, Cloudflare, AWS oder Deno. Jede Instanz zeigt auf denselben persistenten DATABASE_URL."}>
+<Diagram id="doc-block-1gqwzzp" title="Vom Build zur Bereitstellung" summary={"Ein Quellbaum baut zu einer Nitro-Voreinstellung. Dieselbe eigenständige Ausgabe läuft auf Node, Vercel, Netlify, Cloudflare, AWS oder Deno. Jede Instanz zeigt auf dieselbe persistente DATABASE_URL."}>
 
 ```html
 <div class="diagram-deploy">
-  <div class="diagram-box" data-rough>App-Quelle</div>
+  <div class="diagram-box" data-rough>App-Quellcode</div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">build</span
-    ><small class="diagram-muted">Nitro preset</small>
+    <span class="diagram-pill accent">Build</span
+    ><small class="diagram-muted">Nitro-Voreinstellung</small>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-grid">
@@ -189,7 +165,7 @@ Die Ausgabe ist in sich geschlossen – kopieren Sie `.output/` in eine beliebig
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-box" data-rough>
     Persistente DATABASE_URL<br /><small class="diagram-muted"
-      >shared by every instance</small
+      >von jeder Instanz gemeinsam genutzt</small
     >
   </div>
 </div>
@@ -224,7 +200,7 @@ Die Ausgabe ist in sich geschlossen – kopieren Sie `.output/` in eine beliebig
 
 ## Voreinstellung festlegen {#setting-the-preset}
 
-Standardmäßig erstellt Nitro für Node.js. Um eine andere Plattform anzusprechen, legen Sie die Voreinstellung in Ihrem `vite.config.ts` fest:
+Standardmäßig baut Nitro für Node.js. Um eine andere Plattform anzusprechen, legen Sie die Voreinstellung in Ihrer `vite.config.ts` fest:
 
 ```ts
 import { agentNative } from "@agent-native/core/vite";
@@ -241,380 +217,44 @@ Oder verwenden Sie zur Build-Zeit die Umgebungsvariable `NITRO_PRESET`:
 NITRO_PRESET=netlify npx @agent-native/core@latest build
 ```
 
-## Node.js (Standard) {#nodejs}
-
-Die Standardvoreinstellung. Erstellen und ausführen:
-
-```bash
-npx @agent-native/core@latest build
-node .output/server/index.mjs
-```
-
-Legen Sie `PORT` fest, um den Listen-Port zu konfigurieren (Standard: `3000`).
-
-Verwenden Sie die aktuelle Node.js LTS-Reihe für Produktionsbereitstellungen. Ab Mai 2026 ist das
-ist Node.js 24; Node.js 20 hat am 30. April 2026 das Ende seiner Lebensdauer erreicht und nicht mehr
-erhält Upstream-Sicherheitsupdates.
-
-### Docker {#docker}
-
-```dockerfile
-FROM node:24-slim AS build
-WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
-COPY . .
-RUN pnpm build
-
-FROM node:24-slim
-WORKDIR /app
-COPY --from=build /app/.output .output
-# data/ ist ein zur Laufzeit erstelltes SQLite-Verzeichnis – kopieren Sie keine Entwicklungsdatenbank in prod.
-# Legen Sie für die Produktion DATABASE_URL auf eine gehostete Postgres- oder Turso-Instanz fest.
-RUN mkdir -p /app/data
-ENV NODE_ENV=production
-ENV PORT=3000
-EXPOSE 3000
-CMD ["node", ".output/server/index.mjs"]
-```
-
-## Vercel {#vercel}
-
-```ts
-// vite.config.ts
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
-
-Bereitstellung über Vercel CLI oder Git Push:
-
-```bash
-vercel deploy
-```
-
-Erstellen Sie für einen Arbeitsbereich jede App in einem Vercel Build Output API-Bundle:
-
-```bash
-npx @agent-native/core@latest deploy --preset vercel
-```
-
-Legen Sie für Vercel Git-Bereitstellungen den Build-Befehl auf Folgendes fest:
-
-```bash
-npx @agent-native/core@latest deploy --preset vercel --build-only
-```
-
-Der Workspace-Build kopiert die Nitro `vercel`-Ausgabe jeder App in das Stammverzeichnis `.vercel/output`, gibt jeder Funktion eine eigene Mount-Pfad-Umgebung und schreibt die Routenkonfiguration, die Apps unter `/<app-id>` bereitstellt.
-
-## Netlify {#netlify}
-
-Die Nitro `netlify`-Voreinstellung funktioniert gut und hat uns in der Praxis viel schnellere Kaltstarts ermöglicht als Cloudflare Pages (~200 ms TTFB vs. ~9 s) für Vorlagen, die mit externem Postgres (Neon) kommunizieren. Legen Sie entweder die Voreinstellung in `vite.config.ts`:
-
-```ts
-// vite.config.ts
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "netlify" } })],
-});
-```
-
-…oder legen Sie `NITRO_PRESET=netlify` zur Erstellungszeit fest.
-
-Stellen Sie für einen Arbeitsbereich jede App von einer Netlify-Site bereit, indem Sie Folgendes ausführen:
-
-```bash
-npx @agent-native/core@latest deploy --preset netlify
-```
-
-Der Workspace-Build schreibt statische Assets unter `dist/_workspace_static/` und leitet jede App ohne erzwungene Asset-Umleitungen an ihre eigene Netlify-Funktion weiter, sodass Dateien wie `/mail/assets/...` statisch bereitgestellt werden, bevor die Serverfunktion App-Routen verarbeitet.
-
-### Keep-warm und Scale-to-Zero-Datenbanken {#netlify-keep-warm}
-
-Wenn aktiviert, erzeugt der Netlify-Build eine geplante Funktion, die **jede Minute** `/_agent-native/health` aufruft. Das hält die Server-Funktion und ihre Datenbank warm, damit der nächste Besucher nach einer Leerlaufphase keinen Kaltstart bezahlt (1–5 s bei Neon).
-
-Keep-warm ist **standardmäßig deaktiviert**, weil ein Aufwecken pro Minute Autosuspend bei kostenpflichtigen Scale-to-Zero-Datenbanken verhindert. Setze `AGENT_NATIVE_ENABLE_KEEP_WARM=1`, wenn die geringere Latenz für den nächsten Besucher die zusätzliche Datenbank-Laufzeit wert ist.
-
-| Variable                                    | Wirkung                                                                                                                              |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Aktiviert das geplante Warmhalten von Server und Datenbank. Standardmäßig nicht gesetzt.                                             |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Kompatibles Abschalt-Flag, das bei gesetztem Wert die Opt-in-Einstellung überstimmt.                                                 |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Überschreibt die Kadenz bei aktiviertem Keep-warm; Standard ist `* * * * *`, ein nicht parsebarer Wert lässt den Build fehlschlagen. |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Verwirft nur das Aufwärmen der Hintergrundfunktion, wenn Keep-warm aktiviert ist, und hält den Server warm.                          |
-
-Wenn du einen kostenlosen oder anderweitig kontingentierten Datenbank-Tarif nutzt, lasse `AGENT_NATIVE_ENABLE_KEEP_WARM` unset. Wenn du es aktivierst, wähle eine langsamere Kadenz oder setze `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1`.
-
-### On-Demand-Schema-DDL {#skip-ensure-tables}
-
-Jeder Store ruft `ensureTable()` beim ersten Datenbankkontakt auf, prüft dabei `information_schema` / `pg_indexes` und gibt `CREATE TABLE` / `ADD COLUMN` / `CREATE INDEX` nur für tatsächlich Fehlendes aus. Auf einem langlebigen Node-Server fällt das einmal pro Boot an und ist unsichtbar. Auf Serverless ist der „erste Kontakt“ **jeder Kaltstart**, über ~57 Stores — eine kalte Anfrage kann also einige Hundert serielle Roundtrips zahlen, bevor sie echte Arbeit leistet.
-
-Zwei Dinge reduzieren das:
-
-- Die Prüfungen werden aus **einem gebündelten Introspektionsdurchlauf pro Datenbank** beantwortet (zwei Abfragen) statt aus einer Abfrage pro Tabelle, Spalte und Index. Das geschieht automatisch und braucht keine Konfiguration.
-- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` überspringt die Prüf- und DDL-Maschinerie ganz — der größte verfügbare Kaltstart-Latenzgewinn.
-
-Setze `AGENT_NATIVE_SKIP_ENSURE_TABLES=1`, wenn dein Datenbankschema bereits migriert ist und der Anwendungsstart keine Tabellen anlegen oder ändern soll — der Normalfall für ein Produktions-Deployment mit echtem Migrationsschritt.
-
-<Callout tone="risk">
-
-**Dieses Flag schlägt nicht „fail closed“ fehl und kann es nicht.** Fehlt das Schema wirklich, scheitert die erste echte Abfrage laut, statt unterwegs repariert zu werden — genau das ist der Zweck, bedeutet aber, dass die Migration dir gehört. Setze es nicht auf einem Deployment, das seine Tabellen vom Anwendungsstart bereitstellen lässt.
-
-</Callout>
-
-## Cloudflare-Seiten {#cloudflare-pages}
-
-```ts
-// vite.config.ts
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
-});
-```
-
-## Cloudflare Workers {#cloudflare-workers}
-
-Verwenden Sie die native Nitro-Modulausgabe für einen Cloudflare Worker mit
-aktiviertem SSR. Führen Sie `npx @agent-native/core@latest build` aus und
-deployen Sie anschließend mit `npx wrangler deploy --config
-.output/server/wrangler.json`.
-
-```ts
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
-});
-```
-
-## AWS Lambda {#aws-lambda}
-
-```ts
-// vite.config.ts
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
-});
-```
-
-## Deno-Bereitstellung {#deno-deploy}
-
-```ts
-// vite.config.ts
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
-});
-```
-
-## SSR-Caching {#ssr-caching}
-
-Jede SSR-HTML-Antwort und jede React-Router-`.data`-Antwort ist eine einzige unpersönliche Shell: `createH3SSRHandler` entfernt Cookies vor dem Rendern, sodass dieselben Bytes für jeden Besucher korrekt sind und die gesamte Personalisierung clientseitig nach dem Laden erfolgt. Deshalb ist es sicher, diesen Antworten standardmäßig eine einzige Hard-Cache-Richtlinie aufzuprägen:
-
-```txt
-cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
-```
-
-Derselbe Wert wird auf `cdn-cache-control` und `netlify-cdn-cache-control` gespiegelt. Ein einziger gemeinsamer CDN-Eintrag bedient dann die gesamte Site anstelle eines Renderings pro Anfrage – der größte Hebel für die Latenz der ersten Antwort. Lassen Sie es aktiviert, sofern nicht einer der folgenden Fälle auf Ihre Bereitstellung zutrifft.
-
-### Überschreiben mit `AGENT_NATIVE_SSR_CACHE` {#ssr-cache-env}
-
-Legen Sie `AGENT_NATIVE_SSR_CACHE` in der Bereitstellungsumgebung fest, um die Richtlinie für die gesamte Bereitstellung zu ändern:
-
-| Wert                                                | Ergebnis                                                                             |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| nicht gesetzt, `on`, `default`, `true`, `1`         | Die oben genannte Standardrichtlinie, unverändert. Empfohlen – beste Performance.    |
-| `off`, `false`, `0`, `none`, `no-store`, `disabled` | `no-store` bei `cache-control`, `cdn-cache-control` und `netlify-cdn-cache-control`. |
-| Eine Dauer: `30`, `30s`, `5m`, `2h`                 | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`.              |
-
-Bloße Zahlen sind Sekunden. `stale-while-revalidate` spiegelt bei einer benutzerdefinierten Dauer bewusst `max-age`: Ein kurzes Frische-Fenster gepaart mit dem standardmäßigen siebentägigen Stale-Fenster würde genau die Veraltung zurückgeben, die Sie eigentlich abgewählt haben. Ein nicht erkannter Wert protokolliert eine Warnung und fällt auf den Standard zurück, sodass ein Tippfehler das CDN niemals stillschweigend deaktivieren kann.
-
-Reduzieren oder deaktivieren Sie es, wenn eine der folgenden Bedingungen zutrifft:
-
-1. **Ihr Host leert sein CDN beim Deployment nicht.** Netlify und Vercel tun dies; manche selbstverwalteten Setups nicht. Ohne eine Leerung kann ein ausgelieferter Build für `max-age` plus `stale-while-revalidate` weiterhin die vorherige Shell ausliefern.
-2. **Ihre Loader geben veränderliche öffentliche Daten zurück.** Nach einer erfolgreichen Mutation kann ein erneuter Abruf durch `useRevalidator()` oder eine Weiterleitung nach einer Aktion die zwischengespeicherte `.data`-Kopie des Browsers statt frischer Loader-Ausgaben lesen.
-
-Die Einstellung gilt für jede öffentliche Shell-Oberfläche: React-Router-SSR-HTML und `.data`, die Anmelde-HTML-Shell, die Route `/_agent-native/speculation-rules.json`, die Docs-Site und das öffentliche Formular-SSR im Forms-Template. Der generierte Cloudflare-Worker löst sie zur Build-Zeit auf, legen Sie sie also vor dem Build in der Bereitstellungsumgebung fest.
-
-Drei Dinge sind zu beachten:
-
-- **Das Deaktivieren des Caching personalisiert das SSR nicht.** Cookies werden weiterhin vor dem Rendern entfernt, und die SSR-Loader sehen weiterhin den anonymen Zweig. Benutzerspezifische Daten müssen weiterhin clientseitig aufgelöst werden. Diese Variable steuert ausschließlich die Cache-_Dauer_.
-- **Sie gilt bereitstellungsweit, nicht pro Route – das ist Absicht.** Eine Cache-Überschreibung pro Route oder pro Anfrage ist der Weg, auf dem die Nutzdaten eines Besuchers im gemeinsamen CDN-Eintrag eines anderen Besuchers landen. Deshalb bietet das Framework keine an – `guard:ssr-cache-shell` erzwingt dies.
-- **Bevorzugen Sie für mutationsfrische Daten Actions statt den Cache zu deaktivieren.** App-Daten gehören in [Actions](/docs/actions-overview), werden clientseitig mit `useActionQuery` / `useActionMutation` gelesen und durch `useDbSync()`-Polling aktuell gehalten – nichts davon durchläuft den SSR-Shell-Cache. Lassen Sie SSR-Loader weiterhin die öffentliche Shell rendern und greifen Sie nur dann zu dieser Variable, wenn Sie wirklich frischere Loader-Daten wünschen.
-
-## Umgebungsvariablen {#environment-variables}
-
-### Build/Laufzeit {#env-runtime}
-
-| Variable                                    | Beschreibung                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                                      | Server-Port (nur Node.js)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| `NITRO_PRESET`                              | Build-Voreinstellung zum Build-Zeitpunkt überschreiben                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `APP_BASE_PATH`                             | Mounten Sie die App unter einem Präfix (z. B. `/mail`). Automatisch eingestellt durch `npx @agent-native/core@latest deploy`; Für Standalone deaktiviert lassen.                                                                                                                                                                                                                                                                                                                                            |
-| `AGENT_PROD_CODE_EXECUTION`                 | Optionaler Produktionscode-Ausführungsmodus: `off` (Standard), `sandboxed` oder `trusted`. Siehe [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                                                                                                                                                   |
-| `AGENT_NATIVE_SSR_CACHE`                    | Bereitstellungsweite Cache-Richtlinie für die SSR-Shell: nicht gesetzt/`on` behält den standardmäßigen Hard-Cache bei, `off` sendet `no-store`, oder eine Dauer wie `30s` / `5m` setzt ein kürzeres Frische-Fenster. Siehe [SSR-Caching](#ssr-caching).                                                                                                                                                                                                                                                     |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Aktiviert die geplante Netlify-Keep-warm-Funktion; standardmäßig nicht gesetzt. Siehe [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                                                                                                                                                      |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Kompatibles Abschalt-Flag für die geplante Netlify-Keep-warm-Funktion. Siehe [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                                                                                                                                                               |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Überschreibt die Keep-warm-Kadenz bei Aktivierung (Standard `* * * * *`). Ein nicht parsebarer Wert lässt den Build fehlschlagen. Siehe [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                                                                                                    |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Verwirft nur das Aufwärmen der Hintergrundfunktion, wenn Keep-warm aktiviert ist. Siehe [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                                                                                                                                                    |
-| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | Schaltet die In-Process-Backstop-Sweep-Timer ab (Automatisierungs-Redispatch, Agent-Teams-Abgleich, Wiederherstellung von Sandbox-Ausführungen). Auf Serverless laufen sie pro warmem Container, ihre Abfragerate skaliert also mit der Instanzzahl. Setze dies **nur**, wenn ein dauerhafter Scheduler dieselbe Wiederherstellung bereits antreibt — sonst werden wartende Aufgaben nicht erneut versucht.                                                                                                 |
-| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | Überspringt On-Demand-Schema-DDL vollständig. Entfernt die Schema-Prüf-Roundtrips, die jeder Kaltstart vor jeder Arbeit zahlt. Setzt ein bereits migriertes Schema voraus — siehe [On-Demand-Schema-DDL](#skip-ensure-tables).                                                                                                                                                                                                                                                                              |
-| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dediziertes, gemeinsam verwendetes HMAC-Geheimnis mit mindestens 32 Zeichen für die previewsichere Builder-Autorisierungsweiterleitung. Legen Sie denselben Wert in der genehmigten Unternehmens-Callback-Bereitstellung und in Preview-Bereitstellungen nur fest, wenn die Autorisierung in einer isolierten Preview-Datenbank gespeichert werden muss.                                                                                                                                                    |
-| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Nur für den Unternehmens-Callback bestimmte, kommagetrennte Zulassungsliste exakt übereinstimmender, vertrauenswürdiger Preview-Origins (zum Beispiel `https://0123456789abcdef01234567--content.netlify.app`). Legen Sie sie nur in der Unternehmens-Callback-Bereitstellung fest. Netlify-Origins müssen einen unveränderlichen, bereitstellungsspezifischen Permalink mit einer 24-stelligen Hex-ID verwenden; veränderliche `deploy-preview-*`-Aliase, Platzhalter und Domain-Suffixe werden abgelehnt. |
-
-Datenbankverbindungsvariablen (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, pro App `<APP_NAME>_DATABASE_URL`) leben in [Database](/docs/database#production).
-
-### Produktionsrelevante Konfiguration {#env-required-prod}
-
-Diese Einstellungen decken produktionsrelevantes Verhalten ab. Eine eigenständige App mit Framework-Authentifizierung benötigt ein stabiles `BETTER_AUTH_SECRET` und eine dauerhafte Datenbank; die öffentliche Auth-URL wird bei fehlender Angabe aus Anfrage-, Template- und Hosting-Kontext abgeleitet. Workspace- und A2A-Einstellungen gelten abhängig von den verwendeten Funktionen. Fehlende Werte führen entweder zu einem Fail-Closing oder mit einer lauten Warnung zu schwächerem Verhalten.
-
-| Variable                                    | Beschreibung                                                                                                                                                                                                                                                                                                                                 |
-| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`                        | Zufällige Zeichenfolge mit 32+ Zeichen. Signiert Sitzungscookies und dient als Fallback für `OAUTH_STATE_SECRET` und app-lokale verschlüsselte Werte. Außerdem ist sie ein Legacy-Lesekandidat für vorhandenen gemeinsamen Vault-Chiffretext. In Produktion zwingend erforderlich.                                                           |
-| `BETTER_AUTH_URL`                           | Optionaler öffentlicher Ursprung dieser App (z. B. `https://mail.example.com`). Wird bei fehlender Angabe aus Anfrage-, Template- und Hosting-Kontext abgeleitet.                                                                                                                                                                            |
-| `ANTHROPIC_API_KEY`                         | API-Schlüssel für den eingebetteten Produktionsagenten. **Bei mandantenfähigen Bereitstellungen** weigert sich das Framework, darauf zurückzugreifen, wenn der Benutzer keinen benutzerspezifischen Schlüssel hat – Bring-Your-Own-Key ist erforderlich. Selbstgehostete Einzelmandanteninstallationen verwenden ihn als globalen Schlüssel. |
-| `OAUTH_STATE_SECRET`                        | Dedizierte HMAC-Taste für OAuth-Staatsumschläge (Google, Atlassian, Zoom). Fällt auf `BETTER_AUTH_SECRET` zurück, wenn es nicht festgelegt ist, es wird jedoch ein dedizierter Wert empfohlen, damit durch Drehen eines Werts der andere nicht ungültig wird. Generieren über `openssl rand -hex 32`.                                        |
-| `A2A_SECRET`                                | Gemeinsames HMAC für App-übergreifendes A2A JSON-RPC. Wenn kein dedizierter Workspace-Schlüssel gesetzt ist, nutzt der gemeinsame Vault einen zweckgebunden abgeleiteten Schlüssel aus diesem Wert; eine Rotation rotiert daher auch den Vault-Schlüssel.                                                                                    |
-| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Bevorzugter stabiler AES-256-GCM-Schlüssel für den gemeinsamen Workspace-Vault. Setzen Sie denselben Wert in jeder lesenden App; er bleibt getrennt von der app-lokalen OAuth-Verschlüsselung.                                                                                                                                               |
-| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | Optionaler vorheriger Workspace-Schlüssel für das Rotationsfenster. Zusammen mit dem neuen Schlüssel bereitstellen, Lesezugriffe migrieren lassen und danach entfernen.                                                                                                                                                                      |
-| `SECRETS_ENCRYPTION_KEY`                    | Alter kombinierter Schlüssel für App-lokale Verschlüsselung und den Vault. Er bleibt unterstützt; für neue Multi-App-Bereitstellungen sollte der dedizierte Workspace-Schlüssel verwendet werden.                                                                                                                                            |
-
-### Authentifizierung und Identität {#env-auth}
-
-OAuth-Anbieteranmeldeinformationen (Google, GitHub), statische MCP-Bearer-Fallbacks (`ACCESS_TOKEN`/`ACCESS_TOKENS`) und E-Mail-Verifizierungsumschaltungen sind in [Authentication](/docs/authentication) dokumentiert. Legen Sie sie dort entsprechend dem von Ihnen gewählten Authentifizierungsmodus fest.
-
-### Eingehender Webhooks {#env-webhooks}
-
-Jede Messaging-Integration erfordert ein eigenes Signaturgeheimnis in der Produktion (Handler werden bei gefälschten Anfragen nicht geschlossen, wenn das Geheimnis fehlt). Die Variablen pro Integration sind in [Messaging](/docs/messaging) und [Security](/docs/security) aufgeführt. Nur für die lokale Entwicklung entscheidet sich `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` wieder für „Warnen und Akzeptieren“ – legen Sie es niemals in Produkt fest.
-
-### Sicherheitskonfiguration (Opt-in) {#security-config}
-
-Die Standardeinstellungen sind streng. Eine Handvoll Opt-in-Flags lockern das Verhalten (Debug-Stack-Traces, nicht verifiziertes webhooks, arbeitsbereichsbezogener Schlüssel-Fallback, der MCP-Hub-Multi-Org-Switch, Laufzeit-Env-Var-Schreibvorgänge). Sie sind mit ihren Sicherheitskompromissen in [Security](/docs/security) dokumentiert. Legen Sie sie nicht fest, es sei denn, Sie möchten ausdrücklich den entspannten Weg.
-
-### Workspace .env-Vererbung {#env-inheritance}
-
-Innerhalb eines Arbeitsbereichs wird der Root-`.env` automatisch in jede App geladen, sodass gemeinsame Schlüssel wie `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET` und `OAUTH_STATE_SECRET` nur einmal festgelegt werden müssen. `apps/<name>/.env` pro App gewinnt bei Konflikten.
-
-### Generieren starker Geheimnisse {#env-generate-secrets}
-
-Generieren Sie für jedes Geheimnis, das mit „32+ char random“ gekennzeichnet ist (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), neue Werte mit:
-
-```bash
-openssl rand -hex 32
-```
-
-Rotieren Sie sie, indem Sie die Umgebungsvariable auf jeder Instanz ersetzen und erneut bereitstellen. Sitzungen/OAuth-Statusumschläge, die unter dem alten Schlüssel signiert wurden, werden ungültig, sodass Benutzer sich möglicherweise erneut anmelden müssen.
-
-## Production Agent Tools {#production-agent-tools}
-
-Produktionsagenten erhalten die registrierten actions der App sowie Framework-Tools von
-das Agenten-Chat-Plugin. SQL-Inspektion ist standardmäßig aktiviert; Schreibvorgänge
-laufen über typisierte App-Actions, sofern die App nicht ausdrücklich rohe Schreibwerkzeuge aktiviert:
-
-```ts
-// server/plugins/agent-chat.ts
-export default createAgentChatPlugin({
-  frameworkTools: {
-    database: "read", // "write" | "read" | "off" — default "read"
-    extensions: true, // default false
-  },
-});
-```
-
-```ts
-// server/plugins/core-routes.ts
-export default createCoreRoutesPlugin({
-  extensionTools: true,
-});
-```
-
-- `database: "read"` – Standard. Registriert nur `db-schema` und `db-query`;
-  Agenten prüfen Daten mit SQL, müssen für Schreibvorgänge aber typisierte App-Actions verwenden.
-- `database: "write"` oder `true` – registriert zusätzlich `db-exec` und
-  `db-patch` für bewusste rohe SQL-Wartung. Schreibvorgänge sind auf den
-  aktuellen Benutzer/die aktuelle Organisation beschränkt; Schemaänderungen werden blockiert.
-- `database: "off"` oder `false` – entfernt Rohdatenbank-Tools aus
-  Agentenoberfläche, sodass die actions der App der einzige Datenzugriffspfad sind.
-- `extensions: true` – aktiviert für die App die actions und Anweisungen
-  zur Framework-Erweiterungsverwaltung (`create-extension`,
-  `update-extension` usw.). Setzen Sie die Option in beiden Plugins, um auch
-  authentifizierte REST-Erstellung zu erlauben. Erweiterungen sind
-  standardmäßig deaktiviert.
-
-Die übrigen Gruppen sind Booleans und standardmäßig aktiviert: `sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`, `contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`, `chat`, `email`.
-Mit `frameworkTools: "minimal"` schalten Sie alle auf einmal ab — sinnvoll für
-Voice-First- oder Einzweck-Apps — oder mit
-`frameworkTools: { preset: "minimal", resources: true }` behalten Sie genau
-eine: Ein explizit gesetzter Gruppenschlüssel gewinnt immer gegen das Preset.
-
-Eine abgeschaltete Gruppe verschwindet nur aus den **Agent**-Oberflächen:
-interaktiver Chat, MCP, A2A und Hintergrundläufe. Die zugehörigen HTTP-Routen
-bleiben eingebunden, weil die UI sie über Client-Hooks aufruft — `sharing`
-abzuschalten darf keinen 404 in einem noch sichtbaren Share-Dialog auslösen.
-Wägen Sie diesen Paritätsverlust ab: Der Vertrag des Frameworks lautet, dass
-alles, was die UI kann, auch der Agent kann. `sharing: false` neben einem
-sichtbaren Share-Button ist also ein bewusster Bruch und nur sinnvoll, wenn die
-App diese Oberfläche gar nicht hat.
-
-Unabhängig von dieser Option werden Framework-Tools nicht mehr standardmäßig in
-die erste Modellanfrage geladen. Sie bleiben im durchsuchbaren Registry und
-werden über `tool-search` geladen — oder sofort, wenn die App sie in
-`initialToolNames` nennt.
-
-<Callout tone="warning">
-  Die Top-Level-Optionen `databaseTools` und `extensionTools` sind zugunsten von
-  `frameworkTools.database` und `frameworkTools.extensions` veraltet. Sie werden
-  weiterhin berücksichtigt, aber eine Top-Level-Option und ihr
-  `frameworkTools`-Gegenstück mit widersprüchlichen Werten führt beim
-  Plugin-Start zu einem Fehler, anstatt mit einer Tool-Oberfläche zu starten,
-  die niemand gewählt hat.
-</Callout>
-
-## Produktionscode-Ausführung {#production-code-execution}
-
-Produktionsagenten werden standardmäßig ohne Codeausführungstools ausgeführt. Sie können die App-Actions, Datenbanktools, MCP-Tools, Browser-/Sitzungstools und andere registrierte Framework-Tools aufrufen, erhalten jedoch keinen Shell- oder Dateisystemzugriff.
-
-Knotenkompatible Bereitstellungen können die Ausführung von Produktionscode über das Agent-Chat-Plugin oder eine Umgebungsüberschreibung aktivieren:
-
-```ts
-// server/plugins/agent-chat.ts
-export default createAgentChatPlugin({
-  codeExecution: { production: "sandboxed" },
-});
-```
-
-Die verfügbaren Modi sind:
-
-- `off` – die Standardeinstellung. In der Produktion sind keine Codeausführungstools registriert.
-- `sandboxed` – registriert `run-code`, einen isolierten Node.js JavaScript-Runner mit einer bereinigten Umgebung, einem neuen temporären Verzeichnis, Ausgabe-/Zeitlimits und einer Localhost-Brücke für registrierte Tools auf der Zulassungsliste wie `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request` und die von verwendete ressourcengestützte Workspace-Dateibrücke `workspaceRead` / `workspaceWrite`.
-- `trusted` – registriert `run-code` sowie die vollständige Codierungstool-Registrierung (`bash`, `read`, `edit`, `write`). Verwenden Sie dies nur für Einzelmandanten- oder betreibergesteuerte Bereitstellungen, bei denen ein vollständiger Shell-Zugriff auf den Host beabsichtigt ist.
-
-Legen Sie `AGENT_PROD_CODE_EXECUTION=sandboxed` oder `AGENT_PROD_CODE_EXECUTION=trusted` fest, um die Plugin-Option für eine bestimmte Bereitstellung ohne Codeänderung zu überschreiben. `AGENT_PROD_CODE_EXECUTION=off` erzwingt die Codeausführung, auch wenn die Plugin-Option dies aktiviert.
-
-Die `run-code`-Sandbox ist eine Isolierung auf Prozessebene, kein Betriebssystemcontainer. Es entfernt App-Geheimnisse aus der Umgebung des untergeordneten Prozesses und verwendet das Node-Berechtigungsmodell, sofern verfügbar, aber das ausgehende Netzwerk wird nicht vom Node selbst blockiert; Authentifizierte Aufrufe sollten über die Bridge-Helper erfolgen, die das Tool bereitstellt.
-
-## UI in der Produktion aktualisieren {#updating-ui-in-production}
-
-Der gewöhnliche Agent einer bereitgestellten App arbeitet über App-Tools – Actions, Datenbank, MCP und konfigurierte Integrationen – statt automatisch Zugriff auf den Quellcode zu erhalten. Quelländerungen gehören in den Entwicklungsworkflow des Repositorys. Ein eingebetteter, lokaler oder Builder-Frame kann das Repository bearbeiten, wenn ihm bewusst Workspace- und Schreibwerkzeuge gewährt werden.
-
-In einer standardmäßigen Produktionsbereitstellung mit weggelassenem [production code execution](#production-code-execution) hat der Agent Zugriff auf App-Tools (actions, Datenbank, MCP), aber nicht auf das Dateisystem. Das bedeutet, dass der Agent Daten lesen und schreiben, actions ausführen und mit externen Diensten interagieren kann – aber er kann Ihre React-Komponenten nicht bearbeiten oder neue Routen auf einer bereitgestellten Instanz hinzufügen.
-
-### Builder.io: Visuelle Bearbeitung in der Produktion {#builderio}
-
-[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) ist ein separater verwalteter codefähiger Workflow, in dem ein Agent die UI Ihrer App in Produktion ändern kann. Verbinden Sie Ihr Repository mit Builder.io (kostenloser Tarif verfügbar) und fordern Sie UI-Änderungen direkt an – keine erneute Bereitstellung erforderlich.
-
-**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
-
-**So funktioniert es:**
-
-1. Verbinden Sie Ihr agentennatives Repo mit Builder.io (kostenloser Tarif verfügbar)
-2. Builder.io bietet einen Cloud-Frame mit dem Agenten, visueller Bearbeitung und Zusammenarbeit in Echtzeit
-3. Fordern Sie den Agenten auf, UI Änderungen vorzunehmen – er bearbeitet Ihre Komponenten, Routen und Stile live
-4. Änderungen werden in Ihr Repo übernommen
-
-Weitere Informationen zum eingebetteten Agent-Panel im Vergleich zu Cloud-Frame-Optionen finden Sie unter [Frames](/docs/frames).
-
-## Mehrinstanzbereitstellungen {#multi-instance}
-
-Agent-native Apps speichern den gesamten Status in SQL über Drizzle und synchronisieren den UI über [polling](/docs/key-concepts#polling-sync) mit der Datenbank – kein Dateisystemstatus, keine Sticky Sessions, keine In-Memory-Caches. Das bedeutet, dass Bereitstellungen mit mehreren Instanzen und serverlosen Bereitstellungen sofort funktionieren: Richten Sie jede Instanz auf denselben `DATABASE_URL` und sie konvergieren automatisch. Siehe [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) und [Portability](/docs/key-concepts#hosting-agnostic).
-
-## Wie geht es weiter?
-
-- [**Database**](/docs/database#production) — Wählen Sie vor der ersten Produktionsbereitstellung ein persistentes SQL-Backend
-- [**Security**](/docs/security) — Die Produktionscheckliste und die auf dieser Seite erwähnten Opt-in-Flags
-- [**Authentication**](/docs/authentication) — OAuth-Anmeldedaten und Umgebungsvariablen für den gewählten Authentifizierungsmodus
-- [**Multi-App Workspace**](/docs/multi-app-workspace) — Das Workspace-Modell hinter dem Single-Origin-Build von `deploy`
-- [**Frames**](/docs/frames) — Das eingebettete Agent-Panel gegenüber dem Cloud-Frame von Builder.io für UI-Änderungen in der Produktion
+Build- und Deploy-Details für Ihre Plattform finden Sie auf der jeweiligen Seite:
+
+- [**Node.js & Docker**](/docs/node-docker): die Standard-Voreinstellung, plus ein eigenständiges Dockerfile
+- [**Vercel**](/docs/vercel)
+- [**Netlify**](/docs/netlify): enthält Keep-Warm für Scale-to-Zero-Datenbanken
+- [**Cloudflare**](/docs/cloudflare): Pages und Workers
+- [**Andere Plattformen**](/docs/other-platforms): AWS Lambda und Deno Deploy
+
+Die Standard-Cache-Richtlinie für die SSR-Shell und wie Sie sie mit
+`AGENT_NATIVE_SSR_CACHE` überschreiben, ist eine eigene Seite: siehe [SSR-Caching](/docs/ssr-caching).
+
+Die vollständige Referenz der Produktions-Umgebungsvariablen (Build/Laufzeit,
+erforderliche Secrets, Auth, Webhooks, Sicherheits-Opt-ins, Vererbung der
+Arbeitsbereichs-`.env` und das Erzeugen starker Secrets) ist eine eigene Seite:
+siehe [Bereitstellung: Umgebungsvariablen](/docs/deployment-environment-variables).
+
+Welche Framework-Tools und Code-Ausführungsfähigkeiten ein bereitgestellter
+Produktionsagent über `frameworkTools` und `codeExecution` hat, ist eine
+eigene Seite: siehe [Zugriff für Produktionsagenten](/docs/actions-agent-tools).
+
+Wie die UI einer bereitgestellten App nach dem Launch aktualisiert wird,
+einschließlich Builder.ios separatem verwaltetem Workflow für visuelles
+Bearbeiten in Produktion, ist eine eigene Seite: siehe
+[UI in Produktion aktualisieren](/docs/updating-ui-in-production).
+
+## Multi-Instanz-Bereitstellungen {#multi-instance}
+
+Agentennative Apps speichern den gesamten Zustand in SQL über Drizzle und synchronisieren die UI über [Polling](/docs/key-concepts#polling-sync) gegen die Datenbank. Es gibt keinen Dateisystemzustand, keine Sticky Sessions und keine In-Memory-Caches. Das bedeutet, Multi-Instanz- und serverlose Bereitstellungen funktionieren sofort: Zeigen Sie jede Instanz auf dieselbe `DATABASE_URL`, und sie konvergieren automatisch. Siehe [Kernkonzepte: Daten in SQL](/docs/key-concepts#data-in-sql) und [Kernkonzepte: Portabilität](/docs/key-concepts#hosting-agnostic).
+
+## Was kommt als nächstes?
+
+- [**Datenbank**](/docs/server-database#production) — wählen Sie ein persistentes SQL-Backend vor Ihrer ersten Produktionsbereitstellung
+- [**Sicherheit**](/docs/security) — die Produktionscheckliste und die auf dieser Seite erwähnten Opt-in-Flags
+- [**Authentifizierung**](/docs/authentication) — OAuth-Anmeldedaten und Umgebungsvariablen für den gewählten Authentifizierungsmodus
+- [**Workspace-Bereitstellung**](/docs/workspace-deployment) — jede App in einem Arbeitsbereich an einen Ursprung ausliefern, oder einen mit Docker Compose selbst hosten
+- [**SSR-Caching**](/docs/ssr-caching) — die standardmäßige Hard-Cache-Richtlinie und ihre Überschreibung
+- [**Bereitstellung: Umgebungsvariablen**](/docs/deployment-environment-variables) — die vollständige Referenz der Produktions-Umgebungsvariablen
+- [**Zugriff für Produktionsagenten**](/docs/actions-agent-tools) — `frameworkTools` und `codeExecution` für einen bereitgestellten Agenten
+- [**Multi-App-Arbeitsbereiche**](/docs/multi-app-workspace) — das Arbeitsbereichsmodell hinter dem Single-Origin-Build von `deploy`
+- [**UI in Produktion aktualisieren**](/docs/updating-ui-in-production) — das eingebettete Agent-Panel gegenüber Builder.ios Cloud-Frame für UI-Änderungen in Produktion
+- [**Public Agent Web**](/docs/agent-web-surfaces) — die `robots.txt`-, `llms.txt`- und Markdown-Spiegel-Dateien, die ein Vite-Build für öffentliche Routen in die Deploy-Ausgabe schreibt

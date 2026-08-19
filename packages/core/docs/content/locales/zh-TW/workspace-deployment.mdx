@@ -1,0 +1,350 @@
+---
+title: "工作區部署"
+description: "用一個指令將 agent-native 工作區中的每個應用程式部署到單一來源，或使用 Docker Compose 自行架設工作區。"
+---
+
+# 工作區部署
+
+如果你的專案是擁有多個應用程式的[工作區](/docs/multi-app-workspace)，你可以將每個應用程式部署到單一來源，而不必為每個應用程式各自管理獨立的部署。本頁面涵蓋受管理的單指令部署方式，以及一個自架的 Docker Compose 替代方案。若要先選擇資料庫、預設集和平台，請參閱 [Deployment](/docs/deployment)。
+
+## 單一來源，多個應用程式 {#workspace-deploy}
+
+用一個指令將工作區中的每個應用程式部署到單一來源：
+
+```bash
+npx @agent-native/core@latest deploy
+# https://your-agents.com/mail/*       → apps/mail
+# https://your-agents.com/calendar/*   → apps/calendar
+# https://your-agents.com/forms/*      → apps/forms
+```
+
+<Diagram id="doc-block-1aw1umr" title="一個來源，多個應用程式" summary={"每個工作區應用程式都使用自己的基本路徑建置，並掛載在單一來源下的路徑前綴中。因此登入和跨應用程式 A2A 都是同源且免費的。"}>
+
+```html
+<div class="diagram-ws">
+  <div class="diagram-panel" data-rough>
+    <strong>https://your-agents.com</strong>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/mail/*</span
+      ><small class="diagram-muted">apps/mail</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/calendar/*</span
+      ><small class="diagram-muted">apps/calendar</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill accent">/forms/*</span
+      ><small class="diagram-muted">apps/forms</small>
+    </div>
+  </div>
+  <div class="diagram-col wins">
+    <span class="diagram-pill ok">共用登入工作階段</span
+    ><span class="diagram-pill ok">零設定的跨應用程式 A2A</span>
+  </div>
+</div>
+```
+
+```css
+.diagram-ws {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.diagram-ws .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+}
+.diagram-ws .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-ws .wins {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+```
+
+</Diagram>
+
+**同源**表示對瀏覽器而言，每個應用程式看起來都像是同一個網站的一部分。這帶來兩個免費的好處：
+
+- **共用登入工作階段**。登入任何一個應用程式，所有應用程式都會一併登入。
+- **零設定的跨應用程式 A2A**。從 mail 標記 `@calendar` 就是一次同源的 fetch。同層應用程式之間不需要 CORS，也不需要 JWT 簽章。
+
+<Callout tone="info">
+
+在底層，每個應用程式都以自己的**基本路徑**建置，也就是透過 `APP_BASE_PATH`/`VITE_APP_BASE_PATH` 設定的 URL 前綴（例如 `/mail`），接著再封裝成目標 Nitro 預設集。Cloudflare Pages 透過一個產生出來的**調度工作器**進行路由，這是一個位於 `dist/_worker.js` 的小型指令碼，會讀取傳入的路徑並將請求轉送給對應的應用程式。Netlify 為每個應用程式各使用一個 function，並搭配自動產生的重新導向規則。Vercel 則使用 Build Output API 寫入工作區層級的 `.vercel/output`。
+
+</Callout>
+
+為你的平台發佈建置結果：
+
+<TabsBlock
+  id="doc-block-wsdeploytabs1"
+  tabs={[
+    {
+      id: "cloudflare",
+      label: "Cloudflare（預設）",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-cf",
+          data: { code: "wrangler pages deploy dist", language: "bash" },
+        },
+      ],
+    },
+    {
+      id: "netlify",
+      label: "Netlify",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-nl",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset netlify",
+            language: "bash",
+          },
+        },
+      ],
+    },
+    {
+      id: "vercel",
+      label: "Vercel",
+      blocks: [
+        {
+          type: "code",
+          id: "wf-vc",
+          data: {
+            code: "npx @agent-native/core@latest deploy --preset vercel",
+            language: "bash",
+          },
+        },
+      ],
+    },
+  ]}
+/>
+
+<Callout tone="warning">
+
+託管的工作區建置需要在部署提供者的環境變數中設定 `A2A_SECRET`。沒有它，Slack、傳入 webhook，以及跨應用程式 A2A 續傳都無法運作，因為這些都是透過已簽章的背景處理程序執行的。本機的 `--build-only` 產物檢查即使沒有它也仍然可以執行。
+
+</Callout>
+
+<Callout tone="info">
+
+要接上提供者自己的建置指令，而不是手動部署嗎？在同一個指令後面加上 `--build-only`，例如 `npx @agent-native/core@latest deploy --preset vercel --build-only`。它會直接寫入輸出結果，因此工作區路由不需要 `vercel.json`。
+
+想要每個應用程式各自使用獨立網域，而不是共用一個來源嗎？工作區中的每個應用程式仍然可以獨立部署。像獨立的 scaffold 一樣執行 `cd apps/<name> && npx @agent-native/core@latest build` 即可。
+
+</Callout>
+
+## 使用 Docker Compose 自行架設工作區 {#workspace-docker-compose}
+
+目前一個工作區並不是單一個 Nitro 伺服器行程。每個應用程式仍然會建置到自己的 `.output/` 目錄，並執行自己的 Node/Nitro 伺服器，因此自行架設工作區代表要在單一進入點後面執行多個伺服器。
+
+<Diagram id="doc-block-3selfhost1" title="自架工作區的形狀" summary={"一個反向代理放在每個應用程式各自的一個容器前面，全部都指向同一個 Postgres 資料庫。"}>
+
+```html
+<div class="diagram-selfhost">
+  <div class="diagram-box" data-rough>網際網路</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel center" data-rough>
+    <span class="diagram-pill accent">代理</span
+    ><small class="diagram-muted">依路徑前綴進行路由</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-col">
+    <div class="diagram-row">
+      <span class="diagram-pill">/mail</span
+      ><small class="diagram-muted">mail 容器</small>
+    </div>
+    <div class="diagram-row">
+      <span class="diagram-pill">/calendar</span
+      ><small class="diagram-muted">calendar 容器</small>
+    </div>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&harr;</div>
+  <div class="diagram-box" data-rough>
+    共用 Postgres<br /><small class="diagram-muted">一個 DATABASE_URL</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-selfhost {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.diagram-selfhost .diagram-panel.center {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+}
+.diagram-selfhost .diagram-col {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-selfhost .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+**反向代理**就是上圖中那個單一進入點：它接收每一個請求，並依據 URL 路徑將它轉送給正確的容器，這和 Cloudflare 的調度工作器在受管理部署中所做的事是一樣的。在 VPS 上，這代表工作區中每個應用程式各有一個容器，全部都指向同一個 Postgres 資料庫和共用的正式環境密鑰，前面則由代理負責。
+
+<Steps>
+
+### 使用對應的基本路徑建置每個應用程式
+
+基本路徑對用戶端封裝來說是建置時期的輸入，對伺服器來說則是執行時期的輸入。請使用代理將要路由到它的相同路徑來建置每個應用程式：
+
+```bash maxLines=8
+APP_BASE_PATH=/mail VITE_APP_BASE_PATH=/mail npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+### 撰寫一個可重複使用的 Dockerfile
+
+把應用程式名稱和路徑前綴當作建置引數，這樣一個 Dockerfile 就能服務工作區中的每一個應用程式：
+
+```dockerfile filename="Dockerfile.workspace-app" maxLines=12
+FROM node:24-slim AS build
+WORKDIR /workspace
+RUN corepack enable
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY packages ./packages
+COPY apps ./apps
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV APP_BASE_PATH=$APP_BASE_PATH
+ENV VITE_APP_BASE_PATH=$APP_BASE_PATH
+RUN pnpm install --frozen-lockfile
+RUN pnpm --dir apps/$APP_NAME build
+
+FROM node:24-slim
+WORKDIR /app
+ARG APP_NAME
+ARG APP_BASE_PATH
+ENV NODE_ENV=production
+ENV PORT=3000
+ENV APP_BASE_PATH=$APP_BASE_PATH
+COPY --from=build /workspace/apps/$APP_NAME/.output .output
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+### 組合 Postgres、應用程式和代理
+
+這個範例使用 Caddy，因為它既可以在本機終止 HTTP，也可以放在 Cloudflare 的 SSL 代理後面，但重點在於路徑前綴的路由方式：
+
+```yaml filename="docker-compose.yml" maxLines=30
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: agent_native
+      POSTGRES_USER: agent_native
+      POSTGRES_PASSWORD: change-me
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  mail:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: mail
+        APP_BASE_PATH: /mail
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/mail
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  calendar:
+    build:
+      context: .
+      dockerfile: Dockerfile.workspace-app
+      args:
+        APP_NAME: calendar
+        APP_BASE_PATH: /calendar
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgres://agent_native:change-me@postgres:5432/agent_native
+      BETTER_AUTH_URL: https://agents.example.com/calendar
+      BETTER_AUTH_SECRET: ${BETTER_AUTH_SECRET}
+      A2A_SECRET: ${A2A_SECRET}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      - postgres
+
+  proxy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    depends_on:
+      - mail
+      - calendar
+
+volumes:
+  postgres-data:
+```
+
+### 設定代理
+
+```caddyfile filename="Caddyfile"
+agents.example.com {
+  reverse_proxy /mail* mail:3000
+  reverse_proxy /calendar* calendar:3000
+}
+```
+
+</Steps>
+
+<Callout tone="info">
+
+- 想要共用驗證、共用憑證和跨應用程式 A2A 時，請讓 `DATABASE_URL`、
+  `BETTER_AUTH_SECRET`、`A2A_SECRET` 以及其他正式環境密鑰在所有應用程式
+  容器中保持一致。
+- 將 `BETTER_AUTH_URL` 設定為該應用程式路徑的公開 URL。OAuth 回呼 URL
+  應該使用相同的公開 URL。
+- 不要依賴容器檔案系統來存放正式環境資料。請將 `DATABASE_URL` 設定為
+  Postgres（或其他持久性 SQL 後端）。
+- 如果 Cloudflare 在 VPS 前面終止 TLS，請將 Cloudflare 設定為傳送一般的
+  `X-Forwarded-Proto` / `X-Forwarded-Host` 標頭，並將公開主機路由到代理
+  容器。
+
+</Callout>
+
+## 接下來呢
+
+- [**Deployment**](/docs/deployment) — 在部署工作區之前，先選擇一個持久性資料庫、一個 Nitro 預設集和一個平台
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — 本頁面 `deploy` 指令所建立在其上的工作區模型
+- [**Security**](/docs/security) — 託管部署的正式環境檢查清單與選用旗標

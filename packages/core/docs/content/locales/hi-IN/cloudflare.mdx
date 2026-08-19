@@ -1,0 +1,43 @@
+---
+title: "Cloudflare"
+description: "मैचिंग Nitro preset के साथ एक agent-native ऐप को Cloudflare Pages या Cloudflare Workers पर तैनात करें।"
+---
+
+# Cloudflare
+
+## Cloudflare Pages {#cloudflare-pages}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
+});
+```
+
+## Cloudflare Workers {#cloudflare-workers}
+
+एक Cloudflare Worker के लिए Nitro के native module output का उपयोग करें। यह
+SSR को enabled रखता है और Worker entry point के साथ `.output/server` और
+`.output/public` के तहत static assets emit करता है:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
+Wrangler के साथ generated Worker को build और deploy करें:
+
+```bash
+npx @agent-native/core@latest build
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+आप `NITRO_PRESET=cloudflare_module` के साथ preset को explicitly भी चुन सकते
+हैं। तैनात करने से पहले एक durable external SQL डेटाबेस configure करें। एक
+Worker filesystem कोई persistent application store नहीं है।
+
+## आगे क्या है
+
+- [**तैनाती**](/docs/deployment) — पहले production deploy से पहले एक स्थायी डेटाबेस और एक preset चुनें
+- [**कार्यस्थान तैनाती**](/docs/workspace-deployment) — unified `deploy` command के लिए Cloudflare Pages डिफ़ॉल्ट preset है
+- [**Node.js और Docker**](/docs/node-docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), और [**अन्य प्लेटफ़ॉर्म**](/docs/other-platforms) — बाकी Nitro presets

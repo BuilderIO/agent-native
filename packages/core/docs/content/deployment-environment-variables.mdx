@@ -1,0 +1,85 @@
+---
+title: "Deployment: Environment Variables"
+description: "The production environment variable reference for build, runtime, secrets, and hosting behavior."
+---
+
+# Deployment: Environment Variables
+
+For the repository-wide reference, including template, provider, local, and CI
+variables, see [Environment Variables](/docs/environment-variables). The tables
+below remain the authoritative deployment guide for production values and
+hosting behavior.
+
+## Build / Runtime {#env-runtime}
+
+| Variable                                    | Description                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | Server port (Node.js only)                                                                                                                                                                                                                                                                                                                                              |
+| `NITRO_PRESET`                              | Override build preset at build time                                                                                                                                                                                                                                                                                                                                     |
+| `APP_BASE_PATH`                             | Mount the app under a prefix (e.g. `/mail`). Set automatically by `npx @agent-native/core@latest deploy`. Leave unset for standalone.                                                                                                                                                                                                                                   |
+| `APP_URL`                                   | Optional canonical public origin. Checked ahead of `BETTER_AUTH_URL` when resolving the A2A JWT audience, the OAuth public origin, self-dispatch webhook targets, and generated resource links. Set it explicitly on preview/staging deploys where the request host is unreliable.                                                                                      |
+| `AGENT_PROD_CODE_EXECUTION`                 | Optional production code-execution mode: `off` (default), `sandboxed`, or `trusted`. See [Production Code Execution](/docs/actions-agent-tools#production-code-execution).                                                                                                                                                                                              |
+| `AGENT_NATIVE_SSR_CACHE`                    | Deployment-wide SSR shell cache policy: unset/`on` keeps the default hard-cache, `off` sends `no-store`, or a duration such as `30s` / `5m` sets a shorter freshness. See [SSR Caching](/docs/ssr-caching).                                                                                                                                                             |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opt into the Netlify keep-warm scheduled function. Unset by default. See [Keep-warm](/docs/netlify#netlify-keep-warm).                                                                                                                                                                                                                                                  |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Compatibility kill switch for the Netlify keep-warm scheduled function. See [Keep-warm](/docs/netlify#netlify-keep-warm).                                                                                                                                                                                                                                               |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Override the keep-warm cadence with a 5-field cron expression (default `* * * * *` when enabled). An unparseable value fails the build. See [Keep-warm](/docs/netlify#netlify-keep-warm).                                                                                                                                                                               |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Drop only the background-function warm and keep the server warm. See [Keep-warm](/docs/netlify#netlify-keep-warm).                                                                                                                                                                                                                                                      |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | Turn off the in-process backstop sweep timers (automation redispatch, agent-teams reconciliation, sandbox-execution recovery). On serverless these run per warm container, so their query rate scales with instance count. Set it **only** where a durable scheduler already drives the same recovery, or queued work will not be retried.                              |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | Skip on-demand schema DDL on deployments the automatic serverless skip does not cover. Requires that your schema is already migrated. See [On-demand schema DDL](/docs/deployment#skip-ensure-tables).                                                                                                                                                                  |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dedicated 32+ char shared HMAC secret for preview-safe Builder authorization relay. Set the same value on the approved corporate callback deployment and preview deployments only when authorization must land in an isolated preview database.                                                                                                                         |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Corporate callback-only, comma-separated allowlist of exact trusted preview origins (for example, `https://0123456789abcdef01234567--content.netlify.app`). Set it only on the corporate callback deployment. Netlify origins must use an immutable, deploy-specific 24-hex permalink. Mutable `deploy-preview-*` aliases, wildcards, and domain suffixes are rejected. |
+
+Database connection variables (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, per-app `<APP_NAME>_DATABASE_URL`) live in [Database](/docs/server-database#production).
+
+## Production-sensitive configuration {#env-required-prod}
+
+These settings cover production-sensitive behavior. A standalone app using the
+framework auth needs a stable `BETTER_AUTH_SECRET` and a persistent database.
+The public auth URL is inferred from the request, known template, or hosting
+platform when it is unset. Workspace and A2A settings are conditional on those
+features. Missing values either fail-closed or fall back to weaker behavior
+with a loud warning.
+
+| Variable                                    | Description                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32+ char random string. Signs session cookies and is the fallback for `OAUTH_STATE_SECRET` and app-local encrypted values. It is also a legacy read candidate for existing shared vault ciphertext. Hard-required: the framework throws on startup if missing in production.                                                                       |
+| `BETTER_AUTH_URL`                           | Optional public origin override for this app (e.g. `https://mail.example.com`). The framework infers it from request, known-template, and hosting-platform context when unset.                                                                                                                                                                     |
+| `ANTHROPIC_API_KEY`                         | API key for the embedded production agent. **In multi-tenant deploys**, the framework refuses to fall back to this when the user has no per-user key. Bring-your-own-key is required. Single-tenant self-hosted installs use it as a global key.                                                                                                   |
+| `OAUTH_STATE_SECRET`                        | Dedicated HMAC key for OAuth state envelopes (Google, Atlassian, Zoom). Falls back to `BETTER_AUTH_SECRET` when unset, but a dedicated value is recommended so rotating one doesn't invalidate the other. Generate via `openssl rand -hex 32`.                                                                                                     |
+| `A2A_SECRET`                                | Shared HMAC for inter-app A2A JSON-RPC and signed background handoffs. Required for hosted workspace deploys and A2A features. Without it, those endpoints fail closed in production. When no dedicated workspace vault key is set, shared vault ciphertext uses a purpose-derived key from this value, so rotating it also rotates the vault key. |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Preferred stable AES-256-GCM key for the shared encrypted-at-rest secrets vault. Set the same value in every app that reads the vault. It is separate from app-local OAuth/credential encryption, so A2A trust can rotate without stranding vault rows. Existing A2A-, Better Auth-, and app-key ciphertext is migrated on successful reads.       |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | Optional previous workspace vault key used only during a rotation window. Deploy it alongside the new `WORKSPACE_SECRETS_ENCRYPTION_KEY`, let successful reads re-encrypt rows, then remove it after migration.                                                                                                                                    |
+| `SECRETS_ENCRYPTION_KEY`                    | Legacy combined key for app-local encryption and the shared vault. It remains supported, but new multi-app deployments should use `WORKSPACE_SECRETS_ENCRYPTION_KEY` for the shared vault so changing workspace encryption does not change app-local OAuth ciphertext.                                                                             |
+
+## Auth & Identity {#env-auth}
+
+OAuth provider credentials (Google, GitHub), static MCP bearer fallbacks (`ACCESS_TOKEN` / `ACCESS_TOKENS`), and email-verification toggles are documented in [Authentication](/docs/authentication). Set them there per the auth mode you choose.
+
+## Inbound Webhooks {#env-webhooks}
+
+Each messaging integration requires its own signing secret in production (handlers fail-closed on forged requests when the secret is missing). The per-integration variables are listed in [Messaging](/docs/messaging) and [Security](/docs/security). For local development only, `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1` opts back into "warn and accept". Never set it in prod.
+
+## Security Configuration (Opt-in) {#security-config}
+
+Defaults are strict. A handful of opt-in flags relax behavior (debug stack traces, unverified webhooks, workspace-scoped key fallback, the MCP hub multi-org switch, runtime env-var writes). They are documented with their security trade-offs in [Security](/docs/security). Don't set them unless you specifically want the relaxed path.
+
+## Workspace .env Inheritance {#env-inheritance}
+
+Inside a workspace, the root `.env` is loaded into every app automatically, so shared keys like `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `OAUTH_STATE_SECRET` only need to be set once. Per-app `apps/<name>/.env` wins on conflict.
+
+## Generating Strong Secrets {#env-generate-secrets}
+
+For any secret marked "32+ char random" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), generate fresh values with:
+
+```bash
+openssl rand -hex 32
+```
+
+Rotate signing/session keys by replacing the env var on every instance and redeploying. Sessions and OAuth state envelopes signed under the old key become invalid, so users may need to sign in again. Rotate `WORKSPACE_SECRETS_ENCRYPTION_KEY` with the `..._PREVIOUS` window described above so encrypted vault rows remain readable while they migrate.
+
+## What's next
+
+- [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy
+- [**Environment Variables**](/docs/environment-variables) — the repository-wide reference, including template, provider, local, and CI variables
+- [**Security**](/docs/security) — the production checklist and opt-in flags referenced throughout this page
+- [**Authentication**](/docs/authentication) — OAuth credentials and env vars for the auth mode you choose

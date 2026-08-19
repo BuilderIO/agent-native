@@ -1,0 +1,43 @@
+---
+title: "Cloudflare"
+description: "対応する Nitro プリセットを使って、agent-native アプリを Cloudflare Pages または Cloudflare Workers にデプロイします。"
+---
+
+# Cloudflare
+
+## Cloudflare Pages {#cloudflare-pages}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
+});
+```
+
+## Cloudflare Workers {#cloudflare-workers}
+
+Cloudflare Worker には Nitro のネイティブなモジュール出力を使用します。これにより SSR
+が有効なまま、Worker のエントリポイントと静的アセットが `.output/server` と
+`.output/public` 配下に出力されます。
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
+生成された Worker を Wrangler でビルド・デプロイします。
+
+```bash
+npx @agent-native/core@latest build
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+`NITRO_PRESET=cloudflare_module` でプリセットを明示的に選択することもできます。
+デプロイ前に、耐久性のある外部 SQL データベースを構成してください。Worker
+のファイルシステムは永続的なアプリケーションストアではありません。
+
+## 次は何ですか
+
+- [**デプロイ**](/docs/deployment) — 初回の本番デプロイの前に、永続的なデータベースとプリセットを選ぶ
+- [**ワークスペースのデプロイ**](/docs/workspace-deployment) — 統合された `deploy` コマンドでは Cloudflare Pages がデフォルトのプリセット
+- [**Node.js & Docker**](/docs/node-docker)、[**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify)、[**その他のプラットフォーム**](/docs/other-platforms) — その他の Nitro プリセット
