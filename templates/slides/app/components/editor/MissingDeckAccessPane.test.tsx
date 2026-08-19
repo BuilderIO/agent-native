@@ -126,9 +126,35 @@ describe("MissingDeckAccessPane", () => {
     expect(onRequestAccess).not.toHaveBeenCalled();
   });
 
+  it("keeps the guest CTA visible when a failed access check needs a refresh", () => {
+    const onRequestAccessDialogOpenChange = vi.fn();
+    renderPane({
+      signedIn: false,
+      viewerEmail: null,
+      onRequestAccessDialogOpenChange,
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Sign in to request access" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Request access" }));
+    expect(onRequestAccessDialogOpenChange).toHaveBeenCalledWith(true);
+  });
+
   it("opens the guest request form from the signed-out secondary action", () => {
     const onSubmitGuestAccessRequest = vi.fn((event) => event.preventDefault());
     renderPane({
+      accessStatus: {
+        exists: true,
+        hasAccess: false,
+        signedIn: false,
+        viewerEmail: null,
+        viewerName: null,
+        role: null,
+        visibility: "private",
+        accessRequestToken: "fallback-request-token",
+      },
+      accessStatusError: false,
       signedIn: false,
       viewerEmail: null,
       requestAccessDialogOpen: true,

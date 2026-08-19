@@ -106,11 +106,20 @@ describe("get-deck-access-status", () => {
   });
 
   it("mints a fallback request capability when the access probe fails", async () => {
+    state.viewerEmail = null;
+    state.viewerName = null;
     state.accessProbeError = new Error("temporary access lookup failure");
 
     const result = await action.run({ deckId: "deck-1" });
 
+    expect(result).toMatchObject({
+      exists: true,
+      hasAccess: false,
+      signedIn: false,
+      viewerEmail: null,
+      viewerName: null,
+      visibility: "private",
+    });
     expect(result.accessRequestToken).toEqual(expect.any(String));
-    expect(result.hasAccess).toBe(false);
   });
 });

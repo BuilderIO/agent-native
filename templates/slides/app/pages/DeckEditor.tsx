@@ -117,6 +117,10 @@ import { shortcutLabel } from "@/lib/utils";
 
 type EditorSidePanel = "comments" | null;
 
+type AccessRequestCapability =
+  | { available: true; token: string }
+  | { available: false };
+
 // The Cmd/Ctrl+C-then-V slide-duplicate shortcut can only tell "this key
 // event targets the slide rail/canvas" apart from "focus fell back to
 // nothing because a panel/dialog elsewhere just closed" by checking a
@@ -249,6 +253,8 @@ export default function DeckEditor() {
   const [requestAccessDialogError, setRequestAccessDialogError] = useState<
     string | null
   >(null);
+  const [accessRequestRefreshPending, setAccessRequestRefreshPending] =
+    useState(false);
   const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
     string | null
   >(null);
@@ -473,17 +479,50 @@ export default function DeckEditor() {
     });
   }, [id]);
 
+  const getFreshAccessRequestCapability =
+    useCallback(async (): Promise<AccessRequestCapability> => {
+      setAccessRequestRefreshPending(true);
+      try {
+        const result = await deckAccessStatusQuery.refetch();
+        const token = result.isSuccess
+          ? result.data?.accessRequestToken
+          : undefined;
+        return token ? { available: true, token } : { available: false };
+      } catch (error) {
+        console.warn(
+          "[slides] deck access request capability refresh failed:",
+          error,
+        );
+        return { available: false };
+      } finally {
+        setAccessRequestRefreshPending(false);
+      }
+    }, [deckAccessStatusQuery]);
+
   const submitDeckAccessRequest = useCallback(
-    (guestEmail?: string) => {
+    async (guestEmail?: string) => {
       if (!id) return;
       const normalizedGuestEmail = guestEmail?.trim() || undefined;
       setRequestAccessDialogError(null);
+      const accessRequestCapability = normalizedGuestEmail
+        ? await getFreshAccessRequestCapability()
+        : deckAccessStatus?.accessRequestToken
+          ? {
+              available: true as const,
+              token: deckAccessStatus.accessRequestToken,
+            }
+          : { available: false as const };
+      if (normalizedGuestEmail && !accessRequestCapability.available) {
+        setRequestAccessDialogError(t("deckEditor.accessRequestFailed"));
+        return;
+      }
+      const accessRequestToken = accessRequestCapability.available
+        ? accessRequestCapability.token
+        : undefined;
       requestDeckAccessMutation.mutate(
         {
           deckId: id,
-          ...(deckAccessStatus?.accessRequestToken
-            ? { accessRequestToken: deckAccessStatus.accessRequestToken }
-            : {}),
+          ...(accessRequestToken ? { accessRequestToken } : {}),
           ...(normalizedGuestEmail
             ? { requesterEmail: normalizedGuestEmail }
             : {}),
@@ -515,6 +554,7 @@ export default function DeckEditor() {
     },
     [
       deckAccessStatus?.accessRequestToken,
+      getFreshAccessRequestCapability,
       id,
       reloadDecks,
       requestDeckAccessMutation,
@@ -523,7 +563,7 @@ export default function DeckEditor() {
   );
 
   const requestDeckAccess = useCallback(() => {
-    submitDeckAccessRequest();
+    void submitDeckAccessRequest();
   }, [submitDeckAccessRequest]);
 
   const submitGuestAccessRequest = useCallback(
@@ -534,15 +574,27 @@ export default function DeckEditor() {
         setRequestAccessDialogError(t("deckEditor.requestAccessEmailRequired"));
         return;
       }
-      submitDeckAccessRequest(email);
+      void submitDeckAccessRequest(email);
     },
     [requesterEmail, submitDeckAccessRequest, t],
   );
 
-  const requestAccessDialogOpenChange = useCallback((open: boolean) => {
-    setRequestAccessDialogOpen(open);
-    if (open) setRequestAccessDialogError(null);
-  }, []);
+  const requestAccessDialogOpenChange = useCallback(
+    (open: boolean) => {
+      setRequestAccessDialogOpen(open);
+      if (!open) {
+        setRequestAccessDialogError(null);
+        return;
+      }
+      setRequestAccessDialogError(null);
+      void getFreshAccessRequestCapability().then((capability) => {
+        if (!capability.available) {
+          setRequestAccessDialogError(t("deckEditor.accessRequestFailed"));
+        }
+      });
+    },
+    [getFreshAccessRequestCapability, t],
+  );
 
   useEffect(() => {
     if (accessRequestSentDeckId && accessRequestSentDeckId !== id) {
@@ -1329,7 +1381,9 @@ export default function DeckEditor() {
         hasTeamJoinOption={hasTeamJoinOption}
         orgLoading={orgLoading}
         orgError={orgError || loadError}
-        requestAccessPending={requestDeckAccessMutation.isPending}
+        requestAccessPending={
+          requestDeckAccessMutation.isPending || accessRequestRefreshPending
+        }
         accessRequestSent={accessRequestSentDeckId === id}
         accessRequestNotified={accessRequestNotified}
         requestAccessDialogOpen={requestAccessDialogOpen}
