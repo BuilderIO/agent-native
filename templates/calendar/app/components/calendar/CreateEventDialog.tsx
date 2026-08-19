@@ -582,6 +582,7 @@ export function CreateEventPopover({
     availability,
     visibility,
     recurrencePreset,
+    customRecurrence,
     eventTimezone,
     colorId,
     reminderMode,
@@ -780,11 +781,14 @@ export function CreateEventPopover({
       ...trailingAttendees,
     ]);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
-    const recurrence = buildRecurrenceRules(
-      recurrencePreset,
-      effectiveAllDay ? date : startValue,
-      eventTimezone,
-    );
+    const recurrence =
+      recurrencePreset === "custom"
+        ? buildCustomRecurrenceRules(customRecurrence)
+        : buildRecurrenceRules(
+            recurrencePreset,
+            effectiveAllDay ? date : startValue,
+            eventTimezone,
+          );
     const statusPatch =
       eventType === "default"
         ? {}
