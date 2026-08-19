@@ -139,9 +139,14 @@ jobs:
         shell: bash
         run: |
           CURRENT=$(node -p "require('./package.json').version")
-          # Use the run number for monotonic uniqueness, and keep Nightly
-          # versions prerelease so they cannot enter the production feed.
-          NEXT=$(node -e "const [ma,mi]=process.argv[1].split('.'); console.log(ma+'.'+mi+'.${{ github.run_number }}-nightly.0')" "$CURRENT")
+          # Tauri's Windows MSI target only accepts numeric prerelease
+          # identifiers no greater than 65535. Keep Nightly identity in the
+          # app name, identifier, tag, and updater endpoint instead.
+          if [ "$GITHUB_RUN_NUMBER" -gt 65535 ]; then
+            echo "::error::The Nightly run number is too large for a Windows MSI version."
+            exit 1
+          fi
+          NEXT=$(node -e 'const [ma, mi] = process.argv[1].split("."); console.log(ma + "." + mi + "." + process.argv[2] + "-0")' "$CURRENT" "$GITHUB_RUN_NUMBER")
           npm version "$NEXT" --no-git-tag-version
           node -e "
             const fs = require('fs');
@@ -161,14 +166,19 @@ jobs:
           RELEASE_VERSION_INPUT: ${{ inputs.version }}
         run: |
           if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+            if [ "$GITHUB_RUN_NUMBER" -gt 65535 ]; then
+              echo "::error::The Nightly run number is too large for a Windows MSI version."
+              exit 1
+            fi
             if [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              RELEASE_VERSION="${RELEASE_VERSION_INPUT}-nightly.${GITHUB_RUN_NUMBER}.0"
+              BASE_VERSION="$RELEASE_VERSION_INPUT"
             elif [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]+$ ]]; then
-              RELEASE_VERSION="$RELEASE_VERSION_INPUT"
+              BASE_VERSION="${RELEASE_VERSION_INPUT%-nightly.*}"
             else
               echo "::error::Nightly versions must be semver or include the -nightly prerelease marker."
               exit 1
             fi
+            RELEASE_VERSION="${BASE_VERSION}-${GITHUB_RUN_NUMBER}"
           else
             if [[ ! "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
               echo "::error::Production versions must be an exact stable major.minor.patch version."
