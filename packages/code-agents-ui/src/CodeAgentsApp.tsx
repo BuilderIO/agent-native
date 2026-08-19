@@ -879,6 +879,7 @@ export default function CodeAgentsApp({
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [newPrompt, setNewPrompt] = useState("");
   const [newPromptSeed, setNewPromptSeed] = useState(0);
+  const handledNewChatPromptNonceRef = useRef<number | null>(null);
   const [creatingRun, setCreatingRun] = useState(false);
   const seenChatFirstOpenAppEvents = useRef(new Set<string>());
   const registeredChatFirstMcpServerIds = useMemo(
@@ -1491,10 +1492,18 @@ export default function CodeAgentsApp({
     void loadRuns(true);
   }, [loadRuns, onChatFirstMainKindChange, openRequest, selectRun]);
 
-  const newSessionPrompt = newChatPromptRequest?.prompt ?? newPrompt;
-  const newSessionPromptSeed = newChatPromptRequest
-    ? `scheduled-${newChatPromptRequest.nonce}`
-    : newPromptSeed;
+  useEffect(() => {
+    const request = newChatPromptRequest;
+    const prompt = request?.prompt.trim();
+    if (!request || !prompt) return;
+    if (handledNewChatPromptNonceRef.current === request.nonce) return;
+    handledNewChatPromptNonceRef.current = request.nonce;
+    const frame = window.requestAnimationFrame(() => {
+      newPromptRef.current?.setText(prompt);
+      newPromptRef.current?.focus();
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [newChatPromptRequest]);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;
@@ -2808,9 +2817,9 @@ export default function CodeAgentsApp({
                                 />
                               )}
                             <NewSessionComposer
-                              key={newSessionPromptSeed}
-                              prompt={newSessionPrompt}
-                              promptSeed={newSessionPromptSeed}
+                              key={newPromptSeed}
+                              prompt={newPrompt}
+                              promptSeed={newPromptSeed}
                               inputRef={newPromptRef}
                               creating={creatingRun}
                               terminalAgent={terminalAgentOption}
@@ -3436,7 +3445,7 @@ function NewSessionComposer({
   onDisabledClick,
 }: {
   prompt: string;
-  promptSeed: string | number;
+  promptSeed: number;
   inputRef: React.RefObject<TiptapComposerHandle | null>;
   creating: boolean;
   terminalAgent?: CodeAgentTerminalAgentOption;
@@ -3612,10 +3621,7 @@ function CodeAgentComposer({
           : "agent-native-code:follow-up"
       }
       initialText={
-        promptSeed !== undefined &&
-        (typeof promptSeed === "string" || Number(promptSeed) > 0)
-          ? prompt
-          : undefined
+        promptSeed !== undefined && Number(promptSeed) > 0 ? prompt : undefined
       }
       initialTextKey={promptSeed}
       modeControl={modeControl}
