@@ -125,9 +125,11 @@ that metadata to show the Google-Docs-style "This deck is private" state.
 Signed-in viewers can call `request-deck-access`. That action records a
 `deck.access_requested` event in `deck_events`, adds an owner-scoped in-app
 notification, and emails the deck owner when outbound email is configured.
-Requests are idempotent per deck and requester. It never grants access; the
-owner must use the existing Share controls. Anonymous viewers are sent through
-the normal sign-in flow first.
+Requests are idempotent per deck and requester. In-app and email delivery are
+tracked independently, retried safely after transient failures, and claimed
+atomically so concurrent retries do not fan out duplicate notifications. It
+never grants access; the owner must use the existing Share controls. Anonymous
+viewers are sent through the normal sign-in flow first.
 
 ## Build & Dev Commands
 

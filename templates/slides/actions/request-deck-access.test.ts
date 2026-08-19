@@ -11,7 +11,9 @@ const state = vi.hoisted(() => ({
   access: null as { role?: string } | null,
   emailConfigured: true,
   inAppNotification: true,
+  emailNotification: true,
   insertConflict: false,
+  updateConflict: false,
   previousRequests: [] as { id: string; payload: string | null }[],
   insertedRows: [] as Record<string, unknown>[],
   updatedPayload: null as string | null,
@@ -31,11 +33,40 @@ const insertValues = vi.hoisted(() =>
     };
   }),
 );
-const updateWhere = vi.hoisted(() => vi.fn(async () => undefined));
 const updateSet = vi.hoisted(() =>
   vi.fn((values: Record<string, unknown>) => {
-    state.updatedPayload = values.payload as string;
-    return { where: updateWhere };
+    return {
+      where: vi.fn((conditions: unknown) => ({
+        returning: async () => {
+          if (state.updateConflict) return [];
+          const conditionList = Array.isArray(conditions)
+            ? conditions
+            : [conditions];
+          const idCondition = conditionList.find(
+            (condition) =>
+              (condition as { column?: unknown }).column === "deck_events.id",
+          ) as { value?: unknown } | undefined;
+          const payloadCondition = conditionList.find(
+            (condition) =>
+              (condition as { column?: unknown }).column ===
+              "deck_events.payload",
+          ) as { value?: unknown } | undefined;
+          const id = idCondition?.value;
+          const payload = payloadCondition?.value;
+          const row = [...state.previousRequests, ...state.insertedRows].find(
+            (candidate) =>
+              candidate.id === id &&
+              (payloadCondition === undefined || candidate.payload === payload),
+          );
+          if (!row) return [];
+          if (state.previousRequests.includes(row)) {
+            row.payload = values.payload;
+          }
+          state.updatedPayload = values.payload as string;
+          return [{ id }];
+        },
+      })),
+    };
   }),
 );
 const db = vi.hoisted(() => ({
@@ -52,14 +83,22 @@ const db = vi.hoisted(() => ({
   update: vi.fn(() => ({ set: updateSet })),
 }));
 
-const sendEmail = vi.hoisted(() => vi.fn(async () => undefined));
-const notify = vi.hoisted(() =>
-  vi.fn(async () =>
-    state.inAppNotification ? { id: "notification-1" } : undefined,
-  ),
-);
-const renderEmail = vi.hoisted(() =>
-  vi.fn(() => ({ html: "<p>request</p>", text: "request" })),
+const notifyWithDelivery = vi.hoisted(() =>
+  vi.fn(async (input: { channels?: string[] }) => {
+    const deliveredChannels = (input.channels ?? []).filter((channel) =>
+      channel === "inbox"
+        ? state.inAppNotification
+        : channel === "email"
+          ? state.emailNotification
+          : false,
+    );
+    return {
+      notification: deliveredChannels.includes("inbox")
+        ? { id: "notification-1" }
+        : undefined,
+      deliveredChannels,
+    };
+  }),
 );
 
 vi.mock("../server/db/index.js", () => ({
@@ -83,13 +122,10 @@ vi.mock("../server/db/index.js", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
-  emailStrong: (value: string) => value,
   isEmailConfigured: () => Promise.resolve(state.emailConfigured),
-  renderEmail,
-  sendEmail,
 }));
 
-vi.mock("@agent-native/core/notifications", () => ({ notify }));
+vi.mock("@agent-native/core/notifications", () => ({ notifyWithDelivery }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
   getRequestUserEmail: () => state.requesterEmail,
@@ -128,7 +164,9 @@ beforeEach(() => {
   state.access = null;
   state.emailConfigured = true;
   state.inAppNotification = true;
+  state.emailNotification = true;
   state.insertConflict = false;
+  state.updateConflict = false;
   state.previousRequests = [];
   state.insertedRows = [];
   state.updatedPayload = null;
@@ -156,30 +194,24 @@ describe("request-deck-access", () => {
       requesterEmail: "requester@example.com",
       requesterName: "Requester",
       notifiedOwner: false,
+      inAppNotified: false,
+      emailNotified: false,
     });
     expect(JSON.parse(state.updatedPayload as string)).toMatchObject({
       notifiedOwner: true,
+      inAppNotified: true,
+      emailNotified: true,
     });
-    expect(sendEmail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        to: "owner@example.com",
-        subject: expect.stringContaining("requested access"),
-      }),
-    );
-    expect(notify).toHaveBeenCalledWith(
+    expect(notifyWithDelivery).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Deck access requested",
-        metadata: expect.objectContaining({ deckId: "deck-1" }),
+        channels: ["inbox", "email"],
+        metadata: expect.objectContaining({
+          deckId: "deck-1",
+          emailRecipients: ["owner@example.com"],
+        }),
       }),
       { owner: "owner@example.com" },
-    );
-    expect(renderEmail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        cta: {
-          label: "Open deck",
-          url: "https://slides.example/deck/deck-1",
-        },
-      }),
     );
   });
 
@@ -192,16 +224,21 @@ describe("request-deck-access", () => {
 
     await action.run({ deckId: "deck-1" });
 
-    expect(notify).toHaveBeenCalledWith(expect.anything(), {
+    expect(notifyWithDelivery).toHaveBeenCalledWith(expect.anything(), {
       owner: "Owner@Example.com",
     });
-    expect(sendEmail).toHaveBeenCalledWith(
-      expect.objectContaining({ to: "Owner@Example.com" }),
+    expect(notifyWithDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({
+        metadata: expect.objectContaining({
+          emailRecipients: ["Owner@Example.com"],
+        }),
+      }),
+      { owner: "Owner@Example.com" },
     );
   });
 
   it("keeps the durable request and in-app notice when owner email fails", async () => {
-    sendEmail.mockRejectedValueOnce(new Error("SMTP unavailable"));
+    state.emailNotification = false;
 
     const result = await action.run({ deckId: "deck-1" });
 
@@ -212,11 +249,43 @@ describe("request-deck-access", () => {
       requestId: expect.stringMatching(/^access-request-[a-f0-9]{64}$/),
     });
     expect(state.insertedRows).toHaveLength(1);
+    expect(JSON.parse(state.updatedPayload as string)).toMatchObject({
+      inAppNotified: true,
+      emailNotified: false,
+      notifiedOwner: true,
+    });
+  });
+
+  it("retries only the notification channel that failed", async () => {
+    state.emailNotification = false;
+
+    const firstResult = await action.run({ deckId: "deck-1" });
+    const requestId = firstResult.requestId as string;
+    expect(firstResult).toMatchObject({ notifiedOwner: true, requestId });
+
+    state.previousRequests = [
+      {
+        id: requestId,
+        payload: state.updatedPayload as string,
+      },
+    ];
+    state.emailNotification = true;
+
+    await expect(action.run({ deckId: "deck-1" })).resolves.toMatchObject({
+      alreadyRequested: true,
+      notifiedOwner: true,
+      requestId,
+    });
+    expect(notifyWithDelivery).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ channels: ["email"] }),
+      { owner: "owner@example.com" },
+    );
   });
 
   it("retries owner notification after a previous attempt failed", async () => {
     state.inAppNotification = false;
-    sendEmail.mockRejectedValueOnce(new Error("SMTP unavailable"));
+    state.emailNotification = false;
 
     const firstResult = await action.run({ deckId: "deck-1" });
     const requestId = firstResult.requestId as string;
@@ -225,10 +294,11 @@ describe("request-deck-access", () => {
     state.previousRequests = [
       {
         id: requestId,
-        payload: state.insertedRows[0].payload as string,
+        payload: state.updatedPayload as string,
       },
     ];
     state.inAppNotification = true;
+    state.emailNotification = true;
 
     await expect(action.run({ deckId: "deck-1" })).resolves.toMatchObject({
       ok: true,
@@ -238,11 +308,49 @@ describe("request-deck-access", () => {
       requestId,
       message: "Access request sent to the deck owner.",
     });
-    expect(notify).toHaveBeenCalledTimes(2);
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(2);
     expect(state.updatedPayload).toBeTruthy();
     expect(JSON.parse(state.updatedPayload as string)).toMatchObject({
       notifiedOwner: true,
+      inAppNotified: true,
+      emailNotified: true,
     });
+  });
+
+  it("does not send a concurrent retry after another request claims delivery", async () => {
+    state.previousRequests = [
+      {
+        id: "access-request-existing",
+        payload: JSON.stringify({
+          requesterEmail: "REQUESTER@example.com",
+          inAppNotified: false,
+          emailNotified: false,
+          notifiedOwner: false,
+        }),
+      },
+    ];
+    state.updateConflict = true;
+
+    await expect(action.run({ deckId: "deck-1" })).resolves.toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+      alreadyRequested: true,
+      notifiedOwner: false,
+      requestId: "access-request-existing",
+    });
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("reports a durable request when delivery status cannot be persisted", async () => {
+    state.updateConflict = true;
+
+    await expect(action.run({ deckId: "deck-1" })).resolves.toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+      notifiedOwner: false,
+      message: "Access request recorded for the deck owner.",
+    });
+    expect(notifyWithDelivery).toHaveBeenCalledTimes(1);
   });
 
   it("does not duplicate a request already recorded for this requester", async () => {
@@ -265,8 +373,7 @@ describe("request-deck-access", () => {
       message: "Your access request is already with the deck owner.",
     });
     expect(state.insertedRows).toHaveLength(0);
-    expect(notify).not.toHaveBeenCalled();
-    expect(sendEmail).not.toHaveBeenCalled();
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
   it("does not notify twice when concurrent requests collide", async () => {
@@ -279,8 +386,7 @@ describe("request-deck-access", () => {
       notifiedOwner: false,
       message: "Your access request is already with the deck owner.",
     });
-    expect(notify).not.toHaveBeenCalled();
-    expect(sendEmail).not.toHaveBeenCalled();
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
   it("does not create a request for a viewer who already has access", async () => {
@@ -293,7 +399,7 @@ describe("request-deck-access", () => {
       message: "You already have access. Refreshing the deck...",
     });
     expect(state.insertedRows).toHaveLength(0);
-    expect(sendEmail).not.toHaveBeenCalled();
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
   it("requires a signed-in requester", async () => {

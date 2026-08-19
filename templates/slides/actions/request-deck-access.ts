@@ -1,13 +1,8 @@
 import { createHash } from "node:crypto";
 
 import { defineAction } from "@agent-native/core";
-import { notify } from "@agent-native/core/notifications";
-import {
-  emailStrong,
-  isEmailConfigured,
-  renderEmail,
-  sendEmail,
-} from "@agent-native/core/server";
+import { notifyWithDelivery } from "@agent-native/core/notifications";
+import { isEmailConfigured } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -40,6 +35,10 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function cleanSubjectPart(value: string): string {
+  return value.replace(/[\r\n]+/g, " ").trim();
+}
+
 function accessRequestEventId(deckId: string, requesterEmail: string): string {
   return (
     "access-request-" +
@@ -58,7 +57,19 @@ type AccessRequestPayload = {
   requestedAt?: string;
   notifiedOwner?: boolean;
   notifiedAt?: string;
+  inAppNotified?: boolean;
+  emailNotified?: boolean;
+  notificationClaimedAt?: string;
 };
+
+type AccessRequestNotificationState = {
+  inAppNotified: boolean;
+  emailNotified: boolean;
+  emailRequired: boolean;
+  ownerCanNotify: boolean;
+};
+
+const NOTIFICATION_CLAIM_TTL_MS = 5 * 60 * 1000;
 
 function parseAccessRequestPayload(
   payload: string | null | undefined,
@@ -74,38 +85,49 @@ function parseAccessRequestPayload(
   }
 }
 
-function cleanSubjectPart(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").trim();
+function notificationStateFor(
+  payload: AccessRequestPayload,
+  ownerEmail: string | null,
+  requesterEmail: string,
+  emailConfigured: boolean,
+): AccessRequestNotificationState {
+  const ownerCanNotify = Boolean(
+    ownerEmail && normalizeEmail(ownerEmail) !== requesterEmail,
+  );
+  const legacyNotified = payload.notifiedOwner === true;
+  return {
+    inAppNotified: payload.inAppNotified ?? legacyNotified,
+    emailNotified: payload.emailNotified ?? legacyNotified,
+    emailRequired: ownerCanNotify && emailConfigured,
+    ownerCanNotify,
+  };
 }
 
-async function notifyOwner(input: {
-  deckId: string;
-  deckTitle: string;
-  ownerEmail: string | null;
-  requesterEmail: string;
-  requesterName: string;
-}): Promise<boolean> {
-  if (!(await isEmailConfigured())) return false;
-  if (
-    !input.ownerEmail ||
-    input.ownerEmail.toLowerCase() === input.requesterEmail.toLowerCase()
-  ) {
-    return false;
-  }
+function notificationWasDelivered(
+  state: AccessRequestNotificationState,
+): boolean {
+  return state.inAppNotified || state.emailNotified;
+}
 
-  const subject = `${cleanSubjectPart(input.requesterName)} requested access to "${cleanSubjectPart(input.deckTitle)}"`;
-  const { html, text } = renderEmail({
-    preheader: subject,
-    heading: "Access request",
-    paragraphs: [
-      `${emailStrong(input.requesterName)} (${emailStrong(input.requesterEmail)}) requested access to ${emailStrong(input.deckTitle)}.`,
-      "Open the deck and use Share to grant access if this request should be approved.",
-    ],
-    cta: { label: "Open deck", url: getDeckUrl(input.deckId) },
-    footer: "You received this because you own this Agent-Native Slide deck.",
-  });
-  await sendEmail({ to: input.ownerEmail, subject, html, text });
-  return true;
+function notificationStillNeeded(
+  state: AccessRequestNotificationState,
+): boolean {
+  return (
+    state.ownerCanNotify &&
+    (!state.inAppNotified || (state.emailRequired && !state.emailNotified))
+  );
+}
+
+function hasRecentNotificationClaim(
+  claimedAt: string | undefined,
+  now = Date.now(),
+): boolean {
+  if (!claimedAt) return false;
+  const claimedAtMs = Date.parse(claimedAt);
+  return (
+    Number.isFinite(claimedAtMs) &&
+    now - claimedAtMs < NOTIFICATION_CLAIM_TTL_MS
+  );
 }
 
 async function notifyAccessRequestOwner(input: {
@@ -114,40 +136,53 @@ async function notifyAccessRequestOwner(input: {
   ownerEmail: string | null;
   requesterEmail: string;
   requesterName: string;
-}): Promise<boolean> {
+  state: AccessRequestNotificationState;
+}): Promise<AccessRequestNotificationState> {
   const ownerEmail = input.ownerEmail;
-  const ownerEmailKey = ownerEmail ? normalizeEmail(ownerEmail) : null;
-  if (!ownerEmail || ownerEmailKey === input.requesterEmail) return false;
+  if (!ownerEmail || !input.state.ownerCanNotify) return input.state;
 
-  let notifiedOwner = false;
+  const emailConfigured = await isEmailConfigured();
+  const state = {
+    ...input.state,
+    emailRequired: input.state.ownerCanNotify && emailConfigured,
+  };
+  const channels: string[] = [];
+  if (!state.inAppNotified) channels.push("inbox");
+  if (state.emailRequired && !state.emailNotified) channels.push("email");
+  if (channels.length === 0) return state;
+
   try {
-    const notification = await notify(
+    const delivery = await notifyWithDelivery(
       {
         severity: "info",
         title: "Deck access requested",
         body: `${input.requesterName} requested access to “${input.deckTitle}”.`,
+        channels,
         metadata: {
           deckId: input.deckId,
           requesterEmail: input.requesterEmail,
           link: getDeckUrl(input.deckId),
+          ...(channels.includes("email")
+            ? {
+                emailRecipients: [ownerEmail],
+                emailSubject: `${cleanSubjectPart(input.requesterName)} requested access to "${cleanSubjectPart(input.deckTitle)}"`,
+              }
+            : {}),
         },
       },
-      // Keep the stored owner identity's original casing. Authentication may
-      // preserve that casing, while the requester's dedupe key is canonical.
       { owner: ownerEmail },
     );
-    notifiedOwner = Boolean(notification);
-  } catch (error) {
-    console.warn("[deck-access] in-app notification failed:", error);
-  }
-
-  try {
-    notifiedOwner = (await notifyOwner(input)) || notifiedOwner;
+    return {
+      ...state,
+      inAppNotified:
+        state.inAppNotified || delivery.deliveredChannels.includes("inbox"),
+      emailNotified:
+        state.emailNotified || delivery.deliveredChannels.includes("email"),
+    };
   } catch (error) {
     console.warn("[deck-access] access request notification failed:", error);
+    return state;
   }
-
-  return notifiedOwner;
 }
 
 export default defineAction({
@@ -165,23 +200,69 @@ export default defineAction({
     const requesterEmail = normalizeEmail(rawRequesterEmail);
 
     const db = getDb();
-    const recordNotification = async (
+    const claimNotification = async (
       requestId: string,
+      currentPayloadJson: string,
       payload: AccessRequestPayload,
-    ): Promise<void> => {
+    ): Promise<AccessRequestPayload | null> => {
+      const claimedPayload: AccessRequestPayload = {
+        ...payload,
+        notificationClaimedAt: new Date().toISOString(),
+      };
       try {
-        await db
+        const [claimed] = await db
           .update(schema.deckEvents)
           .set({
-            payload: JSON.stringify({
-              ...payload,
-              notifiedOwner: true,
-              notifiedAt: new Date().toISOString(),
-            }),
+            payload: JSON.stringify(claimedPayload),
           })
-          .where(eq(schema.deckEvents.id, requestId));
+          .where(
+            and(
+              eq(schema.deckEvents.id, requestId),
+              eq(schema.deckEvents.payload, currentPayloadJson),
+            ),
+          )
+          .returning({ id: schema.deckEvents.id });
+        return claimed ? claimedPayload : null;
+      } catch (error) {
+        console.warn("[deck-access] notification claim failed:", error);
+        return null;
+      }
+    };
+    const recordNotification = async (
+      requestId: string,
+      claimedPayload: AccessRequestPayload,
+      state: AccessRequestNotificationState,
+    ): Promise<boolean> => {
+      const delivered = notificationWasDelivered(state);
+      const persistedPayload: AccessRequestPayload = {
+        ...claimedPayload,
+        inAppNotified: state.inAppNotified,
+        emailNotified: state.emailNotified,
+        notifiedOwner: delivered,
+        notificationClaimedAt: undefined,
+        ...(delivered ? { notifiedAt: new Date().toISOString() } : {}),
+      };
+      try {
+        const [persisted] = await db
+          .update(schema.deckEvents)
+          .set({ payload: JSON.stringify(persistedPayload) })
+          .where(
+            and(
+              eq(schema.deckEvents.id, requestId),
+              eq(schema.deckEvents.payload, JSON.stringify(claimedPayload)),
+            ),
+          )
+          .returning({ id: schema.deckEvents.id });
+        if (!persisted) {
+          console.warn(
+            "[deck-access] notification status update was superseded:",
+            requestId,
+          );
+        }
+        return Boolean(persisted);
       } catch (error) {
         console.warn("[deck-access] notification status update failed:", error);
+        return false;
       }
     };
     const [deck] = await db
@@ -211,6 +292,7 @@ export default defineAction({
     const requesterName =
       getRequestUserName()?.trim() || displayNameForEmail(requesterEmail);
     const ownerEmail = deck.ownerEmail?.trim() || null;
+    const emailConfigured = await isEmailConfigured();
     const previousRequests = await db
       .select({
         id: schema.deckEvents.id,
@@ -235,29 +317,76 @@ export default defineAction({
       const previousPayload = parseAccessRequestPayload(
         previousRequest.payload,
       );
-      const previousRequestId =
-        previousPayload?.requestId || previousRequest.id;
-      if (previousPayload?.notifiedOwner) {
+      const previousRequestId = previousRequest.id;
+      if (!previousPayload) {
         return {
           ok: true as const,
           alreadyHasAccess: false,
           alreadyRequested: true,
-          notifiedOwner: true,
+          notifiedOwner: false,
           requestId: previousRequestId,
           message: "Your access request is already with the deck owner.",
         };
       }
 
-      const notifiedOwner = await notifyAccessRequestOwner({
+      const previousState = notificationStateFor(
+        previousPayload,
+        ownerEmail,
+        requesterEmail,
+        emailConfigured,
+      );
+      if (!notificationStillNeeded(previousState)) {
+        return {
+          ok: true as const,
+          alreadyHasAccess: false,
+          alreadyRequested: true,
+          notifiedOwner: notificationWasDelivered(previousState),
+          requestId: previousRequestId,
+          message: "Your access request is already with the deck owner.",
+        };
+      }
+      if (hasRecentNotificationClaim(previousPayload.notificationClaimedAt)) {
+        return {
+          ok: true as const,
+          alreadyHasAccess: false,
+          alreadyRequested: true,
+          notifiedOwner: notificationWasDelivered(previousState),
+          requestId: previousRequestId,
+          message: "Your access request is already with the deck owner.",
+        };
+      }
+
+      const claimedPayload = await claimNotification(
+        previousRequestId,
+        previousRequest.payload ?? "",
+        previousPayload,
+      );
+      if (!claimedPayload) {
+        return {
+          ok: true as const,
+          alreadyHasAccess: false,
+          alreadyRequested: true,
+          notifiedOwner: notificationWasDelivered(previousState),
+          requestId: previousRequestId,
+          message: "Your access request is already with the deck owner.",
+        };
+      }
+
+      const deliveredState = await notifyAccessRequestOwner({
         deckId,
         deckTitle: deck.title,
         ownerEmail,
         requesterEmail,
         requesterName: previousPayload?.requesterName?.trim() || requesterName,
+        state: previousState,
       });
-      if (notifiedOwner && previousPayload) {
-        await recordNotification(previousRequestId, previousPayload);
-      }
+      const persisted = await recordNotification(
+        previousRequestId,
+        claimedPayload,
+        deliveredState,
+      );
+      const notifiedOwner =
+        persisted && notificationWasDelivered(deliveredState);
 
       return {
         ok: true as const,
@@ -273,6 +402,17 @@ export default defineAction({
 
     const requestId = accessRequestEventId(deckId, requesterEmail);
     const requestedAt = new Date().toISOString();
+    const initialPayload: AccessRequestPayload = {
+      requestId,
+      requesterEmail,
+      requesterName,
+      requestedAt,
+      notifiedOwner: false,
+      inAppNotified: false,
+      emailNotified: false,
+      notificationClaimedAt: requestedAt,
+    };
+    const initialPayloadJson = JSON.stringify(initialPayload);
 
     const [insertedRequest] = await db
       .insert(schema.deckEvents)
@@ -281,13 +421,7 @@ export default defineAction({
         deckId,
         type: "deck.access_requested",
         message: `${requesterEmail} requested access to this deck.`,
-        payload: JSON.stringify({
-          requestId,
-          requesterEmail,
-          requesterName,
-          requestedAt,
-          notifiedOwner: false,
-        }),
+        payload: initialPayloadJson,
         createdBy: "human",
         createdAt: requestedAt,
       })
@@ -304,23 +438,26 @@ export default defineAction({
       };
     }
 
-    let notifiedOwner = false;
-    notifiedOwner = await notifyAccessRequestOwner({
+    const initialState = notificationStateFor(
+      initialPayload,
+      ownerEmail,
+      requesterEmail,
+      emailConfigured,
+    );
+    const deliveredState = await notifyAccessRequestOwner({
       deckId,
       deckTitle: deck.title,
       ownerEmail,
       requesterEmail,
       requesterName,
+      state: initialState,
     });
-    if (notifiedOwner) {
-      await recordNotification(requestId, {
-        requestId,
-        requesterEmail,
-        requesterName,
-        requestedAt,
-        notifiedOwner: false,
-      });
-    }
+    const persisted = await recordNotification(
+      requestId,
+      initialPayload,
+      deliveredState,
+    );
+    const notifiedOwner = persisted && notificationWasDelivered(deliveredState);
 
     return {
       ok: true as const,

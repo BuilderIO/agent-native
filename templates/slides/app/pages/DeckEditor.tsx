@@ -160,9 +160,9 @@ function MissingDeckAccessPane({
   const privateDeck = Boolean(
     accessStatus?.exists &&
     !accessStatus.hasAccess &&
-    accessStatus.visibility !== "public",
+    accessStatus.visibility === "private",
   );
-  const checkingAccess = accessStatusLoading || orgLoading;
+  const checkingAccess = !privateDeck && (accessStatusLoading || orgLoading);
   const accessCheckFailed = accessStatusError || orgError;
   const Icon =
     privateDeck || (!hasTeamJoinOption && !checkingAccess && !accessCheckFailed)
@@ -1394,6 +1394,11 @@ export default function DeckEditor() {
       accessCheckKey: currentDeckAccessKey,
       checkedAccessKey: checkedDeckAccessKey,
       retrying: retryingMissingDeck,
+      privateDeckAccessConfirmed: Boolean(
+        deckAccessStatus?.exists &&
+        !deckAccessStatus.hasAccess &&
+        deckAccessStatus.visibility === "private",
+      ),
     })
   ) {
     return <DeckEditorSkeleton label={t("deckEditor.lookingForDeck")} />;
