@@ -16,6 +16,10 @@ import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
+import {
+  syncManagedReviewSkillAlignment,
+  type FactoryAutomationName,
+} from "../triage/review-skill-alignment.js";
 
 const LEGACY_JOB_PATH = "jobs/factory-observation-scheduler.md";
 const DEFAULT_SLACK_CHANNEL_ID = "C0ATH3CCZT4";
@@ -439,6 +443,10 @@ function automationContent(
   orgId: string,
   seed: AutomationSeed,
 ): string {
+  const body = syncManagedReviewSkillAlignment(
+    seed.body.trim(),
+    seed.name as FactoryAutomationName,
+  );
   return `---
 schedule: "${seed.schedule}"
 ${seed.timezone ? `timezone: ${seed.timezone}\n` : ""}enabled: true
@@ -452,7 +460,7 @@ model: ${seed.model}
 maxIterations: ${seed.maxIterations}
 maxRunInputTokens: ${seed.maxRunInputTokens}
 ---
-${seed.body.trim()}
+${body.trim()}
 `;
 }
 
@@ -535,6 +543,10 @@ async function ensureOrganizationAutomations(
       ) {
         repaired = `${repaired.trimEnd()}\n\n${SKIP_RECORD_GUARD}\n`;
       }
+      repaired = syncManagedReviewSkillAlignment(
+        repaired,
+        seed.name as FactoryAutomationName,
+      );
       if (repaired === existing.content) return;
 
       const updated = await resourcePutIfCurrent({

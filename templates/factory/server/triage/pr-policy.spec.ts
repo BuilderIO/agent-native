@@ -22,24 +22,110 @@ describe("pull-request governance", () => {
   it("approves and merges a clean internal Factory bug fix", () => {
     expect(decidePullRequestGovernance(cleanInternalBug)).toMatchObject({
       ownerOwnedArea: null,
+      ownerException: null,
       autoApprove: true,
-      autoMerge: true,
+      autoMerge: false,
     });
   });
 
-  it("leaves owner-managed app work manual even when every other gate passes", () => {
-    for (const area of ["Clips", "Design", "Content"] as const) {
+  it("keeps non-owner-managed app work manual", () => {
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        repository: "BuilderIO/content",
+        changedFiles: ["templates/content/app/routes/index.tsx"],
+      }),
+    ).toMatchObject({
+      ownerOwnedArea: "content",
+      ownerException: null,
+      autoApprove: false,
+      autoMerge: false,
+    });
+  });
+
+  it("allows a verified internal author through ordinary check and review uncertainty", () => {
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        checksPassed: false,
+        reviewFeedbackHandled: false,
+      }),
+    ).toMatchObject({
+      autoApprove: true,
+      autoMerge: false,
+    });
+  });
+
+  it("applies the current app owner exceptions only to their scoped changes", () => {
+    const cases = [
+      {
+        author: "3mdistal",
+        changedFiles: [
+          "templates/content/app/routes/index.tsx",
+          "packages/core/src/client/action.ts",
+        ],
+        ownerException: "alice-content",
+        ownerOwnedArea: "content",
+      },
+      {
+        author: "NKoech123",
+        changedFiles: [
+          "templates/slides/app/routes/index.tsx",
+          "packages/core/src/client/action.ts",
+        ],
+        ownerException: "nick-slides",
+        ownerOwnedArea: null,
+      },
+      {
+        author: "enzoames",
+        changedFiles: ["templates/factory/actions/run.ts"],
+        ownerException: "enzo-factory",
+        ownerOwnedArea: null,
+      },
+      {
+        author: "sidmohanty11",
+        changedFiles: ["templates/design/app/routes/index.tsx"],
+        ownerException: "sid-design",
+        ownerOwnedArea: "design",
+      },
+    ] as const;
+
+    for (const testCase of cases) {
       expect(
         decidePullRequestGovernance({
           ...cleanInternalBug,
-          repository: `BuilderIO/${area.toLowerCase()}`,
+          author: testCase.author,
+          changedFiles: testCase.changedFiles,
+          clearBug: false,
+          productUxImplications: true,
+          checksPassed: false,
+          reviewFeedbackHandled: false,
         }),
       ).toMatchObject({
-        ownerOwnedArea: area.toLowerCase(),
-        autoApprove: false,
+        ownerException: testCase.ownerException,
+        ownerOwnedArea: testCase.ownerOwnedArea,
+        autoApprove: true,
         autoMerge: false,
       });
     }
+  });
+
+  it("applies the verified docs-only exception", () => {
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        author: "bwreid",
+        changedFiles: ["docs/review.md", ".changeset/docs-review.md"],
+        clearBug: false,
+        productUxImplications: true,
+        checksPassed: false,
+        reviewFeedbackHandled: false,
+      }),
+    ).toMatchObject({
+      ownerException: "docs-only",
+      autoApprove: true,
+      autoMerge: false,
+    });
   });
 
   it("does not treat a product or UX change as a clear-bug approval", () => {
