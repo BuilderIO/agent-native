@@ -266,6 +266,33 @@ describe("LanguagePicker", () => {
     ).toBe("Interface language: Français");
   });
 
+  it("resolves System from the browser after switching away from an explicit locale", async () => {
+    await renderPicker();
+
+    await click(document.querySelector("[data-language-picker-trigger]")!);
+    const chineseOption = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]',
+      ),
+    ).find((button) => button.textContent?.trim() === "简体中文");
+    expect(chineseOption).toBeTruthy();
+
+    await click(chineseOption!);
+    expect(document.documentElement.lang).toBe("zh-CN");
+
+    await click(document.querySelector("[data-language-picker-trigger]")!);
+    const systemOption = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitemradio"]',
+      ),
+    ).find((button) => button.textContent?.trim() === "System");
+    expect(systemOption).toBeTruthy();
+
+    await click(systemOption!);
+    expect(document.documentElement.lang).toBe("en-US");
+    expect(window.localStorage.getItem(LOCALE_STORAGE_KEY)).toBe("system");
+  });
+
   it("shares locale context across duplicate optimized module instances", async () => {
     const providerModule = await importI18nCopy("provider-copy");
     const consumerModule = await importI18nCopy("consumer-copy");
