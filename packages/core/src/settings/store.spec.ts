@@ -116,4 +116,17 @@ describe("settings store", () => {
 
     expect(await getSetting("new-counter")).toEqual({ value: 8 });
   });
+
+  it("lists and isolates keys by prefix", async () => {
+    await putSetting("builder-connect-pending:a", { expiresAt: 1 });
+    await putSetting("builder-connect-pending:b", { expiresAt: 2 });
+    await putSetting("other:c", { expiresAt: 3 });
+
+    const { listSettingsByPrefix } = await import("./store.js");
+    const rows = await listSettingsByPrefix("builder-connect-pending:");
+    expect(rows.map((row) => row.key).sort()).toEqual([
+      "builder-connect-pending:a",
+      "builder-connect-pending:b",
+    ]);
+  });
 });

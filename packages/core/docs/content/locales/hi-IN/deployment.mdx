@@ -590,6 +590,8 @@ export default createAgentChatPlugin({
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) एक अलग managed code-capable workflow है जहाँ agent production में app UI बदल सकता है। Repository को Builder.io (free tier उपलब्ध) से जोड़ें और UI changes सीधे माँगें - redeploy की जरूरत नहीं।
 
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
 **यह कैसे काम करता है:**
 
 1. अपने एजेंट-मूल रेपो को Builder.io (free tier उपलब्ध) से कनेक्ट करें
