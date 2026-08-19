@@ -116,7 +116,7 @@ export default function CalendarTemplate() {
         }
         media={
           <img
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F85296abd8b3b40bbb63423503b99f474?format=webp&width=2200"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F466159be1617484798637cc88bc282c0?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.calendar.s001")}
             loading="lazy"

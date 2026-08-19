@@ -115,7 +115,7 @@ export default function ContentTemplate() {
         description={<p className="m-0">{t("templateLanding.content.s004")}</p>}
         media={
           <img
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcdc8b0fc1b194125af94d8e720dc1c7b?format=webp&width=2200"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F84aeddce626e47feb6fd4b2d201db07c?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.content.s001")}
             loading="lazy"

@@ -105,7 +105,7 @@ export default function DesignTemplate() {
         description={<p className="m-0">{t("templateLanding.design.s007")}</p>}
         media={
           <img
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F65ec1b4c1fb0473ba571b5af2b6a56f0?format=webp&width=2200"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F1040ac0beea344f0807cc22e28e3f87a?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.design.s001")}
             loading="lazy"
