@@ -1662,9 +1662,18 @@ export default function DeckEditor() {
                   onAwaitAddSlidePersisted={() => flushDeckSave(id)}
                   onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
                   addSlideAgentSubmit={addSlideAgentSubmit}
-                  onAddSlideGeneratingChange={(generating, targetSlideId) => {
-                    setAddSlideGenerating(generating);
-                    setAddSlideTargetId(generating ? targetSlideId : null);
+                  onAddSlideGeneratingChange={(isGenerating, targetSlideId) => {
+                    if (isGenerating) {
+                      // A new run starts clean: neither guard's "seen true"
+                      // state may carry over from an unrelated chat run, or
+                      // from whatever state the previous add-slide run left
+                      // behind, or the auto-clear effects below could fire on
+                      // stale state before this run even sends its request.
+                      sawGeneratingRef.current = false;
+                      sawAddSlideAgentGeneratingRef.current = false;
+                    }
+                    setAddSlideGenerating(isGenerating);
+                    setAddSlideTargetId(isGenerating ? targetSlideId : null);
                   }}
                   aiGeneratingSlideId={fillingPlaceholderSlideId}
                   onSelectSlide={(slideId) => {
