@@ -1,11 +1,9 @@
 name: Deploy Agent Native beta sites
 
-# The beta branch is the fast lane. Keep the branch mirror and deployment
-# trigger separate so every merged main commit is explicitly built by every
-# dedicated beta project, including projects that have no package changes.
+# The prebuilt GitHub workflow is now the sole automatic beta publisher. Keep
+# this Netlify-build implementation as a manual fallback during the pilot;
+# Netlify site-level Git builds remain a separate cutover switch.
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
 
 permissions:

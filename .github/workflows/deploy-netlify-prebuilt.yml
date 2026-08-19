@@ -1,8 +1,8 @@
 name: Pilot prebuilt Netlify deploy
 
 # Additive pilot lane for moving the build off Netlify while keeping Netlify as
-# the deploy/CDN layer. Existing Netlify Git builds remain enabled while the
-# automatic beta and manual production callers prove this path in parallel.
+# the deploy/CDN layer. Existing Netlify site builds remain enabled during the
+# pilot; the automatic beta caller and manual production caller prove this path.
 #
 # Safe rollout:
 #   1. deploy=false + build_context=deploy-preview validates the GitHub runner.
@@ -97,7 +97,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: netlify-prebuilt-${{ inputs.target }}-${{ inputs.site }}
+  group: ${{ inputs.target == 'production' && 'agent-native-production-publish' || format('netlify-prebuilt-beta-{0}', inputs.site) }}
   # Beta follows the newest moving ref. Never cancel a production publish that
   # may already be uploading or becoming live.
   cancel-in-progress: ${{ inputs.target == 'beta' }}
@@ -108,11 +108,53 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
+      - name: Validate the source revision
+        id: source
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          SOURCE_REF: ${{ inputs.source_ref }}
+          TARGET: ${{ inputs.target }}
+        with:
+          script: |
+            const requested = process.env.SOURCE_REF.trim();
+            const target = process.env.TARGET;
+            if (target === 'production') {
+              const mainSha = (await github.rest.git.getRef({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                ref: 'heads/main',
+              })).data.object.sha;
+              const sourceSha = requested || mainSha;
+              if (!/^[0-9a-f]{40}$/i.test(sourceSha)) {
+                core.setFailed('Production source_ref must be a full 40-character commit SHA.');
+                return;
+              }
+              if (requested) {
+                const comparison = await github.rest.repos.compareCommits({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  base: sourceSha,
+                  head: mainSha,
+                });
+                if (!['ahead', 'identical'].includes(comparison.data.status)) {
+                  core.setFailed(`Production source ${sourceSha} is not an ancestor of main ${mainSha}.`);
+                  return;
+                }
+              }
+              core.setOutput('source_ref', sourceSha);
+              return;
+            }
+            if (target === 'beta') {
+              core.setOutput('source_ref', requested || 'beta');
+              return;
+            }
+            core.setFailed(`Unknown deployment target: ${target}`);
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           # Beta sites are dedicated production sites whose source branch is
           # beta. Production sites continue to build from main.
-          ref: ${{ inputs.source_ref || (inputs.target == 'beta' && 'beta' || 'main') }}
+          ref: ${{ steps.source.outputs.source_ref }}
           fetch-depth: 1
 
       - uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v4.4.0
@@ -190,10 +232,12 @@ jobs:
         if: inputs.deploy
         env:
           DEPLOY_MODE: ${{ inputs.deploy_mode }}
+          BUILD_CONTEXT: ${{ inputs.build_context }}
           FUNCTIONS_DIRECTORY: ${{ steps.target.outputs.functions_directory }}
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_SITE_ID: ${{ steps.target.outputs.site_id }}
           PUBLISH_DIRECTORY: ${{ steps.target.outputs.publish_directory }}
+          SOURCE_TEMPLATE: ${{ steps.target.outputs.source_template }}
         run: |
           set -euo pipefail
 
@@ -201,6 +245,8 @@ jobs:
             --site "$NETLIFY_SITE_ID"
             --dir "$PUBLISH_DIRECTORY"
             --functions "$FUNCTIONS_DIRECTORY"
+            --filter "$SOURCE_TEMPLATE"
+            --context "$BUILD_CONTEXT"
             --no-build
             --message "GitHub Actions prebuilt deploy ${GITHUB_SHA}"
           )
