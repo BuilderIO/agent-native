@@ -238,7 +238,7 @@ body {
   --sidebar-accent: 0 0% 95%;
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
-  --desktop-chat-composer-background: 0 0% 100%;
+  --desktop-chat-composer-background: 0 0% 98%;
   --agent-native-lower-surface: hsl(var(--sidebar-background));
   position: relative;
   display: grid;
