@@ -1,3 +1,4 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect } from "react-router";
 
 import { Spinner } from "@/components/ui/spinner";
@@ -31,11 +32,11 @@ export function meta() {
  * hydrates. The app opens to the Important triage tab by default.
  */
 export function loader() {
-  throw redirect("/inbox?label=important");
+  throw withSsrHtmlContentType(redirect("/inbox?label=important"));
 }
 
 export function clientLoader() {
-  throw redirect("/inbox?label=important");
+  throw withSsrHtmlContentType(redirect("/inbox?label=important"));
 }
 
 export function HydrateFallback() {
