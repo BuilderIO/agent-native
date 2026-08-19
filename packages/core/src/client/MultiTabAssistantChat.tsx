@@ -948,6 +948,7 @@ export function MultiTabAssistantChat({
     hasMoreThreads,
     isLoadingMoreThreads,
     threadsLoadError,
+    restoredThreadIdOnListFailure,
     isNewThread,
     pinThread,
     renameThread,
@@ -1556,7 +1557,38 @@ export function MultiTabAssistantChat({
   // optimistic id for a brand-new session); the activeThreadId effect above
   // adds it to openTabIds without spinning up a duplicate thread.
   const autoCreatingRef = useRef(false);
+  const restoreFailureReplacementInFlightRef = useRef<string | null>(null);
   const lastTabReplacementInFlightRef = useRef(false);
+  useEffect(() => {
+    if (
+      isLoading ||
+      !restoredThreadIdOnListFailure ||
+      activeThreadId !== restoredThreadIdOnListFailure ||
+      restoreFailureReplacementInFlightRef.current ===
+        restoredThreadIdOnListFailure
+    ) {
+      return;
+    }
+
+    restoreFailureReplacementInFlightRef.current =
+      restoredThreadIdOnListFailure;
+    void createThread().then((id) => {
+      if (!id) {
+        restoreFailureReplacementInFlightRef.current = null;
+        return;
+      }
+      newThreadIds.current.add(id);
+      setOpenTabIds([id]);
+      writeThreadUrl(null, { replace: true });
+    });
+  }, [
+    activeThreadId,
+    createThread,
+    isLoading,
+    restoredThreadIdOnListFailure,
+    writeThreadUrl,
+  ]);
+
   useEffect(() => {
     if (isLoading || autoCreatingRef.current) return;
     if (openTabIds.length === 0 && !activeThreadId) {

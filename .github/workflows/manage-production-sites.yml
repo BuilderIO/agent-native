@@ -24,7 +24,9 @@ permissions:
   contents: read
 
 concurrency:
-  group: manage-agent-native-production-sites
+  # Share the publish lock with the GitHub-built production lane so a manual
+  # deploy or rollback cannot race a prebuilt publish for the same fleet.
+  group: agent-native-production-publish
   cancel-in-progress: false
 
 jobs:
