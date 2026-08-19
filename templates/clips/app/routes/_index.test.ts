@@ -17,9 +17,7 @@ function expectLibraryRedirect(
   const response = thrown as Response;
   expect(response.status).toBe(302);
   expect(response.headers.get("location")).toBe("/library?from=home");
-  expect(response.headers.get("content-type")).toBe(
-    "text/html; charset=utf-8",
-  );
+  expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
 }
 
 describe("Clips root route", () => {

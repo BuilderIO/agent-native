@@ -24,8 +24,8 @@ describe("Clips page HEAD route", () => {
     vi.clearAllMocks();
   });
 
-  it("marks the root redirect as HTML so the SSR cache policy can apply", async () => {
-    const response = await handler(makeEvent("/") as never);
+  it("marks the root redirect as HTML so the SSR cache policy can apply", () => {
+    const response = handler(makeEvent("/") as never);
 
     expect(response).toMatchObject({ status: 302 });
     expect(response.headers.get("location")).toBe("/library");
@@ -34,8 +34,8 @@ describe("Clips page HEAD route", () => {
     );
   });
 
-  it("keeps non-root HEAD responses as HTML", async () => {
-    const response = await handler(makeEvent("/library") as never);
+  it("keeps non-root HEAD responses as HTML", () => {
+    const response = handler(makeEvent("/library") as never);
 
     expect(response).toMatchObject({ status: 200 });
     expect(response.headers.get("content-type")).toBe("text/html");
