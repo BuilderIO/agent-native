@@ -474,7 +474,7 @@ export default function RecordingPage() {
       current.filter(
         (pending) =>
           !serverReactions.some(
-            (reaction) =>
+            (reaction: RecordingReaction) =>
               reaction.id === pending.id &&
               reaction.emoji === pending.emoji &&
               reaction.videoTimestampMs === pending.videoTimestampMs,
