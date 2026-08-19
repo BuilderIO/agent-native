@@ -385,7 +385,13 @@ meeting is Monday in UTC, so a UTC comparison deletes the wrong day. Pass
 UTC. Events are selected by where they **start**: `--from` inclusive, `--to`
 exclusive, so an event starting exactly on the end bound, or a multi-day event
 that began before `--from`, is left alone. Both bounds must be real dates; a
-blank or impossible date (`2026-02-30`) is rejected rather than rolled forward.
+blank or impossible date (`2026-02-30`, with or without a time) is rejected
+rather than rolled forward.
+
+`--removeOnly true` cannot honor `--scope thisAndFollowing`: Google only lets a
+non-organizer drop one occurrence at a time, so that pair is rejected instead of
+reporting a series-wide removal that did not happen. Use `--scope single` per
+occurrence, or `--scope all` to drop the whole series from your own calendar.
 
 A filtered selection only ever removes the matched occurrences, so it accepts
 `--scope single`. `all` and `thisAndFollowing` act on a whole recurring series —

@@ -835,6 +835,45 @@ describe("delete-events", () => {
     expect(deleteEventMock).not.toHaveBeenCalled();
   });
 
+  it("rejects an impossible date inside a datetime bound", async () => {
+    await expect(
+      run({
+        from: "2026-02-01",
+        to: "2026-02-30T00:00:00-08:00",
+        daysOfWeek: "weekend",
+        scope: "single",
+        sendUpdates: "none",
+      }),
+    ).rejects.toThrow(/not a real calendar date: 2026-02-30/i);
+    expect(listGoogleEventsMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects removeOnly with a scope the provider cannot honor", async () => {
+    await expect(
+      run({
+        ids: ["google-a"],
+        removeOnly: true,
+        scope: "thisAndFollowing",
+        sendUpdates: "none",
+      }),
+    ).rejects.toThrow(/cannot honor scope "thisAndFollowing"/i);
+    expect(removeEventFromCalendarMock).not.toHaveBeenCalled();
+
+    // "all" resolves the series master, so it is honored and still allowed.
+    const result = await run({
+      ids: ["google-a"],
+      removeOnly: true,
+      scope: "all",
+      sendUpdates: "none",
+    });
+    expect(result.deleted).toBe(1);
+    expect(removeEventFromCalendarMock).toHaveBeenCalledWith(
+      "a",
+      { ownerEmail: OWNER, accountEmail: OWNER },
+      { scope: "all", sendUpdates: "none" },
+    );
+  });
+
   it("refuses a match set larger than one bulk delete may commit", async () => {
     listGoogleEventsMock.mockResolvedValue({
       events: Array.from({ length: 201 }, (_, index) =>

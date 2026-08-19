@@ -106,15 +106,20 @@ function startsWithinRange(
 }
 
 /**
- * Reject a bound the shared resolver would silently reinterpret. A date-only
- * value like `2026-02-30` rolls forward into March during normalization, which
- * on a destructive filter widens the range past the dates the caller stated.
+ * Reject a bound the shared resolver would silently reinterpret. An impossible
+ * day rolls forward instead of failing on both paths a bound can take —
+ * `Date.UTC` for a date-only value and `new Date` for a datetime, where V8
+ * turns `2026-02-30T00:00:00-08:00` into March 2 — so a destructive range would
+ * silently cover dates the caller never stated. Validated on the leading date
+ * for that reason; an out-of-range month or an unparseable value already fails
+ * in `normalizeDateBound`.
  */
 function requireExplicitBound(value: string, label: "from" | "to"): string {
   const trimmed = value.trim();
   if (!trimmed) throw new Error(`${label} cannot be blank.`);
-  if (DATE_ONLY_RE.test(trimmed) && !isValidDateOnly(trimmed)) {
-    throw new Error(`${label} is not a real calendar date: ${trimmed}`);
+  const datePart = trimmed.slice(0, 10);
+  if (DATE_ONLY_RE.test(datePart) && !isValidDateOnly(datePart)) {
+    throw new Error(`${label} is not a real calendar date: ${datePart}`);
   }
   return trimmed;
 }
@@ -265,6 +270,16 @@ export default defineAction({
     // "thisAndFollowing" would have those occurrences race to rewrite the same
     // master RRULE. Either way the dry-run preview would understate what
     // happens, so a filtered selection is restricted to the matched occurrences.
+    // `removeEventFromCalendar` can only drop the named occurrence for
+    // "thisAndFollowing" — its own comment says so — so accepting the pair would
+    // report a series-wide removal while later occurrences stayed on the
+    // calendar. "all" resolves the master and is honored, so only this pair is
+    // rejected.
+    if (args.removeOnly && args.scope === "thisAndFollowing") {
+      throw new Error(
+        'removeOnly cannot honor scope "thisAndFollowing" — Google only lets a non-organizer drop one occurrence at a time. Use scope single per occurrence, or scope all to remove the whole series from your calendar.',
+      );
+    }
     // A series scope acts on the series master, so batching several ids under it
     // is incoherent: two occurrences of one series would either race to rewrite
     // the same RRULE cutoff or have the second call 404 on an already-deleted
