@@ -173,4 +173,20 @@ describe("Clips share metadata", () => {
       }),
     ).toBeUndefined();
   });
+
+  it("does not expose social images for password-protected recordings", () => {
+    expect(
+      resolveClipsSocialImageUrl({
+        recording: {
+          id: "rec-1",
+          visibility: "public",
+          status: "ready",
+          hasPassword: true,
+          thumbnailUrl: null,
+          animatedThumbnailUrl: null,
+        },
+        origin: "https://clips.example.com",
+      }),
+    ).toBeUndefined();
+  });
 });

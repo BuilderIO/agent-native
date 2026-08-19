@@ -124,6 +124,7 @@ type SharePageMetaRecording = {
   animatedThumbnailUrl: string | null;
   visibility: "private" | "org" | "public";
   status: "uploading" | "processing" | "ready" | "failed";
+  hasPassword: boolean;
   archivedAt: string | null;
   trashedAt: string | null;
 };
@@ -270,6 +271,7 @@ export async function loader({ params, url }: LoaderFunctionArgs) {
     animatedThumbnailUrl: null,
     visibility: rec.visibility,
     status: rec.status,
+    hasPassword: Boolean(rec.password),
     archivedAt: rec.archivedAt,
     trashedAt: rec.trashedAt,
   };

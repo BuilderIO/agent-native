@@ -20,6 +20,7 @@ export type ClipsShareMetaRecording = {
   animatedThumbnailUrl?: string | null;
   visibility?: string | null;
   status?: string | null;
+  hasPassword?: boolean;
   archivedAt?: string | null;
   trashedAt?: string | null;
 };
@@ -106,6 +107,7 @@ function canUseGeneratedSocialFrame(
     recording?.id &&
     recording.visibility === "public" &&
     recording.status === "ready" &&
+    !recording.hasPassword &&
     !recording.archivedAt &&
     !recording.trashedAt,
   );
@@ -117,6 +119,8 @@ export function resolveClipsSocialImageUrl(options: {
   basePath?: string;
 }): string | undefined {
   const { recording, origin = null, basePath = "" } = options;
+  if (recording?.hasPassword) return undefined;
+
   const storedImage = preferredSocialImage(recording);
 
   if (storedImage) {
