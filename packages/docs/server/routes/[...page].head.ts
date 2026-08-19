@@ -10,6 +10,7 @@ import {
 import { getRequestHeader, getRequestURL, setHeader, type H3Event } from "h3";
 
 import { estimateMarkdownTokens } from "../../../core/src/agent-web/index";
+import { applyDocsSsrCacheKeyHeaders } from "../ssr-cache";
 
 const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -42,9 +43,9 @@ export default async function docsHeadHandler(event: H3Event) {
 
   const response = await ssrHandler(event);
   const headers = new Headers(response.headers);
-  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
-    headers.set(k, v);
-  }
+  // Preserve the stronger full-query key emitted by core for query-preserving
+  // redirects; the normal Docs key is only for ordinary public SSR pages.
+  applyDocsSsrCacheKeyHeaders(headers);
   return new Response(response.body, {
     status: response.status,
     statusText: response.statusText,
