@@ -614,6 +614,40 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
+  it("fails closed when a private app access record cannot be inserted", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "scaffolded", name: "Scaffolded", path: "/scaffolded" },
+    ]);
+    mocks.settings.set("workspace-app-metadata:org:org-123", {
+      apps: {
+        scaffolded: {
+          visibility: "private",
+          createdBy: "creator@example.test",
+        },
+      },
+    });
+    const execute = vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      if (sql.includes("SELECT id, owner_email, org_id, visibility")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      throw new Error("workspace app access insert failed");
+    });
+    mocks.getDbExec.mockReturnValue({ execute });
+    mocks.resolveAccess.mockResolvedValue(null);
+
+    const apps = await runWithRequestContext(
+      { userEmail: "viewer@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
+  });
+
   it("hides expired pending Builder app rows", async () => {
     stubManifest();
     vi.stubEnv("BRANCH", "feature-a");
@@ -820,6 +854,46 @@ describe("startWorkspaceAppCreation", () => {
       apps: {
         onboarding: { visibility: "private" },
       },
+    });
+  });
+
+  it("rejects a cross-member collision with an active pending app id", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });
+    mocks.settings.set("dispatch-app-creation-settings:org:org-123", {
+      pendingApps: [
+        {
+          id: "onboarding",
+          name: "Onboarding",
+          description: "Already being created",
+          path: "/onboarding",
+          builderUrl:
+            "https://builder.io/app/projects/project-1/branch/onboarding",
+          branchName: "onboarding",
+          projectId: "project-1",
+          createdBy: "creator@example.test",
+          owner: "creator@example.test",
+          createdAt: "2026-08-19T21:00:00.000Z",
+          updatedAt: "2026-08-19T21:00:00.000Z",
+          expiresAt: "2999-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    await expect(
+      create("onboarding", {
+        userEmail: "other@example.test",
+        orgId: "org-123",
+      }),
+    ).rejects.toThrow("already being created by another member");
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+    ).toMatchObject({
+      pendingApps: [
+        expect.objectContaining({ createdBy: "creator@example.test" }),
+      ],
     });
   });
 

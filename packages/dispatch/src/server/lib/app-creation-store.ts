@@ -809,6 +809,25 @@ async function listPendingWorkspaceApps(): Promise<PendingWorkspaceApp[]> {
   return parsePendingWorkspaceApps(raw.pendingApps);
 }
 
+async function assertPendingWorkspaceAppCreationAvailable(
+  appId: string,
+): Promise<void> {
+  const existing = (await listPendingWorkspaceApps())
+    .filter(pendingWorkspaceAppMatchesCurrentContext)
+    .find((app) => app.id === appId);
+  if (!existing) return;
+
+  const viewerEmail = currentOwnerEmail().trim().toLowerCase();
+  const ownerEmail = (existing.createdBy ?? existing.owner)
+    ?.trim()
+    .toLowerCase();
+  if (ownerEmail && ownerEmail !== viewerEmail) {
+    throw new Error(
+      `Workspace app "${appId}" is already being created by another member.`,
+    );
+  }
+}
+
 function parseArchivedAppIds(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const ids = value
@@ -1256,6 +1275,16 @@ async function recordPendingWorkspaceApp(input: {
   const existing = pendingApps
     .filter((app) => !isPendingWorkspaceAppExpired(app))
     .find(samePendingEntry);
+  const creatorEmail = currentOwnerEmail();
+  const existingOwnerEmail = existing?.createdBy ?? existing?.owner;
+  if (
+    existingOwnerEmail &&
+    existingOwnerEmail.trim().toLowerCase() !== creatorEmail.toLowerCase()
+  ) {
+    throw new Error(
+      `Workspace app "${input.appId}" is already being created by another member.`,
+    );
+  }
   const next: PendingWorkspaceApp = {
     id: input.appId,
     name: titleCase(input.appId),
@@ -1269,8 +1298,8 @@ async function recordPendingWorkspaceApp(input: {
     contextId: context?.id ?? null,
     contextLabel: context?.label ?? null,
     visibility: input.visibility,
-    createdBy: currentOwnerEmail(),
-    owner: currentOwnerEmail(),
+    createdBy: existing?.createdBy ?? existing?.owner ?? creatorEmail,
+    owner: existing?.owner ?? existing?.createdBy ?? creatorEmail,
     createdAt: existing?.createdAt || now,
     updatedAt: now,
     expiresAt: pendingWorkspaceAppExpiresAt(existing?.createdAt || now),
@@ -1289,8 +1318,8 @@ async function recordPendingWorkspaceApp(input: {
     description: input.description,
     generated: true,
     sourcePrompt: input.sourcePrompt,
-    updatedBy: currentOwnerEmail(),
-    createdBy: currentOwnerEmail(),
+    updatedBy: creatorEmail,
+    createdBy: next.createdBy,
     visibility: input.visibility,
   });
 
@@ -1858,6 +1887,14 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
   }
 
   const visibility = await workspaceAppDefaultVisibility();
+  const creatorEmail = currentOwnerEmail();
+
+  await writeWorkspaceAppMetadataOverride({
+    appId,
+    updatedBy: creatorEmail,
+    createdBy: creatorEmail,
+    visibility,
+  });
 
   const output = await runScaffoldCli({
     cwd: workspaceRoot,
@@ -2414,6 +2451,7 @@ export async function startWorkspaceAppCreation(input: {
   }
 
   const creationVisibility = await workspaceAppDefaultVisibility();
+  await assertPendingWorkspaceAppCreationAvailable(initial.appId);
 
   const selectedKeys = input.secretIds?.length
     ? (await listSecretOptions())
