@@ -185,6 +185,40 @@ jobs:
               throw new Error(`[${name}] Netlify did not publish deploy ${deployId} within 5 minutes.`);
             }
 
+            async function publishExistingMainDeploy(name, site, sourceSha) {
+              const currentSite = await readJson(
+                await request(`${API}/sites/${site.siteId}`, { headers }),
+                `[${name}] published deploy lookup`,
+              );
+              if (currentSite.published_deploy?.commit_ref === sourceSha) {
+                core.info(`[${name}] production already serves main ${sourceSha}.`);
+                return;
+              }
+
+              const deploys = await readJson(
+                await request(`${API}/sites/${site.siteId}/deploys?per_page=100`, { headers }),
+                `[${name}] production deploy history`,
+              );
+              const match = deploys
+                .filter((deploy) => deploy.context === 'production' && deploy.state === 'ready' && deploy.commit_ref === sourceSha)
+                .sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')))[0];
+              if (!match) {
+                throw new Error(
+                  `[${name}] build reported no content change, but production serves ${currentSite.published_deploy?.commit_ref || 'an unknown commit'} and no ready production deploy for main ${sourceSha} exists to publish.`,
+                );
+              }
+
+              await readJson(
+                await request(`${API}/sites/${site.siteId}/deploys/${match.id}/restore`, {
+                  method: 'POST',
+                  headers,
+                }),
+                `[${name}] publish existing deploy ${match.id}`,
+              );
+              await waitForPublished(name, site.siteId, match.id);
+              core.info(`[${name}] production now serves ${match.id} (${sourceSha}).`);
+            }
+
             async function deployMain(name, site, sourceSha) {
               const query = new URLSearchParams({ branch: 'main' });
               const build = await readJson(
@@ -198,7 +232,10 @@ jobs:
               core.info(`[${name}] queued build ${build.id} for main ${sourceSha}.`);
 
               const completed = await waitForBuild(name, build.id);
-              if (!completed) return;
+              if (!completed) {
+                await publishExistingMainDeploy(name, site, sourceSha);
+                return;
+              }
               const deploy = await waitForReadyDeploy(name, completed.deploy_id);
               if (deploy.commit_ref && deploy.commit_ref !== sourceSha) {
                 throw new Error(
@@ -206,7 +243,7 @@ jobs:
                 );
               }
               await readJson(
-                await request(`${API}/deploys/${deploy.id}/restore`, {
+                await request(`${API}/sites/${site.siteId}/deploys/${deploy.id}/restore`, {
                   method: 'POST',
                   headers,
                 }),
@@ -234,7 +271,7 @@ jobs:
               if (!previous) throw new Error(`[${name}] has no prior ready production deploy to restore.`);
 
               await readJson(
-                await request(`${API}/deploys/${previous.id}/restore`, {
+                await request(`${API}/sites/${site.siteId}/deploys/${previous.id}/restore`, {
                   method: 'POST',
                   headers,
                 }),

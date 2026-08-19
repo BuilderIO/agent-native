@@ -1030,7 +1030,10 @@ function resolveBuiltInMarketingSlug(
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   for (const [slug, builtIn] of Object.entries(BUILT_IN_AUTH_MARKETING)) {
-    if (marketing.tagline === builtIn.tagline || normalizedAppName === slug) {
+    // Caller-supplied marketing can reuse a built-in app name; only content
+    // identity may claim a slug, or its localized copy overwrites custom copy.
+    if (marketing.tagline !== builtIn.tagline) continue;
+    if (marketing.appName === builtIn.appName || normalizedAppName === slug) {
       return slug;
     }
   }
