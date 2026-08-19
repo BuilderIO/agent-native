@@ -568,7 +568,7 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     expect(html).toContain(
       "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
     );
-    expect(html).toContain('var __AN_AUTH_MARKETING_LOCALES = {};');
+    expect(html).toContain("var __AN_AUTH_MARKETING_LOCALES = {};");
     expect(html).toContain("function __anResolveAuthSystemLocale()");
     expect(html).not.toContain("var rootLocale =");
   });
