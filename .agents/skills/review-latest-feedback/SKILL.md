@@ -254,18 +254,28 @@ Do not infer a Sentry “no results” state from an unavailable API.
 Build one checklist per item with its source link, symptom, expected behavior,
 evidence, likely owner, and disposition. Use this order:
 
-1. **React first for actionable Slack feedback** - once a Slack item is
-   classified as a concrete repo-owned bug or missing-reporter-evidence case,
-   add `👀` to its parent immediately. This must be the first external action
-   for that Slack item: do it before reading linked evidence, delegating,
-   editing code, or asking a clarification. GitHub and Sentry items have no
-   Slack parent, so apply the same evidence-first triage without a reaction.
-   Do not react to status-only, subjective, duplicate, external, or non-repo-
-   owned items. A duplicate reaction is safe and should still be attempted
-   when the marker is not visible in the thread.
-2. **Concrete repo-owned bug** - after the `👀` marker, reproduce or establish
-   it from source, tests, logs, a stack trace, or a linked run. Fix it and keep
-   working until the smallest meaningful verification is green.
+1. **Check the existing marker and owner before any Slack write** - after
+   reading the complete parent, replies, reactions, and the linked evidence
+   needed to classify the item, inspect the latest readable parent reaction
+   state. If it already has an `👀` reaction from anyone, preserve that marker
+   and do not add another. If the reaction state is unavailable, record the
+   item as unavailable or unverified and do not guess or add a reaction. GitHub
+   and Sentry items have no Slack parent, so apply the same evidence-first
+   triage without a reaction.
+   - UX or interaction bugs in the Design app are owned by Sid. Do not
+     automatically react, investigate, fix, clarify, reply, or dispatch those
+     items; record the source and route them to Sid.
+   - All Content app feedback is owned by Alice. Leave those items for Alice;
+     do not automatically react, investigate, fix, clarify, reply, or dispatch
+     them. Record the source and ownership in the disposition.
+   - For a concrete repo-owned or missing-evidence Slack item that is not
+     already marked, add `👀` as the first external write, before delegating,
+     editing code, or asking a clarification. Do not react to status-only,
+     subjective, duplicate, external, or other non-repo-owned items.
+2. **Concrete repo-owned bug** - after the `👀` marker or existing-marker
+   check, reproduce or establish it from source, tests, logs, a stack trace, or
+   a linked run. Fix it and keep working until the smallest meaningful
+   verification is green.
 3. **Missing reporter evidence with no resolution signal** - after the `👀`
    marker and full-thread review, ask one specific question naming the exact
    reproduction, input, or surface needed to choose and verify a safe fix. If a
