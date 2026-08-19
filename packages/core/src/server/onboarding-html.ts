@@ -20,6 +20,11 @@ import {
 import { NATIVE_AUTH_COPY } from "../shared/auth-copy.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
+  BETA_OPT_OUT_DURATION_MS,
+  BETA_OPT_OUT_QUERY_PARAM,
+  ENVIRONMENT_BETA_HOSTS,
+} from "../shared/environment-lanes.js";
+import {
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
 } from "../shared/password-policy.js";
@@ -1252,6 +1257,15 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
 ${localeMenuItemsHtml}
   </div>
 </div>`;
+  const environmentBadgeHtml = `
+<div class="environment-switcher" id="environment-switcher" hidden>
+  <button type="button" class="environment-badge" id="environment-badge" aria-expanded="false" aria-controls="environment-popover">beta</button>
+  <div class="environment-popover" id="environment-popover" role="dialog" aria-labelledby="environment-popover-title" hidden>
+    <div class="environment-popover-title" id="environment-popover-title">You're on Agent Native Beta</div>
+    <div class="environment-popover-copy">Choose where you want to continue.</div>
+    <a class="environment-production-link" id="environment-production-link" href="">Switch to production</a>
+  </div>
+</div>`;
   const hostedSignupLegalNotice: SignupLegalNoticeOptions | undefined =
     opts.signupLegalNotice === undefined &&
     isAgentNativeHostedHost(opts.requestHost)
@@ -1645,8 +1659,53 @@ ${marketing!.description ? `      <p class="app-desc" data-marketing-field="desc
       }
     }
     if (!reducedMotion) startAnimation();
-  })();`
+    })();`
     : "";
+  const environmentBadgeScript = `
+  (function __anInitEnvironmentBadge() {
+    var switcher = document.getElementById('environment-switcher');
+    var button = document.getElementById('environment-badge');
+    var popover = document.getElementById('environment-popover');
+    var productionLink = document.getElementById('environment-production-link');
+    if (!switcher || !button || !popover || !productionLink) return;
+    if (window.parent !== window) return;
+
+    var betaHosts = ${JSON.stringify(ENVIRONMENT_BETA_HOSTS)};
+    var hostname = (window.location.hostname || '').toLowerCase().replace(/\\.$/, '');
+    var productionHost = hostname.indexOf('beta.') === 0 ? hostname.slice(5) : '';
+    if (!productionHost || betaHosts[productionHost] !== hostname) return;
+
+    try {
+      var productionUrl = new URL(window.location.href);
+      productionUrl.protocol = 'https:';
+      productionUrl.hostname = productionHost;
+      productionUrl.port = '';
+      productionUrl.searchParams.set(
+        ${JSON.stringify(BETA_OPT_OUT_QUERY_PARAM)},
+        String(Date.now() + ${BETA_OPT_OUT_DURATION_MS}),
+      );
+      productionLink.href = productionUrl.toString();
+    } catch (error) {
+      void error;
+      return;
+    }
+
+    function setOpen(open) {
+      popover.hidden = !open;
+      button.setAttribute('aria-expanded', String(open));
+    }
+
+    switcher.hidden = false;
+    button.addEventListener('click', function() {
+      setOpen(popover.hidden);
+    });
+    document.addEventListener('click', function(event) {
+      if (!switcher.contains(event.target)) setOpen(false);
+    });
+    document.addEventListener('keydown', function(event) {
+      if (event.key === 'Escape') setOpen(false);
+    });
+  })();`;
 
   return `<!DOCTYPE html>
 <html lang="${DEFAULT_LOCALE}" dir="ltr">
@@ -1789,6 +1848,69 @@ ${
   .locale-menu-item[aria-checked="true"] .locale-menu-check {
     opacity: 1;
   }
+  /* guard:allow-raw-color - standalone auth HTML has no app theme token layer */
+  .environment-switcher {
+    position: fixed;
+    right: max(0.75rem, env(safe-area-inset-right));
+    bottom: max(0.75rem, env(safe-area-inset-bottom));
+    z-index: 100;
+  }
+  .environment-switcher[hidden],
+  .environment-popover[hidden] { display: none; }
+  .environment-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.5rem;
+    min-width: 0;
+    padding: 0 0.5rem;
+    background: #3a3a3a;
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 0.75rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.25);
+    font: inherit;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.03125rem;
+    line-height: 1;
+    text-transform: uppercase;
+    cursor: pointer;
+  }
+  .environment-badge:hover,
+  .environment-badge[aria-expanded="true"] { background: #4a4a4a; }
+  .environment-badge:focus-visible,
+  .environment-production-link:focus-visible {
+    outline: 2px solid #33c4ff;
+    outline-offset: 2px;
+  }
+  .environment-popover {
+    position: absolute;
+    right: 0;
+    bottom: calc(100% + 0.5rem);
+    width: min(17.5rem, calc(100vw - 1.5rem));
+    padding: 1.25rem;
+    background: #141414;
+    color: #fff;
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 0.75rem;
+    box-shadow: 0 18px 50px rgba(0,0,0,0.42);
+  }
+  .environment-popover-title { margin-bottom: 0.25rem; font-size: 0.875rem; font-weight: 600; line-height: 1.25rem; }
+  .environment-popover-copy { margin-bottom: 1rem; color: #888; font-size: 0.875rem; line-height: 1.25rem; }
+  .environment-production-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 2rem;
+    padding: 0.375rem 0.75rem;
+    color: #e5e5e5;
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 0.375rem;
+    font-size: 0.8125rem;
+    text-decoration: none;
+  }
+  .environment-production-link:hover { background: #242424; }
   .card {
     width: 100%;
     max-width: 400px;
@@ -2208,6 +2330,7 @@ ${embeddedAuthCss}
 </head>
 <body${simplifiedAuth ? ' class="simplified-auth"' : hasMarketing ? ' class="has-marketing"' : ""}>
 ${localePickerHtml}
+${environmentBadgeHtml}
 ${marketingPanelHtml}
 <div class="card">
   <h1 id="heading"${i18nAttr(googleOnly ? "signInTitle" : "welcomeTitle")}>${esc(t(googleOnly ? "signInTitle" : "welcomeTitle"))}</h1>
@@ -2305,6 +2428,7 @@ ${signupLocalModeNoteHtml}
   <span${i18nAttr("localNotePrefix")}>${esc(t("localNotePrefix"))}</span> (<strong>${getConnectionLabel()}</strong>)<span${i18nAttr("localNoteSuffix")}>${esc(t("localNoteSuffix"))}</span>
 </p>${marketingCloseHtml}
 <script>
+${environmentBadgeScript}
   function __anBasePath() {
     var configured = ${JSON.stringify(appBasePath)};
     if (configured) return configured;

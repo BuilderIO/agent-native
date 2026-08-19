@@ -30,6 +30,10 @@ describe("edited playback timeline", () => {
     expect(editedToOriginal(3_000, editsWithCuts)).toBe(4_500);
     expect(editedToOriginal(8_500, editsWithCuts)).toBe(10_000);
   });
+
+  it("keeps reaction timestamps anchored to the original video timeline", () => {
+    expect(editedToOriginal(1_500, editsWithCuts)).toBe(2_500);
+  });
 });
 
 describe("skipExcludedRange", () => {

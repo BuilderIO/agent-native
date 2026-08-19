@@ -199,6 +199,20 @@ function isConnectionRecoveryRunError(info: RunErrorInfo): boolean {
   );
 }
 
+function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
+  const code = (info.errorCode ?? "").toLowerCase();
+  const text = [info.message, info.details].filter(Boolean).join("\n");
+  const hasCredentialSetupText =
+    /no llm provider(?: key)? (?:is connected|was found)|missing credentials|missing api key|missing_api_key|(?:api[_ -]?key|auth[_ -]?token)\s*(?:(?:is|was)\s+)?(?:not\s+(?:set|configured|available|present|provided|found)|missing|unavailable|empty|unset|unconfigured)/i.test(
+      text,
+    );
+  return (
+    hasCredentialSetupText ||
+    ((code === "missing_credentials" || code === "missing_api_key") &&
+      !text.trim())
+  );
+}
+
 // ─── BuilderConnectCta ────────────────────────────────────────────────────────
 // Renders a single row with left-aligned copy and a right-aligned action.
 // Click opens the Builder OAuth popup via the shared
@@ -483,11 +497,15 @@ export function RunErrorRecoveryCard({
   );
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
+  const [providerConnected, setProviderConnected] = useState(false);
+  const retryRequestedRef = useRef(false);
+  const [retryRequested, setRetryRequested] = useState(false);
   const builderReconnect = useBuilderConnectFlow({
     trackingSource: "assistant_chat_reconnect_error",
   });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
+  const shouldShowMissingProviderSetup = isMissingLlmProviderRunError(info);
   const isProviderAuthError = isProviderAuthenticationError(
     [info.message, info.details].filter(Boolean).join("\n"),
     info.errorCode,
@@ -538,6 +556,17 @@ export function RunErrorRecoveryCard({
     onDismiss();
   }, [onDismiss, onProviderConnected, onRetry]);
 
+  const handleMissingProviderConnected = useCallback(() => {
+    setProviderConnected(true);
+    onProviderConnected?.();
+  }, [onProviderConnected]);
+  const handleMissingProviderRetry = useCallback(() => {
+    if (retryRequestedRef.current) return;
+    retryRequestedRef.current = true;
+    setRetryRequested(true);
+    onRetry();
+  }, [onRetry]);
+
   const handleFork = useCallback(async () => {
     if (!onFork || forking) return;
     setForking(true);
@@ -559,6 +588,31 @@ export function RunErrorRecoveryCard({
       onDismiss();
     }
   }, [builderReconnectResolved, onDismiss]);
+
+  if (shouldShowMissingProviderSetup) {
+    return (
+      <div className="w-full">
+        <BuilderSetupCard
+          fullWidth
+          layout="sidebar"
+          onConnected={handleMissingProviderConnected}
+        />
+        {providerConnected ? (
+          <div className="flex justify-center px-3 pt-1">
+            <button
+              type="button"
+              onClick={handleMissingProviderRetry}
+              disabled={retryRequested}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
+            >
+              <IconRefresh size={13} />
+              {t("agentChat.common.retry")}
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">

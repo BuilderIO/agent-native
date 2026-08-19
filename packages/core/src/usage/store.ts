@@ -212,7 +212,7 @@ export type UsageCostSource = "reported" | "estimated" | "unavailable";
 
 let _initPromise: Promise<void> | undefined;
 
-async function ensureUsageTable(): Promise<void> {
+export async function ensureUsageTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

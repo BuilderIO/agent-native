@@ -170,7 +170,7 @@ export function resolvedEmbedCapabilityScope(
   return scope;
 }
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       // Build the CREATE SQL here (not at module scope) so intType() runs at

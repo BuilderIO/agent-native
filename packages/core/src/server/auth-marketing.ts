@@ -237,7 +237,11 @@ function slugFromHost(value: string | undefined): string | undefined {
   const host = value.split(",")[0]?.trim().split(":")[0]?.toLowerCase();
   if (!host) return undefined;
   if (host.endsWith(".agent-native.com")) {
-    return normalizeSlug(host.slice(0, -".agent-native.com".length));
+    const hostSlug = host.slice(0, -".agent-native.com".length);
+    return (
+      normalizeSlug(hostSlug) ??
+      normalizeSlug(hostSlug.replace(/^beta[.-]/, ""))
+    );
   }
   return undefined;
 }

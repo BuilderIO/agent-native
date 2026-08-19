@@ -303,6 +303,7 @@ type CodeAgentRunListResult<TRun extends CodeAgentRun = CodeAgentRun> = {
 
 type CodeAgentScheduleScope = "global" | "thread";
 type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
+
 type CodeAgentSchedule = {
   schemaVersion: 1;
   id: string;
@@ -372,12 +373,70 @@ type CodeAgentCreateRunRequest = {
   prompt: string;
   cwd?: string;
   executionTarget?: "local" | "worktree" | "portal";
+  worktree?: CodeAgentWorktreeSelection;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
   effort?: CodeAgentReasoningEffort | string;
   attachments?: CodeAgentPromptAttachment[];
   metadata?: Record<string, unknown>;
+};
+
+type CodeAgentWorktreeSelection = {
+  mode: "new" | "named";
+  name?: string;
+};
+
+type CodeAgentWorktreeSummary = {
+  id: string;
+  name: string;
+  branch: string;
+  path: string;
+  sourcePath: string;
+  state:
+    | "available"
+    | "attached"
+    | "cleanup-pending"
+    | "recoverable"
+    | "removed"
+    | "error";
+  attached: boolean;
+  lastUsedAt: string;
+  lastCleanupError?: string;
+};
+
+type CodeAgentWorktreeListResult = {
+  status: "ok" | "unavailable";
+  sourcePath: string;
+  worktrees: CodeAgentWorktreeSummary[];
+  error?: string;
+};
+
+type CodeAgentForkRunRequest = {
+  goalId?: string;
+  sourceRunId: string;
+  executionTarget: "local" | "worktree";
+};
+
+type CodeAgentForkRunResult = {
+  ok: boolean;
+  sourceRunId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+};
+
+type CodeAgentRestoreWorktreeRequest = {
+  worktreeId: string;
+  runId?: string;
+};
+
+type CodeAgentRestoreWorktreeResult = {
+  ok: boolean;
+  worktreeId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
 };
 
 type CodeAgentCreateRunResult = {
@@ -877,10 +936,15 @@ interface ElectronAPI {
     updateSchedule(input: unknown): Promise<CodeAgentScheduleResult>;
     deleteSchedule(input: unknown): Promise<CodeAgentScheduleResult>;
     runScheduleNow(input: unknown): Promise<CodeAgentScheduleResult>;
+    listWorktrees(cwd?: string): Promise<CodeAgentWorktreeListResult>;
     listModels(): Promise<CodeAgentModelListResult>;
     createRun(
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult>;
+    forkRun(request: CodeAgentForkRunRequest): Promise<CodeAgentForkRunResult>;
+    restoreWorktree(
+      request: CodeAgentRestoreWorktreeRequest,
+    ): Promise<CodeAgentRestoreWorktreeResult>;
     submitRemoteWaitlist(
       request: CodeAgentRemoteWaitlistRequest,
     ): Promise<CodeAgentRemoteWaitlistResult>;

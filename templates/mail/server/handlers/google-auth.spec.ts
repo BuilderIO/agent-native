@@ -200,8 +200,58 @@ describe("Mail Google auth-url handlers", () => {
 
     expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);
     const [message] = mocks.oauthErrorPage.mock.calls[0];
-    expect(message).toContain("already connected to another login");
+    expect(message).toContain("connected to another login");
     expect(message).not.toContain("first-login@example.com");
     expect(message).not.toContain("second-login@example.com");
+  });
+
+  it("treats scope failures from the primary callback query as missing permissions", async () => {
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://mail.agent-native.com/_agent-native/google/callback",
+      owner: "owner@example.com",
+    });
+    mocks.getAppUrl.mockReturnValue(
+      "https://mail.agent-native.com/_agent-native/google/callback",
+    );
+    mocks.oauthErrorPage.mockImplementation((message: string) => message);
+
+    const response = await handleGoogleCallback({
+      query: {
+        error: "forbidden",
+        error_description: "Request had insufficient authentication scopes.",
+      },
+    } as any);
+
+    expect(response).toContain("required permissions");
+    expect(response).toContain("Google Cloud Console");
+  });
+
+  it("treats 403 scope failures as missing Google permissions", async () => {
+    const { handleGoogleAddAccountCallback } = await import("./google-auth.js");
+    mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://mail.agent-native.com/_agent-native/google/add-account/callback",
+      owner: "owner@example.com",
+      desktop: false,
+      flowId: undefined,
+    });
+    mocks.getAppUrl.mockReturnValue(
+      "https://mail.agent-native.com/_agent-native/google/add-account/callback",
+    );
+    mocks.setResponseStatus.mockClear();
+    mocks.readBody.mockResolvedValue({});
+    mocks.oauthErrorPage.mockImplementation((message: string) => message);
+
+    const response = await handleGoogleAddAccountCallback({
+      query: {
+        error: "forbidden",
+        error_description: "Request had insufficient authentication scopes.",
+      },
+    } as any);
+
+    expect(response).toContain("required permissions");
+    expect(response).toContain("Google Cloud Console");
   });
 });
