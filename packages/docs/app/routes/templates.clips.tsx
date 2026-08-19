@@ -131,7 +131,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
       <div className="w-full text-start">
         <div
           ref={sliderRef}
-          className="flex snap-x snap-mandatory overflow-x-auto border border-[#1a1a1a] bg-[#0a0a0a] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          className="flex snap-x snap-mandatory overflow-x-auto border border-[var(--docs-border)] bg-[var(--bg-secondary)] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
         >
           {CLIP_PREVIEWS.map((clip, index) => (
             <a
@@ -139,8 +139,8 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
               href={clip.href}
               target="_blank"
               rel="noopener noreferrer"
-              className={`group flex basis-[82%] shrink-0 snap-start flex-col bg-[#0a0a0a] text-[var(--fg)] no-underline transition hover:no-underline sm:basis-[46%] lg:basis-[33.3333%] ${
-                index > 0 ? "border-s border-[#1a1a1a]" : ""
+              className={`group flex basis-[82%] shrink-0 snap-start flex-col bg-[var(--bg-secondary)] text-[var(--fg)] no-underline transition hover:no-underline sm:basis-[46%] lg:basis-[33.3333%] ${
+                index > 0 ? "border-s border-[var(--docs-border)]" : ""
               }`}
               onClick={() =>
                 trackEvent("view clip preview", {
@@ -154,14 +154,14 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
                 alt=""
                 loading="lazy"
                 decoding="async"
-                className="aspect-video w-full border-b border-[#1a1a1a] object-cover object-bottom"
+                className="aspect-video w-full border-b border-[var(--docs-border)] object-cover object-bottom"
               />
               <div className="flex w-full flex-1 flex-col gap-2">
-                <h3 className="m-0 max-w-[328px] text-[1.4375rem] font-medium leading-[1.15] tracking-[-0.46px] !text-white">
+                <h3 className="m-0 max-w-[328px] text-[1.4375rem] font-medium leading-[1.15] tracking-[-0.46px] text-[var(--fg)]">
                   {clip.title}
                 </h3>
                 <div className="flex flex-1 items-end">
-                  <span className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#5e5e5e] bg-[#0a0a0a] transition group-hover:border-[var(--fg-secondary)]">
+                  <span className="inline-flex size-10 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] text-[var(--fg)] transition-[border-color,color] group-hover:border-[var(--fg-secondary)]">
                     <svg
                       width="18"
                       height="18"
@@ -171,7 +171,7 @@ const ClipPreviewSlider = forwardRef<ClipPreviewSliderHandle>(
                     >
                       <path
                         d="M13.3125 12C13.3125 12.3107 13.0606 12.5625 12.75 12.5625C12.4393 12.5625 12.1875 12.3107 12.1875 12V6.60791L5.64766 13.1477C5.42799 13.3674 5.07192 13.3674 4.85225 13.1477C4.63258 12.928 4.63258 12.572 4.85225 12.3523L11.392 5.8125H5.99996C5.6893 5.8125 5.43746 5.56066 5.43746 5.25C5.43746 4.93934 5.6893 4.6875 5.99996 4.6875H12.75C13.0606 4.6875 13.3125 4.93934 13.3125 5.25V12Z"
-                        fill="#FAF9F5"
+                        fill="currentColor"
                       />
                     </svg>
                   </span>
