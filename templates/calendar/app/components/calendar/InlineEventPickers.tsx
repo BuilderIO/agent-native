@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/popover";
 import {
   formatTimezoneLabel,
-  createCustomRecurrenceDraft,
   parseCustomRecurrence,
   type RecurrencePreset,
   type CustomRecurrenceDraft,
@@ -530,7 +529,7 @@ function CustomRecurrenceEditor({
             checked={draft.endMode === "date"}
             onChange={() => update({ endMode: "date" })}
           />
-          <span>{t("eventForm.onDate", { date: "" }).replace(/ $/, "")}</span>
+          <span>{t("eventForm.on")}</span>
           <Input
             type="date"
             value={draft.endDate}

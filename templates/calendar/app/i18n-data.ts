@@ -839,6 +839,7 @@ const enUS = {
     repeatOn: "Repeat on",
     ends: "Ends",
     never: "Never",
+    on: "On",
     after: "After",
     occurrences: "occurrences",
     reviewInvite: "Review Invite",
