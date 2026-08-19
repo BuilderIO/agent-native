@@ -99,4 +99,6 @@ Read the relevant skill before deeper work in that area.
 ## Source Changes
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; read
-`customizing-agent-native` before adapting shared UI.
+`customizing-agent-native` before adapting shared UI. Editor behavior lives in
+`app/pages/design-editor/commands/*.ts`, not `DesignEditor.tsx` — read
+`design-editor-architecture` before changing it.

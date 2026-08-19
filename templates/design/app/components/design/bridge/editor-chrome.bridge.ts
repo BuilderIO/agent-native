@@ -1768,14 +1768,15 @@ declare var __SELECTED_LAYER_DRAG_PRIORITY__: boolean;
   // Editor-internal CSS custom-property prefixes — selection chrome colors,
   // editor-chrome scale compensation, framework clipboard/surface tokens.
   // These have no meaning outside this editor session and must never leak
-  // into persisted user HTML/exports. DesignEditor.tsx's
+  // into persisted user HTML/exports. design-editor/portable-style.ts's
   // applyPortableStyleSnapshotToHtml (isEditorInternalCssVar /
   // EDITOR_INTERNAL_CSS_VAR_PREFIXES) already filters them back out on the
   // apply side; filtering here too at COLLECTION time is pure bloat
   // reduction (skips carrying them across the postMessage boundary at all)
   // and changes no observable behavior on the apply side.
   //
-  // keep in sync with DesignEditor.tsx's EDITOR_INTERNAL_CSS_VAR_PREFIXES
+  // keep in sync with design-editor/portable-style.ts's
+  // EDITOR_INTERNAL_CSS_VAR_PREFIXES
   var EDITOR_INTERNAL_CSS_VAR_PREFIXES = [
     "--design-editor-",
     "--agent-native-editor-chrome-",
