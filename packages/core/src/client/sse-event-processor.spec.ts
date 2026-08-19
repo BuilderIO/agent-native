@@ -2116,7 +2116,7 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({ type: "agent-chat:run-error" }),
     );
     expect(results[0]).toEqual({
-      content: [{ type: "text", text: "Error: No LLM provider is connected" }],
+      content: [],
       status: { type: "incomplete", reason: "error" },
       metadata: {
         custom: {
@@ -2257,12 +2257,7 @@ describe("SSE event processor error classification", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),
     );
-    expect(results[0]?.content).toEqual([
-      {
-        type: "text",
-        text: expect.stringMatching(/^Error: No LLM provider is connected/),
-      },
-    ]);
+    expect(results[0]?.content).toEqual([]);
     expect(results[0]?.status).toEqual({
       type: "incomplete",
       reason: "error",

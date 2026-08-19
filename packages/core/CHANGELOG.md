@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.164.8
+
+### Patch Changes
+
+- 939f6d2: Keep the core CLI agent-tool imports formatter-clean for package builds.
+
+## 0.164.7
+
+### Patch Changes
+
+- 06cea8f: Keep the desktop chat composer blank while the identity gate is handling an unauthenticated saved thread.
+
 ## 0.164.6
 
 ### Patch Changes

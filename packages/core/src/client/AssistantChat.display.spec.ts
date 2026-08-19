@@ -1522,6 +1522,12 @@ describe("missing agent engine setup", () => {
     expect(source).not.toContain("data-agent-composer-setup-position");
     expect(css).toContain(".agent-builder-setup-card--attached");
     expect(css).toContain(".agent-composer-area--attached-above");
+    expect(css).toMatch(
+      /\.agent-builder-setup-content\s*\{[^}]*container-type:\s*inline-size;[^}]*container-name:\s*agent-builder-setup;/s,
+    );
+    expect(css).toMatch(
+      /@container agent-builder-setup \(max-width: 560px\)[\s\S]*?\.agent-builder-setup-card__actions[\s\S]*?flex-direction:\s*column;/s,
+    );
   });
 
   it("keeps a no-provider prompt queued until setup is connected", () => {

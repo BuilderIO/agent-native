@@ -330,7 +330,7 @@ export const IN_FLIGHT_RUN_STALE_GRACE_MS = 14.5 * 60_000; // 870_000
  */
 export const IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS = 120_000;
 
-async function ensureRunTables(): Promise<void> {
+export async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

@@ -87,7 +87,7 @@ const TRUST_VALUES = new Set<IntegrationConversationTrust>([
   "unknown",
 ]);
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const db = getDbExec();
