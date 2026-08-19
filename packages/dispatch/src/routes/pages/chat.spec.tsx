@@ -8,6 +8,7 @@ import ChatRoute from "./chat";
 
 const clientState = vi.hoisted(() => ({
   surfaceProps: null as Record<string, unknown> | null,
+  activeRunId: null as string | null,
   writeClipboardText: vi.fn(),
   agents: [] as Array<{
     id: string;
@@ -28,6 +29,7 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
   insertAgentComposerReference: vi.fn(),
   markAgentChatHomeHandoff: vi.fn(),
   readChatFirstMode: () => true,
+  useActiveAgentChatRunId: () => clientState.activeRunId,
   navigateWithAgentChatViewTransition: (
     navigate: (path: string) => void,
     path: string,
@@ -77,6 +79,7 @@ describe("Dispatch ChatRoute", () => {
     vi.useFakeTimers();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     clientState.surfaceProps = null;
+    clientState.activeRunId = null;
     clientState.agents = [];
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -187,6 +190,7 @@ describe("Dispatch ChatRoute", () => {
   });
 
   it("exposes a copyable request ID affordance on threaded chats", async () => {
+    clientState.activeRunId = "run-456";
     clientState.writeClipboardText.mockResolvedValue(true);
 
     await act(async () => {
@@ -207,6 +211,22 @@ describe("Dispatch ChatRoute", () => {
       await Promise.resolve();
     });
 
-    expect(clientState.writeClipboardText).toHaveBeenCalledWith("chat-123");
+    expect(clientState.writeClipboardText).toHaveBeenCalledWith("run-456");
+  });
+
+  it("keeps the request ID affordance unavailable before a run starts", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/chat-123"]}>
+          <ChatRoute />
+        </MemoryRouter>,
+      );
+    });
+
+    const button = Array.from(container.querySelectorAll("button")).find((el) =>
+      el.textContent?.includes("Request ID unavailable"),
+    );
+    expect(button).toBeTruthy();
+    expect(button).toHaveProperty("disabled", true);
   });
 });

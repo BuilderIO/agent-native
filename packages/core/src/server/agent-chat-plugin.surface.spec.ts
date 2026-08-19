@@ -215,6 +215,19 @@ describe("request-scoped action surface", () => {
     expect(devNativeBlock).not.toContain("resolveActionSurface");
   });
 
+  it("keeps request-scoped dev actions available without exposing them natively", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const requestScopedDevActions = options\?\.resolveActionSurface\s+\? Object\.fromEntries\([\s\S]*?discoveredActions, \.\.\.templateScripts[\s\S]*?agentTool: false/s,
+    );
+    expect(source).toMatch(
+      /\.\.\.requestScopedDevActions,\s+\.\.\.resourceScripts,/,
+    );
+  });
+
   it("removes denied actions before the actions prompt is generated", () => {
     const actions = {
       allowed: {

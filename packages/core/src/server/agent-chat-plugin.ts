@@ -3765,12 +3765,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // template's actions as native tools instead of routing through bash.
         // Templates with structured-arg actions (objects/arrays) need this to
         // avoid round-tripping JSON through the CLI parser.
+        // Request-scoped dev actions are present for authorization and the
+        // `pnpm action` prompt, but remain CLI-only instead of becoming native
+        // tools. The resolver therefore sees the same action names that the
+        // dev prompt can teach without changing the shell-backed dev surface.
+        const requestScopedDevActions = options?.resolveActionSurface
+          ? Object.fromEntries(
+              Object.entries({ ...discoveredActions, ...templateScripts }).map(
+                ([name, entry]) => [name, { ...entry, agentTool: false }],
+              ),
+            )
+          : {};
         const devActions = attachToolSearch(
           leanPrompt
             ? leanActions
             : devNative
               ? prodActions
               : {
+                  ...requestScopedDevActions,
                   ...resourceScripts,
                   ...docsScripts,
                   ...(lazyContext ? frameworkContextTool : {}),
