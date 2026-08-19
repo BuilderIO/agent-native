@@ -233,13 +233,20 @@ export { displayableUserMessageText } from "./chat/message-components.js";
 type AuthSessionCheckResult = "available" | "missing" | "unknown";
 type ThreadRestoreErrorKind = "not-found" | "unavailable";
 
-// Desktop chat mounts beside the parent identity gate, so an unauthenticated
-// relay is an expected empty state until that gate establishes a session.
+// Desktop chat mounts beside the parent identity gate. The server masks an
+// unauthenticated thread lookup as 404, so a stale local pointer must not turn
+// the sign-in screen into a dead-thread error.
 export function shouldSuppressUnauthenticatedDesktopThreadRestore(
   surface: AgentChatSurfaceKind,
   status: number,
+  desktopIdentityUnauthenticated = false,
 ): boolean {
-  return surface === "desktop" && (status === 401 || status === 403);
+  return (
+    surface === "desktop" &&
+    (status === 401 ||
+      status === 403 ||
+      (status === 404 && desktopIdentityUnauthenticated))
+  );
 }
 
 const useBrowserLayoutEffect =
@@ -1924,6 +1931,10 @@ export interface AssistantChatProps {
    * dev filesystem/bash code-editing tools out of in-product sidebars.
    */
   agentChatSurface?: AgentChatSurfaceKind;
+  /** Whether the desktop host is currently showing its unauthenticated identity gate. */
+  desktopIdentityUnauthenticated?: boolean;
+  /** Whether the desktop host has just established its authenticated identity session. */
+  desktopIdentityAuthenticated?: boolean;
   /** Route completed first-party open_app calls through the host app pane. */
   suppressInlineOpenApp?: boolean;
   /** Placeholder text for empty state */
@@ -2441,6 +2452,8 @@ const AssistantChatInner = forwardRef<
     historyReloadKey,
     externalStreaming = false,
     agentChatSurface = "app",
+    desktopIdentityUnauthenticated = false,
+    desktopIdentityAuthenticated = false,
     suppressInlineOpenApp = false,
   },
   ref,
@@ -3008,6 +3021,41 @@ const AssistantChatInner = forwardRef<
     setIsRestoring(true);
     setRestoreAttempt((attempt) => attempt + 1);
   }, [isNewThread, threadId]);
+
+  // The desktop identity gate and chat restore run in sibling surfaces. If the
+  // gate wins the race after a masked 404 has already rendered, clear the
+  // transient not-found card and leave the user at a fresh composer.
+  useEffect(() => {
+    if (!desktopIdentityUnauthenticated) return;
+    setThreadRestoreError((current) =>
+      current === "not-found" ? null : current,
+    );
+  }, [desktopIdentityUnauthenticated]);
+
+  const desktopIdentityAuthenticatedRef = useRef(desktopIdentityAuthenticated);
+  useEffect(() => {
+    const becameAuthenticated =
+      desktopIdentityAuthenticated && !desktopIdentityAuthenticatedRef.current;
+    desktopIdentityAuthenticatedRef.current = desktopIdentityAuthenticated;
+    if (
+      !becameAuthenticated ||
+      agentChatSurface !== "desktop" ||
+      !threadId ||
+      isNewThread
+    ) {
+      return;
+    }
+    // A saved-thread request can race the identity handoff and be masked as a
+    // 404/401/403. Retry once the host confirms the authenticated session so
+    // the thread is restored without requiring a remount or manual retry.
+    retryThreadRestore();
+  }, [
+    agentChatSurface,
+    desktopIdentityAuthenticated,
+    isNewThread,
+    retryThreadRestore,
+    threadId,
+  ]);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
   const onGenerateTitleRef = useRef(onGenerateTitle);
@@ -3929,6 +3977,7 @@ const AssistantChatInner = forwardRef<
                 shouldSuppressUnauthenticatedDesktopThreadRestore(
                   agentChatSurface,
                   res.status,
+                  desktopIdentityUnauthenticated,
                 )
                   ? null
                   : res.status === 404
@@ -4034,6 +4083,7 @@ const AssistantChatInner = forwardRef<
     loadHistoryRepository,
     isNewThread,
     isThreadStateLoading,
+    desktopIdentityUnauthenticated,
     restoreAttempt,
   ]);
 
