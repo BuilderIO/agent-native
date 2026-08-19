@@ -1023,17 +1023,19 @@ function resolveBuiltInMarketingSlug(
   const requestSlug = resolveBuiltInAuthMarketingSlug(opts);
   if (requestSlug) return requestSlug;
 
-  const normalizedAppName = marketing.appName
-    .trim()
-    .toLowerCase()
-    .replace(/^agent-native\s+/, "")
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
   for (const [slug, builtIn] of Object.entries(BUILT_IN_AUTH_MARKETING)) {
-    // Caller-supplied marketing can reuse a built-in app name; only content
-    // identity may claim a slug, or its localized copy overwrites custom copy.
-    if (marketing.tagline !== builtIn.tagline) continue;
-    if (marketing.appName === builtIn.appName || normalizedAppName === slug) {
+    // Caller-supplied marketing can reuse a built-in app name. Only an exact
+    // content match may claim a slug, or localized copy would overwrite the
+    // custom description/features.
+    if (
+      marketing.appName === builtIn.appName &&
+      marketing.tagline === builtIn.tagline &&
+      marketing.description === builtIn.description &&
+      JSON.stringify(marketing.features ?? []) ===
+        JSON.stringify(builtIn.features ?? []) &&
+      JSON.stringify(marketing.signupLocalModeNote ?? null) ===
+        JSON.stringify(builtIn.signupLocalModeNote ?? null)
+    ) {
       return slug;
     }
   }

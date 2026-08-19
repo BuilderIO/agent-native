@@ -76,7 +76,7 @@ export function ReactionsTray({
       void Promise.resolve(result)
         .then((saved) => {
           setSavedEmoji((current) =>
-            saved === false && current === emoji ? null : emoji,
+            saved === false ? (current === emoji ? null : current) : emoji,
           );
         })
         .catch(() => {

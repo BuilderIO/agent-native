@@ -576,14 +576,15 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
       requestHost: "app.example.com",
       marketing: {
         appName: "Dispatch",
-        tagline: "Route parcels across your own fleet.",
+        tagline: BUILT_IN_AUTH_MARKETING.dispatch.tagline,
+        description: "Route parcels across your own fleet.",
         features: ["Track every van on one map"],
       },
     });
 
     expect(html).not.toContain('var __AN_AUTH_MARKETING_SLUG = "dispatch"');
     expect(html).toContain("Route parcels across your own fleet.");
-    expect(html).not.toContain(BUILT_IN_AUTH_MARKETING.dispatch.tagline);
+    expect(html).toContain("Track every van on one map");
   });
 
   it("shows configured terms and privacy links on custom email signup", () => {
@@ -754,6 +755,19 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     });
 
     expect(html).not.toContain('class="marketing-panel"');
+  });
+
+  it("does not localize custom marketing that reuses a built-in app name", () => {
+    const html = getOnboardingHtml({
+      marketing: {
+        appName: "Calendar",
+        tagline: "Plan your team's work with a custom calendar.",
+      },
+    });
+
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "";');
+    expect(html).toContain("Plan your team's work with a custom calendar.");
+    expect(html).toContain("var __AN_AUTH_MARKETING_LOCALES = {};");
   });
 
   it("embeds the public OAuth origin for Builder desktop redirects", () => {
