@@ -974,7 +974,7 @@ export default function CodeAgentsApp({
           ? "unread"
           : scheduled
             ? "scheduled"
-          : formatRelativeTime(run.updatedAt);
+            : formatRelativeTime(run.updatedAt);
       const previous = railItemCacheRef.current.get(run.id);
       if (
         previous &&
@@ -5255,7 +5255,10 @@ function TranscriptSourceBanner({
         ? event.metadata.scheduleName
         : undefined;
     return (
-      <div className="code-agents-transcript-source" data-source="scheduled-task">
+      <div
+        className="code-agents-transcript-source"
+        data-source="scheduled-task"
+      >
         <IconClock size={14} strokeWidth={1.8} />
         <span>Sent by scheduled task</span>
         {scheduleName ? <small>{scheduleName}</small> : null}
