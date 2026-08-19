@@ -69,7 +69,11 @@ export interface DesktopComputerMcpBridgeOptions {
   browserExtensionPath?: () => string | undefined;
   token?: () => string;
   leaseTtlMs?: number;
-  openContentWorkingCopy?: (input: { folder: string; name: string }) => {
+  openContentWorkingCopy?: (input: {
+    runId: string;
+    folder: string;
+    name: string;
+  }) => {
     id: string;
     name: string;
     kind: "temporary";
@@ -316,6 +320,7 @@ export class DesktopComputerMcpBridge {
           }
           return this.textResult(
             this.options.openContentWorkingCopy!({
+              runId: this.context().runId,
               folder,
               name,
             }),

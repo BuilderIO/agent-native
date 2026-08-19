@@ -45,7 +45,11 @@ afterEach(async () => {
 async function createHarness(
   permissionMode: DesktopComputerPermissionMode,
   withBrowser = false,
-  openContentWorkingCopy?: (input: { folder: string; name: string }) => {
+  openContentWorkingCopy?: (input: {
+    runId: string;
+    folder: string;
+    name: string;
+  }) => {
     id: string;
     name: string;
     kind: "temporary";
@@ -152,6 +156,7 @@ describe("DesktopComputerMcpBridge", () => {
       arguments: { folder: "/private/worktree", name: "Fix local sync" },
     });
     expect(openContentWorkingCopy).toHaveBeenCalledWith({
+      runId: "run-server-owned",
       folder: "/private/worktree",
       name: "Fix local sync",
     });

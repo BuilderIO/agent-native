@@ -751,29 +751,41 @@ export default defineAction({
             await tx
               .delete(schema.contentDatabaseSourceRows)
               .where(eq(schema.contentDatabaseSourceRows.id, row.id));
-            await tx
-              .delete(schema.contentDatabaseItems)
-              .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
-            await tx
-              .update(schema.documents)
-              .set({
-                sourceMode: null,
-                sourceKind: null,
-                sourcePath: null,
-                sourceRootPath: null,
-                sourceUpdatedAt: now,
-                updatedAt: now,
-              })
+            const [remainingSourceRow] = await tx
+              .select({ id: schema.contentDatabaseSourceRows.id })
+              .from(schema.contentDatabaseSourceRows)
               .where(
-                and(
-                  eq(schema.documents.id, row.documentId),
-                  eq(schema.documents.spaceId, targetSpaceId),
-                  eq(
-                    schema.documents.sourceRootPath,
-                    target.source.sourceTable,
-                  ),
+                eq(
+                  schema.contentDatabaseSourceRows.databaseItemId,
+                  row.databaseItemId,
                 ),
-              );
+              )
+              .limit(1);
+            if (!remainingSourceRow) {
+              await tx
+                .delete(schema.contentDatabaseItems)
+                .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+              await tx
+                .update(schema.documents)
+                .set({
+                  sourceMode: null,
+                  sourceKind: null,
+                  sourcePath: null,
+                  sourceRootPath: null,
+                  sourceUpdatedAt: now,
+                  updatedAt: now,
+                })
+                .where(
+                  and(
+                    eq(schema.documents.id, row.documentId),
+                    eq(schema.documents.spaceId, targetSpaceId),
+                    eq(
+                      schema.documents.sourceRootPath,
+                      target.source.sourceTable,
+                    ),
+                  ),
+                );
+            }
             continue;
           }
           const values = parseJson(row.sourceValuesJson);

@@ -5183,11 +5183,11 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       ),
     browserExtensionPath: () =>
       fs.existsSync(extensionPath) ? extensionPath : undefined,
-    openContentWorkingCopy: ({ folder, name }) => {
+    openContentWorkingCopy: ({ runId, folder, name }) => {
       const resolvedFolder = path.resolve(folder);
-      const approvedByActiveRun = [...activeCodeAgentProcesses.values()].some(
-        (process) => path.resolve(process.cwd) === resolvedFolder,
-      );
+      const activeRun = activeCodeAgentProcesses.get(runId);
+      const approvedByActiveRun =
+        activeRun && path.resolve(activeRun.cwd) === resolvedFolder;
       if (!approvedByActiveRun) {
         throw new Error(
           "Content can only open the exact working folder of an active local code-agent run.",
