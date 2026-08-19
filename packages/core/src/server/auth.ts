@@ -1662,8 +1662,8 @@ const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
   "http://localhost:1420",
 ]);
 
-// 5-minute TTL for exchange entries (short — single-use tokens).
-const DESKTOP_EXCHANGE_TTL_MS = 5 * 60 * 1000;
+// 10-minute TTL for exchange entries (short — single-use tokens).
+const DESKTOP_EXCHANGE_TTL_MS = 10 * 60 * 1000;
 
 function normalizeDesktopFlowId(value: unknown): string | null {
   if (typeof value !== "string") return null;

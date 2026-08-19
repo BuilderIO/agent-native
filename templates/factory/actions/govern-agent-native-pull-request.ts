@@ -183,10 +183,9 @@ export default defineAction({
       return {
         ok: true,
         action: "skipped",
-        reason:
-          pullRequest.draft
-            ? "Pull request is a draft and is excluded before evidence review."
-            : "Pull request is not open and is excluded before evidence review.",
+        reason: pullRequest.draft
+          ? "Pull request is a draft and is excluded before evidence review."
+          : "Pull request is not open and is excluded before evidence review.",
       };
     }
     const privateKey = await resolveConnectorSecret(
@@ -434,7 +433,8 @@ export default defineAction({
         itemId: itemId ?? null,
         source: "github",
         sourceUrl: approvalUrl,
-        summary: "Approved the pull request under the current review-prs policy.",
+        summary:
+          "Approved the pull request under the current review-prs policy.",
         details: { repo, pullRequestNumber, approvalUrl },
       },
     );

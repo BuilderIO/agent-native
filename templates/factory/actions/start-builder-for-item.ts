@@ -560,7 +560,9 @@ export default defineAction({
           (message) =>
             (message.user === agentNative.userId ||
               message.username?.trim().toLowerCase() === "agent-native") &&
-            /^(Fixed|In progress|Clarification needed):/i.test(message.text.trim()),
+            /^(Fixed|In progress|Clarification needed):/i.test(
+              message.text.trim(),
+            ),
         );
         if (!hasAgentNativeDisposition) {
           const disposition = await slack.postThreadReply(
