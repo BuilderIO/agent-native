@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.31.0
+
+### Minor Changes
+
+- 8690e40: Make automation details inspectable in Dispatch, including the prompt, trigger configuration, capabilities, and past runs.
+
 ## 0.30.5
 
 ### Patch Changes
