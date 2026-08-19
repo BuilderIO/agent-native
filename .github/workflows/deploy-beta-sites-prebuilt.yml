@@ -77,12 +77,13 @@ jobs:
           const sites = JSON.parse(
             fs.readFileSync('scripts/netlify-beta-sites.json', 'utf8'),
           );
+          if (!sites.length) throw new Error('No beta sites configured.');
           const matrix = { include: sites.map(({ id }) => ({ site: id })) };
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
             `matrix=${JSON.stringify(matrix)}\n`,
           );
-          console.log(`Discovered ${matrix.length} beta sites.`);
+          console.log(`Discovered ${sites.length} beta sites.`);
           NODE
 
   deploy:
