@@ -25,7 +25,7 @@ export const SSR_HTML_CONTENT_TYPE = "text/html; charset=utf-8";
  * request query parameters. The SSR adapters consume this marker and emit a
  * provider-specific full-query cache key only where the provider supports it.
  */
-export const SSR_QUERY_CACHE_VARIATION_HEADER = "x-agent-native-ssr-vary";
+export const SSR_QUERY_CACHE_KEY_HEADER = "x-agent-native-ssr-key";
 
 export type SsrHtmlContentTypeOptions = {
   varyByQuery?: boolean;
@@ -44,7 +44,7 @@ export function withSsrHtmlContentType<T extends Response>(
 ): T {
   response.headers.set("content-type", SSR_HTML_CONTENT_TYPE);
   if (options.varyByQuery) {
-    response.headers.set(SSR_QUERY_CACHE_VARIATION_HEADER, "query");
+    response.headers.set(SSR_QUERY_CACHE_KEY_HEADER, "query");
   }
   return response;
 }

@@ -4,7 +4,7 @@ import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
-  SSR_QUERY_CACHE_VARIATION_HEADER,
+  SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
@@ -294,7 +294,7 @@ describe("createH3SSRHandler", () => {
       new Response(null, {
         status: 302,
         headers: {
-          [SSR_QUERY_CACHE_VARIATION_HEADER]: "query",
+          [SSR_QUERY_CACHE_KEY_HEADER]: "query",
           "content-type": "text/html; charset=utf-8",
           location: "/library?from=home",
         },
@@ -305,7 +305,7 @@ describe("createH3SSRHandler", () => {
     const response = await handler(createEvent("/?from=home"));
 
     expect(response.headers.get("netlify-vary")).toBe("query");
-    expect(response.headers.get(SSR_QUERY_CACHE_VARIATION_HEADER)).toBeNull();
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
 
   it("does not expose the internal query variation marker outside Netlify", async () => {
@@ -313,7 +313,7 @@ describe("createH3SSRHandler", () => {
       new Response(null, {
         status: 302,
         headers: {
-          [SSR_QUERY_CACHE_VARIATION_HEADER]: "query",
+          [SSR_QUERY_CACHE_KEY_HEADER]: "query",
           "content-type": "text/html; charset=utf-8",
         },
       }),
@@ -323,7 +323,7 @@ describe("createH3SSRHandler", () => {
     const response = await handler(createEvent("/?from=home"));
 
     expect(response.headers.get("netlify-vary")).toBeNull();
-    expect(response.headers.get(SSR_QUERY_CACHE_VARIATION_HEADER)).toBeNull();
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
 
   it("prefixes the default Speculation-Rules header under APP_BASE_PATH", async () => {

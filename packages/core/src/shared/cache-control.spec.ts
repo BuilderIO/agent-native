@@ -10,7 +10,7 @@ import {
   resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
   SSR_HTML_CONTENT_TYPE,
-  SSR_QUERY_CACHE_VARIATION_HEADER,
+  SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
   withSsrHtmlContentType,
 } from "./cache-control.js";
@@ -224,9 +224,7 @@ describe("withSsrHtmlContentType", () => {
       response,
     );
     expect(response.headers.get("content-type")).toBe(SSR_HTML_CONTENT_TYPE);
-    expect(response.headers.get(SSR_QUERY_CACHE_VARIATION_HEADER)).toBe(
-      "query",
-    );
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBe("query");
   });
 });
 

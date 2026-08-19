@@ -48,7 +48,7 @@ import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
-  SSR_QUERY_CACHE_VARIATION_HEADER,
+  SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
@@ -1366,7 +1366,7 @@ function injectHeadScript(html, script) {
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
-const SSR_QUERY_CACHE_VARIATION_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_VARIATION_HEADER)};
+const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1449,8 +1449,8 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
  */
 function applyDefaultSsrCacheHeader(headers, status, pathname) {
   const varyByQuery =
-    (headers.get(SSR_QUERY_CACHE_VARIATION_HEADER) || "").trim().toLowerCase() === "query";
-  headers.delete(SSR_QUERY_CACHE_VARIATION_HEADER);
+    (headers.get(SSR_QUERY_CACHE_KEY_HEADER) || "").trim().toLowerCase() === "query";
+  headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   headers.delete("set-cookie");

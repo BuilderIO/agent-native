@@ -23,7 +23,7 @@ import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
-  SSR_QUERY_CACHE_VARIATION_HEADER,
+  SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -276,9 +276,8 @@ function applyDefaultSsrCacheHeader(
   pathname: string,
 ) {
   const varyByQuery =
-    headers.get(SSR_QUERY_CACHE_VARIATION_HEADER)?.trim().toLowerCase() ===
-    "query";
-  headers.delete(SSR_QUERY_CACHE_VARIATION_HEADER);
+    headers.get(SSR_QUERY_CACHE_KEY_HEADER)?.trim().toLowerCase() === "query";
+  headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   // A public shell must never set a viewer cookie or vary by credentials.

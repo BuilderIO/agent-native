@@ -11,7 +11,7 @@ import {
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
-  SSR_QUERY_CACHE_VARIATION_HEADER,
+  SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
 } from "../shared/cache-control.js";
 import {
@@ -723,7 +723,7 @@ export default (event) =>
     const source = generateWorkerEntry([], []);
     const worker = await importGeneratedWorker(source, {
       responseHeaders: {
-        [SSR_QUERY_CACHE_VARIATION_HEADER]: "query",
+        [SSR_QUERY_CACHE_KEY_HEADER]: "query",
       },
     });
 
@@ -734,7 +734,7 @@ export default (event) =>
     );
 
     expect(response.headers.get("netlify-vary")).toBe("query");
-    expect(response.headers.get(SSR_QUERY_CACHE_VARIATION_HEADER)).toBeNull();
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
 
   it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
