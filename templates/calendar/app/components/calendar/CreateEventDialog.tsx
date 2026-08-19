@@ -385,7 +385,9 @@ export function CreateEventPopover({
       setAvailability(draft.transparency ?? "opaque");
       setVisibility(draft.visibility ?? "default");
       setRecurrencePreset(getRecurrencePreset(draft.recurrence));
-      setCustomRecurrence(parseCustomRecurrence(draft.recurrence, draft.start));
+      setCustomRecurrence(
+        parseCustomRecurrence(draft.recurrence, draft.start || nextDate),
+      );
       setTimezone(draftTimezone);
       setColorId(draft.colorId);
       setReminderMode(reminderState.mode);
@@ -1454,7 +1456,9 @@ export function CreateEventPopover({
                   </Label>
                   <RepeatPicker
                     preset={recurrencePreset}
-                    referenceDate={effectiveAllDay ? date : currentStartISO || date}
+                    referenceDate={
+                      effectiveAllDay ? date : currentStartISO || date
+                    }
                     onChange={setRecurrencePreset}
                     onCustomChange={setCustomRecurrence}
                   />

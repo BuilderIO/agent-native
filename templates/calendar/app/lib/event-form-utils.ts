@@ -458,13 +458,12 @@ export function parseCustomRecurrence(
   return {
     interval: Number.isFinite(interval) ? Math.max(1, interval) : 1,
     unit,
-    days:
-      byDay && byDay.length > 0
-        ? byDay
-        : unit === "week"
-          ? draft.days
-          : [],
-    endMode: until ? "date" : recurrenceFieldValue(rule, "COUNT") ? "count" : "never",
+    days: byDay && byDay.length > 0 ? byDay : unit === "week" ? draft.days : [],
+    endMode: until
+      ? "date"
+      : recurrenceFieldValue(rule, "COUNT")
+        ? "count"
+        : "never",
     endDate:
       until && /^\d{8}/.test(until)
         ? `${until.slice(0, 4)}-${until.slice(4, 6)}-${until.slice(6, 8)}`
@@ -494,7 +493,7 @@ export function buildCustomRecurrenceRules(
     parts.push(`BYDAY=${draft.days.join(",")}`);
   }
   if (draft.endMode === "date" && /^\d{4}-\d{2}-\d{2}$/.test(draft.endDate)) {
-    parts.push(`UNTIL=${draft.endDate.replaceAll("-", "")}T235959Z`);
+    parts.push(`UNTIL=${draft.endDate.replace(/-/g, "")}T235959Z`);
   } else if (draft.endMode === "count") {
     parts.push(`COUNT=${Math.max(1, Math.round(draft.count))}`);
   }

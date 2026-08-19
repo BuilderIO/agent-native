@@ -167,7 +167,7 @@ describe("recurrence helpers", () => {
         endDate: "",
         count: 13,
       }),
-    ).toEqual(["RRULE:FREQ=WEEK;BYDAY=TU,TH;COUNT=13"]);
+    ).toEqual(["RRULE:FREQ=WEEKLY;BYDAY=TU,TH;COUNT=13"]);
   });
 
   it("parses a custom RRULE back into editor state", () => {

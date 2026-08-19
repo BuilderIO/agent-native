@@ -17,19 +17,19 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
-  formatTimezoneLabel,
-  parseCustomRecurrence,
-  type RecurrencePreset,
-  type CustomRecurrenceDraft,
-} from "@/lib/event-form-utils";
-import { cn } from "@/lib/utils";
-import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  formatTimezoneLabel,
+  parseCustomRecurrence,
+  type RecurrencePreset,
+  type CustomRecurrenceDraft,
+} from "@/lib/event-form-utils";
+import { cn } from "@/lib/utils";
 
 const TIME_OPTIONS = Array.from({ length: 24 * 4 }, (_, index) => {
   const hour = Math.floor(index / 4);
@@ -553,7 +553,10 @@ function CustomRecurrenceEditor({
             max={999}
             value={draft.count}
             onChange={(event) =>
-              update({ endMode: "count", count: Math.max(1, Number(event.target.value) || 1) })
+              update({
+                endMode: "count",
+                count: Math.max(1, Number(event.target.value) || 1),
+              })
             }
             className="h-8 w-20"
           />
