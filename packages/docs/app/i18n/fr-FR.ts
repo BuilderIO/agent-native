@@ -1218,6 +1218,7 @@ const frFR = {
     loadError:
       "Impossible de charger la dernière version desktop. La page des releases contient tous les installateurs.",
     checkingRelease: "Recherche de la dernière version desktop...",
+    nightlyBuilds: "Vous cherchez la version Nightly ?",
     runFromSource: "Ou lancer depuis le code source",
     runFromSourceBody:
       "Pas encore d'installateur pour votre plateforme, ou vous préférez la CLI ? Créez une nouvelle app avec npm et lancez-la localement; fonctionne sur macOS, Windows et Linux.",

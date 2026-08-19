@@ -275,3 +275,17 @@ npx electron-builder@latest --config electron-builder.yml
 ```
 
 See [electron-builder docs](https://www.electron.build) for platform-specific packaging.
+
+### Release channels
+
+The `Desktop App Release` workflow keeps stable and Nightly installs separate:
+
+- Production keeps the `Agent Native` name and `com.agentnative.desktop` app ID.
+  It is released only by dispatching the workflow with `channel: production`.
+- Nightly uses the `Agent Native Nightly` name and
+  `com.agentnative.desktop.nightly` app ID. Pushes to `main` publish this lane
+  automatically, with prerelease tags and update metadata under
+  `/api/desktop-updates/nightly/`.
+
+The different app IDs let employees install both lanes side by side. Each lane
+only updates from its own GitHub release stream.

@@ -45,6 +45,8 @@ export type DesktopAssetKind =
   | "linux-deb-arm64"
   | "unknown";
 
+export type DesktopReleaseChannel = "production" | "nightly";
+
 export interface DesktopDownloadManifest {
   version: string;
   tag: string;
@@ -57,9 +59,6 @@ export interface DesktopDownloadManifest {
     kind: DesktopAssetKind;
   }[];
 }
-
-let cache: { data: DesktopDownloadManifest; ts: number } | null = null;
-let inFlight: Promise<DesktopDownloadManifest> | null = null;
 
 class UpstreamError extends Error {
   statusCode: number;
@@ -155,14 +154,34 @@ function hasDesktopAssets(release: GhRelease): boolean {
   );
 }
 
-async function findLatestDesktopRelease(): Promise<GhRelease | null> {
+function belongsToChannel(
+  release: GhRelease,
+  channel: DesktopReleaseChannel,
+): boolean {
+  if (release.draft || !hasDesktopAssets(release)) return false;
+
+  const tag = release.tag_name;
+  if (channel === "production") {
+    // Production releases are deliberately exact semver tags. This excludes
+    // both Nightly prereleases and legacy auto-build tags such as v0.1.7-42.
+    return !release.prerelease && /^v\d+\.\d+\.\d+$/.test(tag);
+  }
+
+  return (
+    (release.prerelease || /-nightly(?:[.+-]|$)/i.test(tag)) &&
+    /^v\d+\.\d+\.\d+-nightly(?:[.+-]|$)/i.test(tag)
+  );
+}
+
+async function findLatestDesktopRelease(
+  channel: DesktopReleaseChannel,
+): Promise<GhRelease | null> {
   let best: GhRelease | null = null;
   for (let page = 1; page <= MAX_PAGES; page++) {
     const batch = await fetchPage(page);
     if (batch.length === 0) break;
     for (const release of batch) {
-      if (release.draft || release.prerelease) continue;
-      if (!hasDesktopAssets(release)) continue;
+      if (!belongsToChannel(release, channel)) continue;
       if (
         !best ||
         new Date(release.published_at).getTime() >
@@ -176,8 +195,10 @@ async function findLatestDesktopRelease(): Promise<GhRelease | null> {
   return best;
 }
 
-async function buildManifest(): Promise<DesktopDownloadManifest> {
-  const latest = await findLatestDesktopRelease();
+async function buildManifest(
+  channel: DesktopReleaseChannel,
+): Promise<DesktopDownloadManifest> {
+  const latest = await findLatestDesktopRelease(channel);
   if (!latest) {
     throw createError({
       statusCode: 404,
@@ -199,28 +220,46 @@ async function buildManifest(): Promise<DesktopDownloadManifest> {
   };
 }
 
-function refreshDesktopDownloadManifest(): Promise<DesktopDownloadManifest> {
-  if (inFlight) return inFlight;
-  inFlight = (async () => {
-    const data = await buildManifest();
-    cache = { data, ts: Date.now() };
+function refreshDesktopDownloadManifest(
+  channel: DesktopReleaseChannel,
+): Promise<DesktopDownloadManifest> {
+  const pending = inFlight.get(channel);
+  if (pending) return pending;
+  const request = (async () => {
+    const data = await buildManifest(channel);
+    cache.set(channel, { data, ts: Date.now() });
     return data;
   })();
-  inFlight = inFlight.finally(() => {
-    inFlight = null;
-  });
-  return inFlight;
+  inFlight.set(
+    channel,
+    request.finally(() => {
+      inFlight.delete(channel);
+    }),
+  );
+  return inFlight.get(channel)!;
 }
 
-export async function getDesktopDownloadManifest(): Promise<DesktopDownloadManifest> {
+const cache = new Map<
+  DesktopReleaseChannel,
+  { data: DesktopDownloadManifest; ts: number }
+>();
+const inFlight = new Map<
+  DesktopReleaseChannel,
+  Promise<DesktopDownloadManifest>
+>();
+
+export async function getDesktopDownloadManifest(
+  channel: DesktopReleaseChannel = "production",
+): Promise<DesktopDownloadManifest> {
   const now = Date.now();
-  if (cache) {
-    if (now - cache.ts >= CACHE_FRESH_MS) {
-      void refreshDesktopDownloadManifest().catch(() => undefined);
+  const cached = cache.get(channel);
+  if (cached) {
+    if (now - cached.ts >= CACHE_FRESH_MS) {
+      void refreshDesktopDownloadManifest(channel).catch(() => undefined);
     }
-    return cache.data;
+    return cached.data;
   }
-  return refreshDesktopDownloadManifest();
+  return refreshDesktopDownloadManifest(channel);
 }
 
 export function getDesktopReleaseError(error: unknown): {
@@ -240,6 +279,6 @@ export function getDesktopReleaseError(error: unknown): {
 }
 
 export function resetDesktopDownloadManifestCacheForTests(): void {
-  cache = null;
-  inFlight = null;
+  cache.clear();
+  inFlight.clear();
 }

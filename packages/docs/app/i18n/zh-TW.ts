@@ -1200,6 +1200,7 @@ const messages = {
     latestRelease: "最新桌面版：{{version}}",
     loadError: "無法載入最新桌面版。releases 頁面包含所有安裝程式。",
     checkingRelease: "正在檢查最新桌面版...",
+    nightlyBuilds: "想要 Nightly 版本嗎？",
     runFromSource: "或從來源碼執行",
     runFromSourceBody:
       "還沒有適用於你平台的安裝程式，或更喜歡 CLI？使用 npm 建立新應用並在本機執行；支援 macOS、Windows 和 Linux。",

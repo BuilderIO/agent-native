@@ -8,6 +8,14 @@ on:
       - "packages/shared-app-config/**"
   workflow_dispatch:
     inputs:
+      channel:
+        description: "Release channel"
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - nightly
       version:
         description: "Version to release (e.g. 0.2.0). Leave empty to use package.json version."
         required: false
@@ -17,6 +25,13 @@ permissions:
   contents: write
 
 env:
+  # Pushes to main are the employee-facing Nightly train. Production is only
+  # released deliberately through workflow_dispatch.
+  RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  EP_PRE_RELEASE: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' }}
+  ELECTRON_APP_ID: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'com.agentnative.desktop.nightly' || 'com.agentnative.desktop' }}
+  ELECTRON_PRODUCT_NAME: ${{ (github.event_name == 'push' && 'nightly' || inputs.channel || 'production') == 'nightly' && 'Agent Native Nightly' || 'Agent Native' }}
   # Deterministic version for auto-triggered builds: base version from
   # package.json + run number ensures uniqueness without committing back.
   AUTO_VERSION_SUFFIX: ${{ github.run_number }}
@@ -35,14 +50,16 @@ jobs:
         run: |
           if [ -n "${{ inputs.version }}" ]; then
             echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
-          elif [ "${{ github.event_name }}" = "push" ]; then
-            BASE=$(node -p "require('./packages/desktop-app/package.json').version")
-            # Use a prerelease tag (-N) not build metadata (+N): npm version
-            # silently strips +metadata when writing package.json, which would
-            # cause every run to collide on the same release tag and assets.
-            echo "version=${BASE}-${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
           else
-            echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> "$GITHUB_OUTPUT"
+            BASE=$(node -p "require('./packages/desktop-app/package.json').version")
+            if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+              # Use a prerelease tag rather than build metadata: npm version
+              # silently strips +metadata, which would make release assets
+              # collide across automatic runs.
+              echo "version=${BASE}-nightly.${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
+            else
+              echo "version=${BASE}" >> "$GITHUB_OUTPUT"
+            fi
           fi
 
   build-mac:
@@ -80,6 +97,7 @@ jobs:
 
       - name: Build and publish
         working-directory: packages/desktop-app
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -89,8 +107,12 @@ jobs:
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
-          SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --mac --config --publish always
+          SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
+        run: |
+          pnpm build
+          npx electron-builder --mac --config --publish always \
+            "-c.appId=$ELECTRON_APP_ID" \
+            "-c.productName=$ELECTRON_PRODUCT_NAME"
 
   build-windows:
     needs: resolve-version
@@ -114,14 +136,19 @@ jobs:
 
       - name: Build and publish
         working-directory: packages/desktop-app
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
-          SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --win --config --publish always
+          SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
+        run: |
+          pnpm build
+          npx electron-builder --win --config --publish always \
+            "-c.appId=$ELECTRON_APP_ID" \
+            "-c.productName=$ELECTRON_PRODUCT_NAME"
 
   build-linux:
     needs: resolve-version
@@ -145,14 +172,19 @@ jobs:
 
       - name: Build and publish
         working-directory: packages/desktop-app
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
-          SENTRY_DESKTOP_ENVIRONMENT: production
-        run: pnpm build && npx electron-builder --linux --config --publish always
+          SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
+        run: |
+          pnpm build
+          npx electron-builder --linux --config --publish always \
+            "-c.appId=$ELECTRON_APP_ID" \
+            "-c.productName=$ELECTRON_PRODUCT_NAME"
 
   publish-release:
     needs: [resolve-version, build-mac, build-windows, build-linux]
@@ -161,4 +193,20 @@ jobs:
       - name: Publish draft release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "v${{ needs.resolve-version.outputs.version }}" --draft=false --latest -R ${{ github.repository }}
+        shell: bash
+        run: |
+          TAG="v${{ needs.resolve-version.outputs.version }}"
+          if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+            gh release edit "$TAG" \
+              --draft=false \
+              --prerelease \
+              --latest=false \
+              --title "Agent Native Nightly v${{ needs.resolve-version.outputs.version }}" \
+              -R "${{ github.repository }}"
+          else
+            gh release edit "$TAG" \
+              --draft=false \
+              --latest \
+              --title "Agent Native v${{ needs.resolve-version.outputs.version }}" \
+              -R "${{ github.repository }}"
+          fi

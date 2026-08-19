@@ -76,13 +76,25 @@ Clips registers itself to open at login by default, then runs quietly in the men
 
 ## Releases + auto-update
 
-Clips Desktop ships on its own release channel — tag prefix `clips-v*`, separate from the main `v*` tags used by `packages/desktop-app` (Electron). The in-app updater pulls its manifest from the hosted Clips endpoint (`/api/clips-updater.json`), which proxies the stable pointer release (`clips-latest`) when a signed manifest exists and otherwise returns a no-update manifest so end users do not see release-channel setup errors.
+Clips Desktop has separate stable and Nightly lanes. The stable app keeps the
+`Clips` name and `com.clips.tray` identifier; its releases use `clips-v*` tags,
+the `clips-latest` updater pointer, and `/api/clips-updater.json`. Nightly
+builds are named `Clips Nightly`, use `com.clips.tray.nightly`, and use the
+`clips-nightly-v*` tags, `clips-nightly-latest` pointer, and
+`/api/clips-updater.json?channel=nightly`. The in-app updater only sees the
+pointer for the channel that produced the installed app.
 
 ### Shipping a release
 
-1. Bump `templates/clips/desktop/package.json` version (or pass it via workflow input).
-2. Trigger **Clips Desktop Release** in GitHub Actions (`.github/workflows/clips-desktop-release.yml`). It builds macOS (universal), Windows, and Linux x86_64 installers, signs updater artifacts, and uploads them to `clips-v{version}`.
-3. After all three platforms finish, the `publish-release` job flips the versioned release out of draft and refreshes the `clips-latest` pointer release with the new manifest. Installed macOS, Windows, and Linux AppImage copies auto-download it in the background on their next hourly or app-focus update check.
+1. For a stable release, dispatch **Clips Desktop Release** in GitHub Actions
+   with `channel: production` and an explicit version. Stable releases are
+   deliberate workflow runs; pushes to `main` never replace the stable lane.
+2. Pushes to `main` automatically build the Nightly lane. A Nightly run can
+   also be dispatched explicitly with `channel: nightly`.
+3. The workflow builds macOS (universal), Windows, and Linux x86_64 installers,
+   signs updater artifacts, and publishes the versioned release plus that
+   channel's pointer manifest. Installed copies auto-download only updates
+   from their own lane on the next hourly or app-focus check.
 
 ### Auto-update flow (inside the app)
 

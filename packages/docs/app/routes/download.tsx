@@ -14,6 +14,8 @@ import { trackEvent } from "../components/TemplateCard";
 const LATEST_JSON_URL = `${appBasePath()}/api/desktop-latest.json`;
 const RELEASES =
   "https://github.com/BuilderIO/agent-native/releases?q=Agent-Native";
+const NIGHTLY_RELEASES =
+  "https://github.com/BuilderIO/agent-native/releases?q=Agent-Native+Nightly";
 const OPEN_DESKTOP_URL = "agentnative://open";
 const MANIFEST_STORAGE_KEY = "agent-native-desktop-download-manifest-v1";
 
@@ -333,6 +335,14 @@ export default function DownloadPage() {
           {releaseStatus}
           {info.note && <span className="block mt-1">{t(info.note)}</span>}
         </p>
+        <a
+          href={NIGHTLY_RELEASES}
+          target="_blank"
+          rel="noreferrer"
+          className="mt-2 inline-block text-[11px] text-[var(--fg-secondary)] opacity-70 no-underline hover:text-[var(--fg)] hover:opacity-100 hover:underline"
+        >
+          {t("downloadPage.nightlyBuilds")}
+        </a>
       </div>
 
       {/* Run from source */}

@@ -12,6 +12,7 @@ import {
   getDesktopReleaseError,
   isDesktopUpdateMetadataAsset,
   isDesktopUpdaterAsset,
+  type DesktopReleaseChannel,
 } from "../../../../lib/desktop-releases";
 
 function safeAssetName(value: string | undefined): string {
@@ -38,8 +39,20 @@ function assetNameCandidates(assetName: string): string[] {
   return candidates;
 }
 
+function parseUpdatePath(value: string | undefined): {
+  channel: DesktopReleaseChannel;
+  assetName: string;
+} {
+  const segments = (value ?? "").split("/");
+  if (segments[0] === "nightly") {
+    return { channel: "nightly", assetName: segments.slice(1).join("/") };
+  }
+  return { channel: "production", assetName: value ?? "" };
+}
+
 export default defineEventHandler(async (event) => {
-  const assetName = safeAssetName(getRouterParam(event, "asset"));
+  const request = parseUpdatePath(getRouterParam(event, "asset"));
+  const assetName = safeAssetName(request.assetName);
   if (!isDesktopUpdaterAsset(assetName)) {
     throw createError({
       statusCode: 404,
@@ -49,7 +62,7 @@ export default defineEventHandler(async (event) => {
 
   let manifest;
   try {
-    manifest = await getDesktopDownloadManifest();
+    manifest = await getDesktopDownloadManifest(request.channel);
   } catch (error) {
     const e = getDesktopReleaseError(error);
     setResponseStatus(event, e.statusCode, e.statusMessage);

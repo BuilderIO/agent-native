@@ -11,6 +11,7 @@
 // so we report an "unsupported" status and skip all autoUpdater calls.
 
 import { IPC, type UpdateStatus } from "@shared/ipc-channels";
+import { DESKTOP_RELEASE_CHANNEL } from "@shared/release-channel";
 import { app, BrowserWindow, ipcMain, Notification } from "electron";
 import { autoUpdater } from "electron-updater";
 
@@ -20,10 +21,13 @@ const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
 const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
 const DEFAULT_DESKTOP_UPDATE_FEED_URL =
   "https://agent-native.com/api/desktop-updates";
-const DESKTOP_UPDATE_FEED_URL = (
-  process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
-  DEFAULT_DESKTOP_UPDATE_FEED_URL
-).replace(/\/+$/, "");
+const DESKTOP_UPDATE_FEED_URL = [
+  (
+    process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
+    DEFAULT_DESKTOP_UPDATE_FEED_URL
+  ).replace(/\/+$/, ""),
+  ...(DESKTOP_RELEASE_CHANNEL === "nightly" ? ["nightly"] : []),
+].join("/");
 
 let currentUpdateStatus: UpdateStatus = IS_DEV
   ? { state: "unsupported", reason: "Auto-update is disabled in development" }
@@ -106,8 +110,8 @@ function showUpdateReadyNotification(version: string) {
   notifiedUpdateVersion = version;
 
   const notification = new Notification({
-    title: "Agent Native update ready",
-    body: `Version ${version} is downloaded. Open Agent Native to relaunch and install it.`,
+    title: `${app.getName()} update ready`,
+    body: `Version ${version} is downloaded. Open ${app.getName()} to relaunch and install it.`,
   });
   notification.on("click", (_event) => {
     getDeps().focusMainWindow();

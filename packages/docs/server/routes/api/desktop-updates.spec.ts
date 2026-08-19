@@ -105,4 +105,60 @@ describe("desktop update asset route", () => {
       },
     });
   });
+
+  it("serves Nightly updater metadata from the Nightly release channel", async () => {
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes("api.github.com")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              tag_name: "v0.1.0-nightly.1",
+              name: "Agent Native Nightly v0.1.0-nightly.1",
+              published_at: "2026-01-02T00:00:00Z",
+              draft: false,
+              prerelease: true,
+              assets: [
+                {
+                  name: "Agent-Native-Nightly-arm64.dmg",
+                  browser_download_url: "https://example.com/nightly.dmg",
+                  size: 10,
+                },
+                {
+                  name: "latest-mac.yml",
+                  browser_download_url: "https://example.com/nightly.yml",
+                  size: 20,
+                },
+              ],
+            },
+          ],
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        text: async () => "version: 0.1.0-nightly.1",
+      } as Response;
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = createEvent("nightly/latest-mac.yml");
+    await expect(handler(event as any)).resolves.toBe(
+      "version: 0.1.0-nightly.1",
+    );
+
+    expect(event).toMatchObject({
+      headers: {
+        "content-type": "application/x-yaml; charset=utf-8",
+      },
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://example.com/nightly.yml",
+      expect.objectContaining({
+        headers: { "user-agent": "agent-native-desktop-update-feed" },
+      }),
+    );
+  });
 });
