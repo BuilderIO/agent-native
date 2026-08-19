@@ -326,6 +326,31 @@ describe("run recovery surfaces", () => {
     expect(container.textContent).not.toContain("The agent hit an error");
   });
 
+  it("keeps invalid provider keys on the authentication recovery path", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "Invalid API key",
+              errorCode: "authentication_error",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("The agent hit an error");
+    expect(container.textContent).toContain("Connect Builder.io");
+  });
+
   it("dismisses the recovery card after saving a provider key", async () => {
     const onDismiss = vi.fn();
 

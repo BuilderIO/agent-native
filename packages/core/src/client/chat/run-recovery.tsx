@@ -203,7 +203,7 @@ function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
   const code = (info.errorCode ?? "").toLowerCase();
   const text = [info.message, info.details].filter(Boolean).join("\n");
   const hasCredentialSetupText =
-    /no llm provider(?: key)? (?:is connected|was found)|missing credentials|missing api key|missing_api_key|(?:api[_ -]?key|auth[_ -]?token)\s*(?:is|was)?\s*(?:not|missing|invalid|unavailable|empty)/i.test(
+    /no llm provider(?: key)? (?:is connected|was found)|missing credentials|missing api key|missing_api_key|(?:api[_ -]?key|auth[_ -]?token)\s*(?:(?:is|was)\s+)?(?:not\s+(?:set|configured|available|present|provided|found)|missing|unavailable|empty|unset|unconfigured)/i.test(
       text,
     );
   return (
