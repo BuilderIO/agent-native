@@ -113,12 +113,18 @@ vi.mock("@/components/ui/popover", () => ({
     children,
     className,
     side,
+    align,
   }: {
     children?: ReactNode;
     className?: string;
     side?: string;
+    align?: string;
   }) => (
-    <div className={className} data-popover-side={side}>
+    <div
+      className={className}
+      data-popover-side={side}
+      data-popover-align={align}
+    >
       {children}
     </div>
   ),
@@ -253,6 +259,41 @@ describe("EventDetailPopover characterization", () => {
     );
     expect(titleInput).toBeTruthy();
     expect(titleInput!.value).toBe("");
+  });
+
+  it("opens to the right by default and below when a caller overrides side", () => {
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const defaultContent = document.querySelector("[data-popover-side]");
+    expect(defaultContent?.getAttribute("data-popover-side")).toBe("right");
+    expect(defaultContent?.getAttribute("data-popover-align")).toBe("start");
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          defaultOpen
+          onDelete={() => undefined}
+          popoverSide="bottom"
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const overridden = document.querySelector("[data-popover-side]");
+    expect(overridden?.getAttribute("data-popover-side")).toBe("bottom");
+    expect(overridden?.getAttribute("data-popover-align")).toBe("start");
   });
 
   it("bounds the detail panel to the available viewport space", () => {

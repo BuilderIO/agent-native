@@ -1537,7 +1537,7 @@ export function EventDetailPopover({
       <PopoverContent
         align={isMobile ? "center" : "start"}
         side={isMobile ? "bottom" : (popoverSide ?? "right")}
-        sideOffset={isMobile ? 6 : 8}
+        sideOffset={isMobile || popoverSide === "bottom" ? 6 : 8}
         collisionPadding={12}
         className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden p-0"
         onClick={(e) => e.stopPropagation()}
