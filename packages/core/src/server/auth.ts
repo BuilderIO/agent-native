@@ -1820,7 +1820,7 @@ export function prepareDesktopOAuthBrowserBinding(event: H3Event): string {
   if (!binding || !/^[A-Za-z0-9_-]{43}$/.test(binding)) {
     binding = crypto.randomBytes(32).toString("base64url");
     setCookie(event, DESKTOP_OAUTH_BROWSER_BINDING_COOKIE, binding, {
-      ...crossSiteCookieAttrs(event),
+      ...desktopOAuthBrowserBindingCookieAttrs(event),
       httpOnly: true,
       path: "/",
       maxAge: Math.floor(DESKTOP_EXCHANGE_TTL_MS / 1_000),
@@ -3737,6 +3737,22 @@ function crossSiteCookieAttrs(event: H3Event): {
 } {
   return isHttpsRequest(event)
     ? { sameSite: "none", secure: true, partitioned: true }
+    : { sameSite: "lax", secure: false };
+}
+
+/**
+ * The binding cookie is set before navigating to Google and read after the
+ * provider redirects back. A partitioned cookie uses the top-level site from
+ * the bootstrap request, so it is unavailable when the callback starts from
+ * Google's top-level site. Keep this host-scoped cookie unpartitioned while
+ * retaining the cross-site and transport protections required by the flow.
+ */
+function desktopOAuthBrowserBindingCookieAttrs(event: H3Event): {
+  sameSite: "lax" | "none";
+  secure: boolean;
+} {
+  return isHttpsRequest(event)
+    ? { sameSite: "none", secure: true }
     : { sameSite: "lax", secure: false };
 }
 
