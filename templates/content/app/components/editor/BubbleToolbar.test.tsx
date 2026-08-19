@@ -9,9 +9,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BubbleToolbar,
   getSelectionNotionSpanAttribute,
+  selectionHasColorableText,
   shouldShowBubbleToolbar,
 } from "./BubbleToolbar";
-import { NotionSpanMark } from "./extensions/NotionExtensions";
+import {
+  NotionInlineAtom,
+  NotionSpanMark,
+} from "./extensions/NotionExtensions";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -541,5 +545,37 @@ describe("BubbleToolbar", () => {
         )
         ?.getAttribute("aria-checked"),
     ).toBe("false");
+  });
+
+  it("hides the color control when a selection contains no text", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, NotionSpanMark, NotionInlineAtom],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "paragraph",
+            content: [
+              {
+                type: "notionInlineAtom",
+                attrs: { tagName: "math", attrsJson: "{}", label: "x" },
+              },
+            ],
+          },
+        ],
+      },
+    });
+    editor.commands.setTextSelection({ from: 1, to: 2 });
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    expect(selectionHasColorableText(editor.state, 1, 2)).toBe(false);
+    expect(
+      toolbarElement.querySelector('button[aria-label="editor.color.label"]'),
+    ).toBeNull();
   });
 });

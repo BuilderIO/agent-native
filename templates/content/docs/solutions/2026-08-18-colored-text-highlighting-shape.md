@@ -225,7 +225,7 @@ work does not add a parallel highlighting mutation API.
   NFM -> `nfmToDoc` -> ProseMirror document on load/reconciliation.
 - Canonical NFM keeps the established single-attribute spellings: foreground is
   `<span color="<name>">…</span>` and background-only is `<span
-  color="<name>_bg">…</span>`. When both coexist, foreground remains in `color`
+color="<name>_bg">…</span>`. When both coexist, foreground remains in `color`
   and the background is added as `bg_color="<name>_bg"`.
 - The result must remain stable across `docToNfm(nfmToDoc(value))` and through a
   real editor save/reload. Unsupported or malformed color values must not be
@@ -449,8 +449,8 @@ Required assertions:
    behavior, remains visually legible, and is neither created nor resolved by
    highlight changes.
 10. Existing bubble-toolbar link, comment, formatting, text-style, selection-fill,
-   and excluded-node tests remain green; focused editor/NFM tests and typecheck,
-   formatter, relevant guards, and `git diff --check` pass.
+    and excluded-node tests remain green; focused editor/NFM tests and typecheck,
+    formatter, relevant guards, and `git diff --check` pass.
 11. A current real-interface run on a task-owned local Content runtime and
     disposable Page built from the exact review artifact exercises selection,
     foreground/background apply, replace, Default, mixed-state, combined
@@ -488,13 +488,13 @@ risk strategy invalidates implementation authority and returns to Shape.
 - Exact implementation revision: working tree based on
   `3132ab1bd8206dabd0b5cff92a0f5c5bb56bd4e8`, ledger
   `content-inline-color-work-v1-approved-dual-color`.
-- Automated proof: 169 focused editor/NFM tests passed; Content typecheck exited
+- Automated proof: 170 focused editor/NFM tests passed; Content typecheck exited
   0; all 55 repository guards passed; all 30 Content product-impact tests passed.
 - Successful-user-story proof: real Chromium created a disposable Content Page,
   selected text, used the rendered floating toolbar, and restored bold, red text,
   and yellow background after reload. SQLite read-back showed `<span
-  color="red" bg_color="yellow_bg">**Highlighted text**</span> keeps bold and
-  both colors.`
+color="red" bg_color="yellow_bg">**Highlighted text**</span> keeps bold and
+both colors.`
 - Test-resource custody: `content-color-local-acceptance-69a7e1cf` was created,
   exercised, and cleaned; the declared path and port were independently absent
   afterward.
@@ -502,6 +502,10 @@ risk strategy invalidates implementation authority and returns to Shape.
   above, triggered by canonical persistence/serialization risk. Initial finding:
   one P2 stale-contract ambiguity in this artifact; follow-up count 1. Final
   disposition: finding resolved, no blocking implementation or artifact finding.
+- Repository review repair: Builder's exact-head review found that an atom-only
+  selection exposed an inert color control. The control now appears only when
+  the selection contains compatible text, with a focused regression test. A new
+  exact-head repository review and CI run are required after push.
 - Changelog: the template's `agent-native changelog add` command reported that
   changelog capture is disabled, so no manual entry was created.
 
@@ -509,8 +513,8 @@ risk strategy invalidates implementation authority and returns to Shape.
 
 ```yaml
 authoritySchemaVersion: 3
-stage: shape
-authority-source: Alice approved option 3 and invoked $work in the calling Codex task on 2026-08-18, superseding the earlier Shape-only mutation boundary for this approved replacement fingerprint.
+stage: land
+authority-source: Alice approved option 3 and invoked $work on 2026-08-18, then invoked $land on 2026-08-19 with an explicit do-not-merge constraint; Land returned internally to the matching Work envelope for review and CI repair.
 authorized-scope:
   repositories:
     - BuilderIO/agent-native
@@ -650,8 +654,11 @@ product-boundary-gates:
   bowerbird-product-boundary: Bowerbird supplies only the durable private task identity for this Shape. The shipping product behavior is Content; the feature adds no Bowerbird deterministic state validation agent process retry deployment or scheduling policy.
 acceptance-state:
   status: pending
-  summary: Alice approved the additive dual-color replacement story; Work acceptance evidence is pending.
-  blockers: []
+  summary: The accepted behavior and same-context real-interface story remain satisfied, but exact-head repository review and CI are pending after the inline-atom repair; merge is explicitly prohibited in this Land invocation.
+  blockers:
+    - exact-head repository review pending after repair
+    - exact-head CI pending after repair
+    - merge explicitly prohibited by Alice for this Land invocation
   last-land-packet: null
 material-change:
   banner: resolved by Alice approval of option 3 on 2026-08-18

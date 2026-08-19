@@ -110,6 +110,19 @@ export function getSelectionNotionSpanAttribute(
   return mixed ? "mixed" : observed;
 }
 
+export function selectionHasColorableText(
+  state: EditorState,
+  from: number,
+  to: number,
+) {
+  let hasText = false;
+  state.doc.nodesBetween(from, to, (node) => {
+    if (node.isText) hasText = true;
+    return !hasText;
+  });
+  return hasText;
+}
+
 export function setSelectionNotionSpanAttribute(
   editor: Editor,
   attribute: ColorAttribute,
@@ -493,7 +506,13 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
 
   const items = [
     { type: "text-style" as const },
-    { type: "color" as const },
+    ...(selectionHasColorableText(
+      editor.state,
+      editor.state.selection.from,
+      editor.state.selection.to,
+    )
+      ? [{ type: "color" as const }]
+      : []),
     { type: "divider" as const },
     {
       icon: IconBold,
