@@ -93,7 +93,6 @@ describe("DocsSidebar", () => {
       "what-is-agent-native",
       "key-concepts",
       "agent-surfaces",
-      "faq",
     ]);
     expect(overview?.items.some((item) => item.id === "deployment")).toBe(
       false,
