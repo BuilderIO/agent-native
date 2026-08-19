@@ -259,11 +259,21 @@ function persistedRepo() {
   };
 }
 
-function assistantContent() {
+function assistantMessage() {
   const repo = persistedRepo();
   const entry = repo.messages[1];
-  const message = entry?.message ?? entry;
-  return Array.isArray(message?.content) ? message.content : [];
+  return (entry?.message ?? entry) as {
+    content?: unknown[];
+    status?: { type?: string; reason?: string };
+    metadata?: {
+      custom?: { continued?: unknown; runError?: { errorCode?: string } };
+    };
+  };
+}
+
+function assistantContent() {
+  const content = assistantMessage().content;
+  return Array.isArray(content) ? content : [];
 }
 
 describe("runBackgroundAutomation — thread transcript", () => {
@@ -326,6 +336,10 @@ describe("runBackgroundAutomation — thread transcript", () => {
     expect(title).toBe("Job: Slack Feedback — Aug 17, 2026");
     expect(messageCount).toBe(2);
     expect(JSON.parse(threadData as string).messages).toHaveLength(2);
+    expect(assistantMessage().status).toEqual({
+      type: "complete",
+      reason: "stop",
+    });
     expect(assistantContent()).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -383,9 +397,22 @@ describe("runBackgroundAutomation — thread transcript", () => {
     expect(updateThreadDataMock).toHaveBeenCalled();
     const [, , title] = updateThreadDataMock.mock.calls[0];
     expect(title).toBe("Job: cut-off-digest — Aug 17, 2026");
+    expect(assistantMessage().status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+    expect(assistantMessage().metadata?.custom?.continued).toBeUndefined();
+    expect(assistantMessage().metadata?.custom?.runError).toMatchObject({
+      errorCode: "background_automation_cut_off",
+    });
     expect(assistantContent()).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ type: "text", text: "Started polling." }),
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringMatching(
+            /Started polling\.[\s\S]*cut off before finishing \(no_progress\)/,
+          ),
+        }),
       ]),
     );
   });
@@ -475,9 +502,22 @@ describe("runBackgroundAutomation — thread transcript", () => {
       expect(updateThreadDataMock).toHaveBeenCalled();
       const [, , title] = updateThreadDataMock.mock.calls[0];
       expect(title).toBe("Job: hard-timeout-digest — Aug 18, 2026");
+      expect(assistantMessage().status).toEqual({
+        type: "incomplete",
+        reason: "error",
+      });
+      expect(assistantMessage().metadata?.custom?.continued).toBeUndefined();
+      expect(assistantMessage().metadata?.custom?.runError).toMatchObject({
+        errorCode: "background_automation_hard_timeout",
+      });
       expect(assistantContent()).toEqual(
         expect.arrayContaining([
-          expect.objectContaining({ type: "text", text: "Still working." }),
+          expect.objectContaining({
+            type: "text",
+            text: expect.stringMatching(
+              /Still working\.[\s\S]*timed out after 10 minutes/,
+            ),
+          }),
         ]),
       );
     } finally {

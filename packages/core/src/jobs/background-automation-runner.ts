@@ -342,17 +342,42 @@ async function recordRunThread(
   }
 }
 
+function backgroundAutomationPersistFailure(input: {
+  run: ActiveRun;
+  hardTimedOut: boolean;
+}): { message: string; errorCode: string } | undefined {
+  if (input.hardTimedOut) {
+    return {
+      message: `Background automation timed out after ${BACKGROUND_RUN_HARD_TIMEOUT_MS / 60_000} minutes`,
+      errorCode: "background_automation_hard_timeout",
+    };
+  }
+  const cutOffReason = backgroundRunCutOffReason(input.run);
+  if (!cutOffReason) return undefined;
+  return {
+    message: `Background automation was cut off before finishing (${cutOffReason})`,
+    errorCode: "background_automation_cut_off",
+  };
+}
+
 /**
  * Chat opens `/chat/:threadId` from `thread_data`, not `agent_run_events`.
  * Persist before the cut-off/status reject so a failed run still has a
  * visible trace. Keep the scheduler title — `extractThreadMeta` would
  * otherwise replace `Job: …` with the prompt excerpt.
+ *
+ * Cut-off and hard-abort turns have no terminal error event of their own.
+ * `suppressInternalContinuation` also drops `auto_continue`, so persist
+ * would otherwise store a completed assistant message. Append a
+ * non-recoverable error and skip that suppress so Open thread shows the
+ * incomplete state.
  */
 async function persistBackgroundAutomationTurn(input: {
   threadId: string;
   threadTitle: string;
   prompt: string;
   run: ActiveRun;
+  persistFailure?: { message: string; errorCode: string };
 }): Promise<void> {
   await withThreadDataLock(input.threadId, async () => {
     const row = await getThread(input.threadId);
@@ -380,17 +405,25 @@ async function persistBackgroundAutomationTurn(input: {
       repo,
       buildUserMessage({ text: input.prompt, runId: input.run.runId }),
     );
-    const assistantMsg = buildAssistantMessage(
-      input.run.events ?? [],
-      input.run.runId,
-      {
-        suppressInternalContinuation: true,
-        turnId: input.run.turnId,
-        runDurationMs: Number.isFinite(input.run.startedAt)
-          ? Math.max(0, Date.now() - input.run.startedAt)
-          : undefined,
-      },
-    );
+    const events = [...(input.run.events ?? [])];
+    if (input.persistFailure) {
+      events.push({
+        seq: events.length,
+        event: {
+          type: "error",
+          error: input.persistFailure.message,
+          errorCode: input.persistFailure.errorCode,
+          recoverable: false,
+        },
+      });
+    }
+    const assistantMsg = buildAssistantMessage(events, input.run.runId, {
+      suppressInternalContinuation: !input.persistFailure,
+      turnId: input.run.turnId,
+      runDurationMs: Number.isFinite(input.run.startedAt)
+        ? Math.max(0, Date.now() - input.run.startedAt)
+        : undefined,
+    });
     if (assistantMsg) {
       repo = foldAssistantTurn(repo, assistantMsg, {
         runId: input.run.runId,
@@ -572,12 +605,17 @@ async function executeBackgroundAutomation(
               clearTimeout(hardAbortTimer);
               hardAbortTimer = null;
             }
+            const persistFailure = backgroundAutomationPersistFailure({
+              run,
+              hardTimedOut,
+            });
             try {
               await persistBackgroundAutomationTurn({
                 threadId: thread.id,
                 threadTitle,
                 prompt,
                 run,
+                persistFailure,
               });
             } catch (err) {
               reject(err instanceof Error ? err : new Error(String(err)));
@@ -586,13 +624,8 @@ async function executeBackgroundAutomation(
             // Hard timeout owns the runner reject so a serverless return
             // waits for this persist via `activeRun.finalized`.
             if (hardTimedOut) return;
-            const cutOffReason = backgroundRunCutOffReason(run);
-            if (cutOffReason) {
-              reject(
-                new Error(
-                  `Background automation was cut off before finishing (${cutOffReason})`,
-                ),
-              );
+            if (persistFailure) {
+              reject(new Error(persistFailure.message));
               return;
             }
             if (run.status !== "completed") {
