@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.164.12
+
+### Patch Changes
+
+- 379f7ca: Simplify deployment documentation with dedicated app and workspace paths, a deployment target overview, and a clearer advanced reference.
+
 ## 0.164.11
 
 ### Patch Changes
