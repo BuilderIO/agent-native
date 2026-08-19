@@ -17,7 +17,7 @@ export function SectionDivider({
       className={`${responsiveSizeClassName} grid-cols-3 border-x border-[var(--docs-border)] ${className}`}
     >
       <div />
-      <div className="ms-px border-x border-[var(--docs-border)]" />
+      <div className="translate-x-0.5 border-x border-[var(--docs-border)]" />
       <div />
     </div>
   );
