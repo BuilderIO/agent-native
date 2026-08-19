@@ -2470,7 +2470,6 @@ export class DesktopIdentityBroker {
       Date.now() + (this.options.timeoutMs ?? DEFAULT_CEREMONY_TIMEOUT_MS);
     const exchangeUrl = new URL(DESKTOP_EXCHANGE_PATH, authorityApp.origin);
     exchangeUrl.searchParams.set("flow_id", flowId);
-    if (verifier) exchangeUrl.searchParams.set("verifier", verifier);
 
     while (Date.now() < deadline) {
       this.assertCeremonyActive(generation, signal);
@@ -2479,7 +2478,12 @@ export class DesktopIdentityBroker {
         response = await this.options.identitySession.fetch(
           exchangeUrl.toString(),
           {
-            headers: { Accept: "application/json" },
+            headers: {
+              Accept: "application/json",
+              ...(verifier
+                ? { "X-Agent-Native-Desktop-Verifier": verifier }
+                : {}),
+            },
             credentials: "include",
           },
         );

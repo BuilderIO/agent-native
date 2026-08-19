@@ -4253,7 +4253,13 @@ async function mountBetterAuthRoutes(
         setResponseStatus(event, 400);
         return { error: "Missing flow_id" };
       }
-      const verifier = normalizeDesktopFlowVerifier(getQuery(event).verifier);
+      if (query.verifier !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Desktop exchange verifier must use a request header." };
+      }
+      const verifier = normalizeDesktopFlowVerifier(
+        getHeader(event, "x-agent-native-desktop-verifier"),
+      );
       let entry = _desktopExchanges.get(flowId);
       if (!entry || entry.expiresAt < Date.now()) {
         const fromDb = await readDesktopExchangeFromDB(flowId);

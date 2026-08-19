@@ -3051,8 +3051,11 @@ ${identitySsoScript}
         __anOAuthPollCount++;
         try {
           var exchangeParams = '?flow_id=' + encodeURIComponent(flowId);
-          if (verifier) exchangeParams += '&verifier=' + encodeURIComponent(verifier);
-          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, { credentials: 'include' });
+          var exchangeOptions = { credentials: 'include' };
+          if (verifier) {
+            exchangeOptions.headers = { 'X-Agent-Native-Desktop-Verifier': verifier };
+          }
+          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, exchangeOptions);
           var data = await res.json().catch(function() { return {}; });
           if (data && (data.email || data.token)) {
             if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);

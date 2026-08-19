@@ -45,12 +45,20 @@ const DESKTOP_AUTH_POLL_ABORT_MS = Math.max(
   DESKTOP_AUTH_POLL_INTERVAL_MS * 4,
 );
 
-function newDesktopOAuthVerifier(): string {
-  const randomUuid = globalThis.crypto?.randomUUID;
+function newDesktopOAuthVerifier(): string | null {
+  const cryptoApi = globalThis.crypto;
+  const randomUuid = cryptoApi?.randomUUID;
   if (typeof randomUuid === "function") {
-    return `${randomUuid.call(globalThis.crypto)}${randomUuid.call(globalThis.crypto)}`;
+    return `${randomUuid.call(cryptoApi)}${randomUuid.call(cryptoApi)}`;
   }
-  return `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Date.now().toString(36)}${Date.now().toString(36)}`;
+  if (typeof cryptoApi?.getRandomValues === "function") {
+    const bytes = new Uint8Array(32);
+    cryptoApi.getRandomValues(bytes);
+    let binary = "";
+    for (const byte of bytes) binary += String.fromCharCode(byte);
+    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+  }
+  return null;
 }
 
 function bodyError(
@@ -238,6 +246,14 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
         globalThis.crypto?.randomUUID?.() ||
         Math.random().toString(36).slice(2) + Date.now().toString(36);
       const verifier = newDesktopOAuthVerifier();
+      if (!verifier) {
+        setIsPending(false);
+        onError?.({
+          code: "desktop_auth_start_failed",
+          message: "Secure OAuth verifier generation is unavailable.",
+        });
+        return true;
+      }
       const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
       const params = new URLSearchParams({
         redirect_uri: redirectUri,
@@ -320,9 +336,15 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
           try {
             const exchangeRes = await fetch(
               agentNativePath(
-                `/_agent-native/auth/desktop-exchange?${new URLSearchParams({ flow_id: flowId, verifier })}`,
+                `/_agent-native/auth/desktop-exchange?flow_id=${encodeURIComponent(flowId)}`,
               ),
-              { credentials: "include", signal: controller.signal },
+              {
+                credentials: "include",
+                headers: {
+                  "X-Agent-Native-Desktop-Verifier": verifier,
+                },
+                signal: controller.signal,
+              },
             );
             const exchange = await exchangeRes.json();
             if (exchange?.error) {

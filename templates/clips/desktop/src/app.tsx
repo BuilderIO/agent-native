@@ -2062,11 +2062,19 @@ export function App() {
       const controller = new AbortController();
       const abortTimer = setTimeout(() => controller.abort(), POLL_ABORT_MS);
       try {
-        const exchangeParams = new URLSearchParams({ flow_id: flowId });
-        if (verifier) exchangeParams.set("verifier", verifier);
         const xr = await fetch(
-          `${base}/_agent-native/auth/desktop-exchange?${exchangeParams.toString()}`,
-          { credentials: "include", signal: controller.signal },
+          `${base}/_agent-native/auth/desktop-exchange?flow_id=${encodeURIComponent(flowId)}`,
+          {
+            credentials: "include",
+            ...(verifier
+              ? {
+                  headers: {
+                    "X-Agent-Native-Desktop-Verifier": verifier,
+                  },
+                }
+              : {}),
+            signal: controller.signal,
+          },
         );
         if (!xr.ok) {
           if (Date.now() - start > TIMEOUT_MS) {
@@ -2142,9 +2150,26 @@ export function App() {
       const flowId =
         crypto.randomUUID?.() ||
         Math.random().toString(36).slice(2) + Date.now().toString(36);
-      const verifier = crypto.randomUUID?.()
-        ? `${crypto.randomUUID()}${crypto.randomUUID()}`
-        : `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Date.now().toString(36)}${Date.now().toString(36)}`;
+      const verifier = (() => {
+        const randomUuid = crypto.randomUUID;
+        if (typeof randomUuid === "function") {
+          return `${randomUuid.call(crypto)}${randomUuid.call(crypto)}`;
+        }
+        if (typeof crypto.getRandomValues === "function") {
+          const bytes = new Uint8Array(32);
+          crypto.getRandomValues(bytes);
+          let binary = "";
+          for (const byte of bytes) binary += String.fromCharCode(byte);
+          return btoa(binary)
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+        }
+        return null;
+      })();
+      if (!verifier) {
+        throw new Error("Secure OAuth verifier generation is unavailable.");
+      }
       const base = serverUrl.replace(/\/+$/, "");
 
       const authParams = new URLSearchParams({
