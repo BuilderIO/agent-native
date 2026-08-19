@@ -60,7 +60,6 @@ import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
-import { createCodeAgentAgentTools } from "./code-agent-agent-tools.js";
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
@@ -69,6 +68,7 @@ import {
   runClaudeCodeParticipant,
   type ClaudeCodeParticipantEvent,
 } from "./claude-code-participant.js";
+import { createCodeAgentAgentTools } from "./code-agent-agent-tools.js";
 import {
   codexMcpConfigArgs,
   mergeCodeAgentMcpConfig,
