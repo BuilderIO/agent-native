@@ -1,11 +1,13 @@
+import { createHash } from "node:crypto";
+
 import { defineAction } from "@agent-native/core";
 import { verifyScopedAgentAccessToken } from "@agent-native/core/server";
+import { invalidateCollabAccessCache } from "@agent-native/core/server/poll";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
-import shareResource from "@agent-native/core/sharing/actions/share-resource";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -18,6 +20,17 @@ function httpError(message: string, statusCode: number): Error {
 
 function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
+}
+
+function deckViewerShareId(deckId: string, requesterEmail: string): string {
+  return (
+    "deck-share-" +
+    createHash("sha256")
+      .update(deckId)
+      .update("\0")
+      .update(requesterEmail)
+      .digest("hex")
+  );
 }
 
 export default defineAction({
@@ -122,14 +135,49 @@ export default defineAction({
       };
     }
 
-    const shareResult = (await shareResource.run({
-      resourceType: "deck",
-      resourceId: deckId,
-      principalType: "user",
-      principalId: requesterEmail,
-      role: "viewer",
-      notify: false,
-    })) as { id: string };
+    // Use a deterministic primary key as the idempotency key. The generic
+    // shares table predates a composite unique constraint, but concurrent
+    // approvals for this flow still collide atomically on this key.
+    const shareId = deckViewerShareId(deckId, requesterEmail);
+    const [insertedShare] = await db
+      .insert(schema.deckShares)
+      .values({
+        id: shareId,
+        resourceId: deckId,
+        principalType: "user",
+        principalId: requesterEmail,
+        role: "viewer",
+        createdBy: normalizedApproverEmail,
+        createdAt: new Date().toISOString(),
+      })
+      .onConflictDoNothing()
+      .returning({ id: schema.deckShares.id });
+    if (!insertedShare) {
+      const [existingShareAfterConflict] = await db
+        .select({ id: schema.deckShares.id })
+        .from(schema.deckShares)
+        .where(
+          and(
+            eq(schema.deckShares.resourceId, deckId),
+            eq(schema.deckShares.principalType, "user"),
+            sql`lower(${schema.deckShares.principalId}) = ${requesterEmail}`,
+          ),
+        )
+        .limit(1);
+      if (!existingShareAfterConflict) {
+        throw new Error("Deck access share conflict could not be resolved.");
+      }
+      return {
+        ok: true as const,
+        alreadyAllowed: true,
+        requesterEmail,
+        deckId,
+        deckTitle: deck.title,
+        shareId: existingShareAfterConflict.id,
+        message: "Access was already granted to this requester.",
+      };
+    }
+    invalidateCollabAccessCache("deck", deckId);
 
     return {
       ok: true as const,
@@ -137,7 +185,7 @@ export default defineAction({
       requesterEmail,
       deckId,
       deckTitle: deck.title,
-      shareId: shareResult.id,
+      shareId: insertedShare.id,
       message: "Access granted. This requester can now open the deck.",
     };
   },

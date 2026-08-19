@@ -7,7 +7,6 @@ const mocks = vi.hoisted(() => ({
   resolveAccess: vi.fn(),
   verifyScopedAgentAccessToken: vi.fn(),
   getDb: vi.fn(),
-  shareResource: vi.fn(),
 }));
 
 vi.mock("@agent-native/core", () => ({
@@ -19,10 +18,8 @@ vi.mock("@agent-native/core/server", () => ({
     mocks.verifyScopedAgentAccessToken(...args),
 }));
 
-vi.mock("@agent-native/core/sharing/actions/share-resource", () => ({
-  default: {
-    run: (...args: unknown[]) => mocks.shareResource(...args),
-  },
+vi.mock("@agent-native/core/server/poll", () => ({
+  invalidateCollabAccessCache: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -62,6 +59,9 @@ vi.mock("../server/db/index.js", () => ({
       resourceId: "deck_shares.resource_id",
       principalType: "deck_shares.principal_type",
       principalId: "deck_shares.principal_id",
+      role: "deck_shares.role",
+      createdBy: "deck_shares.created_by",
+      createdAt: "deck_shares.created_at",
     },
   },
 }));
@@ -72,6 +72,7 @@ function createDb(
   deckRows: unknown[],
   requestRows: unknown[],
   shareRows: unknown[],
+  insertConflict = false,
 ) {
   const rowsBySelect = [deckRows, requestRows, shareRows];
   let selectIndex = 0;
@@ -89,6 +90,13 @@ function createDb(
       };
       return builder;
     }),
+    insert: vi.fn(() => ({
+      values: vi.fn((row: { id: string }) => ({
+        onConflictDoNothing: () => ({
+          returning: async () => (insertConflict ? [] : [{ id: row.id }]),
+        }),
+      })),
+    })),
   };
   return db;
 }
@@ -117,7 +125,6 @@ describe("approve-deck-access-request", () => {
       ok: true,
       viewerEmail: "viewer@example.com",
     });
-    mocks.shareResource.mockResolvedValue({ id: "share-1", updated: false });
   });
 
   it("adds the requester as a normalized viewer in the deck share table", async () => {
@@ -133,21 +140,14 @@ describe("approve-deck-access-request", () => {
       ok: true,
       alreadyAllowed: false,
       requesterEmail: "viewer@example.com",
-      shareId: "share-1",
+      shareId: expect.stringMatching(/^deck-share-[a-f0-9]{64}$/),
     });
 
     expect(mocks.resolveAccess).toHaveBeenCalledWith("deck", "deck-1", {
       userEmail: "owner@example.com",
       orgId: "org-1",
     });
-    expect(mocks.shareResource).toHaveBeenCalledWith({
-      resourceType: "deck",
-      resourceId: "deck-1",
-      principalType: "user",
-      principalId: "viewer@example.com",
-      role: "viewer",
-      notify: false,
-    });
+    expect(db.insert).toHaveBeenCalledOnce();
   });
 
   it("is idempotent when the requester is already shared", async () => {
@@ -168,7 +168,7 @@ describe("approve-deck-access-request", () => {
       alreadyAllowed: true,
       shareId: "existing-share",
     });
-    expect(mocks.shareResource).not.toHaveBeenCalled();
+    expect(db.insert).not.toHaveBeenCalled();
   });
 
   it("rejects invalid tokens before reading the deck", async () => {

@@ -25,6 +25,7 @@ const state = vi.hoisted(() => ({
   previousRequests: [] as { id: string; payload: string | null }[],
   insertedRows: [] as Record<string, unknown>[],
   updatedPayload: null as string | null,
+  rateLimitCount: 0,
 }));
 
 const limitSelect = vi.hoisted(() =>
@@ -32,6 +33,17 @@ const limitSelect = vi.hoisted(() =>
 );
 const insertValues = vi.hoisted(() =>
   vi.fn((row: Record<string, unknown>) => {
+    if ("requestCount" in row) {
+      return {
+        onConflictDoUpdate: () => ({
+          returning: async () => {
+            if (state.rateLimitCount >= 5) return [];
+            state.rateLimitCount += 1;
+            return [{ requestCount: state.rateLimitCount }];
+          },
+        }),
+      };
+    }
     state.insertedRows.push(row);
     return {
       onConflictDoNothing: () => ({
@@ -138,6 +150,11 @@ vi.mock("../server/db/index.js", () => ({
       createdBy: "deck_events.created_by",
       createdAt: "deck_events.created_at",
     },
+    deckAccessRequestLimits: {
+      deckId: "deck_access_request_limits.deck_id",
+      windowStartedAt: "deck_access_request_limits.window_started_at",
+      requestCount: "deck_access_request_limits.request_count",
+    },
   },
 }));
 
@@ -178,13 +195,10 @@ vi.mock("./_app-url.js", () => ({
   getSlidesAppUrl: () => "https://slides.example",
 }));
 
-import action, {
-  __resetAnonymousAccessRequestRateLimitForTests,
-} from "./request-deck-access";
+import action from "./request-deck-access";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  __resetAnonymousAccessRequestRateLimitForTests();
   state.requesterEmail = "requester@example.com";
   state.requesterName = "Requester";
   state.deck = {
@@ -202,6 +216,7 @@ beforeEach(() => {
   state.previousRequests = [];
   state.insertedRows = [];
   state.updatedPayload = null;
+  state.rateLimitCount = 0;
 });
 
 afterEach(() => {
@@ -532,6 +547,7 @@ describe("request-deck-access", () => {
 
     const result = await action.run({
       deckId: "deck-1",
+      accessRequestToken: "request-token",
       requesterEmail: "guest@example.com",
     });
 
@@ -551,9 +567,41 @@ describe("request-deck-access", () => {
   it("requires an email for an anonymous requester", async () => {
     state.requesterEmail = null;
 
-    await expect(action.run({ deckId: "deck-1" })).rejects.toMatchObject({
-      statusCode: 401,
-    });
+    await expect(
+      action.run({ deckId: "deck-1", accessRequestToken: "request-token" }),
+    ).rejects.toMatchObject({ statusCode: 401 });
     expect(state.insertedRows).toHaveLength(0);
+  });
+
+  it("requires the signed capability for anonymous requests", async () => {
+    state.requesterEmail = null;
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        requesterEmail: "guest@example.com",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(state.insertedRows).toHaveLength(0);
+  });
+
+  it("limits anonymous requests with the durable per-deck bucket", async () => {
+    state.requesterEmail = null;
+
+    for (let index = 0; index < 5; index += 1) {
+      await action.run({
+        deckId: "deck-1",
+        accessRequestToken: "request-token",
+        requesterEmail: `guest-${index}@example.com`,
+      });
+    }
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        accessRequestToken: "request-token",
+        requesterEmail: "guest-5@example.com",
+      }),
+    ).rejects.toMatchObject({ statusCode: 429 });
   });
 });

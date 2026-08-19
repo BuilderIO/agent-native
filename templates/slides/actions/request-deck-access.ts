@@ -13,7 +13,7 @@ import {
   getRequestUserName,
 } from "@agent-native/core/server/request-context";
 import { currentAccess, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -31,40 +31,40 @@ import { getDeckUrl, getSlidesAppUrl } from "./_app-url.js";
 
 const ANONYMOUS_ACCESS_REQUEST_WINDOW_MS = 10 * 60 * 1000;
 const ANONYMOUS_ACCESS_REQUEST_MAX = 5;
-const ANONYMOUS_ACCESS_REQUEST_MAX_BUCKETS = 5000;
-const anonymousAccessRequestBuckets = new Map<
-  string,
-  { count: number; resetAt: number }
->();
 
-export function __resetAnonymousAccessRequestRateLimitForTests(): void {
-  anonymousAccessRequestBuckets.clear();
-}
+async function claimAnonymousAccessRequestSlot(
+  db: ReturnType<typeof getDb>,
+  deckId: string,
+): Promise<void> {
+  const now = new Date();
+  const windowStartedAt = now.toISOString();
+  const resetBefore = new Date(
+    now.getTime() - ANONYMOUS_ACCESS_REQUEST_WINDOW_MS,
+  ).toISOString();
+  const limits = schema.deckAccessRequestLimits;
+  const [bucket] = await db
+    .insert(limits)
+    .values({
+      deckId,
+      windowStartedAt,
+      requestCount: 1,
+    })
+    .onConflictDoUpdate({
+      target: limits.deckId,
+      set: {
+        windowStartedAt: sql`CASE WHEN ${limits.windowStartedAt} <= ${resetBefore} THEN ${windowStartedAt} ELSE ${limits.windowStartedAt} END`,
+        requestCount: sql`CASE WHEN ${limits.windowStartedAt} <= ${resetBefore} THEN 1 ELSE ${limits.requestCount} + 1 END`,
+      },
+      where: sql`${limits.windowStartedAt} <= ${resetBefore} OR ${limits.requestCount} < ${ANONYMOUS_ACCESS_REQUEST_MAX}`,
+    })
+    .returning({ requestCount: limits.requestCount });
 
-function allowAnonymousAccessRequest(deckId: string): boolean {
-  const now = Date.now();
-  for (const [key, bucket] of anonymousAccessRequestBuckets) {
-    if (bucket.resetAt <= now) anonymousAccessRequestBuckets.delete(key);
-  }
-
-  let bucket = anonymousAccessRequestBuckets.get(deckId);
   if (!bucket) {
-    if (
-      anonymousAccessRequestBuckets.size >= ANONYMOUS_ACCESS_REQUEST_MAX_BUCKETS
-    ) {
-      const oldestKey = anonymousAccessRequestBuckets.keys().next().value;
-      if (oldestKey) anonymousAccessRequestBuckets.delete(oldestKey);
-    }
-    bucket = {
-      count: 0,
-      resetAt: now + ANONYMOUS_ACCESS_REQUEST_WINDOW_MS,
-    };
-    anonymousAccessRequestBuckets.set(deckId, bucket);
+    throw httpError(
+      "Too many anonymous access requests for this deck. Try again later.",
+      429,
+    );
   }
-
-  if (bucket.count >= ANONYMOUS_ACCESS_REQUEST_MAX) return false;
-  bucket.count += 1;
-  return true;
 }
 
 function httpError(message: string, statusCode: number): Error {
@@ -301,6 +301,9 @@ export default defineAction({
     if (accessRequestToken && !requestToken.ok) {
       throw httpError(`Deck ${deckId} not found`, 404);
     }
+    if (!sessionEmail && !requestToken.ok) {
+      throw httpError(`Deck ${deckId} not found`, 404);
+    }
     const normalizedRequesterEmail = sessionEmail
       ? normalizeEmail(sessionEmail)
       : requesterEmailInput
@@ -320,12 +323,6 @@ export default defineAction({
       throw httpError(
         "This request is tied to a different email. Sign in with the email that opened the link.",
         403,
-      );
-    }
-    if (!sessionEmail && !allowAnonymousAccessRequest(deckId)) {
-      throw httpError(
-        "Too many anonymous access requests for this deck. Try again later.",
-        429,
       );
     }
     const requesterEmail = normalizedRequesterEmail;
@@ -499,6 +496,10 @@ export default defineAction({
         notifiedOwner: false,
         message: "Access requests are only available for private decks.",
       };
+    }
+
+    if (!sessionEmail) {
+      await claimAnonymousAccessRequestSlot(db, deckId);
     }
 
     const requesterName =

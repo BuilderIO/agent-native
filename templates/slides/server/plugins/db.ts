@@ -252,6 +252,15 @@ export const runSlidesMigrations = runMigrations(
   );
   CREATE INDEX IF NOT EXISTS deck_events_deck_created_idx ON deck_events (deck_id, created_at)`,
     },
+    {
+      version: 23,
+      name: "slides-deck-access-request-rate-limits",
+      sql: `CREATE TABLE IF NOT EXISTS deck_access_request_limits (
+    deck_id TEXT PRIMARY KEY,
+    window_started_at TEXT NOT NULL,
+    request_count INTEGER NOT NULL DEFAULT 0
+  )`,
+    },
   ],
   { table: "slides_migrations" },
 );

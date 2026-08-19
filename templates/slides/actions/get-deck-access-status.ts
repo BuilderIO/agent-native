@@ -59,7 +59,17 @@ export default defineAction({
       };
     }
 
-    const access = await resolveAccess("deck", deckId, currentAccess());
+    let access: Awaited<ReturnType<typeof resolveAccess>> = null;
+    try {
+      access = await resolveAccess("deck", deckId, currentAccess());
+    } catch (error) {
+      // coercion-ok: an access probe failure must fail closed as no access so
+      // the page stays gated while the request capability remains available.
+      console.warn(
+        "[slides] deck access probe failed; treating the deck as private:",
+        error,
+      );
+    }
     const visibility = deck.visibility ?? "private";
     const accessRequestToken =
       !access && visibility === "private"
