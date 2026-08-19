@@ -3612,7 +3612,10 @@ function CodeAgentComposer({
           : "agent-native-code:follow-up"
       }
       initialText={
-        promptSeed !== undefined && Number(promptSeed) > 0 ? prompt : undefined
+        promptSeed !== undefined &&
+        (typeof promptSeed === "string" || Number(promptSeed) > 0)
+          ? prompt
+          : undefined
       }
       initialTextKey={promptSeed}
       modeControl={modeControl}
