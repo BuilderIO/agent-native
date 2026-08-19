@@ -1236,6 +1236,7 @@ const ptBR = {
     loadError:
       "Não foi possível carregar a versão desktop mais recente. A página de releases tem todos os instaladores.",
     checkingRelease: "Verificando a versão desktop mais recente...",
+    nightlyBuilds: "Procurando a versão Nightly?",
     runFromSource: "Ou executar a partir do código-fonte",
     runFromSourceBody:
       "Ainda não há instalador para sua plataforma, ou prefere a CLI? Crie um novo app com npm e rode localmente; funciona em macOS, Windows e Linux.",

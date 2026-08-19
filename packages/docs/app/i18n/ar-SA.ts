@@ -1232,6 +1232,7 @@ const arSA = {
     loadError:
       "تعذر تحميل أحدث إصدار لسطح المكتب. تحتوي صفحة releases على كل المثبّتات.",
     checkingRelease: "جارٍ التحقق من أحدث إصدار لسطح المكتب...",
+    nightlyBuilds: "هل تبحث عن إصدار Nightly؟",
     runFromSource: "أو شغّله من المصدر",
     runFromSourceBody:
       "لا يوجد مثبّت لمنصتك بعد، أو تفضّل CLI؟ أنشئ تطبيقًا جديدًا باستخدام npm وشغّله محليًا — يعمل على macOS وWindows وLinux.",

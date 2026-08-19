@@ -150,6 +150,25 @@ export function shouldSuppressDesktopSignInPrompt(
   return identityAvailable && isDesktopIdentityGateEligible(app, appConfig);
 }
 
+export function isDesktopIdentityGateUnauthenticated(
+  status: DesktopIdentityStatus | "checking" | undefined,
+): boolean {
+  return status === "sign-in-required" || status === "failed";
+}
+
+export function isDesktopIdentityAuthenticated(
+  status: DesktopIdentityStatus | "checking" | undefined,
+): boolean {
+  return status === "signed-in";
+}
+
+export function resolveDesktopIdentityStatusForChat(
+  status: DesktopIdentityStatus | "checking",
+  sessionReady: boolean,
+): DesktopIdentityStatus | "checking" {
+  return status === "signed-in" && !sessionReady ? "checking" : status;
+}
+
 export function resolveDesktopIdentityLazySyncStatus(
   status: DesktopIdentityStatus,
   synchronized: boolean,
@@ -217,6 +236,10 @@ interface AppWebviewProps {
   onTitleChange?: (title: string) => void;
   /** Emits the guest page's coarse session state for host-owned UI. */
   onAuthStateChange?: (state: AppWebviewAuthState) => void;
+  /** Emits the native desktop identity state for sibling host surfaces. */
+  onDesktopIdentityStatusChange?: (
+    status: DesktopIdentityStatus | "checking",
+  ) => void;
   onAppsChanged?: (apps: AppConfig[]) => void;
 }
 
@@ -398,6 +421,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       refreshKey = 0,
       onTitleChange,
       onAuthStateChange,
+      onDesktopIdentityStatusChange,
       onAppsChanged,
     }: AppWebviewProps,
     ref,
@@ -444,6 +468,9 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
     const onAuthStateChangeRef = useRef(onAuthStateChange);
+    const onDesktopIdentityStatusChangeRef = useRef(
+      onDesktopIdentityStatusChange,
+    );
     const perAppChatOpenRef = useRef(false);
 
     const applyGuestTheme = useCallback(() => {
@@ -482,6 +509,19 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       onAuthStateChangeRef.current = onAuthStateChange;
     }, [onAuthStateChange]);
+
+    useEffect(() => {
+      onDesktopIdentityStatusChangeRef.current = onDesktopIdentityStatusChange;
+    }, [onDesktopIdentityStatusChange]);
+
+    useEffect(() => {
+      onDesktopIdentityStatusChangeRef.current?.(
+        resolveDesktopIdentityStatusForChat(
+          desktopIdentityStatus,
+          desktopIdentitySessionReady,
+        ),
+      );
+    }, [desktopIdentitySessionReady, desktopIdentityStatus]);
 
     useEffect(() => {
       const identity = window.electronAPI?.identity;

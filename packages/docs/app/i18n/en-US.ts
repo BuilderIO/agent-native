@@ -1233,6 +1233,7 @@ const enUS = {
     loadError:
       "Could not load the latest desktop release. The releases page has all installers.",
     checkingRelease: "Checking the latest desktop release...",
+    nightlyBuilds: "Looking for the Nightly build?",
     runFromSource: "Or run from source",
     runFromSourceBody:
       "No installer for your platform yet, or prefer the CLI? Scaffold a new app with npm and run it locally — works on macOS, Windows, and Linux.",

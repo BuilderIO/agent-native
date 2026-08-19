@@ -81,9 +81,15 @@ describe("AssistantChat thread restore and composer recovery", () => {
       shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 404),
     ).toBe(false);
     expect(
+      shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 404, true),
+    ).toBe(true);
+    expect(
       shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 500),
     ).toBe(false);
     expect(shouldSuppressUnauthenticatedDesktopThreadRestore("app", 401)).toBe(
+      false,
+    );
+    expect(shouldSuppressUnauthenticatedDesktopThreadRestore("app", 404)).toBe(
       false,
     );
   });
@@ -100,6 +106,9 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(source).toContain('t("agentChat.message.threadNotFound")');
     expect(source).toContain("retryThreadRestore");
     expect(source).toContain('t("agentChat.common.retry")');
+    expect(source).toContain("desktopIdentityUnauthenticated");
+    expect(source).toContain("desktopIdentityAuthenticated");
+    expect(source).toContain("retryThreadRestore();");
   });
 
   it("clears a stale restore error when a saved tab becomes a fresh chat", () => {
