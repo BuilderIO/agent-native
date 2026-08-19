@@ -1606,43 +1606,61 @@ export class DesktopIdentityBroker {
       authority,
       this.options.identitySession,
     );
-    console.info("[desktop identity] workspace embed request", {
-      authorityOrigin: authority.origin,
-      targetAppId: target.id,
-      cookieNames: cookieHeaderNames(cookieHeader),
-    });
-    const response = await this.options.identitySession.fetch(
-      new URL(DISPATCH_WORKSPACE_EMBED_ACTION, authority.origin).toString(),
-      {
-        method: "POST",
-        redirect: "manual",
-        credentials: "include",
-        headers: {
-          Accept: "application/json",
-          "Content-Type": "application/json",
-          "X-Agent-Native-CSRF": "1",
-          ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-        },
-        body: JSON.stringify({ app: target.id, path: "/", chrome: "minimal" }),
+    const requestUrl = new URL(
+      DISPATCH_WORKSPACE_EMBED_ACTION,
+      authority.origin,
+    ).toString();
+    const requestInit: RequestInit = {
+      method: "POST",
+      redirect: "manual",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+        "Content-Type": "application/json",
+        "X-Agent-Native-CSRF": "1",
+        ...(cookieHeader ? { Cookie: cookieHeader } : {}),
       },
+      body: JSON.stringify({ app: target.id, path: "/", chrome: "minimal" }),
+    };
+    let response = await this.options.identitySession.fetch(
+      requestUrl,
+      requestInit,
     );
-    console.info("[desktop identity] workspace embed response", {
-      targetAppId: target.id,
-      status: response.status,
-      ok: response.ok,
-    });
-    let payload: { error?: unknown; startUrl?: unknown } | null;
-    try {
-      payload = (await response.json()) as {
-        error?: unknown;
-        startUrl?: unknown;
-      };
-    } catch (error) {
-      throw new Error(
-        error instanceof Error
-          ? `Dispatch returned invalid workspace app session data: ${error.message}`
-          : "Dispatch returned invalid workspace app session data.",
-      );
+    let payload: { error?: unknown; startUrl?: unknown } | null = null;
+    if (response.status !== 401) {
+      try {
+        payload = (await response.json()) as {
+          error?: unknown;
+          startUrl?: unknown;
+        };
+      } catch (error) {
+        throw new Error(
+          error instanceof Error
+            ? `Dispatch returned invalid workspace app session data: ${error.message}`
+            : "Dispatch returned invalid workspace app session data.",
+        );
+      }
+    }
+    if (
+      cookieHeader &&
+      (response.status === 401 || payload?.error === "Not authenticated")
+    ) {
+      // Electron's isolated Session transport can reject a valid parent
+      // cookie on this POST even though the same request succeeds through
+      // the main-process fetch. Keep the explicit cookie boundary intact.
+      response = await fetch(requestUrl, requestInit);
+      try {
+        payload = (await response.json()) as {
+          error?: unknown;
+          startUrl?: unknown;
+        };
+      } catch (error) {
+        throw new Error(
+          error instanceof Error
+            ? `Dispatch returned invalid workspace app session data: ${error.message}`
+            : "Dispatch returned invalid workspace app session data.",
+        );
+      }
     }
     if (!response.ok || typeof payload?.startUrl !== "string") {
       const message =

@@ -1857,6 +1857,104 @@ describe("DesktopIdentityBroker", () => {
     expect(mailCookies.set).toHaveBeenCalledTimes(cookieSetCount);
   });
 
+  it("retries an unauthorized embed request through the main-process transport", async () => {
+    const authority = authorityFixture();
+    const mail = appFixture();
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_dispatch", authority.origin, "desktop-session"),
+    ]);
+    const mailCookies = cookieStore();
+    const identityFetch = vi.fn(async (input: string) => {
+      const url = new URL(input);
+      if (url.pathname === "/_agent-native/auth/session") {
+        return sessionResponse("owner@example.com");
+      }
+      if (
+        url.pathname ===
+        "/_agent-native/actions/create-workspace-app-embed-session"
+      ) {
+        return new Response(JSON.stringify({ error: "Not authenticated" }), {
+          status: 401,
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const mainFetch = vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input);
+      if (
+        url.pathname ===
+        "/_agent-native/actions/create-workspace-app-embed-session"
+      ) {
+        expect(init?.headers).toEqual(
+          expect.objectContaining({
+            Cookie: "an_session_dispatch=desktop-session",
+          }),
+        );
+        return new Response(
+          JSON.stringify({
+            startUrl:
+              "https://mail.agent-native.com/_agent-native/embed/start?ticket=mail-ticket",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+    const previousFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", mainFetch);
+    try {
+      mail.session = {
+        cookies: mailCookies,
+        fetch: vi.fn(async (input: string) => {
+          const url = new URL(input);
+          if (url.pathname === "/_agent-native/embed/start") {
+            await mailCookies.set({
+              url: mail.origin,
+              name: "an_session_mail",
+              value: "mail-session",
+            });
+            return new Response("<html></html>", { status: 200 });
+          }
+          return url.pathname === "/_agent-native/auth/session"
+            ? sessionResponse("owner@example.com")
+            : new Response(null, { status: 404 });
+        }),
+      } as unknown as Electron.Session;
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: identityCookies,
+          fetch: identityFetch,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        resolveApp: (id) =>
+          id === authority.id ? authority : id === mail.id ? mail : null,
+        listApps: () => [authority, mail],
+        openExternal: vi.fn(async () => {}),
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+        createWindow: vi.fn() as never,
+      });
+      broker.setStatusForSetting("signed-in");
+
+      await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+      expect(identityFetch).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "/_agent-native/actions/create-workspace-app-embed-session",
+        ),
+        expect.any(Object),
+      );
+      expect(mainFetch).toHaveBeenCalledOnce();
+      expect(mailCookies.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "an_session_mail",
+          value: "mail-session",
+        }),
+      );
+    } finally {
+      vi.stubGlobal("fetch", previousFetch);
+    }
+  });
+
   it("does not remint a verified modern child on repeated status notifications", async () => {
     const authority = authorityFixture();
     const mail = appFixture();
