@@ -309,11 +309,11 @@ export default function MailTemplate() {
         }
         trailing={
           <div className="flex h-full items-center p-6 sm:p-8 lg:p-10">
-            <div className="w-full overflow-x-auto border border-[var(--code-border)] bg-[var(--code-bg)] p-6 font-mono text-sm">
+            <div className="w-full min-w-0 border border-[var(--code-border)] bg-[var(--code-bg)] p-6 font-mono text-sm">
               <div className="mb-4 text-[var(--fg-secondary)]">
                 {"// Available agent actions"}
               </div>
-              <div className="grid min-w-[28rem] gap-3 text-[var(--fg)]">
+              <div className="grid min-w-0 gap-3 break-words text-[var(--fg)]">
                 <div>
                   <span style={{ color: template.color }}>$</span> pnpm action
                   sync-inbox --since 7d
