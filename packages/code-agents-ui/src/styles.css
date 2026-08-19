@@ -610,6 +610,14 @@
   box-shadow: 0 0 0 2.5px rgba(59, 130, 246, 0.18);
 }
 
+.code-agents-run-status-scheduled {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground) / 0.82);
+}
+
 .code-agents-source-label {
   max-width: 96px;
   display: inline-flex;
