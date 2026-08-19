@@ -879,6 +879,7 @@ export default function CodeAgentsApp({
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [newPrompt, setNewPrompt] = useState("");
   const [newPromptSeed, setNewPromptSeed] = useState(0);
+  const handledNewChatPromptNonceRef = useRef<number | null>(null);
   const [creatingRun, setCreatingRun] = useState(false);
   const seenChatFirstOpenAppEvents = useRef(new Set<string>());
   const registeredChatFirstMcpServerIds = useMemo(
@@ -1494,6 +1495,12 @@ export default function CodeAgentsApp({
   useEffect(() => {
     const prompt = newChatPromptRequest?.prompt.trim();
     if (!prompt) return;
+    if (
+      handledNewChatPromptNonceRef.current === newChatPromptRequest?.nonce
+    ) {
+      return;
+    }
+    handledNewChatPromptNonceRef.current = newChatPromptRequest?.nonce ?? null;
     onChatFirstMainKindChange?.("code");
     setSelectedGoalId("task");
     setSelectedExtensionDetailId(null);
@@ -1505,9 +1512,6 @@ export default function CodeAgentsApp({
   }, [
     newChatPromptRequest?.nonce,
     newChatPromptRequest?.prompt,
-    onChatFirstMainKindChange,
-    seedNewPrompt,
-    selectRun,
   ]);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
