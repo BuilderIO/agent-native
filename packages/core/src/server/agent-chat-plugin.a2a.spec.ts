@@ -8,6 +8,7 @@ vi.mock("../observability/traces.js", () => ({
   instrumentAgentLoop: instrumentAgentLoopMock,
 }));
 
+import { extractA2APersistedMutationReceipts } from "../a2a/artifact-response.js";
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   assembleA2AFinalResponse,
@@ -25,8 +26,8 @@ import {
 } from "./agent-chat-plugin.js";
 
 describe("delegated A2A recoverable artifact checkpoints", () => {
-  it("uses an organization A2A secret when no global secret is configured", async () => {
-    vi.stubEnv("A2A_SECRET", "");
+  it("prefers the organization A2A secret when a global secret is also configured", async () => {
+    vi.stubEnv("A2A_SECRET", "global-a2a-secret");
     vi.doMock("../org/context.js", () => ({
       getOrgA2ASecret: vi.fn(async () => "org-only-a2a-secret"),
     }));
@@ -34,6 +35,22 @@ describe("delegated A2A recoverable artifact checkpoints", () => {
     await expect(resolveA2ARecoverableArtifactSecret("org-qa")).resolves.toBe(
       "org-only-a2a-secret",
     );
+
+    vi.doUnmock("../org/context.js");
+    vi.unstubAllEnvs();
+  });
+
+  it("does not use the global secret when organization secret lookup fails", async () => {
+    vi.stubEnv("A2A_SECRET", "global-a2a-secret");
+    vi.doMock("../org/context.js", () => ({
+      getOrgA2ASecret: vi.fn(async () => {
+        throw new Error("organization secret store unavailable");
+      }),
+    }));
+
+    await expect(
+      resolveA2ARecoverableArtifactSecret("org-qa"),
+    ).resolves.toBeUndefined();
 
     vi.doUnmock("../org/context.js");
     vi.unstubAllEnvs();
@@ -721,6 +738,120 @@ describe("assembleA2AFinalResponse", () => {
         { outcome: { state: "completed" } },
       ).finalText,
     ).toBe("Recovered answer");
+  });
+
+  it("returns structured verified Content mutation receipts with the final text", () => {
+    const assembled = assembleA2AFinalResponse(
+      [{ type: "text", text: "Feedback updated." }, { type: "done" }],
+      [
+        {
+          tool: "upsert-database-item-by-key",
+          result: JSON.stringify({
+            receipt: {
+              receiptId: "receipt-row-1",
+              operation: "upsert",
+              outcome: "updated",
+              target: {
+                authorityScope: {
+                  kind: "personal",
+                  id: "alice@example.test",
+                },
+                spaceId: "space-alice",
+                databaseId: "feedback-db",
+                databaseDocumentId: "feedback-db-document",
+              },
+              row: {
+                itemId: "feedback-item-1",
+                documentId: "feedback-document-1",
+                urlPath: "/page/feedback-document-1",
+              },
+              idempotency: {
+                key: "request-1",
+                result: "applied",
+                payloadDigest: "digest-1",
+              },
+              revisions: { before: "before", after: "after" },
+              readback: { verified: true, propertyValues: {} },
+            },
+          }),
+        },
+      ],
+    );
+
+    expect(assembled.mutationReceipts).toEqual([
+      expect.objectContaining({
+        receiptId: "receipt-row-1",
+        row: expect.objectContaining({ documentId: "feedback-document-1" }),
+      }),
+    ]);
+    expect(assembled.finalText).toContain("/page/feedback-document-1");
+  });
+
+  it("signs final mutation receipts with an organization-only secret", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const secret = "org-only-final-receipt-secret";
+    const toolResults = [
+      {
+        tool: "upsert-database-item-by-key",
+        result: JSON.stringify({
+          receipt: {
+            receiptId: "receipt-org-secret",
+            operation: "upsert",
+            outcome: "created",
+            target: {
+              authorityScope: { kind: "personal", id: "owner@example.test" },
+              spaceId: "space-owner",
+              databaseId: "feedback-db",
+              databaseDocumentId: "feedback-db-document",
+            },
+            row: {
+              itemId: "feedback-item",
+              documentId: "feedback-document",
+              urlPath: "/page/feedback-document",
+            },
+            idempotency: {
+              key: "request-org-secret",
+              result: "applied",
+              payloadDigest: "digest-org-secret",
+            },
+            revisions: { after: "after" },
+            readback: { verified: true, propertyValues: {} },
+          },
+        }),
+      },
+    ];
+
+    const assembled = assembleA2AFinalResponse(
+      [{ type: "text", text: "Created feedback." }, { type: "done" }],
+      toolResults,
+      {
+        persistedArtifactSecret: secret,
+        delegatedTaskId: "task-current",
+      },
+    );
+
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: assembled.finalText }],
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-current",
+        },
+      ),
+    ).toEqual([expect.objectContaining({ receiptId: "receipt-org-secret" })]);
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: assembled.finalText }],
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-other",
+        },
+      ),
+    ).toEqual([]);
+    expect(assembled.mutationReceipts).toEqual([
+      expect.objectContaining({ receiptId: "receipt-org-secret" }),
+    ]);
+    vi.unstubAllEnvs();
   });
 
   it.each([
