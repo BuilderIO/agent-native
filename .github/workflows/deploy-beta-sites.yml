@@ -137,26 +137,43 @@ jobs:
             );
           }
 
-          async function findMatchingDeploy(site, betaSha) {
-            const deploys = await readJson(
-              await request(`${api}/sites/${site.siteId}/deploys?per_page=20`, { headers }),
-              `[${site.id}] recent deploys`,
-            );
-            if (!Array.isArray(deploys)) {
-              throw new Error(`[${site.id}] Netlify returned an invalid deploy list.`);
+          async function listBetaDeploys(site) {
+            const deploys = [];
+            for (let page = 1; page <= 100; page += 1) {
+              const pageDeploys = await readJson(
+                await request(`${api}/sites/${site.siteId}/deploys?per_page=100&page=${page}`, { headers }),
+                `[${site.id}] recent deploys page ${page}`,
+              );
+              if (!Array.isArray(pageDeploys)) {
+                throw new Error(`[${site.id}] Netlify returned an invalid deploy list.`);
+              }
+              deploys.push(...pageDeploys);
+              if (pageDeploys.length < 100) return deploys;
             }
+            throw new Error(`[${site.id}] Netlify deploy pagination exceeded 100 pages.`);
+          }
+
+          async function findReadyDeploy(site, betaSha) {
+            const deploys = await listBetaDeploys(site);
             return deploys.find(
               (candidate) =>
                 candidate.branch === "beta" &&
-                candidate.commit_ref === betaSha &&
-                candidate.state === "ready",
+                candidate.state === "ready" &&
+                (!betaSha || candidate.commit_ref === betaSha),
             );
           }
 
-          async function reuseMatchingDeploy(site, betaSha) {
-            const matchingDeploy = await findMatchingDeploy(site, betaSha);
+          async function reuseMatchingDeploy(site, betaSha, requireExactSha) {
+            const matchingDeploy = await findReadyDeploy(
+              site,
+              requireExactSha ? betaSha : undefined,
+            );
             if (!matchingDeploy) return false;
-            console.log(`[${site.id}] sibling deploy ready at ${matchingDeploy.commit_ref}.`);
+            if (requireExactSha) {
+              console.log(`[${site.id}] sibling deploy ready at ${matchingDeploy.commit_ref}.`);
+            } else {
+              console.log(`[${site.id}] no content change; reusing ready beta deploy at ${matchingDeploy.commit_ref}.`);
+            }
             return true;
           }
 
@@ -172,7 +189,7 @@ jobs:
                 (value) => value === "Skipped",
               );
               if (noContentChange || skipped) {
-                if (await reuseMatchingDeploy(site, betaSha)) {
+                if (await reuseMatchingDeploy(site, betaSha, skipped)) {
                   return;
                 }
                 await new Promise((resolve) => setTimeout(resolve, 15_000));
