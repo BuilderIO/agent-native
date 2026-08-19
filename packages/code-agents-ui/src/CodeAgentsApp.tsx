@@ -1009,11 +1009,14 @@ export default function CodeAgentsApp({
       const pinned = isRunPinned(run);
       const active = isRunActive(run);
       const unread = !active && unreadRunIds.has(run.id);
+      const scheduled = run.metadata?.hasSchedule === true;
       const timestampKey = active
         ? "active"
         : unread
           ? "unread"
-          : formatRelativeTime(run.updatedAt);
+          : scheduled
+            ? "scheduled"
+            : formatRelativeTime(run.updatedAt);
       const previous = railItemCacheRef.current.get(run.id);
       if (
         previous &&

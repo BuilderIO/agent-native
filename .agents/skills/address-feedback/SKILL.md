@@ -87,6 +87,28 @@ the right abstraction, not the most general one.
    report is not a bug ticket, it is a missing check — and the missing check is
    the deliverable, not the patch.
 
+## Clarification gate
+
+Before asking a reporter for clarification, read the complete parent thread,
+every reply, and every accessible linked artifact. Build a short ledger of the
+surface, URL, repro, exact error, screenshots or files, run or request IDs, and
+answers already present. A detail found anywhere in that evidence is available
+context - never ask the reporter to repeat it.
+
+Look for resolution or ownership signals before classifying an item as missing
+evidence. A substantive reply from `@agent-native` or any participant that
+identifies the cause, supplies the repro, links a fix, or says the issue is
+fixed, landed, or being fixed is evidence, not a clarification gap. Verify the
+claim when needed and record the item as already owned, fixed, or in progress;
+do not ask a duplicate question while that work is being verified or handed
+off. Ask only when one concrete reporter or product detail still blocks a safe
+fix after this review.
+
+Every human-facing feedback reply starts with a brief thank-you. When
+clarification is genuinely required, say `thanks for the feedback -` first and
+then ask one specific question. `Clarification needed` is an internal ledger
+state, never the opening or the prose of the reporter-facing reply.
+
 3. Decompose and categorize every actionable item.
 
    Build a compact checklist before changing code. For each item, record the
@@ -95,7 +117,7 @@ the right abstraction, not the most general one.
 
    - **Bug**: Broken behavior, crash, wrong data, dead link, package/API mismatch, or captured exception. Verify and fix when you agree.
    - **UX suggestion**: Design, discoverability, workflow, or feature feedback. Propose the cleanest version first unless the user explicitly asked you to implement UX changes.
-   - **Question or unclear**: Missing detail, contradictory feedback, or behavior you cannot inspect. Ask or flag it.
+   - **Question or unclear**: Missing detail, contradictory feedback, or behavior you cannot inspect after the clarification gate. Ask or flag it only when the missing detail still blocks a safe fix.
    - **Out of scope**: Outside this repo, already shipped, intentionally unsupported, or too low-signal. Note briefly and skip.
 
 4. For data, permissions, or resource-lifecycle feedback, verify the whole capability boundary before calling it UX.
@@ -199,16 +221,26 @@ If a requested change is implemented but not yet verified, use
 instead of **Fixed** until verification is complete.
 
 When this skill is used by `address-feedback-with-replies`, that skill's Slack
-reply states take precedence: a completed Slack thread must end as **Fixed** or
-**Clarification needed**. Do not post **Not fixed yet**, **Needs clarification**,
-or a bare **Verification pending** status in Slack. Ask one concrete,
-plain-language clarification question only when reporter or product input is
-missing. **Clarification needed** is the one timing exception: do not give a
-live estimate until the question is answered and the fix is complete. If only
-internal test, deployment, or tooling verification is unavailable, keep that
-blocker internal, do not post an external Slack status yet, and resume the
-thread after verification is available. Do not turn it into a reporter
-question. Keep the no-technical-details rule in all cases.
+reply states take precedence: a Slack thread must receive **Fixed**, **In
+progress**, or **Clarification needed** for the current run. **In progress** is
+valid only when `@agent-native` or another participant already owns the issue
+or is actively fixing it; it is an open handoff that the next run must resolve
+to **Fixed** or **Clarification needed**. Do not post **Not fixed yet**, **Needs
+clarification**, or a bare **Verification pending** status in Slack. Ask one
+concrete, plain-language clarification question only when reporter or product
+input is still missing after the complete-thread and resolution-signal checks. If
+`@agent-native` or another participant already found, fixed, or is fixing the
+issue, do not ask the reporter to restate it - verify the claim or continue the
+existing ownership instead. Start any **In progress** or clarification reply
+with a thank-you. For clarification, ask the question second;
+**Clarification needed** remains an internal ledger state and must not appear as
+the reporter-facing opening. **Clarification needed** is the one timing
+exception: do not give a live estimate until the question is answered and the
+fix is complete. If only internal test, deployment, or tooling verification is
+unavailable, keep that blocker internal, do not post an external Slack status
+solely for that reason, and resume the thread after verification is available.
+Do not turn it into a reporter question. Keep the no-technical-details rule in
+all cases.
 
 Use this format:
 
