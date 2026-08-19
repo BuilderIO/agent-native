@@ -21,6 +21,7 @@ const electronState = vi.hoisted(() => {
       on: vi.fn(),
       relaunch: vi.fn(),
       exit: vi.fn(),
+      quit: vi.fn(),
     },
     browserWindow: {
       getAllWindows: vi.fn(() => []),
@@ -68,6 +69,9 @@ import { IPC } from "@shared/ipc-channels";
 
 let checkForAppUpdates: typeof import("./updates.js").checkForAppUpdates;
 let getCurrentUpdateStatus: typeof import("./updates.js").getCurrentUpdateStatus;
+let isInstallingDownloadedUpdate: typeof import("./updates.js").isInstallingDownloadedUpdate;
+let isPreparingDownloadedUpdate: typeof import("./updates.js").isPreparingDownloadedUpdate;
+let requestQuitAfterUpdatePreparation: typeof import("./updates.js").requestQuitAfterUpdatePreparation;
 let registerUpdatesIpc: typeof import("./updates.js").registerUpdatesIpc;
 
 describe("desktop updates", () => {
@@ -85,8 +89,14 @@ describe("desktop updates", () => {
     updaterState.quitAndInstall.mockReset();
     electronState.notification.isSupported.mockReturnValue(false);
     vi.resetModules();
-    ({ checkForAppUpdates, getCurrentUpdateStatus, registerUpdatesIpc } =
-      await import("./updates.js"));
+    ({
+      checkForAppUpdates,
+      getCurrentUpdateStatus,
+      isInstallingDownloadedUpdate,
+      isPreparingDownloadedUpdate,
+      requestQuitAfterUpdatePreparation,
+      registerUpdatesIpc,
+    } = await import("./updates.js"));
   });
 
   it("shows a clear result when a manual check finds no update", async () => {
@@ -256,13 +266,47 @@ describe("desktop updates", () => {
     await installHandler?.();
 
     expect(prepareForUpdate).toHaveBeenCalledOnce();
+    expect(isInstallingDownloadedUpdate()).toBe(true);
+    expect(updaterState.quitAndInstall).toHaveBeenCalledWith(false, true);
+  });
+
+  it("does not own user quits while helper preparation is still pending", async () => {
+    let resolvePreparation!: () => void;
+    const prepareForUpdate = vi.fn(
+      () => new Promise<void>((resolve) => (resolvePreparation = resolve)),
+    );
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+      prepareForUpdate,
+    });
+    updaterState.handlers.get("update-downloaded")?.({
+      version: "1.1.0",
+    });
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    const install = installHandler?.();
+    await vi.waitFor(() => expect(prepareForUpdate).toHaveBeenCalledOnce());
+    expect(isPreparingDownloadedUpdate()).toBe(true);
+    expect(isInstallingDownloadedUpdate()).toBe(false);
+
+    resolvePreparation();
+    await install;
+    expect(isPreparingDownloadedUpdate()).toBe(false);
+    expect(isInstallingDownloadedUpdate()).toBe(true);
     expect(updaterState.quitAndInstall).toHaveBeenCalledWith(false, true);
   });
 
   it("keeps a downloaded update retryable after an asynchronous install error", async () => {
+    const prepareForUpdate = vi.fn(async () => undefined);
+    const restoreAfterUpdateFailure = vi.fn(async () => undefined);
     registerUpdatesIpc({
       refreshApplicationMenu: vi.fn(),
       focusMainWindow: vi.fn(),
+      prepareForUpdate,
+      restoreAfterUpdateFailure,
     });
     updaterState.handlers.get("update-downloaded")?.({
       version: "1.1.0",
@@ -272,16 +316,55 @@ describe("desktop updates", () => {
       IPC.UPDATE_INSTALL,
     );
     await installHandler?.();
+    expect(prepareForUpdate).toHaveBeenCalledOnce();
     expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(1);
 
-    updaterState.handlers.get("error")?.(new Error("installer failed"));
+    await updaterState.handlers.get("error")?.(new Error("installer failed"));
+
+    expect(restoreAfterUpdateFailure).toHaveBeenCalledOnce();
+    expect(getCurrentUpdateStatus()).toEqual({
+      state: "downloaded",
+      version: "1.1.0",
+    });
+    expect(isPreparingDownloadedUpdate()).toBe(false);
+    expect(isInstallingDownloadedUpdate()).toBe(false);
+    await installHandler?.();
+    expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(2);
+
+    await updaterState.handlers.get("error")?.(new Error("retry failed"));
+    expect(restoreAfterUpdateFailure).toHaveBeenCalledTimes(2);
+  });
+
+  it("completes a deferred quit after helper preparation fails and restores retry state", async () => {
+    const restoreAfterUpdateFailure = vi.fn(async () => undefined);
+    const prepareForUpdate = vi.fn(async () => {
+      requestQuitAfterUpdatePreparation();
+      throw new Error("helper close failed");
+    });
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+      prepareForUpdate,
+      restoreAfterUpdateFailure,
+    });
+    updaterState.handlers.get("update-downloaded")?.({
+      version: "1.1.0",
+    });
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    await installHandler?.();
 
     expect(getCurrentUpdateStatus()).toEqual({
       state: "downloaded",
       version: "1.1.0",
     });
-    await installHandler?.();
-    expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(2);
+    expect(isPreparingDownloadedUpdate()).toBe(false);
+    expect(isInstallingDownloadedUpdate()).toBe(false);
+    expect(electronState.app.quit).toHaveBeenCalledOnce();
+    expect(updaterState.quitAndInstall).not.toHaveBeenCalled();
+    expect(restoreAfterUpdateFailure).toHaveBeenCalledOnce();
   });
 
   it("keeps un-packaged development updates explicitly unsupported", async () => {
