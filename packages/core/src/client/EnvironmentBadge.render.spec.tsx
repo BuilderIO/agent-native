@@ -46,9 +46,21 @@ describe("EnvironmentBadge render", () => {
     vi.clearAllMocks();
   });
 
-  it("renders the beta chip only for an authenticated builder.io user", () => {
+  it("renders the beta chip for signed-out visitors", () => {
     useSessionMock.mockReturnValue({
-      session: { email: "employee@builder.io" },
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+
+    expect(container.querySelector("button")?.textContent).toContain("beta");
+    expect(container.textContent).toContain("beta");
+  });
+
+  it("renders the beta chip for non-builder users", () => {
+    useSessionMock.mockReturnValue({
+      session: { email: "person@example.com" },
       status: "authenticated",
     });
 
@@ -58,7 +70,45 @@ describe("EnvironmentBadge render", () => {
     expect(container.textContent).toContain("beta");
   });
 
-  it("hides the chip for non-employee sessions", () => {
+  it("keeps the beta chip linked to production for every visitor", () => {
+    useSessionMock.mockReturnValue({
+      session: null,
+      status: "unauthenticated",
+    });
+
+    act(() => root.render(<EnvironmentBadge />));
+    const trigger = container.querySelector("button");
+    expect(trigger).not.toBeNull();
+
+    act(() => {
+      trigger?.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true }),
+      );
+      trigger?.click();
+    });
+
+    const productionLink = [...document.body.querySelectorAll("a")].find(
+      (link) => link.textContent?.includes("Switch to production"),
+    );
+    const productionHref = productionLink?.getAttribute("href");
+    expect(productionHref).toContain(
+      "https://plan.agent-native.com/inbox?tab=all&agentNativeBetaOptOut=",
+    );
+    const expiry = Number(
+      new URL(productionHref!).searchParams.get("agentNativeBetaOptOut"),
+    );
+    expect(expiry).toBeGreaterThan(Date.now());
+  });
+
+  it("hides the production chip for non-employee sessions", () => {
+    Object.defineProperty(window, "location", {
+      configurable: true,
+      value: {
+        hostname: "plan.agent-native.com",
+        href: "https://plan.agent-native.com/inbox?tab=all#runs",
+        replace: vi.fn(),
+      },
+    });
     useSessionMock.mockReturnValue({
       session: { email: "person@example.com" },
       status: "authenticated",
