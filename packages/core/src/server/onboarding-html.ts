@@ -2912,10 +2912,8 @@ ${identitySsoScript}
       if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect';
       // Per-session override for ad-hoc testing outside Builder: append
       // ?authMode=popup or ?authMode=redirect to the sign-in URL.
-      try {
-        var qp = new URLSearchParams(window.location.search).get('authMode');
-        if (qp === 'popup' || qp === 'redirect') return qp;
-      } catch(e) {}
+      var qp = new URLSearchParams(window.location.search).get('authMode');
+      if (qp === 'popup' || qp === 'redirect') return qp;
       var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
       if (mode === 'popup') return 'popup';
       if (mode === 'redirect') return 'redirect';
@@ -2933,6 +2931,22 @@ ${identitySsoScript}
         }
       } catch(e) {}
       return 'builder-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2);
+    }
+    function __anNewOAuthVerifier() {
+      try {
+        if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+          return window.crypto.randomUUID() + window.crypto.randomUUID();
+        }
+        if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+          var bytes = new Uint8Array(32);
+          window.crypto.getRandomValues(bytes);
+          var binary = '';
+          for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          return btoa(binary).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
+        }
+      } catch(e) { // coercion-ok: callers reject the empty verifier fallback.
+      }
+      return '';
     }
     function __anFlowDebugId(flowId) {
       return flowId ? String(flowId).slice(-10) : '';
@@ -3036,8 +3050,11 @@ ${identitySsoScript}
         __anOAuthPollCount++;
         try {
           var exchangeParams = '?flow_id=' + encodeURIComponent(flowId);
-          if (verifier) exchangeParams += '&verifier=' + encodeURIComponent(verifier);
-          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, { credentials: 'include' });
+          var exchangeOptions = { credentials: 'include' };
+          if (verifier) {
+            exchangeOptions.headers = { 'X-Agent-Native-Desktop-Verifier': verifier };
+          }
+          var res = await fetch(__anPath('/_agent-native/auth/desktop-exchange') + exchangeParams, exchangeOptions);
           var data = await res.json().catch(function() { return {}; });
           if (data && (data.email || data.token)) {
             if (__anOAuthPollTimer) clearInterval(__anOAuthPollTimer);
@@ -3078,49 +3095,81 @@ ${identitySsoScript}
       __anOAuthPollTimer = setInterval(check, 1000);
       setTimeout(check, 500);
     }
-    function __anStartPopupOAuth(ret, btn, err) {
-      var flowId = __anNewOAuthFlowId();
-      var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
+    async function __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn) {
       var params = new URLSearchParams();
       if (oauthReturn) params.set('return', oauthReturn);
       params.set('desktop', '1');
       params.set('flow_id', flowId);
-      params.set('redirect', '1');
-      var url = __anGoogleAuthUrlPath() + '?' + params.toString();
+      var res = await fetch(__anGoogleAuthUrlPath() + '?' + params.toString(), {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Accept': 'application/json',
+          'X-Agent-Native-Desktop-Verifier': verifier
+        }
+      });
+      var data;
+      try {
+        data = await res.json();
+      } catch(e) {
+        throw new Error(__anT('failedToConnect'));
+      }
+      if (!res.ok || !data || typeof data.url !== 'string' || !data.url) {
+        throw new Error(__anAuthErrorText(data, __anT('failedToConnect')));
+      }
+      return data.url;
+    }
+    function __anStartPopupOAuth(ret, btn, err) {
+      var flowId = __anNewOAuthFlowId();
+      var verifier = __anNewOAuthVerifier();
+      if (!verifier) {
+        __anShowOAuthError(err, btn, __anT('failedToConnect'));
+        return;
+      }
+      var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;
       try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}
       __anSetOAuthDebug('Opening Google sign-in popup', flowId);
+      var popup;
       try {
-        var popup = window.open('', '_blank', 'width=640,height=760');
+        popup = window.open('', '_blank', 'width=640,height=760');
         if (!popup) {
           __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Google popup was blocked; falling back to redirect', 'Google popup was blocked.');
           return;
         }
         try { popup.opener = null; } catch(e) {}
-        try {
-          popup.location.href = url;
-        } catch(e) {
-          try { popup.close(); } catch(closeErr) {}
-          __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Could not navigate Google popup; falling back to redirect', 'Could not navigate Google popup.');
-          return;
-        }
-        __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
       } catch(e) {
         __anHandlePopupOAuthFailure(ret, btn, err, flowId, 'Could not open Google popup; falling back to redirect', 'Could not open Google popup.');
         return;
       }
-      __anWaitForOAuthExchange(flowId, ret, btn, err);
+      __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn).then(function(url) {
+        try {
+          popup.location.href = url;
+          __anSetOAuthDebug('Google popup opened; waiting for callback', flowId);
+          __anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);
+        } catch(e) {
+          throw e;
+        }
+      }).catch(function(e) {
+        try { popup.close(); } catch(closeErr) {}
+        __anShowOAuthError(err, btn, e && e.message ? e.message : __anT('failedToConnect'));
+      });
     }
     function __anStartNativeDesktopOAuth(ret, btn, err) {
       var flowId = __anNewOAuthFlowId();
-      var params = new URLSearchParams();
-      if (ret) params.set('return', ret);
-      params.set('desktop', '1');
-      params.set('flow_id', flowId);
-      params.set('redirect', '1');
-      var url = __anGoogleAuthUrlPath() + '?' + params.toString();
-      __anSetOAuthDebug('Opening Google sign-in in system browser', flowId);
-      __anOpenOAuthUrl(url);
-      __anWaitForOAuthExchange(flowId, ret, btn, err);
+      var verifier = __anNewOAuthVerifier();
+      if (!verifier) {
+        __anShowOAuthError(err, btn, __anT('failedToConnect'));
+        return;
+      }
+      var oauthReturn = ret;
+      __anSetOAuthDebug('Preparing Google sign-in in system browser', flowId);
+      __anRequestDesktopOAuthUrl(flowId, verifier, oauthReturn).then(function(url) {
+        __anSetOAuthDebug('Opening Google sign-in in system browser', flowId);
+        __anOpenOAuthUrl(url);
+        __anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier);
+      }).catch(function(e) {
+        __anShowOAuthError(err, btn, e && e.message ? e.message : __anT('failedToConnect'));
+      });
     }
     function __anOpenOAuthUrl(url) {
       try { sessionStorage.setItem('__an_signin', '1'); } catch(e) {}

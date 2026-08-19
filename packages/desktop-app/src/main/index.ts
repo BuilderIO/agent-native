@@ -121,6 +121,7 @@ import {
   type DesktopIdentitySettings,
   type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
+import { DESKTOP_DEEP_LINK_PROTOCOL } from "@shared/release-channel";
 import {
   app,
   BrowserWindow,
@@ -262,6 +263,7 @@ import {
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
 import { createOAuthPopupCloser } from "./oauth-popup-close";
+import { routeOAuthToBoundSession } from "./oauth-session";
 import {
   isQuickPromptActive,
   registerQuickPromptIpc,
@@ -355,10 +357,10 @@ const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
   ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
   : "";
 app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}${desktopSsoCanaryMarker}`;
-// ---------- Deep link protocol (agentnative://) ----------
+// ---------- Deep link protocol (agentnative:// or agentnative-nightly://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
 
-const DEEP_LINK_PROTOCOL = "agentnative";
+const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;
 if (IS_DEV) {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
     path.resolve(process.argv[1]),
@@ -585,11 +587,6 @@ function decodeOAuthStatePayload(
 function extractAppFromOAuthState(state: string | null): string | undefined {
   const parsed = decodeOAuthStatePayload(state);
   return typeof parsed?.app === "string" ? parsed.app : undefined;
-}
-
-function extractFlowFromOAuthState(state: string | null): string | undefined {
-  const parsed = decodeOAuthStatePayload(state);
-  return typeof parsed?.f === "string" ? parsed.f : undefined;
 }
 
 function getCookieNameForApp(id: string | null | undefined): string {
@@ -1448,8 +1445,9 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
   desktopIdentityBroker = new DesktopIdentityBroker({
     identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
     isAvailable: isDesktopIdentityAvailable,
-    // Parent Google and magic-link verification runs in the system browser;
-    // this persistent partition receives only the one-time exchange result.
+    // Parent Google verification runs in the isolated identity window so its
+    // browser-bound OAuth state remains in the same cookie partition. Magic
+    // links may still complete through the system browser exchange path.
     resolveApp: resolveDesktopIdentityApp,
     listApps: () => listDesktopIdentityApps(),
     openExternal: (url) => openExternalUrl(url),
@@ -4150,7 +4148,9 @@ function normalizeCodeAgentTranscriptEvent(
   const metadata = isObject(row.metadata)
     ? { ...(row.metadata as Record<string, unknown>) }
     : {};
-  if (fallback.source) metadata.source = fallback.source;
+  if (fallback.source && metadata.source === undefined) {
+    metadata.source = fallback.source;
+  }
   // Prefer the structured signal the executor stamps on credential-gap
   // events; carry it through so the renderer can detect the condition
   // without regex-matching `text` (see isCredentialGapCodeAgentEvent).
@@ -10968,11 +10968,6 @@ function rememberOAuthStateFromNavigation(
   }
 }
 
-function googleOAuthUsesDesktopExchange(url: URL): boolean {
-  if (url.searchParams.has("flow_id")) return true;
-  return !!extractFlowFromOAuthState(url.searchParams.get("state"));
-}
-
 function builderOAuthUsesDesktopProvider(url: URL): boolean {
   if (!url.pathname.startsWith("/cli-auth")) return false;
   if (url.searchParams.get("host") === "agent-native-desktop") return true;
@@ -11017,10 +11012,11 @@ function shouldOpenOAuthInSystemBrowser(provider: OAuthProvider, url: URL) {
       builderConnectUsesSignedBrowserProvider(url)
     );
   }
-  // Google blocks embedded/Electron OAuth surfaces. Framework pages that pass
-  // a flow id poll /desktop-exchange, so the system browser can complete the
-  // OAuth callback and the app webview can claim the resulting session token.
-  return provider.name === "google" && googleOAuthUsesDesktopExchange(url);
+  // Desktop Google OAuth carries a browser-binding cookie created by the
+  // bootstrap request. It must complete in the source session, not in the
+  // system browser's unrelated cookie jar. Non-desktop Google OAuth already
+  // uses the same in-app popup path.
+  return false;
 }
 
 function openMatchedOAuthUrl(
@@ -11034,7 +11030,9 @@ function openMatchedOAuthUrl(
     openExternalUrl(url);
     return;
   }
-  openOAuthWindow(url, sourceSession, provider, sourceUrl);
+  routeOAuthToBoundSession(url, sourceSession, (boundUrl, callbackSession) =>
+    openOAuthWindow(boundUrl, callbackSession, provider, sourceUrl),
+  );
 }
 
 function isAllowedOAuthChildPopup(provider: OAuthProvider, url: URL): boolean {

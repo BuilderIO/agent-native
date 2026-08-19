@@ -1233,6 +1233,7 @@ const hiIN = {
     loadError:
       "नवीनतम desktop release लोड नहीं हो सका। releases page में सभी installers हैं।",
     checkingRelease: "नवीनतम desktop release जांच रहे हैं...",
+    nightlyBuilds: "Nightly बिल्ड चाहिए?",
     runFromSource: "या source से चलाएं",
     runFromSourceBody:
       "आपके platform के लिए अभी installer नहीं है, या CLI पसंद है? npm से नया app scaffold करें और local चलाएं — macOS, Windows और Linux पर काम करता है।",

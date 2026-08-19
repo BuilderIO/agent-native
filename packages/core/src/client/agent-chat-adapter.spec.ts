@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   getActiveRun,
   getPendingTurn,
+  clearActiveRun,
   setActiveRun,
 } from "./active-run-state.js";
 import {
@@ -179,6 +180,7 @@ describe("createAgentChatAdapter", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     analyticsMock.captureError.mockReset();
+    clearActiveRun();
   });
 
   it("publishes the client turn id before dispatch and clears it when the run id arrives", async () => {
@@ -388,6 +390,56 @@ describe("createAgentChatAdapter", () => {
       expect.objectContaining({
         type: "agentNative.chatRunning",
         detail: { isRunning: false, tabId: "chat-qa" },
+      }),
+    );
+  });
+
+  it("does not publish terminal cleanup after another run claims active state", async () => {
+    vi.stubGlobal("sessionStorage", createMemoryStorage());
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    setActiveRun({
+      threadId: "thread-existing",
+      runId: "run-existing",
+      lastSeq: 3,
+    });
+
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-terminal-stop",
+    });
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "stop this turn" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agentNative.chatRunning",
+        detail: { isRunning: false, tabId: "chat-terminal-stop" },
       }),
     );
   });

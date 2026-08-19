@@ -1240,6 +1240,7 @@ const esES = {
     loadError:
       "No se pudo cargar la última versión de escritorio. La página de releases incluye todos los instaladores.",
     checkingRelease: "Buscando la versión de escritorio más reciente...",
+    nightlyBuilds: "¿Buscas la versión Nightly?",
     runFromSource: "O ejecutar desde el código fuente",
     runFromSourceBody:
       "¿Aún no hay instalador para tu plataforma o prefieres la CLI? Crea una app nueva con npm y ejecútala localmente; funciona en macOS, Windows y Linux.",
