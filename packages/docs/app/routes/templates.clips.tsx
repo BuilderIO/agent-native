@@ -217,6 +217,24 @@ export default function ClipsTemplate() {
             </span>
           </>
         }
+        titleClassName="text-[1.75rem] sm:text-[2.25rem] lg:text-[2.5rem]"
+        headingAction={
+          <a
+            href="https://clips.agent-native.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="primary-button"
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: template.slug,
+                location: "landing_page_hero",
+              });
+            }}
+          >
+            Try Clips now
+          </a>
+        }
         description={<p>{t("templateLanding.clips.s008")}</p>}
         media={
           <img

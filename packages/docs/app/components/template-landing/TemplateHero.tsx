@@ -6,8 +6,10 @@ type TemplateHeroProps = {
   description: ReactNode;
   eyebrow: ReactNode;
   headerClassName?: string;
+  headingAction?: ReactNode;
   media: ReactNode;
   title: ReactNode;
+  titleClassName?: string;
 };
 
 export function TemplateHero({
@@ -16,8 +18,10 @@ export function TemplateHero({
   description,
   eyebrow,
   headerClassName = "",
+  headingAction,
   media,
   title,
+  titleClassName = "",
 }: TemplateHeroProps) {
   return (
     <section className={`pt-3 sm:pt-4 lg:pt-5 ${className}`}>
@@ -38,9 +42,17 @@ export function TemplateHero({
             {eyebrow}
           </div>
 
-          <h1 className="m-0 text-[2rem] font-medium leading-[1.05] tracking-tight sm:text-4xl lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:text-[2.875rem]">
+          <h1
+            className={`m-0 font-medium leading-[1.05] tracking-tight lg:col-span-2 lg:col-start-1 lg:row-start-2 ${titleClassName || "text-[2rem] sm:text-4xl lg:text-[2.875rem]"}`}
+          >
             {title}
           </h1>
+
+          {headingAction ? (
+            <div className="mt-3 lg:col-span-2 lg:col-start-1 lg:row-start-3">
+              {headingAction}
+            </div>
+          ) : null}
 
           <div className="lg:col-start-3 lg:row-start-2 lg:self-center lg:ps-8">
             <div className="max-w-[300px] font-sans text-[15px] font-normal leading-[1.4] text-[var(--fg-secondary)]">
