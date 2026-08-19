@@ -2152,6 +2152,7 @@ html.dark .shiki span {
   padding: 0 12px;
   color: var(--fg-secondary);
   font-size: 14px;
+  font-weight: 500;
 }
 
 .secondary-button:hover {
