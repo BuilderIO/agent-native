@@ -1,0 +1,28 @@
+import { describe, expect, it } from "vitest";
+
+import { clientLoader, loader } from "./_index";
+
+function expectAskRedirect(routeLoader: typeof loader | typeof clientLoader) {
+  let thrown: unknown;
+  try {
+    routeLoader({ url: new URL("https://forms.example/?from=home") } as never);
+  } catch (error) {
+    thrown = error;
+  }
+
+  expect(thrown).toBeInstanceOf(Response);
+  const response = thrown as Response;
+  expect(response.status).toBe(302);
+  expect(response.headers.get("location")).toBe("/ask?from=home");
+  expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+}
+
+describe("Forms root route", () => {
+  it("marks the server redirect as cacheable HTML", () => {
+    expectAskRedirect(loader);
+  });
+
+  it("marks the client redirect as cacheable HTML", () => {
+    expectAskRedirect(clientLoader);
+  });
+});

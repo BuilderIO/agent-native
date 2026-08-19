@@ -1,3 +1,4 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 // `/adhoc/:id` is the legacy dashboard URL. The canonical, user-facing URL is
@@ -9,11 +10,11 @@ function target({ params, url }: LoaderFunctionArgs): string {
 }
 
 export function loader(args: LoaderFunctionArgs) {
-  throw redirect(target(args));
+  throw withSsrHtmlContentType(redirect(target(args)));
 }
 
 export function clientLoader(args: LoaderFunctionArgs) {
-  throw redirect(target(args));
+  throw withSsrHtmlContentType(redirect(target(args)));
 }
 
 export default function AdhocRedirectRoute() {

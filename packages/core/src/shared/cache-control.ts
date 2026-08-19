@@ -15,6 +15,22 @@ export const DEFAULT_SSR_CACHE_HEADERS = {
 } as const;
 
 /**
+ * Content type used by impersonal HTML redirects that should enter the
+ * deployment adapter's shared SSR cache path.
+ */
+export const SSR_HTML_CONTENT_TYPE = "text/html; charset=utf-8";
+
+/**
+ * Mark an already-built HTML response as HTML without changing its redirect
+ * status, location, or other headers. Only use this for redirects whose
+ * target is independent of the viewer and request credentials.
+ */
+export function withSsrHtmlContentType<T extends Response>(response: T): T {
+  response.headers.set("content-type", SSR_HTML_CONTENT_TYPE);
+  return response;
+}
+
+/**
  * Deployment-wide override for the SSR shell cache policy.
  *
  * The default (`DEFAULT_SSR_CACHE_HEADERS`) is deliberately aggressive: SSR

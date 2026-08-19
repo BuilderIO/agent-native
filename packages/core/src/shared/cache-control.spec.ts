@@ -9,7 +9,9 @@ import {
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
+  SSR_HTML_CONTENT_TYPE,
   ssrCacheHeadersForPolicy,
+  withSsrHtmlContentType,
 } from "./cache-control.js";
 
 function envWith(value: string | undefined) {
@@ -231,5 +233,18 @@ describe("isSsrCacheEnabled", () => {
     vi.spyOn(console, "warn").mockImplementation(() => {});
 
     expect(isSsrCacheEnabled(envWith("banana"))).toBe(true);
+  });
+});
+describe("withSsrHtmlContentType", () => {
+  it("marks an existing redirect as HTML without changing its contract", () => {
+    const response = new Response(null, {
+      status: 302,
+      headers: { location: "/library?from=home" },
+    });
+
+    expect(withSsrHtmlContentType(response)).toBe(response);
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/library?from=home");
+    expect(response.headers.get("content-type")).toBe(SSR_HTML_CONTENT_TYPE);
   });
 });

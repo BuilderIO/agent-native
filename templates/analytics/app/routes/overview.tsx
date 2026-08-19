@@ -1,3 +1,4 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 function target(url: URL): string {
@@ -5,11 +6,11 @@ function target(url: URL): string {
 }
 
 export function loader({ url }: LoaderFunctionArgs) {
-  throw redirect(target(url));
+  throw withSsrHtmlContentType(redirect(target(url)));
 }
 
 export function clientLoader({ url }: LoaderFunctionArgs) {
-  throw redirect(target(url));
+  throw withSsrHtmlContentType(redirect(target(url)));
 }
 
 export default function OverviewAliasRoute() {
