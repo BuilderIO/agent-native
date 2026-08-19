@@ -1452,44 +1452,12 @@ export function CreateEventPopover({
                   <Label htmlFor="event-recurrence" className="text-xs">
                     {t("eventForm.repeats")}
                   </Label>
-                  <Select
-                    value={recurrencePreset}
-                    onValueChange={(value) =>
-                      setRecurrencePreset(value as RecurrencePreset)
-                    }
-                  >
-                    <SelectTrigger
-                      id="event-recurrence"
-                      className="h-8 text-sm"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">
-                        {t("eventForm.doesNotRepeat")}
-                      </SelectItem>
-                      <SelectItem value="daily">
-                        {t("eventForm.daily")}
-                      </SelectItem>
-                      <SelectItem value="weekdays">
-                        {t("eventForm.everyWeekday")}
-                      </SelectItem>
-                      <SelectItem value="weekly">
-                        {t("eventForm.weekly")}
-                      </SelectItem>
-                      <SelectItem value="monthly">
-                        {t("eventForm.monthly")}
-                      </SelectItem>
-                      <SelectItem value="yearly">
-                        {t("eventForm.yearly")}
-                      </SelectItem>
-                      {recurrencePreset === "custom" && (
-                        <SelectItem value="custom" disabled>
-                          {t("eventForm.customSchedule")}
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
+                  <RepeatPicker
+                    preset={recurrencePreset}
+                    referenceDate={effectiveAllDay ? date : currentStartISO || date}
+                    onChange={setRecurrencePreset}
+                    onCustomChange={setCustomRecurrence}
+                  />
                 </div>
 
                 {(!allDay || isOutOfOffice) && (
