@@ -1,19 +1,10 @@
-import {
-  IconCheck,
-  IconClock,
-  IconMessage,
-  IconPause,
-  IconPlayerPlay,
-  IconPlus,
-  IconRefresh,
-  IconSearch,
-  IconTrash,
-} from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
-
+import type {
+  CodeAgentSchedule,
+  CodeAgentScheduleScope,
+  CodeAgentsHost,
+} from "@agent-native/code-agents-ui";
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Input } from "@agent-native/toolkit/ui/input";
-import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -21,11 +12,19 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@agent-native/toolkit/ui/select";
-import type {
-  CodeAgentSchedule,
-  CodeAgentScheduleScope,
-  CodeAgentsHost,
-} from "@agent-native/code-agents-ui";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
+import {
+  IconCheck,
+  IconClock,
+  IconMessage,
+  IconPlayerPause,
+  IconPlayerPlay,
+  IconPlus,
+  IconRefresh,
+  IconSearch,
+  IconTrash,
+} from "@tabler/icons-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type ScheduleDraft = {
   name: string;
@@ -148,7 +147,9 @@ export default function CodeAgentSchedulesPanel({
       setSelectedScheduleId(result.schedule.id);
     } catch (createError) {
       setError(
-        createError instanceof Error ? createError.message : String(createError),
+        createError instanceof Error
+          ? createError.message
+          : String(createError),
       );
     } finally {
       setBusy(null);
@@ -172,7 +173,9 @@ export default function CodeAgentSchedulesPanel({
         await refresh();
       } catch (updateError) {
         setError(
-          updateError instanceof Error ? updateError.message : String(updateError),
+          updateError instanceof Error
+            ? updateError.message
+            : String(updateError),
         );
       } finally {
         setBusy(null);
@@ -186,7 +189,9 @@ export default function CodeAgentSchedulesPanel({
     setBusy("run");
     setError(null);
     try {
-      const result = await host.runScheduleNow({ scheduleId: selectedSchedule.id });
+      const result = await host.runScheduleNow({
+        scheduleId: selectedSchedule.id,
+      });
       if (!result.ok) {
         setError(result.error ?? result.message);
         return;
@@ -220,7 +225,9 @@ export default function CodeAgentSchedulesPanel({
       await refresh();
     } catch (deleteError) {
       setError(
-        deleteError instanceof Error ? deleteError.message : String(deleteError),
+        deleteError instanceof Error
+          ? deleteError.message
+          : String(deleteError),
       );
     } finally {
       setBusy(null);
@@ -364,7 +371,9 @@ export default function CodeAgentSchedulesPanel({
                   </span>
                 </span>
                 <span className="desktop-code-agent-schedules__row-next">
-                  {schedule.enabled ? formatNextRun(schedule.nextRunAt) : "Paused"}
+                  {schedule.enabled
+                    ? formatNextRun(schedule.nextRunAt)
+                    : "Paused"}
                 </span>
               </button>
             ))
@@ -437,7 +446,9 @@ function ScheduleForm({
         Prompt
         <Textarea
           value={draft.prompt}
-          onChange={(event) => onChange({ ...draft, prompt: event.target.value })}
+          onChange={(event) =>
+            onChange({ ...draft, prompt: event.target.value })
+          }
           placeholder="Check the latest status and report blockers."
           rows={5}
         />
@@ -468,9 +479,7 @@ function ScheduleForm({
           Thread
           <Select
             value={draft.targetRunId}
-            onValueChange={(targetRunId) =>
-              onChange({ ...draft, targetRunId })
-            }
+            onValueChange={(targetRunId) => onChange({ ...draft, targetRunId })}
           >
             <SelectTrigger>
               <SelectValue placeholder="Choose a thread" />
@@ -561,7 +570,9 @@ function ScheduleDetail({
           {schedule.enabled ? "Running" : "Paused"}
         </span>
       </div>
-      <div className="desktop-code-agent-schedules__prompt">{schedule.prompt}</div>
+      <div className="desktop-code-agent-schedules__prompt">
+        {schedule.prompt}
+      </div>
       <dl className="desktop-code-agent-schedules__metadata">
         <div>
           <dt>Runs in</dt>
@@ -582,7 +593,9 @@ function ScheduleDetail({
         </div>
         <div>
           <dt>Next run</dt>
-          <dd>{schedule.enabled ? formatNextRun(schedule.nextRunAt) : "Paused"}</dd>
+          <dd>
+            {schedule.enabled ? formatNextRun(schedule.nextRunAt) : "Paused"}
+          </dd>
         </div>
         {schedule.lastRunAt ? (
           <div>
@@ -607,7 +620,7 @@ function ScheduleDetail({
           disabled={busy !== null}
         >
           {schedule.enabled ? (
-            <IconPause size={15} />
+            <IconPlayerPause size={15} />
           ) : (
             <IconPlayerPlay size={15} />
           )}
@@ -659,8 +672,7 @@ function ScheduleDetail({
 function formatInterval(minutes: number): string {
   if (minutes % (24 * 60) === 0) {
     return (
-      String(minutes / (24 * 60)) +
-      (minutes === 24 * 60 ? " day" : " days")
+      String(minutes / (24 * 60)) + (minutes === 24 * 60 ? " day" : " days")
     );
   }
   if (minutes % 60 === 0) {
@@ -695,4 +707,3 @@ function threadTitle(
   if (!runId) return "Unknown thread";
   return threads.find((thread) => thread.id === runId)?.title ?? runId;
 }
-

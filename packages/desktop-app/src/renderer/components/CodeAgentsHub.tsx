@@ -111,8 +111,8 @@ import {
 } from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
 import AppWebview, { resolveAppWebviewUrl } from "./AppWebview.js";
-import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
+import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
 import DesktopTerminalSurface, {
@@ -1907,7 +1907,7 @@ export default function CodeAgentsHub({
         }
         return api.listSchedules();
       },
-      async createSchedule(request) {
+      async createSchedule(request: unknown) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.createSchedule) {
           return {
@@ -1918,7 +1918,7 @@ export default function CodeAgentsHub({
         }
         return api.createSchedule(request);
       },
-      async updateSchedule(request) {
+      async updateSchedule(request: unknown) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.updateSchedule) {
           return {
@@ -1929,7 +1929,7 @@ export default function CodeAgentsHub({
         }
         return api.updateSchedule(request);
       },
-      async deleteSchedule(request) {
+      async deleteSchedule(request: unknown) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.deleteSchedule) {
           return {
@@ -1940,7 +1940,7 @@ export default function CodeAgentsHub({
         }
         return api.deleteSchedule(request);
       },
-      async runScheduleNow(request) {
+      async runScheduleNow(request: unknown) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.runScheduleNow) {
           return {
