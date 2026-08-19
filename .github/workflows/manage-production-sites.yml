@@ -85,6 +85,23 @@ jobs:
               return new Promise((resolve) => setTimeout(resolve, ms));
             }
 
+            function publishedAtTimestamp(deploy) {
+              const value =
+                typeof deploy?.published_at === 'string'
+                  ? Date.parse(deploy.published_at)
+                  : Number.NaN;
+              return Number.isFinite(value) ? value : null;
+            }
+
+            function nextPageUrl(linkHeader) {
+              if (!linkHeader) return null;
+              const links = /(?:^|,)\s*<([^>]+)>\s*;\s*rel="([^"]+)"/g;
+              for (const match of linkHeader.matchAll(links)) {
+                if (match[2].split(/\s+/).includes('next')) return match[1];
+              }
+              return null;
+            }
+
             async function readJson(response, label) {
               const text = await response.text();
               let body = null;
@@ -185,6 +202,52 @@ jobs:
               throw new Error(`[${name}] Netlify did not publish deploy ${deployId} within 5 minutes.`);
             }
 
+            async function listDeploys(name, siteId, label) {
+              const deploys = [];
+              let url = `${API}/sites/${siteId}/deploys?per_page=100`;
+              while (url) {
+                const response = await request(url, { headers });
+                const page = await readJson(response, `[${name}] ${label}`);
+                if (!Array.isArray(page)) {
+                  throw new Error(`[${name}] ${label} returned a non-array response.`);
+                }
+                deploys.push(...page);
+                url = nextPageUrl(response.headers.get('link'));
+              }
+              return deploys;
+            }
+
+            async function publishExistingMainDeploy(name, site, sourceSha) {
+              const currentSite = await readJson(
+                await request(`${API}/sites/${site.siteId}`, { headers }),
+                `[${name}] published deploy lookup`,
+              );
+              if (currentSite.published_deploy?.commit_ref === sourceSha) {
+                core.info(`[${name}] production already serves main ${sourceSha}.`);
+                return;
+              }
+
+              const deploys = await listDeploys(name, site.siteId, 'production deploy history');
+              const match = deploys
+                .filter((deploy) => deploy.context === 'production' && deploy.state === 'ready' && deploy.commit_ref === sourceSha)
+                .sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')))[0];
+              if (!match) {
+                throw new Error(
+                  `[${name}] build reported no content change, but production serves ${currentSite.published_deploy?.commit_ref || 'an unknown commit'} and no ready production deploy for main ${sourceSha} exists to publish.`,
+                );
+              }
+
+              await readJson(
+                await request(`${API}/sites/${site.siteId}/deploys/${match.id}/restore`, {
+                  method: 'POST',
+                  headers,
+                }),
+                `[${name}] publish existing deploy ${match.id}`,
+              );
+              await waitForPublished(name, site.siteId, match.id);
+              core.info(`[${name}] production now serves ${match.id} (${sourceSha}).`);
+            }
+
             async function deployMain(name, site, sourceSha) {
               const query = new URLSearchParams({ branch: 'main' });
               const build = await readJson(
@@ -198,7 +261,10 @@ jobs:
               core.info(`[${name}] queued build ${build.id} for main ${sourceSha}.`);
 
               const completed = await waitForBuild(name, build.id);
-              if (!completed) return;
+              if (!completed) {
+                await publishExistingMainDeploy(name, site, sourceSha);
+                return;
+              }
               const deploy = await waitForReadyDeploy(name, completed.deploy_id);
               if (deploy.commit_ref && deploy.commit_ref !== sourceSha) {
                 throw new Error(
@@ -206,7 +272,7 @@ jobs:
                 );
               }
               await readJson(
-                await request(`${API}/deploys/${deploy.id}/restore`, {
+                await request(`${API}/sites/${site.siteId}/deploys/${deploy.id}/restore`, {
                   method: 'POST',
                   headers,
                 }),
@@ -224,17 +290,36 @@ jobs:
               const currentId = currentSite.published_deploy?.id;
               if (!currentId) throw new Error(`[${name}] has no published production deploy.`);
 
-              const deploys = await readJson(
-                await request(`${API}/sites/${site.siteId}/deploys?per_page=100`, { headers }),
-                `[${name}] production deploy history`,
+              const currentDeploy = await readJson(
+                await request(`${API}/sites/${site.siteId}/deploys/${currentId}`, { headers }),
+                `[${name}] published deploy history anchor`,
               );
+              const currentPublishedAt = publishedAtTimestamp(currentDeploy);
+              if (currentPublishedAt === null) {
+                throw new Error(
+                  `[${name}] current production deploy ${currentId} has no valid published_at timestamp.`,
+                );
+              }
+
+              const deploys = await listDeploys(name, site.siteId, 'production deploy history');
               const previous = deploys
-                .filter((deploy) => deploy.context === 'production' && deploy.state === 'ready' && deploy.id !== currentId)
-                .sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')))[0];
+                .map((deploy) => ({
+                  deploy,
+                  publishedAt: publishedAtTimestamp(deploy),
+                }))
+                .filter(
+                  ({ deploy, publishedAt }) =>
+                    deploy.context === 'production' &&
+                    deploy.state === 'ready' &&
+                    deploy.id !== currentId &&
+                    publishedAt !== null &&
+                    publishedAt < currentPublishedAt,
+                )
+                .sort((left, right) => right.publishedAt - left.publishedAt)[0]?.deploy;
               if (!previous) throw new Error(`[${name}] has no prior ready production deploy to restore.`);
 
               await readJson(
-                await request(`${API}/deploys/${previous.id}/restore`, {
+                await request(`${API}/sites/${site.siteId}/deploys/${previous.id}/restore`, {
                   method: 'POST',
                   headers,
                 }),

@@ -141,6 +141,8 @@ import type {
   CodeAgentRun,
   CodeAgentRunDetail,
   CodeAgentRunListResult,
+  CodeAgentScheduleListResult,
+  CodeAgentScheduleResult,
   CodeAgentRestoreWorktreeRequest,
   CodeAgentRestoreWorktreeResult,
   CodeAgentTerminalRequest,
@@ -182,6 +184,11 @@ import {
 
 export interface CodeAgentsHost {
   listRuns: (goalId?: string) => Promise<CodeAgentRunListResult>;
+  listSchedules?: () => Promise<CodeAgentScheduleListResult>;
+  createSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  updateSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  deleteSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  runScheduleNow?: (input: unknown) => Promise<CodeAgentScheduleResult>;
   listModels?: () => Promise<CodeAgentModelListResult>;
   getHostMetadata?: () => Promise<CodeAgentHostMetadata>;
   runComputerSetupAction?: (
@@ -2884,6 +2891,10 @@ export default function CodeAgentsApp({
                                 ? connectLocalRuntime
                                 : undefined
                             }
+                            onOpenRun={(runId) => {
+                              onChatFirstMainKindChange?.("code");
+                              selectRun(runId);
+                            }}
                             onForkChat={
                               host.forkRun
                                 ? () => setForkSourceRun(selectedRun)
@@ -5189,6 +5200,7 @@ function RunDetailCard({
   onOpenSettings,
   onConnectProvider,
   onConnectLocalRuntime,
+  onOpenRun,
   onForkChat,
   onRestoreWorktree,
   restoringWorktreeId,
@@ -5216,6 +5228,7 @@ function RunDetailCard({
   onOpenSettings?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onOpenRun?: (runId: string) => void;
   onForkChat?: () => void;
   onRestoreWorktree?: (worktreeId: string, runId: string) => void;
   restoringWorktreeId?: string | null;
@@ -5396,6 +5409,7 @@ function RunDetailCard({
         onApproveAlways={onApproveAlways}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}
+        onOpenRun={onOpenRun}
         onForkChat={onForkChat}
       />
     </div>
@@ -5421,6 +5435,7 @@ function TranscriptPanel({
   onApproveAlways,
   onConnectProvider,
   onConnectLocalRuntime,
+  onOpenRun,
   onForkChat,
 }: {
   host: CodeAgentsHost;
@@ -5443,6 +5458,7 @@ function TranscriptPanel({
   onApproveAlways?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onOpenRun?: (runId: string) => void;
   onForkChat?: () => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
@@ -5538,61 +5554,120 @@ function TranscriptPanel({
         // but they intentionally enter the shared AssistantChat renderer so
         // message parts, tool activity, and integration suggestions stay in
         // parity with server-backed agent chats.
-        <AssistantChat
-          key={run.id}
-          className="code-agents-transcript__assistant"
-          tabId={`code-agent:${run.id}`}
-          showHeader={false}
-          emptyStateText="No messages yet."
-          suggestions={[]}
-          dynamicSuggestions={false}
-          plusMenuMode="upload-only"
-          providerStatusChecksEnabled={false}
-          createAdapter={createAdapter}
-          adapterReloadKey={controller}
-          loadHistoryRepository={loadHistoryRepository}
-          historyReloadKey={historyReloadKey}
-          externalStreaming={runIsActive}
-          approvalActions={
-            onDeny || onApproveAlways
-              ? { onDeny, onAlwaysAllow: onApproveAlways }
-              : undefined
-          }
-          availableModels={availableModels}
-          availableAgents={availableAgents}
-          selectedAgent={selectedAgent}
-          selectedModel={selectedModel}
-          selectedEngine={selectedEngine}
-          selectedEffort={selectedEffort}
-          onModelChange={(model, engine) =>
-            onModelSelectionChange({
-              engine,
-              model,
-              effort: selectedEffort,
-            })
-          }
-          onAgentChange={handleAgentChange}
-          onEffortChange={(effort) =>
-            onModelSelectionChange({ ...normalizedModel, effort })
-          }
-          composerAreaClassName="code-agents-standard-composer"
-          composerToolbarSlot={
-            <div className="code-agents-chat-composer-slot">
-              <RunModeSelect
-                value={permissionMode}
-                onChange={onPermissionModeChange}
-                compact
-              />
-            </div>
-          }
-          composerExtraActionButton={
-            runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
-          }
-          onConnectProvider={onConnectProvider}
-          onConnectLocalRuntime={onConnectLocalRuntime}
-          onForkChat={onForkChat}
-        />
+        <>
+          <TranscriptSourceBanner events={events} onOpenRun={onOpenRun} />
+          <AssistantChat
+            key={run.id}
+            className="code-agents-transcript__assistant"
+            tabId={`code-agent:${run.id}`}
+            showHeader={false}
+            emptyStateText="No messages yet."
+            suggestions={[]}
+            dynamicSuggestions={false}
+            plusMenuMode="upload-only"
+            providerStatusChecksEnabled={false}
+            createAdapter={createAdapter}
+            adapterReloadKey={controller}
+            loadHistoryRepository={loadHistoryRepository}
+            historyReloadKey={historyReloadKey}
+            externalStreaming={runIsActive}
+            approvalActions={
+              onDeny || onApproveAlways
+                ? { onDeny, onAlwaysAllow: onApproveAlways }
+                : undefined
+            }
+            availableModels={availableModels}
+            availableAgents={availableAgents}
+            selectedAgent={selectedAgent}
+            selectedModel={selectedModel}
+            selectedEngine={selectedEngine}
+            selectedEffort={selectedEffort}
+            onModelChange={(model, engine) =>
+              onModelSelectionChange({
+                engine,
+                model,
+                effort: selectedEffort,
+              })
+            }
+            onAgentChange={handleAgentChange}
+            onEffortChange={(effort) =>
+              onModelSelectionChange({ ...normalizedModel, effort })
+            }
+            composerAreaClassName="code-agents-standard-composer"
+            composerToolbarSlot={
+              <div className="code-agents-chat-composer-slot">
+                <RunModeSelect
+                  value={permissionMode}
+                  onChange={onPermissionModeChange}
+                  compact
+                />
+              </div>
+            }
+            composerExtraActionButton={
+              runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
+            }
+            onConnectProvider={onConnectProvider}
+            onConnectLocalRuntime={onConnectLocalRuntime}
+            onForkChat={onForkChat}
+          />
+        </>
       )}
+    </div>
+  );
+}
+
+function TranscriptSourceBanner({
+  events,
+  onOpenRun,
+}: {
+  events: CodeAgentTranscriptEvent[];
+  onOpenRun?: (runId: string) => void;
+}) {
+  const event = [...events]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.type === "user" &&
+        (candidate.metadata?.source === "scheduled-task" ||
+          candidate.metadata?.source === "agent"),
+    );
+  if (!event) return null;
+  const source = event.metadata?.source;
+  if (source === "scheduled-task") {
+    const scheduleName =
+      typeof event.metadata?.scheduleName === "string"
+        ? event.metadata.scheduleName
+        : undefined;
+    return (
+      <div
+        className="code-agents-transcript-source"
+        data-source="scheduled-task"
+      >
+        <IconClock size={14} strokeWidth={1.8} />
+        <span>Sent by scheduled task</span>
+        {scheduleName ? <small>{scheduleName}</small> : null}
+      </div>
+    );
+  }
+  const sourceRunId =
+    typeof event.metadata?.sourceRunId === "string"
+      ? event.metadata.sourceRunId
+      : undefined;
+  const sourceRunTitle =
+    typeof event.metadata?.sourceRunTitle === "string"
+      ? event.metadata.sourceRunTitle
+      : sourceRunId;
+  return (
+    <div className="code-agents-transcript-source" data-source="agent">
+      <IconLink size={14} strokeWidth={1.8} />
+      <span>Sent from another agent</span>
+      {sourceRunId && onOpenRun ? (
+        <button type="button" onClick={() => onOpenRun(sourceRunId)}>
+          {sourceRunTitle}
+        </button>
+      ) : sourceRunTitle ? (
+        <small>{sourceRunTitle}</small>
+      ) : null}
     </div>
   );
 }

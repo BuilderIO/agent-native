@@ -34,7 +34,7 @@ import {
 import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
 import { cn } from "@/lib/utils";
 
-import { ReactionsTray } from "./reactions-tray";
+import { ReactionsTray, type ReactionHandler } from "./reactions-tray";
 import { Scrubber, msToClock } from "./scrubber";
 
 export const SPEED_OPTIONS = PLAYBACK_SPEED_OPTIONS;
@@ -73,7 +73,7 @@ export interface PlayerControlsProps {
    */
   showReactionsAndComment?: boolean;
   enableReactions?: boolean;
-  onReact?: (emoji: string) => void;
+  onReact?: ReactionHandler;
   enableComments?: boolean;
   onAddComment?: () => void;
 }
@@ -306,7 +306,7 @@ export function PlayerControls(props: PlayerControlsProps) {
           >
             {enableReactions && onReact ? (
               <div className="pointer-events-auto">
-                <ReactionsTray onReact={onReact} />
+                <ReactionsTray reactions={reactions} onReact={onReact} />
               </div>
             ) : null}
 

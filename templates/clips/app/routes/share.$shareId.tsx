@@ -1274,7 +1274,7 @@ export default function ShareRoute() {
               onReact={(emoji) => {
                 if (!session) {
                   requireSignIn("react");
-                  return;
+                  return false;
                 }
                 tracking.reportReaction(emoji);
                 const liveCt = isLoomEmbedBacked
@@ -1287,7 +1287,7 @@ export default function ShareRoute() {
                   liveCt < 1e7
                     ? Math.floor(liveCt * 1000)
                     : currentMs;
-                fetch(
+                return fetch(
                   agentNativePath("/_agent-native/actions/react-to-recording"),
                   {
                     method: "POST",
@@ -1303,7 +1303,11 @@ export default function ShareRoute() {
                     if (!res.ok) throw new Error(`react failed: ${res.status}`);
                     return dataQ.refetch();
                   })
-                  .catch((err) => console.warn("[clips] react failed", err));
+                  .then(() => true)
+                  .catch((err) => {
+                    console.warn("[clips] react failed", err);
+                    return false;
+                  });
               }}
               className="h-full w-full rounded-none sm:rounded-xl"
             />
@@ -1371,10 +1375,11 @@ export default function ShareRoute() {
                 ) : null}
                 {recording.enableReactions ? (
                   <ReactionsTray
+                    reactions={reactions}
                     onReact={(emoji) => {
                       if (!session) {
                         requireSignIn("react");
-                        return;
+                        return false;
                       }
                       tracking.reportReaction(emoji);
                       const liveCt = isLoomEmbedBacked
@@ -1387,7 +1392,7 @@ export default function ShareRoute() {
                         liveCt < 1e7
                           ? Math.floor(liveCt * 1000)
                           : currentMs;
-                      fetch(
+                      return fetch(
                         agentNativePath(
                           "/_agent-native/actions/react-to-recording",
                         ),
@@ -1406,9 +1411,11 @@ export default function ShareRoute() {
                             throw new Error(`react failed: ${res.status}`);
                           return dataQ.refetch();
                         })
-                        .catch((err) =>
-                          console.warn("[clips] react failed", err),
-                        );
+                        .then(() => true)
+                        .catch((err) => {
+                          console.warn("[clips] react failed", err);
+                          return false;
+                        });
                     }}
                   />
                 ) : null}

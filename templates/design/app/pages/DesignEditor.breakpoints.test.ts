@@ -376,7 +376,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
       'className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5"',
     );
     expect(source).toContain(
-      'className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto"',
+      'className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"',
     );
     expect(source).toContain(
       'className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"',

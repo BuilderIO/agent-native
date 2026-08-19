@@ -49,6 +49,7 @@ import {
   BUILDER_RELAY_TIMESTAMP_HEADER,
   BUILDER_SIGNUP_SOURCE_PARAM,
   BUILDER_STATE_PARAM,
+  createBuilderConnectState,
   createBuilderProject,
   createBuilderRelayRequest,
   findBuilderProjectForRepo,
@@ -59,7 +60,10 @@ import {
   getBuilderBrowserOriginForEvent,
   getBuilderBrowserStatusForEvent,
   isBuilderBranchingEnabled,
+  isBuilderConnectCallbackUrlAllowed,
+  isSignedBuilderConnectState,
   resolveBuilderCallbackReturnUrl,
+  resolveBuilderConnectCallbackUrl,
   resolveBuilderPreviewRelayParentOrigin,
   resolveBuilderPreviewRelayTargetOrigin,
   resolveBuilderBranchProjectId,
@@ -333,6 +337,88 @@ describe("Builder callback CSRF state", () => {
       expect(verifyBuilderConnectTokenAndGetOwner(token)).toBe(
         "alice@example.com",
       );
+    });
+  });
+
+  describe("Builder connect OAuth state", () => {
+    it("creates a signed OAuth state", () => {
+      expect(isSignedBuilderConnectState(createBuilderConnectState())).toBe(
+        true,
+      );
+      expect(isSignedBuilderConnectState("not-a-state")).toBe(false);
+    });
+
+    it("allows Railway HTTPS same-origin callback URLs", () => {
+      const event = createBuilderBrowserEvent({
+        host: "myapp.up.railway.app",
+        "x-forwarded-proto": "https",
+      });
+      expect(
+        isBuilderConnectCallbackUrlAllowed(
+          "https://myapp.up.railway.app/_agent-native/builder/callback",
+          event,
+        ),
+      ).toBe(true);
+    });
+
+    it("rejects foreign-origin callback URLs", () => {
+      const event = createBuilderBrowserEvent({
+        host: "myapp.up.railway.app",
+        "x-forwarded-proto": "https",
+      });
+      expect(
+        isBuilderConnectCallbackUrlAllowed(
+          "https://evil.example.com/_agent-native/builder/callback",
+          event,
+        ),
+      ).toBe(false);
+    });
+
+    it("rejects production HTTP callback URLs", () => {
+      process.env.NODE_ENV = "production";
+      const event = createBuilderBrowserEvent({
+        host: "myapp.up.railway.app",
+        "x-forwarded-proto": "http",
+      });
+      expect(
+        isBuilderConnectCallbackUrlAllowed(
+          "http://myapp.up.railway.app/_agent-native/builder/callback",
+          event,
+        ),
+      ).toBe(false);
+    });
+
+    it("allows loopback HTTP outside production", () => {
+      process.env.NODE_ENV = "development";
+      const event = createBuilderBrowserEvent({
+        host: "127.0.0.1:3000",
+        "x-forwarded-proto": "http",
+      });
+      expect(
+        isBuilderConnectCallbackUrlAllowed(
+          "http://127.0.0.1:3000/_agent-native/builder/callback",
+          event,
+        ),
+      ).toBe(true);
+    });
+
+    it("builds the fixed same-origin OAuth callback URL", () => {
+      const event = createBuilderBrowserEvent({
+        host: "myapp.up.railway.app",
+        "x-forwarded-proto": "https",
+      });
+      expect(resolveBuilderConnectCallbackUrl(event)).toBe(
+        "https://myapp.up.railway.app/_agent-native/builder/callback",
+      );
+    });
+
+    it("rejects building a callback URL when the request origin is HTTP in production", () => {
+      process.env.NODE_ENV = "production";
+      const event = createBuilderBrowserEvent({
+        host: "myapp.up.railway.app",
+        "x-forwarded-proto": "http",
+      });
+      expect(resolveBuilderConnectCallbackUrl(event)).toBeNull();
     });
   });
 

@@ -70,6 +70,20 @@ owning source seam and focused verification, with one explicit disposition:
 fixed, awaiting reporter clarification, already owned or duplicate, deferred or
 informational, external or non-repo-owned, or unavailable/unverified.
 
+Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
+
+- Never add or duplicate `👀` on a Slack parent. If the latest readable parent
+  already has an `👀` reaction from anyone, preserve that fact as an existing
+  marker and do not create a new reaction or a new automatic work item. If the
+  reaction state is unavailable, record the item as unavailable/unverified and
+  refresh the feedback thread instead of guessing.
+- UX or interaction bugs in the Design app are owned by Sid. All Content app
+  feedback is owned by Alice. Keep those source links and ownership decisions
+  in the ship ledger, but do not include them as this workflow's fixes,
+  investigation, clarification requests, replies, dispatches, or merge
+  blockers. Only an explicit invocation assigning a specific item to this
+  workflow can override the owner route.
+
 When deciding whether an awaiting clarification is already answered, treat the
 requested URL, error, screenshot, repro, run ID, or other evidence as present
 only when it is readable in the parent, a reply, or an accessible linked
@@ -94,7 +108,9 @@ deployed, and observed-live claims separate. A green test or PR does not prove
 that a feedback fix is live; verify the affected production surface after merge.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
 review item has a fix or a concise reply and that no new evidence has been left
-without a disposition.
+without a disposition. Items routed to Sid or Alice, and parents already marked
+with `👀`, are not new actionable work for this workflow; preserve their
+dispositions without manufacturing a fix, reply, or duplicate reaction.
 
 ## Worktree and branch setup
 

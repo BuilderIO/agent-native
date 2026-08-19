@@ -115,6 +115,7 @@ import {
 import { useRendererTheme } from "../lib/theme.js";
 import AppWebview, { resolveAppWebviewUrl } from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
+import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
 import DesktopTerminalSurface, {
@@ -668,9 +669,11 @@ export default function CodeAgentsHub({
     activeChatFirstSurfaceTab?.kind === "app" &&
     activeChatFirstSurfaceTab.placement === "main";
   const chatFirstAppSelected = activeChatFirstSurfaceTab?.kind === "app";
+  const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
   const activeChatFirstPrimaryTab = useMemo<
     ChatFirstPrimaryTab | undefined
   >(() => {
+    if (scheduledTasksOpen) return "scheduled";
     if (
       !chatFirstAppSelected ||
       activeChatFirstSurfaceTab?.kind !== "app" ||
@@ -691,7 +694,7 @@ export default function CodeAgentsHub({
       return "scheduled";
     }
     return undefined;
-  }, [activeChatFirstSurfaceTab, chatFirstAppSelected]);
+  }, [activeChatFirstSurfaceTab, chatFirstAppSelected, scheduledTasksOpen]);
   const [chatFirstBrowserSelection, setChatFirstBrowserSelection] = useState<{
     url: string;
     title?: string;
@@ -765,6 +768,7 @@ export default function CodeAgentsHub({
       }
       setChatFirstRailCollapsed(true);
       setChatFirstAllAppsOpen(false);
+      setScheduledTasksOpen(false);
       window.electronAPI?.setActiveApp?.(app.id);
       setChatFirstNotice(null);
       setChatFirstBrowserSelection(null);
@@ -780,7 +784,12 @@ export default function CodeAgentsHub({
       );
       setChatFirstSurfacePanelOpen(true);
     },
-    [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen, surfaceApps],
+    [
+      chatFirstSurfaceTabsStore,
+      setChatFirstSurfacePanelOpen,
+      setScheduledTasksOpen,
+      surfaceApps,
+    ],
   );
 
   useEffect(() => {
@@ -855,13 +864,18 @@ export default function CodeAgentsHub({
   }, []);
   const returnToChatFirstChats = useCallback(() => {
     setChatFirstAllAppsOpen(false);
+    setScheduledTasksOpen(false);
     setTerminalSessionStarted(false);
     setTerminalPromptRequest(null);
     closeChatFirstSessionWatch();
     setChatFirstBrowserSelection(null);
     chatFirstSurfaceTabsStore.closeAll();
     setChatFirstSurfacePanelOpen(false);
-  }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
+  }, [
+    chatFirstSurfaceTabsStore,
+    setChatFirstSurfacePanelOpen,
+    setScheduledTasksOpen,
+  ]);
   const handleTerminalPromptSubmit = useCallback((prompt: string) => {
     const request: DesktopTerminalPromptRequest = {
       id: ++terminalPromptSequence.current,
@@ -905,6 +919,15 @@ export default function CodeAgentsHub({
   );
   const openChatFirstAllApps = useCallback(() => {
     setChatFirstAllAppsOpen(true);
+    setScheduledTasksOpen(false);
+    closeChatFirstSessionWatch();
+    setChatFirstBrowserSelection(null);
+    chatFirstSurfaceTabsStore.closeAll();
+    setChatFirstSurfacePanelOpen(false);
+  }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
+  const openScheduledTasks = useCallback(() => {
+    setScheduledTasksOpen(true);
+    setChatFirstAllAppsOpen(false);
     closeChatFirstSessionWatch();
     setChatFirstBrowserSelection(null);
     chatFirstSurfaceTabsStore.closeAll();
@@ -917,12 +940,13 @@ export default function CodeAgentsHub({
       onOpenChats: returnToChatFirstChats,
       onOpenAllApps: openChatFirstAllApps,
       onOpenIntegrations: () => openChatFirstApp("dispatch", "/integrations"),
-      onOpenScheduled: () => openChatFirstApp("dispatch", "/automations"),
+      onOpenScheduled: openScheduledTasks,
     }),
     [
       activeChatFirstPrimaryTab,
       openChatFirstApp,
       openChatFirstAllApps,
+      openScheduledTasks,
       returnToChatFirstChats,
     ],
   );
@@ -1879,6 +1903,61 @@ export default function CodeAgentsHub({
         }
         return api.listRuns(goalId);
       },
+      async listSchedules() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listSchedules) {
+          return {
+            status: "unavailable",
+            schedules: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.listSchedules();
+      },
+      async createSchedule(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.createSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.createSchedule(request);
+      },
+      async updateSchedule(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.updateSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.updateSchedule(request);
+      },
+      async deleteSchedule(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.deleteSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.deleteSchedule(request);
+      },
+      async runScheduleNow(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.runScheduleNow) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.runScheduleNow(request);
+      },
       async listWorktrees(cwd?: string) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.listWorktrees) {
@@ -2435,10 +2514,14 @@ export default function CodeAgentsHub({
           activeChatFirstSurfaceKind={activeChatFirstSurfaceTab?.kind}
           railCollapsed={chatFirstRailCollapsed}
           chatFirstMainKind={
-            chatFirstAllAppsOpen || chatFirstAppTakesMain ? "agent" : "code"
+            scheduledTasksOpen || chatFirstAllAppsOpen || chatFirstAppTakesMain
+              ? "agent"
+              : "code"
           }
           renderChatFirstMainSurface={
-            chatFirstAllAppsOpen ? (
+            scheduledTasksOpen ? (
+              <CodeAgentSchedulesPanel host={host} />
+            ) : chatFirstAllAppsOpen ? (
               <DesktopAppsGrid
                 apps={listApps}
                 layout={chatFirstAppLayout}

@@ -60,6 +60,7 @@ import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
+import { createCodeAgentAgentTools } from "./code-agent-agent-tools.js";
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
@@ -2702,6 +2703,10 @@ Current run mode: ${mode} mode (${permissionMode}).
 - In an Agent-Native app or workspace, also run \`pnpm agent-native:doctor\` (or \`pnpm doctor\`) after source changes. Treat every finding as a fix-required security issue; do not disable a guard without a reviewer-readable reason.
 - Do not claim a change works, tests pass, or a build succeeds unless you actually ran it and saw the result. If you could not verify something, say exactly what is unverified and why.
 
+# Schedules and cooperating threads
+
+In Auto mode, use \`manage-schedules\` for durable local desktop schedules. A global schedule starts a fresh thread on each interval; a thread schedule queues a message into an existing thread. Use \`intervalMinutes: 360\` for every 6 hours. Use \`manage-agent-threads\` to list threads, create a peer thread, or message another thread. Messages include source-agent metadata so the recipient can link back to the sender.
+
 # Tools beyond the basics
 
 - Use \`tool-search\` when you need a capability that may come from MCP, including browser automation or computer control.
@@ -2790,6 +2795,7 @@ function createLocalCodeAgentActions(
       read: actions.read,
     };
   }
+  Object.assign(actions, createCodeAgentAgentTools(runId, cwd));
   return actions;
 }
 

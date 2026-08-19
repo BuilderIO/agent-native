@@ -548,7 +548,7 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "forms"');
   });
 
-  it("localizes custom Clips auth marketing copy and keeps System tied to the browser", () => {
+  it("keeps custom Clips auth marketing copy out of built-in localization", () => {
     const html = getOnboardingHtml({
       requestHost: "clips.agent-native.com",
       marketing: {
@@ -564,11 +564,29 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
       },
     });
 
-    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "clips"');
-    expect(html).toContain("你的 AI 代理会转录、总结并搜索你记录的所有内容。");
-    expect(html).toContain("一键录屏（Loom 风格），自动生成标题、摘要和章节");
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "";');
+    expect(html).toContain(
+      "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
+    );
+    expect(html).toContain("var __AN_AUTH_MARKETING_LOCALES = {};");
     expect(html).toContain("function __anResolveAuthSystemLocale()");
     expect(html).not.toContain("var rootLocale =");
+  });
+
+  it("keeps custom marketing that reuses a built-in app name out of built-in localized copy", () => {
+    const html = getOnboardingHtml({
+      requestHost: "app.example.com",
+      marketing: {
+        appName: "Dispatch",
+        tagline: BUILT_IN_AUTH_MARKETING.dispatch.tagline,
+        description: "Route parcels across your own fleet.",
+        features: ["Track every van on one map"],
+      },
+    });
+
+    expect(html).not.toContain('var __AN_AUTH_MARKETING_SLUG = "dispatch"');
+    expect(html).toContain("Route parcels across your own fleet.");
+    expect(html).toContain("Track every van on one map");
   });
 
   it("shows configured terms and privacy links on custom email signup", () => {
@@ -739,6 +757,33 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     });
 
     expect(html).not.toContain('class="marketing-panel"');
+  });
+
+  it("does not localize custom marketing that reuses a built-in app name", () => {
+    const html = getOnboardingHtml({
+      marketing: {
+        appName: "Calendar",
+        tagline: "Plan your team's work with a custom calendar.",
+      },
+    });
+
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "";');
+    expect(html).toContain("Plan your team's work with a custom calendar.");
+    expect(html).toContain("var __AN_AUTH_MARKETING_LOCALES = {};");
+  });
+
+  it("does not localize custom marketing from a built-in request host", () => {
+    const html = getOnboardingHtml({
+      requestHost: "dispatch.agent-native.com",
+      marketing: {
+        appName: "Custom Dispatch",
+        tagline: "Route your own work with a custom dispatch flow.",
+      },
+    });
+
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "";');
+    expect(html).toContain("Route your own work with a custom dispatch flow.");
+    expect(html).toContain("var __AN_AUTH_MARKETING_LOCALES = {};");
   });
 
   it("embeds the public OAuth origin for Builder desktop redirects", () => {

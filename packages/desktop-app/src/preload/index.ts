@@ -46,6 +46,8 @@ import {
   type CodeAgentControlResult,
   type CodeAgentMigrationRun,
   type CodeAgentRunListResult,
+  type CodeAgentScheduleListResult,
+  type CodeAgentScheduleResult,
   type CodeAgentTranscriptRequest,
   type CodeAgentTranscriptResult,
   type CodeAgentTerminalRequest,
@@ -392,6 +394,16 @@ const electronAPI = {
   codeAgents: {
     listRuns: (goalId?: string): Promise<CodeAgentRunListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_RUNS, goalId),
+    listSchedules: (): Promise<CodeAgentScheduleListResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_SCHEDULES),
+    createSchedule: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_CREATE_SCHEDULE, input),
+    updateSchedule: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_UPDATE_SCHEDULE, input),
+    deleteSchedule: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_DELETE_SCHEDULE, input),
+    runScheduleNow: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_RUN_SCHEDULE_NOW, input),
     listWorktrees: (cwd?: string): Promise<CodeAgentWorktreeListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_WORKTREES, cwd),
     listModels: (): Promise<CodeAgentModelListResult> =>

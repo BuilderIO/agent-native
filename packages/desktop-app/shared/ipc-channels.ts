@@ -102,6 +102,11 @@ export const IPC = {
 
   /** Agent-Native Code hub (renderer ↔ main) */
   CODE_AGENTS_LIST_RUNS: "code-agents:list-runs",
+  CODE_AGENTS_LIST_SCHEDULES: "code-agents:list-schedules",
+  CODE_AGENTS_CREATE_SCHEDULE: "code-agents:create-schedule",
+  CODE_AGENTS_UPDATE_SCHEDULE: "code-agents:update-schedule",
+  CODE_AGENTS_DELETE_SCHEDULE: "code-agents:delete-schedule",
+  CODE_AGENTS_RUN_SCHEDULE_NOW: "code-agents:run-schedule-now",
   CODE_AGENTS_LIST_WORKTREES: "code-agents:list-worktrees",
   CODE_AGENTS_CREATE_RUN: "code-agents:create-run",
   CODE_AGENTS_FORK_RUN: "code-agents:fork-run",
@@ -152,6 +157,41 @@ export const IPC = {
   QUICK_PROMPT_HIDDEN: "quick-prompt:hidden",
   QUICK_PROMPT_SUBMIT: "quick-prompt:submit",
 } as const;
+
+export type CodeAgentScheduleScope = "global" | "thread";
+export type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
+
+export interface CodeAgentSchedule {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  prompt: string;
+  scope: CodeAgentScheduleScope;
+  targetRunId?: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  nextRunAt: string;
+  lastRunAt?: string;
+  lastStatus?: CodeAgentScheduleStatus;
+  lastError?: string;
+  lastTriggeredRunId?: string;
+  createdByRunId?: string;
+}
+
+export interface CodeAgentScheduleListResult {
+  status: "ok" | "unavailable";
+  schedules: CodeAgentSchedule[];
+  error?: string;
+}
+
+export interface CodeAgentScheduleResult {
+  ok: boolean;
+  schedule?: CodeAgentSchedule;
+  message: string;
+  error?: string;
+}
 
 /** Auto-update status surfaced from electron-updater. */
 export type UpdateStatus =
