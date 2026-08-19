@@ -85,8 +85,37 @@ jobs:
             fi
           fi
 
-  build-mac:
+  prepare-release:
     needs: resolve-version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Create draft release before parallel uploads
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          TAG="v${{ needs.resolve-version.outputs.version }}"
+          if gh release view "$TAG" -R "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; build jobs will upload to it."
+          elif [ "$RELEASE_CHANNEL" = "nightly" ]; then
+            gh release create "$TAG" \
+              --draft \
+              --prerelease \
+              --latest=false \
+              --title "Agent Native Nightly v${{ needs.resolve-version.outputs.version }}" \
+              --notes "Auto-updating Nightly build of the Agent Native desktop app." \
+              -R "${{ github.repository }}"
+          else
+            gh release create "$TAG" \
+              --draft \
+              --latest=false \
+              --title "Agent Native v${{ needs.resolve-version.outputs.version }}" \
+              --notes "Stable release of the Agent Native desktop app." \
+              -R "${{ github.repository }}"
+          fi
+
+  build-mac:
+    needs: [resolve-version, prepare-release]
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -111,9 +140,15 @@ jobs:
           const builderPath = "electron-builder.yml";
           let builder = fs.readFileSync(builderPath, "utf8");
           builder = builder
-            .replace("  - name: Agent Native\n", "  - name: Agent Native Nightly\n")
-            .replace("      - agentnative\n", "      - agentnative-nightly\n");
-          if (!builder.includes("agentnative-nightly")) {
+            .replace(
+              /^([ \t]*- name: )Agent Native([ \t]*\r?\n)/m,
+              "$1Agent Native Nightly$2",
+            )
+            .replace(
+              /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
+              "$1agentnative-nightly$2",
+            );
+          if (!/^\s*- agentnative-nightly\s*$/m.test(builder)) {
             throw new Error("Could not configure the Nightly deep-link scheme.");
           }
           fs.writeFileSync(builderPath, builder);
@@ -167,7 +202,7 @@ jobs:
             "-c.productName=$ELECTRON_PRODUCT_NAME"
 
   build-windows:
-    needs: resolve-version
+    needs: [resolve-version, prepare-release]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -192,9 +227,15 @@ jobs:
           const builderPath = "electron-builder.yml";
           let builder = fs.readFileSync(builderPath, "utf8");
           builder = builder
-            .replace("  - name: Agent Native\n", "  - name: Agent Native Nightly\n")
-            .replace("      - agentnative\n", "      - agentnative-nightly\n");
-          if (!builder.includes("agentnative-nightly")) {
+            .replace(
+              /^([ \t]*- name: )Agent Native([ \t]*\r?\n)/m,
+              "$1Agent Native Nightly$2",
+            )
+            .replace(
+              /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
+              "$1agentnative-nightly$2",
+            );
+          if (!/^\s*- agentnative-nightly\s*$/m.test(builder)) {
             throw new Error("Could not configure the Nightly deep-link scheme.");
           }
           fs.writeFileSync(builderPath, builder);
@@ -232,7 +273,7 @@ jobs:
             "-c.productName=$ELECTRON_PRODUCT_NAME"
 
   build-linux:
-    needs: resolve-version
+    needs: [resolve-version, prepare-release]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -257,9 +298,15 @@ jobs:
           const builderPath = "electron-builder.yml";
           let builder = fs.readFileSync(builderPath, "utf8");
           builder = builder
-            .replace("  - name: Agent Native\n", "  - name: Agent Native Nightly\n")
-            .replace("      - agentnative\n", "      - agentnative-nightly\n");
-          if (!builder.includes("agentnative-nightly")) {
+            .replace(
+              /^([ \t]*- name: )Agent Native([ \t]*\r?\n)/m,
+              "$1Agent Native Nightly$2",
+            )
+            .replace(
+              /^([ \t]*- )agentnative([ \t]*\r?\n)/m,
+              "$1agentnative-nightly$2",
+            );
+          if (!/^\s*- agentnative-nightly\s*$/m.test(builder)) {
             throw new Error("Could not configure the Nightly deep-link scheme.");
           }
           fs.writeFileSync(builderPath, builder);
