@@ -46,11 +46,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "what-is-agent-native",
       },
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
-      {
-        id: "faq",
-        labelKey: "faq",
-        slug: "faq",
-      },
     ],
   },
   {
