@@ -228,6 +228,22 @@ describe("request-scoped action surface", () => {
     );
   });
 
+  it("keeps local coding tools in every dev handler variant", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const devScriptRegistry = await createDevScriptRegistry\(\{[\s\S]*?databaseTools: databaseToolsMode,[\s\S]*?\}\);/,
+    );
+    expect(source).toMatch(
+      /leanPrompt\s+\? \{ \.\.\.devScriptRegistry, \.\.\.leanActions \}/,
+    );
+    expect(source).toMatch(
+      /devNative\s+\? \{ \.\.\.devScriptRegistry, \.\.\.prodActions \}/,
+    );
+  });
+
   it("removes denied actions before the actions prompt is generated", () => {
     const actions = {
       allowed: {
