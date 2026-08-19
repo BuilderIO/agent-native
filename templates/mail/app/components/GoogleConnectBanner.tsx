@@ -76,6 +76,14 @@ const ADD_ACCOUNT_POLL_ABORT_MS = Math.max(
   ADD_ACCOUNT_POLL_INTERVAL_MS * 4,
 );
 
+function newDesktopOAuthVerifier(): string {
+  const randomUuid = globalThis.crypto?.randomUUID;
+  if (typeof randomUuid === "function") {
+    return `${randomUuid.call(globalThis.crypto)}${randomUuid.call(globalThis.crypto)}`;
+  }
+  return `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Date.now().toString(36)}${Date.now().toString(36)}`;
+}
+
 interface GoogleConnectBannerProps {
   variant?: "banner" | "hero";
 }
@@ -128,17 +136,47 @@ export function GoogleConnectBanner({
     const flowId =
       crypto.randomUUID?.() ||
       Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const verifier = newDesktopOAuthVerifier();
     const origin = window.location.origin;
     const endpoint = addAccount
       ? "/_agent-native/google/add-account/auth-url"
       : "/_agent-native/google/auth-url";
-    const redirectUri = encodeURIComponent(
-      oauthRedirectUri("/_agent-native/google/callback"),
-    );
-    window.open(
-      `${origin}${agentNativePath(endpoint)}?redirect_uri=${redirectUri}&desktop=1&flow_id=${flowId}&redirect=1`,
-      "_blank",
-    );
+    const params = new URLSearchParams({
+      redirect_uri: oauthRedirectUri("/_agent-native/google/callback"),
+      desktop: "1",
+      flow_id: flowId,
+    });
+    const popup = window.open("", "_blank");
+    if (!popup) {
+      setDesktopAuthIssue({
+        code: "popup_blocked",
+        message: "Allow popups for this site and try again.",
+      });
+      return;
+    }
+    void fetch(`${origin}${agentNativePath(endpoint)}?${params.toString()}`, {
+      credentials: "include",
+      headers: { "X-Agent-Native-Desktop-Verifier": verifier },
+    })
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || typeof data?.url !== "string") {
+          throw new Error(
+            data?.message || data?.error || "Could not start Google sign-in.",
+          );
+        }
+        popup.location.href = data.url;
+      })
+      .catch((error) => {
+        popup.close();
+        setDesktopAuthIssue({
+          code: "desktop_auth_start_failed",
+          message:
+            error instanceof Error
+              ? error.message
+              : "Could not start Google sign-in.",
+        });
+      });
     const start = Date.now();
     if (desktopPollRef.current) clearInterval(desktopPollRef.current);
     desktopPollRef.current = setInterval(async () => {
@@ -153,7 +191,7 @@ export function GoogleConnectBanner({
         try {
           const res = await fetch(
             agentNativePath(
-              `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+              `/_agent-native/auth/desktop-exchange?${new URLSearchParams({ flow_id: flowId, verifier })}`,
             ),
             { signal: controller.signal },
           );

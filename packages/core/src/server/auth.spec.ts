@@ -1,3 +1,5 @@
+import crypto from "node:crypto";
+
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 import {
@@ -3218,15 +3220,22 @@ describe("server/auth", () => {
       delete process.env.ACCESS_TOKEN;
       delete process.env.ACCESS_TOKENS;
 
+      const verifier = "desktop-exchange-verifier-123456789012345";
+      const verifierHash = crypto
+        .createHash("sha256")
+        .update(verifier)
+        .digest("base64url");
+      const storedExchange =
+        `__magic-link-exchange__::${verifierHash}::` +
+        "session-token-abc::user@gmail.com";
       const mockExecute = vi.fn().mockImplementation(({ sql, args }: any) => {
         if (
           typeof sql === "string" &&
-          sql.includes("DELETE FROM sessions") &&
+          (sql.includes("DELETE FROM sessions") ||
+            sql.includes("SELECT email FROM sessions")) &&
           args?.[0] === "dex:flow-1"
         ) {
-          return {
-            rows: [{ email: "session-token-abc::user@gmail.com" }],
-          };
+          return { rows: [{ email: storedExchange }] };
         }
         return { rows: [] };
       });
@@ -3261,7 +3270,7 @@ describe("server/auth", () => {
 
       const event = createMockEvent({
         path: "/_agent-native/auth/desktop-exchange",
-        query: { flow_id: "flow-1" },
+        query: { flow_id: "flow-1", verifier },
       });
       const result = await exchangeHandler(event);
 
@@ -4966,7 +4975,10 @@ describe("server/auth", () => {
       expect(html).not.toContain("&debug=1");
       expect(html).toContain("params.set('desktop', '1')");
       expect(html).toContain("params.set('flow_id', flowId)");
+      expect(html).toContain("'X-Agent-Native-Desktop-Verifier': verifier");
+      expect(html).not.toContain("params.set('verifier', verifier)");
       expect(html).toContain("params.set('redirect', '1')");
+      expect(html).toContain("function __anNewOAuthVerifier()");
       expect(html).toContain("var __anBuilderPreviewSeen = false");
       expect(html).toContain("function __anRememberBuilderPreview()");
       expect(html).toContain(
@@ -5008,7 +5020,9 @@ describe("server/auth", () => {
       expect(html).toContain(
         "__anFinishOAuthExchange(ret, flowId, data.token)",
       );
-      expect(html).toContain("__anWaitForOAuthExchange(flowId, ret, btn, err)");
+      expect(html).toContain(
+        "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier)",
+      );
       const recoverStart = html.indexOf(
         "function __anRecoverGoogleSignInAfterReturn()",
       );
@@ -5098,8 +5112,12 @@ describe("server/auth", () => {
         "if (oauthReturn) params.set('return', oauthReturn)",
       );
       expect(loginHtml).toContain(
-        "__anWaitForOAuthExchange(flowId, ret, btn, err)",
+        "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier)",
       );
+      expect(loginHtml).toContain(
+        "'X-Agent-Native-Desktop-Verifier': verifier",
+      );
+      expect(loginHtml).not.toContain("params.set('verifier', verifier)");
       expect(loginHtml).toContain(
         "__anFinishOAuthExchange(ret, flowId, data.token)",
       );

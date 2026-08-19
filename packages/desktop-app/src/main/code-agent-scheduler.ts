@@ -55,7 +55,20 @@ export class DesktopCodeAgentScheduler {
   }
 
   list(): CodeAgentScheduleListResult {
-    return { status: "ok", schedules: listCodeAgentSchedules().map(toShared) };
+    try {
+      return {
+        status: "ok",
+        schedules: listCodeAgentSchedules().map(toShared),
+      };
+    } catch (error) {
+      // An unreadable store is not an empty one; say so rather than showing
+      // the user zero schedules they still have on disk.
+      return {
+        status: "unavailable",
+        schedules: [],
+        error: errorMessage(error),
+      };
+    }
   }
 
   create(input: unknown): CodeAgentScheduleResult {
@@ -222,7 +235,19 @@ export class DesktopCodeAgentScheduler {
     this.ticking = true;
     try {
       const now = new Date();
-      for (const schedule of listCodeAgentSchedules()) {
+      let due: CodeAgentScheduleRecord[];
+      try {
+        due = listCodeAgentSchedules();
+      } catch (error) {
+        // Skip this tick instead of running against a store we could not read;
+        // dispatching would mark runs and rewrite the file from a partial view.
+        console.warn(
+          "[code-agent scheduler] skipping tick; schedules unreadable:",
+          errorMessage(error),
+        );
+        return;
+      }
+      for (const schedule of due) {
         if (!isCodeAgentScheduleDue(schedule, now)) continue;
         try {
           await this.dispatchSchedule(schedule, now, false);

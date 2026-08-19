@@ -22,6 +22,7 @@ const mocks = vi.hoisted(() => ({
   readBody: vi.fn(),
   resolveOAuthOwner: vi.fn(),
   resolveOAuthRedirectUri: vi.fn(),
+  registerDesktopExchange: vi.fn(),
   safeReturnPath: vi.fn(),
   setAccountDisplayName: vi.fn(),
   setDesktopExchange: vi.fn(),
@@ -32,6 +33,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  getHeader: (event: any, name: string) => event.headers?.[name.toLowerCase()],
   getQuery: (event: any) => event.query ?? {},
   setResponseStatus: mocks.setResponseStatus,
 }));
@@ -49,6 +51,7 @@ vi.mock("@agent-native/core/server", () => ({
   readBody: mocks.readBody,
   resolveOAuthOwner: mocks.resolveOAuthOwner,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,
+  registerDesktopExchange: mocks.registerDesktopExchange,
   safeReturnPath: mocks.safeReturnPath,
   setDesktopExchange: mocks.setDesktopExchange,
   setDesktopExchangeError: mocks.setDesktopExchangeError,
@@ -89,8 +92,11 @@ vi.mock("../../shared/gmail-signature.js", () => ({
 const { getGoogleAddAccountUrl, getGoogleAuthUrl, handleGoogleCallback } =
   await import("./google-auth.js");
 
-function createEvent(query: Record<string, string> = {}) {
-  return { query };
+function createEvent(
+  query: Record<string, string> = {},
+  headers: Record<string, string> = {},
+) {
+  return { query, headers };
 }
 
 describe("Mail Google auth-url handlers", () => {
@@ -111,17 +117,21 @@ describe("Mail Google auth-url handlers", () => {
       "https://mail.agent-native.com/_agent-native/google/callback",
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
+    mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
     mocks.safeReturnPath.mockImplementation((value: string) => value);
   });
 
   it("returns a native redirect Response for popup sign-in auth URLs", async () => {
     const response = await getGoogleAuthUrl(
-      createEvent({
-        desktop: "1",
-        flow_id: "flow-123",
-        redirect: "1",
-        return: "/inbox",
-      }) as any,
+      createEvent(
+        {
+          desktop: "1",
+          flow_id: "flow-123",
+          redirect: "1",
+          return: "/inbox",
+        },
+        { "x-agent-native-desktop-verifier": "v".repeat(32) },
+      ) as any,
     );
 
     expect(response).toBeInstanceOf(Response);
@@ -137,11 +147,14 @@ describe("Mail Google auth-url handlers", () => {
 
   it("returns a native redirect Response for add-account auth URLs", async () => {
     const response = await getGoogleAddAccountUrl(
-      createEvent({
-        desktop: "1",
-        flow_id: "flow-456",
-        redirect: "1",
-      }) as any,
+      createEvent(
+        {
+          desktop: "1",
+          flow_id: "flow-456",
+          redirect: "1",
+        },
+        { "x-agent-native-desktop-verifier": "v".repeat(32) },
+      ) as any,
     );
 
     expect(response).toBeInstanceOf(Response);

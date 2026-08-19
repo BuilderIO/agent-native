@@ -1651,6 +1651,20 @@ describe("DesktopIdentityBroker", () => {
     const identityFetch = vi.fn(
       async (input: string, init?: RequestInit): Promise<Response> => {
         const url = new URL(input);
+        if (url.pathname === "/_agent-native/google/auth-url") {
+          expect(init?.headers).toEqual(
+            expect.objectContaining({
+              Accept: "application/json",
+              "X-Agent-Native-Desktop-Verifier": expect.any(String),
+            }),
+          );
+          return new Response(
+            JSON.stringify({
+              url: "https://accounts.google.com/o/oauth2/v2/auth?state=oauth-state",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
         if (url.pathname === "/_agent-native/auth/desktop-exchange") {
           return new Response(
             JSON.stringify({
@@ -1740,9 +1754,8 @@ describe("DesktopIdentityBroker", () => {
 
     expect(createWindow).not.toHaveBeenCalled();
     expect(openedUrls).toHaveLength(1);
-    expect(new URL(openedUrls[0]!).pathname).toBe(
-      "/_agent-native/google/auth-url",
-    );
+    expect(new URL(openedUrls[0]!).hostname).toBe("accounts.google.com");
+    expect(openedUrls[0]).not.toContain("verifier");
     expect(authorityCookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "an_session_dispatch",

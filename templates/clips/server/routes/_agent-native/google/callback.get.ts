@@ -107,7 +107,15 @@ async function handleGoogleSignInCallback(
     });
 
     if (flowId && sessionToken) {
-      setDesktopExchange(flowId, sessionToken, email);
+      if (!state.desktopVerifierHash) {
+        throw new Error("Missing desktop exchange challenge.");
+      }
+      setDesktopExchange(
+        flowId,
+        sessionToken,
+        email,
+        state.desktopVerifierHash,
+      );
     }
 
     return oauthCallbackResponse(event, email, {

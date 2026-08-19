@@ -45,6 +45,14 @@ const DESKTOP_AUTH_POLL_ABORT_MS = Math.max(
   DESKTOP_AUTH_POLL_INTERVAL_MS * 4,
 );
 
+function newDesktopOAuthVerifier(): string {
+  const randomUuid = globalThis.crypto?.randomUUID;
+  if (typeof randomUuid === "function") {
+    return `${randomUuid.call(globalThis.crypto)}${randomUuid.call(globalThis.crypto)}`;
+  }
+  return `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Date.now().toString(36)}${Date.now().toString(36)}`;
+}
+
 function bodyError(
   body: any,
   raw: string | undefined,
@@ -229,6 +237,7 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
       const flowId =
         globalThis.crypto?.randomUUID?.() ||
         Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const verifier = newDesktopOAuthVerifier();
       const redirectUri = oauthRedirectUri("/_agent-native/google/callback");
       const params = new URLSearchParams({
         redirect_uri: redirectUri,
@@ -285,7 +294,12 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
             : "/_agent-native/google/auth-url";
           const { url } = await fetchJson<{ url: string }>(
             agentNativePath(`${path}?${params.toString()}`),
-            { credentials: "include" },
+            {
+              credentials: "include",
+              headers: {
+                "X-Agent-Native-Desktop-Verifier": verifier,
+              },
+            },
           );
           openAuthUrl(url);
         } catch (err) {
@@ -305,7 +319,7 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
           try {
             const exchangeRes = await fetch(
               agentNativePath(
-                `/_agent-native/auth/desktop-exchange?flow_id=${flowId}`,
+                `/_agent-native/auth/desktop-exchange?${new URLSearchParams({ flow_id: flowId, verifier })}`,
               ),
               { credentials: "include", signal: controller.signal },
             );

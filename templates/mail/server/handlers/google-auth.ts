@@ -15,6 +15,7 @@ import {
   oauthCallbackResponse,
   oauthDesktopExchangePage,
   oauthErrorPage,
+  registerDesktopExchange,
   safeReturnPath,
   setDesktopExchange,
   setDesktopExchangeError,
@@ -22,6 +23,7 @@ import {
 import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
 import {
   defineEventHandler,
+  getHeader,
   getQuery,
   setResponseStatus,
   type H3Event,
@@ -113,6 +115,20 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+    let desktopVerifierHash: string | undefined;
+    if (flowId) {
+      const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+      if (!verifier || q.verifier !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+      try {
+        desktopVerifierHash = await registerDesktopExchange(flowId, verifier);
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+    }
     const requestedReturn =
       typeof q.return === "string" ? safeReturnPath(q.return) : "/";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
@@ -127,6 +143,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       app: OAUTH_STATE_APP_ID,
       returnUrl,
       flowId,
+      desktopVerifierHash,
     });
     const url = await getAuthUrl(undefined, redirectUri, state, owner);
     if (q.redirect === "1") {
@@ -183,7 +200,13 @@ export const handleGoogleCallback = defineEventHandler(
         return { error: "Missing authorization code" };
       }
 
-      const { redirectUri, owner: stateOwner, addAccount, returnUrl } = state;
+      const {
+        redirectUri,
+        owner: stateOwner,
+        addAccount,
+        returnUrl,
+        desktopVerifierHash,
+      } = state;
 
       // 1. Resolve owner (needs session context, before exchangeCode)
       const { owner, hasProductionSession } = await resolveOAuthOwner(
@@ -249,7 +272,10 @@ export const handleGoogleCallback = defineEventHandler(
           });
 
       if (flowId && sessionToken) {
-        setDesktopExchange(flowId, sessionToken, email);
+        if (!desktopVerifierHash) {
+          throw new Error("Missing desktop exchange challenge.");
+        }
+        setDesktopExchange(flowId, sessionToken, email, desktopVerifierHash);
       }
 
       // 4. Return platform-appropriate response
@@ -295,6 +321,20 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       const desktop =
         isElectron(event) || q.desktop === "1" || q.desktop === "true";
       const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+      let desktopVerifierHash: string | undefined;
+      if (flowId) {
+        const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+        if (!verifier || q.verifier !== undefined) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+        try {
+          desktopVerifierHash = await registerDesktopExchange(flowId, verifier);
+        } catch {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+      }
       const state = encodeOAuthState({
         redirectUri,
         owner: session.email,
@@ -302,6 +342,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         addAccount: true,
         app: OAUTH_STATE_APP_ID,
         flowId,
+        desktopVerifierHash,
       });
       const url = await getAuthUrl(
         undefined,

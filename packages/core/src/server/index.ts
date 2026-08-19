@@ -81,6 +81,7 @@ export {
   setFrameworkSessionCookie,
   clearFrameworkSessionCookies,
   runAuthGuard,
+  registerDesktopExchange,
   setDesktopExchange,
   setDesktopExchangeError,
   safeReturnPath,

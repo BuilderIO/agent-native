@@ -945,18 +945,42 @@ export class DesktopIdentityBroker {
     if (!authority || !this.options.openExternal) return false;
 
     const flowId = randomBytes(32).toString("base64url");
+    const verifier = randomBytes(32).toString("base64url");
     const authUrl = new URL(DESKTOP_GOOGLE_AUTH_URL_PATH, authority.origin);
     authUrl.searchParams.set("desktop", "1");
     authUrl.searchParams.set("flow_id", flowId);
-    authUrl.searchParams.set("redirect", "1");
 
     this.setStatus("signing-in");
     try {
-      await this.options.openExternal(authUrl.toString());
+      const response = await this.options.identitySession.fetch(
+        authUrl.toString(),
+        {
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+            "X-Agent-Native-Desktop-Verifier": verifier,
+          },
+        },
+      );
+      const payload = (await response.json().catch(() => ({}))) as {
+        url?: unknown;
+        error?: unknown;
+        message?: unknown;
+      };
+      if (!response.ok || typeof payload.url !== "string") {
+        throw new Error(
+          typeof payload.message === "string"
+            ? payload.message
+            : typeof payload.error === "string"
+              ? payload.error
+              : "Could not start Google sign-in.",
+        );
+      }
+      await this.options.openExternal(payload.url);
       return await this.finishExternalAuthentication(
         authority,
         flowId,
-        null,
+        verifier,
         generation,
         appId,
       );

@@ -17,6 +17,7 @@ const mocks = vi.hoisted(() => ({
   readBody: vi.fn(),
   resolveOAuthOwner: vi.fn(),
   resolveOAuthRedirectUri: vi.fn(),
+  registerDesktopExchange: vi.fn(),
   resolveSecret: vi.fn(),
   runWithRequestContext: vi.fn(),
   safeReturnPath: vi.fn(),
@@ -27,6 +28,7 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  getHeader: (event: any, name: string) => event.headers?.[name.toLowerCase()],
   getQuery: (event: any) => event.query ?? {},
   setResponseStatus: mocks.setResponseStatus,
 }));
@@ -77,6 +79,7 @@ vi.mock("@agent-native/core/server", () => ({
   },
   resolveOAuthOwner: mocks.resolveOAuthOwner,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,
+  registerDesktopExchange: mocks.registerDesktopExchange,
   resolveSecret: mocks.resolveSecret,
   runWithRequestContext: mocks.runWithRequestContext,
   safeReturnPath: mocks.safeReturnPath,
@@ -218,6 +221,7 @@ describe("Calendar Google auth-url handler", () => {
       desktop: true,
       addAccount: true,
       flowId: "flow-123",
+      desktopVerifierHash: "desktop-verifier-hash",
     });
     mocks.resolveOAuthOwner.mockResolvedValue({
       owner: "owner@example.com",
@@ -248,6 +252,7 @@ describe("Calendar Google auth-url handler", () => {
       "flow-123",
       "owner-session-token",
       "owner@example.com",
+      "desktop-verifier-hash",
     );
     expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
       event,
@@ -274,6 +279,7 @@ describe("Calendar Google auth-url handler", () => {
       orgId: "org-123",
       desktop: true,
       flowId: "flow-456",
+      desktopVerifierHash: "desktop-verifier-hash",
     });
     mocks.exchangeCode.mockResolvedValue("secondary@example.com");
     mocks.oauthCallbackResponse.mockReturnValue("ok");
@@ -300,6 +306,7 @@ describe("Calendar Google auth-url handler", () => {
       "flow-456",
       "owner-session-token",
       "owner@example.com",
+      "desktop-verifier-hash",
     );
     expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
       event,

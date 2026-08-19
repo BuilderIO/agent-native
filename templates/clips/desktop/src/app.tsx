@@ -2142,13 +2142,35 @@ export function App() {
       const flowId =
         crypto.randomUUID?.() ||
         Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const verifier = crypto.randomUUID?.()
+        ? `${crypto.randomUUID()}${crypto.randomUUID()}`
+        : `${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Math.random().toString(36).slice(2)}${Date.now().toString(36)}${Date.now().toString(36)}`;
       const base = serverUrl.replace(/\/+$/, "");
 
-      await openExternal(
-        `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}&redirect=1`,
+      const authParams = new URLSearchParams({
+        desktop: "1",
+        flow_id: flowId,
+      });
+      const authResponse = await fetch(
+        `${base}/_agent-native/google/auth-url?${authParams.toString()}`,
+        {
+          headers: {
+            Accept: "application/json",
+            "X-Agent-Native-Desktop-Verifier": verifier,
+          },
+        },
       );
+      const authPayload = await authResponse.json().catch(() => ({}));
+      if (!authResponse.ok || typeof authPayload?.url !== "string") {
+        throw new Error(
+          authPayload?.message ||
+            authPayload?.error ||
+            "Could not start Google sign-in.",
+        );
+      }
+      await openExternal(authPayload.url);
       setSignInPending("google");
-      startDesktopAuthExchange(flowId, "google");
+      startDesktopAuthExchange(flowId, "google", verifier);
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
       signInInflightRef.current = false;

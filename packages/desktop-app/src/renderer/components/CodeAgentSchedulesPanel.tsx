@@ -697,7 +697,8 @@ function formatNextRun(value: string): string {
     return delta >= 0 ? "In " + hours + " hours" : hours + " hours ago";
   }
   const days = Math.round(hours / 24);
-  return delta >= 0 ? "In " + days + " days" : days + " days ago";
+  const label = days === 1 ? "day" : "days";
+  return delta >= 0 ? "In " + days + " " + label : days + " " + label + " ago";
 }
 
 function threadTitle(

@@ -16,6 +16,7 @@ import {
   oauthCallbackResponse,
   oauthDesktopExchangePage,
   oauthErrorPage,
+  registerDesktopExchange,
   setDesktopExchange,
   setDesktopExchangeError,
   safeReturnPath,
@@ -23,6 +24,7 @@ import {
 } from "@agent-native/core/server";
 import {
   defineEventHandler,
+  getHeader,
   getQuery,
   setResponseStatus,
   type H3Event,
@@ -55,6 +57,7 @@ type CalendarOAuthStateOptions = {
   app?: string;
   returnUrl?: string;
   flowId?: string;
+  desktopVerifierHash?: string;
 };
 
 function encodeCalendarOAuthState(options: CalendarOAuthStateOptions): string {
@@ -264,6 +267,21 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       };
     }
 
+    let desktopVerifierHash: string | undefined;
+    if (flowId) {
+      const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+      if (!verifier || q.verifier !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+      try {
+        desktopVerifierHash = await registerDesktopExchange(flowId, verifier);
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+    }
+
     const requestedReturn =
       typeof q.return === "string" ? safeReturnPath(q.return) : "/";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
@@ -279,6 +297,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       app: OAUTH_STATE_APP_ID,
       returnUrl,
       flowId,
+      desktopVerifierHash,
     });
 
     const url = calendarConnect
@@ -366,7 +385,15 @@ export const handleGoogleCallback = defineEventHandler(
         );
 
         if (flowId && sessionToken) {
-          setDesktopExchange(flowId, sessionToken, identity.email);
+          if (!state.desktopVerifierHash) {
+            throw new Error("Missing desktop exchange challenge.");
+          }
+          setDesktopExchange(
+            flowId,
+            sessionToken,
+            identity.email,
+            state.desktopVerifierHash,
+          );
         }
 
         return oauthCallbackResponse(event, identity.email, {
@@ -410,7 +437,15 @@ export const handleGoogleCallback = defineEventHandler(
         : { sessionToken: undefined };
 
       if (flowId && sessionToken) {
-        setDesktopExchange(flowId, sessionToken, sessionOwner);
+        if (!state.desktopVerifierHash) {
+          throw new Error("Missing desktop exchange challenge.");
+        }
+        setDesktopExchange(
+          flowId,
+          sessionToken,
+          sessionOwner,
+          state.desktopVerifierHash,
+        );
       }
 
       // 4. Return platform-appropriate response
@@ -456,6 +491,20 @@ export const getGoogleAddAccountUrl = defineEventHandler(
           message: "redirect_uri must stay on this app's _agent-native routes.",
         };
       }
+      let desktopVerifierHash: string | undefined;
+      if (flowId) {
+        const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+        if (!verifier || q.verifier !== undefined) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+        try {
+          desktopVerifierHash = await registerDesktopExchange(flowId, verifier);
+        } catch {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+      }
       const state = encodeCalendarOAuthState({
         redirectUri,
         owner: session.email,
@@ -465,6 +514,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         addAccount: true,
         app: OAUTH_STATE_APP_ID,
         flowId,
+        desktopVerifierHash,
       });
       const url = await getAuthUrl(
         undefined,
@@ -547,7 +597,15 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
           : { sessionToken: undefined };
 
       if (flowId && sessionToken) {
-        setDesktopExchange(flowId, sessionToken, ownerEmail);
+        if (!state.desktopVerifierHash) {
+          throw new Error("Missing desktop exchange challenge.");
+        }
+        setDesktopExchange(
+          flowId,
+          sessionToken,
+          ownerEmail,
+          state.desktopVerifierHash,
+        );
       }
 
       return oauthCallbackResponse(event, addedEmail, {

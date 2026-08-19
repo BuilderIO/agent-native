@@ -470,6 +470,8 @@ export interface OAuthStatePayload {
    */
   returnUrl?: string;
   flowId?: string;
+  /** Hash of the client-held verifier binding a desktop exchange to its initiator. */
+  desktopVerifierHash?: string;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
 }
@@ -536,6 +538,7 @@ export interface EncodeOAuthStateOptions {
   app?: string;
   returnUrl?: string;
   flowId?: string;
+  desktopVerifierHash?: string;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
 }
@@ -616,6 +619,7 @@ export function encodeOAuthState(
   if (opts.app) payload.app = opts.app;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
+  if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
   if (opts.signupAttribution) payload.ft = opts.signupAttribution;
   const signupAnonymousId = normalizeAnalyticsAnonymousId(
     opts.signupAnonymousId,
@@ -672,6 +676,8 @@ export function decodeOAuthState(
         // depth in case the signing key ever leaks.
         returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
         flowId: parsed.f || undefined,
+        desktopVerifierHash:
+          typeof parsed.vh === "string" ? parsed.vh : undefined,
         signupAttribution: sanitizeStateAttribution(parsed.ft),
         signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
       };

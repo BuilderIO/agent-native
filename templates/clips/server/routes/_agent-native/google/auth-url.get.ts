@@ -4,10 +4,12 @@ import {
   isElectron,
   resolveGoogleSignInCredentials,
   resolveOAuthRedirectUri,
+  registerDesktopExchange,
   safeReturnPath,
 } from "@agent-native/core/server";
 import {
   defineEventHandler,
+  getHeader,
   getQuery,
   setResponseStatus,
   type H3Event,
@@ -54,11 +56,25 @@ export default defineEventHandler(async (event: H3Event) => {
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId =
       desktop && typeof q.flow_id === "string" ? q.flow_id : undefined;
+    const calendarConnect =
+      q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
+    let desktopVerifierHash: string | undefined;
+    if (flowId && !calendarConnect) {
+      const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+      if (!verifier || q.verifier !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+      try {
+        desktopVerifierHash = await registerDesktopExchange(flowId, verifier);
+      } catch {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
+    }
     const requestedReturn =
       typeof q.return === "string" ? safeReturnPath(q.return) : "/";
     const returnUrl = requestedReturn !== "/" ? requestedReturn : undefined;
-    const calendarConnect =
-      q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
     const credentials = calendarConnect
       ? ((await resolveGoogleOAuthCredentialCandidates())[0] ?? null)
       : resolveGoogleSignInCredentials();
@@ -88,6 +104,7 @@ export default defineEventHandler(async (event: H3Event) => {
       app: CLIPS_GOOGLE_OAUTH_APP_ID,
       returnUrl,
       flowId: calendarConnect ? undefined : flowId,
+      desktopVerifierHash,
     });
 
     const params = new URLSearchParams({
