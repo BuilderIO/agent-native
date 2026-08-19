@@ -43,7 +43,7 @@ const UNANSWERED_FEEDBACK_FOLLOWUP_RE = new RegExp(
     String.raw`\b(?:did|have)\s+(?:you|we)\b[^.!?]{0,100}\b(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage)\b[^.!?]{0,100}\b(?:clarification|follow[ -]?up|reporter|repl(?:y|ies|ied)|thread)\b`,
     String.raw`\b(?:you|we)\s+(?:still\s+)?(?:haven['’]t|didn['’]t|never)\b[^.!?]{0,100}\b(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage)\b[^.!?]{0,100}\b(?:clarification|follow[ -]?up|reporter|repl(?:y|ies|ied)|thread)\b`,
     String.raw`\b(?:why|how\s+come)\b[^.!?]{0,100}\b(?:didn['’]t|haven['’]t|never|still|not)\b[^.!?]{0,100}\b(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage)\b[^.!?]{0,100}\b(?:clarification|follow[ -]?up|reporter|repl(?:y|ies|ied)|thread)\b`,
-    String.raw`\b(?:please|can you|make sure|be sure)\b[^.!?]{0,100}\b(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage|disposition)\b[^.!?]{0,100}\b(?:again|already|still|answered|unanswered|after|since|missed|prior|follow[ -]?up)\b`,
+    String.raw`\b(?:please|can you|make sure|be sure)\b[^.!?]{0,100}\b(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage|disposition)\b[^.!?]{0,100}\b(?:pending|unanswered|missed|no\s+(?:reply|response)|waiting|prior\s+(?:reply|follow[ -]?up)|clarification\s+(?:reply|question))\b`,
   ].join("|"),
   "i",
 );

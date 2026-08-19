@@ -133,7 +133,9 @@ the cross-run workflow state lives in the task-scoped JSON ledger at
 `$XDG_STATE_HOME/review-latest-feedback/<codex_task_id>/clarification-ledger.json`
 when `XDG_STATE_HOME` is set, otherwise
 `~/.codex/state/review-latest-feedback/<codex_task_id>/clarification-ledger.json`
-(or the full path supplied by `REVIEW_LATEST_FEEDBACK_LEDGER_PATH`). Use the
+(or under the task-scoped directory supplied by
+`REVIEW_LATEST_FEEDBACK_LEDGER_DIR`, with the same `<codex_task_id>` suffix).
+Never accept one shared complete-path override for multiple tasks. Use the
 stable Codex task or heartbeat target id for `<codex_task_id>`, never a
 per-run id. This is local Codex state, not a recap and not a file committed to
 a worktree. The ledger has `schema_version`, `codex_task_id`,
@@ -151,13 +153,14 @@ the next run, then append the loaded and updated rows to its recap.
 Initialize `owner_identities` with the invoking Slack identity and the
 configured `agent-native` identity. During the required full-thread read,
 inspect **Fixed** and **Clarification needed** replies from every author, not
-only Steve. Add another identity only when the reply or assignment makes that
-person clearly the investigator or owner, and persist that identity in the
-ledger. Scheduled discovery queries all exact terminal replies in the channel,
-joins them to eye-marked parents, and filters by this persisted owner set; it
-must never use a Steve-only author filter. If no recurring automation is
-available, say that the follow-up is manual and do not claim scheduled coverage
-exists.
+only Steve. Scheduled discovery first queries all exact terminal replies in
+the channel, joins them to eye-marked parents, and reads each candidate thread
+without an author filter. If the full thread or assignment establishes a new
+investigator or owner, add that identity and persist it in the ledger before
+applying the owner filter on later scans. A known-owner filter may optimize
+subsequent reads, but it must never gate this bootstrap query. If no recurring
+automation is available, say that the follow-up is manual and do not claim
+scheduled coverage exists.
 
 If there is still no reporter answer after the aging threshold, make one bounded
 source investigation before leaving the item pending. The threshold is exactly
