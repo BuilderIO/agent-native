@@ -134,9 +134,14 @@ when `XDG_STATE_HOME` is set, otherwise
 `~/.codex/state/review-latest-feedback/<codex_task_id>/clarification-ledger.json`
 (or under the task-scoped directory supplied by
 `REVIEW_LATEST_FEEDBACK_LEDGER_DIR`, with the same `<codex_task_id>` suffix).
-Never accept one shared complete-path override for multiple tasks. Use the
-stable Codex task or heartbeat target id for `<codex_task_id>`, never a
-per-run id. This is local Codex state, not a recap and not a file committed to
+Never accept one shared complete-path override for multiple tasks. For a
+thread-target schedule, use its stable target thread id. For a global schedule
+that starts a fresh run on every tick, use the persisted schedule id or another
+persistent heartbeat target id that the scheduler passes into every run. Never
+derive `<codex_task_id>` from a fresh per-tick run id. If the scheduler cannot
+expose a stable id, require the external persistence mechanism to provide one
+before claiming scheduled coverage. This is local Codex state, not a recap and
+not a file committed to
 a worktree. The ledger has `schema_version`, `codex_task_id`,
 `owner_identities`, and an `items` map keyed by
 `<slack_channel_id>:<parent_ts>`. Each item has
