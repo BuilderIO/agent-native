@@ -20,6 +20,8 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
     failAllocationAfterCommit: false,
     /** Simulates a missing allocator row followed by a failed reseed. */
     returnEmptyAllocationOnce: false,
+    /** Keep the allocator row missing through the retry after a failed reseed. */
+    returnEmptyAllocationWhileReseedingFails: false,
     failReseed: false,
     seedCalls: 0,
     async execute(query: string | { sql: string; args?: unknown[] }) {
@@ -53,7 +55,9 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
       }
       if (sql.includes("WITH alloc")) {
         if (db.returnEmptyAllocationOnce) {
-          db.returnEmptyAllocationOnce = false;
+          if (!db.returnEmptyAllocationWhileReseedingFails) {
+            db.returnEmptyAllocationOnce = false;
+          }
           return { rows: [], rowsAffected: 0 };
         }
         if (db.failAllocation) throw new Error("neon unavailable");
@@ -249,6 +253,7 @@ describe("dbAssignedVersions", () => {
   it("warns when allocator reseeding fails before retrying allocation", async () => {
     const db = makeAllocatorDb();
     db.returnEmptyAllocationOnce = true;
+    db.returnEmptyAllocationWhileReseedingFails = true;
     db.failReseed = true;
     const s = new AppSyncState({
       getDb: () => db as never,
@@ -264,7 +269,19 @@ describe("dbAssignedVersions", () => {
       "[agent-native] sync version allocator reseed failed; retrying allocation:",
       "allocator reseed unavailable",
     );
-    expect(s.getChangesSince(0).events).toHaveLength(1);
+    const events = s.getChangesSince(0).events;
+    expect(events).toHaveLength(1);
+    expect(events[0]?.version).toBeGreaterThan(0);
+    expect(
+      db.log.some(
+        (q) =>
+          q.sql.includes("INSERT INTO sync_events") &&
+          !q.sql.includes("WITH alloc"),
+      ),
+    ).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      "[agent-native] sync version allocation failed; falling back to clock-assigned versions",
+    );
     warn.mockRestore();
   });
 
