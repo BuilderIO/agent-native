@@ -78,8 +78,10 @@ export function decidePullRequestGovernance(
     ...input.changedFiles,
   ]);
   const ownerException = detectPullRequestOwnerException(input);
-  const internalEvidenceException =
-    input.internalBuilderMember || ownerException !== null;
+  const verifiedOwnerException = input.internalBuilderMember
+    ? ownerException
+    : null;
+  const internalEvidenceException = input.internalBuilderMember;
   const gates: GuardResult[] = [
     {
       code: "identity",
@@ -90,9 +92,9 @@ export function decidePullRequestGovernance(
     },
     {
       code: "unknown_change",
-      passed: input.clearBug || ownerException !== null,
+      passed: input.clearBug || verifiedOwnerException !== null,
       reason:
-        input.clearBug || ownerException !== null
+        input.clearBug || verifiedOwnerException !== null
           ? "The automation classified this as a clear bug with a concrete failure signal."
           : "The automation did not establish a clear bug; product requests and guesses stay manual.",
     },
@@ -125,7 +127,7 @@ export function decidePullRequestGovernance(
 
   if (
     ownerOwnedArea &&
-    !ownerExceptionCoversArea(ownerException, ownerOwnedArea)
+    !ownerExceptionCoversArea(verifiedOwnerException, ownerOwnedArea)
   ) {
     gates.push({
       code: "owner_owned",
@@ -133,7 +135,7 @@ export function decidePullRequestGovernance(
       reason: `${ownerOwnedArea} is owner-managed and is never auto-approved, auto-merged, or dispatched by this Factory.`,
     });
   }
-  if (input.productUxImplications && ownerException === null) {
+  if (input.productUxImplications && verifiedOwnerException === null) {
     gates.push({
       code: "unknown_change",
       passed: false,
@@ -145,8 +147,8 @@ export function decidePullRequestGovernance(
   const autoApprove = baseEligible;
   const autoMerge = false;
   const reason = autoApprove
-    ? ownerException
-      ? `Verified ${ownerException} owner exception; approval is safe to automate while ordinary check and review states remain recorded.`
+    ? verifiedOwnerException
+      ? `Verified ${verifiedOwnerException} owner exception; approval is safe to automate while ordinary check and review states remain recorded.`
       : "Clear internal bug fix with verified membership; approval is safe to automate while ordinary check and review states remain recorded."
     : gates
         .filter((gate) => !gate.passed)
@@ -155,7 +157,7 @@ export function decidePullRequestGovernance(
 
   return {
     ownerOwnedArea,
-    ownerException,
+    ownerException: verifiedOwnerException,
     autoApprove,
     autoMerge,
     reason,

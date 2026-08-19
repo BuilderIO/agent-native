@@ -57,6 +57,24 @@ describe("pull-request governance", () => {
     });
   });
 
+  it("does not trust an owner username without verified membership", () => {
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        author: "3mdistal",
+        changedFiles: ["templates/content/app/routes/index.tsx"],
+        clearBug: false,
+        checksPassed: false,
+        reviewFeedbackHandled: false,
+        internalBuilderMember: false,
+      }),
+    ).toMatchObject({
+      ownerException: null,
+      autoApprove: false,
+      autoMerge: false,
+    });
+  });
+
   it("applies the current app owner exceptions only to their scoped changes", () => {
     const cases = [
       {

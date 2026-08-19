@@ -479,6 +479,7 @@ export default defineAction({
           item.channelId,
           item.threadTs,
         );
+        const completeThreads = new Map([[item.id, thread]]);
         if (thread.hasMore) {
           throw new Error(
             "Slack thread is truncated; refusing to dispatch without complete evidence.",
@@ -495,6 +496,7 @@ export default defineAction({
             related.channelId,
             related.threadTs,
           );
+          completeThreads.set(related.id, relatedThread);
           if (relatedThread.hasMore) {
             throw new Error(
               "A grouped Slack thread is truncated; refusing to dispatch without complete evidence.",
@@ -556,22 +558,29 @@ export default defineAction({
           });
         }
         const agentNative = await slack.getAgentNativeIdentity(workspace);
-        const hasAgentNativeDisposition = thread.messages.some(
-          (message) =>
-            (message.user === agentNative.userId ||
-              message.username?.trim().toLowerCase() === "agent-native") &&
-            /^(Fixed|In progress|Clarification needed):/i.test(
-              message.text.trim(),
-            ),
-        );
-        if (!hasAgentNativeDisposition) {
+        for (const feedbackItem of [item, ...relatedItems]) {
+          const feedbackThread = completeThreads.get(feedbackItem.id);
+          if (!feedbackThread) {
+            throw new Error(
+              `Slack thread evidence is missing for Factory item ${feedbackItem.id}.`,
+            );
+          }
+          const hasAgentNativeDisposition = feedbackThread.messages.some(
+            (message) =>
+              (message.user === agentNative.userId ||
+                message.username?.trim().toLowerCase() === "agent-native") &&
+              /^(Fixed|In progress|Clarification needed):/i.test(
+                message.text.trim(),
+              ),
+          );
+          if (hasAgentNativeDisposition) continue;
           const disposition = await slack.postThreadReply(
             workspace,
-            item.channelId,
-            item.threadTs,
+            feedbackItem.channelId!,
+            feedbackItem.threadTs!,
             `Thanks - Builder owns this feedback cluster and will follow up after verification. In progress: ${reason}`,
           );
-          await writeMetadata(itemId, orgId, {
+          await writeMetadata(feedbackItem.id, orgId, {
             slackDispositionAt: new Date().toISOString(),
             slackDispositionTs: disposition.ts,
             slackDisposition: "In progress",
