@@ -22,6 +22,16 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+function approvalTokenHash(token: string): string {
+  return createHash("sha256").update(token).digest("hex");
+}
+
+type AccessRequestPayload = {
+  requesterEmail?: string;
+  approvalTokenHash?: string;
+  accessGrantedAt?: string;
+};
+
 function deckViewerShareId(deckId: string, requesterEmail: string): string {
   return (
     "deck-share-" +
@@ -84,7 +94,10 @@ export default defineAction({
 
     const requesterEmail = normalizeEmail(token.viewerEmail);
     const accessRequests = await db
-      .select({ payload: schema.deckEvents.payload })
+      .select({
+        id: schema.deckEvents.id,
+        payload: schema.deckEvents.payload,
+      })
       .from(schema.deckEvents)
       .where(
         and(
@@ -94,12 +107,11 @@ export default defineAction({
       );
     const request = accessRequests.find((event) => {
       try {
-        const payload = JSON.parse(event.payload ?? "") as {
-          requesterEmail?: string;
-        };
+        const payload = JSON.parse(event.payload ?? "") as AccessRequestPayload;
         return (
           typeof payload.requesterEmail === "string" &&
-          normalizeEmail(payload.requesterEmail) === requesterEmail
+          normalizeEmail(payload.requesterEmail) === requesterEmail &&
+          payload.approvalTokenHash === approvalTokenHash(approvalToken)
         );
       } catch {
         // coercion-ok: malformed historical event payload cannot authorize a share.
@@ -107,6 +119,14 @@ export default defineAction({
       }
     });
     if (!request) {
+      throw httpError("This access request is invalid or expired.", 404);
+    }
+    let requestPayload: AccessRequestPayload;
+    try {
+      requestPayload = JSON.parse(
+        request.payload ?? "",
+      ) as AccessRequestPayload;
+    } catch {
       throw httpError("This access request is invalid or expired.", 404);
     }
 
@@ -133,6 +153,9 @@ export default defineAction({
         shareId: existingShare.id,
         message: "Access was already granted to this requester.",
       };
+    }
+    if (requestPayload.accessGrantedAt) {
+      throw httpError("This access request is invalid or expired.", 404);
     }
 
     // Use a deterministic primary key as the idempotency key. The generic
@@ -176,6 +199,25 @@ export default defineAction({
         shareId: existingShareAfterConflict.id,
         message: "Access was already granted to this requester.",
       };
+    }
+    const [markedRequest] = await db
+      .update(schema.deckEvents)
+      .set({
+        payload: JSON.stringify({
+          ...requestPayload,
+          accessGrantedAt: new Date().toISOString(),
+          accessShareId: insertedShare.id,
+        }),
+      })
+      .where(
+        and(
+          eq(schema.deckEvents.id, request.id),
+          eq(schema.deckEvents.payload, request.payload ?? ""),
+        ),
+      )
+      .returning({ id: schema.deckEvents.id });
+    if (!markedRequest) {
+      throw new Error("Deck access request approval could not be recorded.");
     }
     invalidateCollabAccessCache("deck", deckId);
 

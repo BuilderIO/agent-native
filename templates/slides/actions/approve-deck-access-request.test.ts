@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -50,6 +52,7 @@ vi.mock("../server/db/index.js", () => ({
       visibility: "decks.visibility",
     },
     deckEvents: {
+      id: "deck_events.id",
       deckId: "deck_events.deck_id",
       type: "deck_events.type",
       payload: "deck_events.payload",
@@ -97,6 +100,13 @@ function createDb(
         }),
       })),
     })),
+    update: vi.fn(() => ({
+      set: vi.fn(() => ({
+        where: vi.fn(() => ({
+          returning: async () => [{ id: "request-1" }],
+        })),
+      })),
+    })),
   };
   return db;
 }
@@ -109,9 +119,16 @@ function privateDeck() {
   };
 }
 
-function accessRequest() {
+function accessRequest(payload: Record<string, unknown> = {}) {
   return {
-    payload: JSON.stringify({ requesterEmail: "VIEWER@example.com" }),
+    id: "request-1",
+    payload: JSON.stringify({
+      requesterEmail: "VIEWER@example.com",
+      approvalTokenHash: createHash("sha256")
+        .update("approval-token")
+        .digest("hex"),
+      ...payload,
+    }),
   };
 }
 
@@ -148,6 +165,7 @@ describe("approve-deck-access-request", () => {
       orgId: "org-1",
     });
     expect(db.insert).toHaveBeenCalledOnce();
+    expect(db.update).toHaveBeenCalledOnce();
   });
 
   it("is idempotent when the requester is already shared", async () => {
@@ -204,6 +222,23 @@ describe("approve-deck-access-request", () => {
     const db = createDb(
       [{ ...privateDeck(), visibility: "org" }],
       [accessRequest()],
+      [],
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      (approveDeckAccessRequest as any).run({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(db.insert).not.toHaveBeenCalled();
+  });
+
+  it("does not reuse an approval link after the granted share is revoked", async () => {
+    const db = createDb(
+      [privateDeck()],
+      [accessRequest({ accessGrantedAt: "2026-08-19T18:00:00.000Z" })],
       [],
     );
     mocks.getDb.mockReturnValue(db);

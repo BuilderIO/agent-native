@@ -137,6 +137,9 @@ type AccessRequestPayload = {
   requesterEmail?: string;
   requesterName?: string;
   requestedAt?: string;
+  approvalTokenHash?: string;
+  accessGrantedAt?: string;
+  accessShareId?: string;
   notifiedOwner?: boolean;
   notifiedAt?: string;
   inAppNotified?: boolean;
@@ -150,6 +153,7 @@ type AccessRequestNotificationState = {
   emailNotified: boolean;
   emailRequired: boolean;
   ownerCanNotify: boolean;
+  approvalTokenHash?: string;
 };
 
 const NOTIFICATION_CLAIM_TTL_MS = 5 * 60 * 1000;
@@ -186,6 +190,7 @@ function notificationStateFor(
     emailNotified: payload.emailNotified ?? legacyNotified,
     emailRequired: ownerCanNotify && emailConfigured,
     ownerCanNotify,
+    approvalTokenHash: payload.approvalTokenHash,
   };
 }
 
@@ -281,7 +286,13 @@ async function notifyAccessRequestOwner(input: {
         replyTo: input.requesterEmail,
         templateId: SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID,
       });
-      state = { ...state, emailNotified: true };
+      state = {
+        ...state,
+        emailNotified: true,
+        approvalTokenHash: createHash("sha256")
+          .update(approvalToken)
+          .digest("hex"),
+      };
     } catch (error) {
       console.warn("[deck-access] access request email failed:", error);
     }
@@ -474,6 +485,8 @@ export default defineAction({
         inAppNotified: state.inAppNotified,
         emailNotified: state.emailNotified,
         notifiedOwner: delivered,
+        approvalTokenHash:
+          state.approvalTokenHash ?? claimedPayload.approvalTokenHash,
         notificationClaimedAt: undefined,
         notificationClaimToken: undefined,
         ...(delivered ? { notifiedAt: new Date().toISOString() } : {}),
@@ -673,19 +686,31 @@ export default defineAction({
     };
     const initialPayloadJson = JSON.stringify(initialPayload);
 
-    const [insertedRequest] = await db
-      .insert(schema.deckEvents)
-      .values({
-        id: requestId,
-        deckId,
-        type: "deck.access_requested",
-        message: `${requesterEmail} requested access to this deck.`,
-        payload: initialPayloadJson,
-        createdBy: "human",
-        createdAt: requestedAt,
-      })
-      .onConflictDoNothing()
-      .returning({ id: schema.deckEvents.id });
+    let insertedRequest: { id: string } | undefined;
+    try {
+      [insertedRequest] = await db
+        .insert(schema.deckEvents)
+        .values({
+          id: requestId,
+          deckId,
+          type: "deck.access_requested",
+          message: `${requesterEmail} requested access to this deck.`,
+          payload: initialPayloadJson,
+          createdBy: "human",
+          createdAt: requestedAt,
+        })
+        .onConflictDoNothing()
+        .returning({ id: schema.deckEvents.id });
+    } catch (error) {
+      if (anonymousSlot) {
+        await refundAnonymousAccessRequestSlot(
+          db,
+          deckId,
+          anonymousSlot.windowStartedAt,
+        );
+      }
+      throw error;
+    }
 
     if (!insertedRequest) {
       if (anonymousSlot) {

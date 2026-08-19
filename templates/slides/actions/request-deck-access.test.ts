@@ -21,6 +21,7 @@ const state = vi.hoisted(() => ({
   inAppNotification: true,
   emailNotification: true,
   insertConflict: false,
+  insertError: null as Error | null,
   updateConflict: false,
   previousRequests: [] as { id: string; payload: string | null }[],
   insertedRows: [] as Record<string, unknown>[],
@@ -44,6 +45,7 @@ const insertValues = vi.hoisted(() =>
         }),
       };
     }
+    if (state.insertError) throw state.insertError;
     state.insertedRows.push(row);
     return {
       onConflictDoNothing: () => ({
@@ -224,6 +226,7 @@ beforeEach(() => {
   state.inAppNotification = true;
   state.emailNotification = true;
   state.insertConflict = false;
+  state.insertError = null;
   state.updateConflict = false;
   state.previousRequests = [];
   state.insertedRows = [];
@@ -264,6 +267,7 @@ describe("request-deck-access", () => {
       notifiedOwner: true,
       inAppNotified: true,
       emailNotified: true,
+      approvalTokenHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(notifyWithDelivery).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -580,6 +584,20 @@ describe("request-deck-access", () => {
       alreadyRequested: true,
       notifiedOwner: false,
     });
+    expect(state.rateLimitCount).toBe(0);
+  });
+
+  it("refunds anonymous quota when event creation fails", async () => {
+    state.requesterEmail = null;
+    state.insertError = new Error("event insert failed");
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        accessRequestToken: "request-token",
+        requesterEmail: "guest@example.com",
+      }),
+    ).rejects.toThrow("event insert failed");
     expect(state.rateLimitCount).toBe(0);
   });
 
