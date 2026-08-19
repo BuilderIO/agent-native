@@ -115,6 +115,32 @@ which is why this pass runs first. Without it every thread we asked about
 becomes permanently invisible on later runs and the reporter's answer is never
 read.
 
+## Clarification follow-up aging
+
+A clarification is a pending work item, not a reason to wait forever. When a
+**Clarification needed** reply is posted, record its timestamp and schedule a
+recurring recheck - every four hours is the default unless the invocation gives
+another interval. Each recheck must re-read the complete thread, look for a new
+reporter answer, and re-enter triage immediately if one arrived. Do not post a
+duplicate reminder just because the scheduled check ran.
+
+If there is still no reporter answer after one workday, make one bounded source
+investigation before leaving the item pending. Treat this as 24 elapsed hours
+on weekdays; do not age the item through Saturday or Sunday, and resume the
+threshold on the next weekday. Inspect the parent evidence, linked artifacts,
+the likely owning code path, existing regressions, recent fixes, and available
+runtime or deployment evidence. An educated guess is useful only when the
+evidence points to a narrow repo-owned culprit and the fix can be tested at the
+owning boundary. In that case, fix it, add focused coverage, run verification,
+and use `/ship` when publishing is authorized. Do not invent a global rule,
+patch every plausible call site, or call **Fixed** from a hunch. If the audit
+cannot establish a likely culprit, keep one precise **Clarification needed**
+question open and record why the source evidence was insufficient.
+
+Weekend aging changes the threshold, not the reply obligation: every scheduled
+recheck still reads for a reporter response, and an answer at any time always
+preempts the aging path and gets the full answered-clarification treatment.
+
 ## Required reading and tools
 
 Before changing code, read `address-feedback`,

@@ -70,6 +70,12 @@ const PATTERNS = [
     re: /\b(any other (apps?|providers?|templates?|places?)|other (apps?|templates?) (that )?do(es)? this|same (bug|issue|thing) (in|across)|sweep of other|fix that too)\b/i,
   },
   {
+    key: "unanswered-feedback-followup",
+    label: "Had to ask whether unanswered feedback was rechecked",
+    fixedBy: ".agents/skills/review-latest-feedback (2026-08-19)",
+    re: /\b(no one has replied|check (back|again) (for|whether).*(repl(?:y|ies)|follow[ -]?up|clarification)|revisit (every )?clarification|follow[ -]?up pass|answered clarification|eyes?-only|did(?:n['’]t| not) check back)\b/i,
+  },
+  {
     key: "collision",
     label: "Agents clobbering each other in the shared checkout",
     fixedBy: ".agents/skills/concurrent-agents",
