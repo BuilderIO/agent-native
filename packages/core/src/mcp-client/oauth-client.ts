@@ -58,6 +58,48 @@ function canonicalServerUrl(value: string): string {
   return checkedRemoteUrl(value, "server").toString();
 }
 
+/**
+ * RFC 8707 resource identifiers are exact strings. WHATWG `URL` origin-only
+ * values stringify with a trailing slash (`https://api.builder.io/` vs
+ * `https://api.builder.io`), and the MCP SDK puts `resource.href` on authorize
+ * and token requests. Servers that registered the unsuffixed identifier reject
+ * the canonical form as unregistered.
+ */
+class Rfc8707ResourceUrl extends URL {
+  readonly identifier: string;
+
+  constructor(identifier: string) {
+    super(identifier);
+    this.identifier = identifier;
+  }
+
+  override get href(): string {
+    return this.identifier;
+  }
+
+  override toString(): string {
+    return this.identifier;
+  }
+}
+
+function rfc8707ResourceUrl(identifier: string): URL {
+  checkedRemoteUrl(identifier, "resource");
+  return new Rfc8707ResourceUrl(identifier);
+}
+
+function resourceIsAllowed(requested: URL, configured: string): boolean {
+  const configuredUrl = new URL(configured);
+  if (requested.origin !== configuredUrl.origin) return false;
+  if (requested.pathname.length < configuredUrl.pathname.length) return false;
+  const requestedPath = requested.pathname.endsWith("/")
+    ? requested.pathname
+    : `${requested.pathname}/`;
+  const configuredPath = configuredUrl.pathname.endsWith("/")
+    ? configuredUrl.pathname
+    : `${configuredUrl.pathname}/`;
+  return requestedPath.startsWith(configuredPath);
+}
+
 function serverUrlsMatch(stored: string, canonical: string): boolean {
   try {
     return canonicalServerUrl(stored) === canonical;
@@ -403,6 +445,23 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   get savedClientInformation(): StoredOAuthClientInformation | undefined {
     return this.clientInfo;
   }
+
+  async validateResourceURL(
+    defaultResource: string | URL,
+    advertised?: string,
+  ): Promise<URL | undefined> {
+    if (!advertised) return undefined;
+    const requested =
+      typeof defaultResource === "string"
+        ? new URL(defaultResource)
+        : defaultResource;
+    if (!resourceIsAllowed(requested, advertised)) {
+      throw new Error(
+        `Protected resource ${advertised} does not match expected ${requested} (or origin)`,
+      );
+    }
+    return rfc8707ResourceUrl(advertised);
+  }
 }
 
 export async function startMcpOAuthAuthorization(
@@ -648,7 +707,7 @@ export async function getMcpOAuthAccessToken(options: {
           throw new Error("MCP OAuth refresh issuer binding is invalid.");
         }
         const resource = discovery.resourceMetadata?.resource
-          ? checkedRemoteUrl(discovery.resourceMetadata.resource, "resource")
+          ? rfc8707ResourceUrl(discovery.resourceMetadata.resource)
           : undefined;
         const authorizationServerUrl = checkedRemoteUrl(
           discovery.authorizationServerUrl,

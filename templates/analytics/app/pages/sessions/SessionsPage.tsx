@@ -526,8 +526,7 @@ export function ReplayStorageHint({
   const storageStatus = useReplayStorageStatus();
   const builderStatus = useBuilderStatus();
   const builderConnect = useBuilderConnectFlow({
-    popupUrl:
-      builderStatus.status?.cliAuthUrl ?? builderStatus.status?.connectUrl,
+    popupUrl: builderStatus.status?.connectUrl,
     trackingSource: "analytics_sessions_storage_hint",
     trackingFlow: "replay_storage",
     onConnected: async () => {
