@@ -2,11 +2,15 @@ import { useT } from "@agent-native/core/client/i18n";
 import { IconArrowLeft } from "@tabler/icons-react";
 import { Link } from "react-router";
 
-import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
+import { FactorySettingsView } from "@/components/factory/FactorySettingsView";
 import { FactoryWorkspaceActions } from "@/components/factory/FactoryWorkspaceActions";
 import { Button } from "@/components/ui/button";
 
-export default function AgentsRoute() {
+export function meta() {
+  return [{ title: "Factory" }];
+}
+
+export default function FactorySettingsRoute() {
   const t = useT();
 
   return (
@@ -18,13 +22,13 @@ export default function AgentsRoute() {
           </Link>
         </Button>
         <h1 className="text-sm font-medium sm:text-base">
-          {t("factoryRoute.agentsTitle")}
+          {t("factoryRoute.factorySettings")}
         </h1>
         <div className="ms-auto">
           <FactoryWorkspaceActions />
         </div>
       </div>
-      <FactoryAgentsView />
+      <FactorySettingsView />
     </div>
   );
 }
