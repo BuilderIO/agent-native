@@ -5,8 +5,8 @@ import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  codeAgentSchedulesPath,
   createCodeAgentRunRecord,
+  codeAgentStoreRoot,
   listCodeAgentRunRecords,
   listCodeAgentTranscriptEvents,
 } from "../../../core/src/cli/code-agent-runs.js";
@@ -83,7 +83,11 @@ describe("DesktopCodeAgentScheduler", () => {
 
   it("returns structured errors when schedule storage is unreadable", async () => {
     useTempCodeAgentsHome();
-    fs.writeFileSync(codeAgentSchedulesPath(), "{not valid json", "utf8");
+    fs.writeFileSync(
+      path.join(codeAgentStoreRoot(), "schedules.json"),
+      "{not valid json",
+      "utf8",
+    );
     const scheduler = new DesktopCodeAgentScheduler({
       defaultCwd: () => "/tmp/default",
       isRunActive: () => false,
