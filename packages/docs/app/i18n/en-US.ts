@@ -435,7 +435,7 @@ const enUS = {
       "Independent apps maintained by their authors. Install from a public GitHub repository, or try a hosted version when one is available.",
     submitCommunityTemplate: "Submit your template",
     communityEmpty:
-      "Community listings are open. Publish a focused Agent Native app in a public repository and submit it for the catalog.",
+      "Community listings are open. Publish a focused Agent-Native app in a public repository and submit it for the catalog.",
     publishGuide: "Read the publishing guide",
     communityTrust:
       "Community templates are third-party code. Review the repository, license, dependencies, and install scripts before running it.",
@@ -1485,7 +1485,7 @@ const enUS = {
     gettingStarted: "Getting Started",
     gettingStartedActions: "Add an Action",
     gettingStartedPages: "Add a Page",
-    whatIsAgentNative: "What Is Agent-Native?",
+    whatIsAgentNative: "What is Agent-Native?",
     agentSurfaces: "Agent Surfaces",
     keyConcepts: "Key Concepts",
     agentNativeToolkit: "Toolkit",
