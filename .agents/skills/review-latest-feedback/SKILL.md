@@ -24,8 +24,10 @@ This is a reply-producing workflow, not a reaction-only workflow. Apply the
 reply rules in `address-feedback-with-replies` to every actionable Slack item.
 The moment this skill adds `👀` to a Slack parent, that parent enters a
 mandatory reply ledger. Before the run ends, re-read every ledger item and
-confirm that the `@agent-native` bot has posted either a concise **Fixed**
-reply or a concise **Clarification needed** question. A generic bot
+confirm that the `@agent-native` bot has posted a concise **Fixed**, **In
+progress**, or **Clarification needed** disposition. **In progress** is valid
+only when the complete thread already contains real ownership or an active-fix
+signal; it is open and must be revisited on the next run. A generic bot
 acknowledgement or forward, another person's reply, or the `👀` reaction alone
 never satisfies the ledger. Do not finish the sweep or report success while an
 actionable parent that this run marked has only `👀` or an unrelated reply.
@@ -37,13 +39,15 @@ repository that is currently `#product-agent-native-feedback` (`C0ATH3CCZT4`);
 if the invocation names another channel, use that channel instead.
 
 Scan the channel newest to oldest and choose the most recent parent message
-without a verified `@agent-native` bot-authored final disposition - either a
-**Fixed** reply or an open **Clarification needed** question - from the same
-token contract. An `👀` reaction is only an investigation marker and never
-suppresses the scan. A thread with only that reaction, including a fix waiting
-for internal verification, remains the next work item until it receives the
-verified bot disposition. Do not treat a Steve or another person's reply,
-generic bot acknowledgement or forward, or vague status update as terminal.
+without a verified `@agent-native` bot-authored disposition - **Fixed**, an
+open **In progress** ownership reply, or an open **Clarification needed**
+question - from the same token contract. An `👀` reaction is only an
+investigation marker and never suppresses the scan. A thread with only that
+reaction, including a fix waiting for internal verification, remains the next
+work item until it receives the verified bot disposition. **In progress** is
+not terminal and must be revisited before newer work is treated as complete.
+Do not treat a Steve or another person's reply, generic bot acknowledgement or
+forward, or vague status update as terminal.
 
 That message is the start cursor. Classify it, record it if it is not
 actionable, then continue toward older messages, processing each actionable
@@ -99,9 +103,7 @@ has not since been fixed or otherwise dispositioned, oldest question first.
   in the channel: someone answered and is waiting on a fix.
 - **No reply yet** - leave it pending and record it in the recap with the date
   the question was asked, so an unanswered question stays visible instead of
-  ageing out of the cursor. Include the parent timestamp, clarification reply
-  timestamp, last recheck timestamp, next recheck timestamp, and any aging-audit
-  state in the durable ledger described below.
+  ageing out of the cursor.
 - **The reply does not supply what was asked** - ask the one remaining question
   only if it is still the blocker; otherwise fix from what is now available.
 
@@ -192,6 +194,31 @@ Weekend aging pauses the threshold, not the reply obligation: every scheduled
 recheck still reads for a reporter response, and an answer at any time always
 preempts the aging path and gets the full answered-clarification treatment.
 
+Before choosing a new start cursor, re-read every thread that this workflow
+left in **In progress**, oldest open ownership first. Verify the claimed fix or
+continue the handoff; do not ask the reporter to repeat details. Keep doing
+this until each open ownership item is **Fixed** or has a genuinely new,
+specific missing reporter or product input.
+
+## Resolution and ownership gate
+
+Do not infer missing reporter evidence merely because a thread lacks a
+bot-authored terminal reply. After reading the full thread, treat a substantive
+reply from `@agent-native` or any participant that identifies the cause,
+provides the repro, links a fix, or says the issue is fixed, landed, or being
+fixed as resolution or ownership evidence. It suppresses a duplicate
+clarification request. Verify a claimed fix before recording **Fixed**; if the
+work is in progress, record it as already owned or in progress and continue the
+handoff without asking the reporter to restate the issue. A non-bot resolution
+reply may still need an `@agent-native` ledger reply, but it is not missing
+evidence.
+
+Only ask for clarification when the evidence ledger still contains one specific
+reporter or product detail that blocks a safe fix and no resolution or
+ownership signal answers it. Every clarification reply starts with a brief
+thank-you, then asks that one question. **Clarification needed** is an internal
+disposition, not reporter-facing prose.
+
 ## Required reading and tools
 
 Before changing code, read `address-feedback`,
@@ -239,13 +266,15 @@ evidence, likely owner, and disposition. Use this order:
 2. **Concrete repo-owned bug** - after the `👀` marker, reproduce or establish
    it from source, tests, logs, a stack trace, or a linked run. Fix it and keep
    working until the smallest meaningful verification is green.
-3. **Missing reporter evidence** - after the `👀` marker and full-thread
-   review, ask one specific question naming the exact reproduction, input, or
-   surface needed to choose and verify a safe fix. If a needed linked artifact
-   is inaccessible, ask for access or a fresh/replacement link instead of
-   treating its contents as absent. If only internal test, deployment, or
-   tooling verification is unavailable, keep that blocker internal and do not
-   ask the reporter for it.
+3. **Missing reporter evidence with no resolution signal** - after the `👀`
+   marker and full-thread review, ask one specific question naming the exact
+   reproduction, input, or surface needed to choose and verify a safe fix. If a
+   participant or `@agent-native` already identified, fixed, or is fixing the
+   issue, use that evidence and do not ask a duplicate question. If a needed
+   linked artifact is inaccessible, ask for access or a fresh/replacement link
+   instead of treating its contents as absent. If only internal test,
+   deployment, or tooling verification is unavailable, keep that blocker
+   internal and do not ask the reporter for it.
 4. **Subjective UX or product suggestion** - do not turn a preference into a
    code or prompt rule. Act only when the report identifies a concrete broken
    behavior, an existing product invariant, or repeated independent evidence;
@@ -300,14 +329,20 @@ failure modes, surfaces, or owners.
    actionable parent it marked `👀`, not only for items whose code it changed.
    Post only after the fix or
    clarification is ready. A **Fixed** reply says that the fix is complete and
-   when it should be live. A **Clarification needed** reply asks one concrete
-   question about missing reporter or product input. Thank the reporter by name
-   when available and ask for the smallest useful evidence - such as a deck URL
+   when it should be live. An **In progress** reply acknowledges existing
+   ownership or active fixing, starts with a thank-you, and says the bot will
+   follow up after verification - it must not ask the reporter to repeat
+   details. A **Clarification needed** reply asks one concrete question about
+   missing reporter or product input, but only after the
+   resolution and ownership gate above passes. Start that reply by thanking
+   the reporter, then ask for the smallest useful evidence - such as a deck URL
    and/or request ID - as help to investigate rather than as a terse demand.
    Keep implementation and verification evidence in the internal recap, not the
    reporter-facing reply. `👀` is the first external action, never the final
-   disposition. Do not end the run with an eye-only item, a bot-forward, a
-   generic acknowledgement, or a vague progress update. If internal
+   disposition. Do not end the run with an eye-only item, a bot-forward, or a
+   generic acknowledgement. A vague progress update is invalid, but a
+   concrete **In progress** ownership reply is valid when the resolution gate
+   supports it. If internal
    verification is unavailable, keep investigating or run the missing check; do
    not turn an internal blocker into a reporter question or claim **Fixed**.
    If a later classification discovers that an eye-marked item is a duplicate,
@@ -316,8 +351,10 @@ failure modes, surfaces, or owners.
    Before posting **Clarification needed**, run the full-thread evidence gate
    again against the latest thread body. Confirm that the requested field is
    absent from the parent, every reply, and every accessible linked artifact;
-   if it is present, use it and keep investigating instead of asking again. If
-   a needed linked artifact is recorded as inaccessible, the access or
+   also confirm that no participant or `@agent-native` has already identified,
+   fixed, or started fixing the issue. If either the field or a resolution
+   signal is present, use it and keep investigating instead of asking again.
+   If a needed linked artifact is recorded as inaccessible, the access or
    replacement request is valid - do not describe its contents as absent. Do
    not post vague progress, technical internals, or a diagnosis that leaves a
    safely fixable bug undone. Re-read every thread after posting and confirm the
