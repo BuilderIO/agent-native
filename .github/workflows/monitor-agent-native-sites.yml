@@ -63,21 +63,73 @@ jobs:
               try {
                 const response = await fetch(`https://${host}/`, {
                   headers: { "user-agent": "agent-native-site-monitor" },
-                  redirect: "manual",
+                  redirect: "follow",
                   signal: AbortSignal.timeout(timeoutMs),
                 });
-                await response.body?.cancel();
                 const ms = Date.now() - startedAt;
                 const ok = response.status >= 200 && response.status < 400;
                 if (ok) {
-                  return {
-                    environment,
-                    host,
-                    ok: true,
-                    detail: `HTTP ${response.status} in ${ms}ms (attempt ${attempt})`,
-                  };
+                  const html = await response.text();
+                  const baseUrl = response.url || `https://${host}/`;
+                  const assets = new Set();
+                  for (const match of html.matchAll(/<(link|script)\b[^>]*>/gi)) {
+                    const tag = match[0];
+                    const rel = tag.match(/\brel=["']([^"']+)["']/i)?.[1] || "";
+                    const attribute = match[1].toLowerCase() === "script"
+                      ? "src"
+                      : /(?:^|\s)modulepreload(?:\s|$)/i.test(rel) ||
+                          /(?:^|\s)stylesheet(?:\s|$)/i.test(rel)
+                        ? "href"
+                        : null;
+                    if (!attribute) continue;
+                    const value = tag.match(new RegExp(`\\b${attribute}=["']([^"']+)["']`, "i"))?.[1];
+                    if (!value || value.startsWith("#") || value.startsWith("data:")) continue;
+                    try {
+                      const url = new URL(value, baseUrl);
+                      if (url.origin === new URL(baseUrl).origin) {
+                        assets.add(url.href);
+                      }
+                    } catch {
+                      // Ignore malformed or non-URL markup; the document probe
+                      // still reports the host itself as healthy.
+                    }
+                  }
+
+                  const assetFailures = [];
+                  const assetUrls = [...assets];
+                  const assetConcurrency = 12;
+                  for (let i = 0; i < assetUrls.length; i += assetConcurrency) {
+                    await Promise.all(assetUrls.slice(i, i + assetConcurrency).map(async (assetUrl) => {
+                      try {
+                        const assetResponse = await fetch(assetUrl, {
+                          headers: { "user-agent": "agent-native-site-monitor" },
+                          redirect: "follow",
+                          signal: AbortSignal.timeout(timeoutMs),
+                        });
+                        await assetResponse.body?.cancel();
+                        if (assetResponse.status < 200 || assetResponse.status >= 300) {
+                          assetFailures.push(`${new URL(assetUrl).pathname} HTTP ${assetResponse.status}`);
+                        }
+                      } catch (error) {
+                        assetFailures.push(
+                          `${new URL(assetUrl).pathname} ${String(error?.message ?? error)}`,
+                        );
+                      }
+                    }));
+                  }
+
+                  if (assetFailures.length > 0) {
+                    lastFailure = `HTTP ${response.status}; ${assetFailures.slice(0, 5).join(", ")}`;
+                  } else {
+                    return {
+                      environment,
+                      host,
+                      ok: true,
+                      detail: `HTTP ${response.status} with ${assets.size} referenced assets in ${ms}ms (attempt ${attempt})`,
+                    };
+                  }
                 }
-                lastFailure = `HTTP ${response.status}`;
+                if (!ok) lastFailure = `HTTP ${response.status}`;
               } catch (error) {
                 lastFailure =
                   error?.name === "TimeoutError"
