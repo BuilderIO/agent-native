@@ -167,6 +167,7 @@ interface PendingWorkspaceApp {
   contextId: string | null;
   contextLabel: string | null;
   audience?: WorkspaceAppAudience;
+  visibility?: WorkspaceAppVisibility;
   createdBy?: string | null;
   owner?: string | null;
   teams?: string[];
@@ -786,6 +787,9 @@ function parsePendingWorkspaceApps(value: unknown): PendingWorkspaceApp[] {
         ...(record.audience === undefined
           ? {}
           : { audience: normalizeWorkspaceAppAudience(record.audience) }),
+        ...(record.visibility === "private" || record.visibility === "org"
+          ? { visibility: record.visibility }
+          : {}),
         createdAt,
         updatedAt:
           typeof record.updatedAt === "string" && record.updatedAt.trim()
@@ -890,6 +894,7 @@ function pendingAppToSummary(app: PendingWorkspaceApp): WorkspaceAppSummary {
     protectedPaths: [],
     status: "pending",
     statusLabel: "Pending Builder branch",
+    visibility: app.visibility,
     builderUrl: app.builderUrl,
     branchName: app.branchName,
     createdAt: app.createdAt,
@@ -1174,7 +1179,20 @@ async function filterWorkspaceAppsByAccess(
   const visibleIds = new Set<string>();
   const candidates: WorkspaceAppSummary[] = [];
   for (const app of apps) {
-    if (app.status === "pending" || app.isDispatch) {
+    if (app.status === "pending") {
+      const viewerEmail = userEmail.toLowerCase();
+      const creatorEmail = app.createdBy?.trim().toLowerCase();
+      const ownerEmail = app.owner?.trim().toLowerCase();
+      if (
+        app.visibility !== "private" ||
+        creatorEmail === viewerEmail ||
+        ownerEmail === viewerEmail
+      ) {
+        visibleIds.add(app.id);
+      }
+      continue;
+    }
+    if (app.isDispatch) {
       visibleIds.add(app.id);
       continue;
     }
@@ -1250,6 +1268,7 @@ async function recordPendingWorkspaceApp(input: {
     projectId: input.projectId,
     contextId: context?.id ?? null,
     contextLabel: context?.label ?? null,
+    visibility: input.visibility,
     createdBy: currentOwnerEmail(),
     owner: currentOwnerEmail(),
     createdAt: existing?.createdAt || now,

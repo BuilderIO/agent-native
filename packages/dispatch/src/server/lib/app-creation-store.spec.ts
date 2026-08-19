@@ -593,6 +593,27 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch", "legacy"]);
   });
 
+  it("hides private pending apps from non-creators", async () => {
+    stubNoPendingContext();
+    stubManifest();
+    mocks.settings.set(settingsKey, {
+      pendingApps: [
+        pendingApp("private-pending", {
+          visibility: "private",
+          createdBy: "creator@example.test",
+          owner: "creator@example.test",
+        }),
+      ],
+    });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "viewer@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
   it("hides expired pending Builder app rows", async () => {
     stubManifest();
     vi.stubEnv("BRANCH", "feature-a");
