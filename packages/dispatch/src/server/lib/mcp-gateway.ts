@@ -1,7 +1,10 @@
 import {
   A2AClient,
   canonicalA2AAudience,
+  extractA2APersistedMutationReceipts,
   signA2AToken,
+  stripA2APersistedArtifactMarkers,
+  type A2APersistedMutationReceipt,
   type Task,
 } from "@agent-native/core/a2a";
 import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
@@ -107,6 +110,39 @@ function dispatchTaskText(task: Task): string {
   );
 }
 
+type DispatchMutationReceipt = A2APersistedMutationReceipt;
+
+function dispatchTaskMutationReceipts(
+  task: Task,
+  app: string,
+  identity: {
+    userEmail: string;
+    orgId: string | null;
+    orgSecret: string | null;
+  },
+): DispatchMutationReceipt[] {
+  if (app !== "content" || !identity.orgSecret) return [];
+  const text = dispatchTaskText(task);
+  if (!text) return [];
+  const result = [{ tool: "call-agent", result: text }];
+  const receipts = extractA2APersistedMutationReceipts(result, {
+    persistedArtifactSecrets: [identity.orgSecret],
+    expectedDelegatedTaskId: task.id,
+  });
+  return receipts.filter((receipt) => {
+    if (receipt.target.authorityScopeKind === "personal") {
+      return (
+        receipt.target.authorityScopeId.toLowerCase() ===
+        identity.userEmail.toLowerCase()
+      );
+    }
+    return (
+      identity.orgId !== null &&
+      receipt.target.authorityScopeId === identity.orgId
+    );
+  });
+}
+
 type DispatchAskAppStatusErrorCategory =
   | "transport"
   | "timeout"
@@ -119,6 +155,7 @@ type DispatchAskAppTaskResult = {
   taskId: string;
   status: string;
   response?: string;
+  receipts?: DispatchMutationReceipt[];
   error?: string;
   inputRequired?: string;
   statusRead?: "unavailable";
@@ -133,9 +170,15 @@ type DispatchAskAppTaskResult = {
 function dispatchAskAppTaskResult(
   app: string,
   task: Task,
+  identity: {
+    userEmail: string;
+    orgId: string | null;
+    orgSecret: string | null;
+  },
 ): DispatchAskAppTaskResult {
   const status = String(task.status.state);
-  const response = dispatchTaskText(task);
+  const response = stripA2APersistedArtifactMarkers(dispatchTaskText(task));
+  const receipts = dispatchTaskMutationReceipts(task, app, identity);
   const base = {
     app,
     routedVia: "a2a" as const,
@@ -144,7 +187,11 @@ function dispatchAskAppTaskResult(
   };
 
   if (status === "completed") {
-    return { ...base, response: response || "(no response)" };
+    return {
+      ...base,
+      response: response || "(no response)",
+      ...(receipts.length > 0 ? { receipts } : {}),
+    };
   }
   if (status === "failed" || status === "canceled") {
     return {
@@ -753,7 +800,11 @@ export async function askGrantedDispatchMcpApp(
     { async: true, metadata },
   );
   const finalOrRunning = await waitForDispatchA2ATask(client, task, deadline);
-  return dispatchAskAppTaskResult(target.id, finalOrRunning);
+  return dispatchAskAppTaskResult(target.id, finalOrRunning, {
+    userEmail,
+    orgId: orgId ?? null,
+    orgSecret: orgSecret ?? null,
+  });
 }
 
 export async function getGrantedDispatchMcpAppTask(
@@ -788,7 +839,11 @@ export async function getGrantedDispatchMcpAppTask(
     const startedAt = Date.now();
     try {
       const task = await client.getTask(trimmedTaskId);
-      return dispatchAskAppTaskResult(target.id, task);
+      return dispatchAskAppTaskResult(target.id, task, {
+        userEmail,
+        orgId: orgId ?? null,
+        orgSecret: orgSecret ?? null,
+      });
     } catch (err) {
       const delayMs = DISPATCH_ASK_APP_STATUS_RETRY_DELAYS_MS[attempt];
       const errorCategory = dispatchAskAppStatusErrorCategory(err);

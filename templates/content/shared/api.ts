@@ -1082,6 +1082,16 @@ export interface ContentDatabaseSummary {
   description: string;
 }
 
+export interface ContentSystemCollectionSummary {
+  databaseId: string;
+  documentId: string;
+  title: string;
+  spaceId: string | null;
+  spaceName: string | null;
+  spaceKind: string | null;
+  systemRole: string;
+}
+
 export interface ContentDatabaseDescriptionResponse {
   database: ContentDatabase;
   contextPath: ContentContextPathEntry[];
@@ -1091,6 +1101,7 @@ export interface ContentDatabaseDescriptionResponse {
 export interface ListContentDatabasesResponse {
   databases: ContentDatabaseSummary[];
   pagination: DocumentDiscoveryPagination;
+  systemCollections?: ContentSystemCollectionSummary[];
 }
 
 export interface TrashedContentDatabaseSummary {
