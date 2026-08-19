@@ -79,11 +79,14 @@ describe("AssistantChat thread restore and composer recovery", () => {
     ).toBe(true);
     expect(
       shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 404),
-    ).toBe(false);
+    ).toBe(true);
     expect(
       shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 500),
     ).toBe(false);
     expect(shouldSuppressUnauthenticatedDesktopThreadRestore("app", 401)).toBe(
+      false,
+    );
+    expect(shouldSuppressUnauthenticatedDesktopThreadRestore("app", 404)).toBe(
       false,
     );
   });

@@ -233,13 +233,17 @@ export { displayableUserMessageText } from "./chat/message-components.js";
 type AuthSessionCheckResult = "available" | "missing" | "unknown";
 type ThreadRestoreErrorKind = "not-found" | "unavailable";
 
-// Desktop chat mounts beside the parent identity gate, so an unauthenticated
-// relay is an expected empty state until that gate establishes a session.
+// Desktop chat mounts beside the parent identity gate. The server masks an
+// unauthenticated thread lookup as 404, so a stale local pointer must not turn
+// the sign-in screen into a dead-thread error.
 export function shouldSuppressUnauthenticatedDesktopThreadRestore(
   surface: AgentChatSurfaceKind,
   status: number,
 ): boolean {
-  return surface === "desktop" && (status === 401 || status === 403);
+  return (
+    surface === "desktop" &&
+    (status === 401 || status === 403 || status === 404)
+  );
 }
 
 const useBrowserLayoutEffect =
