@@ -81,6 +81,7 @@ function isAgentNativeAsset(name: string): boolean {
   return (
     n.startsWith("agent-native-") ||
     n.startsWith("agent native-") ||
+    n.startsWith("agent native nightly-") ||
     n.startsWith("agent.native-")
   );
 }

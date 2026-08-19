@@ -334,4 +334,6 @@ The `Desktop App Release` workflow keeps stable and Nightly installs separate:
   `/api/desktop-updates/nightly/`.
 
 The different app IDs let employees install both lanes side by side. Each lane
-only updates from its own GitHub release stream.
+only updates from its own GitHub release stream. Nightly Linux packages also
+use the `agent-native-nightly` executable namespace so their launcher and
+package files do not overwrite the production install.

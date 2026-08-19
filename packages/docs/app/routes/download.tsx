@@ -16,7 +16,7 @@ const LATEST_JSON_URL = `${appBasePath()}/api/desktop-latest.json`;
 const RELEASES =
   "https://github.com/BuilderIO/agent-native/releases?q=Agent-Native";
 const NIGHTLY_RELEASES =
-  "https://github.com/BuilderIO/agent-native/releases?q=Agent-Native+Nightly";
+  "https://github.com/BuilderIO/agent-native/releases?q=Agent+Native+Nightly";
 const OPEN_DESKTOP_URL = "agentnative://open";
 const MANIFEST_STORAGE_KEY = "agent-native-desktop-download-manifest-v1";
 

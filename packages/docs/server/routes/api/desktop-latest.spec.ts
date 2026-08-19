@@ -136,7 +136,7 @@ describe("getDesktopDownloadManifest", () => {
       vi.fn(async () =>
         jsonResponse([
           release("v2.0.0-nightly.4", "2026-01-02T00:00:00Z", {
-            assetName: "Agent-Native-Nightly-arm64.dmg",
+            assetName: "Agent Native Nightly-arm64.dmg",
             prerelease: true,
           }),
           release("v1.0.0", "2026-01-01T00:00:00Z"),

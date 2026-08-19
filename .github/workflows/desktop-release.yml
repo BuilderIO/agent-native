@@ -50,7 +50,18 @@ jobs:
         shell: bash
         run: |
           if [ -n "${{ inputs.version }}" ]; then
-            echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+              if [[ "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "version=${{ inputs.version }}-nightly.${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
+              elif [[ "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly([.+-].*)?$ ]]; then
+                echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+              else
+                echo "::error::Nightly versions must be semver or include the -nightly prerelease marker."
+                exit 1
+              fi
+            else
+              echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+            fi
           else
             BASE=$(node -p "require('./packages/desktop-app/package.json').version")
             if [ "$RELEASE_CHANNEL" = "nightly" ]; then
@@ -183,7 +194,12 @@ jobs:
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
         run: |
           pnpm build:chrome-extension && pnpm build
+          LINUX_EXECUTABLE_NAME="agent-native"
+          if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+            LINUX_EXECUTABLE_NAME="agent-native-nightly"
+          fi
           npx electron-builder --linux --config --publish always \
+            "-c.linux.executableName=$LINUX_EXECUTABLE_NAME" \
             "-c.appId=$ELECTRON_APP_ID" \
             "-c.productName=$ELECTRON_PRODUCT_NAME"
 
