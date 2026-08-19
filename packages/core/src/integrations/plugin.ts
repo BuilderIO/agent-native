@@ -3489,15 +3489,16 @@ export function createIntegrationsPlugin(
                 },
               );
               const body = await res.text();
-              let data: {
+              type TelegramSetWebhookResponse = {
                 ok?: boolean;
                 description?: string;
                 [key: string]: unknown;
-              } | null = null;
+              };
+              let data: TelegramSetWebhookResponse | null = null;
               try {
                 const parsed = JSON.parse(body);
                 if (parsed && typeof parsed === "object") {
-                  data = parsed as typeof data;
+                  data = parsed as TelegramSetWebhookResponse;
                 }
               } catch {
                 // Keep provider and proxy failures distinguishable from a successful setup.
