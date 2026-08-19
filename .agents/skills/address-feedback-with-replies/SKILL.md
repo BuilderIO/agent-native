@@ -4,7 +4,8 @@ description: >-
   Complete the Slack feedback cycle: read every thread and linked evidence,
   fix verified repo-owned issues, and reply in-thread with honest status,
   clarification questions, and release follow-up. Use when the user asks to
-  address feedback and respond as themselves.
+  address feedback and respond in the requested voice through the @agent-native
+  Slack bot.
 scope: dev
 metadata:
   internal: true
@@ -23,9 +24,10 @@ status.
 Every actionable Slack parent that receives `👀` is in scope for the reply
 ledger. The reaction is only the first external action - it never counts as a
 reply, ownership marker, or completion. Before finishing, re-read every
-eye-marked parent and confirm that Steve posted either **Fixed** or
-**Clarification needed** in that thread. A bot forward, another person's
-reply, or a generic acknowledgement does not satisfy the ledger.
+eye-marked parent and confirm that the `@agent-native` bot posted either
+**Fixed** or **Clarification needed** in that thread. A generic bot forward or
+acknowledgement, another person's reply, or the `👀` reaction alone does not
+satisfy the ledger.
 
 ## Prerequisites
 
@@ -56,25 +58,34 @@ reply, or a generic acknowledgement does not satisfy the ledger.
 
 ## Slack bot identity
 
-Every Slack interaction in this workflow - reads, reactions, replies, thread
-re-reads, and linked-file lookups - must use the Slack Web API with the local,
-untracked `.env` value `SLACK_BOT_TOKEN`. That value must authenticate the
-`@agent-native` Slack bot. Do not use the connected Slack MCP user's OAuth
-identity, a Steve/ChatGPT identity, or a different bot token for any Slack
-operation in this workflow.
+Every Slack API interaction in this workflow - channel history, reactions,
+thread replies and read-backs, permalinks, and Slack message/user/file
+metadata - must use the Slack Web API with the local, untracked `.env` value
+`SLACK_BOT_TOKEN`. That value must authenticate the `@agent-native` Slack bot.
+Do not use the connected Slack MCP user's OAuth identity, a Steve/ChatGPT
+identity, or a different bot token for any Slack operation in this workflow.
+
+Linked external artifacts are not Slack interactions. After extracting their
+reference from Slack, fetch them through the artifact's owning connector or
+public URL; never send the Slack bearer token to an external service.
 
 - Load the value from `.env` without printing it, then call Slack `auth.test`
-  before the first request. Keep the returned bot identity for read-back
-  checks; do not infer it from a display name in a message.
+  before the first request. Require `ok: true`, `team_id`, and `user_id`, and
+  verify the returned user resolves to `agent-native` (using `users.info` with
+  the returned `user_id` when the human-readable `user` field is insufficient).
+  Keep the stable identity tuple `{ team_id, user_id, bot_id }`, with
+  `bot_id` included when Slack returns it, for all read-back checks.
 - Use that same bearer token for channel history, thread replies, reactions,
-  user/file metadata, and `chat.postMessage` replies with `thread_ts`. Use
-  Slack cursors until the requested history or thread is complete.
+  and Slack metadata. Use Slack cursors until the requested history or thread
+  is complete. A message read-back must match the `team_id` and `user_id`, and
+  must match `bot_id` when the message includes it; a reaction read-back must
+  include the same `user_id` in its users list.
 - After every reaction or reply, re-read through the same token and verify the
-  reaction or reply exists and was authored by the `auth.test` bot identity.
+  reaction or reply exists and matches that identity tuple.
 - If the token is absent, invalid, or resolves to any identity other than
-  `@agent-native`, do not fall back to a user connector for Slack writes.
-  Record Slack as unavailable, preserve the exact gap, and continue only with
-  non-Slack evidence.
+  `@agent-native`, do not fall back to a user connector for Slack reads or
+  writes. Record Slack as unavailable, preserve the exact gap, and continue
+  only with non-Slack evidence.
 
 ## Decision Gate
 
@@ -188,14 +199,15 @@ missing value. A `Clarification needed` reply is invalid when the requested
    the reporter to solve an internal tooling or deployment gap; keep working
    until the check is available. The run is incomplete while that parent has
    only `👀`.
-6. When the user explicitly asks to reply, post directly in each requested
-   thread with `slack_send_message` and `thread_ts`. Do not silently turn an
-   authorized write into a draft. Re-read each thread afterward to confirm the
-   reply landed. Before ending the run, mechanically audit the reply ledger:
-   for every `👀` parent, record the Steve-authored reply timestamp and whether
-   it is **Fixed** or **Clarification needed**. If any parent has only `👀`, a
-   bot forward, or another person's reply, keep working and post the missing
-   reply before finishing.
+6. When the user explicitly asks to reply, call Slack Web API
+   `chat.postMessage` directly in each requested thread with `thread_ts` and
+   the same `SLACK_BOT_TOKEN`. Do not silently turn an authorized write into a
+   draft. Re-read each thread afterward to confirm the reply landed. Before
+   ending the run, mechanically audit the reply ledger: for every `👀` parent,
+   record the `@agent-native` reply timestamp and whether it is **Fixed** or
+   **Clarification needed**. If any parent has only `👀`, a generic bot
+   forward, or another person's reply, keep working and post the missing reply
+   before finishing.
    If a reporter replies after the post, re-read the entire thread again before
    deciding whether to fix, close, or ask anything else.
 7. If a reporter answers a clarification question, re-read the full thread and
@@ -208,9 +220,10 @@ missing value. A `Clarification needed` reply is invalid when the requested
    place. Do not fix only the newest example or leave the other addressed
    threads with the old wording.
 
-## Steve's Slack voice
+## Slack reply voice
 
-Write as Steve, not as a formal support bot:
+Write in Steve's voice, but let `@agent-native` be the sender - do not switch
+to a user-authored Slack identity:
 
 - Use lowercase, short conversational paragraphs, and clear, conversational
   wording. Keep the tone casual and collaborative - warm without being corny,

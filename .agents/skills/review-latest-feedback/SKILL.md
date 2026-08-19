@@ -24,11 +24,11 @@ This is a reply-producing workflow, not a reaction-only workflow. Apply the
 reply rules in `address-feedback-with-replies` to every actionable Slack item.
 The moment this skill adds `👀` to a Slack parent, that parent enters a
 mandatory reply ledger. Before the run ends, re-read every ledger item and
-confirm that Steve has posted either a concise **Fixed** reply or a concise
-**Clarification needed** question. A bot acknowledgement, another person's
-reply, or the `👀` reaction alone never satisfies the ledger. Do not finish the
-sweep or report success while an actionable parent that this run marked has
-only `👀` or an unrelated reply.
+confirm that the `@agent-native` bot has posted either a concise **Fixed**
+reply or a concise **Clarification needed** question. A generic bot
+acknowledgement or forward, another person's reply, or the `👀` reaction alone
+never satisfies the ledger. Do not finish the sweep or report success while an
+actionable parent that this run marked has only `👀` or an unrelated reply.
 
 ## Start cursor
 
@@ -121,10 +121,12 @@ Before changing code, read `address-feedback`,
 `address-feedback-with-replies`, `concurrent-agents`, and
 `verifying-changes`. Read `ship` when a verified fix is ready to publish.
 
-Use the configured Slack, GitHub, and Sentry connectors when available:
+Use the Slack Web API under the bot-identity contract above. Use the configured
+GitHub and Sentry connectors when available:
 
  - Slack: channel history, reactions, full thread replies, permalinks, and
-   linked evidence.
+   Slack message/user/file metadata. Fetch linked external evidence through
+   its owning connector or public URL, not with the Slack bearer token.
  - GitHub: the newest relevant open issues in `BuilderIO/agent-native`, all
    comments and linked PRs, labels, current state, and duplicate searches.
  - Sentry: newest unresolved errors for the repository's projects, stack
@@ -217,8 +219,9 @@ failure modes, surfaces, or owners.
    running surface. For Sentry reports, confirm the affected release and
    distinguish a source fix from deployed and observed-live recovery.
 6. This skill is authorized to react to actionable Slack threads and must post
-   one concise in-thread update for every actionable parent it marked `👀`, not
-   only for items whose code it changed. Post only after the fix or
+   one concise in-thread update through the `@agent-native` bot for every
+   actionable parent it marked `👀`, not only for items whose code it changed.
+   Post only after the fix or
    clarification is ready. A **Fixed** reply says that the fix is complete and
    when it should be live. A **Clarification needed** reply asks one concrete
    question about missing reporter or product input. Thank the reporter by name
@@ -283,9 +286,9 @@ skipped, duplicated, already owned, blocked by missing evidence, or blocked by
 an unavailable connector. Include direct links to the Slack message or thread,
 GitHub issue, Sentry event, PR, commit, and verification result when present.
 For Slack, include the reply-ledger result for every parent this run marked
-`👀`: Steve reply timestamp and disposition, or the exact reason the item was
-not marked. Never call a sweep complete while an actionable Slack parent in the
-ledger has no Steve reply.
+`👀`: `@agent-native` reply timestamp and disposition, or the exact reason the
+item was not marked. Never call a sweep complete while an actionable Slack
+parent in the ledger has no bot-authored reply.
 
 Use this shape:
 
