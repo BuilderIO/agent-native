@@ -363,6 +363,8 @@ export interface CodeAgentsAppProps {
     onOpenIntegrations: () => void;
     onOpenScheduled: () => void;
   };
+  /** Request a new chat with a host-provided prompt already in the composer. */
+  newChatPromptRequest?: { prompt: string; nonce: number };
   /** Desktop-native shortcuts for app and chat navigation. */
   keyboardNavigation?: ChatFirstKeyboardNavigation;
   /** Route first-party MCP open_app results through the shared app pane. */
@@ -1487,6 +1489,25 @@ export default function CodeAgentsApp({
     setMobilePanelOpen(false);
     void loadRuns(true);
   }, [loadRuns, onChatFirstMainKindChange, openRequest, selectRun]);
+
+  useEffect(() => {
+    const prompt = newChatPromptRequest?.prompt.trim();
+    if (!prompt) return;
+    onChatFirstMainKindChange?.("code");
+    setSelectedGoalId("task");
+    setSelectedExtensionDetailId(null);
+    selectRun(null);
+    setWorkbenchOpen(false);
+    setSearchPanelOpen(false);
+    setMobilePanelOpen(false);
+    seedNewPrompt(prompt);
+  }, [
+    newChatPromptRequest?.nonce,
+    newChatPromptRequest?.prompt,
+    onChatFirstMainKindChange,
+    seedNewPrompt,
+    selectRun,
+  ]);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;

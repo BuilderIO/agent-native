@@ -4,6 +4,12 @@ import type {
   CodeAgentsHost,
 } from "@agent-native/code-agents-ui";
 import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
 import { Input } from "@agent-native/toolkit/ui/input";
 import {
   Select,
@@ -15,7 +21,9 @@ import {
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconCheck,
+  IconChevronDown,
   IconClock,
+  IconEdit,
   IconMessage,
   IconPlayerPause,
   IconPlayerPlay,
@@ -25,6 +33,9 @@ import {
   IconTrash,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+
+export const SCHEDULED_TASK_SETUP_PROMPT =
+  "Let's set up a scheduled task together. First, explain how scheduled tasks work here. Then interview me to figure out what I need scheduled and when it should run.";
 
 type ScheduleDraft = {
   name: string;
@@ -44,8 +55,10 @@ const EMPTY_DRAFT: ScheduleDraft = {
 
 export default function CodeAgentSchedulesPanel({
   host,
+  onCreateWithAgent,
 }: {
   host: CodeAgentsHost;
+  onCreateWithAgent?: (prompt: string) => void;
 }) {
   const [schedules, setSchedules] = useState<CodeAgentSchedule[]>([]);
   const [threads, setThreads] = useState<
@@ -124,6 +137,13 @@ export default function CodeAgentSchedulesPanel({
   const selectedSchedule = schedules.find(
     (schedule) => schedule.id === selectedScheduleId,
   );
+
+  const openManualSetup = useCallback(() => {
+    setCreating(true);
+    setSelectedScheduleId(null);
+    setDraft(EMPTY_DRAFT);
+    setDeleteArmed(false);
+  }, []);
 
   const createSchedule = useCallback(async () => {
     if (!host.createSchedule) return;
@@ -248,19 +268,31 @@ export default function CodeAgentSchedulesPanel({
           <h1>Scheduled tasks</h1>
           <p>Wake an existing thread or start a fresh one on an interval.</p>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          onClick={() => {
-            setCreating(true);
-            setSelectedScheduleId(null);
-            setDraft(EMPTY_DRAFT);
-            setDeleteArmed(false);
-          }}
-        >
-          <IconPlus size={15} />
-          New schedule
-        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button type="button" size="sm" aria-label="Create scheduled task">
+              Create
+              <IconChevronDown size={14} aria-hidden="true" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="end"
+            sideOffset={8}
+            className="desktop-code-agent-schedules__create-menu"
+          >
+            <DropdownMenuItem
+              onSelect={() => onCreateWithAgent?.(SCHEDULED_TASK_SETUP_PROMPT)}
+              disabled={!onCreateWithAgent}
+            >
+              <IconMessage size={15} strokeWidth={1.8} />
+              <span>Create with agent</span>
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={openManualSetup}>
+              <IconEdit size={15} strokeWidth={1.8} />
+              <span>Set up manually</span>
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
 
       <div className="desktop-code-agent-schedules__toolbar">
@@ -304,13 +336,6 @@ export default function CodeAgentSchedulesPanel({
           .join(" ")}
       >
         <div className="desktop-code-agent-schedules__list">
-          <div className="desktop-code-agent-schedules__list-header">
-            <span>
-              {filteredSchedules.length}{" "}
-              {filteredSchedules.length === 1 ? "task" : "tasks"}
-            </span>
-            <span>Next run</span>
-          </div>
           {loading && schedules.length === 0 ? (
             <div className="desktop-code-agent-schedules__empty">
               Loading scheduled tasks...
@@ -331,10 +356,15 @@ export default function CodeAgentSchedulesPanel({
                   type="button"
                   size="sm"
                   variant="outline"
-                  onClick={() => setCreating(true)}
+                  onClick={() =>
+                    onCreateWithAgent
+                      ? onCreateWithAgent(SCHEDULED_TASK_SETUP_PROMPT)
+                      : openManualSetup()
+                  }
                 >
-                  <IconPlus size={15} />
-                  Create a schedule
+                  {onCreateWithAgent
+                    ? "Create with agent"
+                    : "Create a schedule"}
                 </Button>
               ) : null}
             </div>
@@ -367,13 +397,12 @@ export default function CodeAgentSchedulesPanel({
                     <span aria-hidden="true">·</span>{" "}
                     {schedule.scope === "thread"
                       ? "Thread · " + threadTitle(schedule.targetRunId, threads)
-                      : "New thread"}
+                      : "New thread"}{" "}
+                    <span aria-hidden="true">·</span>{" "}
+                    {schedule.enabled
+                      ? formatNextRun(schedule.nextRunAt)
+                      : "Paused"}
                   </span>
-                </span>
-                <span className="desktop-code-agent-schedules__row-next">
-                  {schedule.enabled
-                    ? formatNextRun(schedule.nextRunAt)
-                    : "Paused"}
                 </span>
               </button>
             ))
@@ -430,12 +459,15 @@ function ScheduleForm({
     <aside className="desktop-code-agent-schedules__detail">
       <div className="desktop-code-agent-schedules__detail-header">
         <div>
-          <p className="desktop-code-agent-schedules__eyebrow">New schedule</p>
-          <h2>Set a recurring prompt</h2>
+          <p className="desktop-code-agent-schedules__eyebrow">New</p>
+          <h2>Set up manually</h2>
+          <p className="desktop-code-agent-schedules__detail-description">
+            Choose what the agent should do and how often it should run.
+          </p>
         </div>
       </div>
       <label>
-        Name
+        Scheduled task title
         <Input
           value={draft.name}
           onChange={(event) => onChange({ ...draft, name: event.target.value })}
@@ -443,14 +475,14 @@ function ScheduleForm({
         />
       </label>
       <label>
-        Prompt
+        What should the agent do?
         <Textarea
           value={draft.prompt}
           onChange={(event) =>
             onChange({ ...draft, prompt: event.target.value })
           }
-          placeholder="Check the latest status and report blockers."
-          rows={5}
+          placeholder="Describe what the agent should do"
+          rows={6}
         />
       </label>
       <label>
@@ -495,16 +527,20 @@ function ScheduleForm({
         </label>
       ) : null}
       <label>
-        Every (minutes)
-        <Input
-          type="number"
-          min={1}
-          max={44640}
-          value={draft.intervalMinutes}
-          onChange={(event) =>
-            onChange({ ...draft, intervalMinutes: event.target.value })
-          }
-        />
+        Repeat every
+        <span className="desktop-code-agent-schedules__interval-input">
+          <Input
+            type="number"
+            min={1}
+            max={44640}
+            value={draft.intervalMinutes}
+            aria-label="Interval in minutes"
+            onChange={(event) =>
+              onChange({ ...draft, intervalMinutes: event.target.value })
+            }
+          />
+          <span>minutes</span>
+        </span>
         <span className="desktop-code-agent-schedules__field-hint">
           Use 360 for every 6 hours.
         </span>
