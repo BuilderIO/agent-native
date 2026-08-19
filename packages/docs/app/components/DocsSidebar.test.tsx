@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
 import { docsSlugFromPathname } from "./docs-locale";
-import { getDocsNavItems } from "./docsNavItems";
+import { getDocsNavItems, getDocsNavSections } from "./docsNavItems";
 import DocsSidebar from "./DocsSidebar";
 
 function renderSidebar(path: string) {
@@ -81,6 +81,33 @@ describe("DocsSidebar", () => {
     expect(html).toContain("Overview");
     expect(html).toContain('href="/docs"');
     expect(html).not.toContain('aria-controls="docs-sidebar-section-0"');
+  });
+
+  it("keeps Deployment under Build Apps", () => {
+    const sections = getDocsNavSections("en-US");
+    const overview = sections.find((section) => section.id === "overview");
+    const buildApps = sections.find((section) => section.id === "build-apps");
+
+    expect(overview?.items.map((item) => item.id)).toEqual([
+      "getting-started",
+      "what-is-agent-native",
+      "key-concepts",
+      "agent-surfaces",
+      "faq",
+    ]);
+    expect(overview?.items.some((item) => item.id === "deployment")).toBe(
+      false,
+    );
+    expect(
+      overview?.items.some((item) => item.id === "deployment-section"),
+    ).toBe(false);
+    const deploymentSection = buildApps?.items.find(
+      (item) => item.id === "deployment-section",
+    );
+    expect(deploymentSection).toBeDefined();
+    expect(
+      deploymentSection?.children?.some((item) => item.id === "deployment"),
+    ).toBe(true);
   });
 
   it("uses the Agent Resources section and canonical overview link", () => {

@@ -1,7 +1,7 @@
 import { recordChange } from "@agent-native/core/server/poll";
 import { defineEventHandler, setResponseStatus, createEventStream } from "h3";
 
-import { resolveSlidesRequestAuthContext } from "./request-auth-context.js";
+import { resolveSlidesRequestAuth } from "./request-auth-context.js";
 
 // --- SSE for change notifications ---
 type SSEPush = (data: string) => void;
@@ -91,8 +91,12 @@ export function notifyClients(
 // callers can't tail the stream. (The agent path runs server-side and is
 // not affected.)
 export const deckEvents = defineEventHandler(async (event) => {
-  const session = await resolveSlidesRequestAuthContext(event);
-  if (!session.email) {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  if (!auth.context.email) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }

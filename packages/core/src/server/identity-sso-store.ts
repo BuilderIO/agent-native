@@ -258,7 +258,7 @@ function buildIdentitySsoJtiCreateSql(): string {
       `;
 }
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   // Release migrations own schema in production serverless functions. A
   // request must not turn a missing migration into request-time DDL.
   if (isProductionServerlessFunctionRuntime()) return;

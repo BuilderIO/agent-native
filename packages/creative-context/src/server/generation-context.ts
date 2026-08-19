@@ -20,6 +20,10 @@ import type {
   CreativeContextSummary,
 } from "../types.js";
 import {
+  sanitizeUntrustedReference,
+  UNTRUSTED_REFERENCE_ROLE,
+} from "../untrusted-reference.js";
+import {
   assertGenerationArtifactAccess,
   createGenerationArtifactAccessCapability,
   type GenerationArtifactAccessTarget,
@@ -32,10 +36,6 @@ import {
   type IsolatedRecordPayload,
 } from "./isolated-a2a.js";
 import { performCreativeContextSearch } from "./retrieval.js";
-import {
-  sanitizeUntrustedReference,
-  UNTRUSTED_REFERENCE_ROLE,
-} from "./untrusted-reference.js";
 
 export type CreativeGenerationRole =
   | "slides"

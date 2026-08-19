@@ -456,6 +456,12 @@ const messages = {
     pasteStyle: "Coller le style",
     copy: "Copier",
     paste: "Coller",
+    insertRowAbove: "Insérer une ligne au-dessus",
+    insertRowBelow: "Insérer une ligne en dessous",
+    deleteRow: "Supprimer la ligne",
+    insertColumnLeft: "Insérer une colonne à gauche",
+    insertColumnRight: "Insérer une colonne à droite",
+    deleteColumn: "Supprimer la colonne",
   },
   animations: {
     appear: "Aparecer",
@@ -541,6 +547,11 @@ const messages = {
     newSlide: "Nouvelle diapositive",
     closeAddSlides: "Fermer",
     describeThisSlide: "Décrivez cette diapositive",
+    cut: "Couper",
+    copy: "Copier",
+    paste: "Coller",
+    skipSlide: "Ignorer la diapositive",
+    unskipSlide: "Ne pas ignorer la diapositive",
   },
   presentation: {
     loadFailed: "Impossible de charger cette présentation.",
@@ -560,18 +571,54 @@ const messages = {
   },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
-    teamAccessCheckFailed: "No se pudo comprobar el acceso del equipo",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
-    verifySharedAccessFailed:
-      "No pudimos verificar si esta presentación está compartida con tu cuenta. Inténtalo de nuevo para recargar el acceso del equipo y el deck.",
     joinTeamDescription:
       "Este enlace apunta a una presentación de equipo. Únete al equipo indicado arriba y el deck se abrirá aquí automáticamente.",
     deckUnavailableDescription:
       "Este deck puede haberse eliminado o tu cuenta no tiene acceso.",
-    backToDecks: "Volver a decks",
+    privateDeckTitle: "Ce deck est privé",
+    privateDeckDescription:
+      "Demandez l’accès au propriétaire pour ouvrir ce deck. Il sera averti lorsque vous enverrez la demande.",
+    signedInAs: "Vous êtes connecté en tant que",
+    accessRequestSentDescription:
+      "Le propriétaire a été averti. Vous pourrez ouvrir ce deck lorsque l’accès sera accordé.",
+    accessRequestRecordedDescription:
+      "Votre demande a été enregistrée. Vous pourrez ouvrir ce deck lorsque l’accès sera accordé.",
+    requestAccessPending: "Envoi de la demande…",
+    accessRequestSent: "Demande envoyée",
+    requestAccess: "Demander l’accès",
+    signInToRequestAccess: "Connectez-vous pour demander l’accès",
+    requestAccessDialogTitle: "Demander l’accès",
+    requestAccessDialogDescription:
+      "Connectez-vous ou saisissez l’adresse e-mail avec laquelle le propriétaire doit partager ce deck.",
+    requestAccessSignIn: "Se connecter ou s’inscrire",
+    requestAccessOr: "ou",
+    requestAccessEmailLabel: "Adresse e-mail",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Une fois l’accès accordé, connectez-vous avec cette adresse pour voir le deck.",
+    requestAccessWithEmail: "Demander par e-mail",
+    requestAccessEmailRequired: "Saisissez une adresse e-mail valide.",
+    requestingAccess: "Demande d’accès…",
+    accessRequestSentWithEmail:
+      "Le propriétaire a été invité à partager ce deck avec {{email}}.",
+    accessRequestFailed: "Impossible de demander l’accès. Réessayez.",
+    accessApprovalTitle: "Accès accordé",
+    accessApprovalAlreadyTitle: "Accès déjà accordé",
+    accessApprovalMessage: "{{email}} peut maintenant ouvrir ce deck.",
+    accessApprovalAlreadyMessage: "{{email}} a déjà accès à ce deck.",
+    accessApprovalErrorTitle: "Impossible d’accorder l’accès",
+    accessApprovalInvalid: "Cette demande d’accès est invalide ou expirée.",
+    accessApprovalSignInTitle: "Connectez-vous pour autoriser l’accès",
+    accessApprovalSignInMessage:
+      "Connectez-vous en tant que propriétaire ou administrateur du deck pour approuver cette demande.",
+    accessApprovalOpenDeck: "Ouvrir le deck",
+    accessApprovalSignIn: "Se connecter",
+    accessApprovalLoading: "Accès en cours...",
+    backToDecks: "Retour aux decks",
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:

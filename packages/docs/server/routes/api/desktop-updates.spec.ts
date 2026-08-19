@@ -107,50 +107,103 @@ describe("desktop update asset route", () => {
     });
   });
 
-  it("serves updater metadata with durable stale-while-revalidate headers", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi
-        .fn()
-        .mockResolvedValueOnce({
+  it("serves Nightly updater metadata from the Nightly release channel", async () => {
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes("api.github.com")) {
+        return {
           ok: true,
           status: 200,
           json: async () => [
             {
-              tag_name: "v1.0.0",
-              name: "v1.0.0",
-              published_at: "2026-01-01T00:00:00Z",
+              tag_name: "v0.1.0-nightly.1",
+              name: "Agent Native Nightly v0.1.0-nightly.1",
+              published_at: "2026-01-02T00:00:00Z",
               draft: false,
-              prerelease: false,
+              prerelease: true,
               assets: [
                 {
-                  name: "latest-mac.yml",
-                  browser_download_url: "https://example.com/latest-mac.yml",
-                  size: 123,
+                  name: "Agent-Native-Nightly-arm64.dmg",
+                  browser_download_url: "https://example.com/nightly.dmg",
+                  size: 10,
                 },
                 {
-                  name: "Agent-Native-arm64.dmg",
-                  browser_download_url:
-                    "https://example.com/Agent-Native-arm64.dmg",
-                  size: 123,
+                  name: "latest-mac.yml",
+                  browser_download_url: "https://example.com/nightly.yml",
+                  size: 20,
                 },
               ],
             },
           ],
-        })
-        .mockResolvedValueOnce({
-          ok: true,
-          status: 200,
-          text: async () => "version: 1.0.0",
-        }),
+        } as Response;
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = createEvent("nightly/latest-mac.yml");
+    await handler(event as any);
+
+    expect(event).toMatchObject({
+      headers: {
+        "cache-control":
+          "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+        "cdn-cache-control":
+          "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+        "netlify-cdn-cache-control":
+          "public, durable, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400",
+      },
+    });
+    expect(mockSendRedirect).toHaveBeenCalledWith(
+      event,
+      "https://example.com/nightly.yml",
+      302,
+    );
+  });
+
+  it("redirects updater metadata without proxying the release asset", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => [
+          {
+            tag_name: "v1.0.0",
+            name: "v1.0.0",
+            published_at: "2026-01-01T00:00:00Z",
+            draft: false,
+            prerelease: false,
+            assets: [
+              {
+                name: "latest-mac.yml",
+                browser_download_url: "https://example.com/latest-mac.yml",
+                size: 123,
+              },
+              {
+                name: "Agent-Native-arm64.dmg",
+                browser_download_url:
+                  "https://example.com/Agent-Native-arm64.dmg",
+                size: 123,
+              },
+            ],
+          },
+        ],
+      }),
     );
 
     const event = createEvent("latest-mac.yml");
 
-    await expect(handler(event as any)).resolves.toBe("version: 1.0.0");
+    await handler(event as any);
+
+    expect(mockSendRedirect).toHaveBeenCalledWith(
+      event,
+      "https://example.com/latest-mac.yml",
+      302,
+    );
+    expect(fetch).toHaveBeenCalledTimes(1);
 
     expect(event.headers).toEqual({
-      "content-type": "application/x-yaml; charset=utf-8",
       "cache-control":
         "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
       "cdn-cache-control":

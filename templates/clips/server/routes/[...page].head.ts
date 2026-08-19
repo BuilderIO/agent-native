@@ -16,6 +16,11 @@ export default defineEventHandler((event) => {
     return new Response(null, {
       status: 302,
       headers: {
+        // Keep this redirect on the same public SSR-cache path as the shell.
+        // Without a content type the deploy adapter cannot apply the canonical
+        // cache policy, so every visit to `/` reaches the origin before the
+        // already-cached `/library` shell can load.
+        "content-type": "text/html; charset=utf-8",
         location: "/library",
         "Permissions-Policy": MEDIA_CAPTURE_PERMISSIONS_POLICY,
       },

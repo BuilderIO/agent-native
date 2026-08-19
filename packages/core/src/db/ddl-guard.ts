@@ -35,6 +35,7 @@ import {
   isProductionServerlessFunctionRuntime,
   type DbExec,
 } from "./client.js";
+import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -53,6 +54,12 @@ const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
  * down the DDL path this flag exists to avoid.
  */
 function schemaEnsureDisabled(): boolean {
+  // The release runner is the deployment that OWNS schema creation, so it is the
+  // one caller that must never be skipped. Without this, the skip below applies
+  // to `migrate:production` too — the Netlify build environment also sets
+  // `NETLIFY=true` — and the release step reports success having created
+  // nothing.
+  if (isMigrationAuthorizedRuntime()) return false;
   if (isProductionServerlessFunctionRuntime()) return true;
   const raw = process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES?.trim();
   return !!raw && ["1", "true", "yes", "on"].includes(raw.toLowerCase());

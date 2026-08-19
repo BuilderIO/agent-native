@@ -23,6 +23,7 @@ const INITIAL_TOOL_NAMES = [
   "refresh-list",
   "navigate",
   "get-mail-settings",
+  "update-mail-settings",
   "find-contact",
   "provider-api-catalog",
   "provider-api-docs",
@@ -171,6 +172,24 @@ Before drafting or rewriting email copy, run \`get-mail-settings\`.
 - If the user asks to use or refresh their Gmail signature, run \`import-gmail-signature\` first.
 - Follow \`writingStyle\` when present.
 - Draft bodies use Markdown only. Avoid generic AI email tropes, headings, and over-formal filler unless the user explicitly asks for a formal template.
+
+## Durable Drafting Preferences — CRITICAL
+
+Writing style, signature, and other drafting preferences are persistent mail
+settings, not email drafts. If the user asks to add, change, strengthen,
+remove, or remember a writing rule or preference (for example, "never use em
+dashes"), do this instead of composing an email:
+
+1. Run \`get-mail-settings\`.
+2. Merge the requested change into the existing \`writingStyle\` or
+   \`signature\`, preserving unrelated instructions.
+3. Run \`update-mail-settings\` with the complete merged value.
+4. Confirm the returned setting was updated.
+
+Do not call \`manage-draft\`, \`queue-email-draft\`, or \`send-email\` for a
+preference-only request. Only create or edit an email when the user separately
+asks for an email. If a request asks for both a preference change and an email,
+update the preference first, then read it again and apply it to the email.
 
 When the user asks to draft/email a specific person (e.g., "email my wife", "draft an email to Alice"):
 - This is a NEW email \u2014 use manage-draft with --action=create and mode "compose", NOT "reply"

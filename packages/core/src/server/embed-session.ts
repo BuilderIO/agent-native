@@ -88,6 +88,7 @@ export type EmbedSessionTicketConsumeOutcome =
   | "not-found"
   | "already-consumed"
   | "expired"
+  | "identity-mismatch"
   | "org-mismatch"
   | "consumption-race"
   | "invalid-row"
@@ -99,11 +100,14 @@ export interface EmbedSessionTicketConsumeDiagnostic {
   ticketRowFound: boolean;
   consumed: boolean;
   expired: boolean;
+  expectedOwnerKey: string | null;
+  ticketOwnerKey: string | null;
   expectedOrgKey: string | null;
   ticketOrgKey: string | null;
 }
 
 export interface ConsumeEmbedSessionTicketOptions {
+  expectedOwnerEmail?: string | null;
   expectedOrgId?: string | null;
   onResult?: (result: EmbedSessionTicketConsumeDiagnostic) => void;
 }
@@ -166,7 +170,7 @@ export function resolvedEmbedCapabilityScope(
   return scope;
 }
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       // Build the CREATE SQL here (not at module scope) so intType() runs at
@@ -250,6 +254,11 @@ function hashTicket(ticket: string): string {
 function redactedIdentifier(value: string | null | undefined): string | null {
   if (!value) return null;
   return crypto.createHash("sha256").update(value).digest("hex").slice(0, 12);
+}
+
+function normalizedEmail(value: string | null | undefined): string | null {
+  const normalized = value?.trim().toLowerCase();
+  return normalized || null;
 }
 
 function numberOrNull(value: unknown): number | null {
@@ -629,6 +638,8 @@ export async function consumeEmbedSessionTicket(
   ticket: string | undefined | null,
   options: ConsumeEmbedSessionTicketOptions = {},
 ): Promise<ConsumedEmbedSessionTicket | null> {
+  const expectedOwnerEmail = normalizedEmail(options.expectedOwnerEmail);
+  const expectedOwnerKey = redactedIdentifier(expectedOwnerEmail);
   const expectedOrgKey = redactedIdentifier(options.expectedOrgId);
   if (!ticket) {
     options.onResult?.({
@@ -637,6 +648,8 @@ export async function consumeEmbedSessionTicket(
       ticketRowFound: false,
       consumed: false,
       expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey: null,
       expectedOrgKey,
       ticketOrgKey: null,
     });
@@ -659,6 +672,8 @@ export async function consumeEmbedSessionTicket(
       ticketRowFound: false,
       consumed: false,
       expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey: null,
       expectedOrgKey,
       ticketOrgKey: null,
     });
@@ -667,6 +682,8 @@ export async function consumeEmbedSessionTicket(
   const row: any = rows[0];
   const expiresAt = numberOrNull(row.expires_at ?? row.expiresAt);
   const consumedAt = numberOrNull(row.consumed_at ?? row.consumedAt);
+  const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
+  const ticketOwnerKey = redactedIdentifier(normalizedEmail(ownerEmail));
   const orgId = stringOrUndefined(row.org_id ?? row.orgId);
   const ticketOrgKey = redactedIdentifier(orgId);
   if (consumedAt != null) {
@@ -676,6 +693,8 @@ export async function consumeEmbedSessionTicket(
       ticketRowFound: true,
       consumed: true,
       expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
       expectedOrgKey,
       ticketOrgKey,
     });
@@ -688,6 +707,26 @@ export async function consumeEmbedSessionTicket(
       ticketRowFound: true,
       consumed: false,
       expired: true,
+      expectedOwnerKey,
+      ticketOwnerKey,
+      expectedOrgKey,
+      ticketOrgKey,
+    });
+    return null;
+  }
+  if (
+    expectedOwnerEmail &&
+    ownerEmail &&
+    normalizedEmail(ownerEmail) !== expectedOwnerEmail
+  ) {
+    options.onResult?.({
+      outcome: "identity-mismatch",
+      ticketKey,
+      ticketRowFound: true,
+      consumed: false,
+      expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
       expectedOrgKey,
       ticketOrgKey,
     });
@@ -700,6 +739,8 @@ export async function consumeEmbedSessionTicket(
       ticketRowFound: true,
       consumed: false,
       expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
       expectedOrgKey,
       ticketOrgKey,
     });
@@ -719,6 +760,8 @@ export async function consumeEmbedSessionTicket(
       ticketRowFound: true,
       consumed: false,
       expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
       expectedOrgKey,
       ticketOrgKey,
     });
@@ -728,7 +771,6 @@ export async function consumeEmbedSessionTicket(
   const targetPath = normalizeEmbedTargetPath(
     stringOrUndefined(row.target_path ?? row.targetPath),
   );
-  const ownerEmail = stringOrUndefined(row.owner_email ?? row.ownerEmail);
   if (!targetPath || !ownerEmail || expiresAt == null) {
     options.onResult?.({
       outcome: "invalid-row",
@@ -736,6 +778,8 @@ export async function consumeEmbedSessionTicket(
       ticketRowFound: true,
       consumed: true,
       expired: false,
+      expectedOwnerKey,
+      ticketOwnerKey,
       expectedOrgKey,
       ticketOrgKey,
     });
@@ -748,6 +792,8 @@ export async function consumeEmbedSessionTicket(
     ticketRowFound: true,
     consumed: true,
     expired: false,
+    expectedOwnerKey,
+    ticketOwnerKey,
     expectedOrgKey,
     ticketOrgKey,
   });

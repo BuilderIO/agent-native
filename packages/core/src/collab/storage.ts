@@ -45,7 +45,7 @@ async function executeWithSqliteRetry(
   }
 }
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
@@ -187,6 +187,18 @@ export async function hasCollabState(docId: string): Promise<boolean> {
     args: [docId],
   });
   return rows.length > 0;
+}
+
+/** Load all existing document ids in one query for startup reconciliation. */
+export async function listCollabDocIds(): Promise<Set<string>> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute("SELECT doc_id FROM _collab_docs");
+  return new Set(
+    rows.flatMap((row) =>
+      typeof row.doc_id === "string" && row.doc_id ? [row.doc_id] : [],
+    ),
+  );
 }
 
 /** Delete collaborative state for a document. */

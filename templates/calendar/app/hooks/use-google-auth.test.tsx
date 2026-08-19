@@ -109,9 +109,8 @@ describe("useGoogleDesktopAuth", () => {
   it("opens the browser after receiving a valid auth URL", async () => {
     renderHarness();
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, _init?: RequestInit) => {
         if (String(input).startsWith("/_agent-native/google/auth-url")) {
           return new Response(
             JSON.stringify({
@@ -123,8 +122,9 @@ describe("useGoogleDesktopAuth", () => {
         return new Response(JSON.stringify({ pending: true }), {
           status: 200,
         });
-      }),
+      },
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     act(() => {
       expect(controls?.startDesktopGoogleAuth()).toBe(true);
@@ -136,6 +136,25 @@ describe("useGoogleDesktopAuth", () => {
         "_blank",
       );
     });
+
+    const authStartCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).startsWith("/_agent-native/google/auth-url"),
+    );
+    expect(authStartCall).toBeDefined();
+    const [authStartInput, authStartInit] = authStartCall!;
+    expect(
+      new URL(String(authStartInput), "http://localhost").searchParams.has(
+        "verifier",
+      ),
+    ).toBe(false);
+    expect(authStartInit).toEqual(
+      expect.objectContaining({
+        credentials: "include",
+        headers: {
+          "X-Agent-Native-Desktop-Verifier": expect.any(String),
+        },
+      }),
+    );
   });
 
   it("detects the desktop preload even when the user agent marker is missing", () => {
@@ -154,29 +173,31 @@ describe("useGoogleDesktopAuth", () => {
     const onSuccess = vi.fn();
     renderHarness(vi.fn(), onSuccess);
     vi.spyOn(window, "open").mockImplementation(() => null);
-    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.startsWith("/_agent-native/google/auth-url")) {
-        return new Response(
-          JSON.stringify({
-            url: "https://accounts.google.com/o/oauth2/v2/auth?state=ok",
-          }),
-          { status: 200 },
-        );
-      }
-      if (url.startsWith("/_agent-native/auth/desktop-exchange")) {
-        return new Response(
-          JSON.stringify({ token: "token-1", email: "owner@example.com" }),
-          { status: 200 },
-        );
-      }
-      if (url.startsWith("/_agent-native/auth/session")) {
-        return new Response(JSON.stringify({ ok: true }), { status: 200 });
-      }
-      return new Response(JSON.stringify({ connected: false }), {
-        status: 200,
-      });
-    });
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, _init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith("/_agent-native/google/auth-url")) {
+          return new Response(
+            JSON.stringify({
+              url: "https://accounts.google.com/o/oauth2/v2/auth?state=ok",
+            }),
+            { status: 200 },
+          );
+        }
+        if (url.startsWith("/_agent-native/auth/desktop-exchange")) {
+          return new Response(
+            JSON.stringify({ token: "token-1", email: "owner@example.com" }),
+            { status: 200 },
+          );
+        }
+        if (url.startsWith("/_agent-native/auth/session")) {
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        }
+        return new Response(JSON.stringify({ connected: false }), {
+          status: 200,
+        });
+      },
+    );
     vi.stubGlobal("fetch", fetchMock);
 
     act(() => {
@@ -196,5 +217,17 @@ describe("useGoogleDesktopAuth", () => {
       token: "token-1",
       email: "owner@example.com",
     });
+    const exchangeCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).startsWith("/_agent-native/auth/desktop-exchange"),
+    );
+    expect(exchangeCall).toBeDefined();
+    expect(String(exchangeCall?.[0])).not.toContain("verifier");
+    expect(exchangeCall?.[1]).toEqual(
+      expect.objectContaining({
+        headers: {
+          "X-Agent-Native-Desktop-Verifier": expect.any(String),
+        },
+      }),
+    );
   });
 });

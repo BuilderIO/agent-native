@@ -233,6 +233,22 @@ export { displayableUserMessageText } from "./chat/message-components.js";
 type AuthSessionCheckResult = "available" | "missing" | "unknown";
 type ThreadRestoreErrorKind = "not-found" | "unavailable";
 
+// Desktop chat mounts beside the parent identity gate. The server masks an
+// unauthenticated thread lookup as 404, so a stale local pointer must not turn
+// the sign-in screen into a dead-thread error.
+export function shouldSuppressUnauthenticatedDesktopThreadRestore(
+  surface: AgentChatSurfaceKind,
+  status: number,
+  desktopIdentityUnauthenticated = false,
+): boolean {
+  return (
+    surface === "desktop" &&
+    (status === 401 ||
+      status === 403 ||
+      (status === 404 && desktopIdentityUnauthenticated))
+  );
+}
+
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -1915,6 +1931,10 @@ export interface AssistantChatProps {
    * dev filesystem/bash code-editing tools out of in-product sidebars.
    */
   agentChatSurface?: AgentChatSurfaceKind;
+  /** Whether the desktop host is currently showing its unauthenticated identity gate. */
+  desktopIdentityUnauthenticated?: boolean;
+  /** Whether the desktop host has just established its authenticated identity session. */
+  desktopIdentityAuthenticated?: boolean;
   /** Route completed first-party open_app calls through the host app pane. */
   suppressInlineOpenApp?: boolean;
   /** Placeholder text for empty state */
@@ -2354,8 +2374,16 @@ export function useAutoResumeStatus(
 function approvalResolutionIdentity(
   approvalKey: string,
   toolCallId?: string,
+  // Included so a NEW `approval_required` ask for the same toolCallId/
+  // approvalKey (the server re-emitting after a failed resume never
+  // consumed the earlier grant) looks up as unresolved instead of
+  // inheriting the earlier ask's retained "approved" mark forever. Two
+  // asks sharing no askId (older events, non-production-agent approval
+  // sources) still collapse onto the same identity, preserving the
+  // existing remount-survives-as-approved behavior for them.
+  askId?: string,
 ): string {
-  return `${toolCallId ?? ""}\u0000${approvalKey}`;
+  return `${toolCallId ?? ""}\u0000${approvalKey}\u0000${askId ?? ""}`;
 }
 
 const AssistantChatInner = forwardRef<
@@ -2424,6 +2452,8 @@ const AssistantChatInner = forwardRef<
     historyReloadKey,
     externalStreaming = false,
     agentChatSurface = "app",
+    desktopIdentityUnauthenticated = false,
+    desktopIdentityAuthenticated = false,
     suppressInlineOpenApp = false,
   },
   ref,
@@ -2991,6 +3021,41 @@ const AssistantChatInner = forwardRef<
     setIsRestoring(true);
     setRestoreAttempt((attempt) => attempt + 1);
   }, [isNewThread, threadId]);
+
+  // The desktop identity gate and chat restore run in sibling surfaces. If the
+  // gate wins the race after a masked 404 has already rendered, clear the
+  // transient not-found card and leave the user at a fresh composer.
+  useEffect(() => {
+    if (!desktopIdentityUnauthenticated) return;
+    setThreadRestoreError((current) =>
+      current === "not-found" ? null : current,
+    );
+  }, [desktopIdentityUnauthenticated]);
+
+  const desktopIdentityAuthenticatedRef = useRef(desktopIdentityAuthenticated);
+  useEffect(() => {
+    const becameAuthenticated =
+      desktopIdentityAuthenticated && !desktopIdentityAuthenticatedRef.current;
+    desktopIdentityAuthenticatedRef.current = desktopIdentityAuthenticated;
+    if (
+      !becameAuthenticated ||
+      agentChatSurface !== "desktop" ||
+      !threadId ||
+      isNewThread
+    ) {
+      return;
+    }
+    // A saved-thread request can race the identity handoff and be masked as a
+    // 404/401/403. Retry once the host confirms the authenticated session so
+    // the thread is restored without requiring a remount or manual retry.
+    retryThreadRestore();
+  }, [
+    agentChatSurface,
+    desktopIdentityAuthenticated,
+    isNewThread,
+    retryThreadRestore,
+    threadId,
+  ]);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
   const onGenerateTitleRef = useRef(onGenerateTitle);
@@ -3856,6 +3921,7 @@ const AssistantChatInner = forwardRef<
     // A restored tab can be reclassified as client-only after the thread list
     // loads. Once that happens, there is no server row to restore, so show the
     // empty composer instead of leaving the per-thread restore skeleton up.
+    setThreadRestoreError(null);
     setIsRestoring(false);
   }, [isNewThread, threadId]);
 
@@ -3908,7 +3974,15 @@ const AssistantChatInner = forwardRef<
           if (!res.ok) {
             if (!cancelled) {
               setThreadRestoreError(
-                res.status === 404 ? "not-found" : "unavailable",
+                shouldSuppressUnauthenticatedDesktopThreadRestore(
+                  agentChatSurface,
+                  res.status,
+                  desktopIdentityUnauthenticated,
+                )
+                  ? null
+                  : res.status === 404
+                    ? "not-found"
+                    : "unavailable",
               );
             }
             return;
@@ -4009,6 +4083,7 @@ const AssistantChatInner = forwardRef<
     loadHistoryRepository,
     isNewThread,
     isThreadStateLoading,
+    desktopIdentityUnauthenticated,
     restoreAttempt,
   ]);
 
@@ -5584,7 +5659,9 @@ const AssistantChatInner = forwardRef<
     >
       <IconRefresh className="h-5 w-5 text-muted-foreground" />
       <p className="text-sm text-muted-foreground">
-        {t("agentChat.message.restoreRequestFailed")}
+        {threadRestoreError === "not-found"
+          ? t("agentChat.message.threadNotFound")
+          : t("agentChat.message.restoreRequestFailed")}
       </p>
       <button
         type="button"
@@ -5635,13 +5712,13 @@ const AssistantChatInner = forwardRef<
     byIdentity: new Map(),
   }));
   const getApprovalResolution = useCallback(
-    (approvalKey: string, toolCallId?: string) => {
+    (approvalKey: string, toolCallId?: string, askId?: string) => {
       if (approvalResolutionState.scope !== approvalResolutionScope) {
         return null;
       }
       return (
         approvalResolutionState.byIdentity.get(
-          approvalResolutionIdentity(approvalKey, toolCallId),
+          approvalResolutionIdentity(approvalKey, toolCallId, askId),
         ) ?? null
       );
     },
@@ -5652,6 +5729,7 @@ const AssistantChatInner = forwardRef<
       approvalKey: string,
       resolution: ApprovalResolution,
       toolCallId?: string,
+      askId?: string,
     ) => {
       setApprovalResolutionState((previous) => {
         const byIdentity =
@@ -5660,7 +5738,7 @@ const AssistantChatInner = forwardRef<
             : new Map<string, ApprovalResolution>();
         const next = new Map(byIdentity);
         next.set(
-          approvalResolutionIdentity(approvalKey, toolCallId),
+          approvalResolutionIdentity(approvalKey, toolCallId, askId),
           resolution,
         );
         return { scope: approvalResolutionScope, byIdentity: next };

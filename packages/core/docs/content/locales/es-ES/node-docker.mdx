@@ -1,0 +1,94 @@
+---
+title: "Node.js y Docker"
+description: "Implementa una aplicación nativa del agente con el ajuste preestablecido de Nitro para Node.js, de forma independiente o en un contenedor Docker."
+---
+
+# Node.js y Docker
+
+Node.js es el ajuste preestablecido predeterminado de Nitro. Esta página cubre cómo ejecutarlo directamente y cómo containerizarlo con Docker. Consulta [Implementación](/docs/deployment) para elegir primero una base de datos, y [Implementación de espacios de trabajo](/docs/workspace-deployment#workspace-docker-compose) para autoalojar un espacio de trabajo multiaplicación con Docker Compose.
+
+## Ruta rápida: aloja una aplicación Chat localmente {#self-host-quickstart}
+
+Hay dos formas recomendadas de empezar:
+
+- **¿Estás creando una aplicación?** Empieza con [Getting Started](/docs/getting-started) y vuelve aquí cuando quieras ponerla en un lugar permanente.
+- **¿Estás operando una aplicación?** Usa primero la ruta local con Docker. Prueba la misma combinación de Node.js, Postgres, autenticación y variables de entorno que usarás en un servidor pequeño.
+
+La pila local usa intencionadamente un secreto de autenticación de ejemplo y un volumen local de Postgres. Está pensada para `localhost`, no para publicarla en Internet. Consulta la [guía rápida completa](/docs/node-docker#self-host-quickstart) para ver el archivo Compose completo y los pasos copiables. Esta guía rápida usa el diseño de volumen de PostgreSQL 18. No reutilices un volumen creado por PostgreSQL 17 o una versión anterior. Haz una copia de seguridad y migra los datos existentes antes de cambiar la imagen o la ruta de montaje.
+
+### 1. Crea la aplicación
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. Inicia la pila local
+
+```bash
+docker compose up --build
+```
+
+Abre [http://localhost:3000](http://localhost:3000). Añade `ANTHROPIC_API_KEY` a un archivo `.env` local si quieres usar el agente integrado.
+
+## Node.js (predeterminado) {#nodejs}
+
+El ajuste preestablecido predeterminado. Compila y ejecuta:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+Establece `PORT` para configurar el puerto de escucha (predeterminado: `3000`).
+
+Usa la línea LTS actual de Node.js para implementaciones de producción. En
+mayo de 2026, esa línea es Node.js 24. Node.js 20 llegó al final de su vida
+útil el 30 de abril de 2026 y ya no recibe actualizaciones de seguridad.
+
+## Docker {#docker}
+
+This Dockerfile works for the standalone app created above. Run `pnpm install` before building so `pnpm-lock.yaml` exists in the build context. Keep the dependency manifest and lockfile in sync when you update the app.
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
+# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+RUN mkdir -p /app/data
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+Create `.dockerignore` alongside the Dockerfile:
+
+```text filename=".dockerignore"
+node_modules
+.output
+data
+.env
+.env.*
+!.env.example
+.git
+```
+
+Autoalojar un espacio de trabajo multiaplicación con Docker Compose,
+construido sobre este mismo Dockerfile independiente, se cubre en
+[Implementación de espacios de trabajo](/docs/workspace-deployment#workspace-docker-compose).
+
+## Qué sigue
+
+- [**Implementación**](/docs/deployment) — elige una base de datos persistente y un ajuste preestablecido antes de tu primera implementación en producción
+- [**Implementación de espacios de trabajo**](/docs/workspace-deployment) — autoaloja un espacio de trabajo multiaplicación con Docker Compose
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare) y [**Otras plataformas**](/docs/other-platforms) — los demás ajustes preestablecidos de Nitro

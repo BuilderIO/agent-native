@@ -76,3 +76,8 @@ export type {
   ResolveAgentInvocationTargetOptions,
   ResolvedAgentInvocationTarget,
 } from "./invoke.js";
+export {
+  extractA2APersistedMutationReceipts,
+  stripA2APersistedArtifactMarkers,
+} from "./artifact-response.js";
+export type { A2APersistedMutationReceipt } from "./artifact-response.js";

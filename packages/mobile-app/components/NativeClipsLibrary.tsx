@@ -52,6 +52,7 @@ import {
 } from "@/lib/clips-library";
 import { getClipsSession } from "@/lib/clips-session";
 import { useMobileThemeColors } from "@/lib/mobile-colors";
+import { useTabBarLayout } from "@/lib/tab-bar-layout";
 
 interface NativeClipsLibraryProps {
   onAuthRequired: () => void;
@@ -298,6 +299,7 @@ function NativeClipPlayerContent({
   onReload: () => Promise<void>;
   onAuthRequired: () => void;
 }) {
+  const { contentInset } = useTabBarLayout();
   const { foreground, mutedForeground, primaryForeground } =
     useMobileThemeColors();
   const videoUrl = resolveTrustedClipsUrl(detail.recording.videoUrl);
@@ -423,7 +425,8 @@ function NativeClipPlayerContent({
       className="flex-1"
     >
       <ScrollView
-        contentContainerClassName="pb-15 px-4.5 pt-2.5"
+        contentContainerStyle={{ paddingBottom: contentInset }}
+        contentContainerClassName="px-4.5 pt-2.5"
         keyboardShouldPersistTaps="handled"
       >
         <View className="flex-row items-center justify-between mb-3">
@@ -707,6 +710,7 @@ export default function NativeClipsLibrary({
 }: NativeClipsLibraryProps) {
   const { mutedForeground, primaryForeground, errorText } =
     useMobileThemeColors();
+  const { contentInset } = useTabBarLayout();
   const router = useRouter();
   const [view, setView] = useState<ClipsLibraryView>("library");
   const [recordings, setRecordings] = useState<NativeClipSummary[]>([]);
@@ -811,7 +815,8 @@ export default function NativeClipsLibrary({
 
   return (
     <FlatList
-      contentContainerClassName={`pb-8 px-5 ${visibleRecordings.length === 0 ? "flex-grow" : ""}`}
+      contentContainerStyle={{ paddingBottom: contentInset }}
+      contentContainerClassName={`px-5 ${visibleRecordings.length === 0 ? "flex-grow" : ""}`}
       data={visibleRecordings}
       ItemSeparatorComponent={() => <View className="h-px bg-border-dark" />}
       keyboardDismissMode="on-drag"

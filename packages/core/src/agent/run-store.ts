@@ -330,7 +330,7 @@ export const IN_FLIGHT_RUN_STALE_GRACE_MS = 14.5 * 60_000; // 870_000
  */
 export const IN_FLIGHT_GRACE_MAX_LIVENESS_GAP_MS = 120_000;
 
-async function ensureRunTables(): Promise<void> {
+export async function ensureRunTables(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
@@ -2813,6 +2813,8 @@ const RUN_OUTCOME_DAY_MS = 86_400_000;
  * every run id a user pasted into a bug report was gone before anyone looked.
  */
 const UNSUCCESSFUL_STATUS_SQL_LIST = `('errored', 'aborted', 'truncated')`;
+const RUN_OUTCOME_PRUNE_BATCH_LIMIT = 200;
+const RUN_OUTCOME_PRUNE_LOCK_KEY = "agent-native:run-outcome-prune";
 
 /**
  * Fold the terminal outcomes of the rows `cleanupOldRuns` is about to delete
@@ -2821,9 +2823,10 @@ const UNSUCCESSFUL_STATUS_SQL_LIST = `('errored', 'aborted', 'truncated')`;
  * covers exactly the unpruned ones, so a rate over any window is
  * `getRunOutcomeCounters()` plus the live rows — no gap, no double count.
  *
- * The DELETE ... RETURNING is the claim: concurrent cleanup calls can both
- * observe a row, but only the caller that deletes it receives it to roll up.
- * Grouping the returned rows in TypeScript avoids dialect-specific date SQL.
+ * Postgres callers take a transaction-scoped advisory lease before the claim.
+ * The bounded DELETE ... RETURNING is still the source of truth for which rows
+ * this invocation owns. Grouping the returned rows in TypeScript avoids
+ * dialect-specific date SQL.
  * Counter upserts run in the same transaction as the delete; a failed upsert
  * rolls back the claim so the source rows remain available for a retry.
  */
@@ -2833,22 +2836,38 @@ async function pruneAndRollUpPrunedRunOutcomes(
   erroredCutoff: number,
 ): Promise<void> {
   const prune = async (tx: ReturnType<typeof getDbExec>): Promise<void> => {
-    await tx.execute({
-      sql: `DELETE FROM agent_run_events WHERE run_id IN (
-        SELECT id FROM agent_runs
-        WHERE (status = 'completed' AND completed_at < ?)
-           OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
-      )`,
-      args: [cutoff, erroredCutoff],
-    });
+    if (isPostgres()) {
+      const lockResult = await tx.execute({
+        sql: "SELECT pg_try_advisory_xact_lock(hashtextextended(?, 0::bigint)) AS acquired",
+        args: [RUN_OUTCOME_PRUNE_LOCK_KEY],
+      });
+      const acquired = lockResult.rows[0]?.acquired;
+      if (acquired !== true && acquired !== "t") return;
+    }
 
     const { rows } = await tx.execute({
       sql: `DELETE FROM agent_runs
-            WHERE (status = 'completed' AND completed_at < ?)
-               OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
-            RETURNING status, completed_at, terminal_reason`,
+            WHERE id IN (
+              SELECT id FROM agent_runs
+              WHERE (status = 'completed' AND completed_at < ?)
+                 OR (status IN ${UNSUCCESSFUL_STATUS_SQL_LIST} AND completed_at < ?)
+              ORDER BY completed_at ASC, id ASC
+              LIMIT ${RUN_OUTCOME_PRUNE_BATCH_LIMIT}
+            )
+            RETURNING id, status, completed_at, terminal_reason`,
       args: [cutoff, erroredCutoff],
     });
+
+    const runIds = rows
+      .map((row) => (row as { id?: unknown }).id)
+      .filter((id): id is string => typeof id === "string");
+    if (runIds.length > 0) {
+      const placeholders = runIds.map(() => "?").join(", ");
+      await tx.execute({
+        sql: `DELETE FROM agent_run_events WHERE run_id IN (${placeholders})`,
+        args: runIds,
+      });
+    }
 
     const groups = new Map<
       string,
@@ -2956,7 +2975,9 @@ export async function getRunOutcomeCounters(options?: {
  *  pruned at `olderThanMs`; errored/aborted/truncated runs are kept until
  *  `erroredOlderThanMs` (a longer window, falling back to `olderThanMs`) so
  *  their event log survives for cut-off pattern analysis via listErroredRuns. */
-export async function cleanupOldRuns(
+let cleanupOldRunsInFlight: Promise<void> | undefined;
+
+async function cleanupOldRunsInternal(
   olderThanMs: number,
   erroredOlderThanMs?: number,
 ): Promise<void> {
@@ -3060,6 +3081,26 @@ export async function cleanupOldRuns(
   // deleted. The transaction prevents concurrent cleanup calls from both
   // counting the same source rows.
   await pruneAndRollUpPrunedRunOutcomes(client, cutoff, erroredCutoff);
+}
+
+/**
+ * Run cleanup is scheduled after every completed run, including completions
+ * from several concurrent requests in one isolate. Share one sweep locally;
+ * Postgres additionally serializes the durable prune across isolates.
+ */
+export function cleanupOldRuns(
+  olderThanMs: number,
+  erroredOlderThanMs?: number,
+): Promise<void> {
+  if (cleanupOldRunsInFlight) return cleanupOldRunsInFlight;
+
+  const current = cleanupOldRunsInternal(olderThanMs, erroredOlderThanMs);
+  let settled: Promise<void>;
+  settled = current.finally(() => {
+    if (cleanupOldRunsInFlight === settled) cleanupOldRunsInFlight = undefined;
+  });
+  cleanupOldRunsInFlight = settled;
+  return settled;
 }
 
 /**

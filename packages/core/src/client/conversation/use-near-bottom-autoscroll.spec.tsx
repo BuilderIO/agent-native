@@ -383,6 +383,26 @@ describe("useNearBottomAutoscroll", () => {
     ).toBe("detached");
   });
 
+  it("cancels pending scroll writes when the hook unmounts", async () => {
+    const apiRef = React.createRef<AutoscrollApi>();
+    const metrics = {
+      clientHeight: 200,
+      scrollHeight: 1000,
+      scrollTop: 800,
+    };
+    renderHarness({ apiRef, followKey: 1, metrics });
+
+    act(() => {
+      apiRef.current?.scrollToBottomAfterPaint();
+      root.unmount();
+    });
+    metrics.scrollHeight = 1400;
+    await advanceAutoscrollTimers();
+
+    // The delayed rAF/timeout chain must not write to a detached scroller.
+    expect(metrics.scrollTop).toBe(800);
+  });
+
   it("stays anchored when content briefly collapses to the top", async () => {
     const apiRef = React.createRef<AutoscrollApi>();
     // A long, ongoing conversation pinned to the bottom.

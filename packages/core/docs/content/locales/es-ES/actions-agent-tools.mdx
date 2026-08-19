@@ -1,0 +1,116 @@
+---
+title: "Acceso del agente en producción"
+description: "Controla qué herramientas del framework y qué capacidades de ejecución de código tiene un agente de producción implementado, mediante frameworkTools y codeExecution."
+---
+
+# Acceso del agente en producción
+
+## Herramientas del agente en producción {#production-agent-tools}
+
+Los agentes de producción obtienen las actions registradas de la aplicación
+más las propias herramientas del framework. `frameworkTools` selecciona
+cuáles de esas herramientas del framework expone esta aplicación. Cada grupo
+tiene como predeterminado el comportamiento actual, así que omitir la opción
+no cambia nada:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off", default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
+});
+```
+
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+`database` y `extensions` aceptan los mismos valores que aceptaban los
+antiguos flags de nivel superior:
+
+- `database: "read"`. Predeterminado. Registra solo `db-schema` y `db-query`.
+  Los agentes inspeccionan datos con SQL pero deben usar actions tipadas de la
+  aplicación para escribir.
+- `database: "write"` o `true`. Además registra `db-exec` y `db-patch` para
+  mantenimiento SQL sin procesar deliberado. Las escrituras se limitan al
+  usuario/organización actual y los cambios de esquema están bloqueados.
+- `database: "off"` o `false`. Elimina las herramientas de base de datos sin
+  procesar de la superficie del agente, de modo que las actions de la
+  aplicación son la única vía de acceso a los datos.
+- `extensions: true`. Habilita para la aplicación las actions de gestión de
+  extensiones del framework y la guía de prompts (`create-extension`,
+  `update-extension`, etc.). Establece también `extensionTools: true` en el
+  plugin core-routes para permitir la creación REST autenticada. Las
+  extensiones están deshabilitadas de forma predeterminada.
+
+Los grupos restantes son booleanos, todos activados de forma predeterminada:
+`sharing`, `review`, `history`, `featureFlags`, `localization`, `audit`,
+`contextXray`, `userProfile`, `automation`, `docs`, `resources`, `web`,
+`workspaceApps`, `chat` y `email`. Usa `frameworkTools: "minimal"` para
+desactivar todos los grupos a la vez en una aplicación de voz o de propósito
+único, o `frameworkTools: { preset: "minimal", resources: true }` para
+conservar solo uno. Una clave de grupo explícita siempre prevalece sobre el
+preset.
+
+Desactivar un grupo lo elimina solo de las superficies del **agente**: chat
+interactivo, MCP, A2A y ejecuciones en segundo plano. Las rutas HTTP de
+actions correspondientes siguen montadas, porque la UI las alcanza mediante
+hooks de cliente. Desactivar `sharing` no debe provocar un 404 en un diálogo
+de compartir que sigue en pantalla. Sopesa ese coste de paridad antes de
+usarlo: el contrato del framework es que todo lo que puede hacer la UI lo
+puede hacer el agente, así que `sharing: false` junto a un botón de compartir
+visible es una ruptura deliberada, y solo tiene sentido cuando la aplicación
+no tiene en absoluto esa superficie.
+
+Las herramientas del framework ya no se promocionan en la primera solicitud
+al modelo de forma predeterminada, independientemente de esta opción.
+Permanecen en el registro consultable y se cargan mediante `tool-search`, o de
+inmediato si la aplicación las nombra en `initialToolNames`.
+
+<Callout tone="warning">
+  Las opciones de nivel superior `databaseTools` y `extensionTools` están
+  obsoletas en favor de `frameworkTools.database` y `frameworkTools.extensions`.
+  Se siguen respetando, pero establecer un flag de nivel superior y su
+  equivalente en `frameworkTools` con valores en conflicto lanza un error al
+  iniciar el plugin en lugar de arrancar con una superficie de herramientas que
+  nadie eligió.
+</Callout>
+
+## Ejecución de código en producción {#production-code-execution}
+
+De forma predeterminada, los agentes de producción se ejecutan sin
+herramientas de ejecución de código. Pueden llamar a las actions de la
+aplicación, herramientas de base de datos, herramientas MCP, herramientas de
+navegador/sesión y otras herramientas del framework registradas, pero no
+obtienen acceso al shell ni al sistema de archivos.
+
+Las implementaciones compatibles con Node pueden habilitar la ejecución de
+código en producción mediante el plugin de chat del agente o una anulación de
+entorno:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  codeExecution: { production: "sandboxed" },
+});
+```
+
+Los modos disponibles son:
+
+- `off`. El predeterminado. No se registra ninguna herramienta de ejecución de código en producción.
+- `sandboxed`. Registra `run-code`, un ejecutor aislado de JavaScript en Node.js con un entorno depurado, un directorio temporal nuevo, límites de salida/tiempo y un puente localhost hacia herramientas registradas en la lista de permitidos, como `provider-api-request`, `provider-api-docs`, `provider-api-catalog`, `web-request`, y el puente de archivos de espacio de trabajo respaldado por Resources que usan `workspaceRead` / `workspaceWrite`.
+- `trusted`. Registra `run-code` más el registro completo de herramientas de codificación (`bash`, `read`, `edit`, `write`). Úsalo solo para implementaciones de un solo inquilino o controladas por un operador donde el acceso completo por shell al host es intencional.
+
+Establece `AGENT_PROD_CODE_EXECUTION=sandboxed` o `AGENT_PROD_CODE_EXECUTION=trusted` para anular la opción del plugin en una implementación específica sin un cambio de código. `AGENT_PROD_CODE_EXECUTION=off` fuerza la desactivación de la ejecución de código incluso cuando la opción del plugin la habilita.
+
+El sandbox de `run-code` es aislamiento a nivel de proceso, no un contenedor de sistema operativo. Elimina los secretos de la aplicación del entorno del proceso hijo y usa el modelo de permisos de Node cuando está disponible, pero Node mismo no bloquea la red saliente. Las llamadas autenticadas deben pasar por los asistentes de puente que expone la herramienta.
+
+## Qué sigue
+
+- [**Actions: acceso y autorización**](/docs/actions-access-control) — los ejes de control de acceso por action que complementa el control a nivel de herramientas de esta página
+- [**Actualizar la UI en producción**](/docs/updating-ui-in-production) — qué puede y no puede editar un agente implementado con la ejecución de código desactivada
+- [**Implementación: variables de entorno**](/docs/deployment-environment-variables) — `AGENT_PROD_CODE_EXECUTION` y otras variables de entorno de producción

@@ -203,7 +203,7 @@ export async function createContentDatabaseRecord(
   let orgId = getRequestOrgId() ?? null;
   let spaceId = options.spaceId ?? null;
   let inheritedShares: Array<{
-    principalType: "user" | "org";
+    principalType: "user" | "group" | "org";
     principalId: string;
     role: ShareRole;
   }> = [];

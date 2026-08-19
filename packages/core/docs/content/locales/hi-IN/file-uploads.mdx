@@ -1,23 +1,27 @@
 ---
 title: "फ़ाइल अपलोड"
-description: "फ़ाइल अपलोड के लिए स्थायी ऑब्जेक्ट स्टोरेज कॉन्फ़िगर करें - Builder.io या कस्टम S3-संगत प्रदाता।"
+description: "Builder.io या प्रोडक्शन के लिए एक कस्टम ऑब्जेक्ट स्टोरेज प्रदाता के साथ स्थायी फ़ाइल अपलोड स्टोरेज कॉन्फ़िगर करें।"
 ---
 
 # फ़ाइल अपलोड
 
-फ्रेमवर्क एक फ़ाइल अपलोड एब्स्ट्रैक्शन प्रदान करता है जो एक कॉन्फ़िगर करने योग्य प्रदाता के माध्यम से अपलोड को रूट करता है। टेम्प्लेट `uploadFile()` को कॉल करते हैं और एक URL वापस प्राप्त करते हैं - स्टोरेज बैकएंड एप्लिकेशन कोड को बदले बिना स्वैप किया जा सकता है।
+फ्रेमवर्क एक फ़ाइल अपलोड एब्स्ट्रैक्शन प्रदान करता है जो अपलोड को एक कॉन्फ़िगर करने योग्य प्रदाता के माध्यम से रूट करता है। टेम्प्लेट `uploadFile()` को कॉल करते हैं और एक URL वापस प्राप्त करते हैं। स्टोरेज बैकएंड को एप्लिकेशन कोड बदले बिना स्वैप किया जा सकता है।
 
 ## यह कैसे काम करता है {#how-it-works}
 
 अपलोड अनुरोध `POST /_agent-native/file-upload` पर जाते हैं, जो सक्रिय प्रदाता को भेजता है। आप जाँच सकते हैं कि कौन सा प्रदाता `GET /_agent-native/file-upload/status` पर कॉन्फ़िगर किया गया है।
 
-प्रदाता समाधान आदेश है:
+प्रदाता समाधान क्रम इस प्रकार है:
 
-1. **उपयोगकर्ता-पंजीकृत प्रदाता** — `registerFileUploadProvider()` के माध्यम से पंजीकृत कस्टम प्रदाता
-2. **Builder.io प्रदाता** (free tier उपलब्ध) - अंतर्निहित, Builder.io कनेक्ट होने पर स्वचालित रूप से सक्रिय हो जाता है
-3. **स्टोरेज आवश्यक है** — प्रदाता न होने पर अपलोड सुरक्षित रूप से असफल होता है और सेटअप कार्ड दिखता है; बाइनरी डेटा SQL में सेव नहीं होता
+1. **उपयोगकर्ता-पंजीकृत प्रदाता**: `registerFileUploadProvider()` के माध्यम से पंजीकृत कस्टम प्रदाता।
+2. **Builder.io प्रदाता**: अंतर्निहित, और Builder.io कनेक्ट होने पर यह स्वचालित रूप से सक्रिय हो जाता है।
+3. **कोई प्रदाता नहीं**: अपलोड अस्वीकार कर दिया जाता है और चैट एक स्टोरेज सेटअप CTA दिखाता है। बाइनरी डेटा कभी भी SQL में सेव नहीं किया जाता।
 
-<Diagram id="doc-block-1j4i20h" title={"प्रदाता समाधान आदेश"} summary={"uploadFile() क्रम में पहले कॉन्फ़िगर किए गए प्रदाता को चुनता है। प्रदाता न होने पर अपलोड सुरक्षित रूप से असफल होता है और सेटअप कार्ड दिखता है।"}>
+उपयोगकर्ता-पंजीकृत प्रदाताओं में से, पहला वह प्रदाता जीतता है जो पंजीकृत होने पर खुद को कॉन्फ़िगर किया हुआ रिपोर्ट करता है। `registerFileUploadProvider()` प्रत्येक `id` के लिए इडेम्पोटेंट है। जो `id` पहले से उपयोग में है उसके तहत पंजीकरण करने पर मौजूदा प्रदाता बदल जाता है।
+
+UI यह तय करता है कि स्टोरेज-सेटअप प्रॉम्प्ट दिखाना है या नहीं, केवल सिंक्रोनस `isConfigured()` जाँच का उपयोग करके, अपलोड की कोशिश करने से पहले। वास्तविक अपलोड `isConfigured()` और `isConfiguredForRequest()` दोनों की जाँच करता है। जो प्रदाता खुद को कॉन्फ़िगर किया हुआ केवल `isConfiguredForRequest()` के माध्यम से रिपोर्ट करता है, वह सेटअप प्रॉम्प्ट के लिए अदृश्य रहता है, भले ही उसके माध्यम से अपलोड सफल होते हों।
+
+<Diagram id="doc-block-hq5uvx" title="प्रदाता समाधान क्रम" summary="uploadFile() क्रम में पहले कॉन्फ़िगर किए गए प्रदाता को चुनता है। कोई प्रदाता न होने पर, अपलोड फेल-क्लोज्ड होता है ताकि बाइनरी डेटा कभी भी SQL में सेव न हो।">
 
 ```html
 <div class="diagram-upload">
@@ -32,7 +36,7 @@ description: "फ़ाइल अपलोड के लिए स्थाय�
       <span class="diagram-pill accent">1</span>
       <div class="diagram-node">
         उपयोगकर्ता-पंजीकृत<br /><small class="diagram-muted"
-          >registerFileUploadProvider() — S3, R2, GCS…</small
+          >S3, R2, GCS… के लिए registerFileUploadProvider()</small
         >
       </div>
     </div>
@@ -40,15 +44,15 @@ description: "फ़ाइल अपलोड के लिए स्थाय�
       <span class="diagram-pill">2</span>
       <div class="diagram-node">
         Builder.io<br /><small class="diagram-muted"
-          >कनेक्ट होने पर स्वतः — CDN से सर्व</small
+          >कनेक्ट होने पर स्वतः, CDN से सर्व</small
         >
       </div>
     </div>
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        स्टोरेज आवश्यक<br /><small class="diagram-muted"
-          >Builder.io या S3-संगत स्टोरेज कॉन्फ़िगर करें</small
+        कोई प्रदाता नहीं<br /><small class="diagram-muted"
+          >सेटअप CTA, कोई बाइनरी स्टोरेज नहीं</small
         >
       </div>
     </div>
@@ -81,60 +85,81 @@ description: "फ़ाइल अपलोड के लिए स्थाय�
 
 </Diagram>
 
-<Endpoint id="doc-block-1b993nk" title={"अपलोड समापन बिंदु"} method="POST" path="/_agent-native/file-upload" summary={"सक्रिय प्रदाता के माध्यम से एक फ़ाइल अपलोड करें और एक सार्वजनिक URL वापस प्राप्त करें।"} request={{
+<Endpoint id="doc-block-4os0mo" title="अपलोड समापन बिंदु" method="POST" path="/_agent-native/file-upload" summary="सक्रिय प्रदाता के माध्यम से एक फ़ाइल अपलोड करें और एक सार्वजनिक URL वापस प्राप्त करें।" request={{
   "contentType": "multipart/form-data"
 }} responses={[
   {
-    "status": "200",
-    "description": "{ url, id?, provider } — the public URL and which provider handled it."
+    "status": "201",
+    "description": "`{ url, id?, provider }`: सार्वजनिक URL और किस प्रदाता ने इसे संभाला।"
+  },
+  {
+    "status": "401",
+    "description": "कोई प्रमाणित सत्र नहीं।"
+  },
+  {
+    "status": "413",
+    "description": "फ़ाइल 25 MB की अपलोड सीमा से अधिक है।"
+  },
+  {
+    "status": "415",
+    "description": "अवरुद्ध MIME प्रकार, जैसे कि एक एक्ज़ीक्यूटेबल या स्क्रिप्ट।"
+  },
+  {
+    "status": "503",
+    "description": "कोई फ़ाइल अपलोड प्रदाता कॉन्फ़िगर नहीं किया गया है।"
   }
 ]}>
 
-Dispatches to the first configured provider in resolution order. Check the active provider at `GET /_agent-native/file-upload/status`.
+समाधान क्रम में पहले कॉन्फ़िगर किए गए प्रदाता को भेजता है। सक्रिय प्रदाता की जाँच `GET /_agent-native/file-upload/status` पर करें।
 
 </Endpoint>
 
-## स्थायी अपलोड के लिए स्टोरेज आवश्यक है {#storage-required}
+## स्थायी अपलोड के लिए आवश्यक स्टोरेज {#storage-required}
 
-जब कोई प्रदाता कॉन्फ़िगर नहीं किया जाता है, तो अपलोड सुरक्षित रूप से असफल होता है और Builder.io या S3-संगत प्रदाता सेटअप करने के लिए कार्ड दिखता है। बाइनरी डेटा base64 के रूप में SQL में सेव नहीं होता।
-
-बाइट्स का उपयोग केवल मौजूदा अनुरोध के लिए किया जा सकता है और उन्हें चैट इतिहास में सेव नहीं किया जाता। स्टोरेज सेट करने के बाद अपलोड एक स्थायी सार्वजनिक URL लौटाते हैं जिसे बाद के संदेशों में फिर इस्तेमाल किया जा सकता है।
+जब कोई प्रदाता कॉन्फ़िगर नहीं किया जाता है, तो `uploadFile()` `null` लौटाता है और मल्टीपार्ट रूट `503` लौटाता है। चैट अटैचमेंट केवल मौजूदा अनुरोध के लिए उपलब्ध रहते हैं, एजेंट को एक स्टोरेज सेटअप संकेत मिलता है, और ट्रांसक्रिप्ट में बाइनरी पेलोड के बजाय एक सेटअप मार्कर सेव होता है। यह फेल-क्लोज्ड व्यवहार SQL को छोटा रखता है और गायब कॉन्फ़िगरेशन को स्पष्ट दिखाता है।
 
 ## Builder.io होस्टिंग {#builder-hosting}
 
-जब आपका ऐप Builder.io से कनेक्ट होता है (free tier उपलब्ध), तो फ़ाइल अपलोड स्वचालित रूप से Builder की एसेट होस्टिंग पर रूट हो जाते हैं। फ़ाइलों को CDN से बिना किसी कॉन्फ़िगरेशन की आवश्यकता के परोसा जाता है। यह अनुशंसित उत्पादन सेटअप है.
+जब आपका ऐप Builder.io से कनेक्ट होता है, तो फ़ाइल अपलोड स्वचालित रूप से Builder की एसेट होस्टिंग पर रूट हो जाते हैं। Builder.io के फ्री टियर में यह मैनेज्ड स्टोरेज शामिल है। फ़ाइलें बिना किसी कॉन्फ़िगरेशन की आवश्यकता के CDN से परोसी जाती हैं, और स्थायी URL चैट थ्रेड में सेव किया जाता है ताकि बाद के टर्न इसे फिर से उपयोग कर सकें। यह अनुशंसित प्रोडक्शन सेटअप है।
 
 ## कस्टम प्रदाता {#custom-providers}
 
-किसी भी स्टोरेज बैकएंड (S3, Cloudflare R2, GCS, आदि) का उपयोग करने के लिए सर्वर प्लगइन में एक कस्टम प्रदाता पंजीकृत करें:
+फ्रेमवर्क पहले से ही S3-संगत स्टोरेज (AWS S3, Cloudflare R2, MinIO, और इसी तरह के अन्य) के लिए एक अंतर्निहित प्रदाता प्रदान करता है। इसे एनवायरनमेंट वेरिएबल्स के साथ या साइडबार ऑनबोर्डिंग चेकलिस्ट के माध्यम से कनेक्ट करें। किसी कोड की आवश्यकता नहीं है। देखें [Onboarding](/docs/onboarding)।
 
-```ts
-// server/plugins/file-upload.ts
+किसी अलग तरह के बैकएंड के लिए ही एक कस्टम प्रदाता पंजीकृत करें। यह उदाहरण `fetch()` का उपयोग करके एक सामान्य HTTP API के माध्यम से अपलोड करता है:
+
+```ts filename="server/plugins/file-upload.ts"
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import { defineNitroPlugin } from "@agent-native/core/server";
 
 export default defineNitroPlugin(() => {
   registerFileUploadProvider({
-    id: "s3",
-    name: "Amazon S3",
-    isConfigured: () => !!process.env.S3_BUCKET,
+    id: "my-storage",
+    name: "My Storage",
+    isConfigured: () => !!process.env.UPLOAD_ENDPOINT,
     upload: async ({ data, filename, mimeType }) => {
-      const key = `uploads/${Date.now()}-${filename}`;
-      await s3Client.putObject({
-        Bucket: process.env.S3_BUCKET!,
-        Key: key,
-        Body: data,
-        ContentType: mimeType,
-      });
-      return {
-        url: `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`,
-        provider: "s3",
-      };
+      const endpoint = process.env.UPLOAD_ENDPOINT!;
+      const body = new FormData();
+      body.append("file", new Blob([data], { type: mimeType }), filename);
+
+      // This example assumes an upload API that accepts a multipart file
+      // and returns { url }. Adjust the request and response handling to
+      // match your own provider's actual contract.
+      const response = await fetch(endpoint, { method: "POST", body });
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      return { url, provider: "my-storage" };
     },
   });
 });
 ```
 
-## API अपलोड करें {#upload-api}
+जब प्रदाता को कोई वास्तविक क्रेडेंशियल चाहिए, जैसे कि एक API key, तो एनवायरनमेंट वेरिएबल के बजाय `@agent-native/core/server` से `resolveSecret()` का उपयोग करें। देखें [सुरक्षा — सीक्रेट प्रबंधन](/docs/security#secrets)।
+
+## अपलोड API {#upload-api}
 
 `FileUploadProvider` इंटरफ़ेस:
 
@@ -152,6 +177,8 @@ interface FileUploadInput {
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
   ownerEmail?: string; // For request-scoped provider credentials
+  stableUrl?: boolean; // Builder.io hint: one stable URL while compression finishes
+  recordAsset?: boolean; // Builder.io hint: set false to skip the asset library
 }
 
 interface FileUploadResult {
@@ -173,8 +200,58 @@ const result = await uploadFile({
 });
 
 if (result) {
-  // Provider handled it — result.url is the public URL
+  // Provider handled it. result.url is the public URL.
 } else {
-  // स्टोरेज कॉन्फ़िगर करें या अपलोड छोड़ें
+  // No provider configured. Show the storage setup CTA, or skip.
 }
 ```
+
+## रिज्यूमेबल / स्ट्रीमिंग अपलोड {#resumable}
+
+एक प्रदाता वैकल्पिक रूप से `FileUploadProvider` पर एक `resumable` ब्लॉक लागू कर सकता है, उन अपलोड के लिए जिन्हें पूरी फ़ाइल को पहले बफर करने के बजाय डेटा आने पर ही स्टोरेज में स्ट्रीम करने की आवश्यकता होती है। Clips टेम्प्लेट इसका उपयोग रिकॉर्डिंग को स्टोरेज में चंक-बाय-चंक रिले करने के लिए करता है, जबकि यह अभी भी रिकॉर्ड की जा रही होती है, बजाय इसके कि रिकॉर्डर रुकने के बाद पूरा ब्लॉब असेंबल किया जाए।
+
+```ts
+interface FileUploadProvider {
+  // ...id, name, isConfigured, upload...
+
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
+    ): Promise<string>;
+    // Best-effort provider cleanup for a session the caller will not resume.
+    abortSession?(session: ResumableUploadSession): Promise<void>;
+  };
+}
+
+interface ResumableUploadSession {
+  sessionId: string; // Provider-specific: GCS Location URI, S3 UploadId, etc.
+  meta: Record<string, unknown>; // Provider state carried between calls
+}
+
+interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  updatedMeta?: Record<string, unknown>; // Merged back into the stored session
+}
+```
+
+जब `resumable` मौजूद होता है, तो डेटा स्ट्रीम करने वाले कॉलर (जैसे कि एक रिकॉर्डर) `startSession` को एक बार, `relayChunk` को बाइट्स आने पर बार-बार, और स्ट्रीम समाप्त होने पर `completeSession` को कॉल करते हैं। यह एकल बफर्ड `upload()` कॉल की जगह लेता है। जिस प्रदाता के पास कोई `resumable` ब्लॉक नहीं है, वह हमेशा केवल बफर्ड पथ ही देखता है। इसे तभी लागू करें जब आपके स्टोरेज बैकएंड के पास कोई नेटिव चंक्ड/रिज्यूमेबल अपलोड API (S3 multipart, GCS resumable uploads, आदि) हो जिसे उजागर करना उचित हो।
+
+## आगे क्या
+
+- [**डेटाबेस**](/docs/server-database) — `uploadFile()` द्वारा लौटाए गए URL को सेव करने के लिए `getDb()`/schema पैटर्न
+- [**सुरक्षा — सीक्रेट प्रबंधन**](/docs/security#secrets) — `resolveSecret()` और क्रेडेंशियल वॉल्ट प्रदाता keys को बाकी समय कैसे एन्क्रिप्ट करते हैं
+- [**Onboarding**](/docs/onboarding) — साइडबार चेकलिस्ट में एक कस्टम प्रदाता के सेटअप चरण को पंजीकृत करना

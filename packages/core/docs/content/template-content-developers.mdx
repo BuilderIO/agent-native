@@ -394,7 +394,7 @@ The places to look when changing behavior:
 - **`app/components/editor/`** — the Tiptap editor. Add a new node type under `extensions/` and register it in `DocumentEditor.tsx`. The bubble toolbar, slash menu, and hover previews are all component files you can edit.
 - **`.agents/skills/`** — guidance the agent reads before acting: `content`, `document-editing`, `notion-integration`, `creative-context`, plus the framework skills. Add a new skill folder when you add a capability big enough to need its own guidance.
 - **`AGENTS.md`** — the top-level agent guide with the action cheatsheet. Update it whenever you add a feature so the agent discovers it without exploring.
-- **`server/db/schema.ts`** — the data model. Content has no `db:push` script; it relies on strictly additive migrations that run on startup. Migrations must never drop, rename, or destructively alter existing tables or columns — see [Database](/docs/database#migrations).
+- **`server/db/schema.ts`** — the data model. Content has no `db:push` script; it relies on strictly additive migrations that run on startup. Migrations must never drop, rename, or destructively alter existing tables or columns — see [Database](/docs/server-database#migrations).
 - **A new external-source adapter** — implement the `ContentDatabaseSourceAdapter` interface in `actions/_content-database-source-adapters.ts` (see the existing `builder-cms`, `local-table`, and `notion-database` adapters) and wire it into `attach-content-database-source`. Every adapter reads into the same change-set/review pipeline described on the [Databases page](/docs/template-content-databases#connecting-an-external-source) — a new adapter should not bypass it with a direct write.
 - **`shared/content-source.ts`** — the local-folder sync contract (filenames, frontmatter, parsing, serialization). Extend this if you change what an exported file looks like.
 - **`shared/nfm.ts`** — the Notion-Flavored Markdown converter. Extend this if you add block types that need to round-trip through Notion.
@@ -407,6 +407,6 @@ The agent can make most of these changes itself — ask it to "add a tags column
 - [Writing & organizing documents](/docs/template-content-editing) — the non-developer view of the editor and sharing model
 - [Databases, properties & forms](/docs/template-content-databases) — the full inline-database and external-source data model
 - [Local files, Notion & Builder CMS sync](/docs/template-content-sync) — the non-developer view of every sync surface
-- [Database](/docs/database) — the framework's Drizzle conventions and migration rules
+- [Database](/docs/server-database) — the framework's Drizzle conventions and migration rules
 - [Actions](/docs/actions-overview) — the action system every operation above is built on
 - [Sharing](/docs/sharing) — the share-grant model `document_shares` builds on

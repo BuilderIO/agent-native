@@ -15,9 +15,12 @@ name: Publish packages
 #      and runs the `publish` script, which builds + `pnpm publish`es
 #      every package whose version isn't already on npm.
 #
-# Desktop-app publishing is OUT of changesets — it ships binaries via
-# electron-builder, not npm. Its publish jobs stay path-triggered on
-# `packages/desktop-app/package.json` version changes (see bottom).
+# Desktop-app publishing is OUT of changesets - it ships binaries via
+# electron-builder, not npm. Production desktop releases are dispatched from
+# `desktop-release.yml`; pushes to main only feed the Nightly desktop train.
+# Beta snapshots intentionally live in this workflow too: npm trusted
+# publishers are registered against this workflow file, and the beta lane must
+# use the same OIDC identity as stable publishing.
 
 on:
   push:
@@ -46,12 +49,15 @@ on:
       - "scripts/changeset-publish-sequential.ts"
       - "scripts/guard-public-packages.ts"
       - "scripts/prebuild-workspace-packages.ts"
-      # desktop-app stays version-triggered (not changesets-managed).
-      - "packages/desktop-app/package.json"
   workflow_dispatch:
     inputs:
-      publishDesktop:
-        description: "Also publish desktop binaries"
+      redispatchDownstream:
+        description: "Recovery: re-notify downstream repos for the versions already on npm (no build, no publish)"
+        required: false
+        type: boolean
+        default: false
+      publishBeta:
+        description: "Also publish a beta snapshot and rebuild builder-workspace beta"
         required: false
         type: boolean
         default: false
@@ -63,14 +69,135 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  publish-beta:
+    name: Publish beta snapshot
+    if: ${{ (github.event_name == 'push' || inputs.publishBeta) && !inputs.redispatchDownstream }}
+    runs-on: ubuntu-latest
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      - name: Generate Builder downstream app token
+        id: builder-downstream-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+          owner: BuilderIO
+          repositories: |
+            builder-agent-native-workspace
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+
+      # Node 24 ships with npm 11.6+, which is required for Trusted Publishing
+      # OIDC. Node 22's npm cannot complete the beta publish handshake.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Create beta snapshot versions
+        id: snapshot
+        run: |
+          pnpm changeset version --snapshot beta
+          pnpm install --lockfile-only
+          if git diff --quiet -- package.json pnpm-lock.yaml 'packages/*/package.json'; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build all packages
+        if: steps.snapshot.outputs.changed == 'true'
+        run: pnpm -r build
+
+      - name: Publish beta packages sequentially
+        if: steps.snapshot.outputs.changed == 'true'
+        env:
+          AGENT_NATIVE_NPM_DIST_TAG: beta
+          # Match the stable lane's one-time escape hatch for a package that
+          # has not been created on npm yet. Existing packages still use OIDC.
+          AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: "true"
+        run: node scripts/changeset-publish-sequential.ts
+
+      - name: Rebuild builder-workspace beta
+        if: steps.snapshot.outputs.changed == 'true'
+        env:
+          WORKSPACE_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          : "${WORKSPACE_TOKEN:?Builder workspace token is required for beta rebuilds}"
+
+          payload="$(jq -cn \
+            --arg run "$RUN_URL" \
+            '{event_type:"agent-native-beta-published",client_payload:{ref:"main",sourceRunUrl:$run}}')"
+          response_file="$RUNNER_TEMP/workspace-beta-dispatch-response"
+          delay=2
+          for attempt in 1 2 3 4 5; do
+            status="$(curl -sS -o "$response_file" -w '%{http_code}' -X POST \
+              -H "Authorization: Bearer $WORKSPACE_TOKEN" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              --data "$payload" \
+              'https://api.github.com/repos/BuilderIO/builder-agent-native-workspace/dispatches')" || status=000
+            if [[ "$status" =~ ^2[0-9][0-9]$ ]]; then
+              echo "Requested a builder-workspace beta rebuild on attempt $attempt."
+              exit 0
+            fi
+            if [[ "$status" != 000 && ! "$status" =~ ^5[0-9][0-9]$ ]]; then
+              echo "Builder workspace beta dispatch failed with HTTP $status:" >&2
+              cat "$response_file" >&2
+              exit 1
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              sleep "$delay"
+              delay=$((delay * 2))
+            fi
+          done
+
+          echo "Builder workspace beta dispatch failed after 5 attempts (last HTTP $status)." >&2
+          exit 1
+
+      - name: Summarize beta-only publish
+        if: steps.snapshot.outputs.changed == 'true'
+        run: |
+          {
+            echo "Beta packages were published with the npm beta dist-tag."
+            echo "The builder-workspace beta deploy was requested after the npm publish completed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
   release:
     name: Release npm packages
+    # A downstream redispatch only re-sends a notification for versions that
+    # are already on npm, so it must not re-enter build/publish.
+    if: ${{ !inputs.redispatchDownstream }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
       contents: write
       pull-requests: write
       id-token: write
+    outputs:
+      published: ${{ steps.changesets.outputs.published }}
+      publishedPackages: ${{ steps.changesets.outputs.publishedPackages }}
     steps:
       - name: Generate app token
         id: app-token
@@ -134,15 +261,29 @@ jobs:
           # name itself; existing packages still publish through OIDC/provenance.
           AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+  # Downstream notification lives in its own job so it can (a) run on a manual
+  # redispatch without re-entering build/publish and (b) still run — and say so
+  # in the job summary — when it decides NOT to notify. As a gated step inside
+  # `release` it was invisible when skipped: a dispatch lost to a GitHub 5xx made
+  # every later run report "no unpublished packages", skip silently, and go green
+  # while production stopped receiving releases.
+  notify-downstream:
+    name: Notify downstream repos
+    needs: [release]
+    # always(): `release` is skipped on a redispatch and may fail on a bad
+    # publish; both cases still need a written answer about the notification.
+    if: always()
+    runs-on: ubuntu-latest
+    permissions: {}
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
       - name: Generate Builder downstream app token
-        if: |
-          steps.changesets.outputs.published == 'true' &&
-          (
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
-          )
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         id: builder-downstream-token
         with:
@@ -154,142 +295,145 @@ jobs:
           repositories: |
             builder-agent-native-workspace
 
-      - name: Trigger Builder workspace package update
-        if: |
-          steps.changesets.outputs.published == 'true' &&
-          (
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/dispatch') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
-          )
+      - name: Dispatch and report
         env:
-          GH_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
+          # The starter mirror runs in THIS repo (push-chat-template-to-starter
+          # needs the monorepo source to materialize), so it is dispatched to
+          # ourselves. Must be an app token, not GITHUB_TOKEN: repository_dispatch
+          # events created with GITHUB_TOKEN don't trigger workflow runs.
+          SELF_TOKEN: ${{ steps.app-token.outputs.token }}
+          WORKSPACE_TOKEN: ${{ steps.builder-downstream-token.outputs.token }}
+          REDISPATCH: ${{ inputs.redispatchDownstream }}
+          RELEASE_RESULT: ${{ needs.release.result }}
+          PUBLISHED: ${{ needs.release.outputs.published }}
+          PUBLISHED_PACKAGES: ${{ needs.release.outputs.publishedPackages }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RELEASE_CHANNEL: stable
+          RELEASE_DIST_TAG: latest
         run: |
-          gh api repos/BuilderIO/builder-agent-native-workspace/dispatches \
-            --method POST \
-            -f event_type=agent-native-packages-published \
-            -f "client_payload[publishedPackages]=$PUBLISHED_PACKAGES" \
-            -f "client_payload[sourceRepository]=${{ github.repository }}" \
-            -f "client_payload[sourceRunUrl]=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          set -euo pipefail
+          note() { printf '%s\n' "$*" >> "$GITHUB_STEP_SUMMARY"; }
+          hint='Re-send without republishing: Actions > Publish packages > Run workflow > "Recovery: re-notify downstream repos".'
 
-      # The starter mirror runs in THIS repo (push-chat-template-to-starter needs
-      # the monorepo source to materialize), so dispatch to ourselves rather than
-      # to the starter. Must use the agent-native-scoped app token, not
-      # GITHUB_TOKEN: repository_dispatch events created with GITHUB_TOKEN don't
-      # trigger workflow runs. Carries the published commit sha so the mirror
-      # materializes exactly what was just published to npm.
-      - name: Trigger starter template mirror
-        if: |
-          steps.changesets.outputs.published == 'true' &&
-          (
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/core') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/creative-context') ||
-            contains(steps.changesets.outputs.publishedPackages, '@agent-native/toolkit')
-          )
-        env:
-          GH_TOKEN: ${{ steps.app-token.outputs.token }}
-          PUBLISHED_PACKAGES: ${{ steps.changesets.outputs.publishedPackages }}
-        run: |
-          gh api repos/${{ github.repository }}/dispatches \
-            --method POST \
-            -f event_type=agent-native-packages-published \
-            -f "client_payload[sha]=${{ github.sha }}" \
-            -f "client_payload[publishedPackages]=$PUBLISHED_PACKAGES"
+          if [ "${REDISPATCH:-false}" = "true" ]; then
+            # Read versions from npm rather than from package.json so a recovery
+            # run can never announce a version that was never published.
+            entries=""
+            for name in @agent-native/core @agent-native/creative-context @agent-native/dispatch @agent-native/toolkit; do
+              if ! version="$(npm view "$name" version --prefer-online)" || [ -z "$version" ]; then
+                echo "::error::Could not read ${name}'s published version from npm."
+                note "Downstream repos were NOT notified: npm lookup for \`${name}\` failed."
+                exit 1
+              fi
+              entries="${entries}${entries:+,}$(jq -cn --arg n "$name" --arg v "$version" '{name:$n,version:$v}')"
+            done
+            packages="[${entries}]"
+            note "Manual redispatch for the versions currently on npm."
+          elif [ "$RELEASE_RESULT" != "success" ]; then
+            note "Downstream repos were NOT notified: the release job ended in \`${RELEASE_RESULT}\`. ${hint}"
+            exit 0
+          elif [ "$PUBLISHED" != "true" ]; then
+            note "Downstream repos were not notified: this run published nothing. Expected for a Version Packages PR run. If a publish did land earlier and its dispatch was lost, that run cannot retry itself. ${hint}"
+            exit 0
+          else
+            packages="$PUBLISHED_PACKAGES"
+          fi
 
-  publish-desktop:
-    name: Publish desktop app
-    needs: []
-    if: |
-      (github.event_name == 'workflow_dispatch' && inputs.publishDesktop) ||
-      contains(github.event.head_commit.modified, 'packages/desktop-app/package.json') ||
-      contains(github.event.head_commit.added, 'packages/desktop-app/package.json')
-    # electron-builder --publish always creates/updates a GitHub release.
-    permissions:
-      contents: write
-    strategy:
-      matrix:
-        include:
-          - os: macos-latest
-            platform: mac
-          - os: windows-latest
-            platform: win
-          - os: ubuntu-latest
-            platform: linux
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+          if ! printf '%s' "$packages" | jq -e 'type == "array"' >/dev/null 2>&1; then
+            echo "::error::published package list is not a JSON array: ${packages}"
+            note "Downstream repos were NOT notified: could not parse the published package list. ${hint}"
+            exit 1
+          fi
+          has() { printf '%s' "$packages" | jq -e --arg n "$1" 'any(.[]; .name == $n)' >/dev/null; }
 
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
+          # A stable release may publish only one of the packages consumed by
+          # builder-workspace. Send the complete stable pin set so the
+          # downstream PR never has to guess which unchanged package version
+          # belongs with this release.
+          published_version() {
+            local name="$1" version
+            version="$(printf '%s' "$packages" | jq -r --arg n "$name" '.[] | select(.name == $n) | .version' | head -n 1)"
+            if [ -z "$version" ] || [ "$version" = "null" ]; then
+              version="$(npm view "$name" version --prefer-online)"
+            fi
+            if ! [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Could not resolve a stable version for ${name}: ${version}" >&2
+              return 1
+            fi
+            printf '%s' "$version"
+          }
 
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: pnpm
+          # GitHub's dispatch endpoint returns 503 "No server is currently
+          # available" under load, and a lost dispatch has no second chance —
+          # the publish that would re-send it happens exactly once. So retry 5xx
+          # and connection failures. A 4xx is a definitive answer (bad token,
+          # wrong repo, malformed payload) that no retry will change; failing
+          # immediately turns the run red now instead of after a minute of
+          # pointless backoff.
+          dispatch() {
+            local label="$1" target="$2" token="$3" payload="$4"
+            local delay=2 attempt http
+            for attempt in 1 2 3 4 5; do
+              http="$(curl -sS -o "$RUNNER_TEMP/dispatch-response" -w '%{http_code}' -X POST \
+                -H "Authorization: Bearer ${token}" \
+                -H "Accept: application/vnd.github+json" \
+                -H "X-GitHub-Api-Version: 2022-11-28" \
+                --data "$payload" \
+                "https://api.github.com/repos/${target}/dispatches")" || http="000"
+              case "$http" in
+                2*)
+                  note "Notified ${label} (\`${target}\`) on attempt ${attempt}."
+                  return 0
+                  ;;
+                000 | 5*)
+                  echo "::warning::${label} dispatch got HTTP ${http} (attempt ${attempt}/5)."
+                  ;;
+                *)
+                  echo "::error::${label} dispatch failed with HTTP ${http}: $(cat "$RUNNER_TEMP/dispatch-response")"
+                  note "${label} (\`${target}\`) was NOT notified: HTTP ${http}. ${hint}"
+                  return 1
+                  ;;
+              esac
+              if [ "$attempt" -lt 5 ]; then
+                sleep "$delay"
+                delay=$((delay * 2))
+              fi
+            done
+            echo "::error::${label} dispatch still failing after 5 attempts (last HTTP ${http})."
+            note "${label} (\`${target}\`) was NOT notified after 5 attempts, last HTTP ${http}. ${hint}"
+            return 1
+          }
 
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+          rc=0
 
-      - name: Import signing certificate
-        if: matrix.platform == 'mac'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
-          rm certificate.p12
+          if has @agent-native/core || has @agent-native/creative-context ||
+            has @agent-native/dispatch || has @agent-native/toolkit; then
+            core_version="$(published_version @agent-native/core)"
+            dispatch_version="$(published_version @agent-native/dispatch)"
+            toolkit_version="$(published_version @agent-native/toolkit)"
+            payload="$(jq -cn \
+              --arg p "$packages" \
+              --arg c "$RELEASE_CHANNEL" \
+              --arg rc "$RELEASE_DIST_TAG" \
+              --arg r "$REPO" \
+              --arg u "$RUN_URL" \
+              --arg core "$core_version" \
+              --arg dispatch "$dispatch_version" \
+              --arg toolkit "$toolkit_version" \
+              '{event_type:"agent-native-packages-published",client_payload:{channel:$c,releaseChannel:$rc,core_version:$core,dispatch_version:$dispatch,toolkit_version:$toolkit,publishedPackages:$p,sourceRepository:$r,sourceRunUrl:$u}}')"
+            dispatch "Builder workspace" "BuilderIO/builder-agent-native-workspace" "$WORKSPACE_TOKEN" "$payload" || rc=1
+          else
+            note "Builder workspace not notified: no package it consumes was published."
+          fi
 
-      - name: Build macOS assets
-        if: matrix.platform == 'mac'
-        working-directory: packages/desktop-app
-        run: pnpm build:mac-assets
+          if has @agent-native/core || has @agent-native/creative-context || has @agent-native/toolkit; then
+            payload="$(jq -cn --arg p "$packages" --arg s "$SHA" --arg c "$RELEASE_CHANNEL" --arg rc "$RELEASE_DIST_TAG" \
+              '{event_type:"agent-native-packages-published",client_payload:{channel:$c,releaseChannel:$rc,sha:$s,publishedPackages:$p}}')"
+            dispatch "Starter template mirror" "$REPO" "$SELF_TOKEN" "$payload" || rc=1
+          else
+            note "Starter template mirror not notified: no package it consumes was published."
+          fi
 
-      - name: Build Chrome extension assets
-        if: matrix.platform != 'mac'
-        working-directory: packages/desktop-app
-        run: pnpm build:chrome-extension
-
-      - name: Build and publish
-        working-directory: packages/desktop-app
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: W3PMF2T3MW
-          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
-          SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
-          SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
-          SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
-          SENTRY_DESKTOP_ENVIRONMENT: production
-        run: |
-          pnpm build
-          npx electron-builder --${{ matrix.platform }} --config --publish always
-
-  publish-desktop-release:
-    name: Publish desktop release
-    needs: [publish-desktop]
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.head_commit.modified, 'packages/desktop-app/package.json') ||
-      contains(github.event.head_commit.added, 'packages/desktop-app/package.json')
-    # gh release edit requires contents:write; workflow default is {}.
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Get version
-        id: version
-        run: echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> $GITHUB_OUTPUT
-
-      - name: Publish draft release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "v${{ steps.version.outputs.version }}" --draft=false --latest
+          exit "$rc"

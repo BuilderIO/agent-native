@@ -165,7 +165,7 @@ UI しか持たない機能はエージェントから見えません。アク�
 
 ## SQL 内のデータ {#data-in-sql}
 
-すべてのアプリケーション状態は Drizzle ORM を介して SQL データベースに存在します。スキーマはプロバイダーに依存しません。サポートされるデータベース、`DATABASE_URL` の設定、移植性のルールは [Database](/docs/database) にあります。
+すべてのアプリケーション状態は Drizzle ORM を介して SQL データベースに存在します。スキーマはプロバイダーに依存しません。サポートされるデータベース、`DATABASE_URL` の設定、移植性のルールは [Database](/docs/server-database) にあります。
 
 Core の SQL ストアは自動作成され、すべての template で利用できます。
 
@@ -281,7 +281,7 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 実稼働エージェントのチャット プラグインは raw SQL ツールをデフォルトで読み取り専用にします (`frameworkTools: { database: "read" }`)。エージェントは `db-schema` / `db-query` でアプリ所有データを検査し、書き込みは型付きアプリ actions 経由で行います。スコープ付きの `db-exec` / `db-patch` も公開する必要がある意図的なメンテナンス面だけで `database: "write"` (または `true`) を設定します。すべてのデータアクセスに型付きアプリ actions を要求するには `database: "off"` / `false` を設定します。
 
-`frameworkTools` は、フレームワーク自身の残りのツールも同じように制御します。共有、レビューコメント、バージョン履歴、feature flags、ローカライズ、監査、Context X-Ray、プロフィール、自動化、docs、resources、web、アプリ間委譲、チャット、メールです。完全な一覧、`"minimal"` プリセット、グループを無効にしても HTTP ルートが残る理由は [Production Agent Tools](/docs/deployment#production-agent-tools) を参照してください。
+`frameworkTools` は、フレームワーク自身の残りのツールも同じように制御します。共有、レビューコメント、バージョン履歴、feature flags、ローカライズ、監査、Context X-Ray、プロフィール、自動化、docs、resources、web、アプリ間委譲、チャット、メールです。完全な一覧、`"minimal"` プリセット、グループを無効にしても HTTP ルートが残る理由は [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools) を参照してください。
 
 </Callout>
 
@@ -466,7 +466,7 @@ UI はルート変更時にこれを書き込みます。エージェントは�
 
 2つのアーキテクチャルールが、データベースとホストをまたいだアプリの移植性を保ちます。
 
-- **Database-agnostic。** `@agent-native/core/db/schema` でスキーマを記述し、Drizzle のポータブルなクエリ DSL で読み書きを行うことで、同じコードがサポートされるどのプロバイダーでも動作します。raw SQL は追加型のマイグレーションや1回限りのメンテナンスにのみ使用し、パラメータ化された、方言に依存しない形を保ってください。[Database](/docs/database) を参照してください。
+- **Database-agnostic。** `@agent-native/core/db/schema` でスキーマを記述し、Drizzle のポータブルなクエリ DSL で読み書きを行うことで、同じコードがサポートされるどのプロバイダーでも動作します。raw SQL は追加型のマイグレーションや1回限りのメンテナンスにのみ使用し、パラメータ化された、方言に依存しない形を保ってください。[Database](/docs/server-database) を参照してください。
 - **Hosting-agnostic。** サーバーは Nitro 上で動作し、任意のデプロイターゲットにコンパイルされます。サーバーのルートやプラグインで Node 固有の API (`fs`、`child_process`、`path`) を使用しないでください。また、永続的なサーバープロセスを前提にしないでください。サーバーレスとエッジはステートレスなので、すべての状態を SQL に保持してください。[Deployment](/docs/deployment) を参照してください。
 
 ## エージェントリソース {#workspace}

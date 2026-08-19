@@ -1,6 +1,24 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { listDispatchAutomations } from "./automations.js";
+import { automationRunScope, listDispatchAutomations } from "./automations.js";
+
+describe("automationRunScope", () => {
+  it("uses the requesting user for legacy shared history", () => {
+    expect(
+      automationRunScope({ owner: "__shared__", scope: "organization" }),
+    ).toBe("personal");
+  });
+
+  it("uses organization history when a shared automation has an org id", () => {
+    expect(
+      automationRunScope({
+        owner: "__shared__",
+        orgId: "org-1",
+        scope: "organization",
+      }),
+    ).toBe("organization");
+  });
+});
 
 describe("listDispatchAutomations", () => {
   afterEach(() => {

@@ -65,6 +65,22 @@ describe("authenticated recording route loading", () => {
     expect(route).toContain("{viewerCanEdit ? (");
   });
 
+  it("gates fullscreen share interactions by the viewer permission", () => {
+    const route = readRoute("share.$shareId.tsx");
+    expect(route).toContain(
+      "const viewerCanUseFullscreenInteractions = !session || viewerCanComment;",
+    );
+    expect(route).toContain(
+      "recording.enableComments && viewerCanUseFullscreenInteractions",
+    );
+    expect(route).toContain(
+      "recording.enableReactions && viewerCanUseFullscreenInteractions",
+    );
+    expect(route).toContain(
+      'viewerCanUseFullscreenInteractions\n                  ? () => setPanel("comments")',
+    );
+  });
+
   it("does not expose the insights tab to viewers", () => {
     const shareRoute = readRoute("share.$shareId.tsx");
     const shareTrigger = shareRoute.indexOf(

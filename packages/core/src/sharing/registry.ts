@@ -185,6 +185,21 @@ export interface ShareableResourceRegistration {
    * Default: `false` (matches the historical behavior — any email can be granted).
    */
   requireOrgMemberForUserShares?: boolean;
+  /** Set true when this resource's DB is mounted with the org group tables. */
+  supportsGroupShares?: boolean;
+  /**
+   * Optional resource-specific manager check. Returning true grants the
+   * caller admin capability even when the row is private or they have no
+   * explicit share. Workspace apps use this for organization owners/admins;
+   * the owner is still recognized by the normal owner_email check.
+   */
+  canManageAccess?: (
+    resource: any,
+    ctx: {
+      userEmail?: string;
+      orgId?: string;
+    },
+  ) => boolean | Promise<boolean>;
   /**
    * Optional per-resource access-context adapter. Most resources should use the
    * request user/org unchanged. Templates with an intentional alternate local

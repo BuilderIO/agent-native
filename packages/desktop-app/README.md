@@ -237,6 +237,34 @@ above other windows. Submitting creates the same native coding chat as the
 Agent surface and returns focus to that run. The preference is off by default
 and is stored locally with the desktop settings.
 
+## Shared sign-in for workspace apps
+
+Desktop presents the parent sign-in surface inline the first time a hosted app
+needs authentication. After that sign-in completes, eligible built-in and
+custom workspace apps receive short-lived app sessions through Dispatch and
+open without another login screen.
+
+The supported flow is:
+
+1. Open an app while signed out and complete the inline Google-first sign-in
+   surface. Password sign-in stays inline; Google and magic-link verification
+   may complete in the system browser before returning to Desktop.
+2. Desktop stores the parent session in its persistent identity partition and
+   mints a separate target-app session for each eligible workspace app. The
+   parent bearer is never used as proof of a child-app session.
+3. Reopening an app reuses its child session when it is still present. If a
+   child cookie was cleared or expired, Desktop mints it again instead of
+   treating a stale completed sync as success.
+
+Custom workspace apps must be explicitly registered for Desktop SSO through
+`IDENTITY_SSO_APP_REGISTRY_JSON` and must be available to the signed-in
+workspace. App-specific first-use setup, such as choosing a role, still occurs
+inside that app after identity propagation.
+
+To switch accounts, sign out from Desktop first, then complete the next
+account's sign-in. This clears the parent and child sessions together and
+prevents an existing identity from being adopted by a different account.
+
 ## Authenticated Design previews
 
 Desktop can render one focused, URL-backed Design screen as a native
@@ -293,3 +321,20 @@ npx electron-builder@latest --config electron-builder.yml
 ```
 
 See [electron-builder docs](https://www.electron.build) for platform-specific packaging.
+
+### Release channels
+
+The `Desktop App Release` workflow keeps stable and Nightly installs separate:
+
+- Production keeps the `Agent Native` name and `com.agentnative.desktop` app ID.
+  It is released only by dispatching the workflow with `channel: production`.
+- Nightly uses the `Agent Native Nightly` name and
+  `com.agentnative.desktop.nightly` app ID. Pushes to `main` publish this lane
+  automatically, with prerelease tags, the `agentnative-nightly://` deep-link
+  scheme, a separate updater cache, and update metadata under
+  `/api/desktop-updates/nightly/`.
+
+The different app IDs let employees install both lanes side by side. Each lane
+only updates from its own GitHub release stream. Nightly Linux packages also
+use the `agent-native-nightly` executable namespace so their launcher and
+package files do not overwrite the production install.

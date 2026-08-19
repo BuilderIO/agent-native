@@ -189,7 +189,7 @@ function ruleIdFor(
   return `usage-alert:${partition.scope}:${principal}:${appId ?? "all"}:${unit}:${period}`;
 }
 
-async function ensureTables(): Promise<void> {
+export async function ensureTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const db = getDbExec();

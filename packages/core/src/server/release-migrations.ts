@@ -32,8 +32,13 @@ import {
   USAGE_ALERT_MIGRATIONS,
   USAGE_ALERT_MIGRATIONS_TABLE,
 } from "../usage/migrations.js";
+import {
+  WORKSPACE_CONNECTIONS_MIGRATIONS,
+  WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
+} from "../workspace-connections/migrations.js";
 import { runBetterAuthMigrations } from "./better-auth-migrations.js";
 import { IDENTITY_SSO_MIGRATIONS } from "./identity-sso-migrations.js";
+import { runFrameworkSchemaEnsures } from "./release-schema.js";
 
 /**
  * Apply framework-owned schema in one explicit release step.
@@ -45,6 +50,10 @@ import { IDENTITY_SSO_MIGRATIONS } from "./identity-sso-migrations.js";
 export async function runFrameworkReleaseMigrations(
   nitroApp: unknown,
 ): Promise<void> {
+  // First: the versioned migration lists below only cover the tables that have
+  // one. Most framework tables are defined by their store's `ensureTable()`,
+  // which production serverless can never run — see `./release-schema.ts`.
+  await runFrameworkSchemaEnsures();
   await runBetterAuthMigrations(nitroApp);
   await runMigrations(AGENT_TOOL_APPROVAL_MIGRATIONS, {
     table: AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
@@ -76,6 +85,9 @@ export async function runFrameworkReleaseMigrations(
   })(nitroApp);
   await runMigrations(OBSERVATIONAL_MEMORY_MIGRATIONS, {
     table: "_observational_memory_migrations",
+  })(nitroApp);
+  await runMigrations(WORKSPACE_CONNECTIONS_MIGRATIONS, {
+    table: WORKSPACE_CONNECTIONS_MIGRATIONS_TABLE,
   })(nitroApp);
   await runAutomationRunMigrations(nitroApp);
   await runAutomationSchedulerHealthMigrations(nitroApp);

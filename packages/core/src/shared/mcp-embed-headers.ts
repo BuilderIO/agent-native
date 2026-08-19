@@ -6,6 +6,13 @@ const CLAUDE_MCP_CONTENT_HOST_RE = /^[a-f0-9]{32}\.claudemcpcontent\.com$/i;
 const CHATGPT_MCP_SANDBOX_HOST_RE =
   /^(?:[^.]+\.)?web-sandbox\.oaiusercontent\.com$/i;
 const AGENT_NATIVE_FIRST_PARTY_APP_HOST_SUFFIX = ".agent-native.com";
+const BUILDER_EMBED_HOST_SUFFIXES = [
+  ".builder.io",
+  ".builder.my",
+  ".builderio.xyz",
+  ".builderio.dev",
+  ".builder.codes",
+] as const;
 const MCP_PRODUCT_HOST_ORIGINS = new Set([
   "https://chat.openai.com",
   "https://chatgpt.com",
@@ -108,10 +115,9 @@ export function isBuilderIoEmbedOrigin(
       url.protocol === "https:" &&
       !url.username &&
       !url.password &&
-      (hostname === "builder.io" ||
-        hostname.endsWith(".builder.io") ||
-        hostname === "builder.my" ||
-        hostname.endsWith(".builder.my"))
+      BUILDER_EMBED_HOST_SUFFIXES.some(
+        (suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix),
+      )
     );
   } catch {
     return false;

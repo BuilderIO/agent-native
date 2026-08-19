@@ -1,0 +1,35 @@
+---
+title: "Production में UI अपडेट करना"
+description: "Launch के बाद एक तैनात ऐप का UI कैसे update होता है, और production में visual editing के लिए Builder.io का अलग managed workflow।"
+---
+
+# Production में UI अपडेट करना
+
+सामान्य तैनात ऐप का agent ऐप के source code तक ambient access पाने के बजाय
+app tools (actions, database, MCP, और configured integrations) के ज़रिए काम
+करता है। Source changes repository के development workflow में होते हैं।
+एक embedded, local, या Builder frame repository को edit कर सकता है जब उस
+frame को जान-बूझकर workspace और write tooling दी गई हो।
+
+[Production code execution](/docs/actions-agent-tools#production-code-execution) बंद छोड़े गए एक मानक production deployment में, agent के पास app tools (actions, database, MCP) तक access है लेकिन filesystem तक नहीं। इसका मतलब है कि agent data पढ़ और लिख सकता है, actions चला सकता है, और external services के साथ interact कर सकता है। यह एक तैनात instance पर आपके React components को edit नहीं कर सकता या नए routes नहीं जोड़ सकता।
+
+## Builder.io: Production में Visual Editing {#builderio}
+
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) एक अलग managed code-capable workflow है जहां एक agent production में आपके ऐप का UI modify कर सकता है। अपने repo को Builder.io से connect करें (free tier उपलब्ध) और सीधे UI changes के लिए prompt करें। किसी redeploy की ज़रूरत नहीं।
+
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
+**यह कैसे काम करता है:**
+
+1. अपने agent-native repo को Builder.io से connect करें (free tier उपलब्ध)
+2. Builder.io agent, visual editing, और real-time collaboration के साथ एक cloud frame provide करता है
+3. Agent को UI changes करने के लिए prompt करें। यह आपके components, routes, और styles को live edit करता है
+4. Changes आपके repo में वापस commit हो जाते हैं
+
+Embedded agent panel बनाम cloud frame विकल्पों पर अधिक जानकारी के लिए [फ़्रेम](/docs/frames) देखें।
+
+## आगे क्या है
+
+- [**तैनाती**](/docs/deployment) — पहले production deploy से पहले एक स्थायी डेटाबेस और एक preset चुनें
+- [**फ़्रेम**](/docs/frames) — production UI edits के लिए embedded agent panel बनाम Builder.io का cloud frame
+- [**प्रोडक्शन एजेंट एक्सेस**](/docs/actions-agent-tools) — डिफ़ॉल्ट रूप से तैनात agent के पास कौन से tools होते हैं

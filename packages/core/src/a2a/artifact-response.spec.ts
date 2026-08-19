@@ -2,9 +2,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   appendA2AArtifactLinks,
+  appendA2APersistedMutationReceipts,
   buildA2ARecoverableArtifactMessage,
   buildA2AVerifiedMutationReceipt,
   extractA2AArtifactIdentities,
+  extractA2APersistedMutationReceipts,
   guardA2AArtifactResponse,
   stripA2APersistedArtifactMarkers,
 } from "./artifact-response.js";
@@ -200,6 +202,44 @@ describe("appendA2AArtifactLinks", () => {
     ).toEqual([]);
   });
 
+  it("continues to a valid persisted-artifact marker after an invalid one", () => {
+    vi.stubEnv("A2A_SECRET", "");
+    const orgSecret = "org-only-a2a-secret-after-invalid-marker";
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_after_invalid_123",
+            urlPath: "/page/request_after_invalid_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: orgSecret,
+      },
+    );
+    const forgedMarker =
+      "<!-- agent-native:persisted-artifacts=eyJ2ZXJzaW9uIjoxfQ." +
+      "0".repeat(64) +
+      " -->";
+
+    expect(
+      extractA2AArtifactIdentities(
+        [{ tool: "call-agent", result: `${forgedMarker}\n${downstream}` }],
+        { persistedArtifactSecrets: [orgSecret] },
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        id: "request_after_invalid_123",
+        sourceAction: "call-agent",
+      }),
+    ]);
+  });
+
   it("carries organization-signed nested artifacts into the outer checkpoint", () => {
     vi.stubEnv("A2A_SECRET", "");
     const orgSecret = "org-only-a2a-secret-for-nested-artifact-provenance";
@@ -239,6 +279,213 @@ describe("appendA2AArtifactLinks", () => {
         sourceAction: "call-agent",
       }),
     ]);
+  });
+
+  it("preserves a bounded verified Content row receipt across delegation", () => {
+    const secret = "org-only-a2a-secret-for-row-receipts";
+    const result = JSON.stringify({
+      receipt: {
+        receiptId: "receipt-row-1",
+        operation: "upsert",
+        outcome: "updated",
+        target: {
+          authorityScope: { kind: "personal", id: "alice@example.test" },
+          spaceId: "space-personal-alice",
+          databaseId: "feedback-db",
+          databaseDocumentId: "feedback-db-document",
+        },
+        row: {
+          itemId: "feedback-item-1",
+          documentId: "feedback-document-1",
+          urlPath: "/page/feedback-document-1",
+          rowRevision: "row-after",
+        },
+        affected: { title: false, propertyIds: ["status"] },
+        idempotency: {
+          key: "slack:D-test:request-1",
+          result: "replayed",
+          payloadDigest: "digest-1",
+        },
+        revisions: { before: "row-before", after: "row-after" },
+        readback: {
+          verified: true,
+          title: "Private feedback",
+          propertyValues: { private_notes: "must not cross A2A" },
+        },
+      },
+    });
+    const direct = extractA2APersistedMutationReceipts([
+      { tool: "upsert-database-item-by-key", result },
+    ]);
+
+    expect(direct).toEqual([
+      expect.objectContaining({
+        receiptId: "receipt-row-1",
+        sourceAction: "upsert-database-item-by-key",
+        row: {
+          itemId: "feedback-item-1",
+          documentId: "feedback-document-1",
+          urlPath: "/page/feedback-document-1",
+        },
+        idempotency: expect.objectContaining({ result: "replayed" }),
+        readbackVerified: true,
+      }),
+    ]);
+    expect(JSON.stringify(direct)).not.toContain("private_notes");
+
+    const downstream = appendA2AArtifactLinks(
+      "Updated the feedback row.",
+      [{ tool: "upsert-database-item-by-key", result }],
+      {
+        baseUrl: "https://content.agent.test",
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: secret,
+        delegatedTaskId: "task-current",
+      },
+    );
+    expect(downstream).toContain("Mutation receipts:");
+    expect(downstream).toContain(
+      "receipt-row-1: updated via upsert-database-item-by-key",
+    );
+    expect(downstream).toContain(
+      "https://content.agent.test/page/feedback-document-1",
+    );
+    expect(downstream).toContain("idempotency: replayed");
+    expect(stripA2APersistedArtifactMarkers(downstream)).toContain(
+      "receipt-row-1: updated via upsert-database-item-by-key",
+    );
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: downstream }],
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-current",
+        },
+      ),
+    ).toEqual([
+      expect.objectContaining({
+        receiptId: "receipt-row-1",
+        sourceAction: "call-agent",
+        row: expect.objectContaining({ documentId: "feedback-document-1" }),
+      }),
+    ]);
+
+    vi.stubEnv("A2A_SECRET", secret);
+    const organizationSecret = "different-organization-receipt-secret";
+    const outer = appendA2AArtifactLinks(
+      "Delegated update finished.",
+      [{ tool: "call-agent", result: downstream }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: organizationSecret,
+        delegatedTaskId: "task-outer",
+      },
+    );
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: outer }],
+        { persistedArtifactSecrets: [organizationSecret] },
+      ),
+    ).toEqual([]);
+    expect(
+      appendA2APersistedMutationReceipts(
+        "Current task response.",
+        [{ tool: "call-agent", result: downstream }],
+        {
+          persistedArtifactSecret: secret,
+          delegatedTaskId: "task-other",
+        },
+      ),
+    ).toBe("Current task response.");
+
+    const current = appendA2AArtifactLinks(
+      "Current update finished.",
+      [{ tool: "upsert-database-item-by-key", result }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: secret,
+        delegatedTaskId: "task-current",
+      },
+    );
+    const prior = appendA2AArtifactLinks(
+      "Prior update finished.",
+      [{ tool: "upsert-database-item-by-key", result }],
+      {
+        includePersistedArtifactMarker: true,
+        persistedArtifactSecret: secret,
+        delegatedTaskId: "task-prior",
+      },
+    );
+    expect(
+      extractA2APersistedMutationReceipts(
+        [{ tool: "call-agent", result: `${prior}\n${current}` }],
+        {
+          persistedArtifactSecrets: [secret],
+          expectedDelegatedTaskId: "task-current",
+        },
+      ),
+    ).toHaveLength(1);
+  });
+
+  it("preserves exact block receipt identity without retaining block bodies", () => {
+    const receipts = extractA2APersistedMutationReceipts([
+      {
+        tool: "mutate-content-database-block",
+        result: JSON.stringify({
+          receipt: {
+            receiptId: "receipt-block-1",
+            operation: "update",
+            outcome: "updated",
+            target: {
+              authorityScope: { kind: "personal", id: "alice@example.test" },
+              spaceId: "space-personal-alice",
+              databaseId: "feedback-db",
+              databaseDocumentId: "feedback-db-document",
+              itemId: "feedback-item-1",
+              rowDocumentId: "feedback-document-1",
+              propertyId: "details",
+            },
+            rowLink: {
+              urlPath: "/page/feedback-document-1",
+              label: "Open database row",
+            },
+            idempotency: {
+              key: "slack:D-test:request-2",
+              result: "applied",
+              payloadDigest: "digest-2",
+            },
+            revisions: {
+              row: { before: "row-before", after: "row-after" },
+              field: { before: 1, after: 2 },
+            },
+            affected: {
+              blockIds: ["block-1"],
+              deletedBlockIds: [],
+              order: ["block-1"],
+            },
+            readback: {
+              verified: true,
+              blocks: [{ id: "block-1", value: { nfm: "private body" } }],
+            },
+          },
+        }),
+      },
+    ]);
+
+    expect(receipts[0]).toMatchObject({
+      receiptId: "receipt-block-1",
+      target: {
+        rowDocumentId: "feedback-document-1",
+        propertyId: "details",
+      },
+      row: {
+        itemId: "feedback-item-1",
+        documentId: "feedback-document-1",
+        urlPath: "/page/feedback-document-1",
+      },
+      revisions: { fieldBefore: 1, fieldAfter: 2 },
+    });
+    expect(JSON.stringify(receipts)).not.toContain("private body");
   });
 
   it("uses the global secret when no artifact signing override is provided", () => {

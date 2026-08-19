@@ -71,6 +71,7 @@ const messages = {
     status: "Estado",
     coverage: "Cobertura",
     reason: "Motivo",
+    updatedAt: "Actualizado",
     detailTitle: "Detalle de la decisión",
     selectItem:
       "Selecciona un elemento para inspeccionar sus evidencias y decisiones.",
@@ -212,6 +213,47 @@ const messages = {
     auditUxImpact: "Impacto de UX",
     auditOwnerArea: "Área responsable",
     auditGuardsLabel: "Guards",
+    historyTab: "Historial",
+    historyTitle: "Versiones guardadas",
+    historyLoading: "Cargando versiones guardadas",
+    historyLoadError: "No se pudo cargar el historial de Factory.",
+    historyEmpty: "Aún no hay versiones guardadas",
+    historyEmptyHint:
+      "Guarda el grafo visual una vez y Factory conservará cada versión aquí para revisarla y restaurarla.",
+    historyVersion: "Versión {{version}}",
+    historyCurrent: "Actual",
+    historySource: "Origen",
+    historySourceManual: "Editor visual",
+    historySourceAi: "Propuesta del agente",
+    historySourceSeed: "Semilla de Factory",
+    historySourceRestore: "Restauración",
+    historySourceSaved: "Grafo guardado",
+    historyNodes: "Nodos",
+    historyConnections: "Conexiones",
+    historyChangeSummary: "Resumen del cambio",
+    historyNoSummary: "No se registró ningún resumen del cambio.",
+    historyCurrentHint: "Esta es la versión que Factory usa actualmente.",
+    historyRestore: "Restaurar esta versión",
+    historyRestoreTitle: "¿Restaurar la versión {{version}}?",
+    historyRestoreDescription:
+      "Factory creará una nueva versión actual a partir de esta instantánea. Las versiones existentes seguirán disponibles en el historial.",
+    historyRestoreUnsaved:
+      "También tienes cambios visuales sin guardar. Restaurar los descartará.",
+    historyCancel: "Cancelar",
+    historyRestoreConfirm: "Restaurar versión",
+    historyRestored: "Versión restaurada. Se creó una nueva versión actual.",
+    historyRestoreFailed: "No se pudo restaurar esta versión de Factory.",
+    historyRestoreConflict:
+      "Factory cambió durante la restauración. Revisa el historial actualizado antes de volver a intentarlo.",
+    historyRefreshFailed:
+      "La versión se restauró, pero no se pudo actualizar la vista de Factory.",
+    historyLoadOlder: "Cargar versiones anteriores",
+    historySnapshotLoadError:
+      "No se pudo cargar la vista previa de esta versión.",
+    historyRestoreUnverified:
+      "La restauración se completó, pero no se pudo verificar el resultado. Actualiza el historial antes de volver a intentarlo.",
+    saveConflictFallback:
+      "Factory cambió durante el guardado. Actualiza Factory y vuelve a intentarlo.",
     automationsTitle: "Automatizaciones",
     automationsDescription: "Programa y ejecuta prompts de la fábrica.",
     automationsLoading: "Cargando automatizaciones...",
@@ -230,12 +272,15 @@ const messages = {
     automationSchedulePlaceholder: "Por ejemplo, cada día laborable a las 9:00",
     automationEnabledLabel: "La automatización está activada",
     automationPrompt: "Prompt",
+    automationLastUpdated: "última actualización",
     automationPromptPlaceholder:
       "¿Qué debe hacer la fábrica cuando se ejecute?",
     promptEditorHint: "Edita aquí y guarda la automatización.",
     pastRuns: "Ejecuciones anteriores",
     pastRunsEmpty: "Aún no hay ejecuciones registradas.",
     saveAutomation: "Guardar",
+    automationSaved: "Guardado",
+    automationSaveFailed: "No se pudo guardar la automatización.",
     runNow: "Ejecutar ahora",
     automationHealthTitle: "Estado del programador",
     automationHealthDescription:
@@ -325,6 +370,9 @@ const messages = {
     addComment: "Añadir comentario",
     savingGraph: "Guardando el grafo...",
     saveGraph: "Guardar cambios de la fábrica",
+    saveConflictHint:
+      "Tus cambios sin guardar se conservaron. Descártalos para cargar la versión más reciente de Factory.",
+    discardLocalChanges: "Descartar cambios locales y cargar la versión actual",
     savedGraph: "La fábrica está guardada",
     saveNote:
       "Guarda una versión nueva. Las ejecuciones existentes conservan su contexto original.",

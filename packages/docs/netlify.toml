@@ -2,6 +2,15 @@
 command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter @agent-native/docs migrate:production; fi"
 publish = "packages/docs/dist"
 
+# Netlify's static asset handling sends extensionless Dockerfile requests to
+# the SSR fallback. Rewrite the documented endpoint to the served text asset
+# while keeping the browser/download filename compatible with Compose.
+[[redirects]]
+from = "/examples/self-hosted-chat/Dockerfile"
+to = "/examples/self-hosted-chat/Dockerfile.txt"
+status = 200
+force = true
+
 # Keep legacy template links at the CDN edge instead of running the SSR
 # redirect loader for every request.
 [[redirects]]

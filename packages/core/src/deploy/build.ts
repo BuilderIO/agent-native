@@ -48,8 +48,10 @@ import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
+  SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
@@ -385,6 +387,14 @@ export const CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES: Record<string, string> = {
     "export class CanvasFactory {}",
     "export const getData = unavailable;",
     "export default { CanvasFactory, getData };",
+    "",
+  ].join("\n"),
+  "pdfjs-dist/legacy/build/pdf.mjs": [
+    "const unavailable = () => { throw new Error('pdfjs-dist unavailable in Cloudflare Pages worker'); };",
+    "export const OPS = new Proxy({}, { get: unavailable });",
+    "export const Util = new Proxy({}, { get: unavailable });",
+    "export const getDocument = unavailable;",
+    "export default { OPS, Util, getDocument };",
     "",
   ].join("\n"),
 };
@@ -1132,6 +1142,85 @@ function firstNonEmpty() {
   }
 }
 
+function isTruthyRuntimeValue(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return false;
+  return ["1", "true", "yes", "on"].includes(
+    value.trim().toLowerCase(),
+  );
+}
+
+function normalizeExplicitDeploymentEnvironment(value) {
+  const normalized = firstNonEmpty(value)?.toLowerCase();
+  if (!normalized) return;
+  if (
+    normalized !== "local" &&
+    normalized !== "beta" &&
+    normalized !== "production" &&
+    normalized !== "preview"
+  ) {
+    throw new Error(
+      'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+    );
+  }
+  return normalized;
+}
+
+function normalizeFallbackDeploymentEnvironment(value) {
+  const normalized = firstNonEmpty(value)?.toLowerCase();
+  if (normalized === "development" || normalized === "test") return "local";
+  return normalized === "local" ||
+    normalized === "beta" ||
+    normalized === "production" ||
+    normalized === "preview"
+    ? normalized
+    : undefined;
+}
+
+function resolveDeploymentEnvironment() {
+  const env = globalThis.process?.env || {};
+  const explicit = normalizeExplicitDeploymentEnvironment(
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
+  );
+  if (explicit) return explicit;
+
+  const context = firstNonEmpty(
+    typeof env.CONTEXT === "string" ? env.CONTEXT : undefined,
+    typeof env.NETLIFY_CONTEXT === "string" ? env.NETLIFY_CONTEXT : undefined,
+    typeof env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT === "string"
+      ? env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT
+      : undefined,
+  )?.toLowerCase();
+  const branch =
+    typeof env.BRANCH === "string" ? env.BRANCH.trim().toLowerCase() : "";
+  const vercelEnv = String(env.VERCEL_ENV || "").trim().toLowerCase();
+  const sentryEnvironment = firstNonEmpty(env.SENTRY_ENVIRONMENT);
+  if (branch === "beta") return "beta";
+  if (
+    branch === "production" ||
+    (context === "production" && branch !== "beta")
+  ) {
+    return "production";
+  }
+  if (context === "branch-deploy" && branch === "main") return "beta";
+  if (
+    context === "deploy-preview" ||
+    context === "branch-deploy" ||
+    branch.startsWith("deploy-preview") ||
+    vercelEnv === "preview"
+  ) {
+    return "preview";
+  }
+  if (!context && !branch && !vercelEnv && sentryEnvironment) {
+    return normalizeFallbackDeploymentEnvironment(sentryEnvironment) || "production";
+  }
+  return (
+    normalizeFallbackDeploymentEnvironment(firstNonEmpty(context, vercelEnv)) ||
+    normalizeFallbackDeploymentEnvironment(env.NODE_ENV) ||
+    "production"
+  );
+}
+
 function getSentryClientConfigScript() {
   const env = globalThis.process?.env || {};
   const key = firstNonEmpty(env.SENTRY_CLIENT_KEY, env.VITE_SENTRY_CLIENT_KEY);
@@ -1150,16 +1239,15 @@ function getSentryClientConfigScript() {
       env.VITE_SENTRY_DSN,
       env.SENTRY_DSN,
     ) || (key && projectId && host ? "https://" + key + "@" + host + "/" + projectId : undefined);
-  if (!dsn) return null;
+  const deploymentEnvironment = resolveDeploymentEnvironment();
   const config = {
-    sentryDsn: dsn,
-    sentryEnvironment:
-      firstNonEmpty(
-        env.SENTRY_ENVIRONMENT,
-        env.NETLIFY_CONTEXT,
-        env.VERCEL_ENV,
-        env.NODE_ENV,
-      ) || "production",
+    ...(dsn
+      ? {
+          sentryDsn: dsn,
+          sentryEnvironment: deploymentEnvironment,
+        }
+      : {}),
+    deploymentEnvironment,
   };
   return (
     '<script data-agent-native-sentry-config>' +
@@ -1243,10 +1331,21 @@ function getAppOriginClientConfigScript() {
     env.WORKSPACE_OAUTH_ORIGIN,
     env.VITE_WORKSPACE_OAUTH_ORIGIN,
   );
+  const workspaceRuntime = [
+    env.AGENT_NATIVE_WORKSPACE,
+    env.VITE_AGENT_NATIVE_WORKSPACE,
+  ].some((value) => isTruthyRuntimeValue(value)) ||
+    Boolean(
+      firstNonEmpty(
+        env.AGENT_NATIVE_WORKSPACE_APPS_JSON,
+        env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
+      ),
+    );
   const config = {
     ...(appUrl ? { appUrl } : {}),
     ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
     ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
+    ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
   };
   if (Object.keys(config).length === 0) return null;
   return (
@@ -1267,6 +1366,7 @@ function injectHeadScript(html, script) {
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
+const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1348,6 +1448,9 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
  * from the canonical Nitro/Netlify handler or send normal pages to origin.
  */
 function applyDefaultSsrCacheHeader(headers, status, pathname) {
+  const varyByQuery =
+    (headers.get(SSR_QUERY_CACHE_KEY_HEADER) || "").trim().toLowerCase() === "query";
+  headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   headers.delete("set-cookie");
@@ -1367,9 +1470,11 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
   for (const [name, value] of Object.entries(SSR_CACHE_HEADERS)) {
     headers.set(name, value);
   }
-  for (const [name, value] of Object.entries(SSR_CACHE_KEY_HEADERS)) {
-    headers.set(name, value);
-  }
+  const netlifyVary = varyByQuery
+    ? SSR_CACHE_KEY_HEADERS["netlify-vary"] ? "query" : undefined
+    : SSR_CACHE_KEY_HEADERS["netlify-vary"];
+  if (netlifyVary) headers.set("netlify-vary", netlifyVary);
+  else headers.delete("netlify-vary");
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
@@ -3598,7 +3703,7 @@ export function bundleYjsRuntimeForServerlessOutput(
 
   if (unsupportedSubpathImports.length > 0) {
     throw new Error(
-      `[deploy] Serverless output left unsupported yjs subpath imports in ${unsupportedSubpathImports.join(", ")}`,
+      `[deploy] Node/server output left unsupported yjs subpath imports in ${unsupportedSubpathImports.join(", ")}`,
     );
   }
   if (bareImports.length === 0) return [];
@@ -3656,6 +3761,17 @@ export function bundleYjsRuntimeForServerlessOutput(
   });
 
   return bareImports;
+}
+
+/** Presets whose Node-style output needs the emitted Yjs runtime bundle. */
+export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
+  return (
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    targetPreset === "aws-lambda" ||
+    targetPreset === "node" ||
+    targetPreset === "node-server"
+  );
 }
 
 // Netlify's hard limit is 250MB unzipped per function; keep 10MB of headroom
@@ -3766,8 +3882,12 @@ export function assertSingleTemplateNetlifyBuildOutput(
   const failures: string[] = [];
   const publishDir = path.join(projectCwd, "dist");
   const workspaceAppBasePath =
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
+    [
+      process.env.AGENT_NATIVE_WORKSPACE,
+      process.env.VITE_AGENT_NATIVE_WORKSPACE,
+    ].some((value) => isTruthyRuntimeValue(value)) ||
+    Boolean(process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
+    Boolean(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim())
       ? normalizeConfiguredAppBasePath()
       : "";
   const assetsRelativeDir = workspaceAppBasePath
@@ -4555,8 +4675,8 @@ export function createCloudflareModuleStubPlugin() {
 }
 
 /**
- * Dependencies Nitro itself must bundle outside the controlled serverless
- * output pass. Netlify, Vercel, and Lambda keep Yjs external through Nitro;
+ * Dependencies Nitro itself must bundle outside the controlled Yjs output pass.
+ * Node and controlled serverless presets keep Yjs external through Nitro;
  * `bundleYjsRuntimeForServerlessOutput` then creates their one portable copy.
  */
 export const NITRO_SERVER_RUNTIME_BUNDLED_DEPS = ["yjs"] as const;
@@ -4577,8 +4697,8 @@ export function resolveNitroBundledYjsEntry(): string {
 }
 
 /**
- * Edge runtimes have no node_modules, while Node/serverless outputs only need
- * the small set above bundled to keep their package manifests traceable.
+ * Edge runtimes have no node_modules, while Node/serverless outputs receive the
+ * small set above through the controlled post-build pass.
  */
 export function nitroNoExternalsForPreset(
   targetPreset: string,
@@ -4588,7 +4708,9 @@ export function nitroNoExternalsForPreset(
     ? true
     : targetPreset === "netlify" ||
         targetPreset === "vercel" ||
-        targetPreset === "aws-lambda"
+        targetPreset === "aws-lambda" ||
+        targetPreset === "node" ||
+        targetPreset === "node-server"
       ? []
       : NITRO_SERVER_RUNTIME_BUNDLED_DEPS;
 }
@@ -4641,7 +4763,11 @@ function createBrowserOnlyServerStubPlugin() {
 
 export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
+  deploymentEnvironment?: string,
 ): Record<string, string> {
+  const configuredDeploymentEnvironment =
+    deploymentEnvironment?.trim() ||
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
   return {
     // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
     // function so preview OAuth relays can target this immutable deployment
@@ -4663,8 +4789,15 @@ export function resolveNitroBuildReplacements(
       env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
     ),
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
-      env.CONTEXT?.trim() || "",
+      env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
     ),
+    ...(configuredDeploymentEnvironment
+      ? {
+          "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(
+            configuredDeploymentEnvironment,
+          ),
+        }
+      : {}),
   };
 }
 
@@ -4768,7 +4901,10 @@ export default bundle;
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
-    replace: resolveNitroBuildReplacements(),
+    replace: resolveNitroBuildReplacements(
+      process.env,
+      nitroAgentConfig.deployment?.environment,
+    ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
     // Excalidraw into a shared vendor chunk imported statically by the SSR render
@@ -4778,10 +4914,14 @@ export default bundle;
     rollupConfig: {
       // Nitro treats the intermediate React Router SSR files as prebuilt
       // chunks, while core's server collaboration files participate in the
-      // final Rolldown graph. Externalize Yjs consistently on serverless so
+      // final Rolldown graph. Externalize Yjs consistently on Node/serverless so
       // both graphs retain their public import shapes; the controlled
       // post-build pass below bundles and rewrites them to one module.
-      ...(preset === "netlify" || preset === "vercel" || preset === "aws-lambda"
+      ...(preset === "netlify" ||
+      preset === "vercel" ||
+      preset === "aws-lambda" ||
+      preset === "node" ||
+      preset === "node-server"
         ? { external: ["yjs"] }
         : {}),
       plugins: [
@@ -4796,9 +4936,9 @@ export default bundle;
       : {}),
     routeRules: mcpEmbedStaticAssetRouteRules(appBasePath),
     // Edge presets (cloudflare, deno) bundle all deps because node_modules are
-    // unavailable at runtime. Ordinary Node presets bundle Yjs through Nitro.
-    // Controlled serverless presets externalize it above, then emit one full
-    // runtime module after Nitro has preserved every consumer's public imports.
+    // unavailable at runtime. Node and controlled serverless presets
+    // externalize Yjs above, then emit one full runtime module after Nitro has
+    // preserved every consumer's public imports.
     noExternals: nitroNoExternalsForPreset(preset),
   } as any);
 
@@ -4824,6 +4964,9 @@ export default bundle;
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
+  }
+
+  if (shouldBundleYjsRuntimeForPreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 

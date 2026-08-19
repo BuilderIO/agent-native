@@ -2,6 +2,12 @@ import { createHash } from "node:crypto";
 
 import { describe, it, expect, beforeEach, vi } from "vitest";
 
+vi.mock("../../server/builder-oauth.js", () => ({
+  BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
+  hasBuilderOAuthSession: vi.fn(async () => false),
+  resolveBuilderOAuthRequestAccess: vi.fn(async () => null),
+}));
+
 function providerFailureFingerprint(key: string, value: string): string {
   return createHash("sha256")
     .update(key.trim().toUpperCase())
@@ -35,6 +41,7 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../server/request-context.js");
     vi.doUnmock("../../secrets/storage.js");
     vi.doUnmock("../../db/client.js");
+    vi.doUnmock("../../org/context.js");
     vi.unstubAllEnvs();
     // Clear env vars that influence resolveEngine
     delete process.env.AGENT_ENGINE;
@@ -45,6 +52,8 @@ describe("AgentEngine registry", () => {
     delete process.env.GOOGLE_GENERATIVE_AI_API_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
     delete process.env.BUILDER_PRIVATE_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
     delete process.env.BUILDER_PUBLIC_KEY; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.BUILDER_GATEWAY_TOKEN; // guard:allow-env-credential — test setup clears env to assert credential precedence
+    delete process.env.BUILDER_GATEWAY_SPACE_ID; // guard:allow-env-credential — test setup clears env to assert credential precedence
   });
 
   it("registers and retrieves an engine", async () => {
@@ -274,7 +283,7 @@ describe("AgentEngine registry", () => {
       userEmail: "owner@example.com",
       orgId: "org-builder",
     };
-    const resolveBuilderCredentialsDetailed = vi.fn(
+    const resolveBuilderGatewayCredentialsDetailed = vi.fn(
       async (receivedIdentity?: typeof identity) =>
         receivedIdentity?.userEmail === identity.userEmail &&
         receivedIdentity.orgId === identity.orgId
@@ -285,18 +294,20 @@ describe("AgentEngine registry", () => {
               orgName: "Builder Space",
               source: "org" as const,
               lookupFailed: false,
+              lane: "identity" as const,
             }
           : {
               privateKey: null,
               publicKey: null,
               lookupFailed: false,
+              lane: null,
             },
     );
     vi.doMock(
       "../../server/credential-provider.js",
       async (importOriginal) => ({
         ...(await importOriginal()),
-        resolveBuilderCredentialsDetailed,
+        resolveBuilderGatewayCredentialsDetailed,
       }),
     );
 
@@ -331,10 +342,13 @@ describe("AgentEngine registry", () => {
           publicKey: "space-scoped",
           userId: "builder-user",
           orgName: "Builder Space",
+          lane: "identity",
         },
       }),
     );
-    expect(resolveBuilderCredentialsDetailed).toHaveBeenCalledWith(identity);
+    expect(resolveBuilderGatewayCredentialsDetailed).toHaveBeenCalledWith(
+      identity,
+    );
     await expect(
       isResolvedEngineUsableForRequest(resolved, {
         credentialIdentity: identity,
@@ -982,6 +996,384 @@ describe("AgentEngine registry", () => {
     });
 
     expect(detectEngineFromEnv()).toBeNull();
+  });
+
+  it("registers the builder engine with both credential shapes", async () => {
+    const { registerBuiltinEngines } = await import("./builtin.js");
+    const { getAgentEngineEntry } = await import("./registry.js");
+    const { BUILDER_GATEWAY_SPACE_ID_ENV_VAR, BUILDER_GATEWAY_TOKEN_ENV_VAR } =
+      await import("../../server/credential-provider.js");
+
+    registerBuiltinEngines();
+
+    // The literal names in builtin.ts must stay the ones the resolver reads;
+    // nothing else pairs them at compile time. `deployInjected` is what makes
+    // this set — and only this set — step aside for a BYO provider key.
+    expect(getAgentEngineEntry("builder")?.alternateRequiredEnvVars).toEqual([
+      {
+        envVars: [
+          BUILDER_GATEWAY_TOKEN_ENV_VAR,
+          BUILDER_GATEWAY_SPACE_ID_ENV_VAR,
+        ],
+        deployInjected: true,
+      },
+    ]);
+  });
+
+  describe("Builder-credits env pair", () => {
+    const registerBuilderAndAnthropic = (
+      registerAgentEngine: (entry: any) => void,
+    ) => {
+      const builderEngine = { name: "builder", stream: vi.fn() } as any;
+      const anthropicEngine = { name: "anthropic", stream: vi.fn() } as any;
+      const builderCreate = vi.fn().mockReturnValue(builderEngine);
+      const anthropicCreate = vi.fn().mockReturnValue(anthropicEngine);
+      registerAgentEngine({
+        name: "builder",
+        label: "Builder",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+        alternateRequiredEnvVars: [
+          {
+            envVars: ["BUILDER_GATEWAY_TOKEN", "BUILDER_GATEWAY_SPACE_ID"],
+            deployInjected: true,
+          },
+        ],
+        create: builderCreate,
+      });
+      registerAgentEngine({
+        name: "anthropic",
+        label: "Anthropic",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["ANTHROPIC_API_KEY"],
+        create: anthropicCreate,
+      });
+      return { builderEngine, anthropicEngine, builderCreate, anthropicCreate };
+    };
+
+    beforeEach(() => {
+      vi.resetModules();
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn().mockResolvedValue(null),
+        deleteSetting: vi.fn(),
+      }));
+      vi.doMock("../../server/request-context.js", () => ({
+        getRequestUserEmail: () => "visitor@example.com",
+        getRequestOrgId: () => undefined,
+      }));
+      vi.doMock("../../secrets/storage.js", () => {
+        const readAppSecret = vi.fn().mockResolvedValue(null);
+        return {
+          readAppSecret,
+          readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+        };
+      });
+      vi.doMock("../../db/client.js", () => ({
+        isLocalDatabase: () => false,
+        getDbExec: () => ({
+          execute: async () => ({ rows: [] }),
+        }),
+      }));
+      // A hosted visitor has no org, and the membership read must answer
+      // cleanly — an unreadable one is a different case with its own tests.
+      vi.doMock("../../org/context.js", () => ({
+        resolveOrgIdForEmail: vi.fn().mockResolvedValue(null),
+      }));
+    });
+
+    it("selects builder from the Builder-credits pair alone on a hosted app", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()?.name).toBe("builder");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe("builder");
+    });
+
+    it("does not select builder from a gateway token without its space id", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()).toBeNull();
+      expect(await detectEngineFromEnvForRequest()).toBeNull();
+    });
+
+    // Alternates must be honoured by BOTH detectors for ANY engine, not just
+    // whichever one the Builder engine happens to go through. A sync detector
+    // that reports "configured" while the async one falls through elsewhere is
+    // how status pages end up contradicting the turn.
+    it("honours alternate credential sets for an engine that is not builder", async () => {
+      vi.stubEnv("CUSTOM_ALT_TOKEN", "alt-token");
+      vi.stubEnv("CUSTOM_ALT_REGION", "eu");
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerAgentEngine({
+        name: "custom-multi-shape",
+        label: "Custom",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: ["CUSTOM_PRIMARY_KEY"],
+        alternateRequiredEnvVars: [
+          { envVars: ["CUSTOM_ALT_TOKEN", "CUSTOM_ALT_REGION"] },
+        ],
+        create: vi.fn() as any,
+      });
+
+      expect(detectEngineFromEnv()?.name).toBe("custom-multi-shape");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe(
+        "custom-multi-shape",
+      );
+    });
+
+    // `envVars` means every var must resolve. The paired legacy check answers
+    // for two of them, so a set carrying the pair plus anything else still owes
+    // the per-var check on the rest — otherwise the async detector qualifies a
+    // set the sync one rejects, which is the disagreement the paired check was
+    // added to remove.
+    it("requires every var in a set that also carries the legacy Builder pair", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: the legacy pair is the credential under test
+      process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: the legacy pair is the credential under test
+      // CUSTOM_LEGACY_REGION is deliberately left unset.
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerAgentEngine({
+        name: "legacy-pair-plus-region",
+        label: "Legacy pair plus region",
+        description: "",
+        capabilities: {} as any,
+        defaultModel: "m",
+        supportedModels: [],
+        requiredEnvVars: [
+          "BUILDER_PRIVATE_KEY",
+          "BUILDER_PUBLIC_KEY",
+          "CUSTOM_LEGACY_REGION",
+        ],
+        create: vi.fn() as any,
+      });
+
+      expect(detectEngineFromEnv()).toBeNull();
+      expect(await detectEngineFromEnvForRequest()).toBeNull();
+    });
+
+    it("defers to a BYO provider key present alongside the Builder-credits pair", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.ANTHROPIC_API_KEY = "sk-ant-customer"; // guard:allow-env-credential — fixture: a customer's own key must keep its own spend
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()?.name).toBe("anthropic");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe("anthropic");
+    });
+
+    // The defer rule is about the *injected* gateway token. A customer who set
+    // the legacy Builder pair themselves chose Builder deliberately and must
+    // keep getting it — deferring here would silently move an existing app's
+    // provider and billing on a `pnpm up`, and would make
+    // AGENT_ENGINE_PREFER_BYO_KEY (asserted below) a no-op.
+    it("keeps builder when the explicitly configured legacy pair sits alongside a BYO key", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.ANTHROPIC_API_KEY = "sk-ant-customer"; // guard:allow-env-credential — fixture: a second key must not silently switch provider
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()?.name).toBe("builder");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe("builder");
+    });
+
+    it("still honours AGENT_ENGINE_PREFER_BYO_KEY over the legacy Builder pair", async () => {
+      process.env.AGENT_ENGINE_PREFER_BYO_KEY = "true";
+      process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.ANTHROPIC_API_KEY = "sk-ant-customer"; // guard:allow-env-credential — fixture: the opt-out must still reach the BYO key
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()?.name).toBe("anthropic");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe("anthropic");
+    });
+
+    // Both shapes present: the customer-configured one decides, so builder wins
+    // and the injected token never gets a chance to matter. Not under
+    // NODE_ENV=production — there the legacy deploy pair is deliberately
+    // unreadable for a request that carries a user email, so only the injected
+    // set would qualify and the assertion would be about a different rule.
+    it("keeps builder when the legacy pair and the injected pair are both set", async () => {
+      process.env.BUILDER_PRIVATE_KEY = "bpk-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.BUILDER_PUBLIC_KEY = "space-legacy"; // guard:allow-env-credential — fixture: an explicitly configured legacy pair must keep winning
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.ANTHROPIC_API_KEY = "sk-ant-customer"; // guard:allow-env-credential — fixture: a second key must not silently switch provider
+
+      const {
+        registerAgentEngine,
+        detectEngineFromEnv,
+        detectEngineFromEnvForRequest,
+      } = await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(detectEngineFromEnv()?.name).toBe("builder");
+      expect((await detectEngineFromEnvForRequest())?.name).toBe("builder");
+    });
+
+    it("skips a Builder-credits token the gateway already rejected", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      const rejectedToken = "btk-site-token-rejected";
+      process.env.BUILDER_GATEWAY_TOKEN = rejectedToken; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      const fingerprint = providerFailureFingerprint(
+        "BUILDER_GATEWAY_TOKEN",
+        rejectedToken,
+      );
+      vi.doMock("../../settings/store.js", () => ({
+        getSetting: vi.fn(async (key: string) =>
+          key === `provider-auth-failure:${fingerprint}`
+            ? {
+                fingerprint,
+                key: "BUILDER_GATEWAY_TOKEN",
+                message: "401 status code (no body)",
+                status: 401,
+                at: Date.now(),
+              }
+            : null,
+        ),
+        deleteSetting: vi.fn(),
+      }));
+
+      const { registerAgentEngine, detectEngineFromEnvForRequest } =
+        await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+
+      expect(await detectEngineFromEnvForRequest()).toBeNull();
+    });
+
+    it("captures the Builder-credits pair as the engine's credentials", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+
+      const { registerAgentEngine, resolveEngine } =
+        await import("./registry.js");
+      const { builderEngine, builderCreate, anthropicCreate } =
+        registerBuilderAndAnthropic(registerAgentEngine);
+
+      const resolved = await resolveEngine({});
+
+      expect(anthropicCreate).not.toHaveBeenCalled();
+      expect(resolved).toBe(builderEngine);
+      expect(builderCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          credentials: {
+            privateKey: "btk-site-token",
+            publicKey: "space-abc",
+            userId: null,
+            orgName: null,
+            lane: "gateway-deploy",
+          },
+        }),
+      );
+    });
+
+    it("reports the builder engine as runnable on the Builder-credits pair alone", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+
+      const {
+        registerAgentEngine,
+        getAgentEngineEntry,
+        isResolvedEngineUsableForRequest,
+        isStoredEngineUsableForRequest,
+      } = await import("./registry.js");
+      const { builderEngine } =
+        registerBuilderAndAnthropic(registerAgentEngine);
+      const entry = getAgentEngineEntry("builder")!;
+
+      await expect(
+        isResolvedEngineUsableForRequest(builderEngine),
+      ).resolves.toBe(true);
+      await expect(
+        isStoredEngineUsableForRequest({ engine: "builder" }, entry),
+      ).resolves.toBe(true);
+    });
+
+    // The SYNCHRONOUS twin is what the engine-status endpoint calls, and the
+    // composer gates on its answer. Reading only `requiredEnvVars` reports a
+    // Builder engine running on the injected pair as unconfigured, so an explicit
+    // `AGENT_ENGINE=builder` deployment refuses to start a chat the request path
+    // would have run.
+    it("reports the builder engine as usable on the gateway pair in the sync check", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+
+      const { registerAgentEngine, getAgentEngineEntry, isStoredEngineUsable } =
+        await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+      const entry = getAgentEngineEntry("builder")!;
+
+      expect(isStoredEngineUsable({ engine: "builder" }, entry)).toBe(true);
+    });
+
+    it("does not report the builder engine usable on half a gateway pair", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: the deployment's Builder-credits pair is the credential under test
+      delete process.env.BUILDER_GATEWAY_SPACE_ID; // guard:allow-env-credential — fixture: half a pair is the condition under test
+
+      const { registerAgentEngine, getAgentEngineEntry, isStoredEngineUsable } =
+        await import("./registry.js");
+      registerBuilderAndAnthropic(registerAgentEngine);
+      const entry = getAgentEngineEntry("builder")!;
+
+      expect(isStoredEngineUsable({ engine: "builder" }, entry)).toBe(false);
+    });
   });
 
   // These request-resolution tests reload the credential and settings module
@@ -2165,6 +2557,9 @@ describe("AgentEngine registry", () => {
       });
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,
+        getDbExec: () => ({
+          execute: async () => ({ rows: [] }),
+        }),
       }));
 
       const { registerAgentEngine, resolveEngine } =
@@ -2225,6 +2620,9 @@ describe("AgentEngine registry", () => {
       });
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,
+        getDbExec: () => ({
+          execute: async () => ({ rows: [] }),
+        }),
       }));
 
       const { registerAgentEngine, resolveEngine } =
@@ -2293,6 +2691,9 @@ describe("AgentEngine registry", () => {
       }));
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,
+        getDbExec: () => ({
+          execute: async () => ({ rows: [] }),
+        }),
       }));
 
       const { registerAgentEngine, resolveEngine } =

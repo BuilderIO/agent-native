@@ -45,6 +45,7 @@ import {
   shouldShowAssistantChatModelSelector,
   resolveAssistantChatSubmitIntent,
   settleInterruptedAssistantToolCallsInRepo,
+  shouldSuppressUnauthenticatedDesktopThreadRestore,
   shouldAcceptRunError,
   shouldShowGlobalRunningStatus,
   queuedMessageImageSources,
@@ -69,6 +70,30 @@ describe("shouldShowAssistantChatModelSelector", () => {
 });
 
 describe("AssistantChat thread restore and composer recovery", () => {
+  it("only suppresses unauthenticated restore failures for desktop chat", () => {
+    expect(
+      shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 401),
+    ).toBe(true);
+    expect(
+      shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 403),
+    ).toBe(true);
+    expect(
+      shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 404),
+    ).toBe(false);
+    expect(
+      shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 404, true),
+    ).toBe(true);
+    expect(
+      shouldSuppressUnauthenticatedDesktopThreadRestore("desktop", 500),
+    ).toBe(false);
+    expect(shouldSuppressUnauthenticatedDesktopThreadRestore("app", 401)).toBe(
+      false,
+    );
+    expect(shouldSuppressUnauthenticatedDesktopThreadRestore("app", 404)).toBe(
+      false,
+    );
+  });
+
   it("keeps failed thread restores visible and retryable", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
@@ -76,9 +101,31 @@ describe("AssistantChat thread restore and composer recovery", () => {
 
     expect(source).not.toContain("knownAbsentThreadIds");
     expect(source).toContain('setThreadRestoreError("unavailable")');
-    expect(source).toContain('res.status === 404 ? "not-found"');
+    expect(source).toContain("res.status === 404");
+    expect(source).toContain('"not-found"');
+    expect(source).toContain('t("agentChat.message.threadNotFound")');
     expect(source).toContain("retryThreadRestore");
     expect(source).toContain('t("agentChat.common.retry")');
+    expect(source).toContain("desktopIdentityUnauthenticated");
+    expect(source).toContain("desktopIdentityAuthenticated");
+    expect(source).toContain("retryThreadRestore();");
+  });
+
+  it("clears a stale restore error when a saved tab becomes a fresh chat", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const recoveryStart = source.indexOf(
+      "  useEffect(() => {\n    if (!threadId || !isNewThread) return;",
+    );
+    const recoveryEnd = source.indexOf(
+      "  // Restore messages from server on mount",
+      recoveryStart,
+    );
+    const recoverySource = source.slice(recoveryStart, recoveryEnd);
+
+    expect(recoverySource).toContain("setThreadRestoreError(null);");
+    expect(recoverySource).toContain("setIsRestoring(false);");
   });
 
   it("replays embedded transcript restoration safely under StrictMode", () => {
@@ -1475,6 +1522,12 @@ describe("missing agent engine setup", () => {
     expect(source).not.toContain("data-agent-composer-setup-position");
     expect(css).toContain(".agent-builder-setup-card--attached");
     expect(css).toContain(".agent-composer-area--attached-above");
+    expect(css).toMatch(
+      /\.agent-builder-setup-content\s*\{[^}]*container-type:\s*inline-size;[^}]*container-name:\s*agent-builder-setup;/s,
+    );
+    expect(css).toMatch(
+      /@container agent-builder-setup \(max-width: 560px\)[\s\S]*?\.agent-builder-setup-card__actions[\s\S]*?flex-direction:\s*column;/s,
+    );
   });
 
   it("keeps a no-provider prompt queued until setup is connected", () => {

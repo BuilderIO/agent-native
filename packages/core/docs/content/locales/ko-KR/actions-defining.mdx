@@ -29,7 +29,7 @@ description: "defineAction()의 구조: schema, run, HTTP 설정, 그리고 acti
     {
       lines: "12-16",
       label: "하나의 구현",
-      note: "`run` 본문이 단일 진실 공급원입니다. UI 버튼과 에이전트 도구는 둘 다 정확히 이 코드를 실행합니다. `getDb()`와 `schema`는 앱의 `server/db/index.ts`에서 옵니다. [데이터베이스](/docs/database)를 참고하세요.",
+      note: "`run` 본문이 단일 진실 공급원입니다. UI 버튼과 에이전트 도구는 둘 다 정확히 이 코드를 실행합니다. `getDb()`와 `schema`는 앱의 `server/db/index.ts`에서 옵니다. [데이터베이스](/docs/server-database)를 참고하세요.",
     },
   ]}
 />
@@ -271,5 +271,5 @@ POST가 기본값이며, `http: { method: "GET" }`을 지정하면 GET이 됩니
 - [**액세스 및 권한 부여**](/docs/actions-access-control) — `agentTool`, `toolCallable`, `authorize`, `ctx` 범위 지정
 - [**실행 컨텍스트**](/docs/actions-run-context) — 전체 `ctx` 필드 표
 - [**다른 표면들**](/docs/actions-other-surfaces) — 네이티브 채팅 UI, CLI, A2A, MCP, 표준 actions
-- [**데이터베이스**](/docs/database) — `run()` 안에서 사용하는 `getDb()`/`schema`
+- [**데이터베이스**](/docs/server-database) — `run()` 안에서 사용하는 `getDb()`/`schema`
 - [**데이터 및 동기화**](/docs/client-data) — UI에서 이 action을 호출하기

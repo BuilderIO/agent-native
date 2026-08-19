@@ -1,0 +1,34 @@
+---
+title: "在正式環境中更新 UI"
+description: "已部署應用程式的 UI 在上線後如何更新，以及 Builder.io 針對正式環境視覺化編輯的獨立受管理工作流程。"
+---
+
+# 在正式環境中更新 UI
+
+一般已部署應用程式的代理是透過應用程式工具（actions、資料庫、MCP，以及
+已設定的整合）運作，而不是取得對應用程式原始碼的環境級存取權。原始碼
+變更屬於儲存庫開發工作流程的一部分。當某個嵌入式、本機或 Builder frame
+被刻意授予工作區和寫入工具時，它就可以編輯儲存庫。
+
+在標準的正式環境部署中，如果[正式環境程式碼執行](/docs/actions-agent-tools#production-code-execution)保持關閉，代理可以存取應用程式工具（actions、資料庫、MCP），但無法存取檔案系統。這代表代理可以讀寫資料、執行 actions，並與外部服務互動。它無法在已部署的執行個體上編輯你的 React 元件或新增路由。
+
+## Builder.io：正式環境中的視覺化編輯 {#builderio}
+
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) 是一個獨立的受管理、具備程式碼編輯能力的工作流程，讓代理可以在正式環境中修改你應用程式的 UI。將你的儲存庫連接到 Builder.io（提供免費方案），直接提示進行 UI 變更即可，不需要重新部署。
+
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
+**運作方式：**
+
+1. 將你的 agent-native 儲存庫連接到 Builder.io（提供免費方案）
+2. Builder.io 提供一個具備代理、視覺化編輯和即時協作功能的雲端 frame
+3. 提示代理進行 UI 變更。它會即時編輯你的元件、路由和樣式
+4. 變更會提交回你的儲存庫
+
+有關嵌入式代理面板與雲端 frame 選項的更多資訊，請參閱 [Frames](/docs/frames)。
+
+## 接下來呢
+
+- [**Deployment**](/docs/deployment) — 在第一次正式環境部署之前，選擇一個持久性資料庫和一個預設集
+- [**Frames**](/docs/frames) — 正式環境 UI 編輯：嵌入式代理面板與 Builder.io 雲端 frame 的比較
+- [**Production Agent Access**](/docs/actions-agent-tools) — 已部署代理預設擁有哪些工具

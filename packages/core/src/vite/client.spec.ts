@@ -20,6 +20,7 @@ import {
   _nitroStartupRecovery,
   agentNative,
   defineConfig,
+  isFrameworkDynamicDevPath,
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
@@ -128,9 +129,12 @@ describe("Nitro dev startup recovery", () => {
     expect(res.statusCode).toBe(503);
     expect(res.setHeader).toHaveBeenCalledWith("retry-after", "1");
     const html = res.end.mock.calls[0]?.[0] as string;
-    expect(html).toContain("__agent_native_nitro_startup_retry");
-    expect(html).toContain("Retrying in one second");
-    expect(html).toContain("Refresh when it is ready");
+    expect(html).toContain("Waiting for the dev server");
+    expect(html).toContain("first boot can take a couple of minutes");
+    expect(html).toContain("res.status !== 503");
+    expect(html).toContain("fetch(location.href");
+    expect(html).not.toContain("sessionStorage");
+    expect(html).not.toContain("Refresh when it is ready");
     expect(html).not.toContain('http-equiv="refresh"');
   });
 
@@ -285,6 +289,85 @@ describe("dev server mounted path helpers", () => {
     );
   });
 
+  it("treats framework and well-known paths as dynamic for the dev forwarder", () => {
+    expect(
+      isFrameworkDynamicDevPath("/_agent-native/speculation-rules.json", "/"),
+    ).toBe(true);
+    expect(
+      isFrameworkDynamicDevPath(
+        "/docs/_agent-native/speculation-rules.json",
+        "/docs/",
+      ),
+    ).toBe(true);
+    expect(
+      isFrameworkDynamicDevPath("/docs/.well-known/agent-card.json", "/docs/"),
+    ).toBe(true);
+    expect(isFrameworkDynamicDevPath("/assets/logo.png", "/")).toBe(false);
+    expect(isFrameworkDynamicDevPath("/favicon.ico", "/")).toBe(false);
+  });
+
+  it("forces Nitro's dev classifier to treat framework assets as dynamic", () => {
+    const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+    plugin.configureServer(server as any);
+    expect(typeof middleware).toBe("function");
+
+    const request: any = {
+      url: "/_agent-native/speculation-rules.json",
+      headers: { accept: "application/json" },
+    };
+    const next = vi.fn();
+    middleware?.(request, {}, next);
+    expect(request.headers.accept).toContain("text/html");
+    expect(request.headers["sec-fetch-dest"]).toBe("empty");
+    expect(next).toHaveBeenCalledOnce();
+
+    const assetRequest: any = {
+      url: "/assets/logo.png",
+      headers: { accept: "image/png" },
+    };
+    middleware?.(assetRequest, {}, vi.fn());
+    expect(assetRequest.headers.accept).toBe("image/png");
+  });
+
+  it("preserves document and iframe destinations for embed-start", () => {
+    const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+    plugin.configureServer(server as any);
+
+    for (const destination of ["document", "iframe"]) {
+      const request: any = {
+        url: "/_agent-native/embed/start",
+        headers: {
+          accept: "text/html",
+          "sec-fetch-dest": destination,
+        },
+      };
+      const next = vi.fn();
+
+      middleware?.(request, {}, next);
+
+      expect(request.headers["sec-fetch-dest"]).toBe(destination);
+      expect(next).toHaveBeenCalledOnce();
+    }
+  });
+
   it("serves base-prefixed Vite module requests for embed sessions", async () => {
     process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
     const plugin = findPlugin("agent-native-base-redirect-guard");
@@ -343,6 +426,129 @@ describe("dev server mounted path helpers", () => {
     );
     expect(res.end).toHaveBeenCalledWith(
       'window.__loaded = "\\u0000virtual:react-router/browser-manifest";',
+    );
+  });
+
+  it("lets direct mounted static assets reach Vite's normal handler", () => {
+    process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      transformRequest: vi.fn(),
+    };
+
+    plugin.configureServer(server);
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/picker?mediaType=image",
+      ttlSeconds: 60,
+    });
+    const next = vi.fn();
+
+    middleware!(
+      {
+        method: "GET",
+        url: `/assets/app/global.css?__an_embed_token=${token}`,
+        headers: {},
+      },
+      { setHeader: vi.fn() },
+      next,
+    );
+
+    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("lets direct text assets reach Vite without a fetch destination", () => {
+    process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      transformRequest: vi.fn(),
+    };
+
+    plugin.configureServer(server);
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/picker?mediaType=image",
+      ttlSeconds: 60,
+    });
+    const next = vi.fn();
+
+    middleware!(
+      {
+        method: "GET",
+        url: `/assets/app/robots.txt?__an_embed_token=${token}`,
+        headers: { "sec-fetch-dest": "empty" },
+      },
+      { setHeader: vi.fn() },
+      next,
+    );
+
+    expect(server.transformRequest).not.toHaveBeenCalled();
+    expect(next).toHaveBeenCalledOnce();
+  });
+
+  it("keeps Vite module queries for mounted static files", async () => {
+    process.env.OAUTH_STATE_SECRET = "vite-embed-test-secret";
+    const plugin = findPlugin("agent-native-base-redirect-guard");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/assets/", publicDir: "/tmp/no-public" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+      transformRequest: vi.fn(async (url: string) => ({
+        code: `export default ${JSON.stringify(url)};`,
+      })),
+    };
+
+    plugin.configureServer(server);
+    const token = signEmbedSessionToken({
+      ownerEmail: "owner@example.com",
+      targetPath: "/picker?mediaType=image",
+      ttlSeconds: 60,
+    });
+    const res = {
+      headersSent: false,
+      statusCode: 0,
+      setHeader: vi.fn(),
+      end: vi.fn(() => {
+        res.headersSent = true;
+      }),
+    };
+    const next = vi.fn();
+
+    middleware!(
+      {
+        method: "GET",
+        url: `/assets/app/global.css?url&__an_embed_token=${token}`,
+        headers: {},
+      },
+      res,
+      next,
+    );
+    await vi.waitFor(() => expect(res.end).toHaveBeenCalledOnce());
+
+    expect(next).not.toHaveBeenCalled();
+    expect(server.transformRequest).toHaveBeenCalledWith("/app/global.css?url");
+    expect(res.setHeader).toHaveBeenCalledWith(
+      "content-type",
+      "text/javascript",
     );
   });
 
@@ -753,6 +959,16 @@ describe("route warmup config", () => {
     }
   });
 
+  it("embeds the configured deployment lane into the server bundle", () => {
+    const config = defineConfig({
+      agentNativeConfig: { deployment: { environment: "beta" } },
+    });
+
+    expect(
+      config.define?.["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
+    ).toBe(JSON.stringify("beta"));
+  });
+
   it("exposes the build-time GTM container id for SSR bundles", () => {
     const previous = process.env.GTM_CONTAINER_ID;
     process.env.GTM_CONTAINER_ID = "  gtm-UNITTEST123  ";
@@ -795,6 +1011,7 @@ describe("agent-native app config", () => {
     ).toEqual({
       version: 1,
       onboarding: { firstRun: "connect" },
+      deployment: { environment: "local" },
     });
   });
 
@@ -852,6 +1069,7 @@ describe("agent-native app config", () => {
       ).toEqual({
         version: 1,
         onboarding: { firstRun: "connect" },
+        deployment: { environment: "local" },
       });
     } finally {
       process.chdir(previousCwd);
@@ -888,6 +1106,7 @@ describe("agent-native app config", () => {
       ).toEqual({
         version: 1,
         onboarding: { firstRun: "connect" },
+        deployment: { environment: "local" },
       });
     } finally {
       process.chdir(previousCwd);
@@ -977,6 +1196,7 @@ describe("agent-native app config", () => {
             required: ["NOTION_API_KEY", "GOOGLE_CLIENT_ID"],
           },
         },
+        deployment: { environment: "local" },
       });
     } finally {
       process.chdir(previousCwd);

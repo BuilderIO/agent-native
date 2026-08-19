@@ -591,14 +591,13 @@ function useBuilderConnectUrl() {
     let lastConfigured = false;
     const refresh = () => {
       fetchBuilderStatus<{
-        cliAuthUrl?: string;
         connectUrl?: string;
         configured?: boolean;
       }>()
         .then((result) => (result.state === "available" ? result.value : null))
         .then((data) => {
           if (cancelled || !data) return;
-          const nextConnectUrl = data.cliAuthUrl || data.connectUrl;
+          const nextConnectUrl = data.connectUrl;
           if (nextConnectUrl) setConnectUrl(nextConnectUrl);
           const nextConfigured = !!data.configured;
           setConfigured(nextConfigured);
@@ -3083,6 +3082,10 @@ export interface AgentSidebarProps {
   apiUrl?: string;
   /** Runtime surface identity used for server-side chat capabilities. */
   agentChatSurface?: AgentChatSurfaceKind;
+  /** Whether the desktop host is currently showing its unauthenticated identity gate. */
+  desktopIdentityUnauthenticated?: AssistantChatProps["desktopIdentityUnauthenticated"];
+  /** Whether the desktop host has just established its authenticated identity session. */
+  desktopIdentityAuthenticated?: AssistantChatProps["desktopIdentityAuthenticated"];
   /** Show the chat thread tab row. Default: true. */
   showTabBar?: MultiTabAssistantChatProps["showTabBar"];
   /** Keep inline app-opening results inside the current app chat. */
@@ -3146,6 +3149,8 @@ export function AgentSidebar({
   openStorageKey,
   apiUrl,
   agentChatSurface,
+  desktopIdentityUnauthenticated,
+  desktopIdentityAuthenticated,
   showTabBar = true,
   suppressInlineOpenApp,
   composerPlaceholder,
@@ -3952,6 +3957,8 @@ export function AgentSidebar({
             threadFooterSlot={threadFooterSlot}
             apiUrl={apiUrl}
             agentChatSurface={agentChatSurface}
+            desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
+            desktopIdentityAuthenticated={desktopIdentityAuthenticated}
             showTabBar={effectiveShowTabBar}
             suppressInlineOpenApp={suppressInlineOpenApp}
             composerPlaceholder={composerPlaceholder}

@@ -71,6 +71,7 @@ const messages = {
     status: "Status",
     coverage: "Cobertura",
     reason: "Motivo",
+    updatedAt: "Atualizado",
     detailTitle: "Detalhes da decisão",
     selectItem: "Selecione um item para inspecionar evidências e decisões.",
     detailError: "Não foi possível carregar esta observação.",
@@ -208,6 +209,47 @@ const messages = {
     auditUxImpact: "Impacto de UX",
     auditOwnerArea: "Área responsável",
     auditGuardsLabel: "Guards",
+    historyTab: "Histórico",
+    historyTitle: "Versões salvas",
+    historyLoading: "Carregando versões salvas",
+    historyLoadError: "Não foi possível carregar o histórico do Factory.",
+    historyEmpty: "Ainda não há versões salvas",
+    historyEmptyHint:
+      "Salve o grafo visual uma vez e o Factory manterá cada versão aqui para revisão e restauração.",
+    historyVersion: "Versão {{version}}",
+    historyCurrent: "Atual",
+    historySource: "Origem",
+    historySourceManual: "Editor visual",
+    historySourceAi: "Proposta do agente",
+    historySourceSeed: "Versão inicial do Factory",
+    historySourceRestore: "Restauração",
+    historySourceSaved: "Grafo salvo",
+    historyNodes: "Nós",
+    historyConnections: "Conexões",
+    historyChangeSummary: "Resumo da alteração",
+    historyNoSummary: "Nenhum resumo da alteração foi registrado.",
+    historyCurrentHint: "Esta é a versão usada atualmente pelo Factory.",
+    historyRestore: "Restaurar esta versão",
+    historyRestoreTitle: "Restaurar a versão {{version}}?",
+    historyRestoreDescription:
+      "O Factory criará uma nova versão atual a partir deste snapshot. As versões existentes continuarão disponíveis no histórico.",
+    historyRestoreUnsaved:
+      "Você também tem alterações visuais não salvas. Restaurar irá descartá-las.",
+    historyCancel: "Cancelar",
+    historyRestoreConfirm: "Restaurar versão",
+    historyRestored: "Versão restaurada. Uma nova versão atual foi criada.",
+    historyRestoreFailed: "Não foi possível restaurar esta versão do Factory.",
+    historyRestoreConflict:
+      "O Factory mudou durante a restauração. Revise o histórico atualizado antes de tentar novamente.",
+    historyRefreshFailed:
+      "A versão foi restaurada, mas não foi possível atualizar a visualização do Factory.",
+    historyLoadOlder: "Carregar versões anteriores",
+    historySnapshotLoadError:
+      "Não foi possível carregar a prévia desta versão.",
+    historyRestoreUnverified:
+      "A restauração foi concluída, mas não foi possível verificar o resultado. Atualize o histórico antes de tentar novamente.",
+    saveConflictFallback:
+      "O Factory mudou durante o salvamento. Atualize o Factory e tente novamente.",
     automationsTitle: "Automações",
     automationsDescription: "Agende e execute prompts da fábrica.",
     automationsLoading: "Carregando automações...",
@@ -226,11 +268,14 @@ const messages = {
     automationSchedulePlaceholder: "Por exemplo, dias úteis às 9h",
     automationEnabledLabel: "A automação está ativada",
     automationPrompt: "Prompt",
+    automationLastUpdated: "última atualização",
     automationPromptPlaceholder: "O que a fábrica deve fazer quando executar?",
     promptEditorHint: "Edite aqui e salve a automação.",
     pastRuns: "Execuções anteriores",
     pastRunsEmpty: "Nenhuma execução registrada ainda.",
     saveAutomation: "Salvar",
+    automationSaved: "Salvo",
+    automationSaveFailed: "Não foi possível salvar a automação.",
     runNow: "Executar agora",
     automationHealthTitle: "Saúde do agendador",
     automationHealthDescription:
@@ -320,6 +365,10 @@ const messages = {
     addComment: "Adicionar comentário",
     savingGraph: "Salvando o grafo...",
     saveGraph: "Salvar alterações da fábrica",
+    saveConflictHint:
+      "Suas alterações não salvas foram preservadas. Descarte-as para carregar a versão mais recente do Factory.",
+    discardLocalChanges:
+      "Descartar alterações locais e carregar a versão atual",
     savedGraph: "A fábrica está salva",
     saveNote:
       "Salva uma nova versão. As execuções existentes mantêm o contexto original.",

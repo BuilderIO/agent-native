@@ -172,7 +172,7 @@ Adoptar el framework es valioso sobre todo por lo que dejas de tener que constru
 
 ## Datos en SQL {#data-in-sql}
 
-Todo el estado de la aplicación vive en una base de datos SQL a través de Drizzle ORM. Los esquemas son independientes del proveedor; las bases de datos compatibles, la configuración de `DATABASE_URL` y las reglas de portabilidad están en [Database](/docs/database).
+Todo el estado de la aplicación vive en una base de datos SQL a través de Drizzle ORM. Los esquemas son independientes del proveedor; las bases de datos compatibles, la configuración de `DATABASE_URL` y las reglas de portabilidad están en [Database](/docs/server-database).
 
 Los almacenes SQL de Core se crean automáticamente y están disponibles en cada plantilla:
 
@@ -290,7 +290,7 @@ El complemento de chat del agente de producción deja las herramientas SQL sin f
 
 </Callout>
 
-`frameworkTools` gobierna igual el resto de las herramientas propias del framework: sharing, comentarios de revisión, historial de versiones, feature flags, localización, auditoría, Context X-Ray, perfil, automatizaciones, docs, resources, web, delegación entre apps, chat y email. Consulta [Production Agent Tools](/docs/deployment#production-agent-tools) para la lista completa, el preset `"minimal"` y por qué desactivar un grupo deja sus rutas HTTP montadas.
+`frameworkTools` gobierna igual el resto de las herramientas propias del framework: sharing, comentarios de revisión, historial de versiones, feature flags, localización, auditoría, Context X-Ray, perfil, automatizaciones, docs, resources, web, delegación entre apps, chat y email. Consulta [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools) para la lista completa, el preset `"minimal"` y por qué desactivar un grupo deja sus rutas HTTP montadas.
 
 ## Puente de chat del agente {#agent-chat-bridge}
 
@@ -478,7 +478,7 @@ tiempo de ejecución sin cambios en el código fuente, usa [Extensions](/docs/ex
 
 Dos reglas arquitectónicas mantienen las aplicaciones portátiles entre bases de datos y hosts:
 
-- **Independiente de la base de datos.** Escribe los esquemas con `@agent-native/core/db/schema` y las lecturas/escrituras con el DSL de consultas portátil de Drizzle, de modo que el mismo código se ejecute en cualquier proveedor compatible. Usa SQL sin procesar solo para migraciones aditivas o mantenimiento puntual, manteniéndolo parametrizado e independiente del dialecto. Consulta [Database](/docs/database).
+- **Independiente de la base de datos.** Escribe los esquemas con `@agent-native/core/db/schema` y las lecturas/escrituras con el DSL de consultas portátil de Drizzle, de modo que el mismo código se ejecute en cualquier proveedor compatible. Usa SQL sin procesar solo para migraciones aditivas o mantenimiento puntual, manteniéndolo parametrizado e independiente del dialecto. Consulta [Database](/docs/server-database).
 - **Independiente del hosting.** El servidor se ejecuta sobre Nitro y compila para cualquier destino de despliegue. Nunca uses APIs específicas de Node (`fs`, `child_process`, `path`) en rutas o plugins del servidor, y nunca asumas un proceso de servidor persistente. Serverless y edge no tienen estado, así que mantén todo el estado en SQL. Consulta [Deployment](/docs/deployment).
 
 ## Recursos del agente {#workspace}

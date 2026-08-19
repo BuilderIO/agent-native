@@ -68,6 +68,50 @@ export function isSqlRead(sql: string): boolean {
   return /^\s*(SELECT|WITH\s)/i.test(sql);
 }
 
+const NEON_IDLE_IN_TRANSACTION_TIMEOUT_SQL =
+  "SET LOCAL idle_in_transaction_session_timeout = 30000";
+
+function queryText(sql: unknown): string {
+  if (typeof sql === "string") return sql;
+  if (sql && typeof sql === "object" && "text" in sql) {
+    const text = (sql as { text?: unknown }).text;
+    return typeof text === "string" ? text : "";
+  }
+  return "";
+}
+
+function isBeginQuery(sql: unknown): boolean {
+  return /^\s*BEGIN(?:\s|$)/i.test(queryText(sql));
+}
+
+/**
+ * Drizzle sends BEGIN through the client returned by pool.connect(), so a
+ * pool startup parameter alone is not enough protection when Neon routes the
+ * connection through a transaction pooler. Put the idle timeout in the same
+ * simple-protocol message as BEGIN; a worker killed before its next query
+ * still leaves a backend that will reap itself.
+ */
+function guardNeonTransactionClient<
+  T extends { query: (...args: any[]) => any },
+>(client: T): T {
+  return new Proxy(client, {
+    get(target, prop) {
+      if (prop !== "query") {
+        const value = (target as any)[prop];
+        return typeof value === "function" ? value.bind(target) : value;
+      }
+
+      return (...args: any[]) => {
+        const sql = args[0];
+        if (!isBeginQuery(sql)) return target.query(...args);
+
+        const text = queryText(sql).replace(/;\s*$/, "");
+        return target.query(`${text}; ${NEON_IDLE_IN_TRANSACTION_TIMEOUT_SQL}`);
+      };
+    },
+  });
+}
+
 /**
  * Wraps a @neondatabase/serverless Pool so every query goes through
  * the same withDbTimeout + retryOnConnectionError resilience that the
@@ -187,6 +231,12 @@ export function buildResilientNeonPool<
   return new Proxy(pool, {
     get(target, prop) {
       if (prop === "query") return resilientQuery;
+      if (prop === "connect") {
+        return (...args: any[]) =>
+          (target as any)
+            .connect(...args)
+            .then((client: any) => guardNeonTransactionClient(client));
+      }
       const val = (target as any)[prop];
       return typeof val === "function" ? val.bind(target) : val;
     },

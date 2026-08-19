@@ -53,6 +53,7 @@ import {
   type ActiveWebviewTarget,
   type CodeAgentCodePackResult,
   type CodeAgentCreateRunResult,
+  type CodeAgentForkRunResult,
   type CodeAgentFollowUpResult,
   type CodeAgentHostMetadata,
   type CodeAgentModelListResult,
@@ -63,16 +64,23 @@ import {
   type CodeAgentUpdateRunResult,
   type CodeAgentControlCommand,
   type CodeAgentControlResult,
+  type CodeAgentPortalTransferAllResult,
+  type CodeAgentPortalTransferItem,
+  type CodeAgentPortalTransferResult,
   type CodeAgentPromptAttachment,
   type CodeAgentRetryRunResult,
+  type CodeAgentRestoreWorktreeResult,
   type CodeAgentRerunResult,
   type CodeAgentRun,
   type CodeAgentRunListResult,
+  type CodeAgentScheduleListResult,
+  type CodeAgentScheduleResult,
   type CodeAgentQueueMetadata,
   type CodeAgentSteeringMetadata,
   type CodeAgentTranscriptEvent,
   type CodeAgentTranscriptEventType,
   type CodeAgentTranscriptResult,
+  type CodeAgentWorktreeListResult,
   type CodeAgentTerminalRequest,
   type CodeAgentTerminalResult,
   type CodeAgentRemoteConnectorControlResult,
@@ -116,7 +124,9 @@ import {
   type DesktopPlanMdxFolder,
   type DesktopIdentityStatus,
   type DesktopIdentitySettings,
+  type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
+import { DESKTOP_DEEP_LINK_PROTOCOL } from "@shared/release-channel";
 import {
   app,
   BrowserWindow,
@@ -148,6 +158,11 @@ import {
   withFileLockSync,
   writeJsonFileAtomically,
 } from "../../../core/src/cli/atomic-json-file.js";
+import { listCodeAgentSchedules } from "../../../core/src/cli/code-agent-schedules.js";
+import {
+  createPortalTransferContext,
+  portalTransferContinuationPrompt,
+} from "../../../core/src/cli/portal-transfer.js";
 import {
   createPortalHandoff,
   type PortalHandoff,
@@ -181,6 +196,7 @@ import {
   isCodeAgentRunnerInFlight,
   resolveCodeAgentRunnerInvocation,
 } from "./code-agent-runner.js";
+import { DesktopCodeAgentScheduler } from "./code-agent-scheduler.js";
 import {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
   CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
@@ -188,6 +204,22 @@ import {
 } from "./code-agent-transcript-ipc.js";
 import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
 import {
+  CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+  attachCodeAgentWorktree,
+  claimCodeAgentWorktreeRun,
+  cleanupDueCodeAgentWorktrees,
+  createOrAttachCodeAgentWorktree,
+  listNamedCodeAgentWorktrees,
+  reconcileCodeAgentWorktreeLeases,
+  releaseCodeAgentWorktree,
+  restoreManagedCodeAgentWorktree,
+  worktreeRegistryPath,
+  type CodeAgentManagedWorktree,
+  type CodeAgentWorktreeRunState,
+} from "./code-agent-worktree-registry.js";
+import {
+  codeAgentWorktreeHasChanges,
+  codeAgentWorktreeHasCommitsAfterBase,
   cleanupCodeAgentWorktree,
   createCodeAgentWorktree,
 } from "./code-agent-worktrees.js";
@@ -229,6 +261,7 @@ import {
   runDesktopStartupStep,
 } from "./desktop-startup.js";
 import { HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT } from "./embedded-auth-ui";
+import { isAllowedEnvironmentNavigation } from "./environment-navigation";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
@@ -241,7 +274,10 @@ import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
+  isPreparingDownloadedUpdate,
+  isInstallingDownloadedUpdate,
   installDownloadedUpdate,
+  requestQuitAfterUpdatePreparation,
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
@@ -250,6 +286,8 @@ import {
   initializeMultiFrontierAppIntegration,
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
+import { createOAuthPopupCloser } from "./oauth-popup-close";
+import { routeOAuthToBoundSession } from "./oauth-session";
 import {
   isQuickPromptActive,
   registerQuickPromptIpc,
@@ -325,10 +363,10 @@ const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
   ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
   : "";
 app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}${desktopSsoCanaryMarker}`;
-// ---------- Deep link protocol (agentnative://) ----------
+// ---------- Deep link protocol (agentnative:// or agentnative-nightly://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
 
-const DEEP_LINK_PROTOCOL = "agentnative";
+const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;
 if (IS_DEV) {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
     path.resolve(process.argv[1]),
@@ -557,11 +595,6 @@ function extractAppFromOAuthState(state: string | null): string | undefined {
   return typeof parsed?.app === "string" ? parsed.app : undefined;
 }
 
-function extractFlowFromOAuthState(state: string | null): string | undefined {
-  const parsed = decodeOAuthStatePayload(state);
-  return typeof parsed?.f === "string" ? parsed.f : undefined;
-}
-
 function getCookieNameForApp(id: string | null | undefined): string {
   const slug = (id ?? "")
     .toLowerCase()
@@ -763,9 +796,11 @@ function resolveDesktopIdentityApp(
     `${betterAuthPrefix}.session_data`,
     `__Secure-${betterAuthPrefix}.session_data`,
   ];
+  const workspaceSso = isCanonical || configured?.workspaceSso === true;
   const cookieNames = [
     primaryCookieName,
     ...(primaryCookieName === "an_session" ? [] : ["an_session"]),
+    ...(workspaceSso ? ["an_session_workspace", "an_embed_session"] : []),
     ...betterAuthCookieNames,
   ];
   return {
@@ -783,7 +818,7 @@ function resolveDesktopIdentityApp(
       ]),
     ],
     identityAuthority: appId === "dispatch",
-    workspaceSso: isCanonical || configured?.workspaceSso === true,
+    workspaceSso,
   };
 }
 
@@ -1258,7 +1293,16 @@ async function closeDesktopComputerMcpBridge(): Promise<void> {
 registerUpdatesIpc({
   refreshApplicationMenu,
   focusMainWindow,
-  prepareForUpdate: closeDesktopComputerMcpBridge,
+  prepareForUpdate: async () => {
+    await closeDesktopComputerMcpBridge();
+    await disposeMultiFrontierAppIntegration();
+  },
+  restoreAfterUpdateFailure: async () => {
+    await initializeDesktopComputerMcpBridge();
+    if (multiFrontierDisposePromise) {
+      initializeMultiFrontierAppIntegrationForRuntime();
+    }
+  },
 });
 
 function isShellIdentityIpc(event: IpcMainInvokeEvent): boolean {
@@ -1379,6 +1423,32 @@ ipcMain.handle(IPC.IDENTITY_AUTHENTICATE, async (event, request) => {
   });
 });
 
+ipcMain.handle(IPC.IDENTITY_MAGIC_LINK_REQUEST, async (event, request) => {
+  if (!isShellIdentityIpc(event)) {
+    return {
+      ok: false,
+      error: "The desktop identity surface is unavailable.",
+    };
+  }
+  if (!isDesktopSsoEnabled()) {
+    return { ok: false, error: "Desktop workspace sign-in is turned off." };
+  }
+  const broker = ensureDesktopIdentityBroker();
+  if (!broker) {
+    return { ok: false, error: "Desktop workspace sign-in is unavailable." };
+  }
+  if (
+    !request ||
+    typeof request !== "object" ||
+    typeof (request as DesktopIdentityMagicLinkRequest).email !== "string"
+  ) {
+    return { ok: false, error: "Enter your email to continue." };
+  }
+  return broker.requestMagicLink({
+    email: (request as DesktopIdentityMagicLinkRequest).email,
+  });
+});
+
 ipcMain.handle(IPC.IDENTITY_SIGN_OUT, async (event) => {
   if (!isShellIdentityIpc(event)) return false;
   const broker = ensureDesktopIdentityBroker();
@@ -1393,10 +1463,12 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
   desktopIdentityBroker = new DesktopIdentityBroker({
     identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
     isAvailable: isDesktopIdentityAvailable,
-    // The identity window must own the login request so its browser cookie jar
-    // retains the PKCE verifier across the cross-origin redirect chain.
+    // Parent Google verification runs in the isolated identity window so its
+    // browser-bound OAuth state remains in the same cookie partition. Magic
+    // links may still complete through the system browser exchange path.
     resolveApp: resolveDesktopIdentityApp,
     listApps: () => listDesktopIdentityApps(),
+    openExternal: (url) => openExternalUrl(url),
     createWindow: (options) => new BrowserWindow(options),
     parentWindow: () => mainWindow,
     handleWindowOpen: (contents, url) =>
@@ -2063,6 +2135,9 @@ let multiFrontierDisposePromise: Promise<void> | undefined;
 const multiFrontierQuitGuard = createMultiFrontierQuitGuard({
   dispose: () => disposeMultiFrontierAppIntegration(),
   reissueQuit: () => app.quit(),
+  shouldAllowQuit: () => isInstallingDownloadedUpdate(),
+  shouldDeferQuit: () => isPreparingDownloadedUpdate(),
+  onDeferredQuit: requestQuitAfterUpdatePreparation,
 });
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
@@ -2657,6 +2732,425 @@ async function appendPortalCodeAgentFollowUp(input: {
   };
 }
 
+const PORTAL_TRANSFER_RUNNER_STOP_TIMEOUT_MS = 5_000;
+
+async function transferCodeAgentRun(
+  input: unknown,
+): Promise<CodeAgentPortalTransferResult> {
+  const payload = isObject(input) ? input : {};
+  const runId = normalizeCodeAgentRunId(payload.runId);
+  if (!runId) {
+    return {
+      ok: false,
+      runId: "",
+      message: "Select a chat first.",
+      error: "Missing or invalid run id.",
+    };
+  }
+
+  const selected = await selectPortalHost(payload);
+  if ("error" in selected) {
+    return {
+      ok: false,
+      runId,
+      message: "Could not move the chat to Portal.",
+      error: selected.error,
+    };
+  }
+  return transferCodeAgentRunToPortal(runId, selected);
+}
+
+async function transferAllCodeAgentRuns(
+  input?: unknown,
+): Promise<CodeAgentPortalTransferAllResult> {
+  const transferred: CodeAgentPortalTransferItem[] = [];
+  const skipped: CodeAgentPortalTransferItem[] = [];
+  const failed: CodeAgentPortalTransferItem[] = [];
+  const selected = await selectPortalHost(input);
+  if ("error" in selected) {
+    return {
+      ok: false,
+      transferred,
+      skipped,
+      failed,
+      message: "Could not move local chats to Portal.",
+      error: selected.error,
+    };
+  }
+
+  for (const { runId, record } of listRawCodeAgentRunRecords()) {
+    const title = getRecordString(record, "title");
+    const item = {
+      runId,
+      ...(title ? { title } : {}),
+    };
+    if (isPortalCodeAgentRunRecord(record)) {
+      skipped.push({
+        ...item,
+        ok: false,
+        message: "Already running on Portal.",
+      });
+      continue;
+    }
+    const goal = getCodeAgentGoal(getRecordString(record, "goalId"));
+    if (!goal || goal.surfaceKind !== "native") {
+      skipped.push({
+        ...item,
+        ok: false,
+        message: "This session does not run as a native coding chat.",
+      });
+      continue;
+    }
+    if (
+      getRecordString(record, "status") === "needs-approval" ||
+      record.needsApproval === true
+    ) {
+      skipped.push({
+        ...item,
+        ok: false,
+        message: "Waiting for a local approval. Resolve it before moving it.",
+      });
+      continue;
+    }
+
+    const result = await transferCodeAgentRunToPortal(runId, selected);
+    const transferItem: CodeAgentPortalTransferItem = {
+      ...item,
+      ok: result.ok,
+      ...(result.eventCount !== undefined
+        ? { eventCount: result.eventCount }
+        : {}),
+      message: result.message,
+      ...(result.error ? { error: result.error } : {}),
+    };
+    if (result.ok) transferred.push(transferItem);
+    else failed.push(transferItem);
+  }
+
+  const counts = [
+    `${transferred.length} moved`,
+    `${skipped.length} skipped`,
+    `${failed.length} failed`,
+  ].join(", ");
+  return {
+    ok: failed.length === 0,
+    host: { id: selected.host.id, label: selected.host.label },
+    transferred,
+    skipped,
+    failed,
+    message:
+      transferred.length > 0
+        ? `Portal transfer: ${counts}.`
+        : `No local chats moved. ${counts}.`,
+    ...(failed.length > 0
+      ? { error: failed.map((item) => item.error ?? item.message).join(" ") }
+      : {}),
+  };
+}
+
+async function transferCodeAgentRunToPortal(
+  runId: string,
+  selected: { relayUrl: string; host: PortalRemoteHost },
+): Promise<CodeAgentPortalTransferResult> {
+  const record = readCodeAgentRunRecord(runId);
+  if (!record) {
+    return {
+      ok: false,
+      runId,
+      message: "The selected chat no longer exists.",
+      error: `No run record exists for ${runId}.`,
+    };
+  }
+  if (isPortalCodeAgentRunRecord(record)) {
+    return {
+      ok: false,
+      runId,
+      message: "This chat is already running on Portal.",
+      error: "The chat already has a Portal execution residence.",
+    };
+  }
+  if (
+    getRecordString(record, "status") === "needs-approval" ||
+    record.needsApproval === true
+  ) {
+    return {
+      ok: false,
+      runId,
+      message: "Resolve the local approval before moving this chat.",
+      error: "Pending approvals cannot be moved safely between computers.",
+    };
+  }
+
+  const goal = getCodeAgentGoal(getRecordString(record, "goalId"));
+  if (!goal || goal.surfaceKind !== "native") {
+    return {
+      ok: false,
+      runId,
+      message: "This session cannot be moved as a native coding chat.",
+      error: "Portal transfer requires a native code-agent goal.",
+    };
+  }
+  const sourceCwd = getRecordString(record, "cwd");
+  if (!sourceCwd || !fs.existsSync(sourceCwd)) {
+    return {
+      ok: false,
+      runId,
+      message: "The local coding folder is no longer available.",
+      error: sourceCwd
+        ? `Portal source folder does not exist: ${sourceCwd}`
+        : "The run has no source folder.",
+    };
+  }
+
+  const metadata = isObject(record.metadata) ? record.metadata : {};
+  const worktree = isObject(metadata.worktree) ? metadata.worktree : undefined;
+  const recordedWorktreePath = firstStringValue(worktree?.path);
+  if (recordedWorktreePath && !fs.existsSync(recordedWorktreePath)) {
+    return {
+      ok: false,
+      runId,
+      message: "This chat's worktree is no longer available.",
+      error: `Portal cannot move a missing worktree: ${recordedWorktreePath}`,
+    };
+  }
+
+  if (
+    activeCodeAgentProcesses.has(runId) ||
+    startingCodeAgentRuns.has(runId) ||
+    isActiveDesktopCodeAgentRun(record)
+  ) {
+    const activePid = activeCodeAgentProcesses.get(runId)?.pid;
+    const stopped = await controlCodeAgentRun({
+      goalId: goal.id,
+      runId,
+      command: "stop",
+    });
+    if (!stopped.ok) {
+      return {
+        ok: false,
+        runId,
+        message: "The local runner could not be stopped for Portal.",
+        error: stopped.error ?? stopped.message,
+      };
+    }
+    try {
+      await waitForPortalRunnerStop(runId, activePid);
+    } catch (error) {
+      return {
+        ok: false,
+        runId,
+        message:
+          "The local runner is still stopping. Portal did not start a duplicate.",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  const transcript = readAllCodeAgentTranscript({ runId });
+  if (transcript.status !== "ok") {
+    return {
+      ok: false,
+      runId,
+      message: "The chat transcript could not be read for Portal.",
+      error: transcript.error ?? "Transcript is unavailable.",
+    };
+  }
+
+  let transferContext;
+  try {
+    transferContext = createPortalTransferContext({
+      sourceRunId: runId,
+      sourceStatus: getRecordString(record, "status"),
+      sourcePhase: getRecordString(record, "phase"),
+      events: transcript.events,
+    });
+  } catch (error) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal could not package the full chat context.",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  let handoff: PortalHandoff;
+  try {
+    handoff = await createPortalHandoff({ sourcePath: sourceCwd });
+  } catch (error) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal could not snapshot the local code.",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  const prompt = portalTransferContinuationPrompt({
+    hostLabel: selected.host.label,
+    handoffId: handoff.handoffId,
+    eventCount: transferContext.events.length,
+  });
+  const sourceKind = firstStringValue(metadata.kind);
+  const remote = await portalRelayRequest(
+    selected.relayUrl,
+    "POST",
+    "/_agent-native/integrations/remote/enqueue",
+    {
+      operation: "code-agent.run.create",
+      payload: {
+        hostId: selected.host.id,
+        runId,
+        prompt,
+        title: getRecordString(record, "title") ?? "Transferred coding chat",
+        goalId: goal.id,
+        permissionMode: readCodeAgentPermissionMode(record),
+        engine: firstStringValue(metadata.engine, record.engine),
+        model: firstStringValue(metadata.model, record.model),
+        effort: firstStringValue(metadata.effort, record.effort),
+        metadata: {
+          source: "desktop-portal-transfer",
+          executionTarget: "portal",
+          portal: handoff,
+          ...(sourceKind ? { kind: sourceKind } : {}),
+          portalTransfer: transferContext,
+        },
+      },
+    },
+  );
+  if (remote.ok === false) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal code was pushed but the chat was not queued remotely.",
+      error: remote.error ?? "The Portal relay rejected the transfer.",
+    };
+  }
+  const commandId = firstStringValue(remote.commandId, remote.requestId);
+  if (!commandId) {
+    return {
+      ok: false,
+      runId,
+      message: "Portal code was pushed but the relay returned no command id.",
+      error: "Invalid Portal relay response.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const permissionMode = readCodeAgentPermissionMode(record);
+  const executionResidence = {
+    schemaVersion: 1,
+    kind: "portal",
+    state: "queued",
+    hostId: selected.host.id,
+    hostLabel: selected.host.label,
+    handoffId: handoff.handoffId,
+    sourceBranch: handoff.sourceBranch,
+    sourceCommit: handoff.commit,
+    portalBranch: handoff.branch,
+    envPolicy: handoff.envPolicy,
+  };
+  const portalMetadata: Record<string, unknown> = {
+    ...metadata,
+    cwd: sourceCwd,
+    executionTarget: "portal",
+    portal: handoff,
+    executionResidence,
+    remote: {
+      commandId,
+      remoteRunId: runId,
+      deviceId: selected.host.id,
+      relayUrl: selected.relayUrl,
+    },
+    source: "desktop-portal-transfer",
+    queued: true,
+    queuedAt: now,
+    ...(metadata.initialPrompt !== undefined
+      ? { initialPrompt: metadata.initialPrompt }
+      : {}),
+    permissionMode,
+    portalTransfer: {
+      schemaVersion: 1,
+      sourceRunId: runId,
+      sourceStatus: getRecordString(record, "status"),
+      sourcePhase: getRecordString(record, "phase"),
+      eventCount: transferContext.events.length,
+      transferredAt: now,
+    },
+  };
+  touchCodeAgentRunRecord(runId, {
+    status: "queued",
+    phase: "portal-queued",
+    needsApproval: false,
+    subtitle: `Portal queued on ${selected.host.label}`,
+    progress: { label: "Portal queued", completed: 0, total: 1, percent: 0 },
+    details: [
+      { label: "Goal", value: goal.slashCommand },
+      { label: "Workspace", value: `Portal · ${selected.host.label}` },
+      {
+        label: "Snapshot",
+        value: `${handoff.branch} @ ${handoff.commit.slice(0, 12)}`,
+      },
+      {
+        label: "Context",
+        value: `Imported ${transferContext.events.length} transcript events`,
+      },
+      { label: "Environment", value: "Loaded locally on paired computer" },
+      ...(permissionMode ? [{ label: "Mode", value: permissionMode }] : []),
+    ],
+    metadata: portalMetadata,
+  });
+  appendCodeAgentStatusEvent(
+    runId,
+    `Portal handoff queued on ${selected.host.label}.`,
+    {
+      source: "desktop-portal-transfer",
+      commandId,
+      handoffId: handoff.handoffId,
+      eventCount: transferContext.events.length,
+      executionResidence,
+    },
+  );
+
+  return {
+    ok: true,
+    runId,
+    run: readDesktopCodeAgentRun(runId) ?? undefined,
+    host: { id: selected.host.id, label: selected.host.label },
+    eventCount: transferContext.events.length,
+    message: `Moved ${getRecordString(record, "title") ?? "chat"} to Portal on ${selected.host.label}.`,
+  };
+}
+
+async function waitForPortalRunnerStop(
+  runId: string,
+  pid?: number,
+): Promise<void> {
+  const deadline = Date.now() + PORTAL_TRANSFER_RUNNER_STOP_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const inFlight = isCodeAgentRunnerInFlight(
+      runId,
+      activeCodeAgentProcesses,
+      startingCodeAgentRuns,
+    );
+    const processAlive = pid ? isProcessAlive(pid) : false;
+    if (!inFlight && !processAlive) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  throw new Error(`Local runner for ${runId} did not stop within 5 seconds.`);
+}
+
+function isProcessAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ESRCH") return false;
+    if (code === "EPERM") return true;
+    throw error;
+  }
+}
+
 function isPortalCodeAgentRunRecord(record: Record<string, unknown>): boolean {
   const metadata = isObject(record.metadata) ? record.metadata : {};
   return metadata.executionTarget === "portal" || isObject(metadata.portal);
@@ -3106,7 +3600,23 @@ function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
   const runs = desktopCodeBackgroundAgentController.list({
     goalId,
   }) as BackgroundAgentRun[];
-  return runs.map(backgroundRunToDesktopRun);
+  const scheduledRunIds = new Set(
+    listCodeAgentSchedules()
+      .map((schedule) => schedule.targetRunId)
+      .filter((runId): runId is string => Boolean(runId)),
+  );
+  return runs.map((run) => {
+    const desktopRun = backgroundRunToDesktopRun(run);
+    return scheduledRunIds.has(desktopRun.id)
+      ? {
+          ...desktopRun,
+          metadata: {
+            ...(desktopRun.metadata ?? {}),
+            hasSchedule: true,
+          },
+        }
+      : desktopRun;
+  });
 }
 
 function readDesktopCodeAgentRun(runId: string): CodeAgentRun | null {
@@ -3145,7 +3655,301 @@ function listRawCodeAgentRunRecords(
 
 function isTerminalCodeAgentRun(record: Record<string, unknown>): boolean {
   const status = getRecordString(record, "status");
-  return status === "completed" || status === "errored";
+  return status === "completed" || status === "errored" || status === "paused";
+}
+
+function codeAgentWorktreeRegistryFile(): string {
+  return worktreeRegistryPath(codeAgentStoreRoot());
+}
+
+function codeAgentWorktreeMetadata(
+  worktree: CodeAgentManagedWorktree,
+): Record<string, unknown> {
+  return {
+    id: worktree.id,
+    ...(worktree.name ? { name: worktree.name } : {}),
+    policy: worktree.policy,
+    sourcePath: worktree.sourcePath,
+    path: worktree.path,
+    pathAvailable: fs.existsSync(worktree.path),
+    branch: worktree.branch,
+    baseCommit: worktree.baseCommit,
+    state: worktree.state,
+    ...(worktree.cleanupAfter ? { cleanupAfter: worktree.cleanupAfter } : {}),
+    ...(worktree.lastCleanupError
+      ? { lastCleanupError: worktree.lastCleanupError }
+      : {}),
+  };
+}
+
+function activeCodeAgentRunUsesWorktree(
+  worktree: CodeAgentManagedWorktree,
+): boolean {
+  return listRawCodeAgentRunRecords().some(({ record }) => {
+    if (!isActiveDesktopCodeAgentRun(record)) return false;
+    const metadata = isObject(record.metadata) ? record.metadata : undefined;
+    const candidate = isObject(metadata?.worktree) ? metadata.worktree : null;
+    if (!candidate) return false;
+    return (
+      firstStringValue(candidate.id) === worktree.id ||
+      (firstStringValue(candidate.path) !== undefined &&
+        path.resolve(firstStringValue(candidate.path)!) ===
+          path.resolve(worktree.path))
+    );
+  });
+}
+
+const startingCodeAgentWorktreeRuns = new Set<string>();
+const codeAgentWorktreeLeaseOwnerId = randomUUID();
+
+function codeAgentWorktreeIdFromRunRecord(
+  record: Record<string, unknown> | null,
+): string | undefined {
+  const metadata = isObject(record?.metadata) ? record.metadata : undefined;
+  const worktree = isObject(metadata?.worktree) ? metadata.worktree : undefined;
+  return firstStringValue(worktree?.id);
+}
+
+function codeAgentRunHoldsWorktreeLease(
+  runId: string,
+  record: Record<string, unknown>,
+): boolean {
+  if (
+    activeCodeAgentProcesses.has(runId) ||
+    startingCodeAgentRuns.has(runId) ||
+    startingCodeAgentWorktreeRuns.has(
+      codeAgentWorktreeIdFromRunRecord(record) ?? "",
+    )
+  ) {
+    return true;
+  }
+  const status = getRecordString(record, "status");
+  const phase = getRecordString(record, "phase");
+  return Boolean(
+    status === "running" ||
+    status === "needs-approval" ||
+    phase === "executing" ||
+    phase === "approval-running",
+  );
+}
+
+function hasActiveCodeAgentWorktreeRun(
+  worktreeId: string,
+  exceptRunId?: string,
+): boolean {
+  return listRawCodeAgentRunRecords().some(({ runId, record }) => {
+    if (
+      runId === exceptRunId ||
+      codeAgentWorktreeIdFromRunRecord(record) !== worktreeId
+    ) {
+      return false;
+    }
+    return codeAgentRunHoldsWorktreeLease(runId, record);
+  });
+}
+
+function isQueuedCodeAgentWorktreeRun(
+  record: Record<string, unknown>,
+): boolean {
+  const metadata = isObject(record.metadata) ? record.metadata : undefined;
+  const worktree = isObject(metadata?.worktree) ? metadata.worktree : undefined;
+  const queueState = firstStringValue(worktree?.queueState);
+  return Boolean(
+    firstStringValue(worktree?.id) &&
+    (queueState === "waiting" || queueState === "starting") &&
+    (getRecordString(record, "status") === "queued" ||
+      getRecordString(record, "phase") === "queued"),
+  );
+}
+
+function reconcileManagedCodeAgentWorktreeLeases(): void {
+  const runStates = new Map<string, CodeAgentWorktreeRunState>();
+  for (const { runId, record } of listRawCodeAgentRunRecords()) {
+    if (codeAgentRunHoldsWorktreeLease(runId, record)) {
+      runStates.set(runId, "active");
+    } else if (isQueuedCodeAgentWorktreeRun(record)) {
+      const metadata = isObject(record.metadata) ? record.metadata : undefined;
+      const worktree = isObject(metadata?.worktree)
+        ? metadata.worktree
+        : undefined;
+      runStates.set(
+        runId,
+        firstStringValue(worktree?.queueState) === "starting"
+          ? "starting"
+          : "queued",
+      );
+    } else {
+      runStates.set(runId, "terminal");
+    }
+  }
+  try {
+    reconcileCodeAgentWorktreeLeases({
+      registryPath: codeAgentWorktreeRegistryFile(),
+      runStates,
+    });
+  } catch (error) {
+    console.warn(
+      "[code-agents] Could not reconcile worktree leases:",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
+function syncManagedWorktreeStateToRuns(
+  worktree: CodeAgentManagedWorktree,
+): void {
+  for (const { runId, record } of listRawCodeAgentRunRecords()) {
+    const metadata = isObject(record.metadata) ? record.metadata : undefined;
+    const runWorktree = isObject(metadata?.worktree)
+      ? metadata.worktree
+      : undefined;
+    const runWorktreeId = firstStringValue(runWorktree?.id);
+    const runWorktreePath = firstStringValue(runWorktree?.path);
+    if (
+      (!runWorktreeId && !runWorktreePath) ||
+      (runWorktreeId !== worktree.id &&
+        path.resolve(runWorktreePath ?? "") !== path.resolve(worktree.path))
+    ) {
+      continue;
+    }
+    try {
+      touchCodeAgentRunRecord(runId, {
+        metadata: {
+          worktree: codeAgentWorktreeMetadata(worktree),
+        },
+      });
+    } catch (error) {
+      console.warn(
+        `[code-agents] Could not update cleanup state for run ${runId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+}
+
+async function startNextQueuedCodeAgentWorktreeRun(
+  worktreeId: string,
+): Promise<void> {
+  if (
+    startingCodeAgentWorktreeRuns.has(worktreeId) ||
+    hasActiveCodeAgentWorktreeRun(worktreeId)
+  ) {
+    return;
+  }
+  const candidate = listRawCodeAgentRunRecords()
+    .filter(({ record }) => {
+      if (codeAgentWorktreeIdFromRunRecord(record) !== worktreeId) {
+        return false;
+      }
+      const metadata = isObject(record.metadata) ? record.metadata : undefined;
+      const worktree = isObject(metadata?.worktree)
+        ? metadata.worktree
+        : undefined;
+      return (
+        (firstStringValue(worktree?.queueState) === "waiting" ||
+          firstStringValue(worktree?.queueState) === "starting") &&
+        (getRecordString(record, "status") === "queued" ||
+          getRecordString(record, "phase") === "queued")
+      );
+    })
+    .sort((left, right) =>
+      (getRecordString(left.record, "createdAt") ?? "").localeCompare(
+        getRecordString(right.record, "createdAt") ?? "",
+      ),
+    )[0];
+  if (!candidate) return;
+
+  const recordMetadata = isObject(candidate.record.metadata)
+    ? candidate.record.metadata
+    : {};
+  const worktree = isObject(recordMetadata.worktree)
+    ? recordMetadata.worktree
+    : undefined;
+  const cwd =
+    getRecordString(candidate.record, "cwd") ??
+    firstStringValue(worktree?.path);
+  if (!cwd || !fs.existsSync(cwd)) {
+    touchCodeAgentRunRecord(candidate.runId, {
+      status: "paused",
+      phase: "worktree-unavailable",
+      metadata: {
+        worktree: {
+          ...(worktree ?? {}),
+          state: "recoverable",
+          queueState: undefined,
+        },
+      },
+    });
+    return;
+  }
+
+  try {
+    if (
+      !claimCodeAgentWorktreeRun({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId,
+        runId: candidate.runId,
+        ownerId: codeAgentWorktreeLeaseOwnerId,
+      })
+    ) {
+      return;
+    }
+  } catch (error) {
+    touchCodeAgentRunRecord(candidate.runId, {
+      status: "paused",
+      phase: "worktree-unavailable",
+      metadata: {
+        worktree: {
+          ...(worktree ?? {}),
+          state: "recoverable",
+          queueState: undefined,
+          lastCleanupError:
+            error instanceof Error ? error.message : String(error),
+        },
+      },
+    });
+    return;
+  }
+
+  startingCodeAgentWorktreeRuns.add(worktreeId);
+  touchCodeAgentRunRecord(candidate.runId, {
+    metadata: {
+      worktree: {
+        ...(worktree ?? {}),
+        queueState: "starting",
+      },
+    },
+  });
+  try {
+    await spawnCodeAgentRunner(
+      candidate.runId,
+      cwd,
+      readCodeAgentPermissionMode(candidate.record),
+    );
+  } finally {
+    startingCodeAgentWorktreeRuns.delete(worktreeId);
+    const current = readCodeAgentRunRecord(candidate.runId);
+    if (current && isTerminalCodeAgentRun(current)) {
+      reclaimTerminalCodeAgentWorktree(current);
+    }
+    void startNextQueuedCodeAgentWorktreeRun(worktreeId);
+  }
+}
+
+function cleanupDueManagedCodeAgentWorktrees(): void {
+  try {
+    reconcileManagedCodeAgentWorktreeLeases();
+    cleanupDueCodeAgentWorktrees({
+      registryPath: codeAgentWorktreeRegistryFile(),
+      canRemove: (worktree) => !activeCodeAgentRunUsesWorktree(worktree),
+      onWorktreeStateChanged: syncManagedWorktreeStateToRuns,
+    });
+  } catch (error) {
+    console.warn(
+      "[code-agents] Could not sweep expired worktrees:",
+      error instanceof Error ? error.message : error,
+    );
+  }
 }
 
 function reclaimTerminalCodeAgentWorktree(
@@ -3163,9 +3967,105 @@ function reclaimTerminalCodeAgentWorktree(
   const sourcePath = firstStringValue(worktree.sourcePath);
   const worktreePath = firstStringValue(worktree.path);
   const branch = firstStringValue(worktree.branch);
+  const baseCommit = firstStringValue(worktree.baseCommit);
   if (!sourcePath || !worktreePath || !branch) return;
 
+  const runId = getRecordString(record, "id");
+  const managedId = firstStringValue(worktree.id);
+  if (managedId && runId) {
+    try {
+      const released = releaseCodeAgentWorktree({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId: managedId,
+        runId,
+        cleanupAfter:
+          firstStringValue(worktree.policy) === "named"
+            ? undefined
+            : new Date(Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS),
+      });
+      if (released) {
+        touchCodeAgentRunRecord(runId, {
+          metadata: {
+            worktree: codeAgentWorktreeMetadata(released),
+          },
+        });
+        void startNextQueuedCodeAgentWorktreeRun(released.id);
+      }
+    } catch (error) {
+      console.warn(
+        `[code-agents] Could not release worktree for run ${runId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+    return;
+  }
+
+  // Older runs predate the registry. Keep their worktrees recoverable for the
+  // same retention window and only remove them after checking for dirty files.
+  if (!runId) return;
+  const cleanupAfter = firstStringValue(worktree.cleanupAfter);
+  if (!cleanupAfter) {
+    touchCodeAgentRunRecord(runId, {
+      metadata: {
+        worktree: {
+          ...worktree,
+          policy: "ephemeral",
+          state: "cleanup-pending",
+          cleanupAfter: new Date(
+            Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+          ).toISOString(),
+        },
+      },
+    });
+    return;
+  }
+  if (new Date(cleanupAfter).getTime() > Date.now()) return;
+  if (
+    listRawCodeAgentRunRecords().some(({ record: candidate }) => {
+      if (candidate === record || !isActiveDesktopCodeAgentRun(candidate))
+        return false;
+      const metadata = isObject(candidate.metadata)
+        ? candidate.metadata
+        : undefined;
+      const candidateWorktree = isObject(metadata?.worktree)
+        ? metadata.worktree
+        : undefined;
+      return (
+        path.resolve(firstStringValue(candidateWorktree?.path) ?? "") ===
+        path.resolve(worktreePath)
+      );
+    })
+  ) {
+    return;
+  }
+
   try {
+    const hasUncommittedChanges =
+      fs.existsSync(worktreePath) &&
+      codeAgentWorktreeHasChanges({ path: worktreePath });
+    const hasCommittedChanges = baseCommit
+      ? codeAgentWorktreeHasCommitsAfterBase({
+          sourcePath,
+          branch,
+          baseCommit,
+        })
+      : true;
+    if (hasUncommittedChanges || hasCommittedChanges) {
+      touchCodeAgentRunRecord(runId, {
+        metadata: {
+          worktree: {
+            ...worktree,
+            state: "recoverable",
+            lastCleanupError: !baseCommit
+              ? "The worktree base could not be verified; it was kept for recovery."
+              : hasCommittedChanges
+                ? "Worktree contains commits after its base; it was kept for recovery."
+                : "Worktree has uncommitted changes; it was kept for recovery.",
+          },
+        },
+      });
+      return;
+    }
     const result = cleanupCodeAgentWorktree({
       sourcePath,
       path: worktreePath,
@@ -3175,6 +4075,15 @@ function reclaimTerminalCodeAgentWorktree(
       console.warn(
         `[code-agents] Could not fully reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}.`,
       );
+    } else {
+      touchCodeAgentRunRecord(runId, {
+        metadata: {
+          worktree: {
+            ...worktree,
+            state: "removed",
+          },
+        },
+      });
     }
   } catch (error) {
     console.warn(
@@ -3187,6 +4096,19 @@ function reclaimTerminalCodeAgentWorktree(
 function reclaimTerminalCodeAgentWorktrees(goalId?: string): void {
   for (const { record } of listRawCodeAgentRunRecords(goalId)) {
     reclaimTerminalCodeAgentWorktree(record);
+  }
+  cleanupDueManagedCodeAgentWorktrees();
+}
+
+function resumeQueuedCodeAgentWorktreeRuns(): void {
+  const worktreeIds = new Set<string>();
+  for (const { record } of listRawCodeAgentRunRecords()) {
+    if (!isQueuedCodeAgentWorktreeRun(record)) continue;
+    const worktreeId = codeAgentWorktreeIdFromRunRecord(record);
+    if (worktreeId) worktreeIds.add(worktreeId);
+  }
+  for (const worktreeId of worktreeIds) {
+    void startNextQueuedCodeAgentWorktreeRun(worktreeId);
   }
 }
 
@@ -3219,6 +4141,8 @@ function reconcileInterruptedCodeAgentRun(
   if (!isDesktopCodeAgentRunInterruptible(currentRecord)) return;
   if (reason !== "shutdown" && hasLivePersistedCodeAgentRunner(currentRecord))
     return;
+
+  if (isQueuedCodeAgentWorktreeRun(currentRecord)) return;
 
   currentRecord = readCodeAgentRunRecord(runId) ?? currentRecord;
   if (
@@ -3342,6 +4266,14 @@ function backgroundRunToDesktopRun(record: BackgroundAgentRun): CodeAgentRun {
     artifactRoot: record.artifactRoot,
     cwd: record.cwd,
   };
+  const worktree = isObject(metadata.worktree) ? metadata.worktree : undefined;
+  const worktreePath = firstStringValue(worktree?.path);
+  if (worktree && worktreePath && !fs.existsSync(worktreePath)) {
+    metadata.worktree = {
+      ...worktree,
+      state: "recoverable",
+    };
+  }
   if (record.permissionMode) metadata.permissionMode = record.permissionMode;
   const activeProcess = activeCodeAgentProcesses.get(record.id);
   if (activeProcess) {
@@ -3656,7 +4588,9 @@ function normalizeCodeAgentTranscriptEvent(
   const metadata = isObject(row.metadata)
     ? { ...(row.metadata as Record<string, unknown>) }
     : {};
-  if (fallback.source) metadata.source = fallback.source;
+  if (fallback.source && metadata.source === undefined) {
+    metadata.source = fallback.source;
+  }
   // Prefer the structured signal the executor stamps on credential-gap
   // events; carry it through so the renderer can detect the condition
   // without regex-matching `text` (see isCredentialGapCodeAgentEvent).
@@ -4167,6 +5101,15 @@ const activeCodeAgentProcesses = new Map<
 >();
 const startingCodeAgentRuns = new Set<string>();
 
+const desktopCodeAgentScheduler = new DesktopCodeAgentScheduler({
+  defaultCwd: () => resolveCodeAgentsTerminalCwd({}),
+  isRunActive: (runId) =>
+    activeCodeAgentProcesses.has(runId) || startingCodeAgentRuns.has(runId),
+  startRun: (runId, cwd, permissionMode) => {
+    void spawnCodeAgentRunner(runId, cwd, permissionMode);
+  },
+});
+
 function desktopComputerHelperPath(): string {
   return app.isPackaged
     ? path.join(process.resourcesPath, "native", "agent-native-computer-helper")
@@ -4507,6 +5450,46 @@ async function spawnCodeAgentRunner(
   if (activeCodeAgentProcesses.has(runId) || startingCodeAgentRuns.has(runId)) {
     return;
   }
+  const runRecord = readCodeAgentRunRecord(runId);
+  const worktreeId = codeAgentWorktreeIdFromRunRecord(runRecord);
+  if (worktreeId) {
+    try {
+      const claimed = claimCodeAgentWorktreeRun({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId,
+        runId,
+        ownerId: codeAgentWorktreeLeaseOwnerId,
+      });
+      if (!claimed) {
+        touchCodeAgentRunRecord(runId, {
+          status: "queued",
+          phase: "queued",
+          metadata: {
+            worktree: {
+              ...(isObject(runRecord?.metadata) &&
+              isObject(runRecord.metadata.worktree)
+                ? runRecord.metadata.worktree
+                : {}),
+              queueState: "waiting",
+            },
+          },
+        });
+        void startNextQueuedCodeAgentWorktreeRun(worktreeId);
+        return;
+      }
+    } catch (error) {
+      touchCodeAgentRunRecord(runId, {
+        status: "paused",
+        phase: "worktree-unavailable",
+        metadata: {
+          runnerState: "failed",
+          runnerError: error instanceof Error ? error.message : String(error),
+        },
+      });
+      reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
+      return;
+    }
+  }
   startingCodeAgentRuns.add(runId);
   const provider = ensureCodeAgentLlmProvider();
   if (!provider.ok) {
@@ -4527,10 +5510,10 @@ async function spawnCodeAgentRunner(
       },
     });
     startingCodeAgentRuns.delete(runId);
+    reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
     return;
   }
   const repoRoot = resolveRepositoryRoot(cwd);
-  const runRecord = readCodeAgentRunRecord(runId);
   const normalizedPermissionMode =
     permissionMode ??
     readCodeAgentPermissionMode(runRecord) ??
@@ -4603,6 +5586,15 @@ async function spawnCodeAgentRunner(
         runnerCommand,
         runnerCwd: invocation.cwd,
         runnerStartedAt,
+        ...(isObject(runRecord?.metadata) &&
+        isObject(runRecord.metadata.worktree)
+          ? {
+              worktree: {
+                ...runRecord.metadata.worktree,
+                queueState: "running",
+              },
+            }
+          : {}),
       },
     });
     child.stdout?.on("data", (chunk) => {
@@ -4941,9 +5933,76 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
 
   reconcileInterruptedCodeAgentRun(input.runId, "follow-up", runRecord);
   const currentRunRecord = readCodeAgentRunRecord(input.runId) ?? runRecord;
+  const currentMetadata = isObject(currentRunRecord.metadata)
+    ? currentRunRecord.metadata
+    : {};
+  const currentCwd =
+    getRecordString(currentRunRecord, "cwd") ??
+    firstStringValue(currentMetadata.cwd);
+  const currentWorktree = isObject(currentMetadata.worktree)
+    ? currentMetadata.worktree
+    : undefined;
+  if (currentCwd && currentWorktree && !fs.existsSync(currentCwd)) {
+    return {
+      ok: false,
+      runId: input.runId,
+      run: desktopCodeBackgroundAgentController.get(input.runId),
+      message: "Restore the worktree to continue.",
+      error: `The worktree is unavailable at ${currentCwd}.`,
+    };
+  }
+  let attachedWorktree: CodeAgentManagedWorktree | undefined;
+  if (firstStringValue(currentWorktree?.id)) {
+    try {
+      attachedWorktree = restoreManagedCodeAgentWorktree({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId: firstStringValue(currentWorktree?.id)!,
+        runId: input.runId,
+      });
+      touchCodeAgentRunRecord(input.runId, {
+        cwd: attachedWorktree.path,
+        metadata: {
+          cwd: attachedWorktree.path,
+          worktree: codeAgentWorktreeMetadata(attachedWorktree),
+        },
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        runId: input.runId,
+        run: desktopCodeBackgroundAgentController.get(input.runId),
+        message: "Restore the worktree to continue.",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   const runIsActive =
     activeCodeAgentProcesses.has(input.runId) ||
     isActiveDesktopCodeAgentRun(currentRunRecord);
+  let worktreeLeaseAcquired = true;
+  if (attachedWorktree && !runIsActive) {
+    try {
+      worktreeLeaseAcquired = claimCodeAgentWorktreeRun({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId: attachedWorktree.id,
+        runId: input.runId,
+        ownerId: codeAgentWorktreeLeaseOwnerId,
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        runId: input.runId,
+        run: desktopCodeBackgroundAgentController.get(input.runId),
+        message: "Restore the worktree to continue.",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+  const worktreeBusy = Boolean(
+    attachedWorktree &&
+    (hasActiveCodeAgentWorktreeRun(attachedWorktree.id, input.runId) ||
+      !worktreeLeaseAcquired),
+  );
   const mode = input.mode ?? "immediate";
   const event = createDesktopUserTranscriptEvent(
     input.runId,
@@ -4993,6 +6052,26 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
       run: desktopCodeBackgroundAgentController.get(input.runId),
       queued: true,
       message: "Follow-up queued for the active Agent-Native Code run.",
+    };
+  }
+
+  if (worktreeBusy) {
+    touchCodeAgentRunRecord(input.runId, {
+      status: "queued",
+      phase: "queued",
+      metadata: {
+        worktree: {
+          ...codeAgentWorktreeMetadata(attachedWorktree!),
+          queueState: "waiting",
+        },
+      },
+    });
+    return {
+      ok: true,
+      runId: input.runId,
+      run: desktopCodeBackgroundAgentController.get(input.runId),
+      queued: true,
+      message: "Follow-up queued behind another chat using this worktree.",
     };
   }
 
@@ -5372,6 +6451,33 @@ async function createCodeAgentRun(
     };
   }
   const executionTarget = requestedExecutionTarget ?? "local";
+  const requestedWorktree = isObject(payload.worktree)
+    ? payload.worktree
+    : undefined;
+  const worktreeMode = firstStringValue(requestedWorktree?.mode) ?? "new";
+  const worktreeName = firstStringValue(requestedWorktree?.name);
+  if (
+    executionTarget === "worktree" &&
+    worktreeMode !== "new" &&
+    worktreeMode !== "named"
+  ) {
+    return {
+      ok: false,
+      message: "Choose a new or named worktree before starting the chat.",
+      error: `Unsupported worktree mode: ${worktreeMode}`,
+    };
+  }
+  if (
+    executionTarget === "worktree" &&
+    worktreeMode === "named" &&
+    !worktreeName
+  ) {
+    return {
+      ok: false,
+      message: "Choose a name for the reusable worktree.",
+      error: "Named worktrees require a name.",
+    };
+  }
   const provider = ensureCodeAgentLlmProvider();
   if (!provider.ok && !isDesktopAppCreation) {
     if (!isDesktopLocalCodeChange && executionTarget !== "portal") {
@@ -5417,9 +6523,8 @@ async function createCodeAgentRun(
     });
   }
   let cwd = sourceCwd;
-  let worktreeMetadata:
-    | { sourcePath: string; path: string; branch: string; baseCommit: string }
-    | undefined;
+  let worktreeMetadata: CodeAgentManagedWorktree | undefined;
+  let worktreeRunQueued = false;
   if (executionTarget === "worktree") {
     if (!engine || !CODE_AGENT_WORKTREE_ENGINES.has(engine)) {
       return {
@@ -5430,13 +6535,23 @@ async function createCodeAgentRun(
       };
     }
     try {
-      const worktree = createCodeAgentWorktree({
+      cleanupDueManagedCodeAgentWorktrees();
+      const worktree = createOrAttachCodeAgentWorktree({
+        registryPath: codeAgentWorktreeRegistryFile(),
         sourcePath: sourceCwd,
         worktreeRoot: path.join(codeAgentStoreRoot(), "worktrees"),
         runId,
+        policy: worktreeMode === "named" ? "named" : "ephemeral",
+        name: worktreeName,
       });
       cwd = worktree.path;
       worktreeMetadata = worktree;
+      worktreeRunQueued = !claimCodeAgentWorktreeRun({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId: worktree.id,
+        runId,
+        ownerId: codeAgentWorktreeLeaseOwnerId,
+      });
     } catch (error) {
       return {
         ok: false,
@@ -5482,7 +6597,12 @@ async function createCodeAgentRun(
       { label: "Working directory", value: cwd },
       {
         label: "Workspace",
-        value: executionTarget === "worktree" ? "Worktree" : "Local",
+        value:
+          executionTarget === "worktree"
+            ? worktreeMetadata?.name
+              ? `Worktree - ${worktreeMetadata.name}`
+              : "Worktree"
+            : "Local",
       },
       ...(worktreeMetadata
         ? [{ label: "Branch", value: worktreeMetadata.branch }]
@@ -5498,7 +6618,14 @@ async function createCodeAgentRun(
       ...userMetadata,
       cwd,
       executionTarget,
-      ...(worktreeMetadata ? { worktree: worktreeMetadata } : {}),
+      ...(worktreeMetadata
+        ? {
+            worktree: {
+              ...codeAgentWorktreeMetadata(worktreeMetadata),
+              queueState: worktreeRunQueued ? "waiting" : "starting",
+            },
+          }
+        : {}),
       permissionMode,
       engine,
       model,
@@ -5530,6 +6657,23 @@ async function createCodeAgentRun(
   };
   const runFile = codeAgentRunFilePath(runId);
   if (!runFile) {
+    if (worktreeMetadata) {
+      try {
+        releaseCodeAgentWorktree({
+          registryPath: codeAgentWorktreeRegistryFile(),
+          worktreeId: worktreeMetadata.id,
+          runId,
+          cleanupAfter: new Date(
+            Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+          ),
+        });
+      } catch (cleanupError) {
+        console.warn(
+          "[code-agents] failed to release an invalid worktree during run cleanup:",
+          cleanupError,
+        );
+      }
+    }
     return {
       ok: false,
       message: "Could not create a session id.",
@@ -5549,12 +6693,19 @@ async function createCodeAgentRun(
       steering,
       attachments,
       executionTarget,
-      ...(worktreeMetadata ? { worktree: worktreeMetadata } : {}),
+      ...(worktreeMetadata
+        ? {
+            worktree: {
+              ...codeAgentWorktreeMetadata(worktreeMetadata),
+              queueState: worktreeRunQueued ? "waiting" : "starting",
+            },
+          }
+        : {}),
       retryOf,
       rerunOf,
     });
     const eventFile = appendCodeAgentTranscriptEvent(event);
-    if (goal.surfaceKind === "native") {
+    if (goal.surfaceKind === "native" && !worktreeRunQueued) {
       spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     const generatedTitle = await generateAndPatchRunTitle(runId, prompt);
@@ -5566,10 +6717,318 @@ async function createCodeAgentRun(
       message: "Coding session recorded.",
     };
   } catch (err) {
+    if (worktreeMetadata) {
+      try {
+        releaseCodeAgentWorktree({
+          registryPath: codeAgentWorktreeRegistryFile(),
+          worktreeId: worktreeMetadata.id,
+          runId,
+          cleanupAfter: new Date(
+            Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+          ),
+        });
+      } catch (cleanupError) {
+        console.warn(
+          "[code-agents] failed to release a worktree after recording failed:",
+          cleanupError,
+        );
+      }
+    }
     return {
       ok: false,
       message: "Could not record the coding session.",
       error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function listCodeAgentWorktrees(input?: unknown): CodeAgentWorktreeListResult {
+  const cwd = typeof input === "string" ? input : undefined;
+  const sourcePath = resolveCodeAgentsTerminalCwd({ cwd });
+  cleanupDueManagedCodeAgentWorktrees();
+  return listNamedCodeAgentWorktrees({
+    registryPath: codeAgentWorktreeRegistryFile(),
+    sourcePath,
+  });
+}
+
+function restoreCodeAgentWorktree(
+  input: unknown,
+): Promise<CodeAgentRestoreWorktreeResult> {
+  const payload = isObject(input) ? input : {};
+  const worktreeId = firstStringValue(payload.worktreeId);
+  const runId = normalizeCodeAgentRunId(payload.runId);
+  if (!worktreeId) {
+    return Promise.resolve({
+      ok: false,
+      worktreeId: "",
+      message: "Select a worktree to restore.",
+      error: "Missing worktree id.",
+    });
+  }
+  try {
+    const runRecord = runId ? readCodeAgentRunRecord(runId) : null;
+    const attachRunId =
+      runId && runRecord && isActiveDesktopCodeAgentRun(runRecord)
+        ? runId
+        : undefined;
+    const managed = restoreManagedCodeAgentWorktree({
+      registryPath: codeAgentWorktreeRegistryFile(),
+      worktreeId,
+      runId: attachRunId,
+    });
+    if (runId) {
+      touchCodeAgentRunRecord(runId, {
+        cwd: managed.path,
+        metadata: {
+          cwd: managed.path,
+          worktree: codeAgentWorktreeMetadata(managed),
+        },
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      worktreeId,
+      run: runId ? (readDesktopCodeAgentRun(runId) ?? undefined) : undefined,
+      message: "Worktree restored.",
+    });
+  } catch (error) {
+    return Promise.resolve({
+      ok: false,
+      worktreeId,
+      message: "Could not restore the worktree.",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function forkCodeAgentRun(
+  input: unknown,
+): Promise<CodeAgentForkRunResult> {
+  const payload = isObject(input) ? input : {};
+  const sourceRunId = normalizeCodeAgentRunId(payload.sourceRunId);
+  const executionTarget = firstStringValue(payload.executionTarget);
+  if (!sourceRunId) {
+    return {
+      ok: false,
+      sourceRunId: "",
+      message: "Select a chat to fork.",
+      error: "Missing or invalid source run id.",
+    };
+  }
+  if (executionTarget !== "local" && executionTarget !== "worktree") {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "Choose a workspace or a new worktree.",
+      error: "Unsupported fork target.",
+    };
+  }
+
+  const sourceRecord = readCodeAgentRunRecord(sourceRunId);
+  if (!sourceRecord) {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "This chat is no longer available.",
+      error: `No run record exists for ${sourceRunId}.`,
+    };
+  }
+  const goal =
+    getCodeAgentGoal(firstStringValue(payload.goalId)) ??
+    getCodeAgentGoal(getRecordString(sourceRecord, "goalId")) ??
+    CODE_AGENT_GOALS[0];
+  if (goal.surfaceKind !== "native") {
+    return {
+      ok: false,
+      sourceRunId,
+      message: `${goal.surfaceLabel} chats cannot be forked here.`,
+      error: "Only native coding chats support local forks.",
+    };
+  }
+
+  const sourceMetadata = isObject(sourceRecord.metadata)
+    ? sourceRecord.metadata
+    : {};
+  const sourceWorktree = isObject(sourceMetadata.worktree)
+    ? sourceMetadata.worktree
+    : undefined;
+  const sourceCwd =
+    getRecordString(sourceRecord, "cwd") ??
+    firstStringValue(sourceMetadata.cwd) ??
+    resolveCodeAgentsTerminalCwd({});
+  const sourceForNewWorktree =
+    firstStringValue(sourceWorktree?.sourcePath) ?? sourceCwd;
+  const localForkCwd =
+    executionTarget === "local" && sourceWorktree
+      ? sourceForNewWorktree
+      : sourceCwd;
+  if (executionTarget === "local" && !fs.existsSync(localForkCwd)) {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "Restore the worktree to continue.",
+      error: `The workspace is missing: ${localForkCwd}`,
+    };
+  }
+
+  if (executionTarget === "worktree" && !fs.existsSync(sourceForNewWorktree)) {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "Restore the worktree to continue.",
+      error: "The source repository is no longer available.",
+    };
+  }
+
+  const engine = firstStringValue(sourceMetadata.engine, sourceRecord.engine);
+  if (
+    executionTarget === "worktree" &&
+    (!engine || !CODE_AGENT_WORKTREE_ENGINES.has(engine))
+  ) {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "New worktree forks are available for local coding agents.",
+      error: "The source chat does not use a supported local coding agent.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const runId = `${goal.id}-${timestampSlug(now)}-${randomUUID().slice(0, 8)}`;
+  const permissionMode =
+    readCodeAgentPermissionMode(sourceRecord) ??
+    DEFAULT_CODE_AGENT_PERMISSION_MODE;
+  const model = firstStringValue(sourceMetadata.model, sourceRecord.model);
+  const effort = firstStringValue(
+    sourceMetadata.effort,
+    sourceMetadata.reasoningEffort,
+    sourceRecord.effort,
+  );
+  let cwd = localForkCwd;
+  let worktreeMetadata: CodeAgentManagedWorktree | undefined;
+  try {
+    if (executionTarget === "worktree") {
+      cleanupDueManagedCodeAgentWorktrees();
+      worktreeMetadata = createOrAttachCodeAgentWorktree({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        sourcePath: sourceForNewWorktree!,
+        worktreeRoot: path.join(codeAgentStoreRoot(), "worktrees"),
+        runId,
+        policy: "ephemeral",
+      });
+      cwd = worktreeMetadata.path;
+    }
+
+    const transcript = readAllCodeAgentTranscript({ runId: sourceRunId });
+    const initialPrompt =
+      firstStringValue(sourceMetadata.initialPrompt) ??
+      readLatestCodeAgentUserPrompt(sourceRunId) ??
+      "Continue this coding chat.";
+    const metadata: Record<string, unknown> = {
+      ...sourceMetadata,
+      cwd,
+      executionTarget,
+      ...(worktreeMetadata
+        ? { worktree: codeAgentWorktreeMetadata(worktreeMetadata) }
+        : {}),
+      forkedFrom: sourceRunId,
+      forkedAt: now,
+      initialPrompt,
+      source: "desktop",
+      queued: false,
+    };
+    if (executionTarget === "local") delete metadata.worktree;
+    const run: CodeAgentRun = {
+      id: runId,
+      goalId: goal.id,
+      title: `Fork of ${getRecordString(sourceRecord, "title") ?? "coding chat"}`,
+      subtitle: "Forked from Desktop",
+      status: "paused",
+      phase: "forked",
+      progress: {
+        label: "Ready to continue",
+        completed: 0,
+        total: 1,
+        percent: 0,
+      },
+      details: [
+        { label: "Goal", value: goal.slashCommand },
+        { label: "Working directory", value: cwd },
+        {
+          label: "Workspace",
+          value: executionTarget === "worktree" ? "New worktree" : "Workspace",
+        },
+        ...(worktreeMetadata
+          ? [{ label: "Branch", value: worktreeMetadata.branch }]
+          : []),
+        { label: "Mode", value: permissionMode },
+      ],
+      createdAt: now,
+      updatedAt: now,
+      metadata,
+    };
+    const record = {
+      schemaVersion: 1,
+      ...run,
+      cwd,
+      permissionMode,
+      engine,
+      model,
+      effort,
+      metadata,
+    };
+    const runFile = codeAgentRunFilePath(runId);
+    if (!runFile) throw new Error("Invalid generated run id.");
+    withFileLockSync(runFile, () => {
+      if (fs.existsSync(runFile)) {
+        throw new Error(`A Code Agent run already exists: ${runId}`);
+      }
+      writeJsonFileAtomically(runFile, record);
+    });
+    for (const [index, event] of transcript.events.entries()) {
+      appendCodeAgentTranscriptEvent({
+        ...event,
+        id: `fork-${runId}-${index}-${randomUUID().slice(0, 6)}`,
+        runId,
+        metadata: {
+          ...(event.metadata ?? {}),
+          forkedFrom: sourceRunId,
+        },
+      });
+    }
+    return {
+      ok: true,
+      sourceRunId,
+      run,
+      message:
+        executionTarget === "worktree"
+          ? "Forked into a new worktree."
+          : "Forked in this workspace.",
+    };
+  } catch (error) {
+    if (worktreeMetadata) {
+      try {
+        releaseCodeAgentWorktree({
+          registryPath: codeAgentWorktreeRegistryFile(),
+          worktreeId: worktreeMetadata.id,
+          runId,
+          cleanupAfter: new Date(
+            Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+          ),
+        });
+      } catch (cleanupError) {
+        console.warn(
+          "[code-agents] failed to release a fork worktree after an error:",
+          cleanupError,
+        );
+      }
+    }
+    return {
+      ok: false,
+      sourceRunId,
+      message: "Could not fork the chat.",
+      error: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -6178,6 +7637,17 @@ function disposeMultiFrontierAppIntegration(): Promise<void> {
       multiFrontierAppIntegration?.dispose() ?? Promise.resolve();
   }
   return multiFrontierDisposePromise;
+}
+
+function initializeMultiFrontierAppIntegrationForRuntime(): void {
+  multiFrontierDisposePromise = undefined;
+  multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
+    ipcMain,
+    storeRoot: codeAgentStoreRoot(),
+    loginCwd: resolveCodeAgentsTerminalCwd({}),
+    listWorkspaces: listMultiFrontierWorkspaces,
+    resolveDirectory: resolveUsableDirectory,
+  });
 }
 
 async function chooseCodeAgentProject(): Promise<CodeAgentProjectSelectResult> {
@@ -10349,7 +11819,19 @@ registerCodeAgentsIpc({
   timestampSlug,
   normalizeCodeAgentRunId,
   listDesktopCodeAgentRuns,
+  listCodeAgentSchedules: () =>
+    desktopCodeAgentScheduler.list() satisfies CodeAgentScheduleListResult,
+  createCodeAgentSchedule: (input) =>
+    desktopCodeAgentScheduler.create(input) satisfies CodeAgentScheduleResult,
+  updateCodeAgentSchedule: (input) =>
+    desktopCodeAgentScheduler.update(input) satisfies CodeAgentScheduleResult,
+  deleteCodeAgentSchedule: (input) =>
+    desktopCodeAgentScheduler.delete(input) satisfies CodeAgentScheduleResult,
+  runCodeAgentScheduleNow: (input) => desktopCodeAgentScheduler.runNow(input),
+  listCodeAgentWorktrees,
   createCodeAgentRun,
+  forkCodeAgentRun,
+  restoreCodeAgentWorktree,
   submitCodeAgentRemoteWaitlist,
   getCodeAgentModelList,
   readCodeAgentTranscript,
@@ -10360,6 +11842,8 @@ registerCodeAgentsIpc({
     codeAgentTranscriptSubscriptions.set(subscriptionId, subscription),
   sendCodeAgentTranscriptSubscriptionBatch,
   appendCodeAgentFollowUp,
+  transferCodeAgentRun,
+  transferAllCodeAgentRuns,
   updateCodeAgentRun,
   retryCodeAgentRun,
   rerunCodeAgentRun,
@@ -10380,6 +11864,12 @@ registerCodeAgentsIpc({
   setRemoteConnectorEnabled,
   pairRemoteCodeAgentConnector,
 });
+
+const codeAgentWorktreeSweepTimer = setInterval(
+  cleanupDueManagedCodeAgentWorktrees,
+  60 * 60 * 1000,
+);
+codeAgentWorktreeSweepTimer.unref?.();
 
 registerQuickPromptIpc({
   createCodeAgentRun,
@@ -11025,11 +12515,6 @@ function rememberOAuthStateFromNavigation(
   }
 }
 
-function googleOAuthUsesDesktopExchange(url: URL): boolean {
-  if (url.searchParams.has("flow_id")) return true;
-  return !!extractFlowFromOAuthState(url.searchParams.get("state"));
-}
-
 function builderOAuthUsesDesktopProvider(url: URL): boolean {
   if (!url.pathname.startsWith("/cli-auth")) return false;
   if (url.searchParams.get("host") === "agent-native-desktop") return true;
@@ -11074,10 +12559,11 @@ function shouldOpenOAuthInSystemBrowser(provider: OAuthProvider, url: URL) {
       builderConnectUsesSignedBrowserProvider(url)
     );
   }
-  // Google blocks embedded/Electron OAuth surfaces. Framework pages that pass
-  // a flow id poll /desktop-exchange, so the system browser can complete the
-  // OAuth callback and the app webview can claim the resulting session token.
-  return provider.name === "google" && googleOAuthUsesDesktopExchange(url);
+  // Desktop Google OAuth carries a browser-binding cookie created by the
+  // bootstrap request. It must complete in the source session, not in the
+  // system browser's unrelated cookie jar. Non-desktop Google OAuth already
+  // uses the same in-app popup path.
+  return false;
 }
 
 function openMatchedOAuthUrl(
@@ -11091,7 +12577,9 @@ function openMatchedOAuthUrl(
     openExternalUrl(url);
     return;
   }
-  openOAuthWindow(url, sourceSession, provider, sourceUrl);
+  routeOAuthToBoundSession(url, sourceSession, (boundUrl, callbackSession) =>
+    openOAuthWindow(boundUrl, callbackSession, provider, sourceUrl),
+  );
 }
 
 function isAllowedOAuthChildPopup(provider: OAuthProvider, url: URL): boolean {
@@ -11195,17 +12683,8 @@ function openOAuthWindow(
   // The Builder callback HTML also calls window.close() itself; this
   // close-path is the Electron-side safety net if the page's script
   // hasn't fired yet (or doesn't, e.g. on future callback redesigns).
-  let closeScheduled = false;
-
-  function scheduleClose() {
-    if (closeScheduled) return;
-    closeScheduled = true;
-    oauthWin.webContents.once("did-finish-load", () => {
-      setTimeout(() => {
-        if (!oauthWin.isDestroyed()) oauthWin.close();
-      }, 600);
-    });
-  }
+  const popupCloser = createOAuthPopupCloser(oauthWin);
+  const scheduleClose = () => popupCloser.scheduleCloseAfterFinishLoad();
 
   const onNavigate = (_event: Electron.Event, navUrl: string) => {
     try {
@@ -11246,8 +12725,12 @@ function openOAuthWindow(
     },
   );
 
-  oauthWin.webContents.on("did-fail-load", () => {
-    scheduleClose();
+  // A genuine load failure (DNS, connection refused, timeout, etc.) means
+  // nothing else is going to load in this popup — close it directly instead
+  // of waiting for a did-finish-load that will never fire, which otherwise
+  // strands the user on a permanently blank popup after clicking "Allow".
+  oauthWin.webContents.on("did-fail-load", (_event, errorCode) => {
+    popupCloser.onLoadFailed(errorCode);
   });
 
   // Builder credentials now land in SQL-backed app_secrets and the webview
@@ -11348,6 +12831,7 @@ function navigationPort(url: URL): string {
 
 function isSameWebviewAppOrigin(current: URL, next: URL): boolean {
   if (current.origin === next.origin) return true;
+  if (isAllowedEnvironmentNavigation(current, next)) return true;
   if (current.protocol !== next.protocol) return false;
   return (
     normalizedNavigationHost(current.hostname) ===
@@ -11866,6 +13350,7 @@ app.whenReady().then(async () => {
     abort: closeDesktopComputerMcpBridge,
   });
   if (!shouldContinueStartup) return;
+  desktopCodeAgentScheduler.start();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
     handleDeepLink(pendingDeepLink);
@@ -12154,16 +13639,20 @@ app.whenReady().then(async () => {
   console.info("[main] log file:", getLogFilePath());
 
   reconcileInterruptedCodeAgentRuns("startup");
-  multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
-    ipcMain,
-    storeRoot: codeAgentStoreRoot(),
-    loginCwd: resolveCodeAgentsTerminalCwd({}),
-    listWorkspaces: listMultiFrontierWorkspaces,
-    resolveDirectory: resolveUsableDirectory,
-  });
+  initializeMultiFrontierAppIntegrationForRuntime();
   registerDesktopShortcutBindings();
 
   const win = createWindow();
+  for (const { record } of listRawCodeAgentRunRecords()) {
+    reclaimTerminalCodeAgentWorktree(record);
+  }
+  reconcileManagedCodeAgentWorktreeLeases();
+  resumeQueuedCodeAgentWorktreeRuns();
+  const initialWorktreeCleanup = setTimeout(
+    cleanupDueManagedCodeAgentWorktrees,
+    0,
+  );
+  initialWorktreeCleanup.unref?.();
   registerQuickPromptShortcut();
   // Pairing details persist, but background access is opt-in per launch.
   // A read-only status check must never spawn a process or unlock Keychain.
@@ -12268,6 +13757,8 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  if (multiFrontierQuitGuard(event)) return;
+  desktopCodeAgentScheduler.stop();
   if (!appIsQuitting) {
     appIsQuitting = true;
     for (const appId of managedDesktopAppProcesses.keys()) {
@@ -12287,7 +13778,6 @@ app.on("before-quit", (event) => {
       );
     });
   }
-  if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });
 
 app.on("will-quit", () => {

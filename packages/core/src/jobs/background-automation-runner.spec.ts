@@ -48,6 +48,17 @@ vi.mock(import("../db/client.js"), async (importOriginal) => {
   return { ...actual, getDbExec: () => rawClient };
 });
 
+const getThreadMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    id: "thread-1",
+    title: "Job: daily-digest",
+    preview: "",
+    threadData: "{}",
+    messageCount: 0,
+  })),
+);
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
+
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   runAgentLoopDirectWithSoftTimeout: vi.fn(async () => ({
     inputTokens: 0,
@@ -60,6 +71,10 @@ vi.mock("../agent/run-loop-with-resume.js", () => ({
 
 vi.mock("../chat-threads/store.js", () => ({
   createThread: vi.fn(async () => ({ id: "thread-1" })),
+  getThread: getThreadMock,
+  updateThreadData: updateThreadDataMock,
+  withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
+    fn(),
 }));
 
 // Narrow re-implementation, not `vi.importActual` — pulling in the real
@@ -71,6 +86,15 @@ vi.mock("../agent/production-agent.js", () => ({
   filterInitialEngineTools: (tools: unknown[]) => tools,
   getOwnerActiveApiKey: vi.fn(async () => null),
   runAgentLoop: vi.fn(),
+}));
+
+// The credential store answers "no rows" cleanly. A Builder-credits site has no
+// per-user connection to find, which is exactly the case the engine capture
+// below has to survive.
+vi.mock("../secrets/storage.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../secrets/storage.js")>()),
+  readAppSecret: vi.fn(async () => null),
+  readAppSecrets: vi.fn(async () => new Map()),
 }));
 
 const { BACKGROUND_RUN_HARD_TIMEOUT_MS, runBackgroundAutomation } =
@@ -223,6 +247,371 @@ describe("runBackgroundAutomation — background-run self-claim", () => {
       startSpy.mockRestore();
       attachSpy.mockRestore();
       finishSpy.mockRestore();
+    }
+  });
+});
+
+function persistedRepo() {
+  const threadData = updateThreadDataMock.mock.calls.at(-1)?.[1];
+  expect(typeof threadData).toBe("string");
+  return JSON.parse(threadData as string) as {
+    messages: Array<{ message?: { role?: string; content?: unknown[] } }>;
+  };
+}
+
+function assistantMessage() {
+  const repo = persistedRepo();
+  const entry = repo.messages[1];
+  return (entry?.message ?? entry) as {
+    content?: unknown[];
+    status?: { type?: string; reason?: string };
+    metadata?: {
+      custom?: { continued?: unknown; runError?: { errorCode?: string } };
+    };
+  };
+}
+
+function assistantContent() {
+  const content = assistantMessage().content;
+  return Array.isArray(content) ? content : [];
+}
+
+describe("runBackgroundAutomation — thread transcript", () => {
+  it("persists the prompt and tool-call turn, keeping the Job title", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Checking Slack." });
+        opts.send?.({
+          type: "tool_start",
+          id: "tc_1",
+          tool: "poll-slack-channel",
+          input: { channel: "C123" },
+        });
+        opts.send?.({
+          type: "tool_done",
+          id: "tc_1",
+          tool: "poll-slack-channel",
+          result: JSON.stringify({ checked: 1 }),
+        });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+    updateThreadDataMock.mockClear();
+
+    await runBackgroundAutomation(
+      {
+        automation: {
+          name: "slack-feedback",
+          meta: { schedule: "* * * * *", enabled: true, model: "test-model" },
+          body: "Poll Slack.",
+          resource: {
+            owner: "alice@agent-native.test",
+            path: "jobs/slack-feedback.md",
+          } as any,
+        },
+        ownerEmail: "alice@agent-native.test",
+        prompt: "Poll the configured Slack channel.",
+        threadTitle: "Job: Slack Feedback — Aug 17, 2026",
+        runIdPrefix: "job-slack-feedback",
+        usageLabel: "recurring-job:slack-feedback",
+      },
+      {
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+        engine: testEngine,
+      },
+    );
+
+    expect(updateThreadDataMock).toHaveBeenCalledTimes(1);
+    const [, threadData, title, , messageCount] =
+      updateThreadDataMock.mock.calls[0];
+    expect(title).toBe("Job: Slack Feedback — Aug 17, 2026");
+    expect(messageCount).toBe(2);
+    expect(JSON.parse(threadData as string).messages).toHaveLength(2);
+    expect(assistantMessage().status).toEqual({
+      type: "complete",
+      reason: "stop",
+    });
+    expect(assistantContent()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "poll-slack-channel",
+        }),
+      ]),
+    );
+  });
+
+  it("persists a partial turn when the run is cut off", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Started polling." });
+        opts.send?.({ type: "auto_continue", reason: "no_progress" });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+    updateThreadDataMock.mockClear();
+
+    await expect(
+      runBackgroundAutomation(
+        {
+          automation: {
+            name: "cut-off-digest",
+            meta: { schedule: "* * * * *", enabled: true, model: "test-model" },
+            body: "Summarize the inbox.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: "jobs/cut-off-digest.md",
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Summarize the inbox.",
+          threadTitle: "Job: cut-off-digest — Aug 17, 2026",
+          runIdPrefix: "job-cut-off-digest",
+          usageLabel: "recurring-job:cut-off-digest",
+        },
+        {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+        },
+      ),
+    ).rejects.toThrow(/cut off before finishing \(no_progress\)/);
+
+    expect(updateThreadDataMock).toHaveBeenCalled();
+    const [, , title] = updateThreadDataMock.mock.calls[0];
+    expect(title).toBe("Job: cut-off-digest — Aug 17, 2026");
+    expect(assistantMessage().status).toEqual({
+      type: "incomplete",
+      reason: "error",
+    });
+    expect(assistantMessage().metadata?.custom?.continued).toBeUndefined();
+    expect(assistantMessage().metadata?.custom?.runError).toMatchObject({
+      errorCode: "background_automation_cut_off",
+    });
+    expect(assistantContent()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringMatching(
+            /Started polling\.[\s\S]*cut off before finishing \(no_progress\)/,
+          ),
+        }),
+      ]),
+    );
+  });
+
+  it("persists a partial turn when the hard timeout fires", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockImplementationOnce(
+      async (opts) => {
+        opts.send?.({ type: "text", text: "Still working." });
+        await new Promise<void>((_resolve, reject) => {
+          const signal = opts.signal;
+          if (signal?.aborted) {
+            reject(new Error("aborted"));
+            return;
+          }
+          signal?.addEventListener("abort", () => reject(new Error("aborted")));
+        });
+        return {
+          inputTokens: 0,
+          outputTokens: 0,
+          cacheReadTokens: 0,
+          cacheWriteTokens: 0,
+          model: "test-model",
+        };
+      },
+    );
+    updateThreadDataMock.mockClear();
+
+    const realSetTimeout = globalThis.setTimeout;
+    const pendingHardTimeouts: Array<() => void> = [];
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((
+        handler: TimerHandler,
+        delay?: number,
+        ...args: unknown[]
+      ) => {
+        if (delay === BACKGROUND_RUN_HARD_TIMEOUT_MS) {
+          pendingHardTimeouts.push(() => {
+            if (typeof handler === "function") handler(...args);
+          });
+          return 0 as unknown as ReturnType<typeof setTimeout>;
+        }
+        return realSetTimeout(
+          handler as Parameters<typeof setTimeout>[0],
+          delay,
+          ...args,
+        );
+      }) as typeof setTimeout);
+
+    try {
+      const runPromise = runBackgroundAutomation(
+        {
+          automation: {
+            name: "hard-timeout-digest",
+            meta: {
+              schedule: "* * * * *",
+              enabled: true,
+              model: "test-model",
+            },
+            body: "Summarize the inbox.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: "jobs/hard-timeout-digest.md",
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Summarize the inbox.",
+          threadTitle: "Job: hard-timeout-digest — Aug 18, 2026",
+          runIdPrefix: "job-hard-timeout-digest",
+          usageLabel: "recurring-job:hard-timeout-digest",
+        },
+        {
+          getActions: () => ({}),
+          getSystemPrompt: async () => "system",
+          engine: testEngine,
+        },
+      );
+
+      await vi.waitFor(() => {
+        expect(pendingHardTimeouts.length).toBe(1);
+      });
+      pendingHardTimeouts[0]!();
+
+      await expect(runPromise).rejects.toThrow(/timed out after 10 minutes/);
+      expect(updateThreadDataMock).toHaveBeenCalled();
+      const [, , title] = updateThreadDataMock.mock.calls[0];
+      expect(title).toBe("Job: hard-timeout-digest — Aug 18, 2026");
+      expect(assistantMessage().status).toEqual({
+        type: "incomplete",
+        reason: "error",
+      });
+      expect(assistantMessage().metadata?.custom?.continued).toBeUndefined();
+      expect(assistantMessage().metadata?.custom?.runError).toMatchObject({
+        errorCode: "background_automation_hard_timeout",
+      });
+      expect(assistantContent()).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: "text",
+            text: expect.stringMatching(
+              /Still working\.[\s\S]*timed out after 10 minutes/,
+            ),
+          }),
+        ]),
+      );
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+});
+
+// Every test above supplies `deps.engine`, which is what let the credential
+// capture below stay broken: production never sets it (agent-chat-plugin builds
+// SchedulerDeps without one) and both jobs/scheduler.ts and
+// triggers/dispatcher.ts reach this path. On a Builder-credits site the engine
+// must resolve through the gateway lane; resolving the identity lane by hand
+// here left every scheduled and event automation dead while chat still worked.
+describe("runBackgroundAutomation — engine credentials with no deps.engine", () => {
+  const GATEWAY_TOKEN = "btk-site-token";
+  const GATEWAY_SPACE_ID = "space-abc";
+
+  it("streams through the deployment's Builder-credits pair", async () => {
+    const { runAgentLoopDirectWithSoftTimeout } =
+      await import("../agent/run-loop-with-resume.js");
+    vi.mocked(runAgentLoopDirectWithSoftTimeout).mockClear();
+
+    delete process.env.ANTHROPIC_API_KEY;
+    delete process.env.BUILDER_PRIVATE_KEY;
+    delete process.env.BUILDER_PUBLIC_KEY;
+    vi.stubEnv("BUILDER_GATEWAY_TOKEN", GATEWAY_TOKEN);
+    vi.stubEnv("BUILDER_GATEWAY_SPACE_ID", GATEWAY_SPACE_ID);
+    vi.stubEnv("BUILDER_GATEWAY_BASE_URL", "https://test.example/gateway/v1");
+
+    const { registerBuiltinEngines } = await import("../agent/engine/index.js");
+    registerBuiltinEngines();
+
+    try {
+      await runBackgroundAutomation(
+        {
+          automation: {
+            name: "credits-digest",
+            meta: { schedule: "* * * * *", enabled: true },
+            body: "Summarize the inbox.",
+            resource: {
+              owner: "alice@agent-native.test",
+              path: "jobs/credits-digest.md",
+            } as any,
+          },
+          ownerEmail: "alice@agent-native.test",
+          prompt: "Summarize the inbox.",
+          threadTitle: "Job: credits-digest",
+          runIdPrefix: "job-credits-digest",
+          usageLabel: "recurring-job:credits-digest",
+        },
+        { getActions: () => ({}), getSystemPrompt: async () => "system" },
+      );
+
+      const engine = vi
+        .mocked(runAgentLoopDirectWithSoftTimeout)
+        .mock.calls.at(-1)?.[0].engine;
+      expect(engine?.name).toBe("builder");
+
+      // The capture is only correct if a turn taken later, detached from this
+      // stack, actually authenticates. A captured identity-lane result yields
+      // missing_credentials here and never reaches fetch.
+      const fetchSpy = vi
+        .fn()
+        .mockResolvedValue(
+          new Response(
+            `${JSON.stringify({ type: "stop", reason: "end_turn" })}\n`,
+            { status: 200, headers: { "Content-Type": "application/jsonl" } },
+          ),
+        );
+      vi.stubGlobal("fetch", fetchSpy);
+
+      const events: any[] = [];
+      for await (const event of engine!.stream({
+        model: engine!.defaultModel,
+        systemPrompt: "system",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        tools: [],
+        abortSignal: new AbortController().signal,
+      })) {
+        events.push(event);
+      }
+
+      expect(events.at(-1)).toMatchObject({ type: "stop", reason: "end_turn" });
+      expect(fetchSpy).toHaveBeenCalledTimes(1);
+      const headers = fetchSpy.mock.calls[0][1].headers as Record<
+        string,
+        string
+      >;
+      expect(headers.Authorization).toBe(`Bearer ${GATEWAY_TOKEN}`);
+      expect(headers["x-builder-api-key"]).toBe(GATEWAY_SPACE_ID);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
     }
   });
 });

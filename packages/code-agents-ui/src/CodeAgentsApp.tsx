@@ -53,6 +53,7 @@ import {
   IconFolder,
   IconFolderPlus,
   IconGitBranch,
+  IconGitFork,
   IconKey,
   IconLink,
   IconLockAccess,
@@ -60,6 +61,7 @@ import {
   IconPlayerStop,
   IconQrcode,
   IconRefresh,
+  IconRestore,
   IconRoute,
   IconSearch,
   IconSettings,
@@ -78,6 +80,8 @@ import {
   type ReactNode,
 } from "react";
 import { toast } from "sonner";
+
+const SCHEDULED_CHAT_PROMPT_EVENT = "agent-native:scheduled-chat-prompt";
 
 import {
   CODE_AGENT_GOALS,
@@ -106,6 +110,9 @@ import type {
   CodeAgentCreateRunRequest,
   CodeAgentCreateRunResult,
   CodeAgentExecutionTarget,
+  CodeAgentForkRunRequest,
+  CodeAgentForkRunResult,
+  CodeAgentWorktreeSelection,
   CodeAgentFollowUpMode,
   CodeAgentFollowUpRequest,
   CodeAgentFollowUpResult,
@@ -113,6 +120,10 @@ import type {
   CodeAgentModelListResult,
   CodeAgentModelOption,
   CodeAgentModelSelection,
+  CodeAgentPortalTransferAllRequest,
+  CodeAgentPortalTransferAllResult,
+  CodeAgentPortalTransferRequest,
+  CodeAgentPortalTransferResult,
   CodeAgentProviderConnectResult,
   CodeAgentPromptAttachment,
   CodeAgentProjectFolder,
@@ -132,6 +143,10 @@ import type {
   CodeAgentRun,
   CodeAgentRunDetail,
   CodeAgentRunListResult,
+  CodeAgentScheduleListResult,
+  CodeAgentScheduleResult,
+  CodeAgentRestoreWorktreeRequest,
+  CodeAgentRestoreWorktreeResult,
   CodeAgentTerminalRequest,
   CodeAgentTerminalResult,
   CodeAgentTranscriptEvent,
@@ -140,6 +155,8 @@ import type {
   CodeAgentTranscriptSubscriptionBatch,
   CodeAgentUpdateRunRequest,
   CodeAgentUpdateRunResult,
+  CodeAgentWorktreeListResult,
+  CodeAgentWorktreeSummary,
   CodeAgentsOpenRequest,
 } from "./types.js";
 import {
@@ -152,6 +169,10 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu.js";
 import {
@@ -165,6 +186,11 @@ import {
 
 export interface CodeAgentsHost {
   listRuns: (goalId?: string) => Promise<CodeAgentRunListResult>;
+  listSchedules?: () => Promise<CodeAgentScheduleListResult>;
+  createSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  updateSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  deleteSchedule?: (input: unknown) => Promise<CodeAgentScheduleResult>;
+  runScheduleNow?: (input: unknown) => Promise<CodeAgentScheduleResult>;
   listModels?: () => Promise<CodeAgentModelListResult>;
   getHostMetadata?: () => Promise<CodeAgentHostMetadata>;
   runComputerSetupAction?: (
@@ -177,6 +203,13 @@ export interface CodeAgentsHost {
   createRun: (
     request: CodeAgentCreateRunRequest,
   ) => Promise<CodeAgentCreateRunResult>;
+  listWorktrees?: (cwd?: string) => Promise<CodeAgentWorktreeListResult>;
+  forkRun?: (
+    request: CodeAgentForkRunRequest,
+  ) => Promise<CodeAgentForkRunResult>;
+  restoreWorktree?: (
+    request: CodeAgentRestoreWorktreeRequest,
+  ) => Promise<CodeAgentRestoreWorktreeResult>;
   submitRemoteWaitlist?: (
     request: CodeAgentRemoteWaitlistRequest,
   ) => Promise<CodeAgentRemoteWaitlistResult>;
@@ -190,6 +223,12 @@ export interface CodeAgentsHost {
   appendFollowUp: (
     request: CodeAgentFollowUpRequest,
   ) => Promise<CodeAgentFollowUpResult>;
+  transferRun?: (
+    request: CodeAgentPortalTransferRequest,
+  ) => Promise<CodeAgentPortalTransferResult>;
+  transferAll?: (
+    request?: CodeAgentPortalTransferAllRequest,
+  ) => Promise<CodeAgentPortalTransferAllResult>;
   updateRun: (
     request: CodeAgentUpdateRunRequest,
   ) => Promise<CodeAgentUpdateRunResult>;
@@ -643,9 +682,11 @@ const codeAgentComposerRootStyle = {
 function CodeAgentsChatHistoryHeaderActions({
   hasUnread,
   onMarkAllRead,
+  onTransferAll,
 }: {
   hasUnread: boolean;
   onMarkAllRead: () => void;
+  onTransferAll?: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -668,9 +709,63 @@ function CodeAgentsChatHistoryHeaderActions({
           <IconCheck size={14} strokeWidth={1.8} aria-hidden="true" />
           <span>Mark all as read</span>
         </DropdownMenuItem>
+        {onTransferAll ? (
+          <DropdownMenuItem onSelect={onTransferAll}>
+            <IconRoute size={14} strokeWidth={1.8} aria-hidden="true" />
+            <span>Move local chats to Portal</span>
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+function isPortalCodeAgentRun(run: CodeAgentRun): boolean {
+  const metadata = run.metadata;
+  return Boolean(
+    metadata &&
+    (metadata.executionTarget === "portal" ||
+      (typeof metadata.portal === "object" && metadata.portal !== null)),
+  );
+}
+
+function isObjectRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function firstRecordString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+export function getCodeAgentWorktreeRecoveryState(
+  worktree: Record<string, unknown> | undefined,
+): {
+  wasPreserved: boolean;
+  needsRecovery: boolean;
+  needsNotice: boolean;
+} {
+  const worktreePath = firstRecordString(worktree?.path);
+  const worktreeState = firstRecordString(worktree?.state);
+  const cleanupError = firstRecordString(worktree?.lastCleanupError);
+  // Older run records do not have pathAvailable. Preserve their existing
+  // behavior while making current records explicit when cleanup removed the
+  // checkout but kept its branch for recovery.
+  const pathAvailable = worktree?.pathAvailable !== false;
+  const wasPreserved =
+    worktreeState === "recoverable" && Boolean(cleanupError) && pathAvailable;
+  const needsRecovery = Boolean(
+    worktree &&
+    worktreePath &&
+    (worktreeState === "recoverable" ||
+      worktreeState === "removed" ||
+      worktreeState === "error") &&
+    !wasPreserved,
+  );
+  return {
+    wasPreserved,
+    needsRecovery,
+    needsNotice: needsRecovery || wasPreserved,
+  };
 }
 
 export default function CodeAgentsApp({
@@ -864,6 +959,20 @@ export default function CodeAgentsApp({
   const [selectedProjectPath, setSelectedProjectPath] = useState<string>("");
   const [newRunExecutionTarget, setNewRunExecutionTarget] =
     useState<CodeAgentExecutionTarget>("local");
+  const [newRunWorktreeSelection, setNewRunWorktreeSelection] =
+    useState<CodeAgentWorktreeSelection>({ mode: "new" });
+  const [namedWorktrees, setNamedWorktrees] = useState<
+    CodeAgentWorktreeSummary[]
+  >([]);
+  const [namedWorktreesLoading, setNamedWorktreesLoading] = useState(false);
+  const namedWorktreeRequestRef = useRef(0);
+  const [namedWorktreeDialogOpen, setNamedWorktreeDialogOpen] = useState(false);
+  const [namedWorktreeName, setNamedWorktreeName] = useState("");
+  const [forkSourceRun, setForkSourceRun] = useState<CodeAgentRun | null>(null);
+  const [forkBusy, setForkBusy] = useState(false);
+  const [restoringWorktreeId, setRestoringWorktreeId] = useState<string | null>(
+    null,
+  );
   const [loadingProjects, setLoadingProjects] = useState(false);
   const [codePack, setCodePack] = useState<CodeAgentCodePack | null>(null);
   const [modelSelection, setModelSelection] = useState<CodeAgentModelSelection>(
@@ -879,6 +988,10 @@ export default function CodeAgentsApp({
   >(null);
   const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
   const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
+  const [portalTransferRequest, setPortalTransferRequest] = useState<
+    { kind: "run"; runId: string; title: string } | { kind: "all" } | null
+  >(null);
+  const [portalTransferBusy, setPortalTransferBusy] = useState(false);
   const [cloudWaitlistOpen, setCloudWaitlistOpen] = useState(false);
   const cloudWaitlistOpeningRef = useRef(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
@@ -929,11 +1042,14 @@ export default function CodeAgentsApp({
       const pinned = isRunPinned(run);
       const active = isRunActive(run);
       const unread = !active && unreadRunIds.has(run.id);
+      const scheduled = run.metadata?.hasSchedule === true;
       const timestampKey = active
         ? "active"
         : unread
           ? "unread"
-          : formatRelativeTime(run.updatedAt);
+          : scheduled
+            ? "scheduled"
+            : formatRelativeTime(run.updatedAt);
       const previous = railItemCacheRef.current.get(run.id);
       if (
         previous &&
@@ -1166,6 +1282,49 @@ export default function CodeAgentsApp({
       setLoadingProjects(false);
     }
   }, [host]);
+
+  const loadNamedWorktrees = useCallback(async () => {
+    const requestId = namedWorktreeRequestRef.current + 1;
+    namedWorktreeRequestRef.current = requestId;
+    const requestedProjectPath = selectedProjectPath;
+    if (newRunExecutionTarget !== "worktree" || !selectedProjectPath) {
+      setNamedWorktrees([]);
+      setNamedWorktreesLoading(false);
+      return;
+    }
+    if (!host.listWorktrees) {
+      setNamedWorktrees([]);
+      setNamedWorktreesLoading(false);
+      return;
+    }
+    setNamedWorktreesLoading(true);
+    try {
+      const result = await host.listWorktrees(selectedProjectPath);
+      if (
+        requestId !== namedWorktreeRequestRef.current ||
+        requestedProjectPath !== selectedProjectPath
+      ) {
+        return;
+      }
+      setNamedWorktrees(result.status === "ok" ? result.worktrees : []);
+    } catch {
+      if (
+        requestId !== namedWorktreeRequestRef.current ||
+        requestedProjectPath !== selectedProjectPath
+      ) {
+        return;
+      }
+      setNamedWorktrees([]);
+    } finally {
+      if (requestId === namedWorktreeRequestRef.current) {
+        setNamedWorktreesLoading(false);
+      }
+    }
+  }, [host, newRunExecutionTarget, selectedProjectPath]);
+
+  useEffect(() => {
+    void loadNamedWorktrees();
+  }, [loadNamedWorktrees]);
 
   const loadRemoteConnectorStatus = useCallback(async () => {
     if (!isActive || !host.getRemoteConnectorStatus) return;
@@ -1438,6 +1597,61 @@ export default function CodeAgentsApp({
     setMobilePanelOpen(false);
     void loadRuns(true);
   }, [loadRuns, onChatFirstMainKindChange, openRequest, selectRun]);
+
+  useEffect(() => {
+    const pendingFrames = new Set<number>();
+    const handleScheduledPrompt = (event: Event) => {
+      const prompt = (event as CustomEvent<{ prompt?: unknown }>).detail
+        ?.prompt;
+      if (typeof prompt !== "string" || !prompt.trim()) return;
+
+      let attempts = 0;
+      let frame: number | undefined;
+      const insertPrompt = () => {
+        const editor = document.querySelector<HTMLElement>(
+          '[contenteditable="true"]',
+        );
+        const newChatSurface = editor?.closest(".code-agents-start");
+        if (
+          !editor ||
+          !editor.isConnected ||
+          !newChatSurface ||
+          document.querySelector(".desktop-code-agent-schedules")
+        ) {
+          attempts += 1;
+          if (attempts < 30) {
+            frame = window.requestAnimationFrame(insertPrompt);
+            pendingFrames.add(frame);
+          }
+          return;
+        }
+
+        if (frame !== undefined) pendingFrames.delete(frame);
+        editor.focus();
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        document.execCommand("insertText", false, prompt.trim());
+      };
+
+      frame = window.requestAnimationFrame(insertPrompt);
+      pendingFrames.add(frame);
+    };
+
+    window.addEventListener(SCHEDULED_CHAT_PROMPT_EVENT, handleScheduledPrompt);
+    return () => {
+      window.removeEventListener(
+        SCHEDULED_CHAT_PROMPT_EVENT,
+        handleScheduledPrompt,
+      );
+      pendingFrames.forEach((pendingFrame) =>
+        window.cancelAnimationFrame(pendingFrame),
+      );
+    };
+  }, []);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;
@@ -1936,6 +2150,65 @@ export default function CodeAgentsApp({
     });
   }
 
+  async function forkSelectedChat(executionTarget: "local" | "worktree") {
+    if (!forkSourceRun || !host.forkRun) return;
+    setForkBusy(true);
+    try {
+      const result = await host.forkRun({
+        goalId: selectedGoal.id,
+        sourceRunId: forkSourceRun.id,
+        executionTarget,
+      });
+      if (!result.ok || !result.run) {
+        toast(result.message, {
+          description: result.error,
+          duration: 3600,
+        });
+        return;
+      }
+      setRuns((current) => [
+        result.run!,
+        ...current.filter((run) => run.id !== result.run!.id),
+      ]);
+      setForkSourceRun(null);
+      selectRun(result.run.id);
+      await loadTranscript(result.run.id, true);
+      toast(result.message, { duration: 2200 });
+    } catch (error) {
+      toast("Could not fork the chat", {
+        description: error instanceof Error ? error.message : String(error),
+        duration: 3600,
+      });
+    } finally {
+      setForkBusy(false);
+    }
+  }
+
+  async function restoreSelectedWorktree(worktreeId: string, runId: string) {
+    if (!host.restoreWorktree) return;
+    setRestoringWorktreeId(worktreeId);
+    try {
+      const result = await host.restoreWorktree({ worktreeId, runId });
+      if (!result.ok) {
+        toast(result.message, {
+          description: result.error,
+          duration: 3600,
+        });
+        return;
+      }
+      await loadRuns(true);
+      await loadTranscript(runId, true);
+      toast(result.message, { duration: 2200 });
+    } catch (error) {
+      toast("Could not restore the worktree", {
+        description: error instanceof Error ? error.message : String(error),
+        duration: 3600,
+      });
+    } finally {
+      setRestoringWorktreeId(null);
+    }
+  }
+
   async function createRunFromPrompt(
     preparedPrompt: string,
     attachments: CodeAgentPromptAttachment[],
@@ -2038,6 +2311,10 @@ export default function CodeAgentsApp({
         executionTarget: supportsExecutionTarget
           ? newRunExecutionTarget
           : "local",
+        worktree:
+          supportsExecutionTarget && newRunExecutionTarget === "worktree"
+            ? newRunWorktreeSelection
+            : undefined,
         permissionMode: newRunPermissionMode,
         engine: selectedModelSelection.engine,
         model: selectedModelSelection.model,
@@ -2343,6 +2620,65 @@ export default function CodeAgentsApp({
     if (run) void renameRunRef.current(run, nextTitle);
   }, []);
 
+  const requestPortalTransfer = useCallback(
+    (runId?: string) => {
+      if (runId) {
+        const run = runsRef.current.find((candidate) => candidate.id === runId);
+        if (!run || isPortalCodeAgentRun(run)) return;
+        setPortalTransferRequest({
+          kind: "run",
+          runId,
+          title: getRunTitle(run) ?? "this chat",
+        });
+        return;
+      }
+      if (host.transferAll) setPortalTransferRequest({ kind: "all" });
+    },
+    [host.transferAll],
+  );
+
+  const confirmPortalTransfer = useCallback(async () => {
+    const request = portalTransferRequest;
+    if (!request || portalTransferBusy) return;
+    setPortalTransferBusy(true);
+    try {
+      if (request.kind === "run") {
+        if (!host.transferRun) {
+          toast("Portal transfer is not available on this host.", {
+            duration: 2200,
+          });
+          return;
+        }
+        const result = await host.transferRun({ runId: request.runId });
+        toast(result.ok ? result.message : "Could not move chat to Portal.", {
+          description: result.ok ? undefined : (result.error ?? result.message),
+          duration: 2600,
+        });
+      } else {
+        if (!host.transferAll) {
+          toast("Portal transfer is not available on this host.", {
+            duration: 2200,
+          });
+          return;
+        }
+        const result = await host.transferAll();
+        toast(result.ok ? result.message : "Portal transfer needs attention.", {
+          description: result.ok ? undefined : (result.error ?? result.message),
+          duration: 3200,
+        });
+      }
+      await loadRuns(true);
+    } catch (error) {
+      toast("Portal transfer did not finish.", {
+        description: error instanceof Error ? error.message : String(error),
+        duration: 3200,
+      });
+    } finally {
+      setPortalTransferBusy(false);
+      setPortalTransferRequest(null);
+    }
+  }, [host, loadRuns, portalTransferBusy, portalTransferRequest]);
+
   const handleRailAdditionalRowActions = useCallback(
     (item: ChatHistoryItem, closeMenu: () => void) => (
       <>
@@ -2389,9 +2725,26 @@ export default function CodeAgentsApp({
               : "Watch and message session"}
           </span>
         </button>
+        {host.transferRun &&
+        runsRef.current.some(
+          (run) => run.id === item.id && !isPortalCodeAgentRun(run),
+        ) ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="an-chat-history-row__menu-item"
+            onClick={() => {
+              closeMenu();
+              requestPortalTransfer(item.id);
+            }}
+          >
+            <IconRoute size={13} strokeWidth={1.8} />
+            <span>Move to Portal</span>
+          </button>
+        ) : null}
       </>
     ),
-    [],
+    [host.transferRun, requestPortalTransfer],
   );
 
   const showingSelectedRunDetail =
@@ -2448,6 +2801,9 @@ export default function CodeAgentsApp({
               <CodeAgentsChatHistoryHeaderActions
                 hasUnread={runs.some((run) => unreadRunIds.has(run.id))}
                 onMarkAllRead={markAllRunsRead}
+                onTransferAll={
+                  host.transferAll ? () => requestPortalTransfer() : undefined
+                }
               />
             }
             loading={loading}
@@ -2644,6 +3000,17 @@ export default function CodeAgentsApp({
                                 ? connectLocalRuntime
                                 : undefined
                             }
+                            onOpenRun={(runId) => {
+                              onChatFirstMainKindChange?.("code");
+                              selectRun(runId);
+                            }}
+                            onForkChat={
+                              host.forkRun
+                                ? () => setForkSourceRun(selectedRun)
+                                : undefined
+                            }
+                            onRestoreWorktree={restoreSelectedWorktree}
+                            restoringWorktreeId={restoringWorktreeId}
                           />
                         ) : (
                           <div className="code-agents-start">
@@ -2668,6 +3035,7 @@ export default function CodeAgentsApp({
                                 />
                               )}
                             <NewSessionComposer
+                              key={newPromptSeed}
                               prompt={newPrompt}
                               promptSeed={newPromptSeed}
                               inputRef={newPromptRef}
@@ -2759,6 +3127,9 @@ export default function CodeAgentsApp({
                                   projects={projects}
                                   selectedPath={selectedProjectPath}
                                   executionTarget={newRunExecutionTarget}
+                                  worktreeSelection={newRunWorktreeSelection}
+                                  namedWorktrees={namedWorktrees}
+                                  namedWorktreesLoading={namedWorktreesLoading}
                                   showExecutionTarget={supportsExecutionTarget}
                                   loading={loadingProjects}
                                   canChoose={canChooseProjectFolder}
@@ -2773,8 +3144,32 @@ export default function CodeAgentsApp({
                                       }, 0);
                                     }, 0);
                                   }}
-                                  onExecutionTargetChange={
-                                    setNewRunExecutionTarget
+                                  onExecutionTargetChange={(target) => {
+                                    setNewRunExecutionTarget(target);
+                                    if (target !== "worktree") {
+                                      setNewRunWorktreeSelection({
+                                        mode: "new",
+                                      });
+                                    }
+                                  }}
+                                  onWorktreeSelectionChange={
+                                    host.listWorktrees
+                                      ? setNewRunWorktreeSelection
+                                      : undefined
+                                  }
+                                  onNewNamedWorktree={
+                                    host.listWorktrees
+                                      ? () => {
+                                          setNamedWorktreeName(
+                                            newRunWorktreeSelection.mode ===
+                                              "named"
+                                              ? (newRunWorktreeSelection.name ??
+                                                  "")
+                                              : "",
+                                          );
+                                          setNamedWorktreeDialogOpen(true);
+                                        }
+                                      : undefined
                                   }
                                 />
                               </RemoteWaitlistPopover>
@@ -2795,6 +3190,133 @@ export default function CodeAgentsApp({
           </>
         )}
       </main>
+      <Dialog
+        open={Boolean(portalTransferRequest)}
+        onOpenChange={(open) => {
+          if (!open && !portalTransferBusy) setPortalTransferRequest(null);
+        }}
+      >
+        <DialogContent aria-describedby="portal-transfer-description">
+          <DialogTitle>
+            {portalTransferRequest?.kind === "all"
+              ? "Move local chats to Portal?"
+              : "Move chat to Portal?"}
+          </DialogTitle>
+          <DialogDescription id="portal-transfer-description">
+            {portalTransferRequest?.kind === "all"
+              ? "Each local or worktree chat will move its code and full text context to the paired computer."
+              : `Move ${portalTransferRequest?.title ?? "this chat"} with its code and full text context to the paired computer.`}
+          </DialogDescription>
+          <div className="code-agents-dialog-actions">
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={() => setPortalTransferRequest(null)}
+              disabled={portalTransferBusy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="code-agents-button--primary"
+              onClick={() => void confirmPortalTransfer()}
+              disabled={portalTransferBusy}
+            >
+              {portalTransferBusy
+                ? "Moving..."
+                : portalTransferRequest?.kind === "all"
+                  ? "Move all"
+                  : "Move to Portal"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={namedWorktreeDialogOpen}
+        onOpenChange={(open) => {
+          if (!open) setNamedWorktreeDialogOpen(false);
+        }}
+      >
+        <DialogContent className="code-agents-worktree-dialog">
+          <DialogTitle>Name this worktree</DialogTitle>
+          <DialogDescription>
+            Reuse it from any chat for this folder.
+          </DialogDescription>
+          <input
+            autoFocus
+            className="code-agents-worktree-name-input"
+            value={namedWorktreeName}
+            maxLength={64}
+            placeholder="e.g. redesign"
+            aria-label="Worktree name"
+            onChange={(event) => setNamedWorktreeName(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                const name = namedWorktreeName.trim();
+                if (!name) return;
+                setNewRunWorktreeSelection({ mode: "named", name });
+                setNamedWorktreeDialogOpen(false);
+              }
+            }}
+          />
+          <div className="code-agents-dialog-actions">
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={() => setNamedWorktreeDialogOpen(false)}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="code-agents-button code-agents-button--primary"
+              disabled={!namedWorktreeName.trim()}
+              onClick={() => {
+                const name = namedWorktreeName.trim();
+                if (!name) return;
+                setNewRunWorktreeSelection({ mode: "named", name });
+                setNamedWorktreeDialogOpen(false);
+              }}
+            >
+              Use worktree
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
+      <Dialog
+        open={Boolean(forkSourceRun)}
+        onOpenChange={(open) => {
+          if (!open && !forkBusy) setForkSourceRun(null);
+        }}
+      >
+        <DialogContent className="code-agents-fork-dialog">
+          <DialogTitle>Fork chat from here</DialogTitle>
+          <DialogDescription>
+            Start a new chat with this conversation’s context.
+          </DialogDescription>
+          <div className="code-agents-fork-options">
+            <button
+              type="button"
+              className="code-agents-fork-option"
+              disabled={forkBusy || !host.forkRun}
+              onClick={() => void forkSelectedChat("local")}
+            >
+              <IconGitFork size={18} strokeWidth={1.8} />
+              <span>Fork in this workspace</span>
+            </button>
+            <button
+              type="button"
+              className="code-agents-fork-option"
+              disabled={forkBusy || !host.forkRun}
+              onClick={() => void forkSelectedChat("worktree")}
+            >
+              <IconGitBranch size={18} strokeWidth={1.8} />
+              <span>Fork in a new worktree</span>
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <ComputerAccessDialog
         open={computerSetupOpen}
         onOpenChange={setComputerSetupOpen}
@@ -3089,6 +3611,9 @@ function ProjectFolderPicker({
   projects,
   selectedPath,
   executionTarget = "local",
+  worktreeSelection = { mode: "new" },
+  namedWorktrees = [],
+  namedWorktreesLoading = false,
   showExecutionTarget = false,
   loading,
   canChoose,
@@ -3096,11 +3621,16 @@ function ProjectFolderPicker({
   onChoose,
   onCloudSelect,
   onExecutionTargetChange,
+  onWorktreeSelectionChange,
+  onNewNamedWorktree,
 }: {
   variant?: "rail" | "bar";
   projects: CodeAgentProjectFolder[];
   selectedPath: string;
   executionTarget?: CodeAgentExecutionTarget;
+  worktreeSelection?: CodeAgentWorktreeSelection;
+  namedWorktrees?: CodeAgentWorktreeSummary[];
+  namedWorktreesLoading?: boolean;
   showExecutionTarget?: boolean;
   loading: boolean;
   canChoose: boolean;
@@ -3108,6 +3638,8 @@ function ProjectFolderPicker({
   onChoose: () => void;
   onCloudSelect?: () => void;
   onExecutionTargetChange?: (target: CodeAgentExecutionTarget) => void;
+  onWorktreeSelectionChange?: (selection: CodeAgentWorktreeSelection) => void;
+  onNewNamedWorktree?: () => void;
 }) {
   const active = projects.find((project) => project.path === selectedPath);
 
@@ -3158,72 +3690,146 @@ function ProjectFolderPicker({
           </SelectContent>
         </Select>
         {showExecutionTarget && onExecutionTargetChange ? (
-          <Select
-            value={executionTarget}
-            onValueChange={(value) => {
-              if (value === "cloud") {
-                onCloudSelect?.();
-                return;
-              }
-              onExecutionTargetChange(value as CodeAgentExecutionTarget);
-            }}
-          >
-            <SelectTrigger
-              className="code-agents-project-select code-agents-execution-target-select"
-              aria-label="Select workspace"
+          <>
+            <Select
+              value={executionTarget}
+              onValueChange={(value) => {
+                if (value === "cloud") {
+                  onCloudSelect?.();
+                  return;
+                }
+                onExecutionTargetChange(value as CodeAgentExecutionTarget);
+              }}
             >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent className="code-agents-select-content">
-              <SelectGroup>
-                <SelectItem
-                  value="local"
-                  description="Use the selected folder directly"
+              <SelectTrigger
+                className="code-agents-project-select code-agents-execution-target-select"
+                aria-label="Select workspace"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="code-agents-select-content">
+                <SelectGroup>
+                  <SelectItem
+                    value="local"
+                    description="Use the selected folder directly"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconDeviceDesktop size={14} strokeWidth={1.8} />
+                      <span>Local</span>
+                    </span>
+                  </SelectItem>
+                  <SelectItem
+                    value="worktree"
+                    description="Start an isolated copy from the latest commit"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconGitBranch size={14} strokeWidth={1.8} />
+                      <span>Worktree</span>
+                    </span>
+                  </SelectItem>
+                  <SelectItem
+                    value="portal"
+                    description="Continue on a paired computer"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconRoute size={14} strokeWidth={1.8} />
+                      <span>Portal</span>
+                    </span>
+                  </SelectItem>
+                  <SelectItem
+                    value="cloud"
+                    description="Run in the cloud - join the waitlist"
+                  >
+                    <span className="code-agents-project-select__item">
+                      <IconCloud size={14} strokeWidth={1.8} />
+                      <span>Cloud</span>
+                    </span>
+                  </SelectItem>
+                </SelectGroup>
+              </SelectContent>
+            </Select>
+            {executionTarget === "worktree" && onWorktreeSelectionChange ? (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="code-agents-worktree-options-trigger"
+                    aria-label="Worktree options"
+                    title="Worktree options"
+                  >
+                    <IconChevronDown size={13} strokeWidth={1.8} />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent
+                  align="end"
+                  sideOffset={4}
+                  className="code-agents-worktree-options-menu"
                 >
-                  <span className="code-agents-project-select__item">
-                    <IconDeviceDesktop size={14} strokeWidth={1.8} />
-                    <span>Local</span>
-                  </span>
-                </SelectItem>
-                <SelectItem
-                  value="worktree"
-                  description="Start an isolated copy from the latest commit"
-                >
-                  <span className="code-agents-project-select__item">
+                  <DropdownMenuItem
+                    onSelect={() => onWorktreeSelectionChange({ mode: "new" })}
+                  >
                     <IconGitBranch size={14} strokeWidth={1.8} />
-                    <span>Worktree</span>
-                  </span>
-                </SelectItem>
-                <SelectItem
-                  value="portal"
-                  description="Continue on a paired computer"
-                >
-                  <span className="code-agents-project-select__item">
-                    <IconCloud size={14} strokeWidth={1.8} />
-                    <span>Portal</span>
-                  </span>
-                </SelectItem>
-                <SelectItem
-                  value="cloud"
-                  description="Run in the cloud - join the waitlist"
-                >
-                  <span className="code-agents-project-select__item">
-                    <IconCloud size={14} strokeWidth={1.8} />
-                    <span>Cloud</span>
-                  </span>
-                </SelectItem>
-              </SelectGroup>
-            </SelectContent>
-          </Select>
+                    <span>New worktree</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={onNewNamedWorktree}>
+                    <IconFolderPlus size={14} strokeWidth={1.8} />
+                    <span>New named worktree</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuSub>
+                    <DropdownMenuSubTrigger>
+                      <IconFolder size={14} strokeWidth={1.8} />
+                      <span>Use named worktree</span>
+                    </DropdownMenuSubTrigger>
+                    <DropdownMenuSubContent>
+                      {namedWorktreesLoading ? (
+                        <DropdownMenuItem disabled>
+                          <span>Loading worktrees...</span>
+                        </DropdownMenuItem>
+                      ) : namedWorktrees.length === 0 ? (
+                        <DropdownMenuItem disabled>
+                          <span>No named worktrees yet</span>
+                        </DropdownMenuItem>
+                      ) : (
+                        namedWorktrees.map((worktree) => (
+                          <DropdownMenuItem
+                            key={worktree.id}
+                            onSelect={() =>
+                              onWorktreeSelectionChange({
+                                mode: "named",
+                                name: worktree.name,
+                              })
+                            }
+                            description={
+                              worktree.state === "recoverable"
+                                ? "Restore when used"
+                                : undefined
+                            }
+                          >
+                            <IconGitBranch size={14} strokeWidth={1.8} />
+                            <span>{worktree.name}</span>
+                          </DropdownMenuItem>
+                        ))
+                      )}
+                    </DropdownMenuSubContent>
+                  </DropdownMenuSub>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
+          </>
         ) : null}
       </div>
       <p className="code-agents-project-path" title={active?.path}>
         {executionTarget === "portal"
           ? "Code is pushed to a paired computer before the run starts."
-          : (active?.path ??
-            (executionTarget === "worktree"
-              ? "A new isolated worktree will be created for this chat."
-              : "Runs use the selected folder as cwd."))}
+          : executionTarget === "worktree" &&
+              worktreeSelection.mode === "named" &&
+              worktreeSelection.name
+            ? `Named worktree: ${worktreeSelection.name}`
+            : (active?.path ??
+              (executionTarget === "worktree"
+                ? "A new isolated worktree will be created for this chat."
+                : "Runs use the selected folder as cwd."))}
       </p>
     </div>
   );
@@ -4704,6 +5310,10 @@ function RunDetailCard({
   onOpenSettings,
   onConnectProvider,
   onConnectLocalRuntime,
+  onOpenRun,
+  onForkChat,
+  onRestoreWorktree,
+  restoringWorktreeId,
 }: {
   host: CodeAgentsHost;
   run: CodeAgentRun | null;
@@ -4728,6 +5338,10 @@ function RunDetailCard({
   onOpenSettings?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onOpenRun?: (runId: string) => void;
+  onForkChat?: () => void;
+  onRestoreWorktree?: (worktreeId: string, runId: string) => void;
+  restoringWorktreeId?: string | null;
 }) {
   const runIsActive = run ? isRunActive(run) : false;
 
@@ -4773,6 +5387,16 @@ function RunDetailCard({
     : false;
   const showApprovalBanner =
     Boolean(pendingApproval) && !hasInlineApprovalAffordance;
+  const runWorktree = isObjectRecord(run.metadata?.worktree)
+    ? run.metadata.worktree
+    : undefined;
+  const worktreeCleanupError = firstRecordString(runWorktree?.lastCleanupError);
+  const {
+    wasPreserved: worktreeWasPreserved,
+    needsRecovery: worktreeNeedsRecovery,
+    needsNotice: worktreeNeedsNotice,
+  } = getCodeAgentWorktreeRecoveryState(runWorktree);
+  const worktreeId = firstRecordString(runWorktree?.id);
 
   return (
     <div className="code-agents-detail code-agents-detail--chat">
@@ -4835,6 +5459,39 @@ function RunDetailCard({
         </div>
       )}
 
+      {worktreeNeedsNotice && (
+        <div className="code-agents-worktree-recovery" role="status">
+          <div className="code-agents-worktree-recovery__copy">
+            <IconAlertCircle size={16} strokeWidth={1.8} />
+            <span>
+              <strong>
+                {worktreeWasPreserved
+                  ? "Worktree kept for recovery"
+                  : "Worktree cleaned up"}
+              </strong>
+              <small>
+                {worktreeWasPreserved
+                  ? worktreeCleanupError
+                  : "This chat’s files were removed to save disk space."}
+              </small>
+            </span>
+          </div>
+          {worktreeNeedsRecovery && worktreeId && onRestoreWorktree ? (
+            <button
+              type="button"
+              className="code-agents-button"
+              disabled={restoringWorktreeId === worktreeId}
+              onClick={() => onRestoreWorktree(worktreeId, run.id)}
+            >
+              <IconRestore size={14} strokeWidth={1.8} />
+              {restoringWorktreeId === worktreeId
+                ? "Restoring..."
+                : "Restore worktree"}
+            </button>
+          ) : null}
+        </div>
+      )}
+
       <TranscriptPanel
         host={host}
         goal={goal}
@@ -4854,6 +5511,8 @@ function RunDetailCard({
         onApproveAlways={onApproveAlways}
         onConnectProvider={onConnectProvider}
         onConnectLocalRuntime={onConnectLocalRuntime}
+        onOpenRun={onOpenRun}
+        onForkChat={onForkChat}
       />
     </div>
   );
@@ -4878,6 +5537,8 @@ function TranscriptPanel({
   onApproveAlways,
   onConnectProvider,
   onConnectLocalRuntime,
+  onOpenRun,
+  onForkChat,
 }: {
   host: CodeAgentsHost;
   goal: CodeAgentGoalDefinition;
@@ -4899,6 +5560,8 @@ function TranscriptPanel({
   onApproveAlways?: () => void;
   onConnectProvider?: () => void;
   onConnectLocalRuntime?: (engine: string) => void;
+  onOpenRun?: (runId: string) => void;
+  onForkChat?: () => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const selectedModel =
@@ -4993,60 +5656,120 @@ function TranscriptPanel({
         // but they intentionally enter the shared AssistantChat renderer so
         // message parts, tool activity, and integration suggestions stay in
         // parity with server-backed agent chats.
-        <AssistantChat
-          key={run.id}
-          className="code-agents-transcript__assistant"
-          tabId={`code-agent:${run.id}`}
-          showHeader={false}
-          emptyStateText="No messages yet."
-          suggestions={[]}
-          dynamicSuggestions={false}
-          plusMenuMode="upload-only"
-          providerStatusChecksEnabled={false}
-          createAdapter={createAdapter}
-          adapterReloadKey={controller}
-          loadHistoryRepository={loadHistoryRepository}
-          historyReloadKey={historyReloadKey}
-          externalStreaming={runIsActive}
-          approvalActions={
-            onDeny || onApproveAlways
-              ? { onDeny, onAlwaysAllow: onApproveAlways }
-              : undefined
-          }
-          availableModels={availableModels}
-          availableAgents={availableAgents}
-          selectedAgent={selectedAgent}
-          selectedModel={selectedModel}
-          selectedEngine={selectedEngine}
-          selectedEffort={selectedEffort}
-          onModelChange={(model, engine) =>
-            onModelSelectionChange({
-              engine,
-              model,
-              effort: selectedEffort,
-            })
-          }
-          onAgentChange={handleAgentChange}
-          onEffortChange={(effort) =>
-            onModelSelectionChange({ ...normalizedModel, effort })
-          }
-          composerAreaClassName="code-agents-standard-composer"
-          composerToolbarSlot={
-            <div className="code-agents-chat-composer-slot">
-              <RunModeSelect
-                value={permissionMode}
-                onChange={onPermissionModeChange}
-                compact
-              />
-            </div>
-          }
-          composerExtraActionButton={
-            runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
-          }
-          onConnectProvider={onConnectProvider}
-          onConnectLocalRuntime={onConnectLocalRuntime}
-        />
+        <>
+          <TranscriptSourceBanner events={events} onOpenRun={onOpenRun} />
+          <AssistantChat
+            key={run.id}
+            className="code-agents-transcript__assistant"
+            tabId={`code-agent:${run.id}`}
+            showHeader={false}
+            emptyStateText="No messages yet."
+            suggestions={[]}
+            dynamicSuggestions={false}
+            plusMenuMode="upload-only"
+            providerStatusChecksEnabled={false}
+            createAdapter={createAdapter}
+            adapterReloadKey={controller}
+            loadHistoryRepository={loadHistoryRepository}
+            historyReloadKey={historyReloadKey}
+            externalStreaming={runIsActive}
+            approvalActions={
+              onDeny || onApproveAlways
+                ? { onDeny, onAlwaysAllow: onApproveAlways }
+                : undefined
+            }
+            availableModels={availableModels}
+            availableAgents={availableAgents}
+            selectedAgent={selectedAgent}
+            selectedModel={selectedModel}
+            selectedEngine={selectedEngine}
+            selectedEffort={selectedEffort}
+            onModelChange={(model, engine) =>
+              onModelSelectionChange({
+                engine,
+                model,
+                effort: selectedEffort,
+              })
+            }
+            onAgentChange={handleAgentChange}
+            onEffortChange={(effort) =>
+              onModelSelectionChange({ ...normalizedModel, effort })
+            }
+            composerAreaClassName="code-agents-standard-composer"
+            composerToolbarSlot={
+              <div className="code-agents-chat-composer-slot">
+                <RunModeSelect
+                  value={permissionMode}
+                  onChange={onPermissionModeChange}
+                  compact
+                />
+              </div>
+            }
+            composerExtraActionButton={
+              runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
+            }
+            onConnectProvider={onConnectProvider}
+            onConnectLocalRuntime={onConnectLocalRuntime}
+            onForkChat={onForkChat}
+          />
+        </>
       )}
+    </div>
+  );
+}
+
+function TranscriptSourceBanner({
+  events,
+  onOpenRun,
+}: {
+  events: CodeAgentTranscriptEvent[];
+  onOpenRun?: (runId: string) => void;
+}) {
+  const event = [...events]
+    .reverse()
+    .find(
+      (candidate) =>
+        candidate.type === "user" &&
+        (candidate.metadata?.source === "scheduled-task" ||
+          candidate.metadata?.source === "agent"),
+    );
+  if (!event) return null;
+  const source = event.metadata?.source;
+  if (source === "scheduled-task") {
+    const scheduleName =
+      typeof event.metadata?.scheduleName === "string"
+        ? event.metadata.scheduleName
+        : undefined;
+    return (
+      <div
+        className="code-agents-transcript-source"
+        data-source="scheduled-task"
+      >
+        <IconClock size={14} strokeWidth={1.8} />
+        <span>Sent by scheduled task</span>
+        {scheduleName ? <small>{scheduleName}</small> : null}
+      </div>
+    );
+  }
+  const sourceRunId =
+    typeof event.metadata?.sourceRunId === "string"
+      ? event.metadata.sourceRunId
+      : undefined;
+  const sourceRunTitle =
+    typeof event.metadata?.sourceRunTitle === "string"
+      ? event.metadata.sourceRunTitle
+      : sourceRunId;
+  return (
+    <div className="code-agents-transcript-source" data-source="agent">
+      <IconLink size={14} strokeWidth={1.8} />
+      <span>Sent from another agent</span>
+      {sourceRunId && onOpenRun ? (
+        <button type="button" onClick={() => onOpenRun(sourceRunId)}>
+          {sourceRunTitle}
+        </button>
+      ) : sourceRunTitle ? (
+        <small>{sourceRunTitle}</small>
+      ) : null}
     </div>
   );
 }

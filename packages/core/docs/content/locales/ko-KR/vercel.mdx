@@ -1,0 +1,38 @@
+---
+title: "Vercel"
+description: "Vercel Nitro 프리셋으로 agent-native 앱을 Vercel에 배포하세요. 독립형으로도, 작업 공간으로도 가능합니다."
+---
+
+# Vercel
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "vercel" } })],
+});
+```
+
+Vercel CLI나 git push로 배포하세요:
+
+```bash
+vercel deploy
+```
+
+작업 공간의 경우, 모든 앱을 하나의 Vercel Build Output API 번들로 빌드하세요:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel
+```
+
+Vercel Git 배포의 경우, 빌드 명령을 다음과 같이 설정하세요:
+
+```bash
+npx @agent-native/core@latest deploy --preset vercel --build-only
+```
+
+작업 공간 빌드는 각 앱의 Nitro `vercel` 출력물을 루트 `.vercel/output`으로 복사하고, 각 함수에 고유한 마운트 경로 환경을 부여하며, 앱을 `/<app-id>`에서 제공하는 라우트 설정을 작성합니다.
+
+## 다음 단계
+
+- [**Deployment**](/docs/deployment) — 첫 프로덕션 배포 전에 영구 데이터베이스와 프리셋을 선택하세요
+- [**Workspace Deployment**](/docs/workspace-deployment) — `deploy --preset vercel` 작업 공간 빌드 전체 설명
+- [**Node.js & Docker**](/docs/node-docker), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare), [**Other Platforms**](/docs/other-platforms) — 그 외 Nitro 프리셋들

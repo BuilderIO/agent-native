@@ -49,6 +49,7 @@ Read the relevant skill before deeper work:
   thumbnails, or replay chunks in app tables, `application_state`, `settings`,
   or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 
 ## Application State
 
@@ -79,6 +80,8 @@ Read the relevant skill before deeper work:
 | `edit-document` | Find/replace edit — preferred for small changes |
 | `update-document` | Full rewrite of title, content, or description |
 | `delete-document` | Move a page and its children to Trash |
+| `list-content-database-blocks` | List stable blocks and revisions in one exact database row/property |
+| `mutate-content-database-block` | Insert, update, upsert, delete, or reorder one supported stable block |
 | `migrate-content-database-rows` | Validate, atomically apply, verify, roll back, or finalize one bounded whole-database row migration |
 
 Every action carries its own schema, and the rest of the app-specific surface

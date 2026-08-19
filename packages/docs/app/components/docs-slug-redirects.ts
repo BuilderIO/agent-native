@@ -10,6 +10,16 @@
 export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "core-philosophy": "key-concepts",
   "database-adapters": "deployment",
+  // database.mdx was a near-duplicate of the Server section's own database
+  // page; the Server version is the complete one (adds scoping + sync).
+  database: "server-database",
+  // human-approval.mdx folded into the needsApproval section it was already
+  // a deep-dive companion to.
+  "human-approval": "actions-access-control",
+  // local-file-mode.mdx was entirely about the Content template's local-folder
+  // feature, not general framework architecture. Moved next to the other
+  // template-content-* docs.
+  "local-file-mode": "template-content-local-files",
   resources: "agent-resources",
   secrets: "security",
   workspace: "agent-resources",

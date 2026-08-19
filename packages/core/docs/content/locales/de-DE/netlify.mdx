@@ -1,0 +1,47 @@
+---
+title: "Netlify"
+description: "Stellen Sie eine agentennative App mit der Netlify-Nitro-Voreinstellung auf Netlify bereit, und konfigurieren Sie Keep-Warm für Scale-to-Zero-Datenbanken."
+---
+
+# Netlify
+
+Die Nitro-`netlify`-Voreinstellung funktioniert gut und hat uns in der Praxis viel schnellere Kaltstarts ermöglicht als Cloudflare Pages (~200 ms TTFB gegenüber ~9 s) für Vorlagen, die mit externem Postgres (Neon) kommunizieren. Legen Sie entweder die Voreinstellung in `vite.config.ts` fest:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "netlify" } })],
+});
+```
+
+… oder legen Sie `NITRO_PRESET=netlify` zur Build-Zeit fest.
+
+Stellen Sie für einen Arbeitsbereich jede App von einer Netlify-Site bereit, indem Sie Folgendes ausführen:
+
+```bash
+npx @agent-native/core@latest deploy --preset netlify
+```
+
+Der Workspace-Build schreibt statische Assets unter `dist/_workspace_static/` und leitet jede App ohne erzwungene Asset-Weiterleitungen an ihre eigene Netlify-Funktion, sodass Dateien wie `/mail/assets/...` statisch bereitgestellt werden, bevor die Serverfunktion App-Routen verarbeitet.
+
+## Keep-Warm und Scale-to-Zero-Datenbanken {#netlify-keep-warm}
+
+Wenn aktiviert, erzeugt der Netlify-Build eine geplante Funktion, die **jede Minute** `/_agent-native/health` aufruft. Das hält die Serverfunktion und ihre Datenbank warm, damit der nächste Besucher nach einer Leerlaufphase keinen Kaltstart bezahlt (1–5 s bei Neon).
+
+Keep-Warm ist **standardmäßig deaktiviert**, weil ein Aufwecken einmal pro Minute Autosuspend bei kostenpflichtigen Scale-to-Zero-Datenbanken verhindert. Bei einem kostenlosen Neon-Tarif kann das die Compute-Quote erschöpfen, und die Datenbank lehnt dann mitten in der Sitzung **alle** Lesevorgänge ab. Das Symptom ist eine tote App, nicht eine langsame. Legen Sie `AGENT_NATIVE_ENABLE_KEEP_WARM=1` fest, wenn die geringere Latenz für den nächsten Besucher die zusätzliche Wachzeit der Datenbank wert ist.
+
+Der Keep-Warm-Zeitplan und das Aufwärmen der Hintergrundfunktion gelten nur, nachdem das Haupt-Keep-Warm-Flag aktiviert wurde:
+
+| Variable                                    | Wirkung                                                                                                                                                                                                               |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Aktiviert das geplante Warmhalten von Server und Datenbank. Standardmäßig nicht gesetzt.                                                                                                                              |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Kompatibles Abschalt-Flag, das das Opt-in-Flag überstimmt, wenn es gesetzt ist.                                                                                                                                       |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Überschreibt die Kadenz mit einem 5-Feld-Cron-Ausdruck, z. B. `*/5 * * * *`. Die Standardkadenz bei Aktivierung ist `* * * * *`. Ein nicht parsebarer Wert **lässt den Build fehlschlagen**.                          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Verwirft nur das Aufwärmen der Hintergrundfunktion und hält den Server warm. Das Aufwärmen von `server` ist eine Anfrage. Das Aufwärmen von `-background` startet einen neuen Container, der das Schema erneut prüft. |
+
+Wenn Sie einen kostenlosen oder anderweitig kontingentierten Datenbank-Tarif nutzen, lassen Sie `AGENT_NATIVE_ENABLE_KEEP_WARM` nicht gesetzt. Wenn Sie es aktivieren, verwenden Sie eine langsamere Kadenz oder legen Sie `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` fest, um das teurere Aufwärmen der Hintergrundfunktion fallen zu lassen.
+
+## Was kommt als nächstes?
+
+- [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank und eine Voreinstellung vor Ihrer ersten Produktionsbereitstellung
+- [**SSR-Caching**](/docs/ssr-caching) — die Standard-Cache-Richtlinie und Netlifys separates `netlify-cdn-cache-control`-Verhalten
+- [**Node.js & Docker**](/docs/node-docker), [**Vercel**](/docs/vercel), [**Cloudflare**](/docs/cloudflare) und [**Andere Plattformen**](/docs/other-platforms) — die anderen Nitro-Voreinstellungen

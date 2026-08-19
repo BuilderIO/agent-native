@@ -79,7 +79,13 @@ describe("hosted SSE reconnect ownership", () => {
         type: "batch",
         version: 100,
         events: [
-          { version: 100, source: "app-state", type: "change", key: "*" },
+          {
+            version: 100,
+            cursorId: "a",
+            source: "app-state",
+            type: "change",
+            key: "*",
+          },
         ],
       }),
     });
@@ -96,6 +102,7 @@ describe("hosted SSE reconnect ownership", () => {
     const second = FakeEventSource.instances.at(-1)!;
     expect(second).not.toBe(first);
     expect(second.url).toContain("since=100");
+    expect(second.url).toContain("cursor=100.a");
     expect(second.url).toContain("token=tok-1");
 
     unsub();

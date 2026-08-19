@@ -29,7 +29,7 @@ Every action starts with a call to `defineAction()`. It bundles a description fo
     {
       lines: "12-16",
       label: "One implementation",
-      note: "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this. `getDb()` and `schema` come from your app's `server/db/index.ts`. See [Database](/docs/database).",
+      note: "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this. `getDb()` and `schema` come from your app's `server/db/index.ts`. See [Database](/docs/server-database).",
     },
   ]}
 />
@@ -271,5 +271,5 @@ The repo includes an advisory helper, `node scripts/audit-template-actions.mjs [
 - [**Access & Authorization**](/docs/actions-access-control) — `agentTool`, `toolCallable`, `authorize`, and `ctx` scoping
 - [**Run Context**](/docs/actions-run-context) — the full `ctx` field table
 - [**Other Surfaces**](/docs/actions-other-surfaces) — native chat UI, CLI, A2A, MCP, and standard actions
-- [**Database**](/docs/database) — `getDb()`/`schema` used inside `run()`
+- [**Database**](/docs/server-database) — `getDb()`/`schema` used inside `run()`
 - [**Data & Sync**](/docs/client-data) — calling this action from the UI

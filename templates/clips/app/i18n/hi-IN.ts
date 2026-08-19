@@ -382,6 +382,9 @@ const messages = {
     aiNotes: "एआई नोट्स",
     summary: "सारांश",
     actionItems: "एक्शन आइटम्स",
+    addActionItem: "एक्शन आइटम जोड़ें",
+    removeActionItem: "एक्शन आइटम हटाएं",
+    actionItemPlaceholder: "क्या करना है?",
     working: "कार्यरत…",
     noActionItems:
       "अभी तक कोई कार्रवाई आइटम नहीं. प्रतिलेख से नोट्स तैयार होने के बाद वे यहां दिखाई देते हैं।",
@@ -968,7 +971,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
   commentsPanel: {
     disabled: "इस रिकॉर्डिंग के लिए टिप्पणियां बंद हैं।",
     beFirst: "पहली टिप्पणी करें",
-    leaveNotePanel: "इस पैनल के शीर्ष पर एक नोट छोड़ें।",
+    leaveNotePanel: "इस पैनल के नीचे एक नोट छोड़ें।",
     leaveNoteTimestamp: "वर्तमान टाइमस्टैम्प पर एक नोट छोड़ें।",
     leaveComment: "टिप्पणी छोड़ें...",
     signInToComment: "टिप्पणी छोड़ने के लिए साइन इन करें।",
@@ -1110,6 +1113,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     liveTranscriptDescription: "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
     me: "मैं",
     them: "वे",
+    unknownSpeaker: "वक्ता",
     searchTranscript: "प्रतिलेख में खोजें",
     searchPlaceholder: "प्रतिलेख में खोजें…",
     searchMatchCount: "{{total}} में से {{current}}",
@@ -1324,10 +1328,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     cameraOff: "Camera off (स्थानीयकृत)",
     includeCameraAria: "Include camera in this recording (स्थानीयकृत)",
     startRecording: "Start recording (स्थानीयकृत)",
-    micOffConfirmTitle: "Record without a microphone? (स्थानीयकृत)",
-    micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (स्थानीयकृत)",
-    startWithoutMic: "Start anyway (स्थानीयकृत)",
+    micOffConfirmTitle: "आपका माइक म्यूट है",
+    micOffConfirmDescription: "अपने वीडियो में आवाज़ के लिए माइक्रोफ़ोन अनम्यूट करें।",
+    startWithoutMic: "जारी रखें",
+    unmuteMicrophone: "माइक चालू करें",
     uploadVideo: "Upload video (स्थानीयकृत)",
     importLoom: "Import Loom (स्थानीयकृत)",
     importing: "Importing... (स्थानीयकृत)",
@@ -1410,6 +1414,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",
     connectStorageToRetryLoom:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips इंपोर्ट फिर से करेगा.",
+    leaveConfirmTitle: "इस रिकॉर्डिंग को छोड़कर हटाएं?",
+    leaveConfirmDescription:
+      "आपकी चल रही रिकॉर्डिंग अभी पूरी तरह सेव नहीं हुई है. अभी इस पेज से बाहर जाने पर यह हट जाएगी.",
+    leaveAndDiscard: "बाहर जाएं और हटाएं",
   },
   importRoute: {
     pageTitle: "Loom आयात करें — Clips",
@@ -1578,7 +1586,6 @@ Clips में उपयोगकर्ताओं को दिखने व�
     transcriptPending: "Transcript pending (स्थानीयकृत)",
     notesPending: "Notes pending (स्थानीयकृत)",
     pastRecordings: "Past recordings (स्थानीयकृत)",
-    loadOlder: "पुराने लोड करें",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings. (स्थानीयकृत)",
     connectGoogleCalendar: "Connect Google Calendar (स्थानीयकृत)",
@@ -1606,7 +1613,14 @@ Clips में उपयोगकर्ताओं को दिखने व�
     title: "Meetings (स्थानीयकृत)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (स्थानीयकृत)",
-    searchPlaceholder: "Search meetings... (स्थानीयकृत)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (स्थानीयकृत)",
+    agendaTab: "Agenda (स्थानीयकृत)",
+    pastTab: "Past (स्थानीयकृत)",
+    now: "Now (स्थानीयकृत)",
+    noPastMeetings: "No past meetings yet (स्थानीयकृत)",
+    loadOlder: "Load older (स्थानीयकृत)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (स्थानीयकृत)",
     clearSearch: "Clear search (स्थानीयकृत)",
     noMeetingsYet: "No meetings yet (स्थानीयकृत)",
     noMeetingsDescription:

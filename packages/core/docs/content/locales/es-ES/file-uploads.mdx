@@ -1,11 +1,11 @@
 ---
 title: "Carga de archivos"
-description: "Configura almacenamiento de objetos duradero para cargas de archivos: Builder.io o un proveedor S3 compatible personalizado."
+description: "Configura almacenamiento duradero para la carga de archivos con Builder.io o un proveedor de almacenamiento de objetos personalizado para producción."
 ---
 
 # Carga de archivos
 
-El marco proporciona una abstracción de carga de archivos que enruta las cargas a través de un proveedor configurable. Las plantillas llaman a `uploadFile()` y obtienen un URL: el backend de almacenamiento se puede intercambiar sin cambiar el código de la aplicación.
+El marco proporciona una abstracción de carga de archivos que enruta las cargas a través de un proveedor configurable. Las plantillas llaman a `uploadFile()` y obtienen un URL. El backend de almacenamiento se puede intercambiar sin cambiar el código de la aplicación.
 
 ## Cómo funciona {#how-it-works}
 
@@ -13,11 +13,15 @@ Las solicitudes de carga van a `POST /_agent-native/file-upload`, que las envía
 
 El orden de resolución del proveedor es:
 
-1. **Proveedores registrados por el usuario**: proveedores personalizados registrados a través de `registerFileUploadProvider()`
-2. **Proveedor Builder.io** (nivel gratuito disponible): integrado, se activa automáticamente cuando se conecta Builder.io
-3. **Se requiere almacenamiento**: sin un proveedor, la carga falla de forma segura y se muestra una tarjeta de configuración; los datos binarios nunca se guardan en SQL
+1. **Proveedores registrados por el usuario**: proveedores personalizados registrados a través de `registerFileUploadProvider()`.
+2. **Proveedor Builder.io**: integrado, se activa automáticamente cuando Builder.io está conectado.
+3. **Sin proveedor**: la carga se rechaza y el chat muestra un aviso para configurar el almacenamiento. Los datos binarios nunca se persisten en SQL.
 
-<Diagram id="doc-block-12sluna" title={"Orden de resolución del proveedor"} summary={"uploadFile() elige el primer proveedor configurado en orden. Sin proveedor, la carga falla de forma segura y se muestra una tarjeta de configuración."}>
+Entre los proveedores registrados por el usuario, gana el primero que se registró y que informa estar configurado. `registerFileUploadProvider()` es idempotente por `id`. Registrar con un id que ya está en uso reemplaza al proveedor existente.
+
+La interfaz decide si mostrar un aviso de configuración de almacenamiento usando solo la comprobación síncrona `isConfigured()`, antes de intentar una carga. La carga real comprueba tanto `isConfigured()` como `isConfiguredForRequest()`. Un proveedor que solo informa estar configurado a través de `isConfiguredForRequest()` permanece invisible para el aviso de configuración, aunque las cargas a través de él tendrían éxito.
+
+<Diagram id="doc-block-hq5uvx" title="Orden de resolución del proveedor" summary="uploadFile() elige el primer proveedor configurado en orden. Sin uno, la carga falla de forma segura, de modo que los datos binarios nunca se persisten en SQL.">
 
 ```html
 <div class="diagram-upload">
@@ -32,7 +36,7 @@ El orden de resolución del proveedor es:
       <span class="diagram-pill accent">1</span>
       <div class="diagram-node">
         Registrado por el usuario<br /><small class="diagram-muted"
-          >registerFileUploadProvider() — S3, R2, GCS…</small
+          >registerFileUploadProvider() para S3, R2, GCS…</small
         >
       </div>
     </div>
@@ -40,15 +44,15 @@ El orden de resolución del proveedor es:
       <span class="diagram-pill">2</span>
       <div class="diagram-node">
         Builder.io<br /><small class="diagram-muted"
-          >automático al conectar — servido por CDN</small
+          >automático al conectar, servido por CDN</small
         >
       </div>
     </div>
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        almacenamiento requerido<br /><small class="diagram-muted"
-          >configura Builder.io o almacenamiento S3 compatible</small
+        Sin proveedor<br /><small class="diagram-muted"
+          >aviso de configuración, sin persistencia binaria</small
         >
       </div>
     </div>
@@ -81,12 +85,28 @@ El orden de resolución del proveedor es:
 
 </Diagram>
 
-<Endpoint id="doc-block-7xne1g" title="El punto final de carga" method="POST" path="/_agent-native/file-upload" summary={"Cargue un archivo a través del proveedor activo y obtenga un URL público."} request={{
+<Endpoint id="doc-block-4os0mo" title="El punto final de carga" method="POST" path="/_agent-native/file-upload" summary="Carga un archivo a través del proveedor activo y obtén un URL público a cambio." request={{
   "contentType": "multipart/form-data"
 }} responses={[
   {
-    "status": "200",
-    "description": "{ url, id?, provider } — the public URL and which provider handled it."
+    "status": "201",
+    "description": "`{ url, id?, provider }`: el URL público y qué proveedor la gestionó."
+  },
+  {
+    "status": "401",
+    "description": "No hay sesión autenticada."
+  },
+  {
+    "status": "413",
+    "description": "El archivo supera el límite de carga de 25 MB."
+  },
+  {
+    "status": "415",
+    "description": "Tipo MIME bloqueado, como un ejecutable o script."
+  },
+  {
+    "status": "503",
+    "description": "No hay ningún proveedor de carga de archivos configurado."
   }
 ]}>
 
@@ -96,45 +116,56 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 ## Se requiere almacenamiento para cargas duraderas {#storage-required}
 
-Cuando no se configura ningún proveedor, la carga falla de forma segura y se muestra una tarjeta para configurar Builder.io o un proveedor S3 compatible. Los datos binarios no se almacenan como base64 en SQL.
+Cuando no hay ningún proveedor configurado, `uploadFile()` devuelve `null` y la ruta multipart devuelve `503`. Los archivos adjuntos del chat solo permanecen disponibles durante la solicitud actual, el agente recibe una indicación para configurar el almacenamiento y la transcripción guarda un marcador de configuración en lugar de la carga binaria. Este comportamiento de fallo seguro mantiene SQL pequeño y hace visible la configuración faltante.
 
-Los bytes solo pueden usarse durante la solicitud actual y no se guardan en el historial del chat. Después de configurar el almacenamiento, las cargas devuelven una URL pública estable que puede reutilizarse en turnos posteriores.
+## Alojamiento en Builder.io {#builder-hosting}
 
-## Alojamiento Builder.io {#builder-hosting}
-
-Cuando su aplicación está conectada a Builder.io (nivel gratuito disponible), las cargas de archivos se enrutan automáticamente al alojamiento de activos de Builder. Los archivos se sirven desde un CDN sin necesidad de configuración. Esta es la configuración de producción recomendada.
+Cuando tu aplicación está conectada a Builder.io, las cargas de archivos se enrutan automáticamente al alojamiento de activos de Builder. El nivel gratuito de Builder.io incluye este almacenamiento gestionado. Los archivos se sirven desde un CDN sin necesidad de configuración, y el URL duradero se guarda en el hilo del chat para que turnos posteriores puedan reutilizarlo. Esta es la configuración de producción recomendada.
 
 ## Proveedores personalizados {#custom-providers}
 
-Registre un proveedor personalizado en un complemento de servidor para usar cualquier backend de almacenamiento (S3, Cloudflare R2, GCS, etc.):
+El marco ya incluye un proveedor integrado para almacenamiento compatible con
+S3 (AWS S3, Cloudflare R2, MinIO y similares). Conéctalo con variables de
+entorno o desde la lista de verificación de incorporación de la barra
+lateral. No se necesita código. Consulta [Onboarding](/docs/onboarding).
 
-```ts
-// server/plugins/file-upload.ts
+Registra un proveedor personalizado solo para un tipo distinto de backend.
+Este ejemplo carga a través de una API HTTP genérica usando `fetch()`:
+
+```ts filename="server/plugins/file-upload.ts"
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import { defineNitroPlugin } from "@agent-native/core/server";
 
 export default defineNitroPlugin(() => {
   registerFileUploadProvider({
-    id: "s3",
-    name: "Amazon S3",
-    isConfigured: () => !!process.env.S3_BUCKET,
+    id: "my-storage",
+    name: "My Storage",
+    isConfigured: () => !!process.env.UPLOAD_ENDPOINT,
     upload: async ({ data, filename, mimeType }) => {
-      const key = `uploads/${Date.now()}-${filename}`;
-      await s3Client.putObject({
-        Bucket: process.env.S3_BUCKET!,
-        Key: key,
-        Body: data,
-        ContentType: mimeType,
-      });
-      return {
-        url: `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`,
-        provider: "s3",
-      };
+      const endpoint = process.env.UPLOAD_ENDPOINT!;
+      const body = new FormData();
+      body.append("file", new Blob([data], { type: mimeType }), filename);
+
+      // This example assumes an upload API that accepts a multipart file
+      // and returns { url }. Adjust the request and response handling to
+      // match your own provider's actual contract.
+      const response = await fetch(endpoint, { method: "POST", body });
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      return { url, provider: "my-storage" };
     },
   });
 });
 ```
 
-## Subir API {#upload-api}
+Usa `resolveSecret()` de `@agent-native/core/server` en lugar de una
+variable de entorno cuando el proveedor necesite una credencial real, como
+una clave API. Consulta [Seguridad — Gestión de secretos](/docs/security#secrets).
+
+## API de carga {#upload-api}
 
 La interfaz `FileUploadProvider`:
 
@@ -152,6 +183,8 @@ interface FileUploadInput {
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
   ownerEmail?: string; // For request-scoped provider credentials
+  stableUrl?: boolean; // Builder.io hint: one stable URL while compression finishes
+  recordAsset?: boolean; // Builder.io hint: set false to skip the asset library
 }
 
 interface FileUploadResult {
@@ -161,7 +194,7 @@ interface FileUploadResult {
 }
 ```
 
-Utilice `uploadFile()` de `@agent-native/core/file-upload` en actions o código de servidor:
+Usa `uploadFile()` de `@agent-native/core/file-upload` en actions o código de servidor:
 
 ```ts
 import { uploadFile } from "@agent-native/core/file-upload";
@@ -173,8 +206,58 @@ const result = await uploadFile({
 });
 
 if (result) {
-  // Provider handled it — result.url is the public URL
+  // Provider handled it. result.url is the public URL.
 } else {
-  // Configura el almacenamiento o omite la carga
+  // No provider configured. Show the storage setup CTA, or skip.
 }
 ```
+
+## Cargas reanudables / en streaming {#resumable}
+
+Un proveedor puede implementar opcionalmente un bloque `resumable` en `FileUploadProvider` para cargas que necesitan transmitirse al almacenamiento a medida que llegan los datos, en lugar de almacenar primero el archivo completo en un búfer. La plantilla Clips usa esto para retransmitir una grabación al almacenamiento fragmento a fragmento mientras aún se está grabando, en lugar de ensamblar el blob completo después de que se detiene el grabador.
+
+```ts
+interface FileUploadProvider {
+  // ...id, name, isConfigured, upload...
+
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
+    ): Promise<string>;
+    // Best-effort provider cleanup for a session the caller will not resume.
+    abortSession?(session: ResumableUploadSession): Promise<void>;
+  };
+}
+
+interface ResumableUploadSession {
+  sessionId: string; // Provider-specific: GCS Location URI, S3 UploadId, etc.
+  meta: Record<string, unknown>; // Provider state carried between calls
+}
+
+interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  updatedMeta?: Record<string, unknown>; // Merged back into the stored session
+}
+```
+
+Cuando `resumable` está presente, los llamadores que transmiten datos a medida que llegan (como un grabador) llaman una vez a `startSession`, llaman repetidamente a `relayChunk` a medida que llegan los bytes y llaman a `completeSession` cuando termina la transmisión. Esto reemplaza la llamada única a `upload()` con búfer. Un proveedor sin bloque `resumable` solo ve la ruta con búfer. Impleméntalo solo cuando tu backend de almacenamiento tenga una API nativa de carga fragmentada/reanudable (multiparte de S3, cargas reanudables de GCS, etc.) que valga la pena exponer.
+
+## Qué sigue
+
+- [**Base de datos**](/docs/server-database) — el patrón `getDb()`/esquema para persistir el URL que devuelve `uploadFile()`
+- [**Seguridad — Gestión de secretos**](/docs/security#secrets) — cómo `resolveSecret()` y la bóveda de credenciales cifran las claves de proveedor en reposo
+- [**Onboarding**](/docs/onboarding) — cómo registrar el paso de configuración de un proveedor personalizado en la lista de verificación de la barra lateral

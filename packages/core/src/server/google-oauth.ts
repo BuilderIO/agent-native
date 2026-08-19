@@ -29,6 +29,7 @@ import {
   getSession,
   getSessionMaxAge,
   hasLegacySessionForEmail,
+  safeReturnPath,
   setFrameworkSessionCookie,
 } from "./auth.js";
 import {
@@ -470,6 +471,12 @@ export interface OAuthStatePayload {
    */
   returnUrl?: string;
   flowId?: string;
+  /** Hash of the client-held verifier binding a desktop exchange to its initiator. */
+  desktopVerifierHash?: string;
+  /** Hash of the initiating browser binding for a desktop OAuth exchange. */
+  desktopBrowserBindingHash?: string;
+  /** Complete the callback in the already-bound native WebView. */
+  desktopWebview?: boolean;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
 }
@@ -536,6 +543,9 @@ export interface EncodeOAuthStateOptions {
   app?: string;
   returnUrl?: string;
   flowId?: string;
+  desktopVerifierHash?: string;
+  desktopBrowserBindingHash?: string;
+  desktopWebview?: boolean;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
 }
@@ -616,6 +626,10 @@ export function encodeOAuthState(
   if (opts.app) payload.app = opts.app;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
+  if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
+  if (opts.desktopBrowserBindingHash)
+    payload.bh = opts.desktopBrowserBindingHash;
+  if (opts.desktopWebview) payload.dw = true;
   if (opts.signupAttribution) payload.ft = opts.signupAttribution;
   const signupAnonymousId = normalizeAnalyticsAnonymousId(
     opts.signupAnonymousId,
@@ -672,6 +686,11 @@ export function decodeOAuthState(
         // depth in case the signing key ever leaks.
         returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
         flowId: parsed.f || undefined,
+        desktopVerifierHash:
+          typeof parsed.vh === "string" ? parsed.vh : undefined,
+        desktopBrowserBindingHash:
+          typeof parsed.bh === "string" ? parsed.bh : undefined,
+        desktopWebview: parsed.dw === true,
         signupAttribution: sanitizeStateAttribution(parsed.ft),
         signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
       };
@@ -813,6 +832,7 @@ export function oauthCallbackResponse(
     returnUrl?: string;
     flowId?: string;
     appName?: string;
+    desktopWebview?: boolean;
   },
 ): Response | string | unknown | Promise<Response | string | unknown> {
   // The mobile flag is carried inside HMAC-signed OAuth state by native
@@ -862,6 +882,25 @@ export function oauthCallbackResponse(
   // protocol deep link so the popup returns focus to the desktop app.
   if (opts.desktop && opts.flowId && isElectron(event) && opts.sessionToken) {
     return desktopSuccessPage(event, email, opts.sessionToken, callbackState);
+  }
+
+  // A Tauri WebView cannot share cookies with the system browser or another
+  // Tauri WebviewWindow. When the callback stays in the initiating WebView,
+  // createOAuthSession has already staged its session cookie on this event;
+  // carry that cookie onto the HTML response before returning to the app.
+  if (opts.desktop && opts.flowId && opts.desktopWebview) {
+    const returnPath = safeReturnPath(opts.returnUrl);
+    const headers = new Headers({
+      "Content-Type": "text/html; charset=utf-8",
+      "Referrer-Policy": "no-referrer",
+    });
+    for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+      headers.append("set-cookie", cookie);
+    }
+    return new Response(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:Canvas;color:CanvasText;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to Clips…</p><script>setTimeout(function(){window.location.replace(${JSON.stringify(returnPath)})},50)</script></body></html>`,
+      { status: 200, headers },
+    );
   }
 
   // Desktop exchange flow (non-Electron tray app): the tray app polls the

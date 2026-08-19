@@ -323,14 +323,37 @@ export function backfillEngineMessagesToolResults(
 // EngineMessage → Anthropic.MessageParam
 // ---------------------------------------------------------------------------
 
+/**
+ * A thinking block replays only with the signature Anthropic issued for it, or
+ * (redacted) with its encrypted payload. An empty signature is not a fallback:
+ * the native API rejects the whole request, so a turn that streamed fine dies
+ * with a provider error pointing nowhere near the cause. Drop the unsendable
+ * block and say so instead of coercing it into a guaranteed 400.
+ *
+ * Not applied to the Builder gateway: its tolerance for an unsigned thinking
+ * block is unverified, so that path keeps its existing behavior rather than
+ * trading a working request for an untested one.
+ */
+function replayableAnthropicPart(part: EngineContentPart): boolean {
+  if (part.type !== "thinking") return true;
+  if (part.redactedData || part.signature) return true;
+  console.warn(
+    "[anthropic-engine] dropping a thinking block with no signature; it cannot be replayed",
+  );
+  return false;
+}
+
 export function engineMessageToAnthropic(
   msg: EngineMessage,
   opts?: { builderGateway?: boolean },
 ): Anthropic.MessageParam {
   const builderGateway = opts?.builderGateway === true;
+  const content = builderGateway
+    ? msg.content
+    : msg.content.filter(replayableAnthropicPart);
   return {
     role: msg.role,
-    content: msg.content.map((p) => enginePartToAnthropic(p, builderGateway)),
+    content: content.map((p) => enginePartToAnthropic(p, builderGateway)),
   };
 }
 
@@ -339,7 +362,10 @@ export function engineMessagesToAnthropic(
   messages: EngineMessage[],
 ): Anthropic.MessageParam[] {
   const normalized = backfillEngineMessagesToolResults(messages);
-  return normalized.map((m) => engineMessageToAnthropic(m));
+  return normalized.flatMap((m) => {
+    const translated = engineMessageToAnthropic(m);
+    return translated.content.length > 0 ? [translated] : [];
+  });
 }
 
 /**
@@ -425,6 +451,11 @@ function enginePartToAnthropic(
     }
 
     case "thinking":
+      // A redacted block has no readable thinking or signature — only its
+      // encrypted payload, which Anthropic requires back unmodified.
+      if (part.redactedData) {
+        return { type: "redacted_thinking", data: part.redactedData } as any;
+      }
       // Anthropic thinking blocks — pass through with signature for context window continuity
       return {
         type: "thinking",
@@ -496,7 +527,22 @@ export function anthropicContentToEngine(
           signature: b.signature,
         };
       }
-      // Unknown block type — skip
+      if ((block as any).type === "redacted_thinking") {
+        // Dropping this looked like "skip an unreadable block", but Anthropic
+        // requires the whole thinking sequence back verbatim within a tool-use
+        // turn: losing it makes the very next loop iteration send an assistant
+        // turn the API refuses, from a turn that streamed perfectly.
+        return {
+          type: "thinking" as const,
+          text: "",
+          redactedData: (block as any).data ?? "",
+        };
+      }
+      // Unknown block type. Skipping is the only safe replay, but a silent skip
+      // is how redacted_thinking went missing — say which type was dropped.
+      console.warn(
+        `[anthropic-engine] dropping unrecognized content block type "${(block as any).type}" from the assistant turn; it will not be replayed`,
+      );
       return { type: "text" as const, text: "" };
     })
     .filter((p) => !(p.type === "text" && p.text === ""));

@@ -425,6 +425,9 @@ const databaseMessages = {
   toValue: "To: {{value}}",
   unknown: "unknown",
   whatChanged: "What changed",
+  bodyChangeComparison: "Body change comparison",
+  currentBody: "Current body",
+  proposedBody: "Proposed body",
   whereItWillGo: "Where it will go",
   openAsFullPage: "Open as full page",
   pick: "& Pick",
@@ -569,6 +572,9 @@ const databaseMessagesByLocale = {
     preparedUpdateAlreadyCancelled: "准备好的 Builder 更新已被取消",
     cancelPreparedUpdateFailed: "未能取消准备好的 Builder 更新",
     whatChanged: "更改内容",
+    bodyChangeComparison: "正文更改对比",
+    currentBody: "当前正文",
+    proposedBody: "建议正文",
     confirmUnpublish: "确认取消发布",
     builderBodyEditsNeedSaferPath:
       "Builder 正文编辑需要更安全的推送路径才能发送。",
@@ -794,6 +800,9 @@ const databaseMessagesByLocale = {
     cancelPreparedUpdateFailed:
       "No se canceló la actualización preparada de Builder",
     whatChanged: "Qué cambió",
+    bodyChangeComparison: "Comparación de cambios del cuerpo",
+    currentBody: "Cuerpo actual",
+    proposedBody: "Cuerpo propuesto",
     confirmUnpublish: "Confirmar retirada de publicación",
     builderBodyEditsNeedSaferPath:
       "Las ediciones del cuerpo en Builder necesitan una ruta de envío más segura antes de poder enviarse.",
@@ -1032,6 +1041,9 @@ const databaseMessagesByLocale = {
     cancelPreparedUpdateFailed:
       "La mise à jour Builder préparée n’a pas été annulée",
     whatChanged: "Ce qui a changé",
+    bodyChangeComparison: "Comparaison des modifications du corps",
+    currentBody: "Corps actuel",
+    proposedBody: "Corps proposé",
     confirmUnpublish: "Confirmer la dépublication",
     builderBodyEditsNeedSaferPath:
       "Les modifications du corps dans Builder nécessitent un chemin d'envoi plus sûr avant de pouvoir être envoyées.",
@@ -1269,6 +1281,9 @@ const databaseMessagesByLocale = {
     cancelPreparedUpdateFailed:
       "Das vorbereitete Builder-Update wurde nicht abgebrochen",
     whatChanged: "Was sich geändert hat",
+    bodyChangeComparison: "Vergleich der Textänderung",
+    currentBody: "Aktueller Text",
+    proposedBody: "Vorgeschlagener Text",
     confirmUnpublish: "Zurückziehen bestätigen",
     builderBodyEditsNeedSaferPath:
       "Builder-Textänderungen benötigen einen sichereren Übertragungsweg, bevor sie gesendet werden können.",
@@ -1504,6 +1519,9 @@ const databaseMessagesByLocale = {
     cancelPreparedUpdateFailed:
       "準備済み Builder 更新をキャンセルできませんでした",
     whatChanged: "変更内容",
+    bodyChangeComparison: "本文変更の比較",
+    currentBody: "現在の本文",
+    proposedBody: "変更後の本文",
     confirmUnpublish: "非公開を確認",
     builderBodyEditsNeedSaferPath:
       "Builder の本文編集は、送信する前により安全なプッシュ経路が必要です。",
@@ -1734,6 +1752,9 @@ const databaseMessagesByLocale = {
       "준비된 Builder 업데이트가 이미 취소되었습니다",
     cancelPreparedUpdateFailed: "준비된 Builder 업데이트를 취소하지 못했습니다",
     whatChanged: "변경 내용",
+    bodyChangeComparison: "본문 변경 비교",
+    currentBody: "현재 본문",
+    proposedBody: "제안된 본문",
     confirmUnpublish: "게시 취소 확인",
     builderBodyEditsNeedSaferPath:
       "Builder 본문 편집은 전송하기 전에 더 안전한 푸시 경로가 필요합니다.",
@@ -1967,6 +1988,9 @@ const databaseMessagesByLocale = {
     cancelPreparedUpdateFailed:
       "A atualização preparada do Builder não foi cancelada",
     whatChanged: "O que mudou",
+    bodyChangeComparison: "Comparação da alteração do corpo",
+    currentBody: "Corpo atual",
+    proposedBody: "Corpo proposto",
     confirmUnpublish: "Confirmar cancelamento de publicação",
     builderBodyEditsNeedSaferPath:
       "As edições de corpo do Builder precisam de um caminho de envio mais seguro antes de poderem ser enviadas.",
@@ -2196,6 +2220,9 @@ const databaseMessagesByLocale = {
       "तैयार Builder अपडेट पहले ही रद्द किया जा चुका था",
     cancelPreparedUpdateFailed: "तैयार Builder अपडेट रद्द नहीं हुआ",
     whatChanged: "क्या बदला",
+    bodyChangeComparison: "मुख्य पाठ के बदलाव की तुलना",
+    currentBody: "वर्तमान मुख्य पाठ",
+    proposedBody: "प्रस्तावित मुख्य पाठ",
     confirmUnpublish: "अप्रकाशित करने की पुष्टि करें",
     builderBodyEditsNeedSaferPath:
       "Builder बॉडी संपादनों को भेजे जाने से पहले एक सुरक्षित पुश पथ की आवश्यकता होती है।",
@@ -2417,6 +2444,9 @@ const databaseMessagesByLocale = {
     preparedUpdateAlreadyCancelled: "كان تحديث Builder المُعَد ملغى بالفعل",
     cancelPreparedUpdateFailed: "لم يتم إلغاء تحديث Builder المُعَد",
     whatChanged: "ما الذي تغيّر",
+    bodyChangeComparison: "مقارنة تغيير المحتوى",
+    currentBody: "المحتوى الحالي",
+    proposedBody: "المحتوى المقترح",
     confirmUnpublish: "تأكيد إلغاء النشر",
     builderBodyEditsNeedSaferPath:
       "تتطلب تعديلات نص Builder مسار دفع أكثر أمانًا قبل أن يمكن إرسالها.",

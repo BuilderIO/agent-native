@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment happy-dom
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppDirectHref,
   workspaceAppEmbedTarget,
 } from "./workspace-apps";
@@ -60,5 +63,89 @@ describe("workspaceAppDirectHref", () => {
     expect(workspaceAppDirectHref({ path: "/atlas" }, "//evil.example")).toBe(
       null,
     );
+  });
+});
+
+describe("navigateToWorkspaceApp", () => {
+  beforeEach(() => {
+    window.history.replaceState({}, "", "/");
+  });
+
+  afterEach(() => {
+    window.history.replaceState({}, "", "/");
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: window,
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: window,
+    });
+  });
+
+  it("keeps a normal iframe inline", () => {
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+
+    expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
+  });
+
+  it("uses the top window when Dispatch is inside a Builder webview", () => {
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    window.history.replaceState({}, "", "/?builder.preview=interact");
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    expect(shouldOpenWorkspaceAppInTopWindow()).toBe(true);
+    navigateToWorkspaceApp("/mail");
+
+    expect(topWindow.location.href).toBe(
+      new URL("/mail", window.location.href).href,
+    );
+  });
+
+  it("reports when the embedded top window rejects navigation", () => {
+    const location = {} as Location;
+    Object.defineProperty(location, "href", {
+      configurable: true,
+      set: () => {
+        throw new Error("Top navigation is blocked");
+      },
+    });
+    const topWindow = { location } as unknown as Window;
+    window.history.replaceState({}, "", "/?builder.preview=interact");
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    expect(navigateToWorkspaceApp("/mail")).toBe(false);
+  });
+
+  it("rejects non-http navigation targets", () => {
+    const topWindow = { location: { href: "" } } as unknown as Window;
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+    Object.defineProperty(window, "top", {
+      configurable: true,
+      value: topWindow,
+    });
+
+    expect(navigateToWorkspaceApp("javascript:alert(1)")).toBe(false);
+    expect(topWindow.location.href).toBe("");
   });
 });

@@ -1,23 +1,27 @@
 ---
 title: "檔案上傳"
-description: "為檔案上傳設定持久物件儲存 - Builder.io 或自訂 S3 相容提供者。"
+description: "為正式環境設定持久的檔案上傳儲存空間，可使用 Builder.io 或自訂物件儲存提供者。"
 ---
 
 # 檔案上傳
 
-此框架提供了一個檔案上傳抽象，可透過可設定的提供者路由上傳。範本呼叫 `uploadFile()` 並傳回 URL — 儲存後端可交換，無需更改應用程式的程式碼。
+此框架提供了一個檔案上傳抽象層，會將上傳透過可設定的提供者進行路由。範本呼叫 `uploadFile()` 並取得回傳的 URL。儲存後端可以在不更改應用程式程式碼的情況下替換。
 
 ## 它是如何工作的 {#how-it-works}
 
-上傳請求傳送至 `POST /_agent-native/file-upload`，後者分派至活動提供者。您可以在`GET /_agent-native/file-upload/status`處檢視設定了哪個提供者。
+上傳請求會傳送至 `POST /_agent-native/file-upload`，此路由會分派至目前使用中的提供者。您可以在 `GET /_agent-native/file-upload/status` 查看目前設定了哪個提供者。
 
-提供者解析順序是：
+提供者的解析順序如下：
 
-1. **使用者註冊的提供者** — 透過 `registerFileUploadProvider()` 註冊的自訂提供者
-2. **Builder.io 提供者**（提供免費方案）— 內建，連線 Builder.io 時自動啟用
-3. **需要儲存空間** - 未設定提供者時，上傳會安全失敗並顯示設定卡片；二進位資料不會存入 SQL
+1. **使用者註冊的提供者**：透過 `registerFileUploadProvider()` 註冊的自訂提供者。
+2. **Builder.io 提供者**：內建功能，連線 Builder.io 後會自動啟用。
+3. **沒有提供者**：上傳會被拒絕，聊天畫面會顯示儲存設定的行動呼籲。二進位資料永遠不會存入 SQL。
 
-<Diagram id="doc-block-2q5re2" title={"提供者決議順序"} summary={"uploadFile() 按順序選取第一個設定的提供者。未設定提供者時，上傳會安全失敗並顯示設定卡片。"}>
+在使用者註冊的提供者中，第一個回報自己已設定完成的提供者會生效。`registerFileUploadProvider()` 針對每個 `id` 都是冪等的。以已使用的 `id` 重新註冊會取代現有的提供者。
+
+使用者介面只會使用同步的 `isConfigured()` 檢查來決定是否顯示儲存設定提示，而這個判斷會在嘗試上傳之前進行。實際的上傳動作則會同時檢查 `isConfigured()` 與 `isConfiguredForRequest()`。如果某個提供者只透過 `isConfiguredForRequest()` 回報自己已設定完成，即使透過它上傳會成功，設定提示仍然偵測不到它。
+
+<Diagram id="doc-block-hq5uvx" title="提供者解析順序" summary="uploadFile() 會依順序選取第一個已設定的提供者。如果沒有任何提供者，上傳會安全失敗，確保二進位資料永遠不會存入 SQL。">
 
 ```html
 <div class="diagram-upload">
@@ -32,7 +36,7 @@ description: "為檔案上傳設定持久物件儲存 - Builder.io 或自訂 S3 
       <span class="diagram-pill accent">1</span>
       <div class="diagram-node">
         使用者註冊<br /><small class="diagram-muted"
-          >registerFileUploadProvider() — S3, R2, GCS…</small
+          >registerFileUploadProvider()，用於 S3、R2、GCS…</small
         >
       </div>
     </div>
@@ -40,15 +44,15 @@ description: "為檔案上傳設定持久物件儲存 - Builder.io 或自訂 S3 
       <span class="diagram-pill">2</span>
       <div class="diagram-node">
         Builder.io<br /><small class="diagram-muted"
-          >連線後自動啟用——由 CDN 提供</small
+          >連線後自動啟用，由 CDN 提供服務</small
         >
       </div>
     </div>
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        需要儲存空間<br /><small class="diagram-muted"
-          >設定 Builder.io 或 S3 相容儲存</small
+        沒有提供者<br /><small class="diagram-muted"
+          >顯示設定提示，不會保存二進位資料</small
         >
       </div>
     </div>
@@ -81,62 +85,83 @@ description: "為檔案上傳設定持久物件儲存 - Builder.io 或自訂 S3 
 
 </Diagram>
 
-<Endpoint id="doc-block-e4zqeh" title={"上傳端點"} method="POST" path="/_agent-native/file-upload" summary={"透過活動提供者上傳檔案並返回公開 URL。"} request={{
+<Endpoint id="doc-block-4os0mo" title="上傳端點" method="POST" path="/_agent-native/file-upload" summary="透過使用中的提供者上傳檔案，並取得回傳的公開 URL。" request={{
   "contentType": "multipart/form-data"
 }} responses={[
   {
-    "status": "200",
-    "description": "{ url, id?, provider } — the public URL and which provider handled it."
+    "status": "201",
+    "description": "`{ url, id?, provider }`：公開 URL，以及由哪個提供者處理了此次上傳。"
+  },
+  {
+    "status": "401",
+    "description": "沒有已驗證的工作階段。"
+  },
+  {
+    "status": "413",
+    "description": "檔案超過 25 MB 的上傳上限。"
+  },
+  {
+    "status": "415",
+    "description": "被封鎖的 MIME 類型，例如可執行檔或指令碼。"
+  },
+  {
+    "status": "503",
+    "description": "沒有設定任何檔案上傳提供者。"
   }
 ]}>
 
-Dispatches to the first configured provider in resolution order. Check the active provider at `GET /_agent-native/file-upload/status`.
+依解析順序分派至第一個已設定的提供者。您可以在 `GET /_agent-native/file-upload/status` 查看目前使用中的提供者。
 
 </Endpoint>
 
 ## 持久上傳需要儲存空間 {#storage-required}
 
-當沒有設定提供者時，上傳會安全失敗，並顯示用於設定 Builder.io 或 S3 相容提供者的設定卡片。二進位資料不會以 base64 儲存在 SQL 中。
-
-位元組只能用於目前請求，不會儲存到聊天記錄。設定儲存空間後，上傳會回傳穩定的公開 URL，可在後續回合中重複使用。
+當沒有設定任何提供者時，`uploadFile()` 會回傳 `null`，而 multipart 路由會回傳 `503`。聊天附件只會在目前這次請求中可用，代理程式會收到儲存設定的提示，而對話紀錄中會儲存一個設定標記，而不是二進位內容本身。這種安全失敗的行為讓 SQL 保持精簡，也讓缺少的設定變得清楚可見。
 
 ## Builder.io 託管 {#builder-hosting}
 
-當您的應用連線到 Builder.io 時（提供免費方案），檔案上傳會自動路由到 Builder 的資產託管。檔案由 CDN 提供，無需設定。這是推薦的正式環境設定。
+當您的應用程式連線到 Builder.io 時，檔案上傳會自動路由到 Builder 的資產託管服務。Builder.io 的免費方案就包含這個受管理的儲存空間。檔案會由 CDN 提供，不需要額外設定，而持久的 URL 會儲存在聊天串中，讓後續的對話回合可以重複使用。這是建議用於正式環境的設定方式。
 
 ## 自訂提供者 {#custom-providers}
 
-在伺服器外掛中註冊自訂提供者以使用任何儲存後端（S3、Cloudflare R2、GCS 等）：
+此框架已內建一個支援 S3 相容儲存空間的提供者（AWS S3、Cloudflare R2、MinIO 及類似服務）。您可以透過環境變數，或側邊欄的引導檢查清單來連接它，不需要撰寫任何程式碼。請參閱 [Onboarding](/docs/onboarding)。
 
-```ts
-// server/plugins/file-upload.ts
+只有在需要使用不同種類的後端時，才需要註冊自訂提供者。以下範例會使用 `fetch()` 透過一般的 HTTP API 上傳檔案：
+
+```ts filename="server/plugins/file-upload.ts"
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import { defineNitroPlugin } from "@agent-native/core/server";
 
 export default defineNitroPlugin(() => {
   registerFileUploadProvider({
-    id: "s3",
-    name: "Amazon S3",
-    isConfigured: () => !!process.env.S3_BUCKET,
+    id: "my-storage",
+    name: "My Storage",
+    isConfigured: () => !!process.env.UPLOAD_ENDPOINT,
     upload: async ({ data, filename, mimeType }) => {
-      const key = `uploads/${Date.now()}-${filename}`;
-      await s3Client.putObject({
-        Bucket: process.env.S3_BUCKET!,
-        Key: key,
-        Body: data,
-        ContentType: mimeType,
-      });
-      return {
-        url: `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`,
-        provider: "s3",
-      };
+      const endpoint = process.env.UPLOAD_ENDPOINT!;
+      const body = new FormData();
+      body.append("file", new Blob([data], { type: mimeType }), filename);
+
+      // This example assumes an upload API that accepts a multipart file
+      // and returns { url }. Adjust the request and response handling to
+      // match your own provider's actual contract.
+      const response = await fetch(endpoint, { method: "POST", body });
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      return { url, provider: "my-storage" };
     },
   });
 });
 ```
 
+當提供者需要真正的憑證（例如 API 金鑰）時，請使用 `@agent-native/core/server` 中的 `resolveSecret()`，而不是使用環境變數。請參閱 [Security — Secrets Management](/docs/security#secrets)。
+
 ## 上傳 API {#upload-api}
 
-`FileUploadProvider`介面：
+`FileUploadProvider` 介面：
 
 ```ts
 interface FileUploadProvider {
@@ -152,6 +177,8 @@ interface FileUploadInput {
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
   ownerEmail?: string; // For request-scoped provider credentials
+  stableUrl?: boolean; // Builder.io hint: one stable URL while compression finishes
+  recordAsset?: boolean; // Builder.io hint: set false to skip the asset library
 }
 
 interface FileUploadResult {
@@ -161,7 +188,7 @@ interface FileUploadResult {
 }
 ```
 
-在 actions 或伺服器程式碼中使用 `@agent-native/core/file-upload` 中的 `uploadFile()`：
+在 actions 或伺服器程式碼中使用 `@agent-native/core/file-upload` 提供的 `uploadFile()`：
 
 ```ts
 import { uploadFile } from "@agent-native/core/file-upload";
@@ -173,8 +200,58 @@ const result = await uploadFile({
 });
 
 if (result) {
-  // Provider handled it — result.url is the public URL
+  // Provider handled it. result.url is the public URL.
 } else {
-  // 設定儲存空間，或略過上傳
+  // No provider configured. Show the storage setup CTA, or skip.
 }
 ```
+
+## 可續傳 / 串流上傳 {#resumable}
+
+提供者可以選擇性地在 `FileUploadProvider` 上實作 `resumable` 區塊，用於需要在資料到達時就串流寫入儲存空間，而不是先緩衝整個檔案的上傳情境。Clips 範本就利用這個機制，在錄製過程中將錄音逐區塊轉送到儲存空間，而不是等到錄製器停止後才組裝完整的二進位內容。
+
+```ts
+interface FileUploadProvider {
+  // ...id, name, isConfigured, upload...
+
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
+    ): Promise<string>;
+    // Best-effort provider cleanup for a session the caller will not resume.
+    abortSession?(session: ResumableUploadSession): Promise<void>;
+  };
+}
+
+interface ResumableUploadSession {
+  sessionId: string; // Provider-specific: GCS Location URI, S3 UploadId, etc.
+  meta: Record<string, unknown>; // Provider state carried between calls
+}
+
+interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  updatedMeta?: Record<string, unknown>; // Merged back into the stored session
+}
+```
+
+當存在 `resumable` 時，像錄製器這類會串流傳入資料的呼叫端，會先呼叫一次 `startSession`，接著在位元組陸續到達時重複呼叫 `relayChunk`，並在串流結束時呼叫 `completeSession`。這取代了單一的緩衝式 `upload()` 呼叫。沒有 `resumable` 區塊的提供者，就只會走緩衝式路徑。只有在您的儲存後端擁有值得公開的原生分區塊／可續傳上傳 API（例如 S3 分段上傳、GCS 可續傳上傳等）時，才需要實作這個功能。
+
+## 接下來
+
+- [**資料庫**](/docs/server-database) — 用於保存 `uploadFile()` 回傳之 URL 的 `getDb()`/schema 模式
+- [**安全性 — 秘密管理**](/docs/security#secrets) — `resolveSecret()` 與憑證保管庫如何對提供者金鑰進行靜態加密
+- [**Onboarding**](/docs/onboarding) — 在側邊欄檢查清單中註冊自訂提供者的設定步驟
