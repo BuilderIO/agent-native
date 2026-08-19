@@ -74,9 +74,15 @@ Honor the feedback ownership and reaction gates from `/review-latest-feedback`:
 
 - Never add or duplicate `👀` on a Slack parent. If the latest readable parent
   already has an `👀` reaction from anyone, preserve that fact as an existing
-  marker and do not create a new reaction or a new automatic work item. If the
-  reaction state is unavailable, record the item as unavailable/unverified and
-  refresh the feedback thread instead of guessing.
+  investigation marker, but do not treat it as a disposition or suppression
+  signal. After classifying the parent, re-read the complete thread and, for
+  an actionable in-scope item, require a verified `@agent-native` **Fixed**,
+  **In progress**, or **Clarification needed** disposition; an eye-only or
+  stale eye-only item remains actionable for that handoff check. For items
+  routed to Sid or Alice, or classified as external, duplicate, deferred, or
+  informational, honor that owning disposition and do not turn the eye into a
+  merge blocker. If the reaction state is unavailable, record the item as
+  unavailable/unverified and refresh the feedback thread instead of guessing.
 - UX or interaction bugs in the Design app are owned by Sid. All Content app
   feedback is owned by Alice. Keep those source links and ownership decisions
   in the ship ledger, but do not include them as this workflow's fixes,
@@ -96,8 +102,12 @@ ask again for contents already known to be in the inaccessible artifact. If the
 available evidence is enough without it, continue and record the limitation as
 unavailable/unverified in the ship ledger.
 
-Before carrying an item forward as awaiting clarification, check the complete
-source thread and handoff for a resolution or ownership signal. If
+Before carrying any item forward from a prior handoff - fixed, in progress,
+awaiting clarification, already owned or duplicate, deferred or informational,
+external, or unavailable/unverified - always re-read the complete source thread
+and current handoff and reconcile them for new replies, reactions, linked
+evidence, resolution, or ownership signals. The handoff is a prior record, not
+the source of truth. After that refresh, if
 `@agent-native` or another participant already supplied the needed details,
 identified the cause, linked a fix, or said the issue is fixed, landed, or being
 fixed, do not reopen it as a clarification request or ask for duplicate
@@ -107,6 +117,16 @@ awaiting-clarification disposition when one specific reporter or product input
 is still missing after that check. Any eventual reporter-facing clarification
 must thank the person first and ask the question second; `Clarification needed`
 is an internal state, not an opening line.
+
+There may be only one unanswered clarification request per feedback thread. If
+the existing handoff or complete source thread contains a question from this
+workflow or `@agent-native`, re-read both and determine whether the exact
+requested detail has been semantically answered or explicitly resolved anywhere
+in the thread. A partial or unrelated reply does not clear the request. If it
+remains unresolved, carry its timestamp forward as the sole pending request and
+do not add another question. Once it is answered or resolved, re-read the
+thread and try the fix first; ask one new question only for one specific,
+non-repeating detail that still blocks the fix.
 
 Do not ship a feedback fix that is only a wording-specific rule or that lacks
 the evidence needed to identify its owner. Re-run or refresh the feedback sweep
@@ -120,9 +140,12 @@ deployed, and observed-live claims separate. A green test or PR does not prove
 that a feedback fix is live; verify the affected production surface after merge.
 Before merging, `/babysit-pr` must re-check that every actionable feedback or
 review item has a fix or a concise reply and that no new evidence has been left
-without a disposition. Items routed to Sid or Alice, and parents already marked
-with `👀`, are not new actionable work for this workflow; preserve their
-dispositions without manufacturing a fix, reply, or duplicate reaction.
+without a disposition. Items routed to Sid or Alice remain outside this
+workflow's ownership. External, duplicate, deferred, and informational items
+also follow their recorded disposition rather than blocking this workflow. A
+parent marked with `👀` is not thereby complete or non-actionable: preserve the
+reaction without duplicating it, and for actionable in-scope items do not merge
+while an eye-only or stale eye-only item lacks a verified bot disposition.
 
 ## Worktree and branch setup
 

@@ -30,10 +30,13 @@ vi.mock("../server/triage/slack-client.js", () => ({
   createSlackReader: vi.fn(),
 }));
 
+import { getDb } from "../server/db/index.js";
+import { stableId } from "../server/triage/ids.js";
 import {
   hasFeedbackCluster,
   isStartedTriageRunStatus,
   ownerOwnedAreaValuesForItem,
+  recordAutomaticBuilderDecision,
   relatedDispatchConflictReason,
   replyTextForItem,
 } from "./start-builder-for-item.js";
@@ -86,6 +89,36 @@ describe("start-builder-for-item Slack handoff", () => {
       ),
     ).toEqual(
       expect.arrayContaining(["content", "apps/content/routes/index.tsx"]),
+    );
+  });
+
+  it("updates an existing automatic-builder decision when a later skip is recorded", async () => {
+    const onConflictDoUpdate = vi.fn().mockResolvedValue(undefined);
+    vi.mocked(getDb).mockReturnValue({
+      insert: () => ({
+        values: () => ({ onConflictDoUpdate }),
+      }),
+    } as never);
+    vi.mocked(stableId).mockReturnValue("decision-automatic");
+
+    await recordAutomaticBuilderDecision({
+      itemId: "item-1",
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+      outcome: "needs_manual",
+      reason: "Second skip: still not a clear bug.",
+      guardResults: [
+        { code: "unknown_change", passed: false, reason: "Not a clear bug." },
+      ],
+    });
+
+    expect(onConflictDoUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        set: expect.objectContaining({
+          outcome: "needs_manual",
+          reason: "Second skip: still not a clear bug.",
+        }),
+      }),
     );
   });
 });
