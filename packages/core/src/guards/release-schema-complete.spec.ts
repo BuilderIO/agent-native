@@ -86,6 +86,45 @@ describe("scanReleaseSchemaCoverage", () => {
     expect(findings[0].file).toBe("src/slots/store.ts");
   });
 
+  // The commonest shape in the codebase: DDL built into a local variable and
+  // executed directly, with no `ensureTableExists` and no recognisable constant
+  // name. A guard keyed on the executed expression's NAME would miss this.
+  it("flags a store that executes DDL from a local variable", () => {
+    const root = makeCore({
+      "src/server/release-schema.ts": listWith([]),
+      "src/widgets/store.ts": `
+        export async function ensureTable(): Promise<void> {
+          const client = getDbExec();
+          const createSql = \`CREATE TABLE IF NOT EXISTS widgets (id TEXT)\`;
+          await client.execute(createSql);
+        }
+      `,
+    });
+
+    const { findings } = scanReleaseSchemaCoverage({ root });
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0].file).toBe("src/widgets/store.ts");
+  });
+
+  // Reached through the migration half of the release path rather than the
+  // ensure list, so it is created at release either way.
+  it("treats a module imported by release-migrations.ts as covered", () => {
+    const root = makeCore({
+      "src/server/release-schema.ts": listWith([]),
+      "src/server/release-migrations.ts":
+        'import { runBetterAuthMigrations } from "./better-auth-migrations.js";',
+      "src/server/better-auth-migrations.ts": `
+        export async function runBetterAuthMigrations(): Promise<void> {
+          const createSql = \`CREATE TABLE IF NOT EXISTS auth_user (id TEXT)\`;
+          await getDbExec().execute(createSql);
+        }
+      `,
+    });
+
+    expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
+  });
+
   // A `schema.ts` holding the SQL is not the thing that runs it, and a migration
   // list is applied by runMigrations. Flagging either is pure noise.
   it("ignores modules that hold DDL without executing it", () => {

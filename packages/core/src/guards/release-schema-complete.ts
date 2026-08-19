@@ -32,28 +32,41 @@ import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
  * SQL without ever running it: the first is executed by its own store, which is
  * on the list, and the second is applied by `runMigrations`.
  */
-const ENSURE_CALL_RES = [
-  /\bensureTableExists\s*\(/,
-  /\.execute\(\s*`[^`]*\bCREATE\s+TABLE\b/i,
-];
-/**
- * A store that runs DDL held in a named constant, the way `extensions/slots`
- * does. Keyed on the `_CREATE_SQL` / `_TABLE_SQL` / `_INDEX_SQL` naming rather
- * than on any executed constant, so a plain `execute(DB_PRESSURE_SQL)` SELECT
- * is not mistaken for schema.
- */
+const ENSURE_TABLE_RE = /\bensureTableExists\s*\(/;
 const EXECUTES_RE = /\.execute\s*\(/;
+const CREATE_TABLE_RE = /\bCREATE\s+TABLE\b/i;
+/**
+ * DDL that lives in another module, the way `extensions/slots` keeps its SQL in
+ * `slots/schema.ts`. Keyed on the `_CREATE_SQL` / `_TABLE_SQL` / `_INDEX_SQL`
+ * naming rather than on any executed constant, so a plain
+ * `execute(DB_PRESSURE_SQL)` SELECT is not mistaken for schema.
+ */
 const DDL_CONST_RE =
   /\b[A-Z][A-Z0-9_]*_(?:CREATE|TABLE|INDEX)_SQL(?:_[A-Z0-9]+)?\b/;
+
+/**
+ * Whether this module CREATES tables, in any of the three shapes the codebase
+ * actually uses. Deliberately NOT keyed on the name of the executed expression:
+ * stores run their DDL from a local `createSql` or `ddl` variable as often as
+ * from a named constant, so requiring a recognisable name would let the
+ * commonest shape of all walk past the guard.
+ */
 const definesSchema = (code: string) =>
-  ENSURE_CALL_RES.some((re) => re.test(code)) ||
-  (EXECUTES_RE.test(code) && DDL_CONST_RE.test(code));
+  ENSURE_TABLE_RE.test(code) ||
+  (EXECUTES_RE.test(code) &&
+    (CREATE_TABLE_RE.test(code) || DDL_CONST_RE.test(code)));
 const ALLOW_MARKER_RE = /guard:allow-unreleased-schema\s*[—-]\s*\S/;
 const SOURCE_EXTENSIONS = /\.(?:ts|tsx|mts|cts)$/i;
 const TEST_FILE = /\.(?:spec|test)\.(?:ts|tsx|mts|cts)$/i;
 
-/** The list under audit, plus the helper that implements the probe itself. */
+/**
+ * The two halves of the release path. `release-schema.ts` runs the stores' own
+ * ensure functions; `release-migrations.ts` runs the versioned migration lists
+ * and a few schema runners of its own (better-auth). A module reached by either
+ * one is created at release, so both count as coverage.
+ */
 const RELEASE_LIST = "src/server/release-schema.ts";
+const RELEASE_MIGRATIONS = "src/server/release-migrations.ts";
 const DDL_GUARD = "src/db/ddl-guard.ts";
 /** The migration runner executes migration-list DDL; `runMigrations` owns it. */
 const MIGRATION_RUNNER = "src/db/migrations.ts";
@@ -79,11 +92,11 @@ export interface ReleaseSchemaScanOptions extends GuardScanOptions {
  * Import specifiers in `release-schema.ts`, resolved to repo-relative paths so
  * they can be compared against the files that actually call `ensureTableExists`.
  */
-function coveredModules(coreDir: string, listSource: string): Set<string> {
+function coveredModules(coreDir: string, sources: string[]): Set<string> {
   const covered = new Set<string>();
   // Static `from "..."` and dynamic `import("...")`; the list uses the latter.
   const importRe = /(?:from\s+|import\s*\(\s*)"([^"]+)"/g;
-  for (const match of listSource.matchAll(importRe)) {
+  for (const match of sources.join("\n").matchAll(importRe)) {
     const spec = match[1];
     if (!spec.startsWith(".")) continue;
     const fromDir = path.join(coreDir, "src", "server");
@@ -112,13 +125,17 @@ export function scanReleaseSchemaCoverage(
     return { name: "release-schema-complete", findings };
   }
 
-  const covered = coveredModules(coreDir, listSource);
+  const covered = coveredModules(coreDir, [
+    listSource,
+    readFileSafe(path.join(coreDir, RELEASE_MIGRATIONS)) ?? "",
+  ]);
   const srcDir = path.join(coreDir, "src");
 
   for (const file of walk(srcDir)) {
     if (!SOURCE_EXTENSIONS.test(file) || TEST_FILE.test(file)) continue;
     const rel = relPosix(coreDir, file);
-    if (rel === RELEASE_LIST || rel === DDL_GUARD) continue;
+    if (rel === RELEASE_LIST || rel === RELEASE_MIGRATIONS) continue;
+    if (rel === DDL_GUARD) continue;
     if (rel === MIGRATION_RUNNER) continue;
     if (rel.startsWith(GUARDS_DIR)) continue;
 
