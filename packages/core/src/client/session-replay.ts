@@ -1736,7 +1736,8 @@ function mergePendingFlushReason(
 
 function shouldReserveSequenceBeforeKeepalive(reason: string): boolean {
   return (
-    (reason === "pagehide" || reason === "pagehide-persisted") ||
+    reason === "pagehide" ||
+    reason === "pagehide-persisted" ||
     reason === "beforeunload" ||
     reason === "visibility-hidden"
   );
