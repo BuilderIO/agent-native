@@ -703,7 +703,7 @@ export default function ClipsTemplate() {
       {/* CTA */}
       <section
         id="start-now"
-        className="scroll-mt-24 border-t border-[var(--docs-border)] lg:bg-[linear-gradient(to_right,var(--docs-border)_1px,transparent_1px),linear-gradient(to_bottom,var(--docs-border)_1px,transparent_1px)] lg:bg-[size:32px_32px]"
+        className="scroll-mt-24 border-t border-[var(--docs-border)]"
       >
         <div className="flex flex-col gap-6 border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:flex-row sm:items-end sm:justify-between sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
           <div>
