@@ -14,6 +14,7 @@ import {
   LOCALE_METADATA,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
+  localeDisplayName,
   type LocaleCode,
 } from "../localization/shared.js";
 import { NATIVE_AUTH_COPY } from "../shared/auth-copy.js";
@@ -35,8 +36,10 @@ import { normalizeAppBasePath } from "./app-base-path.js";
 import {
   BUILT_IN_AUTH_MARKETING,
   resolveBuiltInAuthMarketing,
+  resolveBuiltInAuthMarketingSlug,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
+import { AUTH_MARKETING_LOCALE_COPY } from "./auth-marketing-locales.js";
 import {
   resolveGoogleAuthMode,
   type GoogleAuthMode,
