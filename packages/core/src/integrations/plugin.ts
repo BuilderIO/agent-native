@@ -3502,6 +3502,7 @@ export function createIntegrationsPlugin(
                 }
               } catch {
                 // Keep provider and proxy failures distinguishable from a successful setup.
+                data = null;
               }
               if (!res.ok || data?.ok !== true) {
                 setResponseStatus(event, 502);
