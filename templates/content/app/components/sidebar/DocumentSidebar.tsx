@@ -1306,6 +1306,7 @@ export function DocumentSidebar({
       const previousDocumentQueries = [...deletedIds].flatMap((deletedId) =>
         queryClient.getQueriesData(documentQueryFilter(deletedId)),
       );
+      const previousPath = `${location.pathname}${location.search}${location.hash}`;
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
         const cachedDocs: Document[] =
@@ -1347,8 +1348,8 @@ export function DocumentSidebar({
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        if (activeDeleted && activeDocumentId) {
-          navigate(`/page/${activeDocumentId}`, {
+        if (activeDeleted) {
+          navigate(previousPath, {
             replace: true,
             flushSync: true,
           });
@@ -1365,6 +1366,9 @@ export function DocumentSidebar({
       deleteDocument,
       documents,
       localFileMode,
+      location.hash,
+      location.pathname,
+      location.search,
       navigate,
       queryClient,
     ],

@@ -217,6 +217,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("const previousDocumentQueries =");
     expect(sidebar).toContain("restoreDeletedDocumentSnapshots(");
     expect(sidebar).toContain("previousDocumentQueries");
+    expect(sidebar).toContain("navigate(previousPath, {");
   });
 
   it("keeps independently expanded Files lists beneath their workspaces", () => {

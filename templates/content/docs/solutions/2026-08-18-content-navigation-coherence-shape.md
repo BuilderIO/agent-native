@@ -421,9 +421,10 @@ product-boundary-gates:
 acceptance-state:
   status: satisfied
   summary: >-
-    Work preserves the complete list-cache shape during optimistic creation and
-    restores exact list and document snapshots before background reconciliation
-    on failed create/delete. Sixty focused tests, typecheck, all 55 guards, a
+    Work preserves the complete list-cache shape during optimistic creation,
+    removes only the failed creation's temporary Page, and restores exact list
+    and document snapshots on failed deletion. Sixty-two focused tests,
+    typecheck, all 55 guards, a
     production build, real UI creation/deletion, and open-UI Action refresh are
     green. Every declared disposable Page is independently absent after cleanup.
   blockers: []
@@ -437,9 +438,10 @@ status: review-ready
 - Exact branch: `codex/content-navigation-coherence` from
   `origin/main@39383b558b881269a1387d7cfcc94eba8826250b`.
 - Smallest delta: preserve the existing list-cache envelope during optimistic
-  creation; restore the prior complete list, affected per-document snapshots,
-  and prior route synchronously on mutation failure; remove the optimistic
-  list query when no prior snapshot existed.
+  creation; remove only the failed creation's temporary Page so concurrent
+  creates survive; restore deletion list/per-document snapshots and the exact
+  prior URL synchronously on mutation failure; remove the optimistic list query
+  when no prior snapshot existed.
 - Cross-surface result: two Action-created Pages appeared in the already-open
   real sidebar without reload or duplication, so no new MCP channel or core
   sync change was necessary.
@@ -447,10 +449,10 @@ status: review-ready
   `nav-ui-create` kept both baseline rows visible and navigated to exactly one
   new Page. Confirmed deletion removed it immediately and navigated to the
   surviving `Dev's workspace` surface while both baseline rows remained.
-- Automated result: 60 focused Content tests pass, including populated and
-  absent list rollback, prior-route restoration, complete-list pagination, and
-  deleted list/per-document snapshot restoration. The 39 focused core sync
-  tests also pass.
+- Automated result: 62 focused Content tests pass, including concurrent and
+  absent-list creation rollback, exact prior-URL restoration, complete-list
+  pagination, and deleted list/per-document snapshot restoration. The 44
+  focused core sync tests also pass.
 - Repository result: Content typecheck, `git diff --check`, all 55 guards, and
   the Content production build pass. The build reports pre-existing doctor and
   local-production-configuration warnings but completes successfully.
