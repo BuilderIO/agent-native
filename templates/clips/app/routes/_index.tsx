@@ -4,6 +4,12 @@ import { redirect, type LoaderFunctionArgs } from "react-router";
 const SEO_TITLE = "Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
   "Open Source screen recorder and meeting-notes app with AI transcripts, summaries, search, dictation, and agent-readable share links.";
+const SSR_REDIRECT_HEADERS = {
+  // The deploy adapter uses the HTML content type to apply Clips' public SSR
+  // cache policy. Without it, the root redirect reaches origin on every visit
+  // even though the /library shell is already cached at the edge.
+  "content-type": "text/html; charset=utf-8",
+};
 
 export function meta() {
   return [
@@ -38,11 +44,11 @@ function buildTarget(url: URL): string {
 }
 
 export function loader({ url }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(url));
+  throw redirect(buildTarget(url), { headers: SSR_REDIRECT_HEADERS });
 }
 
 export function clientLoader({ url }: LoaderFunctionArgs) {
-  throw redirect(buildTarget(url));
+  throw redirect(buildTarget(url), { headers: SSR_REDIRECT_HEADERS });
 }
 
 export function HydrateFallback() {
