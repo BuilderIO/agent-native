@@ -32,6 +32,7 @@ vi.mock("@agent-native/core/client/api-path", () => ({
 vi.mock("@agent-native/core/client/hooks", () => ({
   // Pulled in transitively by PlaybackCommentOverlay's avatar lookup.
   useAvatarUrl: () => null,
+  callAction: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/i18n", () => ({

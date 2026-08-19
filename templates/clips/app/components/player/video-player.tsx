@@ -156,6 +156,7 @@ export interface VideoPlayerHandle {
   play: () => Promise<void> | void;
   pause: () => void;
   seek: (ms: number) => void;
+  getCurrentOriginalMs: () => number;
   setSpeed: (rate: number) => void;
   toggleMute: () => void;
   toggleCaptions: () => void;
@@ -1035,6 +1036,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         play: requestPlay,
         pause: pauseVideo,
         seek: seekToVisibleMs,
+        getCurrentOriginalMs: () => {
+          const v = videoRef.current;
+          const liveVisibleMs =
+            v &&
+            Number.isFinite(v.currentTime) &&
+            v.currentTime >= 0 &&
+            v.currentTime < 1e7
+              ? Math.floor(v.currentTime * 1000)
+              : currentMs;
+          return editedToOriginal(liveVisibleMs, edits);
+        },
         setSpeed: applySpeed,
         toggleMute: () => {
           if (videoRef.current) {

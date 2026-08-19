@@ -7,7 +7,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { BackToLibraryButton } from "./r.$recordingId";
+import {
+  BackToLibraryButton,
+  mergeRecordingReactions,
+} from "./r.$recordingId";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -87,5 +90,23 @@ describe("BackToLibraryButton", () => {
     expect(
       container.querySelector('[data-testid="location"]')?.textContent,
     ).toBe("/library");
+  });
+});
+
+describe("mergeRecordingReactions", () => {
+  it("keeps optimistic reactions visible until the server copy arrives", () => {
+    const merged = mergeRecordingReactions(
+      [
+        { id: "reaction-1", emoji: "🔥", videoTimestampMs: 42_000 },
+      ],
+      [
+        { id: "pending-1", emoji: "🔥", videoTimestampMs: 42_000 },
+      ],
+    );
+
+    expect(merged).toEqual([
+      { id: "reaction-1", emoji: "🔥", videoTimestampMs: 42_000 },
+      { id: "pending-1", emoji: "🔥", videoTimestampMs: 42_000 },
+    ]);
   });
 });

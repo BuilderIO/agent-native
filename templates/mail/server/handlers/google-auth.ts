@@ -58,23 +58,34 @@ function googleOAuthErrorPayload(
   message: string;
   code?: string;
   accountId?: string;
+  existingOwner?: string;
+  attemptedOwner?: string;
 } {
   if (
     error instanceof OAuthAccountOwnedByOtherUserError ||
     error?.name === "OAuthAccountOwnedByOtherUserError"
   ) {
     const account = error.accountId || "This Google account";
+    const existingOwner = error.existingOwner || undefined;
+    const attemptedOwner = error.attemptedOwner || undefined;
+    const message = `${account} is connected to another login. Sign out, then sign in with ${account}.`;
     return {
-      message: `${account} is already connected to another login. Sign out, then sign in with the login that originally connected it.`,
+      message,
       code: "account_owner_mismatch",
       accountId: error.accountId,
+      existingOwner,
+      attemptedOwner,
     };
   }
 
   const msg = error?.message || "Unknown error";
+  const statusCode = Number(error?.statusCode || error?.status || 0);
   const isPermission =
     msg.includes("Insufficient Permission") ||
-    msg.includes("insufficient_scope");
+    msg.includes("insufficient_scope") ||
+    /insufficient authentication scopes/i.test(msg) ||
+    (statusCode === 403 &&
+      /\b(?:scope|permission|forbidden|access denied)\b/i.test(msg));
   return {
     message: isPermission
       ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."

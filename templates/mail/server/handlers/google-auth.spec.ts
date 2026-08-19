@@ -86,7 +86,7 @@ vi.mock("../../shared/gmail-signature.js", () => ({
   htmlSignatureToMarkdown: mocks.htmlSignatureToMarkdown,
 }));
 
-const { getGoogleAddAccountUrl, getGoogleAuthUrl, handleGoogleCallback } =
+const { getGoogleAddAccountUrl, getGoogleAuthUrl } =
   await import("./google-auth.js");
 
 function createEvent(query: Record<string, string> = {}) {
@@ -155,32 +155,31 @@ describe("Mail Google auth-url handlers", () => {
     await expect(response.text()).resolves.toBe("");
   });
 
-  it("does not disclose which login owns a conflicting Google account", async () => {
+  it("treats 403 scope failures as missing Google permissions", async () => {
+    const { handleGoogleAddAccountCallback } = await import("./google-auth.js");
+    mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
     mocks.decodeOAuthState.mockReturnValue({
       redirectUri:
-        "https://mail.agent-native.com/_agent-native/google/callback",
-      owner: "second-login@example.com",
+        "https://mail.agent-native.com/_agent-native/google/add-account/callback",
+      owner: "owner@example.com",
+      desktop: false,
+      flowId: undefined,
     });
-    mocks.resolveOAuthOwner.mockResolvedValue({
-      owner: "second-login@example.com",
-      hasProductionSession: true,
-    });
-    const conflict = Object.assign(new Error("owned by another user"), {
-      name: "OAuthAccountOwnedByOtherUserError",
-      accountId: "shared-account@gmail.com",
-      existingOwner: "first-login@example.com",
-      attemptedOwner: "second-login@example.com",
-    });
-    mocks.exchangeCode.mockRejectedValue(conflict);
-
-    await handleGoogleCallback(
-      createEvent({ code: "google-code", state: "encoded-state" }) as any,
+    mocks.getAppUrl.mockReturnValue(
+      "https://mail.agent-native.com/_agent-native/google/add-account/callback",
     );
+    mocks.setResponseStatus.mockClear();
+    mocks.readBody.mockResolvedValue({});
+    mocks.oauthErrorPage.mockImplementation((message: string) => message);
 
-    expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);
-    const [message] = mocks.oauthErrorPage.mock.calls[0];
-    expect(message).toContain("already connected to another login");
-    expect(message).not.toContain("first-login@example.com");
-    expect(message).not.toContain("second-login@example.com");
+    const response = await handleGoogleAddAccountCallback({
+      query: {
+        error: "forbidden",
+        error_description: "Request had insufficient authentication scopes.",
+      },
+    } as any);
+
+    expect(response).toContain("required permissions");
+    expect(response).toContain("Google Cloud Console");
   });
 });

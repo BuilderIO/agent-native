@@ -159,6 +159,10 @@ function dayBucket(iso: string): string {
   }
 }
 
+export function dictationsRefetchInterval(): number {
+  return 2_000;
+}
+
 function sourceMeta(
   source: string | undefined,
   t: ReturnType<typeof useT>,
@@ -696,7 +700,11 @@ export default function DictateRoute() {
   const t = useT();
   const { data, isLoading, isError } = useActionQuery<
     { dictations: Dictation[] } | Dictation[] | undefined
-  >("list-dictations", {}, { retry: false });
+  >(
+    "list-dictations",
+    {},
+    { retry: false, refetchInterval: dictationsRefetchInterval() },
+  );
 
   const { isDesktopApp } = useDesktopPromo();
   const [filter, setFilter] = useState<SourceFilter>("all");

@@ -1273,16 +1273,8 @@ export default function ShareRoute() {
                       return;
                     }
                     tracking.reportReaction(emoji);
-                    const liveCt = isLoomEmbedBacked
-                      ? null
-                      : playerRef.current?.video?.currentTime;
                     const liveMs =
-                      typeof liveCt === "number" &&
-                      Number.isFinite(liveCt) &&
-                      liveCt >= 0 &&
-                      liveCt < 1e7
-                        ? Math.floor(liveCt * 1000)
-                        : currentMs;
+                      playerRef.current?.getCurrentOriginalMs() ?? currentMs;
                     fetch(
                       agentNativePath(
                         "/_agent-native/actions/react-to-recording",

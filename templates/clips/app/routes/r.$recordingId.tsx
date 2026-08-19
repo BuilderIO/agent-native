@@ -45,7 +45,7 @@ import {
   IconSparkles,
   IconExternalLink,
 } from "@tabler/icons-react";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Link,
@@ -108,6 +108,29 @@ const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;
 const PROCESSING_STUCK_TIMEOUT_MS = 12 * 60 * 1000;
 const READY_MEDIA_SETTLE_POLL_MS = 20 * 1000;
 const READY_MEDIA_SETTLE_POLL_INTERVAL_MS = 1000;
+
+type RecordingReaction = {
+  id: string;
+  emoji: string;
+  videoTimestampMs: number;
+};
+
+export function mergeRecordingReactions(
+  serverReactions: RecordingReaction[] | undefined,
+  pendingReactions: RecordingReaction[],
+) {
+  const seen = new Set<string>();
+  const merged: RecordingReaction[] = [];
+
+  for (const reaction of [...(serverReactions ?? []), ...pendingReactions]) {
+    const key = `${reaction.id}:${reaction.emoji}:${reaction.videoTimestampMs}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push(reaction);
+  }
+
+  return merged;
+}
 
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
@@ -260,16 +283,7 @@ export default function RecordingPage() {
   // live time bridge, so we fall back to the last position the player reported
   // via onTimeUpdate (seek/initial start).
   const resolvePlaybackMs = useCallback(() => {
-    const liveCt = playerRef.current?.video?.currentTime;
-    if (
-      typeof liveCt === "number" &&
-      Number.isFinite(liveCt) &&
-      liveCt >= 0 &&
-      liveCt < 1e7
-    ) {
-      return Math.floor(liveCt * 1000);
-    }
-    return currentMs;
+    return playerRef.current?.getCurrentOriginalMs() ?? currentMs;
   }, [currentMs]);
   // The compact layout stacks the panel below the video, so switching tabs
   // alone leaves the user looking at the player. Desktop always renders the
@@ -307,9 +321,13 @@ export default function RecordingPage() {
       recordingId ? { type: "recording" as const, id: recordingId } : null,
     [recordingId],
   );
+  const queryClient = useQueryClient();
   const lastPlayerStateWriteRef = useRef(0);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
   const [metadataRefreshUntil, setMetadataRefreshUntil] = useState(0);
+  const [pendingReactions, setPendingReactions] = useState<RecordingReaction[]>(
+    [],
+  );
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -411,7 +429,10 @@ export default function RecordingPage() {
     | "viewer"
     | undefined;
   const comments = playerDataQ.data?.comments ?? [];
-  const reactions = playerDataQ.data?.reactions ?? [];
+  const reactions = useMemo(
+    () => mergeRecordingReactions(playerDataQ.data?.reactions, pendingReactions),
+    [pendingReactions, playerDataQ.data?.reactions],
+  );
   const chapters = playerDataQ.data?.chapters ?? [];
   const transcriptSegments = playerDataQ.data?.transcript?.segments ?? [];
   const transcriptFullText = playerDataQ.data?.transcript?.fullText ?? null;
@@ -443,6 +464,22 @@ export default function RecordingPage() {
       setPanel(panelParam);
     }
   }, [canEdit, panelParam]);
+
+  useEffect(() => {
+    if (pendingReactions.length === 0) return;
+    const serverReactions = playerDataQ.data?.reactions ?? [];
+    setPendingReactions((current) =>
+      current.filter(
+        (pending) =>
+          !serverReactions.some(
+            (reaction) =>
+              reaction.id === pending.id &&
+              reaction.emoji === pending.emoji &&
+              reaction.videoTimestampMs === pending.videoTimestampMs,
+          ),
+      ),
+    );
+  }, [pendingReactions.length, playerDataQ.data?.reactions]);
 
   const builderCredits =
     (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
@@ -1683,6 +1720,17 @@ export default function RecordingPage() {
                         onReact={(emoji) => {
                           tracking.reportReaction(emoji);
                           const liveMs = resolvePlaybackMs();
+                          const pendingReaction: RecordingReaction = {
+                            id: `pending-${Date.now()}-${Math.random()
+                              .toString(36)
+                              .slice(2)}`,
+                            emoji,
+                            videoTimestampMs: liveMs,
+                          };
+                          setPendingReactions((current) => [
+                            ...current,
+                            pendingReaction,
+                          ]);
                           fetch(
                             agentNativePath(
                               "/_agent-native/actions/react-to-recording",
@@ -1697,8 +1745,22 @@ export default function RecordingPage() {
                               }),
                             },
                           )
-                            .then(() => playerDataQ.refetch())
-                            .catch(() => {});
+                            .then(() => {
+                              void queryClient.invalidateQueries({
+                                queryKey: [
+                                  "action",
+                                  "get-recording-player-data",
+                                ],
+                              });
+                              void playerDataQ.refetch();
+                            })
+                            .catch(() => {
+                              setPendingReactions((current) =>
+                                current.filter(
+                                  (reaction) => reaction.id !== pendingReaction.id,
+                                ),
+                              );
+                            });
                         }}
                       />
                     ) : null}
