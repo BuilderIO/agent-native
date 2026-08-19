@@ -165,4 +165,16 @@ export const ORG_MIGRATIONS = [
     sql: `CREATE INDEX IF NOT EXISTS workspace_apps_org_visibility_idx
           ON workspace_apps (org_id, visibility)`,
   },
+  {
+    // The privacy rollout created ACL rows for apps that already existed. If
+    // the organization default was private at that moment, those legacy apps
+    // became invisible to their teammates even though no per-app restriction
+    // had been chosen. Restore the workspace-wide default for that population;
+    // future explicit visibility changes continue to persist normally.
+    version: 1018,
+    name: "workspace-apps-restore-org-default-visibility",
+    sql: `UPDATE workspace_apps
+          SET visibility = 'org'
+          WHERE visibility = 'private'`,
+  },
 ];

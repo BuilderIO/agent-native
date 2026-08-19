@@ -119,6 +119,8 @@ afterEach(() => {
   vi.unstubAllGlobals();
   vi.clearAllMocks();
   mocks.settings.clear();
+  mocks.getOrgSetting.mockReset();
+  mocks.getOrgSetting.mockResolvedValue(null);
   mocks.state.orgRole = "admin";
   mocks.getDbExec.mockReset();
   mocks.getDbExec.mockImplementation(() => ({
@@ -368,7 +370,7 @@ describe("listWorkspaceApps", () => {
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
   });
 
-  it("does not create or expose apps when the org visibility setting cannot be read", async () => {
+  it("keeps legacy apps organization-visible when the org default cannot be read", async () => {
     stubManifest([
       { id: "dispatch", name: "Dispatch", path: "/dispatch" },
       { id: "private-app", name: "Private app", path: "/private-app" },
@@ -377,12 +379,12 @@ describe("listWorkspaceApps", () => {
       new Error("settings store unavailable"),
     );
 
-    await expect(
-      runWithRequestContext(
-        { userEmail: "dev@example.test", orgId: "org-123" },
-        () => listWorkspaceApps({ includeAgentCards: false }),
-      ),
-    ).rejects.toThrow("settings store unavailable");
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch", "private-app"]);
   });
 
   it("fails closed when the workspace-app access schema is unavailable", async () => {
@@ -417,7 +419,7 @@ describe("listWorkspaceApps", () => {
     expect(mocks.resolveAccess).not.toHaveBeenCalled();
   });
 
-  it("uses the organization default only for apps with trusted creation metadata", async () => {
+  it("does not apply the current default retroactively to legacy apps", async () => {
     stubNoPendingContext();
     stubManifest([
       {
@@ -451,9 +453,8 @@ describe("listWorkspaceApps", () => {
     );
 
     expect(apps.find((app) => app.id === "legacy-app")?.visibility).toBe("org");
-    expect(apps.find((app) => app.id === "new-app")?.visibility).toBe(
-      "private",
-    );
+    expect(apps.find((app) => app.id === "new-app")?.visibility).toBe("org");
+    expect(mocks.getOrgSetting).not.toHaveBeenCalled();
     const inserts = execute.mock.calls.filter(([statement]) =>
       String((statement as { sql?: unknown })?.sql ?? "").includes(
         "INSERT INTO workspace_apps",
@@ -461,7 +462,7 @@ describe("listWorkspaceApps", () => {
     );
     expect(inserts.map(([statement]) => (statement as any).args?.[3])).toEqual([
       "org",
-      "private",
+      "org",
     ]);
   });
 
@@ -835,6 +836,7 @@ describe("startWorkspaceAppCreation", () => {
   it("starts the Builder branch and passes the resolved userId through", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();
+    mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });
     mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
       credentials({
         privateKey: "priv",
@@ -848,7 +850,10 @@ describe("startWorkspaceAppCreation", () => {
       status: "processing",
     });
 
-    const result = (await create()) as any;
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "org-123",
+    })) as any;
 
     expect(result.mode).toBe("builder");
     expect(mocks.runBuilderAgent).toHaveBeenCalledWith(
@@ -867,6 +872,13 @@ describe("startWorkspaceAppCreation", () => {
     expect(builderPrompt).toContain(
       "Treat the source brief's unknowns and follow-up items as assumptions",
     );
+    expect(
+      mocks.settings.get("workspace-app-metadata:org:org-123"),
+    ).toMatchObject({
+      apps: {
+        onboarding: { visibility: "private" },
+      },
+    });
   });
 
   it("provisions and remembers the workspace Builder project when none is configured", async () => {

@@ -1064,7 +1064,6 @@ async function ensureWorkspaceAppRecords(
 
   const orgId = currentOrgId();
   const metadata = await readWorkspaceAppMetadataSettings();
-  const defaultVisibility = await workspaceAppDefaultVisibility();
   const db = getDbExec();
   const records = new Map<
     string,
@@ -1107,14 +1106,13 @@ async function ensureWorkspaceAppRecords(
           cleanOptionalText(override?.createdBy) ??
           cleanOptionalText(app.createdBy) ??
           "";
-        const hasTrustedCreationMetadata = Boolean(ownerEmail);
         const visibility: WorkspaceAppVisibility =
           override?.visibility === "private"
             ? "private"
             : override?.visibility === "org"
               ? "org"
-              : hasTrustedCreationMetadata
-                ? defaultVisibility
+              : app.visibility === "private"
+                ? "private"
                 : "org";
         const createdAt = appRecordTimestamp(app.createdAt);
         await db.execute({
@@ -1225,6 +1223,7 @@ async function recordPendingWorkspaceApp(input: {
   projectId: string | null;
   description: string;
   sourcePrompt: string;
+  visibility: WorkspaceAppVisibility;
   branchName?: string | null;
   builderUrl?: string | null;
 }) {
@@ -1273,6 +1272,7 @@ async function recordPendingWorkspaceApp(input: {
     sourcePrompt: input.sourcePrompt,
     updatedBy: currentOwnerEmail(),
     createdBy: currentOwnerEmail(),
+    visibility: input.visibility,
   });
 
   await recordAudit({
@@ -1838,6 +1838,8 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
     throw new Error(`apps/${appId} already exists.`);
   }
 
+  const visibility = await workspaceAppDefaultVisibility();
+
   const output = await runScaffoldCli({
     cwd: workspaceRoot,
     args: ["add-app", appId, "--template", template],
@@ -1864,6 +1866,7 @@ export async function scaffoldWorkspaceAppFromTemplate(input: {
       protectedPaths: [],
       status: "ready",
       createdBy: currentOwnerEmail(),
+      visibility,
     },
   ]);
 
@@ -2391,6 +2394,8 @@ export async function startWorkspaceAppCreation(input: {
     }
   }
 
+  const creationVisibility = await workspaceAppDefaultVisibility();
+
   const selectedKeys = input.secretIds?.length
     ? (await listSecretOptions())
         .filter((secret) => input.secretIds?.includes(secret.id))
@@ -2538,6 +2543,7 @@ export async function startWorkspaceAppCreation(input: {
     projectId: builderProjectId,
     description: appDescription,
     sourcePrompt: input.prompt,
+    visibility: creationVisibility,
     branchName: result.branchName,
     builderUrl: result.url,
   });
