@@ -232,6 +232,7 @@ import {
   runDesktopStartupStep,
 } from "./desktop-startup.js";
 import { HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT } from "./embedded-auth-ui";
+import { isAllowedEnvironmentNavigation } from "./environment-navigation";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
@@ -11251,6 +11252,7 @@ function navigationPort(url: URL): string {
 
 function isSameWebviewAppOrigin(current: URL, next: URL): boolean {
   if (current.origin === next.origin) return true;
+  if (isAllowedEnvironmentNavigation(current, next)) return true;
   if (current.protocol !== next.protocol) return false;
   return (
     normalizedNavigationHost(current.hostname) ===
