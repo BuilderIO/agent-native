@@ -66,6 +66,89 @@ export const LIST_DOCUMENTS_QUERY_KEY = [
   undefined,
 ] as const;
 
+export function restoreListDocumentsSnapshot(
+  queryClient: Pick<QueryClient, "removeQueries" | "setQueryData">,
+  snapshot: unknown,
+) {
+  if (snapshot === undefined) {
+    queryClient.removeQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY });
+    return;
+  }
+  queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, snapshot);
+}
+
+export function rollbackOptimisticCreatedDocument(
+  queryClient: Pick<
+    QueryClient,
+    "getQueryData" | "removeQueries" | "setQueryData"
+  >,
+  documentId: string,
+  hadListSnapshot: boolean,
+) {
+  const current = queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY);
+  const documents: Document[] = Array.isArray(current)
+    ? current
+    : ((current as DocumentListResponse | undefined)?.documents ?? []);
+  const remaining = documents.filter((document) => document.id !== documentId);
+
+  if (!hadListSnapshot && remaining.length === 0) {
+    queryClient.removeQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY });
+    return;
+  }
+
+  if (Array.isArray(current)) {
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, remaining);
+    return;
+  }
+
+  queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+    ...(current && typeof current === "object" ? current : {}),
+    documents: remaining,
+  });
+}
+
+export function restoreDeletedDocumentSnapshots(
+  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
+  listSnapshot: unknown,
+  documentSnapshots: Array<[readonly unknown[], unknown]>,
+  deletedDocumentIds: Iterable<string>,
+) {
+  const deletedIds = new Set(deletedDocumentIds);
+  const snapshotDocuments: Document[] = Array.isArray(listSnapshot)
+    ? listSnapshot
+    : ((listSnapshot as DocumentListResponse | undefined)?.documents ?? []);
+  const current = queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY);
+  const currentDocuments: Document[] = Array.isArray(current)
+    ? current
+    : ((current as DocumentListResponse | undefined)?.documents ?? []);
+  const currentDocumentIds = new Set(
+    currentDocuments.map((document) => document.id),
+  );
+  const restoredDocuments = snapshotDocuments.filter(
+    (document) =>
+      deletedIds.has(document.id) && !currentDocumentIds.has(document.id),
+  );
+  const documents = [...currentDocuments, ...restoredDocuments];
+
+  if (Array.isArray(current)) {
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, documents);
+  } else {
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      ...(current && typeof current === "object"
+        ? current
+        : listSnapshot && typeof listSnapshot === "object"
+          ? listSnapshot
+          : {}),
+      documents,
+    });
+  }
+  for (const [queryKey, data] of documentSnapshots) {
+    if (queryClient.getQueryData(queryKey) === undefined) {
+      queryClient.setQueryData(queryKey, data);
+    }
+  }
+}
+
 const DOCUMENT_LIST_PAGE_SIZE = 200;
 
 export async function fetchCompleteDocumentList(
