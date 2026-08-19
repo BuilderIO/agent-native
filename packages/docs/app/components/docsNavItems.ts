@@ -45,7 +45,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "whatIsAgentNative",
         slug: "what-is-agent-native",
       },
-      { id: "deployment", labelKey: "deployment", slug: "deployment" },
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
         id: "agent-surfaces",
@@ -827,6 +826,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
       { id: "frames", labelKey: "frames", slug: "frames" },
+      { id: "deployment", labelKey: "deployment", slug: "deployment" },
     ],
   },
   {
