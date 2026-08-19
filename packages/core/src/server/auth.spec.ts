@@ -1341,7 +1341,7 @@ describe("server/auth", () => {
 
       const initiator = createMockEvent({
         path: "/_agent-native/google/auth-url",
-        query: { desktop: "1", flow_id: "bound-flow" },
+        query: { desktop: "1", flow_id: "bound-flow", webview: "1" },
         headers: {
           "x-agent-native-desktop-verifier": "v".repeat(32),
         },
@@ -1355,6 +1355,7 @@ describe("server/auth", () => {
       );
 
       expect(state.desktopBrowserBindingHash).toMatch(/^[A-Za-z0-9_-]{43}$/);
+      expect(state.desktopWebview).toBe(true);
       const setCookie = initiator.res.headers.get("set-cookie") ?? "";
       const bindingCookie = setCookie.match(
         /(?:^|, )an_desktop_oauth_binding=([^;]+)/,
@@ -6111,6 +6112,7 @@ describe("server/auth", () => {
       expect(html).toContain(
         'window.location.replace("/?desktop_auth=complete")',
       );
+      expect(html).not.toContain("window.close()");
       expect(html).not.toContain("agentnative://oauth-complete");
       const setCookie = (response as Response).headers.getSetCookie?.() ?? [
         (response as Response).headers.get("set-cookie") ?? "",

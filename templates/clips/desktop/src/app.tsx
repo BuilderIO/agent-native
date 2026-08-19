@@ -2138,9 +2138,9 @@ export function App() {
     void tick();
   }
 
-  // Google verification opens in a child of the bound Tauri WebView so the
-  // callback sees the same browser-binding cookie. Magic-link verification
-  // still completes in the system browser through its own exchange flow.
+  // Google verification stays in the bound Tauri WebView so the callback sees
+  // the same browser-binding cookie. Magic-link verification still completes
+  // in the system browser through its own exchange flow.
   async function signInExternal() {
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
@@ -3974,8 +3974,8 @@ export function App() {
   // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
   // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
   // the same webview that reads it on the next /auth/session poll.
-  // Google verification uses a bound WebView child, while magic-link
-  // verification uses the system browser and password stays inline here.
+  // Google verification uses the bound WebView, while magic-link verification
+  // uses the system browser and password stays inline here.
   if (authStatus === "anon") {
     return (
       <div className="app" ref={appRef}>
@@ -4884,7 +4884,7 @@ function SignInForm({
         type="button"
         className="signin-google"
         onClick={onUseBrowser}
-        title="Opens a secure Clips window to complete Google sign-in"
+        title="Returns to Clips to complete Google sign-in"
       >
         <GoogleIcon />
         Sign in with Google
