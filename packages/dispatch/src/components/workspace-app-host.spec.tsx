@@ -382,8 +382,9 @@ describe("WorkspaceAppKeepAlive", () => {
     expect(clientState.workspaceSsoMutateAsync).not.toHaveBeenCalled();
   });
 
-  it("mints custom SSO before navigating an embedded Dispatch surface", async () => {
+  it("mints custom SSO before navigating a Builder-hosted surface", async () => {
     clientState.workspaceSsoEnabled = true;
+    clientState.inBuilderFrame = true;
     const navigateToTopWindow = vi.fn(() => true);
     Object.defineProperty(window, "parent", {
       configurable: true,
@@ -535,9 +536,8 @@ describe("WorkspaceAppKeepAlive", () => {
     ).toBe("Workspace SSO is temporarily unavailable");
   });
 
-  it("opens the app in the top window when Dispatch is inside an iframe", async () => {
+  it("keeps a normal iframe app inline", async () => {
     const topWindow = { location: { href: "" } } as unknown as Window;
-    const expectedUrl = new URL("/mail", window.location.href).href;
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: {},
@@ -552,15 +552,22 @@ describe("WorkspaceAppKeepAlive", () => {
         <WorkspaceAppFrame app={{ id: "mail", name: "Mail", path: "/mail" }} />,
       );
       await Promise.resolve();
+      await Promise.resolve();
+      await Promise.resolve();
     });
 
-    expect(topWindow.location.href).toBe(expectedUrl);
-    expect(clientState.legacyMutateAsync).not.toHaveBeenCalled();
-    expect(container.querySelector("iframe")).toBeNull();
+    expect(topWindow.location.href).toBe("");
+    expect(clientState.legacyMutateAsync).toHaveBeenCalledWith({
+      app: "mail",
+      path: "/mail",
+      chrome: "minimal",
+    });
+    expect(container.querySelector("iframe")).not.toBeNull();
   });
 
   it("falls back to the embedded app when top-window navigation is blocked", async () => {
     const navigateToTopWindow = vi.fn(() => false);
+    clientState.inBuilderFrame = true;
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: {},
@@ -594,6 +601,7 @@ describe("WorkspaceAppKeepAlive", () => {
       "/mail/emails?status=failed#latest",
       window.location.href,
     ).href;
+    clientState.inBuilderFrame = true;
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: {},

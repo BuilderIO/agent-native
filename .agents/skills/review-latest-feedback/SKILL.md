@@ -24,11 +24,11 @@ This is a reply-producing workflow, not a reaction-only workflow. Apply the
 reply rules in `address-feedback-with-replies` to every actionable Slack item.
 The moment this skill adds `👀` to a Slack parent, that parent enters a
 mandatory reply ledger. Before the run ends, re-read every ledger item and
-confirm that Steve has posted either a concise **Fixed** reply or a concise
-**Clarification needed** question. A bot acknowledgement, another person's
-reply, or the `👀` reaction alone never satisfies the ledger. Do not finish the
-sweep or report success while an actionable parent that this run marked has
-only `👀` or an unrelated reply.
+confirm that the `@agent-native` bot has posted either a concise **Fixed**
+reply or a concise **Clarification needed** question. A generic bot
+acknowledgement or forward, another person's reply, or the `👀` reaction alone
+never satisfies the ledger. Do not finish the sweep or report success while an
+actionable parent that this run marked has only `👀` or an unrelated reply.
 
 ## Start cursor
 
@@ -37,13 +37,13 @@ repository that is currently `#product-agent-native-feedback` (`C0ATH3CCZT4`);
 if the invocation names another channel, use that channel instead.
 
 Scan the channel newest to oldest and choose the most recent parent message
-without a final disposition reply from Steve, `agent-native`, or another person
-clearly investigating or owning the report. An `👀` reaction is only an
-investigation marker and never suppresses the scan. A thread with only that
-reaction, including a fix waiting for internal verification, remains the next
-work item until it receives a final **Fixed** reply or an open
-**Clarification needed** question. Do not treat a generic acknowledgement, bot
-reply, or vague status update as a terminal ownership marker.
+without a verified `@agent-native` bot-authored final disposition - either a
+**Fixed** reply or an open **Clarification needed** question - from the same
+token contract. An `👀` reaction is only an investigation marker and never
+suppresses the scan. A thread with only that reaction, including a fix waiting
+for internal verification, remains the next work item until it receives the
+verified bot disposition. Do not treat a Steve or another person's reply,
+generic bot acknowledgement or forward, or vague status update as terminal.
 
 That message is the start cursor. Classify it, record it if it is not
 actionable, then continue toward older messages, processing each actionable
@@ -110,10 +110,9 @@ post a new **Fixed** reply when the fix is verified. Ask another question only
 for the one remaining missing detail. An answered clarification is never a
 reason to skip the thread or continue scanning newer messages.
 
-Our own question is what makes a thread look owned to the cursor rule above,
-which is why this pass runs first. Without it every thread we asked about
-becomes permanently invisible on later runs and the reporter's answer is never
-read.
+Our own question is what makes a thread eligible for the first work item,
+which is why this pass runs first. Without it every thread we asked about can
+become invisible on later runs and the reporter's answer is never read.
 
 ## Required reading and tools
 
@@ -121,14 +120,22 @@ Before changing code, read `address-feedback`,
 `address-feedback-with-replies`, `concurrent-agents`, and
 `verifying-changes`. Read `ship` when a verified fix is ready to publish.
 
-Use the configured Slack, GitHub, and Sentry connectors when available:
+Use the Slack Web API under the bot-identity contract above. Use the configured
+GitHub and Sentry connectors when available:
 
  - Slack: channel history, reactions, full thread replies, permalinks, and
-   linked evidence.
+   Slack message/user/file metadata. Fetch linked external evidence through
+   its owning connector or public URL, not with the Slack bearer token.
  - GitHub: the newest relevant open issues in `BuilderIO/agent-native`, all
    comments and linked PRs, labels, current state, and duplicate searches.
  - Sentry: newest unresolved errors for the repository's projects, stack
    traces, route or component, frequency, affected release, and event links.
+
+For every Slack read or write, follow the `## Slack bot identity` contract in
+`address-feedback-with-replies`: load the local untracked `.env`'s
+`SLACK_BOT_TOKEN`, verify it with `auth.test` as `@agent-native`, and use that
+same bot identity for history, reactions, replies, and read-backs. Never fall
+back to a user/OAuth Slack connector or another bot token for this sweep.
 
 If a connector or permission is missing, continue with the other sources and
 name the exact gap in the final recap. Treat that as unavailable evidence, not
@@ -211,8 +218,9 @@ failure modes, surfaces, or owners.
    running surface. For Sentry reports, confirm the affected release and
    distinguish a source fix from deployed and observed-live recovery.
 6. This skill is authorized to react to actionable Slack threads and must post
-   one concise in-thread update for every actionable parent it marked `👀`, not
-   only for items whose code it changed. Post only after the fix or
+   one concise in-thread update through the `@agent-native` bot for every
+   actionable parent it marked `👀`, not only for items whose code it changed.
+   Post only after the fix or
    clarification is ready. A **Fixed** reply says that the fix is complete and
    when it should be live. A **Clarification needed** reply asks one concrete
    question about missing reporter or product input. Thank the reporter by name
@@ -277,9 +285,9 @@ skipped, duplicated, already owned, blocked by missing evidence, or blocked by
 an unavailable connector. Include direct links to the Slack message or thread,
 GitHub issue, Sentry event, PR, commit, and verification result when present.
 For Slack, include the reply-ledger result for every parent this run marked
-`👀`: Steve reply timestamp and disposition, or the exact reason the item was
-not marked. Never call a sweep complete while an actionable Slack parent in the
-ledger has no Steve reply.
+`👀`: `@agent-native` reply timestamp and disposition, or the exact reason the
+item was not marked. Never call a sweep complete while an actionable Slack
+parent in the ledger has no bot-authored reply.
 
 Use this shape:
 

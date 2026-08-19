@@ -1674,7 +1674,7 @@ export default function RecordingPage() {
                   onReact={(emoji) => {
                     tracking.reportReaction(emoji);
                     const liveMs = resolvePlaybackMs();
-                    fetch(
+                    return fetch(
                       agentNativePath(
                         "/_agent-native/actions/react-to-recording",
                       ),
@@ -1693,9 +1693,11 @@ export default function RecordingPage() {
                           throw new Error(`react failed: ${res.status}`);
                         return playerDataQ.refetch();
                       })
-                      .catch((err) =>
-                        console.warn("[clips] react failed", err),
-                      );
+                      .then(() => true)
+                      .catch((err) => {
+                        console.warn("[clips] react failed", err);
+                        return false;
+                      });
                   }}
                   className="h-full w-full rounded-none sm:rounded-xl"
                 />
@@ -1782,6 +1784,7 @@ export default function RecordingPage() {
                     ) : null}
                     {recording.enableReactions ? (
                       <ReactionsTray
+                        reactions={reactions}
                         disabled={!recording.enableReactions || !canComment}
                         onReact={(emoji) => {
                           tracking.reportReaction(emoji);
@@ -1798,7 +1801,7 @@ export default function RecordingPage() {
                             ...current,
                             pendingReaction,
                           ]);
-                          fetch(
+                          return fetch(
                             agentNativePath(
                               "/_agent-native/actions/react-to-recording",
                             ),
@@ -1830,6 +1833,7 @@ export default function RecordingPage() {
                                   pendingReaction.id,
                                 ),
                               );
+                              return true;
                             })
                             .catch((err) => {
                               setPendingReactions((current) =>
@@ -1839,6 +1843,7 @@ export default function RecordingPage() {
                                 ),
                               );
                               console.warn("[clips] react failed", err);
+                              return false;
                             });
                         }}
                       />
