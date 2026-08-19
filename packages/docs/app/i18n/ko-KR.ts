@@ -518,12 +518,6 @@ const koKR = {
       description:
         "에이전트 기반 양식 작성기. 프롬프트에서 양식을 생성하고, 필드를 시각적으로 또는 대화식으로 편집하고, 제출물을 Slack, Discord, Google Sheets 또는 웹훅으로 보냅니다.",
     },
-    brain: {
-      replaces:
-        "팀 위키, Glean 스타일 회상 및 제도적 기억 도구를 대체하거나 강화합니다.",
-      description:
-        "검토 게이트, 평가 및 공유 연결 준비 기능이 내장되어 승인된 Slack, Clips, Granola, GitHub 및 성적표 소스의 인용 메모리에 대한 전체 페이지 회사 채팅입니다.",
-    },
     assets: {
       replaces:
         "DAMs, 브랜드 자산 라이브러리 및 AI 미디어 생성기를 대체하거나 강화합니다.",
@@ -707,22 +701,6 @@ const koKR = {
           "네. OAuth로 동기화하며 여러 계정과 자동 토큰 갱신을 지원합니다. Google에서 일정을 직접 만들고, 수정하고, 삭제할 수 있습니다.",
         question4: "Calendar는 무료인가요?",
         answer4: "네. 예약 페이지까지 포함해 무료 오픈 소스입니다.",
-      },
-    },
-    brain: {
-      faq: {
-        question1: "AI가 우리 팀이 알고 있는 내용을 기억할 수 있나요?",
-        answer1:
-          "그것이 Brain의 역할입니다. 승인된 Slack, Clips, Granola, GitHub, 대화 기록 소스에서 공유 메모리를 구축합니다. 사내 채팅에서 질문하면 출처와 함께 답합니다.",
-        question2: "Brain은 위키와 어떻게 다른가요?",
-        answer2:
-          "위키는 누군가 작성하기를 기다리고 시간이 지나면 오래된 정보가 됩니다. Brain은 실제 업무가 이루어지는 곳에서 지식을 수집하고, 리뷰로 메모리에 들어갈 내용을 관리하며, 답변할 때 출처를 인용합니다.",
-        question3: "답변을 어떻게 신뢰할 수 있나요?",
-        answer3:
-          "두 가지 장치가 있습니다. 리뷰 게이트가 메모리에 들어가는 정보를 통제하고, 모든 답변이 출처를 인용합니다. 따라서 '위키에 그렇게 적혀 있다'가 아니라 '이 Slack 스레드, 이 녹화, 이 커밋에 근거한다'고 확인할 수 있습니다.",
-        question4: "다른 앱도 이 메모리를 공유하나요?",
-        answer4:
-          "그것이 핵심입니다. Brain은 다른 Agent-Native 앱이 연결하는 메모리 계층이므로, 한 앱이 학습한 내용을 전체 스택이 알게 됩니다.",
       },
     },
     assets: {
@@ -1955,12 +1933,6 @@ const koKR = {
     clipsAiAndEditing: "AI 및 편집",
     clipsSharingAndTeams: "공유 및 팀",
     clipsDevelopers: "개발자 가이드",
-    brain: "Brain",
-    brainOverview: "개요",
-    brainSources: "소스 연결",
-    brainKnowledge: "질문 및 인용",
-    brainAgent: "Agent와 대화",
-    brainDevelopers: "개발자 가이드",
     assets: "자산",
     assetsOverview: "개요",
     assetsGeneration: "생성 및 정제",

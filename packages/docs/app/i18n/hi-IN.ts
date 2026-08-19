@@ -515,12 +515,6 @@ const hiIN = {
       description:
         "एजेंट-मूल फॉर्म बिल्डर। प्रॉम्प्ट से फ़ॉर्म जेनरेट करें, फ़ील्ड को दृश्यात्मक या संवादात्मक रूप से संपादित करें, और Slack, Discord, Google Sheets, या वेबहुक पर सबमिशन भेजें।",
     },
-    brain: {
-      replaces:
-        "टीम विकी, Glean-स्टाइल रिकॉल और संस्थागत मेमोरी टूल को प्रतिस्थापित या संवर्धित करता है",
-      description:
-        "स्वीकृत Slack, Clips, Granola, GitHub, और प्रतिलेख स्रोतों से उद्धृत मेमोरी पर पूर्ण-पृष्ठ कंपनी चैट, समीक्षा गेट्स, इवैल्स और अंतर्निहित साझा कनेक्शन तत्परता के साथ।",
-    },
     assets: {
       replaces:
         "DAMs, ब्रांड एसेट लाइब्रेरीज़ और AI मीडिया जनरेटर को प्रतिस्थापित या संवर्धित करता है",
@@ -705,22 +699,6 @@ const hiIN = {
       s056: "सभी टेम्पलेट देखें",
       s057: "होस्ट किए गए डेमो की जानकारी",
       s058: "दो-तरफ़ा सिंक",
-    },
-    brain: {
-      faq: {
-        question1: "क्या AI याद रख सकता है कि मेरी team क्या जानती है?",
-        answer1:
-          "यही Brain का काम है: approved Slack, Clips, Granola, GitHub और transcript sources से बनी shared memory। Company chat में पूछें; जवाब citations के साथ मिलते हैं।",
-        question2: "Brain किसी wiki से कैसे अलग है?",
-        answer2:
-          "Wiki किसी के लिखने का इंतज़ार करती है और फिर पुरानी पड़ जाती है। Brain वहीं से जानकारी लेता है जहाँ काम पहले से हो रहा है, reviews के जरिए तय करता है कि memory में क्या जाए और जवाब देते समय sources का उल्लेख करता है।",
-        question3: "मैं इसके जवाबों पर भरोसा कैसे करूँ?",
-        answer3:
-          "दो तरीकों से: review gates नियंत्रित करते हैं कि memory में क्या जाए, और हर जवाब बताता है कि वह कहाँ से आया — इसलिए “wiki में ऐसा लिखा है” बदलकर “यह Slack thread, यह recording, यह commit” हो जाता है।",
-        question4: "क्या मेरी दूसरी apps भी इस memory को साझा करती हैं?",
-        answer4:
-          "यही इसका उद्देश्य है — Brain वह memory layer है जिससे अन्य Agent-Native apps connect होती हैं, ताकि एक app जो सीखे उसे पूरी stack जान सके।",
-      },
     },
     assets: {
       faq: {
@@ -1951,12 +1929,6 @@ const hiIN = {
     clipsAiAndEditing: "AI और संपादन",
     clipsSharingAndTeams: "शेयरिंग और टीम",
     clipsDevelopers: "डेवलपर गाइड",
-    brain: "ब्रेन",
-    brainOverview: "अवलोकन",
-    brainSources: "स्रोत कनेक्ट करना",
-    brainKnowledge: "प्रश्न और उद्धरण",
-    brainAgent: "एजेंट से बात करें",
-    brainDevelopers: "डेवलपर गाइड",
     assets: "एसेट",
     assetsOverview: "अवलोकन",
     assetsGeneration: "बनाना और परिष्कृत करना",

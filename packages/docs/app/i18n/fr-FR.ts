@@ -520,12 +520,6 @@ const frFR = {
       description:
         "Générateur de formulaires natif pour les agents. Générez des formulaires à partir d'une invite, modifiez les champs visuellement ou par conversation et envoyez les soumissions à Slack, Discord, Google Sheets ou à des webhooks.",
     },
-    brain: {
-      replaces:
-        "Remplace ou augmente les wikis d'équipe, le rappel de style Glean et les outils de mémoire institutionnelle",
-      description:
-        "Discussion d'entreprise d'une page complète sur la mémoire citée à partir de sources approuvées Slack, Clips, Granola, GitHub et de transcription, avec des portes de révision, des évaluations et une préparation à la connexion partagée intégrées.",
-    },
     assets: {
       replaces:
         "Remplace ou augmente DAMs, les bibliothèques d'actifs de marque et les générateurs multimédia AI",
@@ -714,22 +708,6 @@ const frFR = {
       s056: "Afficher tous les modèles",
       s057: "Note sur la démo hébergée",
       s058: "Synchronisation bidirectionnelle",
-    },
-    brain: {
-      faq: {
-        question1: "L'IA peut-elle retenir ce que mon équipe sait ?",
-        answer1:
-          "C'est précisément le rôle de Brain : une mémoire partagée constituée à partir de sources Slack, Clips, Granola, GitHub et de transcriptions approuvées. Posez une question dans le chat de l'entreprise ; les réponses sont accompagnées de citations.",
-        question2: "En quoi Brain diffère-t-il d'un wiki ?",
-        answer2:
-          "Un wiki attend que quelqu'un l'écrive, puis devient obsolète. Brain recueille les connaissances là où le travail a déjà lieu, soumet leur intégration à des revues et cite ses sources dans ses réponses.",
-        question3: "Comment puis-je me fier à ses réponses ?",
-        answer3:
-          "De deux façons : des étapes de revue contrôlent ce qui entre dans la mémoire, et chaque réponse cite son origine. « C'est écrit dans le wiki » devient ainsi « ce fil Slack, cet enregistrement, ce commit ».",
-        question4: "Mes autres apps partagent-elles cette mémoire ?",
-        answer4:
-          "C'est tout l'intérêt : Brain est la couche de mémoire à laquelle les autres apps Agent-Native se connectent, afin que tout le stack sache ce qu'une app apprend.",
-      },
     },
     assets: {
       faq: {
@@ -1974,12 +1952,6 @@ const frFR = {
     clipsAiAndEditing: "AI et montage",
     clipsSharingAndTeams: "Partage et équipes",
     clipsDevelopers: "Guide développeur",
-    brain: "Brain",
-    brainOverview: "Vue d'ensemble",
-    brainSources: "Connexion des sources",
-    brainKnowledge: "Questions et citations",
-    brainAgent: "Parler à l'agent",
-    brainDevelopers: "Guide développeur",
     assets: "Ressources",
     assetsOverview: "Vue d'ensemble",
     assetsGeneration: "Génération et raffinement",

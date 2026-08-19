@@ -521,12 +521,6 @@ const esES = {
       description:
         "Creador de formularios nativo del agente. Genere formularios a partir de un mensaje, edite campos de forma visual o conversacional y envíe envíos a Slack, Discord, Google Sheets o webhooks.",
     },
-    brain: {
-      replaces:
-        "Reemplaza o aumenta los wikis del equipo, la recuperación estilo Glean y las herramientas de memoria institucional.",
-      description:
-        "Chat empresarial de página completa sobre memoria citada de Slack, Clips, Granola, GitHub y fuentes de transcripción, con puertas de revisión, evaluaciones y preparación de conexión compartida integradas.",
-    },
     assets: {
       replaces:
         "Reemplaza o aumenta DAMs, bibliotecas de activos de marca y generadores de medios AI",
@@ -713,22 +707,6 @@ const esES = {
       s056: "Ver todas las plantillas",
       s057: "Nota de la demo alojada",
       s058: "Sincronización bidireccional",
-    },
-    brain: {
-      faq: {
-        question1: "¿Puede la IA recordar lo que sabe mi equipo?",
-        answer1:
-          "Eso es Brain: memoria compartida creada a partir de fuentes aprobadas de Slack, Clips, Granola, GitHub y transcripciones. Pregunta en el chat de la empresa y recibirás respuestas con citas.",
-        question2: "¿En qué se diferencia Brain de una wiki?",
-        answer2:
-          "Una wiki espera a que alguien la escriba y después queda obsoleta. Brain captura el conocimiento donde ya se trabaja, controla mediante revisiones qué se incorpora y cita las fuentes al responder.",
-        question3: "¿Cómo puedo confiar en lo que dice?",
-        answer3:
-          "De dos maneras: las puertas de revisión controlan qué entra en la memoria y cada respuesta cita su origen; así, «lo dice la wiki» se convierte en «este hilo de Slack, esta grabación, este commit».",
-        question4: "¿Mis otras apps comparten esta memoria?",
-        answer4:
-          "Esa es la idea: Brain es la capa de memoria a la que se conectan las demás apps Agent-Native, de modo que todo el stack sabe lo que aprende una app.",
-      },
     },
     assets: {
       faq: {
@@ -1971,12 +1949,6 @@ const esES = {
     clipsAiAndEditing: "IA y edición",
     clipsSharingAndTeams: "Compartir y equipos",
     clipsDevelopers: "Guía para desarrolladores",
-    brain: "Brain",
-    brainOverview: "Visión general",
-    brainSources: "Conectar fuentes",
-    brainKnowledge: "Preguntas y citas",
-    brainAgent: "Hablar con el Agent",
-    brainDevelopers: "Guía para desarrolladores",
     assets: "Recursos",
     assetsOverview: "Visión general",
     assetsGeneration: "Generar y refinar",

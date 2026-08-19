@@ -518,12 +518,6 @@ const jaJP = {
       description:
         "エージェントネイティブのフォームビルダー。プロンプトからフォームを生成し、フィールドを視覚的または会話的に編集し、送信内容を Slack、Discord、Google Sheets、または Webhook に送信します。",
     },
-    brain: {
-      replaces:
-        "チーム Wiki、Glean スタイルのリコール、および組織の記憶ツールを置き換えまたは強化します",
-      description:
-        "承認済みの Slack、Clips、Granola、GitHub、トランスクリプト ソースからの引用メモリを介した全ページの社内チャット。レビュー ゲート、評価、共有接続の準備が組み込まれています。",
-    },
     assets: {
       replaces:
         "DAMs、ブランド資産ライブラリ、および AI メディア ジェネレーターを置き換えまたは拡張します",
@@ -708,22 +702,6 @@ const jaJP = {
           "はい。OAuth で同期し、複数アカウントとトークンの自動更新に対応しています。Google 上の予定を直接作成、更新、削除できます。",
         question4: "Calendar は無料ですか？",
         answer4: "はい。予約ページも含めて、無料のオープンソースです。",
-      },
-    },
-    brain: {
-      faq: {
-        question1: "AI はチームの知識を記憶できますか？",
-        answer1:
-          "それが Brain の役割です。承認済みの Slack、Clips、Granola、GitHub、文字起こしソースから共有メモリを構築します。社内チャットで質問すると、引用付きで回答します。",
-        question2: "Brain は Wiki と何が違いますか？",
-        answer2:
-          "Wiki は誰かが書くまで情報がなく、やがて古くなります。Brain は実際に仕事が行われる場所から知識を取り込み、レビューで登録内容を管理し、回答時に出典を示します。",
-        question3: "回答を信頼できるのはなぜですか？",
-        answer3:
-          "2 つの仕組みがあります。レビューゲートがメモリに入る情報を管理し、すべての回答が出典を引用します。そのため、「Wiki にそう書いてある」ではなく、「この Slack スレッド、この録画、このコミットに基づく」と確認できます。",
-        question4: "他のアプリもこのメモリを共有しますか？",
-        answer4:
-          "それが目的です。Brain は他の Agent-Native アプリが接続するメモリレイヤーであり、1 つのアプリが学んだことをスタック全体で共有できます。",
       },
     },
     assets: {
@@ -1966,12 +1944,6 @@ const jaJP = {
     clipsAiAndEditing: "AI と編集",
     clipsSharingAndTeams: "共有とチーム",
     clipsDevelopers: "開発者ガイド",
-    brain: "Brain",
-    brainOverview: "概要",
-    brainSources: "ソースの接続",
-    brainKnowledge: "質問と引用",
-    brainAgent: "Agent との対話",
-    brainDevelopers: "開発者ガイド",
     assets: "アセット",
     assetsOverview: "概要",
     assetsGeneration: "生成と調整",

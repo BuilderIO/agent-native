@@ -521,12 +521,6 @@ const deDE = {
       description:
         "Agent-nativer Formularersteller. Generieren Sie Formulare aus einer Eingabeaufforderung, bearbeiten Sie Felder visuell oder im Dialog und senden Sie Übermittlungen an Slack, Discord, Google Sheets oder Webhooks.",
     },
-    brain: {
-      replaces:
-        "Ersetzt oder erweitert Team-Wikis, Erinnerungstools im Glean-Stil und institutionelle Gedächtnistools",
-      description:
-        "Ganzseitiger Unternehmenschat über zitierte Erinnerungen aus genehmigten Slack-, Clips-, Granola-, GitHub- und Transkriptquellen, mit integrierten Überprüfungs-Gates, Evaluierungen und gemeinsamer Verbindungsbereitschaft.",
-    },
     assets: {
       replaces:
         "Ersetzt oder erweitert DAMs, Marken-Asset-Bibliotheken und AI-Mediengeneratoren",
@@ -715,22 +709,6 @@ const deDE = {
       s056: "Alle Vorlagen anzeigen",
       s057: "Hinweis zur gehosteten Demo",
       s058: "Zwei-Wege-Synchronisierung",
-    },
-    brain: {
-      faq: {
-        question1: "Kann KI sich merken, was mein Team weiß?",
-        answer1:
-          "Genau das ist Brain: ein gemeinsames Gedächtnis aus freigegebenen Slack-, Clips-, Granola-, GitHub- und Transkriptquellen. Fragen Sie im Unternehmenschat; die Antworten enthalten Quellenangaben.",
-        question2: "Wie unterscheidet sich Brain von einem Wiki?",
-        answer2:
-          "Ein Wiki wartet darauf, dass jemand es schreibt, und veraltet dann. Brain erfasst Wissen dort, wo die Arbeit bereits stattfindet, prüft über Reviews, was aufgenommen wird, und belegt Antworten mit Quellen.",
-        question3: "Wie kann ich den Aussagen vertrauen?",
-        answer3:
-          "Auf zwei Arten: Review-Gates bestimmen, was ins Gedächtnis gelangt, und jede Antwort nennt ihre Quelle — aus „Das steht im Wiki“ wird „dieser Slack-Thread, diese Aufzeichnung, dieser Commit“.",
-        question4: "Teilen meine anderen Apps dieses Gedächtnis?",
-        answer4:
-          "Genau darum geht es — Brain ist die Gedächtnisebene, mit der sich andere Agent-Native-Apps verbinden, sodass der gesamte Stack weiß, was eine App lernt.",
-      },
     },
     assets: {
       faq: {
@@ -1974,12 +1952,6 @@ const deDE = {
     clipsAiAndEditing: "KI und Bearbeitung",
     clipsSharingAndTeams: "Teilen und Teams",
     clipsDevelopers: "Entwicklerhandbuch",
-    brain: "Brain",
-    brainOverview: "Überblick",
-    brainSources: "Quellen verbinden",
-    brainKnowledge: "Fragen und Zitate",
-    brainAgent: "Mit dem Agent sprechen",
-    brainDevelopers: "Entwicklerhandbuch",
     assets: "Assets",
     assetsOverview: "Überblick",
     assetsGeneration: "Erstellen und Verfeinern",
