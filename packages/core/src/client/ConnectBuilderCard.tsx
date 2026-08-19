@@ -86,6 +86,9 @@ export function ConnectBuilderCard({
   // arrives. A transient status failure must not replace a valid Send CTA with
   // the hook's initial disconnected defaults.
   const configured = flow.statusResolved ? flow.configured : initialConfigured;
+  const codeChangeConfigured = flow.statusResolved
+    ? flow.codeChangeConfigured
+    : initialConfigured;
   const builderEnabled = flow.statusResolved
     ? flow.builderEnabled
     : initialBuilderEnabled;
@@ -216,7 +219,7 @@ export function ConnectBuilderCard({
   const err = sendErr ?? waitlistErr ?? copyErr ?? flow.error;
 
   const hasPrompt = prompt.trim().length > 0;
-  const canSend = configured && builderEnabled && hasPrompt;
+  const canSend = codeChangeConfigured && builderEnabled && hasPrompt;
   const showDesktopLocalHandoff = electronShell && hasPrompt;
 
   const handleDoLocally = useCallback(
@@ -251,9 +254,10 @@ export function ConnectBuilderCard({
 
   // Title + subtitle depend on which mode we're in. We compute them up front
   // so the render tree below stays flat.
-  const connectedCapabilityText = builderEnabled
-    ? "AI credits and cloud code changes are ready to use."
-    : `AI credits are ready to use. ${CODE_CHANGE_FALLBACK_TEXT}`;
+  const connectedCapabilityText =
+    builderEnabled && codeChangeConfigured
+      ? "AI credits and cloud code changes are ready to use."
+      : `AI credits are ready to use. ${CODE_CHANGE_FALLBACK_TEXT}`;
   let title: string;
   let subtitle: React.ReactNode;
   if (localCodeChangeRequested) {

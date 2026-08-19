@@ -71,6 +71,8 @@ import {
   type CodeAgentRerunResult,
   type CodeAgentRun,
   type CodeAgentRunListResult,
+  type CodeAgentScheduleListResult,
+  type CodeAgentScheduleResult,
   type CodeAgentQueueMetadata,
   type CodeAgentSteeringMetadata,
   type CodeAgentTranscriptEvent,
@@ -154,6 +156,7 @@ import {
   createPortalTransferContext,
   portalTransferContinuationPrompt,
 } from "../../../core/src/cli/portal-transfer.js";
+import { listCodeAgentSchedules } from "../../../core/src/cli/code-agent-schedules.js";
 import {
   createPortalHandoff,
   type PortalHandoff,
@@ -187,6 +190,7 @@ import {
   isCodeAgentRunnerInFlight,
   resolveCodeAgentRunnerInvocation,
 } from "./code-agent-runner.js";
+import { DesktopCodeAgentScheduler } from "./code-agent-scheduler.js";
 import {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
   CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
@@ -3580,7 +3584,23 @@ function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
   const runs = desktopCodeBackgroundAgentController.list({
     goalId,
   }) as BackgroundAgentRun[];
-  return runs.map(backgroundRunToDesktopRun);
+  const scheduledRunIds = new Set(
+    listCodeAgentSchedules()
+      .map((schedule) => schedule.targetRunId)
+      .filter((runId): runId is string => Boolean(runId)),
+  );
+  return runs.map((run) => {
+    const desktopRun = backgroundRunToDesktopRun(run);
+    return scheduledRunIds.has(desktopRun.id)
+      ? {
+          ...desktopRun,
+          metadata: {
+            ...(desktopRun.metadata ?? {}),
+            hasSchedule: true,
+          },
+        }
+      : desktopRun;
+  });
 }
 
 function readDesktopCodeAgentRun(runId: string): CodeAgentRun | null {
@@ -4640,6 +4660,15 @@ const activeCodeAgentProcesses = new Map<
   }
 >();
 const startingCodeAgentRuns = new Set<string>();
+
+const desktopCodeAgentScheduler = new DesktopCodeAgentScheduler({
+  defaultCwd: () => resolveCodeAgentsTerminalCwd({}),
+  isRunActive: (runId) =>
+    activeCodeAgentProcesses.has(runId) || startingCodeAgentRuns.has(runId),
+  startRun: (runId, cwd, permissionMode) => {
+    void spawnCodeAgentRunner(runId, cwd, permissionMode);
+  },
+});
 
 function desktopComputerHelperPath(): string {
   return app.isPackaged
@@ -10259,6 +10288,11 @@ registerCodeAgentsIpc({
   timestampSlug,
   normalizeCodeAgentRunId,
   listDesktopCodeAgentRuns,
+  listCodeAgentSchedules: () => desktopCodeAgentScheduler.list(),
+  createCodeAgentSchedule: (input) => desktopCodeAgentScheduler.create(input),
+  updateCodeAgentSchedule: (input) => desktopCodeAgentScheduler.update(input),
+  deleteCodeAgentSchedule: (input) => desktopCodeAgentScheduler.delete(input),
+  runCodeAgentScheduleNow: (input) => desktopCodeAgentScheduler.runNow(input),
   createCodeAgentRun,
   submitCodeAgentRemoteWaitlist,
   getCodeAgentModelList,
@@ -11771,6 +11805,7 @@ app.whenReady().then(async () => {
     abort: closeDesktopComputerMcpBridge,
   });
   if (!shouldContinueStartup) return;
+  desktopCodeAgentScheduler.start();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
     handleDeepLink(pendingDeepLink);
@@ -12170,6 +12205,7 @@ app.on("before-quit", (event) => {
   if (multiFrontierQuitGuard(event)) return;
   if (!appIsQuitting) {
     appIsQuitting = true;
+    desktopCodeAgentScheduler.stop();
     for (const appId of managedDesktopAppProcesses.keys()) {
       stopManagedDesktopApp(appId);
     }
