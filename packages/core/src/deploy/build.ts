@@ -1149,6 +1149,77 @@ function isTruthyRuntimeValue(value) {
   );
 }
 
+function normalizeExplicitDeploymentEnvironment(value) {
+  const normalized = firstNonEmpty(value)?.toLowerCase();
+  if (!normalized) return;
+  if (
+    normalized !== "local" &&
+    normalized !== "beta" &&
+    normalized !== "production" &&
+    normalized !== "preview"
+  ) {
+    throw new Error(
+      'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+    );
+  }
+  return normalized;
+}
+
+function normalizeFallbackDeploymentEnvironment(value) {
+  const normalized = firstNonEmpty(value)?.toLowerCase();
+  if (normalized === "development" || normalized === "test") return "local";
+  return normalized === "local" ||
+    normalized === "beta" ||
+    normalized === "production" ||
+    normalized === "preview"
+    ? normalized
+    : undefined;
+}
+
+function resolveDeploymentEnvironment() {
+  const env = globalThis.process?.env || {};
+  const explicit = normalizeExplicitDeploymentEnvironment(
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
+  );
+  if (explicit) return explicit;
+
+  const context = firstNonEmpty(
+    typeof env.CONTEXT === "string" ? env.CONTEXT : undefined,
+    typeof env.NETLIFY_CONTEXT === "string" ? env.NETLIFY_CONTEXT : undefined,
+    typeof env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT === "string"
+      ? env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT
+      : undefined,
+  )?.toLowerCase();
+  const branch =
+    typeof env.BRANCH === "string" ? env.BRANCH.trim().toLowerCase() : "";
+  const vercelEnv = String(env.VERCEL_ENV || "").trim().toLowerCase();
+  const sentryEnvironment = firstNonEmpty(env.SENTRY_ENVIRONMENT);
+  if (branch === "beta") return "beta";
+  if (
+    branch === "production" ||
+    (context === "production" && branch !== "beta")
+  ) {
+    return "production";
+  }
+  if (context === "branch-deploy" && branch === "main") return "beta";
+  if (
+    context === "deploy-preview" ||
+    context === "branch-deploy" ||
+    branch.startsWith("deploy-preview") ||
+    vercelEnv === "preview"
+  ) {
+    return "preview";
+  }
+  if (!context && !branch && !vercelEnv && sentryEnvironment) {
+    return normalizeFallbackDeploymentEnvironment(sentryEnvironment) || "production";
+  }
+  return (
+    normalizeFallbackDeploymentEnvironment(firstNonEmpty(context, vercelEnv)) ||
+    normalizeFallbackDeploymentEnvironment(env.NODE_ENV) ||
+    "production"
+  );
+}
+
 function getSentryClientConfigScript() {
   const env = globalThis.process?.env || {};
   const key = firstNonEmpty(env.SENTRY_CLIENT_KEY, env.VITE_SENTRY_CLIENT_KEY);
@@ -1167,16 +1238,15 @@ function getSentryClientConfigScript() {
       env.VITE_SENTRY_DSN,
       env.SENTRY_DSN,
     ) || (key && projectId && host ? "https://" + key + "@" + host + "/" + projectId : undefined);
-  if (!dsn) return null;
+  const deploymentEnvironment = resolveDeploymentEnvironment();
   const config = {
-    sentryDsn: dsn,
-    sentryEnvironment:
-      firstNonEmpty(
-        env.SENTRY_ENVIRONMENT,
-        env.NETLIFY_CONTEXT,
-        env.VERCEL_ENV,
-        env.NODE_ENV,
-      ) || "production",
+    ...(dsn
+      ? {
+          sentryDsn: dsn,
+          sentryEnvironment: deploymentEnvironment,
+        }
+      : {}),
+    deploymentEnvironment,
   };
   return (
     '<script data-agent-native-sentry-config>' +
@@ -4686,7 +4756,11 @@ function createBrowserOnlyServerStubPlugin() {
 
 export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
+  deploymentEnvironment?: string,
 ): Record<string, string> {
+  const configuredDeploymentEnvironment =
+    deploymentEnvironment?.trim() ||
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
   return {
     // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
     // function so preview OAuth relays can target this immutable deployment
@@ -4708,8 +4782,15 @@ export function resolveNitroBuildReplacements(
       env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
     ),
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
-      env.CONTEXT?.trim() || "",
+      env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
     ),
+    ...(configuredDeploymentEnvironment
+      ? {
+          "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(
+            configuredDeploymentEnvironment,
+          ),
+        }
+      : {}),
   };
 }
 
@@ -4813,7 +4894,10 @@ export default bundle;
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
-    replace: resolveNitroBuildReplacements(),
+    replace: resolveNitroBuildReplacements(
+      process.env,
+      nitroAgentConfig.deployment?.environment,
+    ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
     // Excalidraw into a shared vendor chunk imported statically by the SSR render

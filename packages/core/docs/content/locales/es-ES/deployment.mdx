@@ -14,7 +14,7 @@ Hay dos formas recomendadas de empezar:
 - **¿Estás creando una aplicación?** Empieza con [Getting Started](/docs/getting-started) y vuelve aquí cuando quieras ponerla en un lugar permanente.
 - **¿Estás operando una aplicación?** Usa primero la ruta local con Docker. Prueba la misma combinación de Node.js, Postgres, autenticación y variables de entorno que usarás en un servidor pequeño.
 
-La pila local usa intencionadamente un secreto de autenticación de ejemplo y un volumen local de Postgres. Está pensada para `localhost`, no para publicarla en Internet. Consulta la [guía rápida en inglés](https://www.agent-native.com/docs/deployment#self-host-quickstart) para ver el archivo Compose completo y los pasos copiables.
+La pila local usa intencionadamente un secreto de autenticación de ejemplo y un volumen local de Postgres. Está pensada para `localhost`, no para publicarla en Internet. Consulta la [guía rápida en inglés](https://www.agent-native.com/docs/deployment#self-host-quickstart) para ver el archivo Compose completo y los pasos copiables. Esta guía rápida usa el diseño de volumen de PostgreSQL 18. No reutilices un volumen creado por PostgreSQL 17 o una versión anterior. Haz una copia de seguridad y migra los datos existentes antes de cambiar la imagen o la ruta de montaje.
 
 ### 1. Crea la aplicación
 

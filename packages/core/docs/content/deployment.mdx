@@ -26,11 +26,11 @@ pnpm install
 
 The install step creates the lockfile that the production Dockerfile below copies into its build stage.
 
-### 2. Add a local Compose file
+### 2. Add the local Docker files
 
-Create `docker-compose.yml` in the app root. It uses the [Dockerfile](#docker) in the next section and starts Postgres only on the private Compose network:
+Create `Dockerfile`, `.dockerignore`, and `docker-compose.yml` in the app root. `docker compose up --build` needs the Dockerfile, and `.dockerignore` keeps host-only files such as `node_modules` out of the Linux build context. Compose starts Postgres only on the private Compose network.
 
-You can also download the [Dockerfile](https://www.agent-native.com/examples/self-hosted-chat/Dockerfile), [Compose file](https://www.agent-native.com/examples/self-hosted-chat/docker-compose.yml), and [environment template](https://www.agent-native.com/examples/self-hosted-chat/env.example) as a starter fixture.
+You can also download the [Dockerfile](https://www.agent-native.com/examples/self-hosted-chat/Dockerfile), [.dockerignore](https://www.agent-native.com/examples/self-hosted-chat/.dockerignore), [Compose file](https://www.agent-native.com/examples/self-hosted-chat/docker-compose.yml), and [environment template](https://www.agent-native.com/examples/self-hosted-chat/env.example) as a starter fixture. The [Dockerfile](#docker) below matches the fixture.
 
 ```yaml filename="docker-compose.yml" maxLines=40
 services:
@@ -53,7 +53,7 @@ services:
       POSTGRES_USER: agent_native
       POSTGRES_HOST_AUTH_METHOD: trust
     volumes:
-      - postgres-data:/var/lib/postgresql
+      - postgres-data-v18:/var/lib/postgresql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U agent_native -d agent_native"]
       interval: 5s
@@ -61,8 +61,10 @@ services:
       retries: 10
 
 volumes:
-  postgres-data:
+  postgres-data-v18:
 ```
+
+PostgreSQL 18 uses `/var/lib/postgresql` as its volume mount path, unlike PostgreSQL 17 and earlier. The versioned volume name keeps this fresh fixture separate from older local stacks. If you are upgrading an existing PostgreSQL 17 or earlier stack, back up and migrate its data before changing the image or mount path. Do not point this fixture at the old volume without a migration.
 
 ### 3. Run it
 
@@ -320,6 +322,18 @@ ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
+```
+
+Create `.dockerignore` alongside the Dockerfile:
+
+```text filename=".dockerignore"
+node_modules
+.output
+data
+.env
+.env.*
+!.env.example
+.git
 ```
 
 ### Self-hosted workspace with Docker Compose {#workspace-docker-compose}

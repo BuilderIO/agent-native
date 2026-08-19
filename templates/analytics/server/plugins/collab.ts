@@ -10,6 +10,7 @@ export default createCollabPlugin({
   contentColumn: "config",
   idColumn: "id",
   autoSeed: true,
+  resolveCollabDocumentId: (dashboardId) => `dash-${dashboardId}`,
   access: {
     mode: "resource",
     resourceType: "dashboard",

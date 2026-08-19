@@ -239,13 +239,14 @@ production deployment:
 
 ## CI-only variables
 
-| Variable                      | Purpose                                                                                      |
-| ----------------------------- | -------------------------------------------------------------------------------------------- |
-| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane. |
-| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.         |
-| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.    |
-| `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.         |
-| `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                |
+| Variable                      | Purpose                                                                                                                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane.                                                                            |
+| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.                                                                                    |
+| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.                                                                               |
+| `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.                                                                                    |
+| `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                           |
+| `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when the keep-warm audit fails; GitHub issue reporting remains the fallback when it is unset. |
 
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,

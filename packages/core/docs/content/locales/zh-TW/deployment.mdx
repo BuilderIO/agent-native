@@ -14,7 +14,7 @@ Agent-Native 應用程式在底層使用 [Nitro](https://nitro.build)，這意�
 - **正在建立應用程式？** 從 [Getting Started](/docs/getting-started) 開始，準備好將應用程式放到持久環境時再回到這裡。
 - **正在執行應用程式？** 先使用本機 Docker 路徑。它會驗證你在小型伺服器上將使用的 Node.js、Postgres、驗證和環境變數設定。
 
-本機堆疊特意使用範例驗證密鑰和本機 Postgres 卷，只適用於 `localhost`，不適合直接暴露到網際網路。完整的 Compose 檔案和可複製步驟請參閱[英文快速入門](https://www.agent-native.com/docs/deployment#self-host-quickstart)。
+本機堆疊特意使用範例驗證密鑰和本機 Postgres 卷，只適用於 `localhost`，不適合直接暴露到網際網路。完整的 Compose 檔案和可複製步驟請參閱[英文快速入門](https://www.agent-native.com/docs/deployment#self-host-quickstart)。此快速入門使用 PostgreSQL 18 的磁碟區配置。不要重新使用由 PostgreSQL 17 或更早版本建立的磁碟區。變更映像或掛載路徑前，請先備份並遷移現有資料。
 
 ### 1. 建立應用程式
 

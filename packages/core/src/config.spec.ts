@@ -95,11 +95,20 @@ describe("agent-native app config", () => {
   });
 
   it.each([
+    [
+      {
+        AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT: "beta",
+        BRANCH: "beta",
+        CONTEXT: "production",
+      },
+      "beta",
+    ],
     [{ BRANCH: "beta", CONTEXT: "branch-deploy" }, "beta"],
     [{ BRANCH: "main", CONTEXT: "branch-deploy" }, "beta"],
-    [{ BRANCH: "beta", CONTEXT: "production" }, "production"],
+    [{ BRANCH: "beta", CONTEXT: "production" }, "beta"],
     [{ BRANCH: "production", CONTEXT: "production" }, "production"],
     [{ BRANCH: "feature/auth", CONTEXT: "deploy-preview" }, "preview"],
+    [{ BRANCH: "feature/auth", VERCEL_ENV: "preview" }, "preview"],
     [{}, "local"],
   ] as const)(
     "infers deployment environment from hosting facts",
@@ -109,6 +118,17 @@ describe("agent-native app config", () => {
       );
     },
   );
+
+  it("rejects unsupported explicit deployment environments", () => {
+    expect(() =>
+      inferAgentNativeDeploymentEnvironment(
+        { AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT: "staging" },
+        "development",
+      ),
+    ).toThrow(
+      'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+    );
+  });
 
   it("normalizes hosted harness capabilities and runtimes", () => {
     expect(normalizeAgentNativeConfig({ harness: true })).toEqual({
