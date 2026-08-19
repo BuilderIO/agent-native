@@ -1495,24 +1495,15 @@ export default function CodeAgentsApp({
   useEffect(() => {
     const prompt = newChatPromptRequest?.prompt.trim();
     if (!prompt) return;
-    if (
-      handledNewChatPromptNonceRef.current === newChatPromptRequest?.nonce
-    ) {
+    if (handledNewChatPromptNonceRef.current === newChatPromptRequest?.nonce) {
       return;
     }
     handledNewChatPromptNonceRef.current = newChatPromptRequest?.nonce ?? null;
-    onChatFirstMainKindChange?.("code");
-    setSelectedGoalId("task");
-    setSelectedExtensionDetailId(null);
-    selectRun(null);
-    setWorkbenchOpen(false);
-    setSearchPanelOpen(false);
-    setMobilePanelOpen(false);
+    // The host switches back to the chat surface before it delivers this
+    // request. Avoid asking the parent to perform that same transition while
+    // the seeded composer is mounting.
     seedNewPrompt(prompt);
-  }, [
-    newChatPromptRequest?.nonce,
-    newChatPromptRequest?.prompt,
-  ]);
+  }, [newChatPromptRequest?.nonce, newChatPromptRequest?.prompt]);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;
