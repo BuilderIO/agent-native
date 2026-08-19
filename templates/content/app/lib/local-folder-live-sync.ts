@@ -105,7 +105,13 @@ export async function connectTemporaryLocalFolder(
 ) {
   if (!folder.id || folder.kind !== "temporary") return null;
   const existing = readRegistry().find((entry) => entry.folderId === folder.id);
-  if (existing) return existing.sourceId;
+  if (
+    existing?.repositoryId &&
+    existing.repositoryId === folder.repository?.localId
+  ) {
+    return existing.sourceId;
+  }
+  if (existing) forgetLiveLocalFolderSource(folder.id);
   const persistent = readRegistry().find(
     (entry) =>
       entry.databaseId &&

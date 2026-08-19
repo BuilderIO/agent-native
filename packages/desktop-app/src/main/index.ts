@@ -5184,6 +5184,15 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
     browserExtensionPath: () =>
       fs.existsSync(extensionPath) ? extensionPath : undefined,
     openContentWorkingCopy: ({ folder, name }) => {
+      const resolvedFolder = path.resolve(folder);
+      const approvedByActiveRun = [...activeCodeAgentProcesses.values()].some(
+        (process) => path.resolve(process.cwd) === resolvedFolder,
+      );
+      if (!approvedByActiveRun) {
+        throw new Error(
+          "Content can only open the exact working folder of an active local code-agent run.",
+        );
+      }
       const grant = attachTemporaryContentFilesWorkingCopy(folder, name);
       void sendDesktopShortcutActivation({
         app: "content",
@@ -8916,6 +8925,10 @@ function unsubscribeContentFilesChanges(
   else subscriberIds.clear();
   if (subscriberIds.size === 0)
     contentFilesChangeSubscribers.delete(event.sender.id);
+  const stillSubscribed = [...contentFilesChangeSubscribers.values()].some(
+    (ids) => ids.has(grant.id),
+  );
+  if (!stillSubscribed) stopContentFilesWatcher(grant.id);
   return { ok: true, folder: contentFilesFolderInfo(grant) };
 }
 
@@ -9201,8 +9214,10 @@ export function attachTemporaryContentFilesWorkingCopy(
   }
   const store = loadContentFilesStore();
   const grants = { ...(store.grants ?? {}) };
-  const id = contentFilesGrantId(resolved);
-  const existing = grants[id];
+  const existing = Object.values(grants).find(
+    (candidate) => candidate.path === resolved,
+  );
+  const id = existing?.id ?? `folder-${randomUUID()}`;
   if (existing && existing.kind !== "temporary") {
     throw new Error(
       "This folder is already the persistent Content workspace; open a distinct working-copy folder.",
@@ -9629,7 +9644,7 @@ async function waitForContentFileHandlesToClose(filePath: string) {
   // macOS keeps an editor's existing descriptor attached to the inode after
   // the path is claimed. Wait for that descriptor to close before publishing;
   // otherwise a late write to the claimed inode could be discarded as stale.
-  if (process.platform !== "darwin") return true;
+  if (process.platform !== "darwin") return false;
   for (let attempt = 0; attempt < 20; attempt += 1) {
     const handles = spawnSync("lsof", ["-t", "--", filePath], {
       encoding: "utf-8",
@@ -9789,6 +9804,69 @@ async function removeStaleContentMarkdownFiles(
   }
 }
 
+async function assertContentFilesWriteRevisions(
+  root: string,
+  files: Record<string, string>,
+  expectedRevisions: Record<string, string | null>,
+): Promise<void> {
+  for (const filePath of Object.keys(files)) {
+    const { normalized, target } = await resolveContentSourceFilePath(root, {
+      filePath,
+    });
+    const observedRevision = await contentSourceFileRevision(target);
+    const actualRevision =
+      observedRevision === undefined ? null : observedRevision;
+    if (actualRevision !== expectedRevisions[filePath]) {
+      throw new ContentFilesRevisionConflict(
+        normalized,
+        expectedRevisions[filePath],
+        actualRevision ?? undefined,
+      );
+    }
+  }
+
+  const expectedPaths = new Set(Object.keys(files));
+  const inspectStale = async (
+    folder: string,
+    prefix: string,
+  ): Promise<void> => {
+    let entries: fs.Dirent[];
+    try {
+      entries = await fs.promises.readdir(folder, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      if (entry.isSymbolicLink()) continue;
+      const sourcePath = `${prefix}${entry.name}`;
+      const filePath = assertInsideContentFolder(
+        root,
+        path.join(folder, entry.name),
+      );
+      if (entry.isDirectory()) {
+        if (!CONTENT_IGNORED_DIRECTORIES.has(entry.name)) {
+          await inspectStale(filePath, `${sourcePath}/`);
+        }
+      } else if (
+        entry.isFile() &&
+        isContentSourceMarkdownPath(sourcePath) &&
+        !expectedPaths.has(sourcePath)
+      ) {
+        const expectedRevision = expectedRevisions[sourcePath];
+        const actualRevision = await contentSourceFileRevision(filePath);
+        if (!expectedRevision || actualRevision !== expectedRevision) {
+          throw new ContentFilesRevisionConflict(
+            sourcePath,
+            expectedRevision ?? null,
+            actualRevision,
+          );
+        }
+      }
+    }
+  };
+  await inspectStale(root, "");
+}
+
 function normalizeContentFilesWriteRequest(
   request: DesktopContentFilesWriteRequest,
 ): {
@@ -9881,11 +9959,19 @@ async function writeContentFilesForRequest(
 
     const grant = getRequiredContentFilesGrant(request.folderId);
     const expectedPaths = new Set(Object.keys(files));
-    const written: string[] = [];
-    for (const [filePath, content] of Object.entries(files)) {
+    for (const filePath of expectedPaths) {
       if (!(filePath in expectedRevisions)) {
         return { ok: false, error: `Missing revision for "${filePath}".` };
       }
+    }
+    const writeRoot = await contentWriteRoot(grant.path);
+    await assertContentFilesWriteRevisions(
+      writeRoot.folder,
+      files,
+      expectedRevisions,
+    );
+    const written: string[] = [];
+    for (const [filePath, content] of Object.entries(files)) {
       written.push(
         await writeContentSourceFile(
           grant.path,
@@ -9895,7 +9981,6 @@ async function writeContentFilesForRequest(
         ),
       );
     }
-    const writeRoot = await contentWriteRoot(grant.path);
     await removeStaleContentMarkdownFiles(
       writeRoot.folder,
       writeRoot.prefix,

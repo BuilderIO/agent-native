@@ -164,9 +164,18 @@ export default defineAction({
         message: `Sync is limited to ${MAX_SOURCE_FILES} files.`,
       }),
     fileIdentities: z.record(z.string(), z.string().min(1).max(256)).optional(),
+    observedRevisions: z
+      .record(z.string(), z.string().regex(/^[a-f0-9]{64}$/i))
+      .optional(),
     dryRun: z.boolean().optional().default(false),
   }),
-  run: async ({ sourceId, files, fileIdentities = {}, dryRun }) => {
+  run: async ({
+    sourceId,
+    files,
+    fileIdentities = {},
+    observedRevisions,
+    dryRun,
+  }) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("no authenticated user");
     const builderPaths = Object.keys(files).filter(isBuilderMdxSourcePath);
@@ -176,6 +185,15 @@ export default defineAction({
       );
     }
     const entries = normalizedEntries(files);
+    if (observedRevisions) {
+      for (const [filePath, content] of entries) {
+        if (observedRevisions[filePath] !== contentHash(content)) {
+          throw new Error(
+            `Local file revision changed while reading "${filePath}"`,
+          );
+        }
+      }
+    }
     const db = getDb();
     const [target] = await db
       .select({
@@ -319,8 +337,12 @@ export default defineAction({
           : undefined;
         const incomingHash = contentHash(file.content);
         const pathRow = directPathRow ?? identityRow;
+        const explicitId =
+          file.id && localIdentity.workingCopy.kind === "temporary"
+            ? opaqueId("content_local_file", `${sourceId}:${file.id}`)
+            : file.id;
         const id =
-          file.id ??
+          explicitId ??
           pathRow?.documentId ??
           opaqueId("content_local_file", `${sourceId}:${file.path}`);
         const existing = snapshot.documentById.get(id);
