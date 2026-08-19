@@ -109,8 +109,12 @@ const {
   handleGoogleCallback,
 } = await import("./google-auth.js");
 
-function createEvent(query: Record<string, string> = {}) {
-  return { query };
+function createEvent(
+  query: Record<string, string> = {},
+  headers: Record<string, string> = {},
+  method = "GET",
+) {
+  return { query, headers, method };
 }
 
 describe("Calendar Google auth-url handler", () => {
@@ -136,6 +140,7 @@ describe("Calendar Google auth-url handler", () => {
       (_context: unknown, callback: () => unknown) => callback(),
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
+    mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
     mocks.createOAuthSession.mockResolvedValue({
       sessionToken: "owner-session-token",
     });
@@ -179,6 +184,32 @@ describe("Calendar Google auth-url handler", () => {
 
     expect(mocks.encodeOAuthState).toHaveBeenCalledWith(
       expect.objectContaining({ mobile: true }),
+    );
+  });
+
+  it("requires a verifier-bound POST for desktop auth-url bootstraps", async () => {
+    const verifier = "v".repeat(32);
+    const headers = { "x-agent-native-desktop-verifier": verifier };
+
+    await expect(
+      getGoogleAuthUrl(
+        createEvent({ desktop: "1", flow_id: "flow-get" }, headers) as any,
+      ),
+    ).resolves.toEqual({ error: "Invalid desktop exchange challenge." });
+    expect(mocks.registerDesktopExchange).not.toHaveBeenCalled();
+
+    await expect(
+      getGoogleAuthUrl(
+        createEvent(
+          { desktop: "1", flow_id: "flow-post" },
+          headers,
+          "POST",
+        ) as any,
+      ),
+    ).resolves.toEqual({ url: expect.any(String) });
+    expect(mocks.registerDesktopExchange).toHaveBeenCalledWith(
+      "flow-post",
+      verifier,
     );
   });
 

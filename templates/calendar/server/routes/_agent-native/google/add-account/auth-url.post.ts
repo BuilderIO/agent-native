@@ -1,1 +1,1 @@
-export { getGoogleAddAccountUrl as default } from "../../../handlers/google-auth";
+export { getGoogleAddAccountUrl as default } from "../../../../handlers/google-auth";

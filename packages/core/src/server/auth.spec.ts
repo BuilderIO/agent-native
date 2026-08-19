@@ -1248,6 +1248,16 @@ describe("server/auth", () => {
         error: "Invalid desktop exchange challenge.",
       });
       expect(leakedQueryVerifier.res.status).toBe(400);
+
+      const navigatedWithHeader = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        query: { desktop: "1", flow_id: "known-flow" },
+        headers: { "x-agent-native-desktop-verifier": "v".repeat(32) },
+      });
+      await expect(authUrlHandler(navigatedWithHeader)).resolves.toEqual({
+        error: "Invalid desktop exchange challenge.",
+      });
+      expect(navigatedWithHeader.res.status).toBe(400);
     });
 
     it("lets templates own Google OAuth routes when opted out", async () => {
@@ -5025,6 +5035,8 @@ describe("server/auth", () => {
       expect(html).not.toContain("&debug=1");
       expect(html).toContain("params.set('desktop', '1')");
       expect(html).toContain("params.set('flow_id', flowId)");
+      expect(html).toContain("method: 'POST'");
+      expect(html).toContain("'Accept': 'application/json'");
       expect(html).toContain("'X-Agent-Native-Desktop-Verifier': verifier");
       expect(html).not.toContain("params.set('verifier', verifier)");
       expect(html).toContain("params.set('redirect', '1')");
