@@ -252,10 +252,6 @@ export function FactoryHistoryView({
                     version: selectedVersion.version,
                   })}
                 </CardTitle>
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {formatDate(selectedVersion.createdAt)} ·{" "}
-                  {selectedVersion.createdBy}
-                </p>
               </div>
               {isCurrent(selectedVersion) ? (
                 <span className="inline-flex w-fit shrink-0 items-center gap-1.5 rounded-full bg-primary/10 px-2.5 py-1 text-xs font-medium text-primary">
