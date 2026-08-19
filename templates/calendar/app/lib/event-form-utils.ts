@@ -477,8 +477,14 @@ export function buildCustomRecurrenceRules(
   draft: CustomRecurrenceDraft,
 ): string[] {
   const interval = Math.max(1, Math.round(draft.interval));
+  const frequency = {
+    day: "DAILY",
+    week: "WEEKLY",
+    month: "MONTHLY",
+    year: "YEARLY",
+  }[draft.unit];
   const parts = [
-    `FREQ=${draft.unit.toUpperCase()}`,
+    `FREQ=${frequency}`,
     ...(interval > 1 ? [`INTERVAL=${interval}`] : []),
   ];
   if (draft.unit === "week" && draft.days.length > 0) {
