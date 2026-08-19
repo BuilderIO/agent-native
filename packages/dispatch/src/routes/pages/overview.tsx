@@ -18,6 +18,5 @@ export function meta() {
 }
 
 export default function OverviewRoute() {
-  console.log("Dispatch overview loaded");
   return <DispatchControlPlane />;
 }
