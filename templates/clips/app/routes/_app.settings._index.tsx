@@ -106,8 +106,7 @@ export default function SettingsIndexRoute() {
   const builderStatus = useBuilderStatus();
   const connectRequestedRef = useRef(false);
   const builderConnect = useBuilderConnectFlow({
-    popupUrl:
-      builderStatus.status?.cliAuthUrl ?? builderStatus.status?.connectUrl,
+    popupUrl: builderStatus.status?.connectUrl,
     trackingSource: "clips_settings",
     trackingFlow: "clips_setup",
     onConnected: async () => {

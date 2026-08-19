@@ -215,7 +215,7 @@ function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
 
 // ─── BuilderConnectCta ────────────────────────────────────────────────────────
 // Renders a single row with left-aligned copy and a right-aligned action.
-// Click opens the Builder CLI-auth popup via the shared
+// Click opens the Builder OAuth popup via the shared
 // `useBuilderConnectFlow` hook (which owns the synchronous window.open,
 // the 2s status poll, and the focus-refresh). On success the hook broadcasts
 // a config-change event so the chat clears its local `missingApiKey` gate.
@@ -550,8 +550,9 @@ export function RunErrorRecoveryCard({
 
   const handleProviderConnected = useCallback(() => {
     onProviderConnected?.();
+    onRetry();
     onDismiss();
-  }, [onDismiss, onProviderConnected]);
+  }, [onDismiss, onProviderConnected, onRetry]);
 
   const handleMissingProviderConnected = useCallback(() => {
     setProviderConnected(true);

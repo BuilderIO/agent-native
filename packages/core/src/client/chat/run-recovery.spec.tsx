@@ -353,6 +353,7 @@ describe("run recovery surfaces", () => {
 
   it("dismisses the recovery card after saving a provider key", async () => {
     const onDismiss = vi.fn();
+    const onRetry = vi.fn();
 
     await act(async () => {
       root.render(
@@ -368,7 +369,7 @@ describe("run recovery surfaces", () => {
               errorCode: "authentication_error",
             }}
             onContinue={vi.fn()}
-            onRetry={vi.fn()}
+            onRetry={onRetry}
             onDismiss={onDismiss}
           />
         </AgentNativeI18nProvider>,
@@ -414,6 +415,7 @@ describe("run recovery surfaces", () => {
       provider: "anthropic",
       model: expect.any(String),
     });
+    expect(onRetry).toHaveBeenCalledTimes(1);
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });
