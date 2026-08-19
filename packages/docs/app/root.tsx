@@ -162,14 +162,13 @@ export const meta = () => [
 
 function DocsChrome({ children }: { children: React.ReactNode }) {
   return (
-    <>
+    <div className="w-full min-w-0 overflow-x-hidden">
       <ScrollManager />
       <Header />
-      <div className="w-full min-w-0 overflow-x-hidden">
-        {children}
-        <Footer />
-      </div>
-    </>
+      <div aria-hidden="true" className="h-16" />
+      {children}
+      <Footer />
+    </div>
   );
 }
 
