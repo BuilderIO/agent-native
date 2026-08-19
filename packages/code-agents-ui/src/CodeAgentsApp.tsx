@@ -717,6 +717,7 @@ export default function CodeAgentsApp({
   refreshKey = 0,
   brandIconUrl,
   onOpenSettings,
+  newChatPromptRequest,
   mainToolbarSlot,
   railWorkspaceSlot,
   railFooterSlot,

@@ -667,6 +667,10 @@ export default function CodeAgentsHub({
     activeChatFirstSurfaceTab.placement === "main";
   const chatFirstAppSelected = activeChatFirstSurfaceTab?.kind === "app";
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
+  const scheduledChatPromptSequence = useRef(0);
+  const [scheduledChatPromptRequest, setScheduledChatPromptRequest] = useState<
+    { prompt: string; nonce: number } | undefined
+  >();
   const activeChatFirstPrimaryTab = useMemo<
     ChatFirstPrimaryTab | undefined
   >(() => {
@@ -926,6 +930,16 @@ export default function CodeAgentsHub({
     chatFirstSurfaceTabsStore.closeAll();
     setChatFirstSurfacePanelOpen(false);
   }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
+  const openScheduledChatWithPrompt = useCallback(
+    (prompt: string) => {
+      returnToChatFirstChats();
+      setScheduledChatPromptRequest({
+        prompt,
+        nonce: ++scheduledChatPromptSequence.current,
+      });
+    },
+    [returnToChatFirstChats],
+  );
   const chatFirstNavigation = useMemo(
     () => ({
       activeTab: activeChatFirstPrimaryTab,
@@ -2459,6 +2473,7 @@ export default function CodeAgentsHub({
           refreshKey={refreshKey}
           brandIconUrl={agentNativeIconUrl}
           onOpenSettings={onOpenSettings}
+          newChatPromptRequest={scheduledChatPromptRequest}
           mainToolbarSlot={
             hasChatFirstActiveChat && !chatFirstAppTakesMain ? (
               <ChatFirstSurfacePanelToggle
@@ -2477,7 +2492,10 @@ export default function CodeAgentsHub({
           }
           renderChatFirstMainSurface={
             scheduledTasksOpen ? (
-              <CodeAgentSchedulesPanel host={host} />
+              <CodeAgentSchedulesPanel
+                host={host}
+                onCreateWithAgent={openScheduledChatWithPrompt}
+              />
             ) : chatFirstAllAppsOpen ? (
               <DesktopAppsGrid
                 apps={listApps}
