@@ -154,6 +154,13 @@ export function isDesktopIdentityAuthenticated(
   return status === "signed-in";
 }
 
+export function resolveDesktopIdentityStatusForChat(
+  status: DesktopIdentityStatus | "checking",
+  sessionReady: boolean,
+): DesktopIdentityStatus | "checking" {
+  return status === "signed-in" && !sessionReady ? "checking" : status;
+}
+
 export function resolveDesktopIdentityLazySyncStatus(
   status: DesktopIdentityStatus,
   synchronized: boolean,
@@ -499,8 +506,13 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     }, [onDesktopIdentityStatusChange]);
 
     useEffect(() => {
-      onDesktopIdentityStatusChangeRef.current?.(desktopIdentityStatus);
-    }, [desktopIdentityStatus]);
+      onDesktopIdentityStatusChangeRef.current?.(
+        resolveDesktopIdentityStatusForChat(
+          desktopIdentityStatus,
+          desktopIdentitySessionReady,
+        ),
+      );
+    }, [desktopIdentitySessionReady, desktopIdentityStatus]);
 
     useEffect(() => {
       const identity = window.electronAPI?.identity;

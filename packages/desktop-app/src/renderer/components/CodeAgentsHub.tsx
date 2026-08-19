@@ -634,6 +634,18 @@ export default function CodeAgentsHub({
     },
     [],
   );
+  useEffect(() => {
+    const openTabIds = new Set(chatFirstSurfaceTabs.tabs.map((tab) => tab.id));
+    setDesktopIdentityStatusByTab((current) => {
+      const staleTabIds = Object.keys(current).filter(
+        (tabId) => !openTabIds.has(tabId),
+      );
+      if (staleTabIds.length === 0) return current;
+      const next = { ...current };
+      for (const tabId of staleTabIds) delete next[tabId];
+      return next;
+    });
+  }, [chatFirstSurfaceTabs.tabs]);
   const localAppIds = useMemo(() => new Set(apps.map((app) => app.id)), [apps]);
   const workspaceAppIds = useMemo(
     () =>

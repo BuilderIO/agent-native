@@ -640,4 +640,15 @@ describe("CodeAgentsHub desktop identity status", () => {
     expect(source).toContain("handleDesktopIdentityStatusChange,");
     expect(source).toContain("handleDesktopIdentityStatusChange(tab.id");
   });
+
+  it("drops identity state for tabs that are no longer open", () => {
+    const source = readFileSync(
+      "src/renderer/components/CodeAgentsHub.tsx",
+      "utf8",
+    );
+
+    expect(source).toContain("const openTabIds = new Set");
+    expect(source).toContain("staleTabIds");
+    expect(source).toContain("delete next[tabId]");
+  });
 });
