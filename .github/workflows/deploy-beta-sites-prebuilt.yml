@@ -77,7 +77,7 @@ jobs:
           const sites = JSON.parse(
             fs.readFileSync('scripts/netlify-beta-sites.json', 'utf8'),
           );
-          const matrix = sites.map(({ id }) => ({ site: id }));
+          const matrix = { include: sites.map(({ id }) => ({ site: id })) };
           fs.appendFileSync(
             process.env.GITHUB_OUTPUT,
             `matrix=${JSON.stringify(matrix)}\n`,
