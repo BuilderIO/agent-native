@@ -23,6 +23,16 @@ export interface DispatchAutomationItem {
   lastError?: string;
   nextRun?: string;
   createdBy?: string;
+  body?: string;
+  model?: string;
+  mcpTools?: string[];
+  runAs?: "creator" | "shared";
+  executionHostId?: string;
+  executionEngine?: string;
+  executionCwd?: string;
+  deliveryPlatform?: string;
+  deliveryDestination?: string;
+  deliveryThreadRef?: string;
 }
 
 export interface SetDispatchAutomationEnabledInput {

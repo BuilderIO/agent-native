@@ -67,6 +67,11 @@ describe("automations route helpers", () => {
 schedule: "0 9 * * 1-5"
 timezone: UTC
 enabled: true
+model: claude-sonnet-4-5
+mcpTools: ["mcp__calendar__list_events"]
+runAs: creator
+deliveryPlatform: email
+deliveryDestination: steve@example.com
 lastRun: 2026-06-18T15:00:00.000Z
 lastStatus: error
 lastError: "Calendar token expired"
@@ -121,6 +126,11 @@ Hidden legacy organization job.`,
       lastError: "Calendar token expired",
       lastRun: "2026-06-18T15:00:00.000Z",
       scheduleDescription: "Every weekday at 9 AM (UTC)",
+      model: "claude-sonnet-4-5",
+      mcpTools: ["mcp__calendar__list_events"],
+      runAs: "creator",
+      deliveryPlatform: "email",
+      deliveryDestination: "steve@example.com",
       canUpdate: true,
     });
     expect(result[0].nextRun).toBeTruthy();

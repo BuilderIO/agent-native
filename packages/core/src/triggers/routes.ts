@@ -57,6 +57,15 @@ export interface AutomationRouteItem {
   nextRun?: string;
   createdBy?: string;
   body: string;
+  model?: string;
+  mcpTools: string[];
+  runAs?: JobFrontmatter["runAs"];
+  executionHostId?: string;
+  executionEngine?: string;
+  executionCwd?: string;
+  deliveryPlatform?: string;
+  deliveryDestination?: string;
+  deliveryThreadRef?: string;
 }
 
 interface SetAutomationEnabledInput {
@@ -229,6 +238,15 @@ async function resourceToAutomationItem(
     nextRun: nextRunForMeta(meta),
     createdBy: meta.createdBy,
     body: parsed.body,
+    model: meta.model,
+    mcpTools: meta.mcpTools ?? [],
+    runAs: meta.runAs,
+    executionHostId: meta.executionHostId,
+    executionEngine: meta.executionEngine,
+    executionCwd: meta.executionCwd,
+    deliveryPlatform: meta.deliveryPlatform,
+    deliveryDestination: meta.deliveryDestination,
+    deliveryThreadRef: meta.deliveryThreadRef,
   };
 }
 
