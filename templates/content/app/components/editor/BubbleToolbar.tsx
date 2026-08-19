@@ -89,15 +89,16 @@ export function getSelectionNotionSpanAttribute(
   attribute: ColorAttribute,
 ): string | null | "mixed" {
   const { from, to } = editor.state.selection;
+  const markType = editor.state.schema.marks.notionSpan;
+  if (!markType) return null;
+
   let observed: string | null = null;
   let hasObserved = false;
   let mixed = false;
 
-  editor.state.doc.nodesBetween(from, to, (node) => {
-    if (!node.isText) return;
-    const mark = node.marks.find(
-      (candidate) => candidate.type.name === "notionSpan",
-    );
+  editor.state.doc.nodesBetween(from, to, (node, _position, parent) => {
+    if (!node.isText || !parent?.type.allowsMarkType(markType)) return;
+    const mark = node.marks.find((candidate) => candidate.type === markType);
     const value = (mark?.attrs[attribute] as string | null | undefined) ?? null;
     if (!hasObserved) {
       observed = value;

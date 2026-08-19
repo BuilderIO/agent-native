@@ -547,6 +547,23 @@ describe("BubbleToolbar", () => {
     ).toBe("false");
   });
 
+  it("ignores unmarkable code-block text when resolving the active color", () => {
+    editorElement = document.createElement("div");
+    document.body.append(editorElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, NotionSpanMark],
+      content:
+        '<p><span color="red">Red</span></p><pre><code>Code</code></pre>',
+    });
+    editor.commands.setTextSelection({
+      from: 1,
+      to: editor.state.doc.content.size,
+    });
+
+    expect(getSelectionNotionSpanAttribute(editor, "color")).toBe("red");
+  });
+
   it("hides the color control when a selection contains no text", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");
