@@ -99,7 +99,9 @@ has not since been fixed or otherwise dispositioned, oldest question first.
   in the channel: someone answered and is waiting on a fix.
 - **No reply yet** - leave it pending and record it in the recap with the date
   the question was asked, so an unanswered question stays visible instead of
-  ageing out of the cursor.
+  ageing out of the cursor. Include the parent timestamp, clarification reply
+  timestamp, last recheck timestamp, next recheck timestamp, and any aging-audit
+  state in the durable ledger described below.
 - **The reply does not supply what was asked** - ask the one remaining question
   only if it is still the blocker; otherwise fix from what is now available.
 
@@ -124,20 +126,44 @@ another interval. Each recheck must re-read the complete thread, look for a new
 reporter answer, and re-enter triage immediately if one arrived. Do not post a
 duplicate reminder just because the scheduled check ran.
 
-If there is still no reporter answer after one workday, make one bounded source
-investigation before leaving the item pending. Treat this as 24 elapsed hours
-on weekdays; do not age the item through Saturday or Sunday, and resume the
-threshold on the next weekday. Inspect the parent evidence, linked artifacts,
-the likely owning code path, existing regressions, recent fixes, and available
-runtime or deployment evidence. An educated guess is useful only when the
-evidence points to a narrow repo-owned culprit and the fix can be tested at the
-owning boundary. In that case, fix it, add focused coverage, run verification,
-and use `/ship` when publishing is authorized. Do not invent a global rule,
-patch every plausible call site, or call **Fixed** from a hunch. If the audit
-cannot establish a likely culprit, keep one precise **Clarification needed**
-question open and record why the source evidence was insufficient.
+### Durable tracking and discovery
 
-Weekend aging changes the threshold, not the reply obligation: every scheduled
+The Slack thread is the source of truth for the question and reporter answer;
+the current Codex task history is the durable run ledger for the workflow state.
+At every run, load and update one row per pending clarification with:
+`parent_ts`, `clarification_ts`, `last_recheck_at`, `next_recheck_at`,
+`reporter_reply_ts` (or `null`), `aging_audit_at` (or `null`), and
+`aging_outcome` (`not-due`, `candidate-fixed`, `clarification-remains`,
+`external`, or `ambiguous`). Discover pending work by searching for all
+Steve-authored **Clarification needed** replies on eye-marked parents, not only
+by looking for newly changed channel messages. The scheduled heartbeat reads
+this prior ledger before scanning and appends the updated ledger to its recap.
+If no recurring automation is available, say that the follow-up is manual and
+do not claim that scheduled coverage exists.
+
+If there is still no reporter answer after the aging threshold, make one bounded
+source investigation before leaving the item pending. The threshold is exactly
+24 weekday wall-clock hours in the task timezone - here, America/Los_Angeles -
+counting elapsed hours on local Monday through Friday and pausing during local
+Saturday and Sunday. For example, Wednesday at 10:00 reaches the threshold
+Thursday at 10:00, while Friday at 10:00 reaches it Monday at 10:00. Record
+`aging_audit_at` and the `aging_outcome` after that one audit. On later scheduled
+rechecks, skip the aging path when that field is set unless a reporter reply or
+new code, deployment, or runtime evidence changes the case; still re-read the
+thread every time.
+
+Inspect the parent evidence, linked artifacts, the likely owning code path,
+existing regressions, recent fixes, and available runtime or deployment
+evidence. An educated guess is useful only when the evidence points to a narrow
+repo-owned culprit and the fix can be tested at the owning boundary. In that
+case, fix it, add focused coverage, run verification, and use `/ship` when
+publishing is authorized. Do not invent a global rule, patch every plausible
+call site, or call **Fixed** from a hunch. If the audit cannot establish a
+likely culprit, keep one precise **Clarification needed** question open, set
+`aging_outcome` to `clarification-remains`, and record why the source evidence
+was insufficient.
+
+Weekend aging pauses the threshold, not the reply obligation: every scheduled
 recheck still reads for a reporter response, and an answer at any time always
 preempts the aging path and gets the full answered-clarification treatment.
 

@@ -73,7 +73,9 @@ const PATTERNS = [
     key: "unanswered-feedback-followup",
     label: "Had to ask whether unanswered feedback was rechecked",
     fixedBy: ".agents/skills/review-latest-feedback (2026-08-19)",
-    re: /\b(no one has replied|check (back|again) (for|whether).*(repl(?:y|ies)|follow[ -]?up|clarification)|revisit (every )?clarification|follow[ -]?up pass|answered clarification|eyes?-only|did(?:n['’]t| not) check back)\b/i,
+    // Keep this correction-specific: an ordinary request to run a feedback
+    // sweep is not friction unless it says the prior follow-up was missed.
+    re: /\b(?:(?:did|have)\s+(?:you|we)\s+(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage)[^.!?]{0,80}\b(?:clarification|follow[ -]?up|reporter|repl(?:y|ies|ied)|thread)|(?:can you|please|make sure|be sure)\b[^.!?]{0,80}\b(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage|disposition|clarification|repl(?:y|ies|ied))|(?:re-?triage|disposition)[^.!?]{0,80}\b(?:make sure|happens|actually)|(?:no one|nobody|still no)\b[^.!?]{0,40}\b(?:has )?(?:repl(?:y|ies|ied)|responded?)|(?:do not|don['’]t)\b[^.!?]{0,50}\b(?:leave|finish|end)[^.!?]{0,40}\b(?:eyes?-only|eye-marked)|(?:i|we)\s+don['’]t\s+see[^.!?]{0,60}\b(?:eye|eyes|emoji))\b/i,
   },
   {
     key: "collision",
