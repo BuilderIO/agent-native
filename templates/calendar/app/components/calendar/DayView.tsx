@@ -981,7 +981,7 @@ export const DayView = memo(function DayView({
         {/* Positioned events overlay */}
         <div
           data-calendar-create-surface="true"
-          className="absolute left-0 top-0 ml-[40px] mr-2 sm:ml-[56px] sm:mr-4"
+          className="absolute left-0 right-0 top-0 ml-[40px] mr-2 sm:ml-[56px] sm:mr-4"
           style={{ height: `${hours.length * HOUR_HEIGHT}px` }}
           onPointerDown={(e) => {
             // Only start a create-drag from empty space, not on an event or its resize handles

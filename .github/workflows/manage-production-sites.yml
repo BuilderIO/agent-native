@@ -266,8 +266,14 @@ jobs:
                 `[${name}] production deploy history`,
               );
               const previous = deploys
-                .filter((deploy) => deploy.context === 'production' && deploy.state === 'ready' && deploy.id !== currentId)
-                .sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')))[0];
+                .filter(
+                  (deploy) =>
+                    deploy.context === 'production' &&
+                    deploy.state === 'ready' &&
+                    deploy.id !== currentId &&
+                    deploy.published_at,
+                )
+                .sort((left, right) => String(right.published_at).localeCompare(String(left.published_at)))[0];
               if (!previous) throw new Error(`[${name}] has no prior ready production deploy to restore.`);
 
               await readJson(
