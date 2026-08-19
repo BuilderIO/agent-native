@@ -12,7 +12,9 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useT } from "../i18n.js";
+import { ScheduledTriggerNotice } from "./ScheduledTriggerNotice.js";
 import { TimezoneSelect, browserTimezone } from "./TimezoneSelect.js";
+import type { ScheduledTriggerStatus } from "./use-jobs.js";
 
 const PRESETS: { label: string; cron: string }[] = [
   { label: "Every hour", cron: "0 * * * *" },
@@ -34,6 +36,11 @@ export interface AutomationScheduleDialogProps {
   timezone: string | null;
   saving: boolean;
   error?: string | null;
+  /**
+   * Passed in rather than queried here so this dialog stays presentational, the
+   * way the rest of its props already are. Undefined renders nothing.
+   */
+  scheduledTriggerStatus?: ScheduledTriggerStatus;
   onCancel: () => void;
   onSave: (next: { schedule: string; timezone: string }) => void;
 }
@@ -45,6 +52,7 @@ export function AutomationScheduleDialog({
   timezone,
   saving,
   error,
+  scheduledTriggerStatus,
   onCancel,
   onSave,
 }: AutomationScheduleDialogProps) {
@@ -87,6 +95,10 @@ export function AutomationScheduleDialog({
         </DialogHeader>
 
         <div className="space-y-3">
+          <ScheduledTriggerNotice
+            status={scheduledTriggerStatus}
+            variant="inline"
+          />
           <div>
             <label
               className="text-xs font-medium text-foreground"

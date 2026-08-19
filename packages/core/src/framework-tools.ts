@@ -247,6 +247,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "manage-recurring-job": "automation",
   "run-automation-now": "automation",
   "list-automation-runs": "automation",
+  "get-scheduled-trigger-status": "automation",
   "list-automations": "automation",
   "manage-automation": "automation",
   "get-usage-alerts": "automation",

@@ -12,6 +12,7 @@ const jobMocks = vi.hoisted(() => ({
   useManageAutomation: vi.fn(),
   useManageRecurringJob: vi.fn(),
   useRecurringJobs: vi.fn(),
+  useScheduledTriggerStatus: vi.fn(),
 }));
 
 vi.mock("./use-jobs.js", () => ({
@@ -21,6 +22,7 @@ vi.mock("./use-jobs.js", () => ({
   useManageRecurringJob: jobMocks.useManageRecurringJob,
   useRecurringJobs: jobMocks.useRecurringJobs,
   useRunAutomationNow: jobMocks.useRunAutomationNow,
+  useScheduledTriggerStatus: jobMocks.useScheduledTriggerStatus,
 }));
 
 vi.mock("../AgentAskPopover.js", () => ({
@@ -107,6 +109,9 @@ describe("AgentJobsTab blocked automation", () => {
       isPending: false,
       mutate: vi.fn(),
     });
+    jobMocks.useScheduledTriggerStatus.mockReturnValue(
+      queryResult({ available: true, driver: "netlify-scheduled-function" }),
+    );
   });
 
   afterEach(() => {

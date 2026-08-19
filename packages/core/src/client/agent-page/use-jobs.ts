@@ -1,5 +1,6 @@
 import { useQueryClient } from "@tanstack/react-query";
 
+import type { ScheduledTriggerStatus } from "../../jobs/actions/get-scheduled-trigger-status.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
 
 export type JobsScope = "user" | "org";
@@ -93,6 +94,22 @@ function recurringParams(scope: JobsScope) {
 
 function automationParams(scope: JobsScope) {
   return { scope: scope === "org" ? "organization" : "personal" } as const;
+}
+
+// Re-exported from the action rather than restated here so the two cannot
+// drift; `import type` is erased, so no server code reaches the client bundle.
+export type { ScheduledTriggerStatus };
+
+/**
+ * Deploy-scoped and fixed for the life of the process, so it is cached far
+ * longer than the automation lists.
+ */
+export function useScheduledTriggerStatus() {
+  return useActionQuery<ScheduledTriggerStatus>(
+    "get-scheduled-trigger-status",
+    {},
+    { staleTime: 5 * 60_000 },
+  );
 }
 
 export function useRecurringJobs(scope: JobsScope) {

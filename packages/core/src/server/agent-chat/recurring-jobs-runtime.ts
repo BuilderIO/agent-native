@@ -59,23 +59,34 @@ function isLoopbackAppUrl(value: string | undefined): boolean {
   return false;
 }
 
-export function shouldDisableRecurringJobsRuntime(
-  env: RecurringJobsRuntimeEnv = process.env,
+/**
+ * A serverless isolate is not a durable scheduler. Shared so
+ * `shouldDisableRecurringJobsRuntime` and `scheduledTriggerAvailability` cannot
+ * drift on what counts as serverless.
+ */
+function isServerlessRecurringJobsRuntime(
+  env: RecurringJobsRuntimeEnv,
 ): boolean {
-  if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) return true;
-
-  // A serverless isolate is not a durable scheduler. Keep this check separate
-  // from the platform-specific scheduler branch below so a new sweep cannot
-  // accidentally start an in-process timer before its platform trigger exists.
-  const isServerlessRuntime =
+  return (
     env.NETLIFY_LOCAL !== "true" &&
     (isTruthyEnv(env.NETLIFY) ||
       env.NITRO_PRESET === "netlify" ||
       Boolean(env.AWS_LAMBDA_FUNCTION_NAME) ||
       env.AWS_EXECUTION_ENV?.startsWith("AWS_Lambda") === true ||
       isTruthyEnv(env.CF_PAGES) ||
-      isTruthyEnv(env.VERCEL));
-  if (isServerlessRuntime) return true;
+      isTruthyEnv(env.VERCEL))
+  );
+}
+
+export function shouldDisableRecurringJobsRuntime(
+  env: RecurringJobsRuntimeEnv = process.env,
+): boolean {
+  if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) return true;
+
+  // Keep this check separate from the platform-specific scheduler branch below
+  // so a new sweep cannot accidentally start an in-process timer before its
+  // platform trigger exists.
+  if (isServerlessRecurringJobsRuntime(env)) return true;
 
   const isLocalRuntime =
     env.NODE_ENV === "development" ||
@@ -111,4 +122,53 @@ export function isNetlifyRecurringJobsRuntime(
   if (env.NETLIFY_LOCAL === "true") return false;
   if (env.NETLIFY === "false") return false;
   return Boolean((env.NETLIFY && env.NETLIFY !== "false") || env.SITE_ID);
+}
+
+export type ScheduledTriggerAvailability =
+  | { available: true; driver: "netlify-scheduled-function" | "in-process" }
+  | {
+      available: false;
+      reason: "disabled-by-env" | "no-platform-scheduler" | "local-development";
+    };
+
+/**
+ * Whether ANY driver will actually fire a schedule-triggered automation in this
+ * deploy. Distinct from `shouldDisableRecurringJobsRuntime`, which answers the
+ * narrower "should THIS process run an in-process timer" and is therefore `true`
+ * on hosted Netlify even though schedules do fire there via the emitted
+ * scheduled function — reporting that value to a user would call the one
+ * working production runtime broken.
+ *
+ * CAVEAT — this reads the RUNTIME env, so it can only see
+ * `AGENT_NATIVE_DISABLE_RECURRING_JOBS` if the deploy pipeline propagated the
+ * same value it used at build time into the deployed runtime env. Builder's
+ * hosting pipeline does (`applyHostedProdEnvDefaults` layers the identical
+ * default into the Netlify site env). A pipeline that sets it only for the build
+ * makes this report optimistically — available when nothing will fire — so
+ * propagating both scopes is a requirement of this signal, not redundancy.
+ */
+export function scheduledTriggerAvailability(
+  env: RecurringJobsRuntimeEnv = process.env,
+): ScheduledTriggerAvailability {
+  // The build kill switch removes the emitted scheduled function AND keeps the
+  // in-process timer off, so no driver of any kind survives it.
+  if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) {
+    return { available: false, reason: "disabled-by-env" };
+  }
+
+  if (isNetlifyRecurringJobsRuntime(env)) {
+    return { available: true, driver: "netlify-scheduled-function" };
+  }
+
+  // Every other serverless host: the build emits a scheduled trigger only for
+  // Netlify, and a frozen isolate cannot hold a timer.
+  if (isServerlessRecurringJobsRuntime(env)) {
+    return { available: false, reason: "no-platform-scheduler" };
+  }
+
+  // Long-lived host. Whatever is left of the runtime gate here is the
+  // local/loopback branch, which needs AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS.
+  return shouldDisableRecurringJobsRuntime(env)
+    ? { available: false, reason: "local-development" }
+    : { available: true, driver: "in-process" };
 }

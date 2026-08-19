@@ -14,6 +14,7 @@ const jobMocks = vi.hoisted(() => ({
   useManageAutomation: vi.fn(),
   useManageRecurringJob: vi.fn(),
   useRecurringJobs: vi.fn(),
+  useScheduledTriggerStatus: vi.fn(),
 }));
 
 vi.mock("./use-jobs.js", () => ({
@@ -22,6 +23,7 @@ vi.mock("./use-jobs.js", () => ({
   useManageRecurringJob: jobMocks.useManageRecurringJob,
   useRecurringJobs: jobMocks.useRecurringJobs,
   useRunAutomationNow: jobMocks.useRunAutomationNow,
+  useScheduledTriggerStatus: jobMocks.useScheduledTriggerStatus,
 }));
 
 vi.mock("../AgentAskPopover.js", () => ({
@@ -146,6 +148,9 @@ describe("AgentJobsTab organization automations", () => {
     jobMocks.useManageAutomation.mockImplementation((scope: "user" | "org") =>
       mutationResult(jobMocks.manageAutomation[scope]),
     );
+    jobMocks.useScheduledTriggerStatus.mockReturnValue(
+      queryResult({ available: true, driver: "netlify-scheduled-function" }),
+    );
   });
 
   afterEach(() => {
@@ -168,6 +173,73 @@ describe("AgentJobsTab organization automations", () => {
       "Scheduled and event-triggered automations shared with this organization.",
     );
     expect(container.textContent).not.toContain("personal today");
+  });
+
+  it("stays quiet about the scheduler when schedules actually fire", () => {
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="scheduled-trigger-notice"]'),
+    ).toBeNull();
+  });
+
+  it("warns that schedules never fire when the build disabled recurring jobs", () => {
+    jobMocks.useScheduledTriggerStatus.mockReturnValue(
+      queryResult({ available: false, reason: "disabled-by-env" }),
+    );
+
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    const notice = container.querySelector(
+      '[data-testid="scheduled-trigger-notice"]',
+    );
+    expect(notice).not.toBeNull();
+    expect(notice?.getAttribute("data-reason")).toBe("disabled-by-env");
+    expect(notice?.textContent).toContain("Schedules won't run in this deploy");
+    expect(notice?.textContent).toContain(
+      "AGENT_NATIVE_DISABLE_RECURRING_JOBS",
+    );
+  });
+
+  it("names the local opt-in flag instead of blaming the deploy on a dev machine", () => {
+    jobMocks.useScheduledTriggerStatus.mockReturnValue(
+      queryResult({ available: false, reason: "local-development" }),
+    );
+
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    const notice = container.querySelector(
+      '[data-testid="scheduled-trigger-notice"]',
+    );
+    expect(notice?.textContent).toContain(
+      "Schedules don't run in local development",
+    );
+    expect(notice?.textContent).toContain(
+      "AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS",
+    );
+  });
+
+  // A pending status must not accuse a working deploy of being broken.
+  it("shows no warning while the scheduler status is still loading", () => {
+    jobMocks.useScheduledTriggerStatus.mockReturnValue({
+      data: undefined,
+      error: null,
+      isLoading: true,
+    });
+
+    act(() => {
+      root.render(<AgentJobsTab canManageOrg />);
+    });
+
+    expect(
+      container.querySelector('[data-testid="scheduled-trigger-notice"]'),
+    ).toBeNull();
   });
 
   it("routes organization event updates through the organization mutation", () => {

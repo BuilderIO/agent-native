@@ -37,6 +37,7 @@ import {
   type AutomationDetailsField,
 } from "./AutomationDetailsDialog.js";
 import { AutomationScheduleDialog } from "./AutomationScheduleDialog.js";
+import { ScheduledTriggerNotice } from "./ScheduledTriggerNotice.js";
 import type { AgentPageTabProps } from "./types.js";
 import {
   useAutomations,
@@ -44,6 +45,7 @@ import {
   useManageRecurringJob,
   useRunAutomationNow,
   useRecurringJobs,
+  useScheduledTriggerStatus,
   type Automation,
   type RecurringJob,
 } from "./use-jobs.js";
@@ -96,6 +98,7 @@ function detailsFields(
   entry: ListedAutomation,
   t: Translate,
   formatDateTime: (value: string | null) => string | null,
+  scheduleFires: boolean,
 ): AutomationDetailsField[] {
   const resource = entry.resource;
   const unset = t("jobs.notSet", { defaultValue: "—" });
@@ -132,7 +135,15 @@ function detailsFields(
   fields.push(
     {
       label: t("jobs.nextRun", { defaultValue: "Next run" }),
-      value: formatDateTime(resource.nextRun) ?? unset,
+      // `nextRun` is computed from the cron expression, not from anything that
+      // promises to run it, so on a deploy with no scheduler it reads as a
+      // confident lie. Say what will actually happen instead of a date.
+      value:
+        entry.triggerType === "schedule" && !scheduleFires
+          ? t("jobs.nextRunNeverScheduler", {
+              defaultValue: "Never — no scheduler in this deploy",
+            })
+          : (formatDateTime(resource.nextRun) ?? unset),
     },
     {
       label: t("jobs.lastRun", { defaultValue: "Last run" }),
@@ -185,6 +196,11 @@ export function AgentJobsTab({
   const personalAutomationsQuery = useAutomations("user");
   const organizationJobsQuery = useRecurringJobs("org");
   const organizationAutomationsQuery = useAutomations("org");
+  const scheduledTriggerQuery = useScheduledTriggerStatus();
+  // Treat an unresolved status as working. This gates a warning, and claiming
+  // schedules are broken while the check is still in flight would be worse than
+  // showing it a beat late.
+  const scheduleFires = scheduledTriggerQuery.data?.available !== false;
   const personalJobsMutation = useManageRecurringJob("user");
   const personalAutomationsMutation = useManageAutomation("user");
   const organizationJobsMutation = useManageRecurringJob("org");
@@ -660,6 +676,7 @@ export function AgentJobsTab({
       }
     >
       <div className="space-y-7">
+        <ScheduledTriggerNotice status={scheduledTriggerQuery.data} />
         {hideHeader ? (
           <div className="flex justify-end">
             <AgentAskPopover
@@ -836,7 +853,12 @@ export function AgentJobsTab({
             detailsTarget.resource.scope === "organization" ? "org" : "user"
           }
           triggerSummary={describeTrigger(detailsTarget, t)}
-          fields={detailsFields(detailsTarget, t, formatDateTime)}
+          fields={detailsFields(
+            detailsTarget,
+            t,
+            formatDateTime,
+            scheduleFires,
+          )}
           condition={
             detailsTarget.kind === "automation"
               ? detailsTarget.resource.condition
@@ -864,6 +886,7 @@ export function AgentJobsTab({
           timezone={scheduleTarget.resource.timezone ?? null}
           saving={mutationPending}
           error={mutationError ? mutationError.message : null}
+          scheduledTriggerStatus={scheduledTriggerQuery.data}
           onCancel={() => setScheduleTarget(null)}
           onSave={(next) =>
             mutateEntry(scheduleTarget, "update", next, () =>

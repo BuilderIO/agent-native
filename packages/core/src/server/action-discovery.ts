@@ -711,6 +711,10 @@ export async function mergeCoreSharingActions(
       () => import("../jobs/actions/list-automation-runs.js"),
     ],
     [
+      "get-scheduled-trigger-status",
+      () => import("../jobs/actions/get-scheduled-trigger-status.js"),
+    ],
+    [
       "list-automations",
       () => import("../triggers/actions/list-automations.js"),
     ],

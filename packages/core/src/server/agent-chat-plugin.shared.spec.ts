@@ -7,6 +7,7 @@ import {
   finalizeClaimedAgentChatProcessRunFailure,
   handleSharedThreadRequest,
   isNetlifyRecurringJobsRuntime,
+  scheduledTriggerAvailability,
   shouldDisableRecurringJobsRuntime,
 } from "./agent-chat-plugin.js";
 
@@ -191,6 +192,77 @@ describe("recurring jobs runtime startup", () => {
         AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS: "1",
       }),
     ).toBe(true);
+  });
+});
+
+describe("scheduled trigger availability", () => {
+  // The whole reason this is not `!shouldDisableRecurringJobsRuntime`: that
+  // predicate is true on hosted Netlify, where schedules DO fire via the
+  // emitted scheduled function. Reusing it would report the one working
+  // production runtime as broken.
+  it("reports hosted Netlify as working despite the in-process timer being off", () => {
+    expect(
+      shouldDisableRecurringJobsRuntime({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        SITE_ID: "site-1",
+      }),
+    ).toBe(true);
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        SITE_ID: "site-1",
+      }),
+    ).toEqual({ available: true, driver: "netlify-scheduled-function" });
+  });
+
+  it("reports the build kill switch as unavailable even on Netlify", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        NETLIFY: "true",
+        SITE_ID: "site-1",
+        AGENT_NATIVE_DISABLE_RECURRING_JOBS: "true",
+      }),
+    ).toEqual({ available: false, reason: "disabled-by-env" });
+  });
+
+  it("reports serverless hosts with no emitted trigger as unavailable", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        VERCEL: "1",
+      }),
+    ).toEqual({ available: false, reason: "no-platform-scheduler" });
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        AWS_LAMBDA_FUNCTION_NAME: "analytics-handler",
+      }),
+    ).toEqual({ available: false, reason: "no-platform-scheduler" });
+  });
+
+  it("distinguishes a dev machine from a broken deploy", () => {
+    expect(scheduledTriggerAvailability({ NODE_ENV: "development" })).toEqual({
+      available: false,
+      reason: "local-development",
+    });
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "development",
+        AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS: "1",
+      }),
+    ).toEqual({ available: true, driver: "in-process" });
+  });
+
+  it("reports a long-lived hosted node server as driven in-process", () => {
+    expect(
+      scheduledTriggerAvailability({
+        NODE_ENV: "production",
+        APP_URL: "https://design.agent-native.com",
+      }),
+    ).toEqual({ available: true, driver: "in-process" });
   });
 });
 
