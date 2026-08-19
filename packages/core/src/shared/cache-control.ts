@@ -21,12 +21,31 @@ export const DEFAULT_SSR_CACHE_HEADERS = {
 export const SSR_HTML_CONTENT_TYPE = "text/html; charset=utf-8";
 
 /**
+ * Internal response marker for public HTML whose redirect target preserves
+ * request query parameters. The SSR adapters consume this marker and emit a
+ * provider-specific full-query cache key only where the provider supports it.
+ */
+export const SSR_QUERY_CACHE_VARIATION_HEADER = "x-agent-native-ssr-vary";
+
+export type SsrHtmlContentTypeOptions = {
+  varyByQuery?: boolean;
+};
+
+/**
  * Mark an already-built HTML response as HTML without changing its redirect
  * status, location, or other headers. Only use this for redirects whose
- * target is independent of the viewer and request credentials.
+ * target is independent of the viewer and request credentials. Set
+ * `varyByQuery` when the target preserves request query parameters so the SSR
+ * adapter can request a full-query cache key on providers that support it.
  */
-export function withSsrHtmlContentType<T extends Response>(response: T): T {
+export function withSsrHtmlContentType<T extends Response>(
+  response: T,
+  options: SsrHtmlContentTypeOptions = {},
+): T {
   response.headers.set("content-type", SSR_HTML_CONTENT_TYPE);
+  if (options.varyByQuery) {
+    response.headers.set(SSR_QUERY_CACHE_VARIATION_HEADER, "query");
+  }
   return response;
 }
 

@@ -12,11 +12,11 @@ function target(url: URL): string {
 }
 
 export function loader({ url }: LoaderFunctionArgs) {
-  throw withSsrHtmlContentType(redirect(target(url)));
+  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
 }
 
 export function clientLoader({ url }: LoaderFunctionArgs) {
-  throw withSsrHtmlContentType(redirect(target(url)));
+  throw withSsrHtmlContentType(redirect(target(url)), { varyByQuery: true });
 }
 
 export function meta() {

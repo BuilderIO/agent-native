@@ -312,7 +312,10 @@ function assetUpdatedTime(asset: any): number {
 
 export function loader({ params, request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
-  return withSsrHtmlContentType(redirect(`/library/${params.id}${url.search}`));
+  return withSsrHtmlContentType(
+    redirect(`/library/${params.id}${url.search}`),
+    { varyByQuery: true },
+  );
 }
 
 export default function BrandKitDetailRedirect() {

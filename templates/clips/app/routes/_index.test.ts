@@ -1,3 +1,4 @@
+import { SSR_QUERY_CACHE_VARIATION_HEADER } from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import { clientLoader, loader } from "./_index";
@@ -18,6 +19,7 @@ function expectLibraryRedirect(
   expect(response.status).toBe(302);
   expect(response.headers.get("location")).toBe("/library?from=home");
   expect(response.headers.get("content-type")).toBe("text/html; charset=utf-8");
+  expect(response.headers.get(SSR_QUERY_CACHE_VARIATION_HEADER)).toBe("query");
 }
 
 describe("Clips root route", () => {

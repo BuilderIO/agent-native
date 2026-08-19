@@ -1,4 +1,7 @@
-import { SSR_HTML_CONTENT_TYPE } from "@agent-native/core/shared";
+import {
+  SSR_HTML_CONTENT_TYPE,
+  SSR_QUERY_CACHE_VARIATION_HEADER,
+} from "@agent-native/core/shared";
 import { describe, expect, it } from "vitest";
 
 import { loader as localeLoader } from "../app/routes/$locale";
@@ -87,5 +90,8 @@ describe("public docs redirects", () => {
       } as Parameters<typeof templatesLoader>[0]),
     );
     expectHtmlRedirect(templates, 301, "/apps/mail?source=docs");
+    expect(templates.headers.get(SSR_QUERY_CACHE_VARIATION_HEADER)).toBe(
+      "query",
+    );
   });
 });

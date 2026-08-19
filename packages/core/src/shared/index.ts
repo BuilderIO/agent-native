@@ -29,6 +29,8 @@ export { injectDocumentMarkup } from "./html-document.js";
 export { withBuilderUtmTrackingParams } from "./builder-link-tracking.js";
 export {
   SSR_HTML_CONTENT_TYPE,
+  SSR_QUERY_CACHE_VARIATION_HEADER,
+  type SsrHtmlContentTypeOptions,
   withSsrHtmlContentType,
 } from "./cache-control.js";
 export {

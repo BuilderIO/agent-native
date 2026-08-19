@@ -10,6 +10,7 @@ import {
   resolveSsrCacheKeyHeaders,
   SSR_CACHE_ENV_VAR,
   SSR_HTML_CONTENT_TYPE,
+  SSR_QUERY_CACHE_VARIATION_HEADER,
   ssrCacheHeadersForPolicy,
   withSsrHtmlContentType,
 } from "./cache-control.js";
@@ -209,6 +210,23 @@ describe("resolveSsrCacheKeyHeaders", () => {
     expect(
       resolveSsrCacheKeyHeaders({ NETLIFY: "true", NETLIFY_LOCAL: "true" }),
     ).toEqual({});
+  });
+});
+
+describe("withSsrHtmlContentType", () => {
+  it("marks query-preserving redirects for full cache-key variation", () => {
+    const response = new Response(null, {
+      status: 302,
+      headers: { location: "/library?from=home" },
+    });
+
+    expect(withSsrHtmlContentType(response, { varyByQuery: true })).toBe(
+      response,
+    );
+    expect(response.headers.get("content-type")).toBe(SSR_HTML_CONTENT_TYPE);
+    expect(response.headers.get(SSR_QUERY_CACHE_VARIATION_HEADER)).toBe(
+      "query",
+    );
   });
 });
 

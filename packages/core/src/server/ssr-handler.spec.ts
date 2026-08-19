@@ -4,6 +4,7 @@ import {
   DEFAULT_SSR_CACHE_CONTROL,
   DEFAULT_SSR_CDN_CACHE_CONTROL,
   DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL,
+  SSR_QUERY_CACHE_VARIATION_HEADER,
 } from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
@@ -285,6 +286,44 @@ describe("createH3SSRHandler", () => {
     const response = await handler(createEvent("/"));
 
     expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+  });
+
+  it("preserves full Netlify query variation for marked public redirects", async () => {
+    process.env.SITE_ID = "site-test";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: {
+          [SSR_QUERY_CACHE_VARIATION_HEADER]: "query",
+          "content-type": "text/html; charset=utf-8",
+          location: "/library?from=home",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/?from=home"));
+
+    expect(response.headers.get("netlify-vary")).toBe("query");
+    expect(response.headers.get(SSR_QUERY_CACHE_VARIATION_HEADER)).toBeNull();
+  });
+
+  it("does not expose the internal query variation marker outside Netlify", async () => {
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: {
+          [SSR_QUERY_CACHE_VARIATION_HEADER]: "query",
+          "content-type": "text/html; charset=utf-8",
+        },
+      }),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/?from=home"));
+
+    expect(response.headers.get("netlify-vary")).toBeNull();
+    expect(response.headers.get(SSR_QUERY_CACHE_VARIATION_HEADER)).toBeNull();
   });
 
   it("prefixes the default Speculation-Rules header under APP_BASE_PATH", async () => {

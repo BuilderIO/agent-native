@@ -48,6 +48,7 @@ import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
+  SSR_QUERY_CACHE_VARIATION_HEADER,
 } from "../shared/cache-control.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
@@ -1365,6 +1366,7 @@ function injectHeadScript(html, script) {
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
+const SSR_QUERY_CACHE_VARIATION_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_VARIATION_HEADER)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1446,6 +1448,9 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
  * from the canonical Nitro/Netlify handler or send normal pages to origin.
  */
 function applyDefaultSsrCacheHeader(headers, status, pathname) {
+  const varyByQuery =
+    (headers.get(SSR_QUERY_CACHE_VARIATION_HEADER) || "").trim().toLowerCase() === "query";
+  headers.delete(SSR_QUERY_CACHE_VARIATION_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   headers.delete("set-cookie");
@@ -1465,9 +1470,11 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
   for (const [name, value] of Object.entries(SSR_CACHE_HEADERS)) {
     headers.set(name, value);
   }
-  for (const [name, value] of Object.entries(SSR_CACHE_KEY_HEADERS)) {
-    headers.set(name, value);
-  }
+  const netlifyVary = varyByQuery
+    ? SSR_CACHE_KEY_HEADERS["netlify-vary"] ? "query" : undefined
+    : SSR_CACHE_KEY_HEADERS["netlify-vary"];
+  if (netlifyVary) headers.set("netlify-vary", netlifyVary);
+  else headers.delete("netlify-vary");
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {

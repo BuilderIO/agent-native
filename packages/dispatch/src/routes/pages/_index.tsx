@@ -41,11 +41,15 @@ function buildTarget(url: URL): string {
 }
 
 export function loader({ url }: LoaderFunctionArgs) {
-  throw withSsrHtmlContentType(redirect(buildTarget(url)));
+  throw withSsrHtmlContentType(redirect(buildTarget(url)), {
+    varyByQuery: true,
+  });
 }
 
 export function clientLoader({ url }: LoaderFunctionArgs) {
-  throw withSsrHtmlContentType(redirect(buildTarget(url)));
+  throw withSsrHtmlContentType(redirect(buildTarget(url)), {
+    varyByQuery: true,
+  });
 }
 
 export function HydrateFallback() {

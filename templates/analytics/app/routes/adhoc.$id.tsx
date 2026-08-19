@@ -10,11 +10,15 @@ function target({ params, url }: LoaderFunctionArgs): string {
 }
 
 export function loader(args: LoaderFunctionArgs) {
-  throw withSsrHtmlContentType(redirect(target(args)));
+  throw withSsrHtmlContentType(redirect(target(args)), {
+    varyByQuery: true,
+  });
 }
 
 export function clientLoader(args: LoaderFunctionArgs) {
-  throw withSsrHtmlContentType(redirect(target(args)));
+  throw withSsrHtmlContentType(redirect(target(args)), {
+    varyByQuery: true,
+  });
 }
 
 export default function AdhocRedirectRoute() {
