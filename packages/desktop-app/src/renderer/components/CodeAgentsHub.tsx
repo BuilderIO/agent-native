@@ -1876,6 +1876,61 @@ export default function CodeAgentsHub({
         }
         return api.listRuns(goalId);
       },
+      async listSchedules() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listSchedules) {
+          return {
+            status: "unavailable",
+            schedules: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.listSchedules();
+      },
+      async createSchedule(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.createSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.createSchedule(request);
+      },
+      async updateSchedule(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.updateSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.updateSchedule(request);
+      },
+      async deleteSchedule(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.deleteSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.deleteSchedule(request);
+      },
+      async runScheduleNow(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.runScheduleNow) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.runScheduleNow(request);
+      },
       async createRun(request) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.createRun) {
