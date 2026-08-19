@@ -20,7 +20,7 @@ import {
   resolveOwnedAccountEmail,
 } from "./event-action-helpers.js";
 import {
-  findBookedGoogleEventIds,
+  findBookedGoogleEvents,
   listCalendarEvents,
   resolveCalendarEventRange,
 } from "./list-events.js";
@@ -48,18 +48,44 @@ interface EventResult {
   reason?: string;
 }
 
+type BookedEvent = { googleEventId: string; calendarAccountId: string | null };
+
+/**
+ * Google event ids are scoped to a calendar, so a booking only protects the
+ * event on its own account. A booking whose account was never recorded still
+ * protects every match: reading that null as "some other account" would delete a
+ * booked event, which is the failure this guard exists to prevent.
+ */
+function isBookedOnAccount(
+  booked: readonly BookedEvent[],
+  googleEventId: string,
+  accountEmail: string | undefined,
+): boolean {
+  return booked.some(
+    (row) =>
+      row.googleEventId === googleEventId &&
+      (!row.calendarAccountId ||
+        !accountEmail ||
+        row.calendarAccountId.trim().toLowerCase() ===
+          accountEmail.trim().toLowerCase()),
+  );
+}
+
 const BOOKED_EVENT_REASON =
   "Is the Google event for an active booking; cancel the booking instead";
 
 /** Why this app cannot delete an event, or undefined when it can. */
 function undeletableReason(
   event: CalendarEvent,
-  bookedGoogleEventIds: ReadonlySet<string>,
+  booked: readonly BookedEvent[],
 ): string | undefined {
   // The shared read hides a booking whose linked Google event is present, so
   // deleting that Google event here would leave the booking row confirmed and
   // the event would reappear on the calendar as a local booking.
-  if (event.googleEventId && bookedGoogleEventIds.has(event.googleEventId)) {
+  if (
+    event.googleEventId &&
+    isBookedOnAccount(booked, event.googleEventId, event.accountEmail)
+  ) {
     return BOOKED_EVENT_REASON;
   }
   if (event.source === "ical") {
@@ -326,14 +352,14 @@ export default defineAction({
       // Explicit ids get the same booking protection as a filtered selection:
       // naming the event directly does not make leaving its booking confirmed
       // any less of a silent inconsistency.
-      const booked = await findBookedGoogleEventIds(requested);
+      const booked = await findBookedGoogleEvents(requested);
       for (const googleEventId of requested) {
         const display: EventResult = {
           id: `google-${googleEventId}`,
           accountEmail,
           outcome: "matched",
         };
-        if (booked.has(googleEventId)) {
+        if (isBookedOnAccount(booked, googleEventId, accountEmail)) {
           results.push({
             ...display,
             outcome: "skipped",
@@ -378,7 +404,7 @@ export default defineAction({
         );
       }
 
-      const bookedGoogleEventIds = await findBookedGoogleEventIds(
+      const booked = await findBookedGoogleEvents(
         matched
           .map((event) => event.googleEventId)
           .filter((id): id is string => Boolean(id)),
@@ -393,7 +419,7 @@ export default defineAction({
           accountEmail: event.accountEmail,
           outcome: "matched",
         };
-        const reason = undeletableReason(event, bookedGoogleEventIds);
+        const reason = undeletableReason(event, booked);
         if (reason) {
           results.push({ ...display, outcome: "skipped", reason });
           continue;

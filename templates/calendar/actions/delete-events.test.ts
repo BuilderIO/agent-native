@@ -73,6 +73,7 @@ vi.mock("../server/db/index.js", () => ({
       googleEventId: "googleEventId",
       status: "status",
       createdAt: "createdAt",
+      calendarAccountId: "calendarAccountId",
     },
   },
 }));
@@ -872,6 +873,86 @@ describe("delete-events", () => {
       { ownerEmail: OWNER, accountEmail: OWNER },
       { scope: "all", sendUpdates: "none" },
     );
+  });
+
+  it("does not let a booking on one account protect another account's event", async () => {
+    bookingRowsMock.mockResolvedValue([
+      {
+        id: "bk1",
+        name: "Ada",
+        email: "ada@example.com",
+        slug: "intro",
+        start: "2026-04-11T18:00:00.000Z",
+        end: "2026-04-11T18:30:00.000Z",
+        eventTitle: "Intro call",
+        notes: "",
+        meetingLink: "",
+        googleEventId: "shared-id",
+        status: "confirmed",
+        createdAt: "2026-04-01T00:00:00.000Z",
+        calendarAccountId: "other@example.com",
+      },
+    ]);
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        googleEvent({ id: "shared-id", start: "2026-04-11T18:00:00.000Z" }),
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-04-06",
+      to: "2026-04-20",
+      daysOfWeek: "saturday",
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(result.deleted).toBe(1);
+    expect(result.skipped).toBe(0);
+    expect(deleteEventMock).toHaveBeenCalledWith(
+      "shared-id",
+      { ownerEmail: OWNER, accountEmail: OWNER },
+      { scope: "single", sendUpdates: "none" },
+    );
+  });
+
+  it("still protects a booking whose account was never recorded", async () => {
+    bookingRowsMock.mockResolvedValue([
+      {
+        id: "bk1",
+        name: "Ada",
+        email: "ada@example.com",
+        slug: "intro",
+        start: "2026-04-11T18:00:00.000Z",
+        end: "2026-04-11T18:30:00.000Z",
+        eventTitle: "Intro call",
+        notes: "",
+        meetingLink: "",
+        googleEventId: "legacy-id",
+        status: "confirmed",
+        createdAt: "2026-04-01T00:00:00.000Z",
+        calendarAccountId: null,
+      },
+    ]);
+    listGoogleEventsMock.mockResolvedValue({
+      events: [
+        googleEvent({ id: "legacy-id", start: "2026-04-11T18:00:00.000Z" }),
+      ],
+      errors: [],
+    });
+
+    const result = await run({
+      from: "2026-04-06",
+      to: "2026-04-20",
+      daysOfWeek: "saturday",
+      scope: "single",
+      sendUpdates: "none",
+    });
+
+    expect(result.deleted).toBe(0);
+    expect(result.skipped).toBe(1);
+    expect(deleteEventMock).not.toHaveBeenCalled();
   });
 
   it("refuses a match set larger than one bulk delete may commit", async () => {
