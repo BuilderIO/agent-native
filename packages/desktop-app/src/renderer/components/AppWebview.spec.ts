@@ -1,6 +1,17 @@
 // @vitest-environment happy-dom
 
-import { describe, expect, it } from "vitest";
+import type { AppConfig, AppDefinition } from "@shared/app-registry";
+import React, { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { buildGuestThemeScript } from "../lib/theme.js";
 import {
@@ -12,7 +23,323 @@ import {
   isDesktopIdentityGateEligible,
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
+  resolveDesktopIdentityLazySyncStatus,
+  rememberDesktopIdentityStatus,
+  invalidateRememberedDesktopIdentityStatus,
+  shouldReuseRememberedDesktopIdentitySession,
+  default as AppWebview,
 } from "./AppWebview.js";
+
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+    getItem: (key) => values.get(key) ?? null,
+    key: (index) => [...values.keys()][index] ?? null,
+    removeItem: (key) => values.delete(key),
+    setItem: (key, value) => values.set(key, String(value)),
+  };
+}
+
+beforeAll(() => {
+  if (!window.localStorage) {
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: createMemoryStorage(),
+    });
+  }
+});
+
+describe("Desktop identity lazy child synchronization", () => {
+  it("does not demote a verified workspace session when child sync fails", () => {
+    expect(resolveDesktopIdentityLazySyncStatus("signed-in", false)).toBe(
+      "signed-in",
+    );
+    expect(resolveDesktopIdentityLazySyncStatus("signed-in", true)).toBe(
+      "signed-in",
+    );
+  });
+
+  it("reuses a verified workspace session when an app tab is activated", () => {
+    expect(shouldReuseRememberedDesktopIdentitySession("signed-in")).toBe(true);
+    expect(
+      shouldReuseRememberedDesktopIdentitySession("sign-in-required"),
+    ).toBe(false);
+    expect(
+      shouldReuseRememberedDesktopIdentitySession("signed-in", "signed-in"),
+    ).toBe(false);
+    expect(
+      shouldReuseRememberedDesktopIdentitySession(
+        "signed-in",
+        undefined,
+        Date.now() - 60_000,
+      ),
+    ).toBe(true);
+    expect(
+      shouldReuseRememberedDesktopIdentitySession(
+        "signed-in",
+        undefined,
+        Date.now() - 10 * 60_000,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("Desktop identity activation", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        disconnect() {}
+        observe() {}
+      },
+    );
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    });
+    vi.stubGlobal("cancelAnimationFrame", () => {});
+    Object.defineProperty(HTMLElement.prototype, "executeJavaScript", {
+      configurable: true,
+      value: () => Promise.resolve(),
+    });
+    container = document.createElement("div");
+    document.body.appendChild(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    delete (window as unknown as { electronAPI?: unknown }).electronAPI;
+    invalidateRememberedDesktopIdentityStatus();
+  });
+
+  it("keeps a remembered session gated until child synchronization completes", async () => {
+    let resolveSynchronization!: (synchronized: boolean) => void;
+    const ensureAppSession = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSynchronization = resolve;
+        }),
+    );
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus: vi.fn(async () => "signed-in"),
+          ensureAppSession,
+          onStatusChange: vi.fn(() => () => {}),
+          signIn: vi.fn(async () => true),
+          authenticate: vi.fn(async () => ({ ok: true })),
+          requestMagicLink: vi.fn(async () => ({ ok: true })),
+        },
+      },
+    });
+    rememberDesktopIdentityStatus("signed-in");
+    root = createRoot(container);
+
+    const app: AppDefinition = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig: AppConfig = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      url: "https://mail.agent-native.com",
+      devPort: 3000,
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod",
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark",
+        }),
+      );
+    });
+    await vi.waitFor(() =>
+      expect(ensureAppSession).toHaveBeenCalledWith("mail"),
+    );
+
+    const webviewSlot = [
+      ...container.querySelectorAll(".webview-slot > div"),
+    ].find((element) => element.querySelector("webview")) as
+      | HTMLElement
+      | undefined;
+    expect(webviewSlot?.style.display).toBe("none");
+    expect(container.textContent).not.toContain("Checking...");
+
+    await act(async () => {
+      resolveSynchronization(true);
+      await Promise.resolve();
+    });
+
+    expect(webviewSlot?.style.display).toBe("flex");
+  });
+
+  it("invalidates a remembered session when lazy sync is rejected", async () => {
+    let syncAttempts = 0;
+    const getStatus = vi.fn(async () => "signed-in" as const);
+    const ensureAppSession = vi.fn(async () => {
+      syncAttempts += 1;
+      return syncAttempts > 1;
+    });
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus,
+          ensureAppSession,
+          onStatusChange: vi.fn(() => () => {}),
+        },
+      },
+    });
+    rememberDesktopIdentityStatus("signed-in");
+    root = createRoot(container);
+
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark",
+        }),
+      );
+    });
+    await vi.waitFor(() => expect(ensureAppSession).toHaveBeenCalledTimes(1));
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: false,
+          theme: "dark",
+        }),
+      );
+    });
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark",
+        }),
+      );
+    });
+    await vi.waitFor(() => expect(getStatus).toHaveBeenCalledTimes(1));
+    expect(ensureAppSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not extend the remembered-session TTL on cached activation", async () => {
+    const now = vi.spyOn(Date, "now");
+    let currentTime = 1_000_000;
+    now.mockImplementation(() => currentTime);
+    try {
+      const getStatus = vi.fn(async () => "signed-in" as const);
+      Object.defineProperty(window, "electronAPI", {
+        configurable: true,
+        value: {
+          identity: {
+            getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+            getStatus,
+            ensureAppSession: vi.fn(async () => true),
+            onStatusChange: vi.fn(() => () => {}),
+          },
+        },
+      });
+      rememberDesktopIdentityStatus("signed-in", currentTime);
+      root = createRoot(container);
+      const app = {
+        id: "mail",
+        name: "Mail",
+        icon: "mail",
+        description: "",
+        devPort: 3000,
+      };
+      const appConfig = {
+        ...app,
+        url: "https://mail.agent-native.com",
+        isBuiltIn: true,
+        enabled: true,
+        mode: "prod" as const,
+      };
+
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark",
+          }),
+        );
+      });
+      await vi.waitFor(() => expect(getStatus).not.toHaveBeenCalled());
+
+      currentTime += 5 * 60 * 1000 + 1;
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: false,
+            theme: "dark",
+          }),
+        );
+      });
+      act(() => {
+        root.render(
+          React.createElement(AppWebview, {
+            app,
+            appConfig,
+            isActive: true,
+            theme: "dark",
+          }),
+        );
+      });
+      await vi.waitFor(() => expect(getStatus).toHaveBeenCalledTimes(1));
+    } finally {
+      now.mockRestore();
+    }
+  });
+});
 
 describe("Desktop identity gate eligibility", () => {
   it("covers canonical production apps but not browser surfaces", () => {

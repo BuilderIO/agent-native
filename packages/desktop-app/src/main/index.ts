@@ -244,7 +244,10 @@ import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
+  isPreparingDownloadedUpdate,
+  isInstallingDownloadedUpdate,
   installDownloadedUpdate,
+  requestQuitAfterUpdatePreparation,
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
@@ -1270,7 +1273,16 @@ async function closeDesktopComputerMcpBridge(): Promise<void> {
 registerUpdatesIpc({
   refreshApplicationMenu,
   focusMainWindow,
-  prepareForUpdate: closeDesktopComputerMcpBridge,
+  prepareForUpdate: async () => {
+    await closeDesktopComputerMcpBridge();
+    await disposeMultiFrontierAppIntegration();
+  },
+  restoreAfterUpdateFailure: async () => {
+    await initializeDesktopComputerMcpBridge();
+    if (multiFrontierDisposePromise) {
+      initializeMultiFrontierAppIntegrationForRuntime();
+    }
+  },
 });
 
 function isShellIdentityIpc(event: IpcMainInvokeEvent): boolean {
@@ -2102,6 +2114,9 @@ let multiFrontierDisposePromise: Promise<void> | undefined;
 const multiFrontierQuitGuard = createMultiFrontierQuitGuard({
   dispose: () => disposeMultiFrontierAppIntegration(),
   reissueQuit: () => app.quit(),
+  shouldAllowQuit: () => isInstallingDownloadedUpdate(),
+  shouldDeferQuit: () => isPreparingDownloadedUpdate(),
+  onDeferredQuit: requestQuitAfterUpdatePreparation,
 });
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
@@ -6622,6 +6637,17 @@ function disposeMultiFrontierAppIntegration(): Promise<void> {
       multiFrontierAppIntegration?.dispose() ?? Promise.resolve();
   }
   return multiFrontierDisposePromise;
+}
+
+function initializeMultiFrontierAppIntegrationForRuntime(): void {
+  multiFrontierDisposePromise = undefined;
+  multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
+    ipcMain,
+    storeRoot: codeAgentStoreRoot(),
+    loginCwd: resolveCodeAgentsTerminalCwd({}),
+    listWorkspaces: listMultiFrontierWorkspaces,
+    resolveDirectory: resolveUsableDirectory,
+  });
 }
 
 async function chooseCodeAgentProject(): Promise<CodeAgentProjectSelectResult> {
@@ -12031,13 +12057,7 @@ app.whenReady().then(async () => {
   console.info("[main] log file:", getLogFilePath());
 
   reconcileInterruptedCodeAgentRuns("startup");
-  multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
-    ipcMain,
-    storeRoot: codeAgentStoreRoot(),
-    loginCwd: resolveCodeAgentsTerminalCwd({}),
-    listWorkspaces: listMultiFrontierWorkspaces,
-    resolveDirectory: resolveUsableDirectory,
-  });
+  initializeMultiFrontierAppIntegrationForRuntime();
   registerDesktopShortcutBindings();
 
   const win = createWindow();
@@ -12145,6 +12165,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  if (multiFrontierQuitGuard(event)) return;
   if (!appIsQuitting) {
     appIsQuitting = true;
     for (const appId of managedDesktopAppProcesses.keys()) {
@@ -12164,7 +12185,6 @@ app.on("before-quit", (event) => {
       );
     });
   }
-  if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });
 
 app.on("will-quit", () => {

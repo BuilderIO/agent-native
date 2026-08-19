@@ -142,6 +142,46 @@ export function shouldSuppressDesktopSignInPrompt(
   return identityAvailable && isDesktopIdentityGateEligible(app, appConfig);
 }
 
+export function resolveDesktopIdentityLazySyncStatus(
+  status: DesktopIdentityStatus,
+  synchronized: boolean,
+): DesktopIdentityStatus {
+  // Lazy child fan-out is best-effort. It must not demote a verified
+  // workspace session; the child app owns its fallback login surface.
+  if (status === "signed-in") return "signed-in";
+  return synchronized ? status : "failed";
+}
+
+const DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
+let rememberedDesktopIdentityStatus: DesktopIdentityStatus | null = null;
+let rememberedDesktopIdentityStatusAt = 0;
+
+export function rememberDesktopIdentityStatus(
+  status: DesktopIdentityStatus,
+  observedAt = Date.now(),
+): void {
+  rememberedDesktopIdentityStatus = status;
+  rememberedDesktopIdentityStatusAt = observedAt;
+}
+
+export function invalidateRememberedDesktopIdentityStatus(): void {
+  rememberedDesktopIdentityStatus = null;
+  rememberedDesktopIdentityStatusAt = 0;
+}
+
+export function shouldReuseRememberedDesktopIdentitySession(
+  status: DesktopIdentityStatus | null,
+  nextStatus?: DesktopIdentityStatus,
+  statusVerifiedAt = Date.now(),
+  now = Date.now(),
+): boolean {
+  return (
+    nextStatus === undefined &&
+    status === "signed-in" &&
+    now - statusVerifiedAt < DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS
+  );
+}
+
 interface AppWebviewProps {
   app: AppDefinition;
   /** Full app config with URL overrides (optional for backward compat) */
@@ -437,19 +477,34 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       const identity = window.electronAPI?.identity;
       if (!identity || !desktopIdentityGateEligible || !isActive) {
+        const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
+          rememberedDesktopIdentityStatus,
+          undefined,
+          rememberedDesktopIdentityStatusAt,
+        );
         setDesktopIdentityEnabled(false);
-        setDesktopIdentityStatus("idle");
+        setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
         setDesktopIdentitySessionReady(true);
         return;
       }
       let active = true;
       let statusRequest = 0;
-      setDesktopIdentityEnabled(null);
+      const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
+        rememberedDesktopIdentityStatus,
+        undefined,
+        rememberedDesktopIdentityStatusAt,
+      );
+      setDesktopIdentityEnabled(rememberedSignedIn ? true : null);
+      setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
       setDesktopIdentitySessionReady(false);
 
-      const applyStatus = async (status: DesktopIdentityStatus) => {
-        const request = ++statusRequest;
-        if (!active) return;
+      const applyStatus = async (
+        status: DesktopIdentityStatus,
+        request: number,
+        fromRememberedSession = false,
+      ) => {
+        if (!active || request !== statusRequest) return;
+        if (!fromRememberedSession) rememberDesktopIdentityStatus(status);
         setDesktopIdentityStatus(status);
         if (status === "signed-in") {
           setDesktopIdentitySessionReady(false);
@@ -464,8 +519,18 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
             synchronized = null;
           }
           if (!active || request !== statusRequest) return;
-          setDesktopIdentitySessionReady(synchronized === true);
-          if (synchronized !== true) setDesktopIdentityStatus("failed");
+          if (fromRememberedSession && synchronized !== true) {
+            // A failed lazy sync can mean the broker is in the middle of
+            // sign-out while its public status is still signed-in. Do not
+            // keep reusing this renderer cache during that ceremony. Keep the
+            // current verified tab usable until the broker publishes its
+            // authoritative sign-out status or the next activation rechecks.
+            invalidateRememberedDesktopIdentityStatus();
+          }
+          setDesktopIdentitySessionReady(true);
+          setDesktopIdentityStatus(
+            resolveDesktopIdentityLazySyncStatus(status, synchronized === true),
+          );
           return;
         }
         setDesktopIdentitySessionReady(status !== "signing-in");
@@ -474,23 +539,49 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       const applySettingAndStatus = async (
         nextStatus?: DesktopIdentityStatus,
       ) => {
+        const request = ++statusRequest;
+        const reuseRememberedSession =
+          shouldReuseRememberedDesktopIdentitySession(
+            rememberedDesktopIdentityStatus,
+            nextStatus,
+            rememberedDesktopIdentityStatusAt,
+          );
         try {
           const settings = await identity.getSettings();
-          if (!active) return;
+          if (!active || request !== statusRequest) return;
           if (!settings.ssoEnabled) {
+            rememberDesktopIdentityStatus("idle");
             setDesktopIdentityEnabled(false);
             setDesktopIdentityStatus("idle");
             setDesktopIdentitySessionReady(true);
             return;
           }
           setDesktopIdentityEnabled(true);
-          setDesktopIdentityStatus("checking");
-          setDesktopIdentitySessionReady(false);
-          await applyStatus(nextStatus ?? (await identity.getStatus()));
+          const needsRemoteStatus =
+            nextStatus === undefined && !reuseRememberedSession;
+          if (needsRemoteStatus) {
+            setDesktopIdentityStatus("checking");
+            setDesktopIdentitySessionReady(false);
+          }
+          const status =
+            nextStatus ??
+            (reuseRememberedSession ? "signed-in" : await identity.getStatus());
+          await applyStatus(status, request, reuseRememberedSession);
         } catch {
           // An older or unavailable preload must fail closed to the legacy
           // app-owned login surface rather than strand the WebView behind SSO.
-          if (active) {
+          if (active && request === statusRequest) {
+            if (
+              shouldReuseRememberedDesktopIdentitySession(
+                rememberedDesktopIdentityStatus,
+                undefined,
+                rememberedDesktopIdentityStatusAt,
+              )
+            ) {
+              setDesktopIdentityEnabled(true);
+              await applyStatus("signed-in", request, true);
+              return;
+            }
             setDesktopIdentityEnabled(false);
             setDesktopIdentityStatus("idle");
             setDesktopIdentitySessionReady(true);
