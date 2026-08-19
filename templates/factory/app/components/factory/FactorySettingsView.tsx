@@ -5,6 +5,7 @@ import {
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
 import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
+import { ActionQueryError } from "@agent-native/dispatch/components";
 import { IconLoader2 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router";
@@ -95,7 +96,13 @@ export function FactorySettingsView() {
     setAutomationFailureAlertEmail(data.automationFailureAlertEmail ?? "");
   }, [query.data]);
 
+  const configLoaded = Boolean(query.data) && !query.isError;
+
   const saveSettings = async () => {
+    if (!configLoaded) {
+      toast.error(t("triage.settingsError"));
+      return;
+    }
     try {
       await mutation.mutateAsync({
         slackWorkspace: workspace,
@@ -126,6 +133,17 @@ export function FactorySettingsView() {
     return (
       <div className="mx-auto w-full max-w-3xl space-y-6 p-4 lg:p-6">
         <FactorySettingsSkeleton t={t} />
+      </div>
+    );
+  }
+
+  if (!configLoaded) {
+    return (
+      <div className="mx-auto w-full max-w-3xl p-4 lg:p-6">
+        <ActionQueryError
+          error={query.error}
+          onRetry={() => void query.refetch()}
+        />
       </div>
     );
   }
@@ -330,20 +348,12 @@ export function FactorySettingsView() {
             </span>
           }
         />
-        {query.isError && (
-          <div className="px-5 py-3 text-xs text-destructive sm:px-6">
-            {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
-            {query.error instanceof Error
-              ? query.error.message
-              : String(query.error)}
-          </div>
-        )}
       </SettingsGroup>
 
       <div className="flex flex-wrap items-center justify-end gap-3">
         <Button
           onClick={() => void saveSettings()}
-          disabled={mutation.isPending}
+          disabled={mutation.isPending || !configLoaded}
         >
           {mutation.isPending && <IconLoader2 className="animate-spin" />}
           {t("triage.saveSettings")}
