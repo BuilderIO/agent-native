@@ -121,13 +121,14 @@ export function restoreDeletedDocumentSnapshots(
   const currentDocuments: Document[] = Array.isArray(current)
     ? current
     : ((current as DocumentListResponse | undefined)?.documents ?? []);
-  const restoredDocuments = snapshotDocuments.filter((document) =>
-    deletedIds.has(document.id),
+  const currentDocumentIds = new Set(
+    currentDocuments.map((document) => document.id),
   );
-  const documents = [
-    ...currentDocuments.filter((document) => !deletedIds.has(document.id)),
-    ...restoredDocuments,
-  ];
+  const restoredDocuments = snapshotDocuments.filter(
+    (document) =>
+      deletedIds.has(document.id) && !currentDocumentIds.has(document.id),
+  );
+  const documents = [...currentDocuments, ...restoredDocuments];
 
   if (Array.isArray(current)) {
     queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, documents);
@@ -142,7 +143,9 @@ export function restoreDeletedDocumentSnapshots(
     });
   }
   for (const [queryKey, data] of documentSnapshots) {
-    queryClient.setQueryData(queryKey, data);
+    if (queryClient.getQueryData(queryKey) === undefined) {
+      queryClient.setQueryData(queryKey, data);
+    }
   }
 }
 

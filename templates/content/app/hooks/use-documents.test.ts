@@ -117,6 +117,29 @@ describe("complete document discovery", () => {
     expect(queryClient.getQueryData(childKey)).toBe(child);
   });
 
+  it("keeps a concurrently restored document and its newer cache", () => {
+    const queryClient = new QueryClient();
+    const previous = doc("existing", null);
+    const concurrent = { ...previous, title: "Updated elsewhere" };
+    const existingKey = documentQueryKey("existing");
+
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [concurrent],
+    });
+    queryClient.setQueryData(existingKey, concurrent);
+    restoreDeletedDocumentSnapshots(
+      queryClient,
+      { documents: [previous] },
+      [[existingKey, previous]],
+      ["existing"],
+    );
+
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toEqual({
+      documents: [concurrent],
+    });
+    expect(queryClient.getQueryData(existingKey)).toBe(concurrent);
+  });
+
   it("keeps object-shaped optimistic cache writes array-shaped for consumers", async () => {
     const queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false, staleTime: Infinity } },
