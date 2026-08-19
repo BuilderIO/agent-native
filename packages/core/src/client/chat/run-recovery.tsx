@@ -498,6 +498,8 @@ export function RunErrorRecoveryCard({
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
   const [providerConnected, setProviderConnected] = useState(false);
+  const retryRequestedRef = useRef(false);
+  const [retryRequested, setRetryRequested] = useState(false);
   const builderReconnect = useBuilderConnectFlow({
     trackingSource: "assistant_chat_reconnect_error",
   });
@@ -558,6 +560,12 @@ export function RunErrorRecoveryCard({
     setProviderConnected(true);
     onProviderConnected?.();
   }, [onProviderConnected]);
+  const handleMissingProviderRetry = useCallback(() => {
+    if (retryRequestedRef.current) return;
+    retryRequestedRef.current = true;
+    setRetryRequested(true);
+    onRetry();
+  }, [onRetry]);
 
   const handleFork = useCallback(async () => {
     if (!onFork || forking) return;
@@ -593,8 +601,9 @@ export function RunErrorRecoveryCard({
           <div className="flex justify-center px-3 pt-1">
             <button
               type="button"
-              onClick={onRetry}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+              onClick={handleMissingProviderRetry}
+              disabled={retryRequested}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90 disabled:cursor-wait disabled:opacity-60"
             >
               <IconRefresh size={13} />
               {t("agentChat.common.retry")}

@@ -296,9 +296,11 @@ describe("run recovery surfaces", () => {
       (button) => button.textContent?.trim() === "Retry",
     );
     await act(async () => {
-      retryButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      retryButton?.click();
+      retryButton?.click();
     });
     expect(onRetry).toHaveBeenCalledTimes(1);
+    expect((retryButton as HTMLButtonElement).disabled).toBe(true);
   });
 
   it("routes structured provider-key errors to inline setup recovery", async () => {
