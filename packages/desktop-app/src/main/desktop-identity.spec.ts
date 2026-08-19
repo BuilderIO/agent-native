@@ -1507,9 +1507,14 @@ describe("DesktopIdentityBroker", () => {
     await expect(signIn).resolves.toBe(true);
     expect(identityFetch).toHaveBeenCalledWith(
       expect.stringContaining(
-        "/_agent-native/auth/desktop-exchange?flow_id=desktop-flow&verifier=magic-link-verifier",
+        "/_agent-native/auth/desktop-exchange?flow_id=desktop-flow",
       ),
-      expect.objectContaining({ credentials: "include" }),
+      expect.objectContaining({
+        credentials: "include",
+        headers: expect.objectContaining({
+          "X-Agent-Native-Desktop-Verifier": "magic-link-verifier",
+        }),
+      }),
     );
     expect(identityFetch).toHaveBeenCalledTimes(2);
     expect(identityCookies.set).toHaveBeenCalledWith(
@@ -1641,7 +1646,7 @@ describe("DesktopIdentityBroker", () => {
     expect(identityFetch).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the system browser and one-time embed sessions for modern fan-out", async () => {
+  it("uses an isolated identity window and one-time embed sessions for modern fan-out", async () => {
     const authority = authorityFixture();
     const mail = appFixture();
     const identityCookies = cookieStore();
@@ -1651,6 +1656,20 @@ describe("DesktopIdentityBroker", () => {
     const identityFetch = vi.fn(
       async (input: string, init?: RequestInit): Promise<Response> => {
         const url = new URL(input);
+        if (url.pathname === "/_agent-native/google/auth-url") {
+          expect(init?.headers).toEqual(
+            expect.objectContaining({
+              Accept: "application/json",
+              "X-Agent-Native-Desktop-Verifier": expect.any(String),
+            }),
+          );
+          return new Response(
+            JSON.stringify({
+              url: "https://accounts.google.com/o/oauth2/v2/auth?state=oauth-state",
+            }),
+            { status: 200, headers: { "content-type": "application/json" } },
+          );
+        }
         if (url.pathname === "/_agent-native/auth/desktop-exchange") {
           return new Response(
             JSON.stringify({
@@ -1716,7 +1735,17 @@ describe("DesktopIdentityBroker", () => {
           : new Response(null, { status: 404 });
       }),
     } as unknown as Electron.Session;
-    const createWindow = vi.fn();
+    const identityWindow = {
+      webContents: {
+        on: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+      },
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn(),
+    };
+    const createWindow = vi.fn(() => identityWindow as never);
     const reloadApp = vi.fn();
     const broker = new DesktopIdentityBroker({
       identitySession: {
@@ -1738,10 +1767,10 @@ describe("DesktopIdentityBroker", () => {
 
     await expect(broker.signIn(mail.id)).resolves.toBe(true);
 
-    expect(createWindow).not.toHaveBeenCalled();
-    expect(openedUrls).toHaveLength(1);
-    expect(new URL(openedUrls[0]!).pathname).toBe(
-      "/_agent-native/google/auth-url",
+    expect(createWindow).toHaveBeenCalledOnce();
+    expect(openedUrls).toHaveLength(0);
+    expect(identityWindow.loadURL).toHaveBeenCalledWith(
+      expect.stringContaining("accounts.google.com"),
     );
     expect(authorityCookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -2134,9 +2163,14 @@ describe("DesktopIdentityBroker", () => {
     );
     expect(identityFetch).toHaveBeenCalledWith(
       expect.stringContaining(
-        "/_agent-native/auth/desktop-exchange?flow_id=desktop-flow&verifier=magic-link-verifier",
+        "/_agent-native/auth/desktop-exchange?flow_id=desktop-flow",
       ),
-      expect.objectContaining({ credentials: "include" }),
+      expect.objectContaining({
+        credentials: "include",
+        headers: expect.objectContaining({
+          "X-Agent-Native-Desktop-Verifier": "magic-link-verifier",
+        }),
+      }),
     );
   });
 

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildCustomRecurrenceRules,
   buildEventTitleUpdate,
   buildRecurrenceRules,
   dateTimeInTimezoneToIso,
@@ -9,6 +10,7 @@ import {
   getEventEndValidationMessage,
   getLocalTimezone,
   getRecurrencePreset,
+  parseCustomRecurrence,
   normalizeAllDayEditEndDate,
   resolveEventTimezone,
   resolveTimeEditScope,
@@ -153,5 +155,34 @@ describe("recurrence helpers", () => {
     expect(
       buildRecurrenceRules("biweekly", "2026-05-20T16:00:00.000Z"),
     ).toEqual(["RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=WE"]);
+  });
+
+  it("builds Google-style custom weekly rules with an end count", () => {
+    expect(
+      buildCustomRecurrenceRules({
+        interval: 1,
+        unit: "week",
+        days: ["TU", "TH"],
+        endMode: "count",
+        endDate: "",
+        count: 13,
+      }),
+    ).toEqual(["RRULE:FREQ=WEEKLY;BYDAY=TU,TH;COUNT=13"]);
+  });
+
+  it("parses a custom RRULE back into editor state", () => {
+    expect(
+      parseCustomRecurrence(
+        ["RRULE:FREQ=WEEKLY;INTERVAL=2;BYDAY=MO,WE;UNTIL=20261119T235959Z"],
+        "2026-05-20T16:00:00.000Z",
+      ),
+    ).toEqual({
+      interval: 2,
+      unit: "week",
+      days: ["MO", "WE"],
+      endMode: "date",
+      endDate: "2026-11-19",
+      count: 13,
+    });
   });
 });

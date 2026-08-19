@@ -81,6 +81,8 @@ import {
 } from "react";
 import { toast } from "sonner";
 
+const SCHEDULED_CHAT_PROMPT_EVENT = "agent-native:scheduled-chat-prompt";
+
 import {
   CODE_AGENT_GOALS,
   DEFAULT_CODE_AGENT_PERMISSION_MODE,
@@ -1596,6 +1598,61 @@ export default function CodeAgentsApp({
     void loadRuns(true);
   }, [loadRuns, onChatFirstMainKindChange, openRequest, selectRun]);
 
+  useEffect(() => {
+    const pendingFrames = new Set<number>();
+    const handleScheduledPrompt = (event: Event) => {
+      const prompt = (event as CustomEvent<{ prompt?: unknown }>).detail
+        ?.prompt;
+      if (typeof prompt !== "string" || !prompt.trim()) return;
+
+      let attempts = 0;
+      let frame: number | undefined;
+      const insertPrompt = () => {
+        const editor = document.querySelector<HTMLElement>(
+          '[contenteditable="true"]',
+        );
+        const newChatSurface = editor?.closest(".code-agents-start");
+        if (
+          !editor ||
+          !editor.isConnected ||
+          !newChatSurface ||
+          document.querySelector(".desktop-code-agent-schedules")
+        ) {
+          attempts += 1;
+          if (attempts < 30) {
+            frame = window.requestAnimationFrame(insertPrompt);
+            pendingFrames.add(frame);
+          }
+          return;
+        }
+
+        if (frame !== undefined) pendingFrames.delete(frame);
+        editor.focus();
+        const selection = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(editor);
+        range.collapse(false);
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+        document.execCommand("insertText", false, prompt.trim());
+      };
+
+      frame = window.requestAnimationFrame(insertPrompt);
+      pendingFrames.add(frame);
+    };
+
+    window.addEventListener(SCHEDULED_CHAT_PROMPT_EVENT, handleScheduledPrompt);
+    return () => {
+      window.removeEventListener(
+        SCHEDULED_CHAT_PROMPT_EVENT,
+        handleScheduledPrompt,
+      );
+      pendingFrames.forEach((pendingFrame) =>
+        window.cancelAnimationFrame(pendingFrame),
+      );
+    };
+  }, []);
+
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
   const selectedRunIsActive = selectedRun ? isRunActive(selectedRun) : false;
   const workbenchUrlParams = selectedRunId ? { run: selectedRunId } : undefined;
@@ -2978,6 +3035,7 @@ export default function CodeAgentsApp({
                                 />
                               )}
                             <NewSessionComposer
+                              key={newPromptSeed}
                               prompt={newPrompt}
                               promptSeed={newPromptSeed}
                               inputRef={newPromptRef}

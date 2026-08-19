@@ -176,7 +176,7 @@ The playable Slack embed is deliberately narrower than the share page:
 
 - Only `ready` recordings with `visibility === "public"` can produce a video block.
 - Password-protected, expired, archived, trashed, private, org-only, or still-processing clips must not produce a playable Slack block.
-- Slack thumbnails use the stored thumbnail (or animated thumbnail as fallback) and normal share-page metadata remains the fallback when no Slack app is installed.
+- Slack thumbnails use the same-origin proxy for stored thumbnails, or a public video frame when no stored thumbnail exists; normal share-page metadata remains the fallback when no Slack app is installed.
 - Do not put passwords, short-lived share tokens, raw provider URLs, or transcript text in Slack unfurl payloads.
 
 Required Slack app setup:

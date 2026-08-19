@@ -854,7 +854,9 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
       "var oauthReturn = __anIsBuilderPreview() ? __anOAuthReturnTarget(ret) : ret;",
     );
     expect(html).toContain("__anFinishOAuthExchange(ret, flowId, data.token)");
-    expect(html).toContain("__anWaitForOAuthExchange(flowId, ret, btn, err)");
+    expect(html).toContain(
+      "__anWaitForOAuthExchange(flowId, ret, btn, err, 'google', verifier)",
+    );
     expect(html).toContain("window.location.reload()");
     expect(html).toContain(
       "if (oauthReturn) params.set('return', oauthReturn)",

@@ -153,7 +153,7 @@ async function writeMetadata(
     .where(and(eq(triageItems.id, itemId), eq(triageItems.orgId, orgId)));
 }
 
-async function recordDecision(input: {
+export async function recordAutomaticBuilderDecision(input: {
   itemId: string;
   userEmail: string;
   orgId: string;
@@ -167,6 +167,7 @@ async function recordDecision(input: {
     input.itemId,
     "automatic-builder",
   );
+  const now = new Date().toISOString();
   await getDb()
     .insert(triageDecisions)
     .values({
@@ -179,17 +180,26 @@ async function recordDecision(input: {
       guardResultsJson: JSON.stringify(input.guardResults),
       model: "factory-automation",
       promptVersion: 1,
-      createdAt: new Date().toISOString(),
+      createdAt: now,
       ownerEmail: input.userEmail,
       orgId: input.orgId,
     })
-    .onConflictDoNothing();
+    .onConflictDoUpdate({
+      target: triageDecisions.id,
+      set: {
+        outcome: input.outcome,
+        reason: input.reason,
+        guardResultsJson: JSON.stringify(input.guardResults),
+        createdAt: now,
+        ownerEmail: input.userEmail,
+      },
+    });
   return id;
 }
 
 export default defineAction({
   description:
-    "Start the governed clear-bug Builder flow for a Factory item. Slack items are kept in-thread by adding 👀 and tagging @builder.io; grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors use the Builder agent run API. Owner-managed Clips, Design, and Content items are always left for their owner.",
+    "Start the governed clear-bug Builder flow for a Factory item, or record a skip with a reason when clearBug is false. Slack items are kept in-thread by adding 👀 and tagging @builder.io; grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors use the Builder agent run API. Owner-managed Clips, Design, and Content items are always left for their owner.",
   schema: z.object({
     itemId: z.string().min(1),
     clearBug: z.boolean(),
@@ -340,17 +350,12 @@ export default defineAction({
         : []),
     ];
     const blocked = guardResults.some((guard) => !guard.passed);
-    const decisionId = await recordDecision({
+    const decisionId = await recordAutomaticBuilderDecision({
       itemId,
       userEmail,
       orgId,
       outcome: blocked ? "needs_manual" : "propose_fix",
-      reason: blocked
-        ? guardResults
-            .filter((guard) => !guard.passed)
-            .map((guard) => guard.reason)
-            .join(" ")
-        : reason,
+      reason,
       guardResults,
     });
     await recordFactoryAudit(
@@ -363,7 +368,7 @@ export default defineAction({
         source: item.source,
         sourceUrl: item.sourceUrl,
         status: blocked ? "skipped" : "success",
-        summary: blocked ? "Factory kept this item for manual review." : reason,
+        summary: reason,
         details: {
           decisionId,
           clearBug,
@@ -383,10 +388,7 @@ export default defineAction({
         started: false,
         needsManual: true,
         decisionId,
-        reason: guardResults
-          .filter((guard) => !guard.passed)
-          .map((guard) => guard.reason)
-          .join(" "),
+        reason,
       };
     }
 
@@ -550,7 +552,7 @@ export default defineAction({
             .where(
               and(eq(triageItems.id, related.id), eq(triageItems.orgId, orgId)),
             );
-          await recordDecision({
+          await recordAutomaticBuilderDecision({
             itemId: related.id,
             userEmail,
             orgId,

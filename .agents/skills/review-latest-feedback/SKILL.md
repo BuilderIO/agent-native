@@ -82,41 +82,64 @@ is not the same as absent evidence.
 
 The clarification question must be derived from that missing-evidence list.
 Never ask for a URL, screenshot, error, run ID, or repro detail that is already
-in the parent or a reply. If the reporter supplies it later, re-read the whole
-thread before doing anything else, remove that field from the missing list,
-and try the fix from the new evidence before asking another question. If the
-answer only partially fills the gap, ask only for the one remaining field. If a
-needed linked artifact is inaccessible, ask for access or a fresh/replacement
-link rather than asking for the artifact's contents again. If the available
-evidence is enough without it, continue and record the limitation instead of
-creating a reporter blocker.
+in the parent or a reply. If any participant supplies it later, re-read the
+whole thread before doing anything else, remove that field from the missing
+list, and try the fix from the new evidence before asking another question. If
+the answer only partially or incidentally fills the gap, keep the original
+clarification pending rather than stacking a second question. Ask a new
+question only after the exact earlier request is answered or resolved and one
+specific, non-repeating detail still blocks the fix. If a needed linked artifact
+is inaccessible, ask for access or a fresh/replacement link rather than asking
+for the artifact's contents again. If the available evidence is enough without
+it, continue and record the limitation instead of creating a reporter blocker.
+
+There may be only one unanswered clarification request per thread. Before
+posting, re-read the complete thread for an earlier question from this
+workflow, the companion `address-feedback-with-replies` workflow, or the
+`@agent-native` bot and determine whether its exact requested detail has been
+semantically answered or explicitly resolved anywhere in the thread. A partial
+or unrelated reply does not clear the pending request. If no answer or
+resolution exists, leave that request as the sole pending handoff and record
+its timestamp; do not stack another question in the same thread. After the
+requested detail is answered or resolved, re-read the thread and attempt the
+fix first. Ask a new question only when one specific, non-repeating detail
+still blocks the fix.
 
 ## Answered clarifications come first
 
-A clarification question is a pending state, not a disposition. Before scanning
-for new messages, re-read every thread this workflow asked a question in that
-has not since been fixed or otherwise dispositioned, oldest question first.
+A clarification question is a pending state, not a disposition, regardless of
+which in-scope workflow posted it. Before scanning for new messages, re-read
+every thread this workflow, the companion `address-feedback-with-replies`
+workflow, or `@agent-native` asked a question in that has not since been fixed
+or otherwise dispositioned, oldest question first. Treat the complete thread
+as the source of truth for whether the request is answered, not the workflow
+that posted it.
 
-- **The reporter replied** - re-read the complete thread and rebuild its
-  evidence ledger first. That thread is the run's first work item. It re-enters
-  triage as a concrete bug carrying the new evidence, ahead of anything newer
-  in the channel: someone answered and is waiting on a fix.
-- **No reply yet** - leave it pending and record it in the recap with the date
-  the question was asked, so an unanswered question stays visible instead of
-  ageing out of the cursor.
-- **The reply does not supply what was asked** - ask the one remaining question
-  only if it is still the blocker; otherwise fix from what is now available.
+- **The requested detail was answered or resolved** - re-read the complete
+  thread and rebuild its evidence ledger first. That thread is the run's first
+  work item. It re-enters triage as a concrete bug carrying the new evidence,
+  ahead of anything newer in the channel: someone answered and is waiting on a
+  fix.
+- **No semantic answer or resolution yet** - leave the existing clarification
+  pending and record its timestamp in the recap. A partial or unrelated reply
+  does not clear it. Do not add a second clarification to the same thread; an
+  unanswered request stays visible instead of ageing out of the cursor.
 
-When a reporter answers a question this workflow previously asked, do not just
-record the answer or leave the old clarification as the disposition. Read the
-entire thread again, use the new evidence to attempt the fix in this run, and
-post a new **Fixed** reply when the fix is verified. Ask another question only
-for the one remaining missing detail. An answered clarification is never a
-reason to skip the thread or continue scanning newer messages.
+When any participant semantically answers the exact question previously asked
+by this workflow, the companion `address-feedback-with-replies` workflow, or
+`@agent-native`, or explicitly resolves it, do not just record the answer or
+leave the old clarification as the disposition. Read the entire thread again,
+use the new evidence to attempt the fix in this run, and post a new **Fixed**
+reply when the fix is verified. A partial or unrelated reply does not clear the
+old clarification or authorize another question. Ask a new question only for
+one specific, non-repeating detail that still blocks the fix after the earlier
+request is answered or resolved. An answered clarification is never a reason
+to skip the thread or continue scanning newer messages.
 
-Our own question is what makes a thread eligible for the first work item,
-which is why this pass runs first. Without it every thread we asked about can
-become invisible on later runs and the reporter's answer is never read.
+An in-scope clarification question is what makes a thread eligible for the
+first work item, which is why this pass runs first. Without it every thread
+with a question can become invisible on later runs and the answer is never
+read.
 
 ## Clarification follow-up aging
 
@@ -254,18 +277,28 @@ Do not infer a Sentry “no results” state from an unavailable API.
 Build one checklist per item with its source link, symptom, expected behavior,
 evidence, likely owner, and disposition. Use this order:
 
-1. **React first for actionable Slack feedback** - once a Slack item is
-   classified as a concrete repo-owned bug or missing-reporter-evidence case,
-   add `👀` to its parent immediately. This must be the first external action
-   for that Slack item: do it before reading linked evidence, delegating,
-   editing code, or asking a clarification. GitHub and Sentry items have no
-   Slack parent, so apply the same evidence-first triage without a reaction.
-   Do not react to status-only, subjective, duplicate, external, or non-repo-
-   owned items. A duplicate reaction is safe and should still be attempted
-   when the marker is not visible in the thread.
-2. **Concrete repo-owned bug** - after the `👀` marker, reproduce or establish
-   it from source, tests, logs, a stack trace, or a linked run. Fix it and keep
-   working until the smallest meaningful verification is green.
+1. **Check the existing marker and owner before any Slack write** - after
+   reading the complete parent, replies, reactions, and the linked evidence
+   needed to classify the item, inspect the latest readable parent reaction
+   state. If it already has an `👀` reaction from anyone, preserve that marker
+   and do not add another. If the reaction state is unavailable, record the
+   item as unavailable or unverified and do not guess or add a reaction. GitHub
+   and Sentry items have no Slack parent, so apply the same evidence-first
+   triage without a reaction.
+   - UX or interaction bugs in the Design app are owned by Sid. Do not
+     automatically react, investigate, fix, clarify, reply, or dispatch those
+     items; record the source and route them to Sid.
+   - All Content app feedback is owned by Alice. Leave those items for Alice;
+     do not automatically react, investigate, fix, clarify, reply, or dispatch
+     them. Record the source and ownership in the disposition.
+   - For a concrete repo-owned or missing-evidence Slack item that is not
+     already marked, add `👀` as the first external write, before delegating,
+     editing code, or asking a clarification. Do not react to status-only,
+     subjective, duplicate, external, or other non-repo-owned items.
+2. **Concrete repo-owned bug** - after the `👀` marker or existing-marker
+   check, reproduce or establish it from source, tests, logs, a stack trace, or
+   a linked run. Fix it and keep working until the smallest meaningful
+   verification is green.
 3. **Missing reporter evidence with no resolution signal** - after the `👀`
    marker and full-thread review, ask one specific question naming the exact
    reproduction, input, or surface needed to choose and verify a safe fix. If a
@@ -354,6 +387,14 @@ failure modes, surfaces, or owners.
    also confirm that no participant or `@agent-native` has already identified,
    fixed, or started fixing the issue. If either the field or a resolution
    signal is present, use it and keep investigating instead of asking again.
+   Check the complete thread for an earlier clarification from this workflow or
+   `@agent-native`. Determine whether the exact requested detail has been
+   answered or explicitly resolved anywhere in the thread, including by another
+   participant or accessible linked evidence. A partial or unrelated reply does
+   not clear it. If it remains unresolved, do not post another question;
+   preserve its timestamp and leave the thread pending. If it is resolved, use
+   the evidence and attempt the fix before considering one new question for one
+   specific remaining blocker.
    If a needed linked artifact is recorded as inaccessible, the access or
    replacement request is valid - do not describe its contents as absent. Do
    not post vague progress, technical internals, or a diagnosis that leaves a
@@ -362,7 +403,8 @@ failure modes, surfaces, or owners.
    own identity is a handled marker on the next run; a clarification reply
    satisfies this run's reply obligation but leaves the thread pending an
    answer. The answered-clarifications pass must re-enter the thread and try the
-   fix when the reporter answers.
+   fix when any participant supplies the requested detail or an explicit
+   resolution.
 7. Do not close, label, assign, or comment on GitHub issues or Sentry unless
    the invocation explicitly authorizes those mutations. Link the issue or
    event in the recap instead.

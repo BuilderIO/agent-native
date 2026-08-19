@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   createCodeAgentRunRecord,
+  codeAgentStoreRoot,
   listCodeAgentRunRecords,
   listCodeAgentTranscriptEvents,
 } from "../../../core/src/cli/code-agent-runs.js";
@@ -78,6 +79,34 @@ describe("DesktopCodeAgentScheduler", () => {
       scheduleName: "Daily brief",
       startRequested: false,
     });
+  });
+
+  it("returns structured errors when schedule storage is unreadable", async () => {
+    useTempCodeAgentsHome();
+    fs.writeFileSync(
+      path.join(codeAgentStoreRoot(), "schedules.json"),
+      "{not valid json",
+      "utf8",
+    );
+    const scheduler = new DesktopCodeAgentScheduler({
+      defaultCwd: () => "/tmp/default",
+      isRunActive: () => false,
+      startRun: () => undefined,
+    });
+
+    const deleted = scheduler.delete({ scheduleId: "schedule-stale" });
+    const runNow = await scheduler.runNow({ scheduleId: "schedule-stale" });
+
+    expect(deleted).toMatchObject({
+      ok: false,
+      message: "Could not delete schedule.",
+    });
+    expect(deleted.error).toEqual(expect.any(String));
+    expect(runNow).toMatchObject({
+      ok: false,
+      message: "Could not run schedule.",
+    });
+    expect(runNow.error).toEqual(expect.any(String));
   });
 });
 
