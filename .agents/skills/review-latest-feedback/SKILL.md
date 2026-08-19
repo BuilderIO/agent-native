@@ -114,6 +114,25 @@ Our own question is what makes a thread eligible for the first work item,
 which is why this pass runs first. Without it every thread we asked about can
 become invisible on later runs and the reporter's answer is never read.
 
+## Resolution and ownership gate
+
+Do not infer missing reporter evidence merely because a thread lacks a
+bot-authored terminal reply. After reading the full thread, treat a substantive
+reply from `@agent-native` or any participant that identifies the cause,
+provides the repro, links a fix, or says the issue is fixed, landed, or being
+fixed as resolution or ownership evidence. It suppresses a duplicate
+clarification request. Verify a claimed fix before recording **Fixed**; if the
+work is in progress, record it as already owned or in progress and continue the
+handoff without asking the reporter to restate the issue. A non-bot resolution
+reply may still need an `@agent-native` ledger reply, but it is not missing
+evidence.
+
+Only ask for clarification when the evidence ledger still contains one specific
+reporter or product detail that blocks a safe fix and no resolution or
+ownership signal answers it. Every clarification reply starts with a brief
+thank-you, then asks that one question. **Clarification needed** is an internal
+disposition, not reporter-facing prose.
+
 ## Required reading and tools
 
 Before changing code, read `address-feedback`,
@@ -161,13 +180,15 @@ evidence, likely owner, and disposition. Use this order:
 2. **Concrete repo-owned bug** - after the `👀` marker, reproduce or establish
    it from source, tests, logs, a stack trace, or a linked run. Fix it and keep
    working until the smallest meaningful verification is green.
-3. **Missing reporter evidence** - after the `👀` marker and full-thread
-   review, ask one specific question naming the exact reproduction, input, or
-   surface needed to choose and verify a safe fix. If a needed linked artifact
-   is inaccessible, ask for access or a fresh/replacement link instead of
-   treating its contents as absent. If only internal test, deployment, or
-   tooling verification is unavailable, keep that blocker internal and do not
-   ask the reporter for it.
+3. **Missing reporter evidence with no resolution signal** - after the `👀`
+   marker and full-thread review, ask one specific question naming the exact
+   reproduction, input, or surface needed to choose and verify a safe fix. If a
+   participant or `@agent-native` already identified, fixed, or is fixing the
+   issue, use that evidence and do not ask a duplicate question. If a needed
+   linked artifact is inaccessible, ask for access or a fresh/replacement link
+   instead of treating its contents as absent. If only internal test,
+   deployment, or tooling verification is unavailable, keep that blocker
+   internal and do not ask the reporter for it.
 4. **Subjective UX or product suggestion** - do not turn a preference into a
    code or prompt rule. Act only when the report identifies a concrete broken
    behavior, an existing product invariant, or repeated independent evidence;
@@ -223,8 +244,9 @@ failure modes, surfaces, or owners.
    Post only after the fix or
    clarification is ready. A **Fixed** reply says that the fix is complete and
    when it should be live. A **Clarification needed** reply asks one concrete
-   question about missing reporter or product input. Thank the reporter by name
-   when available and ask for the smallest useful evidence - such as a deck URL
+   question about missing reporter or product input, but only after the
+   resolution and ownership gate above passes. Start that reply by thanking
+   the reporter, then ask for the smallest useful evidence - such as a deck URL
    and/or request ID - as help to investigate rather than as a terse demand.
    Keep implementation and verification evidence in the internal recap, not the
    reporter-facing reply. `👀` is the first external action, never the final
@@ -238,8 +260,10 @@ failure modes, surfaces, or owners.
    Before posting **Clarification needed**, run the full-thread evidence gate
    again against the latest thread body. Confirm that the requested field is
    absent from the parent, every reply, and every accessible linked artifact;
-   if it is present, use it and keep investigating instead of asking again. If
-   a needed linked artifact is recorded as inaccessible, the access or
+   also confirm that no participant or `@agent-native` has already identified,
+   fixed, or started fixing the issue. If either the field or a resolution
+   signal is present, use it and keep investigating instead of asking again.
+   If a needed linked artifact is recorded as inaccessible, the access or
    replacement request is valid - do not describe its contents as absent. Do
    not post vague progress, technical internals, or a diagnosis that leaves a
    safely fixable bug undone. Re-read every thread after posting and confirm the

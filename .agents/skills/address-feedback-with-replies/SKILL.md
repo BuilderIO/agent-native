@@ -47,6 +47,13 @@ satisfy the ledger.
   parent, a reply, or an accessible attachment or linked run. If a required
   artifact is present but inaccessible, request access or a fresh/replacement
   link instead of requesting its contents again.
+- Before treating the ledger as a clarification gap, scan the complete thread
+  for a substantive resolution or ownership signal. If `@agent-native` or any
+  participant identifies the cause, provides the repro, links a fix, or says the
+  issue is fixed, landed, or being fixed, treat that as available evidence. Do
+  not ask the reporter to repeat the details. Verify a claimed fix, or preserve
+  the existing in-progress ownership and continue the handoff, without asking a
+  duplicate question.
 - If the report includes a run ID, use that ID first to inspect the persisted
   run, events, tool cards, and linked app state. Do not ask for the prompt or
   last tool card until the run ID and available observability paths have been
@@ -125,7 +132,9 @@ similar phrases are internal notes, never a complete Slack reply. If a reply
 does not say the fix is complete and when it should be live, or ask what is
 needed to fix it, do not post it. These are ledger states, not mandatory
 headings: keep the reporter-facing wording natural instead of opening with the
-robotic phrase “Clarification needed”.
+robotic phrase “Clarification needed”. A substantive diagnosis, fix, or
+in-progress ownership statement from someone in the thread is not a reason to
+ask for clarification; verify it or continue the existing handoff first.
 
 **Clarification needed** is an open state, not a completed product fix. Asking
 the question creates a standing obligation to come back for the answer. It is
@@ -183,6 +192,9 @@ missing value. A `Clarification needed` reply is invalid when the requested
      reply, an accessible file, or an accessible linked run. If the evidence is
      in a linked but inaccessible artifact, ask for access or a
      fresh/replacement link instead.
+     If anyone in the thread has already found, fixed, or started fixing the
+     issue, do not ask the reporter for clarification; verify the existing
+     resolution or keep the item in its current ownership state instead.
    Apply a reply gate before every external post: a reply must either say the
    fix is complete and give its expected live timing, or ask the one essential
    missing question. Never post a blocked/unresolved status without a question
@@ -242,6 +254,9 @@ to a user-authored Slack identity:
   share ...” or “a deck URL or request ID would help us dig into this” over
   “send ...” or “provide ...”. Avoid canned enthusiasm, scolding, and robotic
   labels such as “Clarification needed” in the reporter-facing prose.
+- For a clarification reply, the order is mandatory: thank the reporter first,
+  then ask the one essential question. A resolution or ownership statement
+  already present in the thread is not a reason to ask that question.
 - The audience is product/design/feedback reporters, not developers. Never
   post technical explanations such as shared paths, transports, sessions,
   repro levels, payloads, schemas, CORS, auth domains, action names, or
@@ -284,8 +299,8 @@ A useful reply shape is:
 ty for the feedback - [short plain-language status].
 
   [if fixed: this should be live after the final ship later today.]
-  [if clarification is needed: a casual request for the one detail that would
-  help investigate, such as a deck URL and/or request ID.]
+  [if clarification is needed: if you can share the one missing detail, that
+  would help us investigate, such as a deck URL and/or request ID.]
 ```
 
 Keep it to one short paragraph whenever possible. Omit the release sentence

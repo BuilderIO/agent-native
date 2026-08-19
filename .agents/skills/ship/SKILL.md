@@ -82,6 +82,18 @@ ask again for contents already known to be in the inaccessible artifact. If the
 available evidence is enough without it, continue and record the limitation as
 unavailable/unverified in the ship ledger.
 
+Before carrying an item forward as awaiting clarification, check the complete
+source thread and handoff for a resolution or ownership signal. If
+`@agent-native` or another participant already supplied the needed details,
+identified the cause, linked a fix, or said the issue is fixed, landed, or being
+fixed, do not reopen it as a clarification request or ask for duplicate
+information. Carry it as fixed pending verification, already owned, or in
+progress, and verify or follow up on that existing work. Only preserve an
+awaiting-clarification disposition when one specific reporter or product input
+is still missing after that check. Any eventual reporter-facing clarification
+must thank the person first and ask the question second; `Clarification needed`
+is an internal state, not an opening line.
+
 Do not ship a feedback fix that is only a wording-specific rule or that lacks
 the evidence needed to identify its owner. Re-run or refresh the feedback sweep
 when the branch changes after triage or when new comments, Slack replies,

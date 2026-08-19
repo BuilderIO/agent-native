@@ -88,6 +88,13 @@ const PATTERNS = [
     re: /\b(hows? (it going|we looking)|what'?s the status|are we done|you done|did you finish|how close|still (going|running|working)|progress check|any update)\b/i,
   },
   {
+    key: "feedback-reply-tone",
+    label: "Asked for duplicate feedback clarification or skipped thanks",
+    fixedBy:
+      ".agents/skills/address-feedback* (2026-08-19 clarification gate)",
+    re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone)\b|\b(?:thank|thanks)\b[^.!?]{0,80}\b(?:feedback|reporter)\b/i,
+  },
+  {
     key: "cross-thread-interference",
     label: "Agent acted on other agents' threads or work uninvited",
     fixedBy: ".agents/skills/reporting-progress (2026-08-12)",
