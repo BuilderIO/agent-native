@@ -13,6 +13,7 @@ import { sendEmail, isEmailConfigured } from "../../server/email.js";
 import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 import { getUserProfile } from "../../user-profile/store.js";
+import { assertWorkspaceUserGroupIds } from "../../workspace-connections/groups.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
 import type { ShareEmailExtras } from "../registry.js";
@@ -97,7 +98,7 @@ function nanoid(size = 12): string {
 }
 
 function normalizePrincipalId(
-  principalType: "user" | "org",
+  principalType: "user" | "group" | "org",
   principalId: string,
 ): string {
   return principalType === "user"
@@ -111,7 +112,7 @@ function isEmailPrincipalId(value: string): boolean {
 
 function principalIdMatches(
   sharesTable: any,
-  principalType: "user" | "org",
+  principalType: "user" | "group" | "org",
   principalId: string,
 ): SQL {
   return principalType === "user"
@@ -150,7 +151,7 @@ async function isOrgMemberOrInvited(
 
 export default defineAction({
   description:
-    "Grant a user or org access to a shareable resource. Owner or admin role required.",
+    "Grant a user, group, or org access to a shareable resource. Owner or admin role required.",
   // (audit H5) Sharing-grant operations are admin-tier and let a caller
   // expand who can read/write a resource. Refuse from the tools iframe
   // bridge so a malicious shared tool can't silently re-share its
@@ -162,11 +163,15 @@ export default defineAction({
       .describe("Registered resource type, e.g. 'document', 'form'."),
     resourceId: z.string().describe("Id of the resource to share."),
     principalType: z
-      .enum(["user", "org"])
-      .describe("'user' for an individual, 'org' for a whole organization."),
+      .enum(["user", "group", "org"])
+      .describe(
+        "'user' for an individual, 'group' for an organization group, or 'org' for the whole organization.",
+      ),
     principalId: z
       .string()
-      .describe("Email (user) or org id (org) of the principal."),
+      .describe(
+        "Email (user), group id (group), or org id (org) of the principal.",
+      ),
     role: z
       .enum(["viewer", "commenter", "editor", "admin"])
       .default("viewer")
@@ -207,10 +212,30 @@ export default defineAction({
       args.principalType,
       args.principalId,
     );
+    if (args.principalType === "group" && reg.supportsGroupShares !== true) {
+      throw new ForbiddenError(
+        `${reg.displayName} does not support organization groups yet.`,
+      );
+    }
     if (args.principalType === "user" && !isEmailPrincipalId(principalId)) {
       throw new Error(
         "User shares must use an email address, not an internal user id.",
       );
+    }
+    if (args.principalType === "group") {
+      const resourceOrgId = access.resource?.orgId as string | undefined | null;
+      if (!resourceOrgId) {
+        throw new ForbiddenError(
+          `${reg.displayName} can only be shared with a group from within an organization.`,
+        );
+      }
+      try {
+        await assertWorkspaceUserGroupIds([principalId], resourceOrgId);
+      } catch {
+        throw new ForbiddenError(
+          `${reg.displayName} can only be shared with a group from its own organization.`,
+        );
+      }
     }
     const beforeExtensionTargets = await getExtensionShareChangeTargets(
       args.resourceType,
@@ -241,6 +266,8 @@ export default defineAction({
             `${reg.displayName} can only be shared with its own organization, not a different one.`,
           );
         }
+      } else if (args.principalType === "group") {
+        // Group ownership was validated above against the resource org.
       }
     }
 

@@ -530,6 +530,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "不明なユーザー",
   "share.viewer": "閲覧者",
   "share.viewerDescription": "閲覧可能",
+  "share.userGroup": "ユーザーグループ",
   "status.resuming": "再開中",
   "status.stillWorking": "処理を続けています",
   "status.thinking": "思考中",

@@ -11,7 +11,7 @@ import {
 } from "./extension-change.js";
 
 function normalizePrincipalId(
-  principalType: "user" | "org",
+  principalType: "user" | "group" | "org",
   principalId: string,
 ): string {
   return principalType === "user"
@@ -21,7 +21,7 @@ function normalizePrincipalId(
 
 function principalIdMatches(
   sharesTable: any,
-  principalType: "user" | "org",
+  principalType: "user" | "group" | "org",
   principalId: string,
 ): SQL {
   return principalType === "user"
@@ -37,7 +37,7 @@ export default defineAction({
   schema: z.object({
     resourceType: z.string(),
     resourceId: z.string(),
-    principalType: z.enum(["user", "org"]),
+    principalType: z.enum(["user", "group", "org"]),
     principalId: z.string(),
   }),
   run: async (args) => {

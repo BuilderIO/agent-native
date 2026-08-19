@@ -1629,7 +1629,7 @@ export default function DeckEditor() {
               slideAgentActive ||
               (deckAgentActive && agentSlideId === currentSlide.id) ||
               (isNewDeckGenerating &&
-                currentSlide.id === deck.slides.at(-1)?.id)
+                currentSlide.id === deck.slides[deck.slides.length - 1]?.id)
             }
             recentEdits={deckRecentEdits}
             onComment={(quotedText) => {

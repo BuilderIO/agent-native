@@ -26,6 +26,11 @@ const mocks = vi.hoisted(() => {
     putSetting: vi.fn(async (key: string, value: unknown) => {
       settings.set(key, value);
     }),
+    getOrgSetting: vi.fn(async () => null),
+    resolveAccess: vi.fn(async () => ({
+      role: "viewer",
+      resource: {},
+    })),
     getDbExec: vi.fn(() => ({
       execute: vi.fn(async () => ({
         rows: state.orgRole ? [{ role: state.orgRole }] : [],
@@ -74,7 +79,17 @@ vi.mock("@agent-native/core/db", async (importOriginal) => {
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: (...args: any[]) => mocks.getSetting(...args),
   putSetting: (...args: any[]) => mocks.putSetting(...args),
+  getOrgSetting: (...args: any[]) => mocks.getOrgSetting(...args),
 }));
+
+vi.mock("@agent-native/core/sharing", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/sharing")>();
+  return {
+    ...actual,
+    resolveAccess: (...args: any[]) => mocks.resolveAccess(...args),
+  };
+});
 
 vi.mock("@agent-native/core/server", async (importOriginal) => {
   const actual =
@@ -105,6 +120,14 @@ afterEach(() => {
   vi.clearAllMocks();
   mocks.settings.clear();
   mocks.state.orgRole = "admin";
+  mocks.getDbExec.mockReset();
+  mocks.getDbExec.mockImplementation(() => ({
+    execute: vi.fn(async () => ({
+      rows: mocks.state.orgRole ? [{ role: mocks.state.orgRole }] : [],
+    })),
+  }));
+  mocks.resolveAccess.mockReset();
+  mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
   mocks.resolveBuilderCredentialsDetailed.mockResolvedValue({
     privateKey: null,
     publicKey: null,
@@ -343,6 +366,103 @@ describe("listWorkspaceApps", () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("does not create or expose apps when the org visibility setting cannot be read", async () => {
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "private-app", name: "Private app", path: "/private-app" },
+    ]);
+    mocks.getOrgSetting.mockRejectedValueOnce(
+      new Error("settings store unavailable"),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () => listWorkspaceApps({ includeAgentCards: false }),
+      ),
+    ).rejects.toThrow("settings store unavailable");
+  });
+
+  it("fails closed when the workspace-app access schema is unavailable", async () => {
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "private-app", name: "Private app", path: "/private-app" },
+    ]);
+    mocks.resolveAccess.mockRejectedValueOnce(
+      new Error("no such table: workspace_app_shares"),
+    );
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.map((app) => app.id)).toEqual(["dispatch"]);
+  });
+
+  it("does not expose the workspace app registry without an authenticated user", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "private-app", name: "Private app", path: "/private-app" },
+    ]);
+
+    const apps = await runWithRequestContext({ orgId: "org-123" }, () =>
+      listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps).toEqual([]);
+    expect(mocks.resolveAccess).not.toHaveBeenCalled();
+  });
+
+  it("uses the organization default only for apps with trusted creation metadata", async () => {
+    stubNoPendingContext();
+    stubManifest([
+      {
+        id: "legacy-app",
+        name: "Legacy app",
+        path: "/legacy-app",
+      },
+      {
+        id: "new-app",
+        name: "New app",
+        path: "/new-app",
+        createdBy: "creator@example.test",
+      },
+    ]);
+    mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });
+    const execute = vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      if (sql.includes("SELECT id, owner_email, org_id, visibility")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      return { rows: [], rowsAffected: 1 };
+    });
+    mocks.getDbExec.mockReturnValue({ execute });
+
+    const apps = await runWithRequestContext(
+      { userEmail: "dev@example.test", orgId: "org-123" },
+      () => listWorkspaceApps({ includeAgentCards: false }),
+    );
+
+    expect(apps.find((app) => app.id === "legacy-app")?.visibility).toBe("org");
+    expect(apps.find((app) => app.id === "new-app")?.visibility).toBe(
+      "private",
+    );
+    const inserts = execute.mock.calls.filter(([statement]) =>
+      String((statement as { sql?: unknown })?.sql ?? "").includes(
+        "INSERT INTO workspace_apps",
+      ),
+    );
+    expect(inserts.map(([statement]) => (statement as any).args?.[3])).toEqual([
+      "org",
+      "private",
+    ]);
   });
 
   it("projects exact custom SSO eligibility without exposing registry details", async () => {
