@@ -553,7 +553,7 @@ export function cleanupDueCodeAgentWorktrees(input: {
       if (
         worktree.policy !== "ephemeral" ||
         worktree.state === "removed" ||
-        worktree.state === "recoverable" ||
+        (worktree.state === "recoverable" && fs.existsSync(worktree.path)) ||
         worktree.attachedRunIds.length > 0 ||
         worktree.activeLease !== undefined ||
         !worktree.cleanupAfter ||

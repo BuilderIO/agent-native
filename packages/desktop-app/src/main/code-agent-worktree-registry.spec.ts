@@ -407,6 +407,66 @@ describe("code-agent-worktree-registry", () => {
     });
   });
 
+  it("retries branch cleanup after the worktree was already removed", () => {
+    withRepository((root) => {
+      const registryPath = worktreeRegistryPath(root);
+      const worktree = createOrAttachCodeAgentWorktree({
+        registryPath,
+        sourcePath: root,
+        worktreeRoot: path.join(root, "managed-worktrees"),
+        runId: "partial-cleanup",
+        policy: "ephemeral",
+      });
+      releaseCodeAgentWorktree({
+        registryPath,
+        worktreeId: worktree.id,
+        runId: "partial-cleanup",
+        cleanupAfter: new Date("2026-08-01T00:00:00.000Z"),
+      });
+
+      let failBranchRemove = true;
+      const partialRunGit: RunGit = (args, cwd) => {
+        if (failBranchRemove && args[0] === "branch" && args[1] === "-D") {
+          failBranchRemove = false;
+          return { status: 1, stderr: "repository is locked" };
+        }
+        const result = spawnSync("git", args, {
+          cwd,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        return {
+          error: result.error,
+          status: result.status,
+          stderr: result.stderr ?? undefined,
+          stdout: result.stdout ?? undefined,
+        };
+      };
+
+      cleanupDueCodeAgentWorktrees({
+        registryPath,
+        now: new Date("2026-08-22T00:00:00.000Z"),
+        runGit: partialRunGit,
+      });
+      expect(
+        getManagedCodeAgentWorktree(registryPath, worktree.id),
+      ).toMatchObject({
+        state: "error",
+        lastCleanupError: expect.stringContaining("fully remove"),
+      });
+      expect(fs.existsSync(worktree.path)).toBe(false);
+
+      cleanupDueCodeAgentWorktrees({
+        registryPath,
+        now: new Date("2026-08-23T00:00:00.000Z"),
+        runGit: partialRunGit,
+      });
+      expect(
+        getManagedCodeAgentWorktree(registryPath, worktree.id)?.state,
+      ).toBe("removed");
+    });
+  });
+
   it("keeps ephemeral worktrees that contain committed work", () => {
     withRepository((root) => {
       const registryPath = worktreeRegistryPath(root);

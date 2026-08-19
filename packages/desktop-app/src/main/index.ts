@@ -6843,17 +6843,21 @@ async function forkCodeAgentRun(
     getRecordString(sourceRecord, "cwd") ??
     firstStringValue(sourceMetadata.cwd) ??
     resolveCodeAgentsTerminalCwd({});
-  if (executionTarget === "local" && !fs.existsSync(sourceCwd)) {
+  const sourceForNewWorktree =
+    firstStringValue(sourceWorktree?.sourcePath) ?? sourceCwd;
+  const localForkCwd =
+    executionTarget === "local" && sourceWorktree
+      ? sourceForNewWorktree
+      : sourceCwd;
+  if (executionTarget === "local" && !fs.existsSync(localForkCwd)) {
     return {
       ok: false,
       sourceRunId,
       message: "Restore the worktree to continue.",
-      error: `The chat's working directory is missing: ${sourceCwd}`,
+      error: `The workspace is missing: ${localForkCwd}`,
     };
   }
 
-  const sourceForNewWorktree =
-    firstStringValue(sourceWorktree?.sourcePath) ?? sourceCwd;
   if (executionTarget === "worktree" && !fs.existsSync(sourceForNewWorktree)) {
     return {
       ok: false,
@@ -6887,7 +6891,7 @@ async function forkCodeAgentRun(
     sourceMetadata.reasoningEffort,
     sourceRecord.effort,
   );
-  let cwd = sourceCwd;
+  let cwd = localForkCwd;
   let worktreeMetadata: CodeAgentManagedWorktree | undefined;
   try {
     if (executionTarget === "worktree") {
@@ -6898,13 +6902,6 @@ async function forkCodeAgentRun(
         worktreeRoot: path.join(codeAgentStoreRoot(), "worktrees"),
         runId,
         policy: "ephemeral",
-      });
-      cwd = worktreeMetadata.path;
-    } else if (firstStringValue(sourceWorktree?.id)) {
-      worktreeMetadata = restoreManagedCodeAgentWorktree({
-        registryPath: codeAgentWorktreeRegistryFile(),
-        worktreeId: firstStringValue(sourceWorktree?.id)!,
-        runId,
       });
       cwd = worktreeMetadata.path;
     }
@@ -6927,6 +6924,7 @@ async function forkCodeAgentRun(
       source: "desktop",
       queued: false,
     };
+    if (executionTarget === "local") delete metadata.worktree;
     const run: CodeAgentRun = {
       id: runId,
       goalId: goal.id,
