@@ -17,6 +17,8 @@ import {
   oauthDesktopExchangePage,
   oauthErrorPage,
   registerDesktopExchange,
+  prepareDesktopOAuthBrowserBinding,
+  matchesDesktopOAuthBrowserBinding,
   setDesktopExchange,
   setDesktopExchangeError,
   safeReturnPath,
@@ -59,6 +61,7 @@ type CalendarOAuthStateOptions = {
   returnUrl?: string;
   flowId?: string;
   desktopVerifierHash?: string;
+  desktopBrowserBindingHash?: string;
 };
 
 function encodeCalendarOAuthState(options: CalendarOAuthStateOptions): string {
@@ -274,6 +277,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
     }
 
     let desktopVerifierHash: string | undefined;
+    let desktopBrowserBindingHash: string | undefined;
     if (flowId) {
       if (method !== "POST" || q.redirect !== undefined) {
         setResponseStatus(event, 400);
@@ -285,7 +289,12 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
         return { error: "Invalid desktop exchange challenge." };
       }
       try {
-        desktopVerifierHash = await registerDesktopExchange(flowId, verifier);
+        desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
+        desktopVerifierHash = await registerDesktopExchange(
+          flowId,
+          verifier,
+          desktopBrowserBindingHash,
+        );
       } catch {
         setResponseStatus(event, 400);
         return { error: "Invalid desktop exchange challenge." };
@@ -308,6 +317,7 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       returnUrl,
       flowId,
       desktopVerifierHash,
+      desktopBrowserBindingHash,
     });
 
     const url = calendarConnect
@@ -345,6 +355,17 @@ export const handleGoogleCallback = defineEventHandler(
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;
+      if (
+        flowId &&
+        (!state.desktopVerifierHash ||
+          !state.desktopBrowserBindingHash ||
+          !matchesDesktopOAuthBrowserBinding(
+            event,
+            state.desktopBrowserBindingHash,
+          ))
+      ) {
+        throw new Error("Desktop OAuth browser binding is invalid.");
+      }
 
       const googleError = query.error as string | undefined;
       if (googleError) {
@@ -507,6 +528,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         };
       }
       let desktopVerifierHash: string | undefined;
+      let desktopBrowserBindingHash: string | undefined;
       if (flowId) {
         if (method !== "POST" || q.redirect !== undefined) {
           setResponseStatus(event, 400);
@@ -518,7 +540,12 @@ export const getGoogleAddAccountUrl = defineEventHandler(
           return { error: "Invalid desktop exchange challenge." };
         }
         try {
-          desktopVerifierHash = await registerDesktopExchange(flowId, verifier);
+          desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
+          desktopVerifierHash = await registerDesktopExchange(
+            flowId,
+            verifier,
+            desktopBrowserBindingHash,
+          );
         } catch {
           setResponseStatus(event, 400);
           return { error: "Invalid desktop exchange challenge." };
@@ -534,6 +561,7 @@ export const getGoogleAddAccountUrl = defineEventHandler(
         app: OAUTH_STATE_APP_ID,
         flowId,
         desktopVerifierHash,
+        desktopBrowserBindingHash,
       });
       const url = await getAuthUrl(
         undefined,
@@ -568,6 +596,17 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       desktop = state.desktop ?? false;
       mobile = state.mobile ?? false;
       flowId = state.flowId;
+      if (
+        flowId &&
+        (!state.desktopVerifierHash ||
+          !state.desktopBrowserBindingHash ||
+          !matchesDesktopOAuthBrowserBinding(
+            event,
+            state.desktopBrowserBindingHash,
+          ))
+      ) {
+        throw new Error("Desktop OAuth browser binding is invalid.");
+      }
 
       const googleError = query.error as string | undefined;
       if (googleError) {

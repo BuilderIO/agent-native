@@ -1622,7 +1622,12 @@ export interface DesktopExchangeErrorPayload {
 }
 
 type DesktopExchangeEntry =
-  | { challenge: true; verifierHash: string; expiresAt: number }
+  | {
+      challenge: true;
+      verifierHash: string;
+      browserBindingHash?: string;
+      expiresAt: number;
+    }
   | {
       token: string;
       email: string;
@@ -1631,7 +1636,11 @@ type DesktopExchangeEntry =
     }
   | { error: DesktopExchangeErrorPayload; expiresAt: number };
 type DesktopExchangeStoredEntry =
-  | { challenge: true; verifierHash: string }
+  | {
+      challenge: true;
+      verifierHash: string;
+      browserBindingHash?: string;
+    }
   | { token: string; email: string; verifierHash?: string }
   | { error: DesktopExchangeErrorPayload };
 
@@ -1639,6 +1648,7 @@ const _desktopExchanges = new Map<string, DesktopExchangeEntry>();
 const DESKTOP_EXCHANGE_ERROR_PREFIX = "__error__::";
 const DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX = "__magic-link-challenge__::";
 const DESKTOP_MAGIC_LINK_EXCHANGE_PREFIX = "__magic-link-exchange__::";
+export const DESKTOP_OAUTH_BROWSER_BINDING_COOKIE = "an_desktop_oauth_binding";
 const DESKTOP_AUTH_TOKEN_BODY_ORIGINS = new Set([
   "tauri://localhost",
   "http://tauri.localhost",
@@ -1665,6 +1675,15 @@ function desktopFlowVerifierHash(verifier: string): string {
   return crypto.createHash("sha256").update(verifier).digest("base64url");
 }
 
+function matchesDesktopHash(actualHash: string, expectedHash: string): boolean {
+  const actual = Buffer.from(actualHash);
+  const expected = Buffer.from(expectedHash);
+  return (
+    actual.length === expected.length &&
+    crypto.timingSafeEqual(actual, expected)
+  );
+}
+
 function matchesDesktopFlowVerifier(
   verifier: string,
   expectedHash: string,
@@ -1681,10 +1700,20 @@ function parseDesktopExchangeStoredEntry(
   packed: string,
 ): DesktopExchangeStoredEntry | null {
   if (packed.startsWith(DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX)) {
-    const verifierHash = packed.slice(
-      DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX.length,
-    );
-    return verifierHash ? { challenge: true, verifierHash } : null;
+    const raw = packed.slice(DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX.length);
+    const [verifierHash, browserBindingHash] = raw.split("::");
+    if (!isValidDesktopFlowVerifierHash(verifierHash)) return null;
+    if (
+      browserBindingHash !== undefined &&
+      !isValidDesktopFlowVerifierHash(browserBindingHash)
+    ) {
+      return null;
+    }
+    return {
+      challenge: true,
+      verifierHash,
+      ...(browserBindingHash ? { browserBindingHash } : {}),
+    };
   }
   if (packed.startsWith(DESKTOP_EXCHANGE_ERROR_PREFIX)) {
     const raw = packed.slice(DESKTOP_EXCHANGE_ERROR_PREFIX.length);
@@ -1736,15 +1765,51 @@ function withDesktopMagicLinkFlow(
 async function persistDesktopMagicLinkChallenge(
   flowId: string,
   verifierHash: string,
+  browserBindingHash?: string,
 ): Promise<void> {
   await addSession(
     `dex:${flowId}`,
-    `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}${verifierHash}`,
+    `${DESKTOP_MAGIC_LINK_CHALLENGE_PREFIX}${verifierHash}${
+      browserBindingHash ? `::${browserBindingHash}` : ""
+    }`,
   );
 }
 
 function isValidDesktopFlowVerifierHash(value: unknown): value is string {
   return typeof value === "string" && /^[A-Za-z0-9_-]{43}$/.test(value);
+}
+
+/**
+ * Create or reuse the browser-local binding for a desktop Google OAuth flow.
+ * The raw value stays in an HttpOnly cookie; only its hash travels in signed
+ * OAuth state and the exchange challenge. This prevents a caller from
+ * initiating a flow and handing its authorization URL to another browser.
+ */
+export function prepareDesktopOAuthBrowserBinding(event: H3Event): string {
+  let binding = getCookie(event, DESKTOP_OAUTH_BROWSER_BINDING_COOKIE);
+  if (!binding || !/^[A-Za-z0-9_-]{43}$/.test(binding)) {
+    binding = crypto.randomBytes(32).toString("base64url");
+    setCookie(event, DESKTOP_OAUTH_BROWSER_BINDING_COOKIE, binding, {
+      ...crossSiteCookieAttrs(event),
+      httpOnly: true,
+      path: "/",
+      maxAge: Math.floor(DESKTOP_EXCHANGE_TTL_MS / 1_000),
+    });
+  }
+  return desktopFlowVerifierHash(binding);
+}
+
+/** Verify that a desktop OAuth callback is returning to its initiating browser. */
+export function matchesDesktopOAuthBrowserBinding(
+  event: H3Event,
+  expectedHash: string,
+): boolean {
+  const binding = getCookie(event, DESKTOP_OAUTH_BROWSER_BINDING_COOKIE);
+  return Boolean(
+    binding &&
+    isValidDesktopFlowVerifierHash(expectedHash) &&
+    matchesDesktopFlowVerifier(binding, expectedHash),
+  );
 }
 
 async function issueDesktopMagicLinkFlow(): Promise<{
@@ -1797,11 +1862,18 @@ export function setDesktopExchange(
 export async function registerDesktopExchange(
   flowId: string,
   verifier: string,
+  browserBindingHash?: string,
 ): Promise<string> {
   const normalizedFlowId = normalizeDesktopFlowId(flowId);
   const normalizedVerifier = normalizeDesktopFlowVerifier(verifier);
   if (!normalizedFlowId || !normalizedVerifier) {
     throw new Error("Invalid desktop exchange challenge.");
+  }
+  if (
+    browserBindingHash !== undefined &&
+    !isValidDesktopFlowVerifierHash(browserBindingHash)
+  ) {
+    throw new Error("Invalid desktop exchange browser binding.");
   }
   const verifierHash = desktopFlowVerifierHash(normalizedVerifier);
   const current = _desktopExchanges.get(normalizedFlowId);
@@ -1810,6 +1882,13 @@ export async function registerDesktopExchange(
       "challenge" in current &&
       matchesDesktopFlowVerifier(normalizedVerifier, current.verifierHash)
     ) {
+      if (
+        browserBindingHash !== undefined &&
+        (!current.browserBindingHash ||
+          !matchesDesktopHash(current.browserBindingHash, browserBindingHash))
+      ) {
+        throw new Error("Desktop exchange flow is already in use.");
+      }
       return current.verifierHash;
     }
     throw new Error("Desktop exchange flow is already in use.");
@@ -1821,9 +1900,19 @@ export async function registerDesktopExchange(
       "challenge" in stored &&
       matchesDesktopFlowVerifier(normalizedVerifier, stored.verifierHash)
     ) {
+      if (
+        browserBindingHash !== undefined &&
+        (!stored.browserBindingHash ||
+          !matchesDesktopHash(stored.browserBindingHash, browserBindingHash))
+      ) {
+        throw new Error("Desktop exchange flow is already in use.");
+      }
       _desktopExchanges.set(normalizedFlowId, {
         challenge: true,
         verifierHash: stored.verifierHash,
+        ...(stored.browserBindingHash
+          ? { browserBindingHash: stored.browserBindingHash }
+          : {}),
         expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
       });
       return stored.verifierHash;
@@ -1834,10 +1923,15 @@ export async function registerDesktopExchange(
   _desktopExchanges.set(normalizedFlowId, {
     challenge: true,
     verifierHash,
+    ...(browserBindingHash ? { browserBindingHash } : {}),
     expiresAt: Date.now() + DESKTOP_EXCHANGE_TTL_MS,
   });
   try {
-    await persistDesktopMagicLinkChallenge(normalizedFlowId, verifierHash);
+    await persistDesktopMagicLinkChallenge(
+      normalizedFlowId,
+      verifierHash,
+      browserBindingHash,
+    );
   } catch (error) {
     _desktopExchanges.delete(normalizedFlowId);
     throw error;
@@ -3906,6 +4000,7 @@ async function mountBetterAuthRoutes(
           ? getHeader(event, "x-agent-native-desktop-verifier")
           : undefined;
         let desktopVerifierHash: string | undefined;
+        let desktopBrowserBindingHash: string | undefined;
         if (desktop && (q.flow_id !== undefined || q.verifier !== undefined)) {
           if (
             method !== "POST" ||
@@ -3918,9 +4013,12 @@ async function mountBetterAuthRoutes(
             return { error: "Invalid desktop exchange challenge." };
           }
           try {
+            desktopBrowserBindingHash =
+              prepareDesktopOAuthBrowserBinding(event);
             desktopVerifierHash = await registerDesktopExchange(
               flowId,
               requestedVerifier,
+              desktopBrowserBindingHash,
             );
           } catch {
             setResponseStatus(event, 400);
@@ -3955,6 +4053,7 @@ async function mountBetterAuthRoutes(
           returnUrl,
           flowId: flowId ?? undefined,
           desktopVerifierHash,
+          desktopBrowserBindingHash,
           signupAttribution,
           signupAnonymousId,
         });
@@ -4020,6 +4119,7 @@ async function mountBetterAuthRoutes(
             returnUrl,
             flowId,
             desktopVerifierHash,
+            desktopBrowserBindingHash,
             signupAttribution,
             signupAnonymousId,
           } = decodeOAuthState(
@@ -4084,6 +4184,19 @@ async function mountBetterAuthRoutes(
               message: msg,
             });
             return oauthErrorPage(msg);
+          }
+
+          if (flowId) {
+            if (
+              !desktopVerifierHash ||
+              !desktopBrowserBindingHash ||
+              !matchesDesktopOAuthBrowserBinding(
+                event,
+                desktopBrowserBindingHash,
+              )
+            ) {
+              throw new Error("Desktop OAuth browser binding is invalid.");
+            }
           }
 
           const tokenRes = await fetch("https://oauth2.googleapis.com/token", {

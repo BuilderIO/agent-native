@@ -472,6 +472,8 @@ export interface OAuthStatePayload {
   flowId?: string;
   /** Hash of the client-held verifier binding a desktop exchange to its initiator. */
   desktopVerifierHash?: string;
+  /** Hash of the initiating browser binding for a desktop OAuth exchange. */
+  desktopBrowserBindingHash?: string;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
 }
@@ -539,6 +541,7 @@ export interface EncodeOAuthStateOptions {
   returnUrl?: string;
   flowId?: string;
   desktopVerifierHash?: string;
+  desktopBrowserBindingHash?: string;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
 }
@@ -620,6 +623,8 @@ export function encodeOAuthState(
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
   if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
+  if (opts.desktopBrowserBindingHash)
+    payload.bh = opts.desktopBrowserBindingHash;
   if (opts.signupAttribution) payload.ft = opts.signupAttribution;
   const signupAnonymousId = normalizeAnalyticsAnonymousId(
     opts.signupAnonymousId,
@@ -678,6 +683,8 @@ export function decodeOAuthState(
         flowId: parsed.f || undefined,
         desktopVerifierHash:
           typeof parsed.vh === "string" ? parsed.vh : undefined,
+        desktopBrowserBindingHash:
+          typeof parsed.bh === "string" ? parsed.bh : undefined,
         signupAttribution: sanitizeStateAttribution(parsed.ft),
         signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
       };

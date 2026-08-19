@@ -5,6 +5,7 @@ import {
   resolveGoogleSignInCredentials,
   resolveOAuthRedirectUri,
   registerDesktopExchange,
+  prepareDesktopOAuthBrowserBinding,
   safeReturnPath,
 } from "@agent-native/core/server";
 import {
@@ -64,6 +65,7 @@ export default defineEventHandler(async (event: H3Event) => {
     const calendarConnect =
       q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
     let desktopVerifierHash: string | undefined;
+    let desktopBrowserBindingHash: string | undefined;
     if (flowId && !calendarConnect) {
       if (getMethod(event) !== "POST" || q.redirect !== undefined) {
         setResponseStatus(event, 400);
@@ -75,7 +77,12 @@ export default defineEventHandler(async (event: H3Event) => {
         return { error: "Invalid desktop exchange challenge." };
       }
       try {
-        desktopVerifierHash = await registerDesktopExchange(flowId, verifier);
+        desktopBrowserBindingHash = prepareDesktopOAuthBrowserBinding(event);
+        desktopVerifierHash = await registerDesktopExchange(
+          flowId,
+          verifier,
+          desktopBrowserBindingHash,
+        );
       } catch {
         setResponseStatus(event, 400);
         return { error: "Invalid desktop exchange challenge." };
@@ -114,6 +121,7 @@ export default defineEventHandler(async (event: H3Event) => {
       returnUrl,
       flowId: calendarConnect ? undefined : flowId,
       desktopVerifierHash,
+      desktopBrowserBindingHash,
     });
 
     const params = new URLSearchParams({

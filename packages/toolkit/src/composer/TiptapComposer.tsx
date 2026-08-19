@@ -86,6 +86,8 @@ import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 export interface TiptapComposerHandle {
   focus(): void;
+  /** Insert text through the editor's normal input path. */
+  insertText(text: string): void;
   setText(text: string): void;
   insertReference(ref: AgentComposerReference): void;
 }
@@ -2361,7 +2363,9 @@ export function TiptapComposer({
           }
         }
         onTextChangeRef.current?.(ed.state.doc.textContent.trim());
-      } catch {}
+      } catch {
+        // coercion-ok: draft persistence is optional; editor state remains authoritative.
+      }
     },
     onUpdate: ({ editor: ed }) => {
       // Drive the send button's enabled state from the actual editor contents;
@@ -2787,6 +2791,14 @@ export function TiptapComposer({
   useImperativeHandle(focusRef, () => ({
     focus() {
       if (isComposerEditorUsable(editor)) editor.commands.focus("end");
+    },
+    insertText(text: string) {
+      if (!isComposerEditorUsable(editor)) return;
+      editor.commands.setContent(plainTextToDoc(""), { emitUpdate: false });
+      editor.commands.focus("end");
+      if (!document.execCommand("insertText", false, text)) {
+        editor.commands.insertContent(text);
+      }
     },
     setText(text: string) {
       if (!isComposerEditorUsable(editor)) return;

@@ -6,6 +6,7 @@ import {
   oauthErrorPage,
   resolveGoogleSignInCredentials,
   resolveOAuthOwner,
+  matchesDesktopOAuthBrowserBinding,
   setDesktopExchange,
   type OAuthStatePayload,
 } from "@agent-native/core/server";
@@ -31,6 +32,17 @@ async function handleGoogleSignInCallback(
 ) {
   const desktop = state.desktop;
   const flowId = state.flowId;
+  if (
+    flowId &&
+    (!state.desktopVerifierHash ||
+      !state.desktopBrowserBindingHash ||
+      !matchesDesktopOAuthBrowserBinding(
+        event,
+        state.desktopBrowserBindingHash,
+      ))
+  ) {
+    return oauthErrorPage("Desktop OAuth browser binding is invalid.");
+  }
 
   try {
     const query = getQuery(event);

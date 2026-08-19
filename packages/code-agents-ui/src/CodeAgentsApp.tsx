@@ -1499,7 +1499,7 @@ export default function CodeAgentsApp({
     if (handledNewChatPromptNonceRef.current === request.nonce) return;
     handledNewChatPromptNonceRef.current = request.nonce;
     const frame = window.requestAnimationFrame(() => {
-      newPromptRef.current?.setText(prompt);
+      newPromptRef.current?.insertText(prompt);
       newPromptRef.current?.focus();
     });
     return () => window.cancelAnimationFrame(frame);
