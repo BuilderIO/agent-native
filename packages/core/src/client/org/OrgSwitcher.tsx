@@ -374,8 +374,8 @@ export function OrgSwitcher({
         method: "POST",
         credentials: "include",
       });
-    } catch {
-      /* continue to sign-in — the server may already have cleared the cookie */
+    } catch (error) {
+      console.warn("Unable to complete logout request before sign-in", error);
     }
     notifySessionInvalidated();
     window.location.href = buildSignInReturnHref();
