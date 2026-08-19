@@ -15,6 +15,7 @@ export type { DbToolScopingOptions } from "./db-tool-scoping.js";
 export { scanExplicitCollabAccess } from "./explicit-collab-access.js";
 export { scanDrizzlePush } from "./no-drizzle-push.js";
 export { scanEmptyMigrations } from "./no-empty-migrations.js";
+export { scanReleaseSchemaCoverage } from "./release-schema-complete.js";
 export type { EmptyMigrationsSourceOptions } from "./no-empty-migrations.js";
 export {
   analyzeEmptyMigrationsSource,

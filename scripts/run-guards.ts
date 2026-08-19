@@ -9,6 +9,7 @@ const guards = [
   "guard:no-pnpm-patches",
   "guard:chat-first-shared-ui",
   "guard:no-empty-migrations",
+  "guard:release-schema-complete",
   "guard:no-unscoped-queries",
   "guard:no-env-credentials",
   "guard:env-documentation",
