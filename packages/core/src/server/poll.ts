@@ -496,6 +496,7 @@ export class AppSyncState {
   private lastDurablePrune = Date.now();
   private durablePruneFailures = 0;
   private durableWriteFailures = 0;
+  private allocatorReseedFailures = 0;
 
   /**
    * Whether we've seeded `version` from the DB. In serverless (Netlify,
@@ -807,6 +808,16 @@ export class AppSyncState {
     }
   }
 
+  private reportAllocatorReseedFailure(error: unknown): void {
+    this.allocatorReseedFailures++;
+    if (this.allocatorReseedFailures === 1) {
+      console.warn(
+        "[agent-native] sync version allocator reseed failed; retrying allocation:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+  }
+
   async persistSyncEvent(
     event: ChangeEvent,
     dedupeKey?: string,
@@ -875,9 +886,18 @@ export class AppSyncState {
     let result = await client.execute({ sql: ALLOCATING_INSERT_SQL, args });
     if (result.rows.length === 0) {
       // Allocator row missing (e.g. wiped after ensure): reseed, retry once.
-      await client.execute(SEED_SYNC_VERSION_SQL).catch(() => {});
+      try {
+        await client.execute(SEED_SYNC_VERSION_SQL);
+        this.allocatorReseedFailures = 0;
+      } catch (error) {
+        // Keep the retry/fallback behavior, but do not hide the reason the
+        // allocator was unavailable. A missing warning here makes a broken
+        // allocator look like a normal retry until version ordering drifts.
+        this.reportAllocatorReseedFailure(error);
+      }
       result = await client.execute({ sql: ALLOCATING_INSERT_SQL, args });
     }
+    if (result.rows.length > 0) this.allocatorReseedFailures = 0;
     const version = timestampValue(result.rows[0]?.version);
     await this.pruneDurableEvents(client);
     return version > 0 ? version : null;
