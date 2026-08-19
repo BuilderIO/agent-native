@@ -607,6 +607,51 @@ describe("session replay", () => {
     }
   });
 
+  it("does not restart after a pagehide upload timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchMock } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      vi.stubGlobal("AbortController", undefined);
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const replay = await freshSessionReplay();
+
+      await replay.startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxEventsPerBatch: 10,
+        flushIntervalMs: 100_000,
+      });
+
+      let resolveUpload!: (response: Response) => void;
+      fetchMock.mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveUpload = resolve;
+          }),
+      );
+      recordOptions.emit({ type: 3, data: { href: "/pagehide" } });
+      await vi.advanceTimersByTimeAsync(0);
+      const flush = replay.flushSessionReplay("pagehide");
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(recordMock).toHaveBeenCalledTimes(1);
+
+      resolveUpload(new Response("{}"));
+      await vi.advanceTimersByTimeAsync(0);
+      await flush;
+      expect(recordMock).toHaveBeenCalledTimes(1);
+
+      await replay.stopSessionReplay();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("aborts a hung replay upload instead of holding the flush lock forever", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
       email: "dev@example.com",

@@ -1407,6 +1407,7 @@ interface ReplayUploadPayload {
 interface PendingReplayUpload {
   request: Promise<void>;
   payload: ReplayUploadPayload;
+  reason: string;
 }
 
 interface PendingReplayStart {
@@ -1895,11 +1896,14 @@ async function recoverAfterPendingReplayUpload(
   }
 
   const wasActive = state.active;
-  const restartRequest =
-    state.pendingReplayStart ??
-    (wasActive && state.options
-      ? { options: state.options, sessionId: pending.payload.sessionId }
-      : null);
+  const suppressRestart =
+    pending.reason === "pagehide" || pending.reason === "beforeunload";
+  const restartRequest = suppressRestart
+    ? null
+    : (state.pendingReplayStart ??
+      (wasActive && state.options
+        ? { options: state.options, sessionId: pending.payload.sessionId }
+        : null));
 
   // Never reuse the replay identity after a timeout. The server may have
   // accepted the old request even when this client observed an abort, so a
@@ -2042,6 +2046,7 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       const pending: PendingReplayUpload = {
         request: error.request,
         payload,
+        reason,
       };
       state.pendingReplayUpload = pending;
       // The timed-out batch is deliberately fenced rather than requeued:
