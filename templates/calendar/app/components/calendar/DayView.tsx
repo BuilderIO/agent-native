@@ -441,6 +441,7 @@ const DayEventCard = memo(function DayEventCard({
       onDelete={onDeleteEvent}
       isDraft={isDraft}
       defaultOpen={defaultOpen}
+      popoverSide="bottom"
       onTitleSave={onQuickEditSave}
       onDismissNew={onQuickEditCancel}
       onDraftUpdate={onDraftUpdate}
@@ -810,6 +811,7 @@ export const DayView = memo(function DayView({
                       onDelete={onDeleteEvent}
                       isDraft={draftEventIds.includes(event.id)}
                       defaultOpen={quickEditEventId === event.id}
+                      popoverSide="bottom"
                       onTitleSave={onQuickEditSave}
                       onDismissNew={onQuickEditCancel}
                       onDraftUpdate={onDraftUpdate}
@@ -887,6 +889,7 @@ export const DayView = memo(function DayView({
                       onDelete={onDeleteEvent}
                       isDraft={draftEventIds.includes(event.id)}
                       defaultOpen={quickEditEventId === event.id}
+                      popoverSide="bottom"
                       onTitleSave={onQuickEditSave}
                       onDismissNew={onQuickEditCancel}
                       onDraftUpdate={onDraftUpdate}

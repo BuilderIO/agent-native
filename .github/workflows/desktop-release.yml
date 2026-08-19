@@ -112,7 +112,6 @@ jobs:
               --title "Agent Native v${{ needs.resolve-version.outputs.version }}" \
               --notes "Stable release of the Agent Native desktop app." \
               -R "${{ github.repository }}"
-          fi
 
   build-mac:
     needs: [resolve-version, prepare-release]

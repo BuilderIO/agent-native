@@ -4,14 +4,50 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ChatFirstAppsRail } from "./apps-rail.js";
+import {
+  CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY,
+  ChatFirstAppsRail,
+} from "./apps-rail.js";
 
 describe("ChatFirstAppsRail", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let localStorageDescriptor: PropertyDescriptor | undefined;
+
+  function createMemoryStorage(): Storage {
+    const values = new Map<string, string>();
+    return {
+      get length() {
+        return values.size;
+      },
+      clear() {
+        values.clear();
+      },
+      getItem(key) {
+        return values.get(key) ?? null;
+      },
+      key(index) {
+        return [...values.keys()][index] ?? null;
+      },
+      removeItem(key) {
+        values.delete(key);
+      },
+      setItem(key, value) {
+        values.set(String(key), String(value));
+      },
+    };
+  }
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    localStorageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: createMemoryStorage(),
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -19,7 +55,13 @@ describe("ChatFirstAppsRail", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    window.localStorage.removeItem(CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY);
     container.remove();
+    if (localStorageDescriptor) {
+      Object.defineProperty(window, "localStorage", localStorageDescriptor);
+    } else {
+      Reflect.deleteProperty(window, "localStorage");
+    }
   });
 
   it("grays non-selected app icons while keeping the selected icon in color", () => {
@@ -201,5 +243,52 @@ describe("ChatFirstAppsRail", () => {
         (app) => app.dataset.appId,
       ),
     ).toEqual(defaultAppIds);
+  });
+
+  it("persists the expanded rail state across remounts", () => {
+    const apps = Array.from({ length: 7 }, (_, index) => ({
+      id: `app-${index}`,
+      name: `App ${index}`,
+    }));
+
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={apps}
+          onOpenApp={vi.fn()}
+          renderIcon={(app) => <span>{app.name}</span>}
+        />,
+      );
+    });
+
+    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(5);
+    const showMore = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Show more",
+    );
+    expect(showMore).toBeDefined();
+
+    act(() => {
+      showMore?.click();
+    });
+
+    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(7);
+
+    act(() => {
+      root.unmount();
+    });
+    root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={apps}
+          collapsed
+          onOpenApp={vi.fn()}
+          renderIcon={(app) => <span>{app.name}</span>}
+        />,
+      );
+    });
+
+    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(7);
   });
 });

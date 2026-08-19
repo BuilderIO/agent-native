@@ -218,14 +218,67 @@ export function nextCodeAgentScheduleRunAt(
   return new Date(next).toISOString();
 }
 
-function readScheduleFile(): CodeAgentScheduleRecord[] {
-  try {
-    const raw = JSON.parse(fs.readFileSync(codeAgentSchedulesPath(), "utf8"));
-    if (!Array.isArray(raw)) return [];
-    return raw.filter(isScheduleRecord);
-  } catch {
-    return [];
+/**
+ * A schedules file that exists but cannot be understood. Every mutation
+ * rewrites the whole file, so treating this as an empty list would delete every
+ * stored schedule; callers must fail instead.
+ */
+export class CodeAgentSchedulesUnreadableError extends Error {
+  readonly filePath: string;
+
+  constructor(filePath: string, detail: string, options?: { cause?: unknown }) {
+    super(
+      `Code agent schedules at ${filePath} could not be read (${detail}). ` +
+        `Refusing to continue so the existing schedules are not overwritten. ` +
+        `Repair or remove the file, then retry.`,
+      options,
+    );
+    this.name = "CodeAgentSchedulesUnreadableError";
+    this.filePath = filePath;
   }
+}
+
+function readScheduleFile(): CodeAgentScheduleRecord[] {
+  const filePath = codeAgentSchedulesPath();
+
+  let contents: string;
+  try {
+    contents = fs.readFileSync(filePath, "utf8");
+  } catch (error) {
+    // Only a genuinely absent file is an empty schedule list. A permission
+    // error or transient I/O failure is unknown, not empty.
+    if ((error as NodeJS.ErrnoException | null)?.code === "ENOENT") return [];
+    throw new CodeAgentSchedulesUnreadableError(filePath, "read failed", {
+      cause: error,
+    });
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(contents);
+  } catch (error) {
+    throw new CodeAgentSchedulesUnreadableError(filePath, "invalid JSON", {
+      cause: error,
+    });
+  }
+
+  if (!Array.isArray(parsed)) {
+    throw new CodeAgentSchedulesUnreadableError(
+      filePath,
+      `expected an array, found ${parsed === null ? "null" : typeof parsed}`,
+    );
+  }
+
+  const records = parsed.filter(isScheduleRecord);
+  if (records.length !== parsed.length) {
+    // Dropping the entries we cannot parse and writing the rest back is the
+    // same data loss by a quieter route — a newer schemaVersion included.
+    throw new CodeAgentSchedulesUnreadableError(
+      filePath,
+      `${parsed.length - records.length} of ${parsed.length} entries are not valid schedule records`,
+    );
+  }
+  return records;
 }
 
 function writeScheduleFile(records: CodeAgentScheduleRecord[]): void {

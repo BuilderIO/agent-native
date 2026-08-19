@@ -27,6 +27,7 @@ import {
   ReminderControls,
 } from "@/components/calendar/EventOptionControls";
 import { FindTimeTakeover } from "@/components/calendar/FindTimePanel";
+import { RepeatPicker } from "@/components/calendar/InlineEventPickers";
 import { TimezoneCombobox } from "@/components/TimezoneCombobox";
 import { Button } from "@/components/ui/button";
 import {
@@ -71,6 +72,7 @@ import { getGoogleEventColorHex } from "@/lib/event-colors";
 import { buildEventFormInitializationKey } from "@/lib/event-form-initialization";
 import {
   attachmentsToDrafts,
+  buildCustomRecurrenceRules,
   buildRecurrenceRules,
   buildReminderPayload,
   createAttachmentDraft,
@@ -78,9 +80,11 @@ import {
   dateTimeInTimezoneToIso,
   getEventEndValidationMessage,
   getRecurrencePreset,
+  parseCustomRecurrence,
   remindersToDraftState,
   resolveEventTimezone,
   type AttachmentDraft,
+  type CustomRecurrenceDraft,
   type RecurrencePreset,
   type ReminderDraft,
   type ReminderMode,
@@ -270,6 +274,10 @@ export function CreateEventPopover({
   const [visibility, setVisibility] = useState<Visibility>("default");
   const [recurrencePreset, setRecurrencePreset] =
     useState<RecurrencePreset>("none");
+  const [customRecurrence, setCustomRecurrence] =
+    useState<CustomRecurrenceDraft>(() =>
+      parseCustomRecurrence(undefined, defaultDateStr),
+    );
   const [timezone, setTimezone] = useState(defaultTimezone);
   const [colorId, setColorId] = useState<string | undefined>();
   const [reminderMode, setReminderMode] = useState<ReminderMode>("default");
@@ -377,6 +385,9 @@ export function CreateEventPopover({
       setAvailability(draft.transparency ?? "opaque");
       setVisibility(draft.visibility ?? "default");
       setRecurrencePreset(getRecurrencePreset(draft.recurrence));
+      setCustomRecurrence(
+        parseCustomRecurrence(draft.recurrence, draft.start || nextDate),
+      );
       setTimezone(draftTimezone);
       setColorId(draft.colorId);
       setReminderMode(reminderState.mode);
@@ -416,6 +427,7 @@ export function CreateEventPopover({
     setAvailability("opaque");
     setVisibility("default");
     setRecurrencePreset("none");
+    setCustomRecurrence(parseCustomRecurrence(undefined, nextDate));
     setTimezone(defaultTimezone);
     setColorId(undefined);
     setReminderMode("default");
@@ -478,11 +490,14 @@ export function CreateEventPopover({
         : dateTimeInTimezoneToIso(endDate, endTime, eventTimezone);
     const attachmentResult = validateAttachmentDrafts(attachments);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
-    const recurrence = buildRecurrenceRules(
-      recurrencePreset,
-      effectiveAllDay ? date : startValue,
-      eventTimezone,
-    );
+    const recurrence =
+      recurrencePreset === "custom"
+        ? buildCustomRecurrenceRules(customRecurrence)
+        : buildRecurrenceRules(
+            recurrencePreset,
+            effectiveAllDay ? date : startValue,
+            eventTimezone,
+          );
     const nextDraft: CalendarEventDraft = {
       id: draftId,
       createdAt: draft?.createdAt,
@@ -569,6 +584,7 @@ export function CreateEventPopover({
     availability,
     visibility,
     recurrencePreset,
+    customRecurrence,
     eventTimezone,
     colorId,
     reminderMode,
@@ -767,11 +783,14 @@ export function CreateEventPopover({
       ...trailingAttendees,
     ]);
     const reminderPatch = buildReminderPayload(reminderMode, reminders);
-    const recurrence = buildRecurrenceRules(
-      recurrencePreset,
-      effectiveAllDay ? date : startValue,
-      eventTimezone,
-    );
+    const recurrence =
+      recurrencePreset === "custom"
+        ? buildCustomRecurrenceRules(customRecurrence)
+        : buildRecurrenceRules(
+            recurrencePreset,
+            effectiveAllDay ? date : startValue,
+            eventTimezone,
+          );
     const statusPatch =
       eventType === "default"
         ? {}
@@ -1435,44 +1454,14 @@ export function CreateEventPopover({
                   <Label htmlFor="event-recurrence" className="text-xs">
                     {t("eventForm.repeats")}
                   </Label>
-                  <Select
-                    value={recurrencePreset}
-                    onValueChange={(value) =>
-                      setRecurrencePreset(value as RecurrencePreset)
+                  <RepeatPicker
+                    preset={recurrencePreset}
+                    referenceDate={
+                      effectiveAllDay ? date : currentStartISO || date
                     }
-                  >
-                    <SelectTrigger
-                      id="event-recurrence"
-                      className="h-8 text-sm"
-                    >
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="none">
-                        {t("eventForm.doesNotRepeat")}
-                      </SelectItem>
-                      <SelectItem value="daily">
-                        {t("eventForm.daily")}
-                      </SelectItem>
-                      <SelectItem value="weekdays">
-                        {t("eventForm.everyWeekday")}
-                      </SelectItem>
-                      <SelectItem value="weekly">
-                        {t("eventForm.weekly")}
-                      </SelectItem>
-                      <SelectItem value="monthly">
-                        {t("eventForm.monthly")}
-                      </SelectItem>
-                      <SelectItem value="yearly">
-                        {t("eventForm.yearly")}
-                      </SelectItem>
-                      {recurrencePreset === "custom" && (
-                        <SelectItem value="custom" disabled>
-                          {t("eventForm.customSchedule")}
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
+                    onChange={setRecurrencePreset}
+                    onCustomChange={setCustomRecurrence}
+                  />
                 </div>
 
                 {(!allDay || isOutOfOffice) && (

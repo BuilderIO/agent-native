@@ -9,6 +9,7 @@
 import type { ActionEntry } from "../../agent/production-agent.js";
 import type { ActionTool } from "../../agent/types.js";
 import { createCodingToolRegistry } from "../../coding-tools/index.js";
+import { getRequestRunContext } from "../../server/request-context.js";
 import {
   normalizeDatabaseToolsMode,
   type DatabaseToolsOption,
@@ -89,6 +90,25 @@ function blockedDatabaseActionFromBash(
     return `Error: raw database write tools are disabled for this app (blocked ${actionName}).`;
   }
 
+  return null;
+}
+
+function unauthorizedActionFromBash(
+  command: string,
+  allowedActionNames?: readonly string[],
+): string | null {
+  if (!allowedActionNames) return null;
+
+  const allowed = new Set(allowedActionNames);
+  const actionCommands = command.matchAll(
+    /\b(?:pnpm|npm|yarn|bun)(?:\s+\S+){0,4}\s+action\s+([a-z][a-z0-9-]*)\b/g,
+  );
+  for (const match of actionCommands) {
+    const actionName = match[1];
+    if (actionName && !allowed.has(actionName)) {
+      return `Error: action "${actionName}" is not available in this request's action surface.`;
+    }
+  }
   return null;
 }
 
@@ -268,7 +288,10 @@ export async function createDevScriptRegistry(
     cwd: process.cwd(),
     bashThrowsOnNonZero: true,
     beforeBash: ({ command }) =>
-      blockedDatabaseActionFromBash(command, databaseToolsMode),
+      unauthorizedActionFromBash(
+        command,
+        getRequestRunContext()?.allowedActionNames,
+      ) ?? blockedDatabaseActionFromBash(command, databaseToolsMode),
   });
   const legacyEntries: Record<string, ActionEntry> = options.legacyAliases
     ? {

@@ -2062,11 +2062,19 @@ export function App() {
       const controller = new AbortController();
       const abortTimer = setTimeout(() => controller.abort(), POLL_ABORT_MS);
       try {
-        const exchangeParams = new URLSearchParams({ flow_id: flowId });
-        if (verifier) exchangeParams.set("verifier", verifier);
         const xr = await fetch(
-          `${base}/_agent-native/auth/desktop-exchange?${exchangeParams.toString()}`,
-          { credentials: "include", signal: controller.signal },
+          `${base}/_agent-native/auth/desktop-exchange?flow_id=${encodeURIComponent(flowId)}`,
+          {
+            credentials: "include",
+            ...(verifier
+              ? {
+                  headers: {
+                    "X-Agent-Native-Desktop-Verifier": verifier,
+                  },
+                }
+              : {}),
+            signal: controller.signal,
+          },
         );
         if (!xr.ok) {
           if (Date.now() - start > TIMEOUT_MS) {
@@ -2130,25 +2138,79 @@ export function App() {
     void tick();
   }
 
-  // Google and magic-link verification open in the system browser because
-  // the Tauri WebView has its own cookie jar. Both flows return through the
-  // same short-lived server-side exchange.
+  // Google verification stays in the bound Tauri WebView so the callback sees
+  // the same browser-binding cookie. Magic-link verification still completes
+  // in the system browser through its own exchange flow.
   async function signInExternal() {
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
 
     try {
       setSignInError(null);
-      const flowId =
-        crypto.randomUUID?.() ||
-        Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const flowId = crypto.randomUUID?.() ?? null;
+      const verifier = (() => {
+        const randomUuid = crypto.randomUUID;
+        if (typeof randomUuid === "function") {
+          return `${randomUuid.call(crypto)}${randomUuid.call(crypto)}`;
+        }
+        if (typeof crypto.getRandomValues === "function") {
+          const bytes = new Uint8Array(32);
+          crypto.getRandomValues(bytes);
+          let binary = "";
+          for (const byte of bytes) binary += String.fromCharCode(byte);
+          return btoa(binary)
+            .replace(/\+/g, "-")
+            .replace(/\//g, "_")
+            .replace(/=+$/, "");
+        }
+        return null;
+      })();
+      if (!flowId || !verifier) {
+        // A Math.random flow id is guessable, which lets anyone else claim this
+        // sign-in's exchange slot; fail closed rather than weaken the credential.
+        throw new Error("Secure OAuth flow generation is unavailable.");
+      }
       const base = serverUrl.replace(/\/+$/, "");
 
-      await openExternal(
-        `${base}/_agent-native/google/auth-url?desktop=1&flow_id=${flowId}&redirect=1`,
+      const authParams = new URLSearchParams({
+        desktop: "1",
+        flow_id: flowId,
+        webview: "1",
+      });
+      const authResponse = await fetch(
+        `${base}/_agent-native/google/auth-url?${authParams.toString()}`,
+        {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "X-Agent-Native-Desktop-Verifier": verifier,
+          },
+        },
       );
+      let authPayload: {
+        url?: unknown;
+        error?: unknown;
+        message?: unknown;
+      };
+      try {
+        authPayload = (await authResponse.json()) as typeof authPayload;
+      } catch {
+        throw new Error("Could not start Google sign-in.");
+      }
+      if (!authResponse.ok || typeof authPayload?.url !== "string") {
+        const message =
+          typeof authPayload.message === "string"
+            ? authPayload.message
+            : typeof authPayload.error === "string"
+              ? authPayload.error
+              : "Could not start Google sign-in.";
+        throw new Error(message);
+      }
       setSignInPending("google");
-      startDesktopAuthExchange(flowId, "google");
+      // Stay in this exact WebView: the auth bootstrap set the HttpOnly
+      // browser-binding cookie here, and the callback returns this page with
+      // the staged session cookie after Google completes.
+      window.location.href = authPayload.url;
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
       signInInflightRef.current = false;
@@ -3912,8 +3974,8 @@ export function App() {
   // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
   // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
   // the same webview that reads it on the next /auth/session poll.
-  // Google and magic-link verification use the system browser, while the
-  // password fallback stays inline in this WebView.
+  // Google verification uses the bound WebView, while magic-link verification
+  // uses the system browser and password stays inline here.
   if (authStatus === "anon") {
     return (
       <div className="app" ref={appRef}>
@@ -4822,7 +4884,7 @@ function SignInForm({
         type="button"
         className="signin-google"
         onClick={onUseBrowser}
-        title="Opens your default browser to complete Google sign-in"
+        title="Returns to Clips to complete Google sign-in"
       >
         <GoogleIcon />
         Sign in with Google

@@ -50,7 +50,9 @@ export function createGoogleAuthPlugin(
     // `window.location.href = ret || '/'` where `ret` was the sign-in page
     // itself — sign in, land back on the sign-in page, click sign in again.
     // Every anti-loop fix ever shipped landed on whichever copy the ticket
-    // named. Do not reintroduce a second producer of `loginHtml`.
+    // named. Do not reintroduce a second producer of `loginHtml`. Keeping this
+    // producer shared also keeps the verifier-bound desktop OAuth POST
+    // bootstrap in Google-only plugin pages.
     loginHtml: getOnboardingHtml({
       googleOnly: true,
       googleAuthMode: options?.googleAuthMode,
