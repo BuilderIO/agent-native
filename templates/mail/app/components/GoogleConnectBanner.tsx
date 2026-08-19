@@ -151,7 +151,7 @@ export function GoogleConnectBanner({
     if (!verifier) {
       setDesktopAuthIssue({
         code: "desktop_auth_start_failed",
-        message: "Secure OAuth verifier generation is unavailable.",
+        message: t("mail.error.failedToConnect"),
       });
       return;
     }

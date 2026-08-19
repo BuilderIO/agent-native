@@ -2365,7 +2365,8 @@ ${signInJourneyInlineScript()}
           var locale = __AN_AUTH_SUPPORTED_LOCALES[i];
           if (locale.split('-')[0].toLowerCase() === language) return locale;
         }
-      } catch(e) {}
+      } catch(e) { // coercion-ok: invalid locale input falls back to the default locale.
+      }
       return null;
     }
     function __anNormalizeAuthLocalePreference(value) {
@@ -2944,7 +2945,8 @@ ${identitySsoScript}
           for (var i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
           return btoa(binary).replace(/\\+/g, '-').replace(/\\//g, '_').replace(/=+$/, '');
         }
-      } catch(e) {}
+      } catch(e) { // coercion-ok: callers reject the empty verifier fallback.
+      }
       return '';
     }
     function __anFlowDebugId(flowId) {
