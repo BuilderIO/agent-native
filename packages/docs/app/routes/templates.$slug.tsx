@@ -1,13 +1,11 @@
 import { useLocale, useT } from "@agent-native/core/client/i18n";
-import { IconArrowLeft, IconBrandGithub } from "@tabler/icons-react";
+import { IconArrowLeft } from "@tabler/icons-react";
 import { Link, useParams, type LoaderFunctionArgs } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
-import { TemplateDocsLink } from "../components/template-docs";
 import {
-  TemplateActivationFrame,
   TemplateFinalCta,
   TemplateHero,
   TemplateLandingFaq,
@@ -124,8 +122,6 @@ export default function GenericTemplatePage() {
   }
 
   const hasDemoUrl = "demoUrl" in template && template.demoUrl;
-  const sourceSlug = template.slug;
-  const replaces = t(`templates.${template.slug}.replaces`);
   const description = t(`templates.${template.slug}.description`);
   const faqCount = genericFaqCounts[template.slug];
   const faqItems = Array.from({ length: faqCount ?? 0 }, (_, index) => {
@@ -172,45 +168,6 @@ export default function GenericTemplatePage() {
         }
         media={<TemplateFallbackArt template={template} />}
       />
-
-      <TemplateActivationFrame
-        heading={
-          <h2 className="m-0 text-2xl font-medium leading-tight tracking-tight text-[var(--fg)]">
-            {replaces}
-          </h2>
-        }
-      >
-        <div className="flex w-full min-w-0 flex-col gap-4">
-          <div className="template-detail-actions flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-center sm:gap-[120px]">
-            {hasDemoUrl ? (
-              <a
-                href={template.demoUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="primary-button"
-                onClick={(event) => {
-                  applyFirstTouchAttributionToLink(event.currentTarget);
-                  trackEvent("try live demo", {
-                    template: template.slug,
-                    location: "generic_template_page",
-                  });
-                }}
-              >
-                {t("common.tryIt")}
-              </a>
-            ) : null}
-            <a
-              href={`https://github.com/BuilderIO/agent-native/tree/main/templates/${sourceSlug}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="secondary-button"
-            >
-              {t("common.source")}
-              <IconBrandGithub aria-hidden="true" size={16} />
-            </a>
-          </div>
-        </div>
-      </TemplateActivationFrame>
 
       <SectionDivider showOnSmallScreens={false} />
 

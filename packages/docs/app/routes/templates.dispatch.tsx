@@ -11,9 +11,7 @@ import { Link } from "react-router";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
-import { TemplateDocsLink } from "../components/template-docs";
 import {
-  TemplateActivationFrame,
   TemplateCapabilityGrid,
   TemplateComparisonTable,
   TemplateFinalCta,
@@ -59,8 +57,6 @@ export const meta = () =>
   );
 
 const template = templates.find((t) => t.slug === "dispatch")!;
-
-const activationLinkClassName = "secondary-button";
 
 const primaryLinkClassName = "primary-button";
 
@@ -142,31 +138,6 @@ export default function DispatchTemplate() {
           />
         }
       />
-
-      <TemplateActivationFrame>
-        <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
-          <a
-            href="https://dispatch.agent-native.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={primaryLinkClassName}
-            onClick={(event) => {
-              applyFirstTouchAttributionToLink(event.currentTarget);
-              trackEvent("try live demo", {
-                template: "dispatch",
-                location: "landing_page",
-              });
-            }}
-          >
-            {t("templateLanding.dispatch.s009")}
-          </a>
-          <TemplateDocsLink
-            template={template}
-            location="landing_page"
-            className={activationLinkClassName}
-          />
-        </div>
-      </TemplateActivationFrame>
 
       <SectionDivider showOnSmallScreens={false} />
 

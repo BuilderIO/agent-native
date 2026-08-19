@@ -11,9 +11,7 @@ import { Link } from "react-router";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
-import { TemplateDocsLink } from "../components/template-docs";
 import {
-  TemplateActivationFrame,
   TemplateCapabilityGrid,
   TemplateComparisonTable,
   TemplateFinalCta,
@@ -59,8 +57,6 @@ export const meta = () =>
   );
 
 const template = templates.find((t) => t.slug === "calendar")!;
-
-const activationLinkClassName = "secondary-button";
 
 const primaryLinkClassName = "primary-button";
 
@@ -142,31 +138,6 @@ export default function CalendarTemplate() {
           />
         }
       />
-
-      <TemplateActivationFrame>
-        <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
-          <a
-            href="https://calendar.agent-native.com"
-            target="_blank"
-            rel="noopener noreferrer"
-            className={primaryLinkClassName}
-            onClick={(event) => {
-              applyFirstTouchAttributionToLink(event.currentTarget);
-              trackEvent("try live demo", {
-                template: "calendar",
-                location: "landing_page",
-              });
-            }}
-          >
-            {t("templateLanding.calendar.s008")}
-          </a>
-          <TemplateDocsLink
-            template={template}
-            location="landing_page"
-            className={activationLinkClassName}
-          />
-        </div>
-      </TemplateActivationFrame>
 
       <section className="border-t border-[var(--docs-border)]">
         <div className="border-x border-b border-[var(--docs-border)] px-6 py-8 sm:px-8 lg:px-10">

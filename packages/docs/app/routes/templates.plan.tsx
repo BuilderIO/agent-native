@@ -15,7 +15,6 @@ import { forwardRef, useImperativeHandle, useRef, useState } from "react";
 
 import { SectionDivider } from "../components/SectionDivider";
 import {
-  TemplateActivationFrame,
   TemplateCapabilityGrid,
   TemplateComparisonTable,
   TemplateFinalCta,
@@ -152,19 +151,8 @@ const PlanVideoCarousel = forwardRef<PlanVideoCarouselHandle>(
 
 export default function PlanTemplate() {
   const t = useT();
-  const [installCommandCopied, setInstallCommandCopied] = useState(false);
   const [agentPromptCopied, setAgentPromptCopied] = useState(false);
   const videoCarouselRef = useRef<PlanVideoCarouselHandle>(null);
-
-  function handleCopyInstallCommand() {
-    navigator.clipboard.writeText(INSTALL_COMMAND);
-    setInstallCommandCopied(true);
-    trackEvent("copy cli command", {
-      template: template.slug,
-      location: "landing_page_activation",
-    });
-    setTimeout(() => setInstallCommandCopied(false), 2000);
-  }
 
   function handleCopyAgentPrompt() {
     navigator.clipboard.writeText(AGENT_PROMPT);
@@ -258,38 +246,6 @@ export default function PlanTemplate() {
           />
         }
       />
-
-      <TemplateActivationFrame
-        heading={
-          <div>
-            <h2 className="m-0 text-2xl font-medium leading-[1.15] tracking-tight text-[var(--fg)]">
-              {t("templateLanding.plan.s006")}
-            </h2>
-            <p className="m-0 mt-3 text-base leading-[1.4] text-[var(--fg-secondary)]">
-              {t("templateLanding.plan.s007")}
-            </p>
-          </div>
-        }
-      >
-        <div className="flex w-full min-w-0 items-center gap-3">
-          <span className="min-w-0 flex-1 overflow-x-auto font-mono text-sm leading-6 text-[var(--fg)] sm:text-base">
-            <span className="text-[var(--fg-secondary)]">$ </span>
-            {INSTALL_COMMAND}
-          </span>
-          <button
-            type="button"
-            onClick={handleCopyInstallCommand}
-            aria-label="Copy install command"
-            className="inline-flex size-8 shrink-0 items-center justify-center text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
-          >
-            {installCommandCopied ? (
-              <IconCheck aria-hidden="true" className="size-[18px]" />
-            ) : (
-              <IconCopy aria-hidden="true" className="size-[18px]" />
-            )}
-          </button>
-        </div>
-      </TemplateActivationFrame>
 
       <SectionDivider showOnSmallScreens={false} />
 

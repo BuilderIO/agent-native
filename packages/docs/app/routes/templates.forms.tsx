@@ -5,9 +5,7 @@ import { Link } from "react-router";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
-import { TemplateDocsLink } from "../components/template-docs";
 import {
-  TemplateActivationFrame,
   TemplateCapabilityGrid,
   TemplateComparisonTable,
   TemplateFinalCta,
@@ -134,33 +132,6 @@ export default function FormsTemplate() {
           />
         }
       />
-
-      <TemplateActivationFrame>
-        <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
-          <div className="template-detail-actions contents">
-            <a
-              href="https://forms.agent-native.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="primary-button"
-              onClick={(event) => {
-                applyFirstTouchAttributionToLink(event.currentTarget);
-                trackEvent("try live demo", {
-                  template: "forms",
-                  location: "landing_page",
-                });
-              }}
-            >
-              {t("templateLanding.forms.s008")}
-            </a>
-            <TemplateDocsLink
-              template={template}
-              location="landing_page"
-              className="secondary-button"
-            />
-          </div>
-        </div>
-      </TemplateActivationFrame>
 
       <section className="border-t border-[var(--docs-border)]">
         <div className="border-x border-[var(--docs-border)] px-6 pb-8 pt-12 sm:px-8 sm:pt-16">

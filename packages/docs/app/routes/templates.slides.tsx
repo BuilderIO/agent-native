@@ -5,10 +5,8 @@ import { Link } from "react-router";
 import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
-import { SlidesTryNow } from "../components/SlidesTryNow";
 import { TemplateDocsLink } from "../components/template-docs";
 import {
-  TemplateActivationFrame,
   TemplateCapabilityGrid,
   TemplateComparisonTable,
   TemplateFinalCta,
@@ -175,23 +173,6 @@ export default function SlidesTemplate() {
           />
         }
       />
-
-      <TemplateActivationFrame
-        id="build-now"
-        className="scroll-mt-24"
-        heading={
-          <div className="flex flex-col gap-3">
-            <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
-              {t("templateLanding.slides.s055")}
-            </h2>
-            <p className="m-0 text-lg leading-[1.3] text-[var(--fg-secondary)]">
-              {t("templateLanding.slides.s056")}
-            </p>
-          </div>
-        }
-      >
-        <SlidesTryNow />
-      </TemplateActivationFrame>
 
       <SectionDivider />
 
