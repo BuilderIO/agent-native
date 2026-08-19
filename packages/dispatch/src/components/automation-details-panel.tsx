@@ -196,11 +196,13 @@ export function AutomationDetailsPanel({
             />
             {isScheduled ? (
               <>
-                <DetailField
-                  label="Cron expression"
-                  value={automation.schedule || "Not set"}
-                  mono
-                />
+                {automation.schedule ? (
+                  <DetailField
+                    label="Cron expression"
+                    value={automation.schedule}
+                    mono
+                  />
+                ) : null}
                 <DetailField
                   label="Timezone"
                   value={automation.timezone || "Account default"}
@@ -281,11 +283,13 @@ export function AutomationDetailsPanel({
                 label="Engine"
                 value={automation.executionEngine || "Default"}
               />
-              <DetailField
-                label="Working directory"
-                value={automation.executionCwd || "Not set"}
-                mono
-              />
+              {automation.executionCwd ? (
+                <DetailField
+                  label="Working directory"
+                  value={automation.executionCwd}
+                  mono
+                />
+              ) : null}
             </dl>
           </section>
         ) : null}
@@ -294,19 +298,25 @@ export function AutomationDetailsPanel({
           <section className="border-t pt-5">
             <h3 className="text-sm font-semibold text-foreground">Delivery</h3>
             <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-4">
-              <DetailField
-                label="Platform"
-                value={automation.deliveryPlatform || "Not set"}
-              />
-              <DetailField
-                label="Destination"
-                value={automation.deliveryDestination || "Not set"}
-              />
-              <DetailField
-                label="Thread reference"
-                value={automation.deliveryThreadRef || "Not set"}
-                mono
-              />
+              {automation.deliveryPlatform ? (
+                <DetailField
+                  label="Platform"
+                  value={automation.deliveryPlatform}
+                />
+              ) : null}
+              {automation.deliveryDestination ? (
+                <DetailField
+                  label="Destination"
+                  value={automation.deliveryDestination}
+                />
+              ) : null}
+              {automation.deliveryThreadRef ? (
+                <DetailField
+                  label="Thread reference"
+                  value={automation.deliveryThreadRef}
+                  mono
+                />
+              ) : null}
             </dl>
           </section>
         ) : null}
