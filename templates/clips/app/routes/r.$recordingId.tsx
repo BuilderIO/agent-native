@@ -47,6 +47,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Link,
   useParams,
@@ -254,6 +255,8 @@ export default function RecordingPage() {
   const [currentMs, setCurrentMs] = useState(0);
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentAtMs, setCommentAtMs] = useState(0);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
   const isCompactLayout = useIsCompactRecordingLayout();
   // Resolve the playback position for reactions/comments. Native <video> exposes
   // a live `currentTime`; Loom embeds render in a cross-origin iframe with no
@@ -420,11 +423,10 @@ export default function RecordingPage() {
   const transcriptCleanup = playerDataQ.data?.transcript?.cleanup ?? null;
   const ctas = playerDataQ.data?.ctas ?? [];
   const canEdit = role === "owner" || role === "admin" || role === "editor";
-  const canComment =
-    role === "owner" ||
-    role === "admin" ||
-    role === "editor" ||
-    role === "commenter";
+  // Reaching this page already requires a signed-in session with at least
+  // viewer access to the recording, so any resolved role qualifies to
+  // comment/react — no separate "commenter" tier.
+  const canComment = role != null;
   useEffect(() => {
     if (!canEdit && (panel === "insights" || panel === "settings")) {
       setPanel("comments");
@@ -1608,19 +1610,74 @@ export default function RecordingPage() {
                   onCtaClick={() => tracking.reportCtaClick()}
                   onTimeUpdate={(ms) => setCurrentMs(ms)}
                   onCommentClick={openCommentsPanel}
+                  onFullscreenChange={setIsPlayerFullscreen}
+                  enableComments={recording.enableComments}
+                  onAddComment={() => {
+                    // The side panel `openCommentsPanel` opens is a sibling
+                    // outside the element the Fullscreen API paints, so it's
+                    // invisible while fullscreen -- portal the composer
+                    // there instead, same as the non-compact layout.
+                    if (isCompactLayout && !isPlayerFullscreen) {
+                      openCommentsPanel();
+                      return;
+                    }
+                    setCommentAtMs(resolvePlaybackMs());
+                    setCommentOpen(true);
+                  }}
+                  enableReactions={recording.enableReactions}
+                  onReact={(emoji) => {
+                    tracking.reportReaction(emoji);
+                    const liveMs = resolvePlaybackMs();
+                    fetch(
+                      agentNativePath(
+                        "/_agent-native/actions/react-to-recording",
+                      ),
+                      {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          recordingId: recording.id,
+                          emoji,
+                          videoTimestampMs: liveMs,
+                        }),
+                      },
+                    )
+                      .then((res) => {
+                        if (!res.ok)
+                          throw new Error(`react failed: ${res.status}`);
+                        return playerDataQ.refetch();
+                      })
+                      .catch((err) =>
+                        console.warn("[clips] react failed", err),
+                      );
+                  }}
                   className="h-full w-full rounded-none sm:rounded-xl"
                 />
-                {commentOpen && canComment ? (
-                  <TimestampedCommentBar
-                    recordingId={recording.id}
-                    atMs={commentAtMs}
-                    onClose={() => setCommentOpen(false)}
-                    onAdded={() => {
-                      setPanel("comments");
-                      void playerDataQ.refetch();
-                    }}
-                  />
-                ) : null}
+                {commentOpen && canComment
+                  ? (() => {
+                      const composer = (
+                        <TimestampedCommentBar
+                          recordingId={recording.id}
+                          atMs={commentAtMs}
+                          draft={commentDraft}
+                          onDraftChange={setCommentDraft}
+                          onClose={() => setCommentOpen(false)}
+                          onAdded={() => {
+                            setPanel("comments");
+                            void playerDataQ.refetch();
+                          }}
+                        />
+                      );
+                      // The Fullscreen API only paints the player's own
+                      // element, so portal the composer there instead of
+                      // exiting fullscreen when it's open.
+                      const fullscreenContainer =
+                        isPlayerFullscreen && playerRef.current?.container;
+                      return fullscreenContainer
+                        ? createPortal(composer, fullscreenContainer)
+                        : composer;
+                    })()
+                  : null}
               </div>
 
               {/* Title + reactions row */}
@@ -1697,8 +1754,14 @@ export default function RecordingPage() {
                               }),
                             },
                           )
-                            .then(() => playerDataQ.refetch())
-                            .catch(() => {});
+                            .then((res) => {
+                              if (!res.ok)
+                                throw new Error(`react failed: ${res.status}`);
+                              return playerDataQ.refetch();
+                            })
+                            .catch((err) =>
+                              console.warn("[clips] react failed", err),
+                            );
                         }}
                       />
                     ) : null}

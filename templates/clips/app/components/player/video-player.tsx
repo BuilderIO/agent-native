@@ -153,6 +153,13 @@ type WebkitFullscreenVideo = HTMLVideoElement & {
 
 export interface VideoPlayerHandle {
   video: HTMLVideoElement | null;
+  /**
+   * The player's own root element — the element the browser Fullscreen API
+   * actually paints when fullscreen. Callers portal fullscreen-only overlays
+   * (e.g. a comment composer) into this so they stay visible instead of
+   * exiting fullscreen.
+   */
+  container: HTMLDivElement | null;
   play: () => Promise<void> | void;
   pause: () => void;
   seek: (ms: number) => void;
@@ -235,6 +242,25 @@ export interface VideoPlayerProps {
   onVideoElementChange?: (video: HTMLVideoElement | null) => void;
   /** Called when the viewer clicks the timestamped-comment overlay. */
   onCommentClick?: () => void;
+  /**
+   * Reaction tray + comment-composer trigger to surface while fullscreen.
+   * The real Fullscreen API only paints this component's own subtree, so
+   * the parent route's normal reaction/comment row (rendered as a sibling of
+   * `VideoPlayer`) disappears on entering fullscreen. When these are
+   * provided, an equivalent control row renders inside the player itself,
+   * visible only while `isFullscreen` is true.
+   */
+  enableReactions?: boolean;
+  onReact?: (emoji: string) => void;
+  enableComments?: boolean;
+  /**
+   * Opens the existing comment composer/panel. While fullscreen, the caller
+   * should portal that composer into `VideoPlayerHandle.container` (via the
+   * player ref) instead of exiting fullscreen, so it stays visible.
+   */
+  onAddComment?: () => void;
+  /** Fires whenever the player enters or exits fullscreen. */
+  onFullscreenChange?: (isFullscreen: boolean) => void;
 }
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
@@ -275,6 +301,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       role,
       onVideoElementChange,
       onCommentClick,
+      enableReactions,
+      onReact,
+      enableComments,
+      onAddComment,
+      onFullscreenChange,
     } = props;
 
     const resolvedVideoSrc = useMemo(() => {
@@ -1032,6 +1063,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         get video() {
           return videoRef.current;
         },
+        get container() {
+          return containerRef.current;
+        },
         play: requestPlay,
         pause: pauseVideo,
         seek: seekToVisibleMs,
@@ -1048,6 +1082,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }),
       [applySpeed, pauseVideo, requestPlay, seekToVisibleMs],
     );
+
+    useEffect(() => {
+      onFullscreenChange?.(isFullscreen);
+    }, [isFullscreen, onFullscreenChange]);
 
     // Apply initial playbackRate and start position.
     useEffect(() => {
@@ -1976,6 +2014,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onToggleFullscreen={() => void toggleFullscreenInternal()}
               onToggleTheater={onTheaterToggle}
               menuPortalContainer={fullscreenMenuContainer}
+              showReactionsAndComment={isFullscreen}
+              enableReactions={enableReactions}
+              onReact={onReact}
+              enableComments={enableComments}
+              onAddComment={onAddComment}
             />
           </div>
         ) : null}

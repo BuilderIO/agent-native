@@ -1,5 +1,18 @@
 # @agent-native/core
 
+## 0.163.3
+
+### Patch Changes
+
+- e059442: Keep collaboration auto-seeding correct for mapped document ids without issuing one database read per source row, and carry the configured deployment lane into server telemetry.
+- e059442: Harden the local self-hosting Docker quickstart and document PostgreSQL volume upgrades.
+
+## 0.163.2
+
+### Patch Changes
+
+- 8236ce6: Fence session replay uploads that time out before transport cancellation.
+
 ## 0.163.1
 
 ### Patch Changes

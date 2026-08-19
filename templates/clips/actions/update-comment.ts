@@ -13,6 +13,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isRecordingExpired } from "../server/lib/recording-page-access.js";
 import { sameOwnerEmail } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -42,7 +43,18 @@ export default defineAction({
       .limit(1);
     if (!existing) throw new Error(`Comment not found: ${args.id}`);
 
-    await assertAccess("recording", existing.recordingId, "commenter");
+    // Any signed-in viewer with access to the recording may edit their own
+    // comment, matching add-comment's top-level comment gate.
+    const access = await assertAccess(
+      "recording",
+      existing.recordingId,
+      "viewer",
+    );
+    if (
+      isRecordingExpired((access.resource as { expiresAt?: string }).expiresAt)
+    ) {
+      throw new ForbiddenError("Recording has expired");
+    }
 
     if (!sameOwnerEmail(existing.authorEmail, userEmail)) {
       throw new ForbiddenError(

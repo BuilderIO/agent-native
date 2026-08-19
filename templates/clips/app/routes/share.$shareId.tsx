@@ -34,6 +34,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { createPortal } from "react-dom";
 import {
   type HeadersArgs,
   type LoaderFunctionArgs,
@@ -59,7 +60,10 @@ import { RequestAccessDialog } from "@/components/player/request-access-dialog";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
 import { SignedOutShareActions } from "@/components/player/signed-out-share-actions";
-import { TimestampedCommentButton } from "@/components/player/timestamped-comment-button";
+import {
+  TimestampedCommentBar,
+  TimestampedCommentButton,
+} from "@/components/player/timestamped-comment-button";
 import { TranscriptPanel } from "@/components/player/transcript-panel";
 import {
   VideoPlayer,
@@ -446,6 +450,10 @@ export default function ShareRoute() {
   });
   const [pwError, setPwError] = useState<string | null>(null);
   const [currentMs, setCurrentMs] = useState(0);
+  const [commentOpen, setCommentOpen] = useState(false);
+  const [commentAtMs, setCommentAtMs] = useState(0);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
   const { session, isLoading: sessionLoading } = useSession();
   const requestAccess = useActionMutation<
     {
@@ -664,7 +672,10 @@ export default function ShareRoute() {
     viewerRole === "owner" ||
     viewerRole === "admin" ||
     viewerRole === "editor";
-  const viewerCanComment = Boolean(dataQ.data?.data?.viewer?.canComment);
+  // Any signed-in viewer with access to the recording may comment or react —
+  // an anonymous viewer sees the same controls but triggers the sign-in
+  // prompt instead (see `requireSignIn` below).
+  const viewerCanComment = Boolean(session) && viewerRole != null;
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
   const canReshareLink =
     (viewerRole === "viewer" || viewerRole === "commenter") &&
@@ -1214,7 +1225,7 @@ export default function ShareRoute() {
         </header>
 
         <div className="flex flex-col gap-4 overflow-hidden p-0 sm:p-4 lg:min-h-0 lg:flex-1">
-          <div className="aspect-video w-full lg:min-h-0 lg:flex-1 lg:aspect-auto">
+          <div className="relative aspect-video w-full lg:min-h-0 lg:flex-1 lg:aspect-auto">
             <VideoPlayer
               ref={playerRef}
               onVideoElementChange={setTrackedVideoEl}
@@ -1239,8 +1250,88 @@ export default function ShareRoute() {
               onCtaClick={() => tracking.reportCtaClick()}
               onTimeUpdate={(ms) => setCurrentMs(ms)}
               onCommentClick={() => setPanel("comments")}
+              onFullscreenChange={setIsPlayerFullscreen}
+              enableComments={recording.enableComments}
+              onAddComment={() => {
+                if (!session) {
+                  requireSignIn("comment");
+                  return;
+                }
+                const liveCt = isLoomEmbedBacked
+                  ? null
+                  : playerRef.current?.video?.currentTime;
+                const liveMs =
+                  typeof liveCt === "number" &&
+                  Number.isFinite(liveCt) &&
+                  liveCt >= 0 &&
+                  liveCt < 1e7
+                    ? Math.floor(liveCt * 1000)
+                    : currentMs;
+                setCommentAtMs(liveMs);
+                setCommentOpen(true);
+              }}
+              enableReactions={recording.enableReactions}
+              onReact={(emoji) => {
+                if (!session) {
+                  requireSignIn("react");
+                  return;
+                }
+                tracking.reportReaction(emoji);
+                const liveCt = isLoomEmbedBacked
+                  ? null
+                  : playerRef.current?.video?.currentTime;
+                const liveMs =
+                  typeof liveCt === "number" &&
+                  Number.isFinite(liveCt) &&
+                  liveCt >= 0 &&
+                  liveCt < 1e7
+                    ? Math.floor(liveCt * 1000)
+                    : currentMs;
+                fetch(
+                  agentNativePath("/_agent-native/actions/react-to-recording"),
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      recordingId: recording.id,
+                      emoji,
+                      videoTimestampMs: liveMs,
+                    }),
+                  },
+                )
+                  .then((res) => {
+                    if (!res.ok) throw new Error(`react failed: ${res.status}`);
+                    return dataQ.refetch();
+                  })
+                  .catch((err) => console.warn("[clips] react failed", err));
+              }}
               className="h-full w-full rounded-none sm:rounded-xl"
             />
+            {commentOpen && viewerCanComment
+              ? (() => {
+                  const composer = (
+                    <TimestampedCommentBar
+                      recordingId={recording.id}
+                      atMs={commentAtMs}
+                      draft={commentDraft}
+                      onDraftChange={setCommentDraft}
+                      onClose={() => setCommentOpen(false)}
+                      onAdded={() => {
+                        setPanel("comments");
+                        void dataQ.refetch();
+                      }}
+                    />
+                  );
+                  // The Fullscreen API only paints the player's own element,
+                  // so portal the composer there instead of exiting
+                  // fullscreen when it's open.
+                  const fullscreenContainer =
+                    isPlayerFullscreen && playerRef.current?.container;
+                  return fullscreenContainer
+                    ? createPortal(composer, fullscreenContainer)
+                    : composer;
+                })()
+              : null}
           </div>
 
           <div className="flex shrink-0 flex-col gap-3 px-4 pb-4 sm:flex-row sm:items-start sm:px-0 sm:pb-0">
@@ -1252,56 +1343,76 @@ export default function ShareRoute() {
               ) : null}
             </div>
             <div className="flex max-w-full flex-col items-stretch gap-2 sm:items-end">
-              <TimestampedCommentButton
-                enableComments={recording.enableComments}
-                canComment={!session || viewerCanComment}
-                className="shrink-0"
-                onOpen={() => {
-                  if (!session) {
-                    requireSignIn("comment");
-                    return;
-                  }
-                  if (viewerCanComment) setPanel("comments");
-                }}
-              />
-              {recording.enableReactions ? (
-                <ReactionsTray
-                  disabled={!viewerCanComment}
-                  onReact={(emoji) => {
-                    if (!session) {
-                      requireSignIn("react");
-                      return;
-                    }
-                    tracking.reportReaction(emoji);
-                    const liveCt = isLoomEmbedBacked
-                      ? null
-                      : playerRef.current?.video?.currentTime;
-                    const liveMs =
-                      typeof liveCt === "number" &&
-                      Number.isFinite(liveCt) &&
-                      liveCt >= 0 &&
-                      liveCt < 1e7
-                        ? Math.floor(liveCt * 1000)
-                        : currentMs;
-                    fetch(
-                      agentNativePath(
-                        "/_agent-native/actions/react-to-recording",
-                      ),
-                      {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                          recordingId: recording.id,
-                          emoji,
-                          videoTimestampMs: liveMs,
-                        }),
-                      },
-                    )
-                      .then(() => dataQ.refetch())
-                      .catch(() => {});
-                  }}
-                />
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                {recording.enableComments ? (
+                  <TimestampedCommentButton
+                    enableComments={recording.enableComments}
+                    canComment
+                    className="shrink-0"
+                    onOpen={() => {
+                      if (!session) {
+                        requireSignIn("comment");
+                        return;
+                      }
+                      const liveCt = isLoomEmbedBacked
+                        ? null
+                        : playerRef.current?.video?.currentTime;
+                      const liveMs =
+                        typeof liveCt === "number" &&
+                        Number.isFinite(liveCt) &&
+                        liveCt >= 0 &&
+                        liveCt < 1e7
+                          ? Math.floor(liveCt * 1000)
+                          : currentMs;
+                      setCommentAtMs(liveMs);
+                      setCommentOpen(true);
+                    }}
+                  />
+                ) : null}
+                {recording.enableReactions ? (
+                  <ReactionsTray
+                    onReact={(emoji) => {
+                      if (!session) {
+                        requireSignIn("react");
+                        return;
+                      }
+                      tracking.reportReaction(emoji);
+                      const liveCt = isLoomEmbedBacked
+                        ? null
+                        : playerRef.current?.video?.currentTime;
+                      const liveMs =
+                        typeof liveCt === "number" &&
+                        Number.isFinite(liveCt) &&
+                        liveCt >= 0 &&
+                        liveCt < 1e7
+                          ? Math.floor(liveCt * 1000)
+                          : currentMs;
+                      fetch(
+                        agentNativePath(
+                          "/_agent-native/actions/react-to-recording",
+                        ),
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            recordingId: recording.id,
+                            emoji,
+                            videoTimestampMs: liveMs,
+                          }),
+                        },
+                      )
+                        .then((res) => {
+                          if (!res.ok)
+                            throw new Error(`react failed: ${res.status}`);
+                          return dataQ.refetch();
+                        })
+                        .catch((err) =>
+                          console.warn("[clips] react failed", err),
+                        );
+                    }}
+                  />
+                ) : null}
+              </div>
               {viewerCanEdit && canDownloadRecording ? (
                 <Button
                   variant="outline"
