@@ -2418,6 +2418,15 @@ export async function startWorkspaceAppCreation(input: {
     generateWorkspaceAppDescription(input.prompt, built.appId);
 
   if (isLocal) {
+    await writeWorkspaceAppMetadataOverride({
+      appId: built.appId,
+      description: appDescription,
+      generated: true,
+      sourcePrompt: input.prompt,
+      updatedBy: currentOwnerEmail(),
+      createdBy: currentOwnerEmail(),
+      visibility: creationVisibility,
+    });
     await requestSelectedVaultKeys({
       appId: built.appId,
       selectedKeys,

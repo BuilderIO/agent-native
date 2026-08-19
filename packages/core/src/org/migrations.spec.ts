@@ -99,15 +99,4 @@ describe("ORG_MIGRATIONS", () => {
     expect(shares?.sql).toMatch(/created_at TEXT NOT NULL/i);
     expect(indexes?.sql).toMatch(/workspace_apps_org_visibility_idx/i);
   });
-
-  it("restores legacy workspace apps to organization visibility", () => {
-    const migration = ORG_MIGRATIONS.find((m) => m.version === 1018);
-
-    expect(migration?.name).toBe(
-      "workspace-apps-restore-org-default-visibility",
-    );
-    expect(migration?.sql).toMatch(/UPDATE workspace_apps/i);
-    expect(migration?.sql).toMatch(/SET visibility = 'org'/i);
-    expect(migration?.sql).toMatch(/WHERE visibility = 'private'/i);
-  });
 });

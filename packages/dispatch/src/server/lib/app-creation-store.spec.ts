@@ -784,6 +784,24 @@ describe("startWorkspaceAppCreation", () => {
     );
   }
 
+  it("persists the private default for local-agent app creation", async () => {
+    mocks.getOrgSetting.mockResolvedValueOnce({ visibility: "private" });
+
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "org-123",
+    })) as any;
+
+    expect(result.mode).toBe("local-agent");
+    expect(
+      mocks.settings.get("workspace-app-metadata:org:org-123"),
+    ).toMatchObject({
+      apps: {
+        onboarding: { visibility: "private" },
+      },
+    });
+  });
+
   it("returns builder-not-connected without leaking the project id when no Builder credentials are configured", async () => {
     stubHostedRuntime();
     stubBuilderProjectConfigured();
