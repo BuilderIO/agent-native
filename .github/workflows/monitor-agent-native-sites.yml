@@ -55,7 +55,57 @@ jobs:
           ];
           const timeoutMs = 15_000;
           const probeAttemptTimeoutMs = 45_000;
+          const maxDocumentBytes = 2_000_000;
+          const maxAssetCount = 500;
+          const maxRedirects = 5;
           const maxAttempts = 3;
+
+          async function fetchOnVerifiedOrigin(url, origin, options) {
+            let currentUrl = url;
+            for (let redirect = 0; redirect <= maxRedirects; redirect += 1) {
+              const response = await fetch(currentUrl, {
+                ...options,
+                redirect: "manual",
+              });
+              if (response.status < 300 || response.status >= 400) {
+                return { response, url: currentUrl };
+              }
+              const location = response.headers.get("location");
+              await response.body?.cancel();
+              if (!location) {
+                throw new Error(`redirect from ${currentUrl} did not include a location`);
+              }
+              const nextUrl = new URL(location, currentUrl);
+              if (nextUrl.protocol !== "https:" || nextUrl.origin !== origin) {
+                throw new Error(`redirected off origin to ${nextUrl.href}`);
+              }
+              currentUrl = nextUrl.href;
+            }
+            throw new Error(`exceeded ${maxRedirects} redirects from ${url}`);
+          }
+
+          async function readResponseText(response, maxBytes) {
+            const reader = response.body?.getReader();
+            if (!reader) return "";
+            const decoder = new TextDecoder();
+            let bytes = 0;
+            let text = "";
+            try {
+              while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+                bytes += value.byteLength;
+                if (bytes > maxBytes) {
+                  throw new Error(`document exceeded ${maxBytes} bytes`);
+                }
+                text += decoder.decode(value, { stream: true });
+              }
+              return text + decoder.decode();
+            } catch (error) {
+              await reader.cancel().catch(() => undefined);
+              throw error;
+            }
+          }
 
           async function probe({ environment, host }) {
             let lastFailure = "unknown error";
@@ -64,26 +114,24 @@ jobs:
               const deadline = startedAt + probeAttemptTimeoutMs;
               try {
                 const documentUrl = `https://${host}/`;
-                const response = await fetch(documentUrl, {
-                  headers: { "user-agent": "agent-native-site-monitor" },
-                  redirect: "follow",
-                  signal: AbortSignal.timeout(
-                    Math.min(timeoutMs, Math.max(1, deadline - Date.now())),
-                  ),
-                });
-                const finalDocumentUrl = response.url || documentUrl;
-                if (new URL(finalDocumentUrl).origin !== new URL(documentUrl).origin) {
-                  await response.body?.cancel();
-                  throw new Error(
-                    `document redirected off origin to ${new URL(finalDocumentUrl).origin}`,
-                  );
-                }
+                const documentOrigin = new URL(documentUrl).origin;
+                const { response, url: finalDocumentUrl } = await fetchOnVerifiedOrigin(
+                  documentUrl,
+                  documentOrigin,
+                  {
+                    headers: { "user-agent": "agent-native-site-monitor" },
+                    signal: AbortSignal.timeout(
+                      Math.min(timeoutMs, Math.max(1, deadline - Date.now())),
+                    ),
+                  },
+                );
                 const ms = Date.now() - startedAt;
                 const ok = response.status >= 200 && response.status < 400;
                 if (ok) {
-                  const html = await response.text();
+                  const html = await readResponseText(response, maxDocumentBytes);
                   const baseUrl = finalDocumentUrl;
                   const assets = new Set();
+                  let assetLimitExceeded = false;
                   for (const match of html.matchAll(/<(link|script)\b[^>]*>/gi)) {
                     const tag = match[0];
                     const rel = tag.match(/\brel=["']([^"']+)["']/i)?.[1] || "";
@@ -98,13 +146,20 @@ jobs:
                     if (!value || value.startsWith("#") || value.startsWith("data:")) continue;
                     try {
                       const url = new URL(value, baseUrl);
-                      if (url.origin === new URL(baseUrl).origin) {
+                      if (url.origin === documentOrigin) {
+                        if (!assets.has(url.href) && assets.size >= maxAssetCount) {
+                          assetLimitExceeded = true;
+                          break;
+                        }
                         assets.add(url.href);
                       }
                     } catch {
                       // Ignore malformed or non-URL markup; the document probe
                       // still reports the host itself as healthy.
                     }
+                  }
+                  if (assetLimitExceeded) {
+                    throw new Error(`document referenced more than ${maxAssetCount} assets`);
                   }
 
                   const assetFailures = [];
@@ -117,20 +172,16 @@ jobs:
                     }
                     await Promise.all(assetUrls.slice(i, i + assetConcurrency).map(async (assetUrl) => {
                       try {
-                        const assetResponse = await fetch(assetUrl, {
-                          headers: { "user-agent": "agent-native-site-monitor" },
-                          redirect: "follow",
-                          signal: AbortSignal.timeout(
-                            Math.min(timeoutMs, Math.max(1, deadline - Date.now())),
-                          ),
-                        });
-                        if (new URL(assetResponse.url).origin !== new URL(assetUrl).origin) {
-                          assetFailures.push(
-                            `${new URL(assetUrl).pathname} redirected off origin to ${new URL(assetResponse.url).origin}`,
-                          );
-                          await assetResponse.body?.cancel();
-                          return;
-                        }
+                        const { response: assetResponse } = await fetchOnVerifiedOrigin(
+                          assetUrl,
+                          documentOrigin,
+                          {
+                            headers: { "user-agent": "agent-native-site-monitor" },
+                            signal: AbortSignal.timeout(
+                              Math.min(timeoutMs, Math.max(1, deadline - Date.now())),
+                            ),
+                          },
+                        );
                         await assetResponse.body?.cancel();
                         if (assetResponse.status < 200 || assetResponse.status >= 300) {
                           assetFailures.push(`${new URL(assetUrl).pathname} HTTP ${assetResponse.status}`);
