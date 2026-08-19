@@ -46,6 +46,7 @@ function readChatFirstAppRailShowAll(): boolean {
       "true"
     );
   } catch {
+    // coercion-ok: localStorage is optional; false keeps the rail usable in-memory.
     return false;
   }
 }
@@ -58,7 +59,7 @@ function writeChatFirstAppRailShowAll(showAllApps: boolean) {
       String(showAllApps),
     );
   } catch {
-    // Keep the in-memory toggle usable when device storage is unavailable.
+    // coercion-ok: localStorage is optional; the in-memory toggle remains usable.
   }
 }
 
