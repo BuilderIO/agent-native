@@ -129,17 +129,35 @@ duplicate reminder just because the scheduled check ran.
 ### Durable tracking and discovery
 
 The Slack thread is the source of truth for the question and reporter answer;
-the current Codex task history is the durable run ledger for the workflow state.
-At every run, load and update one row per pending clarification with:
+the cross-run workflow state lives in the task-scoped JSON ledger at
+`$XDG_STATE_HOME/review-latest-feedback/<codex_task_id>/clarification-ledger.json`
+when `XDG_STATE_HOME` is set, otherwise
+`~/.codex/state/review-latest-feedback/<codex_task_id>/clarification-ledger.json`
+(or the full path supplied by `REVIEW_LATEST_FEEDBACK_LEDGER_PATH`). Use the
+stable Codex task or heartbeat target id for `<codex_task_id>`, never a
+per-run id. This is local Codex state, not a recap and not a file committed to
+a worktree. The ledger has `schema_version`, `codex_task_id`,
+`owner_identities`, and an `items` map keyed by
+`<slack_channel_id>:<parent_ts>`. Each item has
 `parent_ts`, `clarification_ts`, `last_recheck_at`, `next_recheck_at`,
-`reporter_reply_ts` (or `null`), `aging_audit_at` (or `null`), and
+`reporter_reply_ts` (or `null`), `aging_audit_at` (or `null`),
 `aging_outcome` (`not-due`, `candidate-fixed`, `clarification-remains`,
-`external`, or `ambiguous`). Discover pending work by searching for all
-Steve-authored **Clarification needed** replies on eye-marked parents, not only
-by looking for newly changed channel messages. The scheduled heartbeat reads
-this prior ledger before scanning and appends the updated ledger to its recap.
-If no recurring automation is available, say that the follow-up is manual and
-do not claim that scheduled coverage exists.
+`external`, or `ambiguous`), and `owner_identity`. Acquire the ledger lock,
+read it before scanning, upsert by that key after every disposition, and write
+it through a temporary file plus rename so a killed heartbeat cannot leave a
+partial cursor. The scheduled heartbeat must use the same path and protocol on
+the next run, then append the loaded and updated rows to its recap.
+
+Initialize `owner_identities` with the invoking Slack identity and the
+configured `agent-native` identity. During the required full-thread read,
+inspect **Fixed** and **Clarification needed** replies from every author, not
+only Steve. Add another identity only when the reply or assignment makes that
+person clearly the investigator or owner, and persist that identity in the
+ledger. Scheduled discovery queries all exact terminal replies in the channel,
+joins them to eye-marked parents, and filters by this persisted owner set; it
+must never use a Steve-only author filter. If no recurring automation is
+available, say that the follow-up is manual and do not claim scheduled coverage
+exists.
 
 If there is still no reporter answer after the aging threshold, make one bounded
 source investigation before leaving the item pending. The threshold is exactly

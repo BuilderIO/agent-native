@@ -38,6 +38,16 @@ import { createInterface } from "node:readline";
  * climbing after its skill landed is a visible failure of that skill — not a
  * reason to reach for a tool-level block first.
  */
+const UNANSWERED_FEEDBACK_FOLLOWUP_RE = new RegExp(
+  [
+    String.raw`\b(?:did|have)\s+(?:you|we)\b[^.!?]{0,100}\b(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage)\b[^.!?]{0,100}\b(?:clarification|follow[ -]?up|reporter|repl(?:y|ies|ied)|thread)\b`,
+    String.raw`\b(?:you|we)\s+(?:still\s+)?(?:haven['’]t|didn['’]t|never)\b[^.!?]{0,100}\b(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage)\b[^.!?]{0,100}\b(?:clarification|follow[ -]?up|reporter|repl(?:y|ies|ied)|thread)\b`,
+    String.raw`\b(?:why|how\s+come)\b[^.!?]{0,100}\b(?:didn['’]t|haven['’]t|never|still|not)\b[^.!?]{0,100}\b(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage)\b[^.!?]{0,100}\b(?:clarification|follow[ -]?up|reporter|repl(?:y|ies|ied)|thread)\b`,
+    String.raw`\b(?:please|can you|make sure|be sure)\b[^.!?]{0,100}\b(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage|disposition)\b[^.!?]{0,100}\b(?:again|already|still|answered|unanswered|after|since|missed|prior|follow[ -]?up)\b`,
+  ].join("|"),
+  "i",
+);
+
 const PATTERNS = [
   {
     key: "branch-moves",
@@ -73,9 +83,9 @@ const PATTERNS = [
     key: "unanswered-feedback-followup",
     label: "Had to ask whether unanswered feedback was rechecked",
     fixedBy: ".agents/skills/review-latest-feedback (2026-08-19)",
-    // Keep this correction-specific: an ordinary request to run a feedback
-    // sweep is not friction unless it says the prior follow-up was missed.
-    re: /\b(?:(?:did|have)\s+(?:you|we)\s+(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage)[^.!?]{0,80}\b(?:clarification|follow[ -]?up|reporter|repl(?:y|ies|ied)|thread)|(?:can you|please|make sure|be sure)\b[^.!?]{0,80}\b(?:check(?:ed)?\s+back|follow(?:ed)?[ -]+up|re-?read|revisit|re-?triage|disposition|clarification|repl(?:y|ies|ied))|(?:re-?triage|disposition)[^.!?]{0,80}\b(?:make sure|happens|actually)|(?:no one|nobody|still no)\b[^.!?]{0,40}\b(?:has )?(?:repl(?:y|ies|ied)|responded?)|(?:do not|don['’]t)\b[^.!?]{0,50}\b(?:leave|finish|end)[^.!?]{0,40}\b(?:eyes?-only|eye-marked)|(?:i|we)\s+don['’]t\s+see[^.!?]{0,60}\b(?:eye|eyes|emoji))\b/i,
+    // Keep this correction-specific: routine re-triage, answered-clarification,
+    // eyes-only, and reporter-status text are not friction by themselves.
+    re: UNANSWERED_FEEDBACK_FOLLOWUP_RE,
   },
   {
     key: "collision",
