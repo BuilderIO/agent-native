@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.164.13
+
+### Patch Changes
+
+- 62373a8: Fix Google sign-in callbacks in browsers by keeping the OAuth binding cookie available across the provider redirect.
+
 ## 0.164.12
 
 ### Patch Changes
