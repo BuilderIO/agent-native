@@ -106,7 +106,16 @@ export default function CalendarTemplate() {
             Agent-Native {template.name}
           </span>
         }
-        title={t("templateLanding.calendar.s006")}
+        title={
+          <>
+            <span className="text-[var(--fg)] lg:whitespace-nowrap">
+              {t("templateLanding.calendar.s006Primary")}{" "}
+            </span>
+            <span className="text-[var(--fg-secondary)] lg:block">
+              {t("templateLanding.calendar.s006Secondary")}
+            </span>
+          </>
+        }
         description={
           <p className="m-0">{t("templateLanding.calendar.s007")}</p>
         }

@@ -141,7 +141,16 @@ export default function AnalyticsTemplate() {
             Agent-Native {template.name}
           </span>
         }
-        title={t("templateLanding.analytics.s007")}
+        title={
+          <>
+            <span className="text-[var(--fg)] lg:whitespace-nowrap">
+              {t("templateLanding.analytics.s007Primary")}{" "}
+            </span>
+            <span className="text-[var(--fg-secondary)] lg:block">
+              {t("templateLanding.analytics.s007Secondary")}
+            </span>
+          </>
+        }
         description={
           <p className="m-0">{t("templateLanding.analytics.s008")}</p>
         }

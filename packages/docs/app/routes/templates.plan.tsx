@@ -233,7 +233,16 @@ export default function PlanTemplate() {
             {t("templateDetail.badge", { name: template.name })}
           </span>
         }
-        title={t("templateLanding.plan.s015")}
+        title={
+          <>
+            <span className="text-[var(--fg)] lg:whitespace-nowrap">
+              {t("templateLanding.plan.s015Primary")}{" "}
+            </span>
+            <span className="text-[var(--fg-secondary)] lg:block">
+              {t("templateLanding.plan.s015Secondary")}
+            </span>
+          </>
+        }
         description={<p className="m-0">{t("templateLanding.plan.s016")}</p>}
         media={
           <img

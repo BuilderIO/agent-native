@@ -111,7 +111,16 @@ export default function MailTemplate() {
             Agent-Native {template.name}
           </span>
         }
-        title={t("templateLanding.mail.s007")}
+        title={
+          <>
+            <span className="text-[var(--fg)] lg:whitespace-nowrap">
+              {t("templateLanding.mail.s007Primary")}{" "}
+            </span>
+            <span className="text-[var(--fg-secondary)] lg:block">
+              {t("templateLanding.mail.s007Secondary")}
+            </span>
+          </>
+        }
         description={
           <p className="m-0">
             Superhuman-style keyboard shortcuts, AI triage, smart search, and

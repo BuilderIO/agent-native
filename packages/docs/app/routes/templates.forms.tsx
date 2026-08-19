@@ -102,7 +102,16 @@ export default function FormsTemplate() {
             Agent-Native {template.name}
           </span>
         }
-        title={t("templateLanding.forms.s006")}
+        title={
+          <>
+            <span className="text-[var(--fg)] lg:whitespace-nowrap">
+              {t("templateLanding.forms.s006Primary")}{" "}
+            </span>
+            <span className="text-[var(--fg-secondary)] lg:block">
+              {t("templateLanding.forms.s006Secondary")}
+            </span>
+          </>
+        }
         description={<p className="m-0">{t("templateLanding.forms.s007")}</p>}
         headingAction={
           <a

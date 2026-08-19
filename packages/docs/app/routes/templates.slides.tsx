@@ -143,7 +143,16 @@ export default function SlidesTemplate() {
             Agent-Native {template.name}
           </span>
         }
-        title={t("templateLanding.slides.s006")}
+        title={
+          <>
+            <span className="text-[var(--fg)] lg:whitespace-nowrap">
+              {t("templateLanding.slides.s006Primary")}{" "}
+            </span>
+            <span className="text-[var(--fg-secondary)] lg:block">
+              {t("templateLanding.slides.s006Secondary")}
+            </span>
+          </>
+        }
         description={<p className="m-0">{t("templateLanding.slides.s007")}</p>}
         headingAction={
           <a
