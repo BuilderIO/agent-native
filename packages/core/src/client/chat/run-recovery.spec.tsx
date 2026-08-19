@@ -301,6 +301,31 @@ describe("run recovery surfaces", () => {
     expect(onRetry).toHaveBeenCalledTimes(1);
   });
 
+  it("routes structured provider-key errors to inline setup recovery", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <RunErrorRecoveryCard
+            info={{
+              message: "ANTHROPIC_API_KEY is not set",
+              errorCode: "missing_credentials",
+            }}
+            onContinue={vi.fn()}
+            onRetry={vi.fn()}
+            onDismiss={vi.fn()}
+          />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    expect(container.textContent).toContain("Connect AI");
+    expect(container.textContent).not.toContain("The agent hit an error");
+  });
+
   it("dismisses the recovery card after saving a provider key", async () => {
     const onDismiss = vi.fn();
 
