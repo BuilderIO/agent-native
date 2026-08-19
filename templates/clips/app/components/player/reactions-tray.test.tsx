@@ -51,10 +51,7 @@ describe("ReactionsTray", () => {
 
     act(() => {
       root.render(
-        <ReactionsTray
-          reactions={[{ id: "reaction-1", emoji: "👀" }]}
-          onReact={onReact}
-        />,
+        <ReactionsTray reactions={[{ emoji: "👀" }]} onReact={onReact} />,
       );
     });
 
