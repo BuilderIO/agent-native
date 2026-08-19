@@ -260,7 +260,7 @@ export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
     const normalized = normalizePath(file);
     return (
       normalized.startsWith(".github/workflows/") ||
-      /(^|\/)(auth|authentication|identity|credentials?|secrets?|sessions?|permissions?|tenant|tenants|isolation|security|payments?|billing|deploy|deployment|netlify|publish|release|migrations?)(\/|[-_.]|$)/.test(
+      /(^|\/)(auth|authentication|identity|credentials?|secrets?|sessions?|permissions?|tenant|tenants|isolation|security|execution|sandbox|payments?|billing|deploy|deployment|netlify|publish|release|migrations?)(\/|[-_.]|$)/.test(
         normalized,
       )
     );
