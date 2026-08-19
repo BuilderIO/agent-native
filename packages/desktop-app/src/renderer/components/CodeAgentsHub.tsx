@@ -112,6 +112,7 @@ import {
 import { useRendererTheme } from "../lib/theme.js";
 import AppWebview, { resolveAppWebviewUrl } from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
+import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
 import DesktopTerminalSurface, {
@@ -517,7 +518,7 @@ function DesktopAppsGrid({
                     },
                     {
                       id: "pin",
-                      label: pinned ? "Unpin from top" : "Pin to top",
+                      label: pinned ? "Unpin this app" : "Pin this app",
                       icon: (
                         <IconPin size={14} strokeWidth={pinned ? 2.2 : 1.6} />
                       ),
@@ -665,9 +666,11 @@ export default function CodeAgentsHub({
     activeChatFirstSurfaceTab?.kind === "app" &&
     activeChatFirstSurfaceTab.placement === "main";
   const chatFirstAppSelected = activeChatFirstSurfaceTab?.kind === "app";
+  const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
   const activeChatFirstPrimaryTab = useMemo<
     ChatFirstPrimaryTab | undefined
   >(() => {
+    if (scheduledTasksOpen) return "scheduled";
     if (
       !chatFirstAppSelected ||
       activeChatFirstSurfaceTab?.kind !== "app" ||
@@ -688,7 +691,7 @@ export default function CodeAgentsHub({
       return "scheduled";
     }
     return undefined;
-  }, [activeChatFirstSurfaceTab, chatFirstAppSelected]);
+  }, [activeChatFirstSurfaceTab, chatFirstAppSelected, scheduledTasksOpen]);
   const [chatFirstBrowserSelection, setChatFirstBrowserSelection] = useState<{
     url: string;
     title?: string;
@@ -762,6 +765,7 @@ export default function CodeAgentsHub({
       }
       setChatFirstRailCollapsed(true);
       setChatFirstAllAppsOpen(false);
+      setScheduledTasksOpen(false);
       window.electronAPI?.setActiveApp?.(app.id);
       setChatFirstNotice(null);
       setChatFirstBrowserSelection(null);
@@ -777,7 +781,12 @@ export default function CodeAgentsHub({
       );
       setChatFirstSurfacePanelOpen(true);
     },
-    [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen, surfaceApps],
+    [
+      chatFirstSurfaceTabsStore,
+      setChatFirstSurfacePanelOpen,
+      setScheduledTasksOpen,
+      surfaceApps,
+    ],
   );
 
   useEffect(() => {
@@ -852,6 +861,7 @@ export default function CodeAgentsHub({
   }, []);
   const returnToChatFirstChats = useCallback(() => {
     setChatFirstAllAppsOpen(false);
+    setScheduledTasksOpen(false);
     setTerminalSessionStarted(false);
     setTerminalPromptRequest(null);
     closeChatFirstSessionWatch();
@@ -902,11 +912,33 @@ export default function CodeAgentsHub({
   );
   const openChatFirstAllApps = useCallback(() => {
     setChatFirstAllAppsOpen(true);
+    setScheduledTasksOpen(false);
     closeChatFirstSessionWatch();
     setChatFirstBrowserSelection(null);
     chatFirstSurfaceTabsStore.closeAll();
     setChatFirstSurfacePanelOpen(false);
   }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
+  const openScheduledTasks = useCallback(() => {
+    setScheduledTasksOpen(true);
+    setChatFirstAllAppsOpen(false);
+    closeChatFirstSessionWatch();
+    setChatFirstBrowserSelection(null);
+    chatFirstSurfaceTabsStore.closeAll();
+    setChatFirstSurfacePanelOpen(false);
+  }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
+  const openScheduledChatWithPrompt = useCallback(
+    (prompt: string) => {
+      returnToChatFirstChats();
+      window.setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:scheduled-chat-prompt", {
+            detail: { prompt },
+          }),
+        );
+      }, 250);
+    },
+    [returnToChatFirstChats],
+  );
   const chatFirstNavigation = useMemo(
     () => ({
       activeTab: activeChatFirstPrimaryTab,
@@ -914,12 +946,13 @@ export default function CodeAgentsHub({
       onOpenChats: returnToChatFirstChats,
       onOpenAllApps: openChatFirstAllApps,
       onOpenIntegrations: () => openChatFirstApp("dispatch", "/integrations"),
-      onOpenScheduled: () => openChatFirstApp("dispatch", "/automations"),
+      onOpenScheduled: openScheduledTasks,
     }),
     [
       activeChatFirstPrimaryTab,
       openChatFirstApp,
       openChatFirstAllApps,
+      openScheduledTasks,
       returnToChatFirstChats,
     ],
   );
@@ -1876,6 +1909,61 @@ export default function CodeAgentsHub({
         }
         return api.listRuns(goalId);
       },
+      async listSchedules() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listSchedules) {
+          return {
+            status: "unavailable",
+            schedules: [],
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.listSchedules();
+      },
+      async createSchedule(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.createSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.createSchedule(request);
+      },
+      async updateSchedule(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.updateSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.updateSchedule(request);
+      },
+      async deleteSchedule(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.deleteSchedule) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.deleteSchedule(request);
+      },
+      async runScheduleNow(request: unknown) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.runScheduleNow) {
+          return {
+            ok: false,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.runScheduleNow(request);
+      },
       async createRun(request) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.createRun) {
@@ -2006,6 +2094,32 @@ export default function CodeAgentsHub({
           };
         }
         return api.appendFollowUp(request);
+      },
+      async transferRun(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.transferRun) {
+          return {
+            ok: false,
+            runId: request.runId,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.transferRun(request);
+      },
+      async transferAll(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.transferAll) {
+          return {
+            ok: false,
+            transferred: [],
+            skipped: [],
+            failed: [],
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.transferAll(request);
       },
       async updateRun(request) {
         const api = window.electronAPI?.codeAgents;
@@ -2280,6 +2394,7 @@ export default function CodeAgentsHub({
               <DesktopAppChatShell
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
+                isActive={isTabActive}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <AppWebview
@@ -2370,10 +2485,17 @@ export default function CodeAgentsHub({
           activeChatFirstSurfaceKind={activeChatFirstSurfaceTab?.kind}
           railCollapsed={chatFirstRailCollapsed}
           chatFirstMainKind={
-            chatFirstAllAppsOpen || chatFirstAppTakesMain ? "agent" : "code"
+            scheduledTasksOpen || chatFirstAllAppsOpen || chatFirstAppTakesMain
+              ? "agent"
+              : "code"
           }
           renderChatFirstMainSurface={
-            chatFirstAllAppsOpen ? (
+            scheduledTasksOpen ? (
+              <CodeAgentSchedulesPanel
+                host={host}
+                onCreateWithAgent={openScheduledChatWithPrompt}
+              />
+            ) : chatFirstAllAppsOpen ? (
               <DesktopAppsGrid
                 apps={listApps}
                 layout={chatFirstAppLayout}

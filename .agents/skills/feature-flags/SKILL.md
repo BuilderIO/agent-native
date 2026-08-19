@@ -46,6 +46,12 @@ export const FULL_APP_BUILDING = defineFeatureFlag({
 });
 ```
 
+Never import `defineFeatureFlag` from `@agent-native/core/feature-flags`.
+That barrel is server evaluation (`isFeatureFlagEnabled`) plus store code;
+Vite will follow it into the browser and crash the page. Plugin and A2A auth
+helpers live on `@agent-native/core/server` (or
+`@agent-native/core/feature-flags/server`).
+
 Keys are immutable, never reused, and contain only letters, numbers, dots,
 underscores, or hyphens. Prefer a concise app-owned name. Do not create flag
 definitions or rollout rows from Analytics.

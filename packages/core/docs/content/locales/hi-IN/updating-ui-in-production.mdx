@@ -17,6 +17,8 @@ frame को जान-बूझकर workspace और write tooling दी ग
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) एक अलग managed code-capable workflow है जहां एक agent production में आपके ऐप का UI modify कर सकता है। अपने repo को Builder.io से connect करें (free tier उपलब्ध) और सीधे UI changes के लिए prompt करें। किसी redeploy की ज़रूरत नहीं।
 
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
 **यह कैसे काम करता है:**
 
 1. अपने agent-native repo को Builder.io से connect करें (free tier उपलब्ध)

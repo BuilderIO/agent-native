@@ -286,6 +286,33 @@ describe("buildResilientNeonPool", () => {
     // Called with no error argument on clean release (undefined = return slot to pool)
     expect(releasesMock).toHaveBeenCalledWith(undefined);
   });
+
+  it("arms Neon idle transaction cleanup when Drizzle starts a transaction", async () => {
+    const { buildResilientNeonPool } = await import("./create-get-db.js");
+
+    const client = {
+      query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
+      release: vi.fn(),
+    };
+    const pool = {
+      connect: vi.fn(async () => client),
+      query: vi.fn(),
+      end: vi.fn(),
+      on: vi.fn(),
+    };
+
+    const resilient = buildResilientNeonPool(pool as any);
+    const transactionClient = await resilient.connect();
+
+    await transactionClient.query({ text: "begin", rowMode: "array" }, []);
+    await transactionClient.query("SELECT 1");
+
+    expect(client.query).toHaveBeenNthCalledWith(
+      1,
+      "begin; SET LOCAL idle_in_transaction_session_timeout = 30000",
+    );
+    expect(client.query).toHaveBeenNthCalledWith(2, "SELECT 1");
+  });
 });
 
 describe("isSqlRead", () => {

@@ -7,6 +7,31 @@ description: "使用預設的 Node.js Nitro 預設集部署 agent-native 應用�
 
 Node.js 是預設的 Nitro 預設集。本頁面涵蓋直接執行它，以及用 Docker 將它容器化。若要先選擇資料庫，請參閱 [Deployment](/docs/deployment)。若要使用 Docker Compose 自行架設多應用程式工作區，請參閱 [Workspace Deployment](/docs/workspace-deployment#workspace-docker-compose)。
 
+## 快速路徑：在本機自行託管 Chat 應用程式 {#self-host-quickstart}
+
+有兩個適合的起點：
+
+- **正在建立應用程式？** 從 [Getting Started](/docs/getting-started) 開始，準備好將應用程式放到持久環境時再回到這裡。
+- **正在執行應用程式？** 先使用本機 Docker 路徑。它會驗證你在小型伺服器上將使用的 Node.js、Postgres、驗證和環境變數設定。
+
+本機堆疊特意使用範例驗證密鑰和本機 Postgres 卷，只適用於 `localhost`，不適合直接暴露到網際網路。完整的 Compose 檔案和可複製步驟請參閱[完整的快速入門](/docs/node-docker#self-host-quickstart)。此快速入門使用 PostgreSQL 18 的磁碟區配置。不要重新使用由 PostgreSQL 17 或更早版本建立的磁碟區。變更映像或掛載路徑前，請先備份並遷移現有資料。
+
+### 1. 建立應用程式
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. 啟動本機堆疊
+
+```bash
+docker compose up --build
+```
+
+開啟 [http://localhost:3000](http://localhost:3000)。如果要使用內建代理，請將 `ANTHROPIC_API_KEY` 加入本機 `.env` 檔案。
+
 ## Node.js（預設）{#nodejs}
 
 預設的預設集。建置並執行：
@@ -23,6 +48,8 @@ Node.js 24。Node.js 20 已於 2026 年 4 月 30 日終止支援，不再收到�
 
 ## Docker {#docker}
 
+This Dockerfile works for the standalone app created above. Run `pnpm install` before building so `pnpm-lock.yaml` exists in the build context. Keep the dependency manifest and lockfile in sync when you update the app.
+
 ```dockerfile filename="Dockerfile"
 FROM node:24-slim AS build
 WORKDIR /app
@@ -37,9 +64,22 @@ COPY --from=build /app/.output .output
 # data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 # For production, set DATABASE_URL to a hosted Postgres or Turso instance.
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
+```
+
+Create `.dockerignore` alongside the Dockerfile:
+
+```text filename=".dockerignore"
+node_modules
+.output
+data
+.env
+.env.*
+!.env.example
+.git
 ```
 
 使用 Docker Compose 自行架設多應用程式工作區（建立在這同一份獨立

@@ -1,7 +1,11 @@
 import type { DesignEditorCommand } from "@/hooks/use-navigation-state";
 
 import { queryUniqueSelector } from "./dom-utils";
-import { normalizeDesignLeftPanel, normalizeDesignTool } from "./tool-state";
+import {
+  normalizeDesignLeftPanel,
+  normalizeDesignMode,
+  normalizeDesignTool,
+} from "./tool-state";
 import { type DesignFile, FOCUSED_SCREEN_ZOOM } from "./types";
 
 export function normalizeScreenTarget(value: string): string {
@@ -45,7 +49,10 @@ export function designEditorCommandFromSearchParams(
   // `single` is the URL spelling for the responsive Interact surface. There
   // is no focused editing view, so even an older URL without mode=interact
   // must enter Interact directly instead of reviving the removed Full view.
-  const mode = editorView === "single" ? "interact" : undefined;
+  const mode =
+    editorView === "single"
+      ? (normalizeDesignMode(searchParams.get("mode")) ?? "interact")
+      : undefined;
   if (
     editorView !== "overview" &&
     editorView !== "single" &&

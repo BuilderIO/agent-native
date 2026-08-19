@@ -93,6 +93,7 @@ import {
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import { DashboardSkeleton } from "../DashboardSkeleton";
 import { DashboardChartCard } from "./ChartCard";
@@ -206,6 +207,7 @@ export default function ExplorerDashboardPage() {
   );
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
+  const nameInputRef = useAutoFocusSelect<HTMLInputElement>(editingName);
   const [addChartOpen, setAddChartOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
@@ -635,6 +637,7 @@ export default function ExplorerDashboardPage() {
           ) : null}
           {editingName && canEdit ? (
             <Input
+              ref={nameInputRef}
               value={nameInput}
               onChange={(e) => setNameInput(e.target.value)}
               onBlur={handleSaveName}

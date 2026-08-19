@@ -1,3 +1,4 @@
+import { requestAgentChatThreadOpen } from "@agent-native/core/client/agent-chat";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import {
@@ -8,7 +9,7 @@ import {
   IconExternalLink,
   IconSearch,
 } from "@tabler/icons-react";
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,6 +71,7 @@ export function FactoryAuditView({
 }) {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
+  const viewRef = useRef<HTMLDivElement>(null);
   const selectedRunId = searchParams.get("auditRunId");
   const auditQuery = useActionQuery<FactoryAuditResponse>(
     "list-factory-audit",
@@ -109,8 +111,13 @@ export function FactoryAuditView({
     );
   }
 
+  useEffect(() => {
+    if (!selectedRunId) return;
+    viewRef.current?.scrollIntoView({ block: "start" });
+  }, [selectedRunId]);
+
   return (
-    <div className="p-4 lg:p-6">
+    <div ref={viewRef} className="p-4 lg:p-6">
       {auditQuery.isError ? (
         <Card>
           <CardContent className="flex items-start gap-2 p-4 text-sm text-destructive">
@@ -144,30 +151,38 @@ export function FactoryAuditView({
             </CardHeader>
             <CardContent className="p-0">
               <div className="grid gap-1.5 p-2">
-                {runs.map((run) => (
-                  <button
-                    key={run.id}
-                    type="button"
-                    className={`w-full cursor-pointer rounded-lg bg-muted/20 p-3 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${selectedRun?.id === run.id ? "bg-muted/60" : ""}`}
-                    onClick={() => selectRun(run.id)}
-                  >
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="min-w-0 truncate text-sm font-medium">
-                        {formatAutomationName(run.automation)}
-                      </span>
-                      <AuditStatus status={run.status} />
-                    </div>
-                    <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
-                      <span className="shrink-0">
-                        {formatAuditAge(run.startedAt)}
-                      </span>
-                      <span className="shrink-0">
-                        {run.events.length}{" "}
-                        {formatAuditCountLabel(run.events.length)}
-                      </span>
-                    </div>
-                  </button>
-                ))}
+                {runs.map((run) => {
+                  const selected = selectedRun?.id === run.id;
+                  return (
+                    <button
+                      key={run.id}
+                      type="button"
+                      aria-current={selected ? "true" : undefined}
+                      className={`w-full cursor-pointer rounded-lg p-3 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                        selected
+                          ? "bg-primary/10 ring-1 ring-inset ring-primary/40"
+                          : "bg-muted/20 hover:bg-muted/50"
+                      }`}
+                      onClick={() => selectRun(run.id)}
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="min-w-0 truncate text-sm font-medium">
+                          {formatAutomationName(run.automation)}
+                        </span>
+                        <AuditStatus status={run.status} />
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                        <span className="shrink-0">
+                          {formatAuditAge(run.startedAt)}
+                        </span>
+                        <span className="shrink-0">
+                          {run.events.length}{" "}
+                          {formatAuditCountLabel(run.events.length)}
+                        </span>
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </CardContent>
           </Card>
@@ -190,7 +205,9 @@ export function FactoryAuditView({
               </div>
             </CardHeader>
             <CardContent className="pt-4">
-              {selectedRun && <AuditRunDetail run={selectedRun} />}
+              {selectedRun && (
+                <AuditRunDetail run={selectedRun} factoryId={factoryId} />
+              )}
             </CardContent>
           </Card>
         </div>
@@ -199,7 +216,13 @@ export function FactoryAuditView({
   );
 }
 
-function AuditRunDetail({ run }: { run: FactoryAuditRun }) {
+function AuditRunDetail({
+  run,
+  factoryId,
+}: {
+  run: FactoryAuditRun;
+  factoryId: string;
+}) {
   const t = useT();
   const groups = useMemo(() => groupAuditEvents(run.events), [run.events]);
   const itemCount = new Set(
@@ -229,10 +252,22 @@ function AuditRunDetail({ run }: { run: FactoryAuditRun }) {
         {run.threadId && (
           <a
             href={`/chat/${encodeURIComponent(run.threadId)}`}
-            className="ml-auto inline-flex items-center gap-1 text-primary hover:underline"
+            className="ml-auto inline-flex items-center text-primary hover:underline"
+            onClick={(event) => {
+              if (
+                event.metaKey ||
+                event.ctrlKey ||
+                event.shiftKey ||
+                event.altKey ||
+                event.button !== 0
+              ) {
+                return;
+              }
+              event.preventDefault();
+              requestAgentChatThreadOpen({ threadId: run.threadId! });
+            }}
           >
             {t("factoryRoute.auditOpenThread")}
-            <IconExternalLink className="size-3" />
           </a>
         )}
       </div>
@@ -260,7 +295,11 @@ function AuditRunDetail({ run }: { run: FactoryAuditRun }) {
         ) : (
           <div className="grid gap-1.5">
             {groups.map((group) => (
-              <AuditItemRow key={group.key} group={group} />
+              <AuditItemRow
+                key={group.key}
+                group={group}
+                factoryId={factoryId}
+              />
             ))}
           </div>
         )}
@@ -269,15 +308,20 @@ function AuditRunDetail({ run }: { run: FactoryAuditRun }) {
   );
 }
 
-function AuditItemRow({ group }: { group: AuditItemGroup }) {
+function AuditItemRow({
+  group,
+  factoryId,
+}: {
+  group: AuditItemGroup;
+  factoryId: string;
+}) {
   const t = useT();
   const decision = group.decision;
   const rationale = decision?.summary ?? group.externalAction?.summary ?? null;
-  const sourceLink =
-    group.sourceUrl ?? group.events.find((event) => event.sourceUrl)?.sourceUrl;
+  const sourceLink = resolveAuditSourceLink(group);
 
   return (
-    <details className="group rounded-lg bg-muted/20">
+    <details className="group overflow-hidden rounded-lg border border-border bg-muted/20">
       <summary className="flex cursor-pointer list-none items-center gap-3 rounded-lg px-3 py-3 hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
         <AuditSourceIcon source={group.source} />
         <div className="min-w-0 flex-1">
@@ -336,7 +380,7 @@ function AuditItemRow({ group }: { group: AuditItemGroup }) {
           <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 bg-background/40 px-3 py-3 text-xs">
             {group.itemId && (
               <a
-                href={`/factory?tab=inbox&itemId=${encodeURIComponent(group.itemId)}`}
+                href={`/factory?factoryId=${encodeURIComponent(factoryId)}&tab=inbox&itemId=${encodeURIComponent(group.itemId)}`}
                 className="text-primary hover:underline"
               >
                 {t("factoryRoute.auditOpenItem")}
@@ -577,6 +621,26 @@ function formatAuditSource(source: string | null): string {
   if (normalized.includes("github")) return "GitHub";
   if (normalized.includes("sentry")) return "Sentry";
   return source ? formatAuditLabel(source) : "Factory";
+}
+
+function resolveAuditSourceLink(group: AuditItemGroup): string | null {
+  const storedUrl =
+    group.sourceUrl ??
+    group.events.find((event) => event.sourceUrl)?.sourceUrl ??
+    null;
+  if (storedUrl) return storedUrl;
+
+  for (const event of group.events) {
+    const channelId = readStringDetail(event.details, "channelId");
+    const threadTs = readStringDetail(event.details, "threadTs");
+    if (channelId && threadTs) return slackThreadUrl(channelId, threadTs);
+  }
+  return null;
+}
+
+function slackThreadUrl(channelId: string, threadTs: string): string {
+  const compactTs = threadTs.replace(".", "");
+  return `https://slack.com/archives/${encodeURIComponent(channelId)}/p${compactTs}?thread_ts=${encodeURIComponent(threadTs)}`;
 }
 
 function formatAutomationName(value: string): string {

@@ -5,9 +5,15 @@ import { describe, expect, it } from "vitest";
 const source = readFileSync(new URL("./DesignEditor.tsx", import.meta.url), {
   encoding: "utf8",
 });
-const handlerStart = source.indexOf("const handleLayerMoveToScreen");
-const handlerEnd = source.indexOf("const handleLayerMove =", handlerStart);
-const handlerSource = source.slice(handlerStart, handlerEnd);
+const handlerModule = readFileSync(
+  new URL("./design-editor/commands/layer-move-to-screen.ts", import.meta.url),
+  { encoding: "utf8" },
+);
+const handlerStart = handlerModule.indexOf(
+  "export function runLayerMoveToScreen",
+);
+const handlerEnd = handlerModule.length;
+const handlerSource = handlerModule.slice(handlerStart, handlerEnd);
 const liveBranchStart = handlerSource.indexOf(
   "if (isStandaloneHttpUrl(destContent))",
 );

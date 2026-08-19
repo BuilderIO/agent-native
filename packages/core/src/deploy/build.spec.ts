@@ -11,6 +11,7 @@ import {
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
+  SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
 } from "../shared/cache-control.js";
 import {
@@ -62,6 +63,7 @@ import {
   resolveNitroBuildReplacements,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
+  shouldBundleYjsRuntimeForPreset,
   shouldBundleFfmpegStaticForServerless,
   writeSingleTemplateNetlifyRedirects,
 } from "./build.js";
@@ -74,13 +76,30 @@ describe("nitroNoExternalsForPreset", () => {
     expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
     expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
     expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
-    expect(nitroNoExternalsForPreset("node-server")).toEqual(["yjs"]);
+    expect(nitroNoExternalsForPreset("node")).toEqual([]);
+    expect(nitroNoExternalsForPreset("node-server")).toEqual([]);
   });
 
   it("bundles every dependency for edge output", () => {
     expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
     expect(nitroNoExternalsForPreset("cloudflare_module")).toBe(true);
     expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
+
+describe("shouldBundleYjsRuntimeForPreset", () => {
+  it("covers Node and serverless output but leaves edge presets to bundling", () => {
+    for (const preset of [
+      "node",
+      "node-server",
+      "netlify",
+      "vercel",
+      "aws-lambda",
+    ]) {
+      expect(shouldBundleYjsRuntimeForPreset(preset)).toBe(true);
+    }
+    expect(shouldBundleYjsRuntimeForPreset("cloudflare-pages")).toBe(false);
+    expect(shouldBundleYjsRuntimeForPreset("deno-deploy")).toBe(false);
   });
 });
 
@@ -93,6 +112,14 @@ describe("resolveNitroBuildReplacements", () => {
     expect(replacements["process.env.AGENT_NATIVE_RELEASE_MIGRATIONS"]).toBe(
       JSON.stringify("1"),
     );
+  });
+
+  it("embeds the configured deployment lane into the Nitro server bundle", () => {
+    const replacements = resolveNitroBuildReplacements({}, " beta ");
+
+    expect(
+      replacements["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
+    ).toBe(JSON.stringify("beta"));
   });
 });
 
@@ -189,6 +216,9 @@ describe("cloudflareWorkerStubAliasArgs", () => {
     const workerAlias = aliases.find((alias) =>
       alias.startsWith("--alias:pdf-parse/worker="),
     );
+    const pdfJsAlias = aliases.find((alias) =>
+      alias.startsWith("--alias:pdfjs-dist/legacy/build/pdf.mjs="),
+    );
     const packageAlias = aliases.find((alias) =>
       alias.startsWith("--alias:pdf-parse="),
     );
@@ -199,8 +229,17 @@ describe("cloudflareWorkerStubAliasArgs", () => {
     expect(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES).toHaveProperty(
       "pdf-parse/worker",
     );
+    expect(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES).toHaveProperty(
+      "pdfjs-dist/legacy/build/pdf.mjs",
+    );
     expect(workerAlias).toBe(
       `--alias:pdf-parse/worker=${path.join(stubDir, "pdf-parse__worker.js")}`,
+    );
+    expect(pdfJsAlias).toBe(
+      `--alias:pdfjs-dist/legacy/build/pdf.mjs=${path.join(
+        stubDir,
+        "pdfjs-dist__legacy__build__pdf.mjs.js",
+      )}`,
     );
     expect(packageAlias).toBe(
       `--alias:pdf-parse=${path.join(stubDir, "pdf-parse", "index.js")}`,
@@ -252,7 +291,10 @@ function makeTempDir(): string {
   return dir;
 }
 
-async function importGeneratedWorker(entrySource: string) {
+async function importGeneratedWorker(
+  entrySource: string,
+  options: { responseHeaders?: Record<string, string> } = {},
+) {
   const dir = makeTempDir();
   const nodeModules = path.join(dir, "node_modules", "react-router");
   fs.mkdirSync(nodeModules, { recursive: true });
@@ -286,7 +328,11 @@ export function createRequestHandler() {
     if (url.pathname === "/redirect") {
       return new Response(null, {
         status: 302,
-        headers: { location: "/login", "content-type": "text/html" },
+        headers: {
+          location: "/login",
+          "content-type": "text/html",
+          ...${JSON.stringify(options.responseHeaders ?? {})},
+        },
       });
     }
     if (url.pathname === "/private-html") {
@@ -672,6 +718,25 @@ export default (event) =>
     expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
   });
 
+  it("uses the full Netlify query key for marked public redirects", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const source = generateWorkerEntry([], []);
+    const worker = await importGeneratedWorker(source, {
+      responseHeaders: {
+        [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+      },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://app.test/redirect?from=home"),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("netlify-vary")).toBe("query");
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
+  });
+
   it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
     vi.stubEnv("AGENT_NATIVE_SSR_CACHE", "off");
 
@@ -940,6 +1005,81 @@ export default (event) =>
     expect(html).toContain("https://public@example/4511270423822336");
   });
 
+  it("normalizes explicit deployment environment in generated browser telemetry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", " BETA ");
+    vi.stubEnv("SENTRY_DSN", "https://public@example/4511270423822336");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain('"sentryEnvironment":"beta"');
+    expect(html).toContain('"deploymentEnvironment":"beta"');
+  });
+
+  it("rejects unsupported explicit deployment environment in generated workers", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "staging");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    expect(response.status).toBe(500);
+  });
+
+  it("uses Netlify CONTEXT for generated preview browser telemetry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
+    vi.stubEnv("SENTRY_ENVIRONMENT", "production");
+    vi.stubEnv("CONTEXT", "deploy-preview");
+    vi.stubEnv("NETLIFY_CONTEXT", "production");
+    vi.stubEnv("BRANCH", "feature/auth");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SENTRY_DSN", "https://public@example/4511270423822336");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain('"sentryEnvironment":"preview"');
+    expect(html).toContain('"deploymentEnvironment":"preview"');
+  });
+
+  it("injects deployment attribution without browser Sentry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
+    vi.stubEnv("CONTEXT", "deploy-preview");
+    vi.stubEnv("NETLIFY_CONTEXT", "production");
+    vi.stubEnv("BRANCH", "feature/auth");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("SENTRY_CLIENT_DSN", "");
+    vi.stubEnv("SENTRY_DSN", "");
+    vi.stubEnv("VITE_SENTRY_DSN", "");
+    vi.stubEnv("NODE_ENV", "production");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-sentry-config");
+    expect(html).toContain('"deploymentEnvironment":"preview"');
+    expect(html).not.toContain("sentryDsn");
+  });
+
   it("keeps mounted SSR HEAD responses bodyless and leaves missing API paths as 404", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -1185,6 +1325,12 @@ describe("CLOUDFLARE_WORKER_ESBUILD_EXTERNALS", () => {
     expect(CLOUDFLARE_WORKER_STUB_MODULES["playwright-core"]).toContain(
       "chromium",
     );
+
+    const pdfJsStub =
+      CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES["pdfjs-dist/legacy/build/pdf.mjs"];
+    expect(pdfJsStub).toContain("export const OPS = new Proxy");
+    expect(pdfJsStub).toContain("export const Util = new Proxy");
+    expect(pdfJsStub).toContain("export const getDocument = unavailable");
   });
 
   it("stubs node builtins that Cloudflare Pages rejects at upload time", () => {
@@ -2978,6 +3124,40 @@ describe("durable-background Netlify function emit (single-template, default-on)
     expect(collab.doc.getText("x")).toBeInstanceOf(editor.Text);
     prepareSingleTemplateNetlifyOutput(cwd);
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
+  });
+
+  it("routes mixed Node Yjs consumers through one runtime module", async () => {
+    const cwd = fs.mkdtempSync(path.join(process.cwd(), ".tmp-node-yjs-"));
+    dirs.push(cwd);
+    const serverDir = path.join(cwd, ".output", "server");
+    const collabChunk = path.join(serverDir, "_chunks", "collab.mjs");
+    const bundledChunk = path.join(serverDir, "server.mjs");
+    fs.mkdirSync(path.dirname(collabChunk), { recursive: true });
+    fs.mkdirSync(path.join(serverDir, "_libs"), { recursive: true });
+    fs.writeFileSync(path.join(serverDir, "_libs", "yjs.mjs"), "export {};");
+    fs.writeFileSync(collabChunk, 'import * as Y from "yjs";\nexport { Y };\n');
+    fs.writeFileSync(
+      bundledChunk,
+      'import { Text } from "./_libs/yjs.mjs";\nexport { Text };\n',
+    );
+
+    expect(bundleYjsRuntimeForServerlessOutput(serverDir, cwd)).toEqual([
+      collabChunk,
+    ]);
+    expect(
+      fs.existsSync(path.join(serverDir, "_libs", "yjs-runtime.mjs")),
+    ).toBe(true);
+    expect(fs.readFileSync(collabChunk, "utf8")).toContain(
+      'from "../_libs/yjs-runtime.mjs"',
+    );
+    expect(fs.readFileSync(bundledChunk, "utf8")).toContain(
+      'from "./_libs/yjs-runtime.mjs"',
+    );
+    const [collab, bundled] = await Promise.all([
+      import(`${pathToFileURL(collabChunk).href}?t=${Date.now()}`),
+      import(`${pathToFileURL(bundledChunk).href}?t=${Date.now()}`),
+    ]);
+    expect(collab.Y.Text).toBe(bundled.Text);
   });
 
   it("rejects unsupported Yjs subpath imports instead of rewriting their semantics", () => {

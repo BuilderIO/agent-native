@@ -1155,11 +1155,14 @@ describe("Neon foreground statement budgets", () => {
 
   it("uses a transaction-local timeout for explicitly budgeted transaction work", async () => {
     vi.stubEnv("NETLIFY", "true");
-    const query = vi.fn(async (sql: string) =>
-      sql === "SELECT 1"
+    const query = vi.fn(async (sql: string, args?: unknown[]) => {
+      if (sql.includes(";") && args !== undefined) {
+        throw new Error("multi-command queries require the simple protocol");
+      }
+      return sql === "SELECT 1"
         ? { rows: [{ value: 1 }], rowCount: 1 }
-        : { rows: [], rowCount: 0 },
-    );
+        : { rows: [], rowCount: 0 };
+    });
     const client = {
       query,
       release: vi.fn(),
@@ -1194,7 +1197,7 @@ describe("Neon foreground statement budgets", () => {
     ).resolves.toEqual({ rows: [{ value: 1 }], rowsAffected: 1 });
 
     expect(query.mock.calls.map(([sql]) => sql)).toEqual([
-      "BEGIN",
+      "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
       "SET LOCAL statement_timeout = 900",
       "SELECT 1",
       "COMMIT",
@@ -1241,7 +1244,10 @@ describe("Neon foreground statement budgets", () => {
       }),
     ).rejects.toBe(transactionError);
 
-    expect(query.mock.calls.map(([sql]) => sql)).toEqual(["BEGIN", "ROLLBACK"]);
+    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
+      "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
+      "ROLLBACK",
+    ]);
     expect(client.release).toHaveBeenCalledWith(true);
   });
 });

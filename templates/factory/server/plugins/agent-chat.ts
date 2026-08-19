@@ -87,11 +87,17 @@ requests, broad UX suggestions, vague questions, and incomplete context stay
 manual. Clips, Design, and Content are fully owner-managed: never react, tag
 Builder, auto-approve, or auto-merge those items. Slack clear bugs use the
 thread-preserving start-builder-for-item flow; GitHub and Sentry clear bugs use
-the Builder agent-run flow. For pull requests, auto-approval requires an internal
-BuilderIO author, a clear bug, passing CI, and handled review feedback. Auto-merge
-also requires a verified Factory Builder run. When a user says to do a review-gated
-item now, use the explicit approval action, which records the approver and applies
-the rule's configured executor policy. Keep Slack replies concise and link to the
+the Builder agent-run flow. Slack repeat reports must be clustered by underlying
+symptom, with one Builder thread for the cluster and 👀 on every grouped report.
+After classifying an item, call start-builder-for-item with clearBug true or
+false and a short reason so a skip is recorded. Use /address-feedback for the
+repository feedback workflow. For pull requests, follow review-prs: read the
+complete diff and review evidence, verify current BuilderIO membership, preserve
+the ultra-scary safety gate, and distinguish unknown or unresolved checks from
+clean ones. Auto-merge also requires a verified Factory Builder run. When a user
+says to do a review-gated item now, use the explicit approval action, which
+records the approver and applies the rule's configured executor policy. Keep
+Slack replies concise and link to the
 Factory item when a review is needed. The scheduled builder-io-bot PR babysitter
 posts its exact feedback-fix request through GitHub, persists a 20-minute quiet
 window, and never approves or merges.`,

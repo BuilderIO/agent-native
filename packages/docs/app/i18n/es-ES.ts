@@ -77,6 +77,7 @@ const esES = {
     suggestionDeploy: "¿Cómo despliego a producción?",
   },
   errors: {
+    loadingLatest: "Cargando la versión más reciente...",
     notFoundTitle: "Página no encontrada",
     notFoundBody: "La página que buscas no existe o se movió.",
     goHome: "Ir al inicio",

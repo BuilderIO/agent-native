@@ -985,6 +985,7 @@ const enUS = {
       applyButton: "Apply styles",
       previewLabel: "Pending visual preview",
       applyDesignUpdates: "Apply design update",
+      applying: "Applying…",
       verifying: "Verifying source and runtime…",
       retryWithAgent: "Retry source verification",
       copyPrompt: "Copy prompt to your agent",
@@ -1177,6 +1178,7 @@ const enUS = {
   multiScreenCanvas: {
     addBreakpointToAllScreens:
       "Add {{label}} breakpoint ({{width}}px) to all screens",
+    preparingLiveEditor: "Preparing the live editor…",
     duplicate: "Duplicate",
     fork: "Fork",
     fullView: "Full view",
@@ -8054,6 +8056,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "正在準備即時編輯器…",
       addBreakpointToAllScreens:
         "為所有畫面新增 {{label}} 中斷點（{{width}}px）",
       duplicate: "複製",
@@ -8226,6 +8229,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "正在准备实时编辑器…",
       addBreakpointToAllScreens: "为所有画面添加 {{label}} 断点（{{width}}px）",
       duplicate: "复制",
       fork: "分支",
@@ -8398,6 +8402,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Preparando el editor en vivo…",
       addBreakpointToAllScreens:
         "Añadir punto de ruptura {{label}} ({{width}}px) a todas las pantallas",
       duplicate: "Duplicar",
@@ -8592,6 +8597,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Préparation de l'éditeur en direct…",
       addBreakpointToAllScreens:
         "Ajouter le point de rupture {{label}} ({{width}}px) à tous les écrans",
       duplicate: "Dupliquer",
@@ -8783,6 +8789,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Live-Editor wird vorbereitet…",
       addBreakpointToAllScreens:
         "{{label}}-Breakpoint ({{width}}px) zu allen Screens hinzufügen",
       duplicate: "Duplizieren",
@@ -8979,6 +8986,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "ライブエディターを準備しています…",
       addBreakpointToAllScreens:
         "すべての画面に {{label}} ブレークポイント（{{width}}px）を追加",
       duplicate: "複製",
@@ -9170,6 +9178,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "실시간 편집기를 준비하는 중…",
       addBreakpointToAllScreens:
         "모든 화면에 {{label}} 중단점({{width}}px) 추가",
       duplicate: "복제",
@@ -9358,6 +9367,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "Preparando o editor ao vivo…",
       addBreakpointToAllScreens:
         "Adicionar ponto de quebra {{label}} ({{width}}px) a todas as telas",
       duplicate: "Duplicar",
@@ -9546,6 +9556,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "लाइव एडिटर तैयार किया जा रहा है…",
       addBreakpointToAllScreens:
         "सभी स्क्रीन में {{label}} ब्रेकपॉइंट ({{width}}px) जोड़ें",
       duplicate: "डुप्लिकेट",
@@ -9734,6 +9745,7 @@ const designModeFeatureOverrides = {
       },
     },
     multiScreenCanvas: {
+      preparingLiveEditor: "جارٍ تحضير المحرر المباشر…",
       addBreakpointToAllScreens:
         "إضافة نقطة توقف {{label}} ({{width}}px) إلى جميع الشاشات",
       duplicate: "تكرار",
@@ -11432,6 +11444,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "套用樣式",
         previewLabel: "待處理的視覺預覽",
         applyDesignUpdates: "套用設計更新",
+        applying: "正在套用…",
         verifying: "正在驗證來源與執行階段…",
         retryWithAgent: "重試來源驗證",
         copyPrompt: "將提示複製給您的代理",
@@ -11465,6 +11478,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "应用样式",
         previewLabel: "待处理的视觉预览",
         applyDesignUpdates: "应用设计更新",
+        applying: "正在应用…",
         verifying: "正在验证源文件和运行时…",
         retryWithAgent: "重试源文件验证",
         copyPrompt: "将提示复制给你的代理",
@@ -11498,6 +11512,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Aplicar estilos",
         previewLabel: "Vista previa visual pendiente",
         applyDesignUpdates: "Aplicar actualizaciones de diseño",
+        applying: "Aplicando…",
         verifying: "Verificando el código y el runtime…",
         retryWithAgent: "Reintentar verificación del código",
         copyPrompt: "Copiar prompt a tu agente",
@@ -11533,6 +11548,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Appliquer les styles",
         previewLabel: "Aperçu visuel en attente",
         applyDesignUpdates: "Appliquer les mises à jour du design",
+        applying: "Application…",
         verifying: "Vérification de la source et du runtime…",
         retryWithAgent: "Réessayer la vérification de la source",
         copyPrompt: "Copier le prompt vers votre agent",
@@ -11568,6 +11584,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Stile anwenden",
         previewLabel: "Ausstehende visuelle Vorschau",
         applyDesignUpdates: "Design-Updates anwenden",
+        applying: "Wird angewendet…",
         verifying: "Quelle und Laufzeit werden überprüft…",
         retryWithAgent: "Quellprüfung wiederholen",
         copyPrompt: "Prompt an deinen Agent kopieren",
@@ -11603,6 +11620,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "スタイルを適用",
         previewLabel: "保留中のビジュアルプレビュー",
         applyDesignUpdates: "デザインの更新を適用",
+        applying: "適用中…",
         verifying: "ソースとランタイムを検証中…",
         retryWithAgent: "ソース検証を再試行",
         copyPrompt: "エージェントにプロンプトをコピー",
@@ -11638,6 +11656,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "스타일 적용",
         previewLabel: "보류 중인 시각 미리보기",
         applyDesignUpdates: "디자인 업데이트 적용",
+        applying: "적용 중…",
         verifying: "소스와 런타임 확인 중…",
         retryWithAgent: "소스 확인 다시 시도",
         copyPrompt: "에이전트에 프롬프트 복사",
@@ -11672,6 +11691,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Aplicar estilos",
         previewLabel: "Prévia visual pendente",
         applyDesignUpdates: "Aplicar atualizações de design",
+        applying: "Aplicando…",
         verifying: "Verificando origem e runtime…",
         retryWithAgent: "Tentar verificar a origem novamente",
         copyPrompt: "Copiar prompt para seu agente",
@@ -11707,6 +11727,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "Styles लागू करें",
         previewLabel: "लंबित visual preview",
         applyDesignUpdates: "डिज़ाइन अपडेट लागू करें",
+        applying: "लागू किया जा रहा है…",
         verifying: "Source और runtime सत्यापित हो रहे हैं…",
         retryWithAgent: "Source verification फिर करें",
         copyPrompt: "Prompt अपने agent को कॉपी करें",
@@ -11740,6 +11761,7 @@ const designPendingVisualStyleOverrides = {
         applyButton: "تطبيق الأنماط",
         previewLabel: "معاينة مرئية معلقة",
         applyDesignUpdates: "تطبيق تحديثات التصميم",
+        applying: "جارٍ التطبيق…",
         verifying: "جارٍ التحقق من المصدر ووقت التشغيل…",
         retryWithAgent: "إعادة التحقق من المصدر",
         copyPrompt: "نسخ الموجه إلى وكيلك",

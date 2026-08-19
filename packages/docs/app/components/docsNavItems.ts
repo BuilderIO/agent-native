@@ -39,18 +39,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "getting-started",
         labelKey: "gettingStarted",
         slug: "getting-started",
-        children: [
-          {
-            id: "getting-started-actions",
-            labelKey: "gettingStartedActions",
-            slug: "getting-started-actions",
-          },
-          {
-            id: "getting-started-pages",
-            labelKey: "gettingStartedPages",
-            slug: "getting-started-pages",
-          },
-        ],
       },
       {
         id: "what-is-agent-native",
@@ -612,58 +600,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
       {
-        id: "deployment-section",
-        labelKey: "deployment",
-        children: [
-          {
-            id: "deployment",
-            labelKey: "deploymentOverview",
-            slug: "deployment",
-          },
-          {
-            id: "workspace-deployment",
-            labelKey: "workspaceDeployment",
-            slug: "workspace-deployment",
-          },
-          {
-            id: "node-docker",
-            labelKey: "deploymentNodeDocker",
-            slug: "node-docker",
-          },
-          {
-            id: "vercel",
-            labelKey: "deploymentVercel",
-            slug: "vercel",
-          },
-          {
-            id: "netlify",
-            labelKey: "deploymentNetlify",
-            slug: "netlify",
-          },
-          {
-            id: "cloudflare",
-            labelKey: "deploymentCloudflare",
-            slug: "cloudflare",
-          },
-          {
-            id: "other-platforms",
-            labelKey: "deploymentOtherPlatforms",
-            slug: "other-platforms",
-          },
-          { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
-          {
-            id: "deployment-environment-variables",
-            labelKey: "deploymentEnvironmentVariables",
-            slug: "deployment-environment-variables",
-          },
-          {
-            id: "updating-ui-in-production",
-            labelKey: "updatingUiInProduction",
-            slug: "updating-ui-in-production",
-          },
-        ],
-      },
-      {
         id: "environment-variables",
         labelKey: "environmentVariables",
         slug: "environment-variables",
@@ -876,6 +812,58 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
       { id: "frames", labelKey: "frames", slug: "frames" },
+      {
+        id: "deployment-section",
+        labelKey: "deployment",
+        children: [
+          {
+            id: "deployment",
+            labelKey: "deploymentOverview",
+            slug: "deployment",
+          },
+          {
+            id: "workspace-deployment",
+            labelKey: "workspaceDeployment",
+            slug: "workspace-deployment",
+          },
+          {
+            id: "node-docker",
+            labelKey: "deploymentNodeDocker",
+            slug: "node-docker",
+          },
+          {
+            id: "vercel",
+            labelKey: "deploymentVercel",
+            slug: "vercel",
+          },
+          {
+            id: "netlify",
+            labelKey: "deploymentNetlify",
+            slug: "netlify",
+          },
+          {
+            id: "cloudflare",
+            labelKey: "deploymentCloudflare",
+            slug: "cloudflare",
+          },
+          {
+            id: "other-platforms",
+            labelKey: "deploymentOtherPlatforms",
+            slug: "other-platforms",
+          },
+          { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
+          {
+            id: "deployment-environment-variables",
+            labelKey: "deploymentEnvironmentVariables",
+            slug: "deployment-environment-variables",
+          },
+          {
+            id: "updating-ui-in-production",
+            labelKey: "updatingUiInProduction",
+            slug: "updating-ui-in-production",
+          },
+        ],
+      },
     ],
   },
   {

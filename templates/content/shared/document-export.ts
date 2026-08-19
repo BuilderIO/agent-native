@@ -41,6 +41,11 @@ function serializeBlocksFieldsManifest(fields: BlocksFieldExport[]): string {
     .replace(/--/g, "\\u002d\\u002d");
 }
 
+export interface CollectionExportItem {
+  title?: string | null;
+  content?: string | null;
+}
+
 const EXTENSION_BY_FORMAT: Record<DocumentExportFormat, string> = {
   pdf: "pdf",
   markdown: "md",
@@ -121,6 +126,26 @@ export function markdownWithTitle(
   }
 
   return `${`# ${safeTitle}`}${body ? `\n\n${body}` : ""}\n`;
+}
+
+export function collectionItemsMarkdown(
+  items: readonly CollectionExportItem[],
+): string {
+  if (items.length === 0) return "_No accessible items._\n";
+
+  return `${items
+    .map((item) => {
+      const title = normalizeTitle(item.title);
+      const body = (item.content ?? "").trim();
+      const firstHeading = body.match(/^#\s+(.+?)(?:\n|$)/);
+      const content =
+        firstHeading?.[1]?.trim().toLowerCase() === title.toLowerCase()
+          ? body.slice(firstHeading[0].length).trimStart()
+          : body;
+
+      return `## ${title}${content ? `\n\n${content}` : ""}`;
+    })
+    .join("\n\n")}\n`;
 }
 
 interface InlineExportToken {

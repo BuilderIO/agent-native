@@ -21,6 +21,7 @@ import {
 interface WorkingLocationEditorProps {
   event: CalendarEvent;
   isRecurring: boolean;
+  isDraft?: boolean;
   readOnly?: boolean;
   disabled?: boolean;
   onSave: (selection: WorkingLocationSelection) => void;
@@ -40,6 +41,7 @@ function initialLabels(event: CalendarEvent) {
 export function WorkingLocationEditor({
   event,
   isRecurring,
+  isDraft = false,
   readOnly = false,
   disabled = false,
   onSave,
@@ -54,17 +56,41 @@ export function WorkingLocationEditor({
   const detail = getWorkingLocationDetail(event, workingLocationLabels);
 
   useEffect(() => {
-    setType(getWorkingLocationType(event));
-    setLabels(initialLabels(event));
-    setScope("single");
-  }, [currentLabel, currentType, event.id]);
+    setType(currentType);
+    setLabels((current) => {
+      const incoming = initialLabels(event);
+      if (!isDraft) return incoming;
+      return {
+        officeLocation:
+          currentType === "officeLocation"
+            ? incoming.officeLocation
+            : current.officeLocation,
+        customLocation:
+          currentType === "customLocation"
+            ? incoming.customLocation
+            : current.customLocation,
+      };
+    });
+    if (!isDraft) setScope("single");
+  }, [currentLabel, currentType, event.id, isDraft]);
 
   const label = type === "homeOffice" ? "" : labels[type];
-  const isValid = type === "homeOffice" || label.trim().length > 0;
+  const isValid = type !== "customLocation" || label.trim().length > 0;
   const isDirty = useMemo(
     () => type !== currentType || label.trim() !== currentLabel.trim(),
     [currentLabel, currentType, label, type],
   );
+
+  const commitDraft = (
+    nextType: WorkingLocationKind,
+    nextLabels: Record<LabeledWorkingLocation, string>,
+  ) => {
+    if (!isDraft) return;
+    onSave({
+      type: nextType,
+      label: nextType === "homeOffice" ? "" : nextLabels[nextType],
+    });
+  };
 
   if (readOnly) {
     return (
@@ -108,7 +134,11 @@ export function WorkingLocationEditor({
       </div>
       <RadioGroup
         value={type}
-        onValueChange={(value) => setType(value as WorkingLocationKind)}
+        onValueChange={(value) => {
+          const nextType = value as WorkingLocationKind;
+          setType(nextType);
+          commitDraft(nextType, labels);
+        }}
         className="grid grid-cols-3 gap-1.5"
         aria-label={t("eventForm.workingLocation")}
         disabled={disabled}
@@ -143,12 +173,14 @@ export function WorkingLocationEditor({
         <div className="mt-2">
           <Input
             value={labels[type]}
-            onChange={(event) =>
-              setLabels((current) => ({
-                ...current,
-                [type]: event.target.value,
-              }))
-            }
+            onChange={(inputEvent) => {
+              const nextLabels = {
+                ...labels,
+                [type]: inputEvent.target.value,
+              };
+              setLabels(nextLabels);
+              commitDraft(type, nextLabels);
+            }}
             aria-label={
               type === "officeLocation"
                 ? t("eventForm.office")
@@ -166,7 +198,7 @@ export function WorkingLocationEditor({
         </div>
       )}
 
-      {isRecurring && (
+      {isRecurring && !isDraft && (
         <div className="mt-2">
           <p className="mb-1 text-[10px] font-medium text-muted-foreground">
             {t("eventForm.applyTo")}
@@ -205,18 +237,20 @@ export function WorkingLocationEditor({
         </div>
       )}
 
-      <div className="mt-2 flex justify-end">
-        <Button
-          size="sm"
-          className="h-7 text-xs"
-          disabled={disabled || !isValid || !isDirty}
-          onClick={() =>
-            onSave({ type, label, scope: isRecurring ? scope : undefined })
-          }
-        >
-          {t("eventForm.save")}
-        </Button>
-      </div>
+      {!isDraft && (
+        <div className="mt-2 flex justify-end">
+          <Button
+            size="sm"
+            className="h-7 text-xs"
+            disabled={disabled || !isValid || !isDirty}
+            onClick={() =>
+              onSave({ type, label, scope: isRecurring ? scope : undefined })
+            }
+          >
+            {t("eventForm.save")}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }

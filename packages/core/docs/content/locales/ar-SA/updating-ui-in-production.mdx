@@ -17,6 +17,8 @@ description: "كيف تُحدَّث واجهة تطبيق مُنشور بعد ا
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) هو سير عمل مُدار منفصل قادر على التعامل مع الكود حيث يمكن لوكيل تعديل واجهة تطبيقك في الإنتاج. اربط مستودعك بـ Builder.io (تتوفر خطة مجانية) واطلب تغييرات الواجهة مباشرةً. لا حاجة لإعادة النشر.
 
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
 **كيف يعمل:**
 
 1. اربط مستودع agent-native الخاص بك بـ Builder.io (تتوفر خطة مجانية)

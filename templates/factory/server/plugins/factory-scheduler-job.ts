@@ -169,6 +169,8 @@ const FACTORY_DEFAULT_MODEL =
   process.env.FACTORY_AUTOMATION_MODEL?.trim() || "gpt-5.6-luna";
 const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
+const SKIP_RECORD_GUARD =
+  "After classifying each processed item, call start-builder-for-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.";
 
 const AUTOMATION_SEEDS: AutomationSeed[] = [
   {
@@ -181,12 +183,21 @@ const AUTOMATION_SEEDS: AutomationSeed[] = [
     body: `
 # Factory Slack feedback triage
 
-Read the Factory configuration. When Slack polling is enabled and a channel is
-configured, call poll-slack-channel first. Then list at most 2 new or changed
-Slack items by passing needsReview true, source slack, and limit 2. Process
-them sequentially, and call get-slack-feedback-context for each item before
-classifying it. Never list the full queue or use the action's default page
-size.
+Follow the repository's address-feedback, address-feedback-with-replies, and
+review-latest-feedback skills for this workflow, and use review-prs when a PR
+needs review. Read the Factory configuration. When Slack polling is enabled
+and a channel is configured, call poll-slack-channel first. Then list at most 5
+new or changed Slack items by passing needsReview true, source slack, and limit
+5. Use one additional bounded recent Slack lookup with needsReview false,
+source slack, and limit 20 only to find possible repeat reports; never list the
+full queue or use an action's default page size.
+
+Call get-slack-feedback-context for every new item and every possible repeat
+that may belong to the same issue before classifying it. Read the full parent,
+replies, reactions, and linked evidence. An unreadable or truncated thread is
+not a clear bug and must stay manual. Search recent Slack history, local Git
+history, merged PRs, and linked issues for repeats or an existing fix when
+those sources are available.
 
 Start work only for a clear bug: a concrete broken behavior, reproducible
 failure, error, regression, stuck run, incorrect result, or a report with a
@@ -201,10 +212,21 @@ and concrete auth or configuration failures. Use those examples to recognize
 the shape of a bug, not to turn similar-sounding reports into automatic work.
 
 For a clear bug outside Clips, Design, and Content, call start-builder-for-item
-with clearBug true and a short evidence-grounded reason. That action adds the
-eyes reaction and tags @builderio in the Slack thread, asking Builder to fix
-it in a reply and send a PR. Never add the reaction or tag Builder for
-owner-managed Clips, Design, or Content work, or for a non-bug report.
+with clearBug true and a short evidence-grounded reason. If multiple reports
+describe the same underlying issue, treat them as one similar-feedback cluster:
+read and eyeball every report, choose one representative, and call
+start-builder-for-item once with the other Factory item ids in relatedItemIds.
+The action adds 👀 to every grouped Slack thread but posts one Builder reply in
+the representative thread. Do not start one Builder thread per duplicate.
+Separate reports only when their failure modes, surfaces, or owners differ.
+
+The Builder reply must tag @builder.io with the dot and tell it to run
+/address-feedback. It must point Builder to the relevant repository skills,
+the representative source, every related source, and the need to fix the
+underlying boundary across the whole cluster. Never add the reaction or tag
+Builder for owner-managed Clips, Design, or Content work, or for a non-bug
+report.
+After classifying each processed item, call start-builder-for-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.
 
 Keep each run bounded. Preserve action errors and do not claim a Builder reply,
 PR, merge, or fix unless an action returned that state.
@@ -235,6 +257,7 @@ For each eligible clear bug, call start-builder-for-item with clearBug true,
 an evidence-grounded reason, and clearErrorReport containing only the bounded
 Sentry evidence. Builder should open a PR; do not claim it did so until the
 run callback or PR observation confirms it.
+After classifying each processed item, call start-builder-for-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.
 `,
   },
   {
@@ -262,6 +285,7 @@ For each eligible item call start-builder-for-item with clearBug true,
 evidence-grounded reason, and the bounded issue body as clearErrorReport.
 Preserve failures and never report a successful Builder run without its action
 confirmation.
+After classifying each processed item, call start-builder-for-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.
 `,
   },
   {
@@ -274,6 +298,19 @@ confirmation.
     body: `
 # Factory pull-request governance
 
+Follow the repository's review-prs skill. Read the full PR title, body, linked
+issue and source links, complete changed-file diff including generated and
+migration files, every human and bot review comment and reply, actual check
+conclusions, and the affected ownership boundary. Verify current BuilderIO
+organization membership through the GitHub organization API; never infer it
+from a name, email, association, branch, or bot label. Never approve external
+or unverified authors. Apply the skill's ultra-scary gate for auth, permissions,
+tenant isolation, secrets, destructive data loss, RCE, SSRF, payments,
+deployment, or unexplained dependency and infrastructure risk. Record failed,
+pending, skipped, unknown, and unresolved ordinary feedback accurately - never
+call it clean just because the author is internal. Sid's verified Design-owner
+exception still does not waive membership or the ultra-scary gate.
+
 Read the Factory configuration. When GitHub polling is enabled and a repository
 is configured, call poll-github-sources with includeIssues false and
 includePullRequests true. List at most 3 new or changed pull requests by
@@ -281,11 +318,15 @@ passing needsReview true, source github, and limit 3. Never list the full queue
 or use the action's default page size.
 
 For each open agent-native PR, inspect the item and classify whether it is a
-clear bug fix or has product or UX implications. Call
+clear bug fix or has product or UX implications. Avoid duplicate review noise
+when no commit, review, comment, or check result changed. Call
 govern-agent-native-pull-request with the item id, repository, pull request
 number, clearBug, productUxImplications, and a short reason. The action fetches
-fresh CI and review evidence before approving or merging. Clear internal bug
-fixes with passing CI and handled review feedback may be auto-approved.
+fresh CI and review evidence before approving or merging. For a verified
+current BuilderIO member, the internal-author exception means ordinary failed,
+pending, skipped, or unknown checks and unresolved ordinary feedback do not by
+themselves block approval; record their exact states and never call them clean.
+The exception does not waive membership, ownership, or the ultra-scary gate.
 
 Only auto-merge when the PR proves its Factory origin by retaining the Factory
 item id or source link in the PR description, or by using the Factory branch
@@ -352,7 +393,7 @@ function defaultGithubPollingEnabled(): 0 | 1 {
 function automationPromptGuard(name: string): string | undefined {
   switch (name) {
     case "factory-slack-feedback":
-      return "Runtime safety bound: call list-triage-items with needsReview true, source slack, and limit 2; process at most two Slack items sequentially, and never use the default page size.";
+      return "Runtime safety bound: call list-triage-items with needsReview true, source slack, and limit 5; process at most five new Slack items sequentially, and never use the default page size.";
     case "factory-sentry-errors":
       return "Runtime safety bound: call list-triage-items with needsReview true, source sentry, and limit 3; process at most three Sentry items.";
     case "factory-github-issues":
@@ -485,6 +526,14 @@ async function ensureOrganizationAutomations(
       const promptGuard = automationPromptGuard(seed.name);
       if (promptGuard && !repaired.includes(promptGuard)) {
         repaired = `${repaired.trimEnd()}\n\n${promptGuard}\n`;
+      }
+      if (
+        (seed.name === "factory-slack-feedback" ||
+          seed.name === "factory-sentry-errors" ||
+          seed.name === "factory-github-issues") &&
+        !repaired.includes(SKIP_RECORD_GUARD)
+      ) {
+        repaired = `${repaired.trimEnd()}\n\n${SKIP_RECORD_GUARD}\n`;
       }
       if (repaired === existing.content) return;
 

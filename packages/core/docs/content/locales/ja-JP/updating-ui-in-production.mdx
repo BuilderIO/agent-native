@@ -13,6 +13,8 @@ description: "デプロイ済みアプリの UI がリリース後にどのよ�
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) は、エージェントが本番環境でアプリの UI を変更できる、コード対応の別個のマネージドワークフローです。リポジトリを Builder.io に接続し（無料プランあり）、UI の変更を直接プロンプトするだけです。再デプロイは不要です。
 
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
 **仕組み:**
 
 1. agent-native のリポジトリを Builder.io に接続する（無料プランあり）

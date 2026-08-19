@@ -50,6 +50,7 @@ describe("ConnectBuilderCard", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
       configured: true,
+      codeChangeConfigured: false,
       builderEnabled: false,
       orgName: "Builder space",
       envManaged: false,
@@ -82,7 +83,7 @@ describe("ConnectBuilderCard", () => {
         <ConnectBuilderCard
           configured
           builderEnabled={false}
-          connectUrl="https://builder.io/cli-auth"
+          connectUrl="/_agent-native/builder/connect?_an_connect=signed"
           prompt="Update the dashboard layout"
         />,
       );
@@ -185,7 +186,7 @@ describe("ConnectBuilderCard", () => {
         <ConnectBuilderCard
           configured
           builderEnabled={false}
-          connectUrl="https://builder.io/cli-auth"
+          connectUrl="/_agent-native/builder/connect?_an_connect=signed"
           prompt="Update the dashboard layout"
         />,
       );
@@ -229,6 +230,65 @@ describe("ConnectBuilderCard", () => {
     expect(container.textContent).toContain("Send to Builder");
   });
 
+  it("does not enable cloud code-change send for an OAuth-only connection", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      codeChangeConfigured: false,
+      builderEnabled: true,
+      orgName: "Builder OAuth",
+      envManaged: false,
+      connecting: false,
+      error: null,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled
+          connectUrl=""
+          prompt="Update the dashboard layout"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Builder.io connected");
+    expect(container.textContent).not.toContain("Send to Builder");
+    expect(container.textContent).toContain("This requires a code change");
+  });
+
+  it("keeps cloud code-change send when OAuth and legacy keys both exist", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      codeChangeConfigured: true,
+      builderEnabled: true,
+      orgName: "Builder space",
+      envManaged: false,
+      connecting: false,
+      error: null,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled
+          connectUrl=""
+          prompt="Update the dashboard layout"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Send this to Builder");
+    expect(container.textContent).toContain("Send to Builder");
+  });
+
   it("sends the background-coding use case when joining the waitlist", async () => {
     setLocation("https://agent-native.test/");
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> =
@@ -249,7 +309,7 @@ describe("ConnectBuilderCard", () => {
         <ConnectBuilderCard
           configured
           builderEnabled={false}
-          connectUrl="https://builder.io/cli-auth"
+          connectUrl="/_agent-native/builder/connect?_an_connect=signed"
           orgName="Builder space"
           prompt="Update the dashboard layout"
         />,

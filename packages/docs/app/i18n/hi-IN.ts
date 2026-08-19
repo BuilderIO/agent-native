@@ -77,6 +77,7 @@ const hiIN = {
     suggestionDeploy: "production में deploy कैसे करूं?",
   },
   errors: {
+    loadingLatest: "नवीनतम संस्करण लोड हो रहा है...",
     notFoundTitle: "पेज नहीं मिला",
     notFoundBody: "जिस पेज को आप खोज रहे हैं वह मौजूद नहीं है या हटाया गया है।",
     goHome: "होम पर जाएं",

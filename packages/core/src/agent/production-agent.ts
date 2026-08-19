@@ -17,6 +17,7 @@ import {
   isAgentActionStopError,
   type ActionAutomationContext,
   type ActionCaller,
+  stripUnsupportedSchemaKeywords,
 } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
@@ -40,6 +41,7 @@ import {
 import {
   canUseDeployCredentialFallbackForRequest,
   getProviderCredentialAuthFailure,
+  isBuilderGatewayDeployConfigured,
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { readBody } from "../server/h3-helpers.js";
@@ -84,11 +86,17 @@ import {
 import { applyContextXrayTransformForIteration } from "./engine/context-directives-transform.js";
 import { attemptContinuationDispatch } from "./engine/continuation-dispatch-retry.js";
 import {
+  formatLlmCredentialErrorMessage,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
   userFacingLlmCredentialError,
 } from "./engine/credential-errors.js";
-import { isProviderConnectionErrorMessage } from "./engine/error-detail.js";
+import {
+  BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+  isContextOverflowCode,
+  isContextOverflowMessage,
+  isProviderConnectionErrorMessage,
+} from "./engine/error-detail.js";
 import {
   resolveEngine,
   explicitEngineName,
@@ -184,6 +192,7 @@ import { buildCurrentTimeUserContext } from "./runtime-context.js";
 import {
   consumeAgentToolApproval,
   createAgentToolApproval,
+  resolveAgentToolApprovalTurnId,
 } from "./tool-approval-store.js";
 import type { AgentToolApprovalBinding } from "./tool-approval-store.js";
 import {
@@ -1412,6 +1421,15 @@ const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "I ran out of time before finishing this step. " +
   "I stopped rather than keep retrying silently. " +
   "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
+/**
+ * Text attachments have been capped since forever; binary ones never were, so
+ * a large PDF or screenshot went to the provider as unbounded inline base64.
+ * OpenAI rejects the whole request over 1,048,576 chars in one `file_url`
+ * ("string too long", measured at 4,149,128), which kills the turn — the cap is
+ * on the encoded string, so that is what this counts rather than decoded bytes.
+ * Held under the limit to leave room for the `data:<mediaType>;base64,` prefix.
+ */
+const MAX_INLINE_ATTACHMENT_BASE64_CHARS = 1_000_000;
 const MAX_TEXT_ATTACHMENT_CHARS = 60_000;
 const MAX_TEXT_ATTACHMENTS_TOTAL_CHARS = 80_000;
 const MAX_SELECTION_CONTEXT_CHARS = 8_000;
@@ -1484,22 +1502,15 @@ function toolInputActivityLabel(toolName?: string): string {
  */
 export function isContextTooLongError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
-  const msg = err.message.toLowerCase();
-  if (
-    msg.includes("context_length_exceeded") ||
-    msg.includes("input_too_long") ||
-    msg.includes("too many tokens") ||
-    msg.includes("prompt is too long") ||
-    msg.includes("reduce the length") ||
-    // Gemini phrasing
-    msg.includes("input token count exceeds") ||
-    msg.includes("request too large")
-  )
+  // The engine's structural verdict comes first: it was read off the provider's
+  // own reply, which is not always the message delivered here — a
+  // Builder-credits deployment answers every gateway rejection with one visitor
+  // line, and the gateway reports an overflow as a plain `invalid_request_error`
+  // whose prose was the only signal.
+  if (err instanceof EngineError && err.contextOverflow === true) return true;
+  if (isContextOverflowMessage(err.message)) return true;
+  if (err instanceof EngineError && isContextOverflowCode(err.errorCode)) {
     return true;
-  if (err instanceof EngineError) {
-    const code = (err.errorCode ?? "").toLowerCase();
-    if (code.includes("context_length") || code.includes("input_too_long"))
-      return true;
   }
   return false;
 }
@@ -1533,6 +1544,9 @@ export function isRetryableError(err: unknown): boolean {
 
   return (
     code === "builder_gateway_error" ||
+    // The gateway's unhandled-500 envelope arriving in-stream, where there is no
+    // status to read. Same failure as `http_500` below, so same verdict.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "builder_gateway_network_error" ||
     code === "provider_network_error" ||
     code === "http_429" ||
@@ -1797,6 +1811,21 @@ export function buildUserContentWithAttachments(opts: {
         continue;
       }
       const match = att.data.match(/^data:(image\/[^;]+);base64,(.+)$/);
+      if (
+        match &&
+        isSupportedImageMediaType(match[1]) &&
+        match[2].length > MAX_INLINE_ATTACHMENT_BASE64_CHARS
+      ) {
+        // The upload already happened and `uploadedUrl` is the whole point of
+        // it. Inlining the bytes anyway is what made the request unsendable.
+        const label = att.name ? `"${att.name}"` : "An image";
+        textAttachments.push(
+          uploadedUrl
+            ? `[${label} was uploaded to ${uploadedUrl}. It was too large to send inline for vision analysis, so use the URL for embedding/reference.]`
+            : `[${label} was too large to send inline for vision analysis and no upload URL is available. Ask the user to attach a smaller image.]`,
+        );
+        continue;
+      }
       if (match && isSupportedImageMediaType(match[1])) {
         userContent.push({
           type: "image",
@@ -1833,6 +1862,15 @@ export function buildUserContentWithAttachments(opts: {
 
     const filePart = dataUrlToFilePart(att);
     if (filePart) {
+      if (filePart.data.length > MAX_INLINE_ATTACHMENT_BASE64_CHARS) {
+        const label = att.name ? `"${att.name}"` : "A file";
+        textAttachments.push(
+          uploadedUrl
+            ? `[${label} was uploaded to ${uploadedUrl}. It was too large to send inline, so read it from the URL if its contents are needed.]`
+            : `[${label} was too large to send inline and no upload URL is available. Ask the user for a smaller file.]`,
+        );
+        continue;
+      }
       userContent.push(filePart);
       continue;
     }
@@ -2193,8 +2231,10 @@ export async function callConnectedAgentReference(input: {
       onUpdate: relay.observePollUpdate,
     });
     const responseText =
-      userFacingLlmCredentialError(response, { agentName: input.agent }) ??
-      response;
+      userFacingLlmCredentialError(response, {
+        agentName: input.agent,
+        visitorFacing: isBuilderGatewayDeployConfigured(),
+      }) ?? response;
     relay.emitResponseText(responseText);
     relay.finish("done");
     return responseText;
@@ -2483,6 +2523,11 @@ export function isResumableEngineError(err: unknown): boolean {
   if (
     code === "builder_gateway_timeout" ||
     code === "builder_gateway_network_error" ||
+    // A gateway stream that stopped mid-turn. It reached here as
+    // `builder_gateway_network_error` until the engine named it, and a
+    // continuation is precisely its recovery: the partial turn is preserved and
+    // the agent is nudged to finish it, where an in-call retry would `clear` it.
+    code === "builder_gateway_stream_ended" ||
     code === "provider_network_error"
   ) {
     return true;
@@ -2555,6 +2600,15 @@ export function continuationReasonForResumableError(
   const code =
     err instanceof EngineError ? (err.errorCode ?? "").toLowerCase() : "";
   if (code === "builder_gateway_timeout") return "gateway_timeout";
+  // A gateway/proxy timeout status, read structurally. The prose below says the
+  // same thing on most lanes, but not on a Builder-credits deployment, where the
+  // message is one visitor line.
+  if (
+    err instanceof EngineError &&
+    (err.statusCode === 408 || err.statusCode === 504)
+  ) {
+    return "gateway_timeout";
+  }
   const text = err instanceof Error ? err.message.toLowerCase() : "";
   if (
     text.includes("gateway timeout") ||
@@ -3157,7 +3211,9 @@ export interface ExecuteAgentToolCallOptions {
   threadId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
-  onApprovalRequired?: (binding: AgentApprovalBinding) => Promise<void>;
+  onApprovalRequired?: (
+    binding: AgentApprovalBinding,
+  ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   send?: (event: AgentChatEvent) => void;
 }
@@ -3448,19 +3504,42 @@ function extractToolSearchResultNamesFromMessages(
   return names;
 }
 
+/**
+ * Every tool the model is offered passes through here -- `defineAction`
+ * schemas, the hand-written ones in extensions/mcp/context tools, and whatever
+ * a third-party MCP server advertises. `defineAction` sanitizes at
+ * construction; nothing else did, so `extension-data-set` shipped a `data`
+ * property carrying a description and no `type`, and OpenAI 400'd the whole
+ * request -- every tool in the payload, not just that one. Sanitizing here is
+ * what makes that unrepresentable rather than a thing each definition site has
+ * to remember.
+ *
+ * Cloned first: the hand-written schemas are module constants, so rewriting in
+ * place would mutate shared state on first use.
+ */
 function normalizeToolInputSchema(
   schema: ActionTool["parameters"] | undefined,
 ): EngineTool["inputSchema"] | null {
   if (!schema) return { type: "object", properties: {} };
   if (schema.type !== "object") return null;
+  type ToolParams = NonNullable<ActionTool["parameters"]>;
+  let cloned: ToolParams;
+  try {
+    cloned = JSON.parse(JSON.stringify(schema)) as ToolParams;
+  } catch {
+    // A schema that will not round-trip cannot be safely rewritten, and
+    // shipping it unsanitized is how this class of 400 reaches the provider.
+    return null;
+  }
+  const safe = stripUnsupportedSchemaKeywords(cloned);
   return {
-    ...schema,
+    ...safe,
     type: "object",
     properties:
-      schema.properties && typeof schema.properties === "object"
-        ? schema.properties
+      safe.properties && typeof safe.properties === "object"
+        ? safe.properties
         : {},
-    required: Array.isArray(schema.required) ? schema.required : [],
+    required: Array.isArray(safe.required) ? safe.required : [],
   };
 }
 
@@ -4465,7 +4544,9 @@ export async function runAgentLoop(opts: {
    * so client-supplied history is never the authorization source; direct loop
    * callers may omit them when they own the surrounding approval boundary.
    */
-  onApprovalRequired?: (binding: AgentApprovalBinding) => Promise<void>;
+  onApprovalRequired?: (
+    binding: AgentApprovalBinding,
+  ) => Promise<string | void>;
   consumeApproval?: (binding: AgentApprovalBinding) => Promise<boolean>;
   /**
    * In-loop processor seam (see `processors.ts`). Each processor can observe
@@ -5205,6 +5286,9 @@ export async function runAgentLoop(opts: {
                   upgradeUrl: event.upgradeUrl,
                   statusCode: event.statusCode,
                   providerRetryable: event.providerRetryable,
+                  contextOverflow: event.contextOverflow,
+                  requestId: event.requestId,
+                  requestShape: event.requestShape,
                 });
               }
             }
@@ -5815,7 +5899,15 @@ export async function runAgentLoop(opts: {
           mustApprove = true;
         }
         if (mustApprove) {
-          await opts.onApprovalRequired?.(approvalBinding);
+          // `askId` identifies THIS gate hit, distinct from any earlier ask
+          // for the same approvalKey/toolCallId. A failed resume (expired
+          // grant, turn-id mismatch) re-enters this branch and mints a new
+          // askId, which is how the client tells "an already-approved card
+          // re-rendered" apart from "a fresh ask after the grant didn't land"
+          // — without it, a stale client-side "approved" mark permanently
+          // hides Approve/Deny with no way to retry.
+          const askId =
+            (await opts.onApprovalRequired?.(approvalBinding)) || undefined;
           send({
             type: "tool_start",
             id: toolCall.id,
@@ -5827,6 +5919,7 @@ export async function runAgentLoop(opts: {
             tool: toolCall.name,
             input: toolCall.input as Record<string, string>,
             approvalKey,
+            ...(askId ? { askId } : {}),
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
           // Audit the blocked attempt: the action did NOT run, but "the agent
@@ -6795,7 +6888,8 @@ function backgroundChatProgressRunId(turnId: string): string {
   return `agent-chat-${normalized || "turn"}`;
 }
 
-function isRecoverableContinuationError(event: {
+/** @internal exported for unit tests only */
+export function isRecoverableContinuationError(event: {
   type: "error";
   error: string;
   errorCode?: string;
@@ -6814,12 +6908,28 @@ function isRecoverableContinuationError(event: {
     event.recoverable === true ||
     code === "builder_gateway_timeout" ||
     code === "builder_gateway_network_error" ||
+    // Server-driven background continuation for a truncated stream. The message
+    // used to carry this ("stream ended without a stop event", classified into
+    // `builder_gateway_network_error` above); the code carries it now, and on a
+    // Builder-credits deployment the code is all that is left.
+    code === "builder_gateway_stream_ended" ||
     code === "provider_network_error" ||
     code === "stale_run" ||
     code === "timeout" ||
     code === "timeout_error" ||
     code === "http_408" ||
     code === "http_429" ||
+    // The 5xx family the message clauses below used to reach by prose alone
+    // ("temporarily unavailable", "gateway timeout"). The client's own
+    // continuation list (sse-event-processor) has always carried these codes;
+    // the server read the sentence instead, which a Builder-credits deployment
+    // replaces with one visitor line.
+    code === "http_500" ||
+    // The same 500, delivered in-stream with no status attached.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
+    code === "http_502" ||
+    code === "http_503" ||
+    code === "http_504" ||
     code === "http_529" ||
     code === "run_timeout" ||
     message.includes("timeout") ||
@@ -7153,6 +7263,115 @@ function endsAtContinuationBoundary(run: ActiveRun): boolean {
 export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
 
 /**
+ * Consecutive chunks allowed to end on the SAME terminal error code having
+ * produced nothing before the chain stops.
+ *
+ * Two, because two independent recovery layers multiply here and neither can
+ * see the other: the engine already retried this identical request 3x with
+ * backoff before the error was ever emitted, and a recoverable error is also a
+ * continuation boundary, so every chunk that fails costs 4 gateway attempts
+ * and dispatches a fresh one. A production turn spent 27 background runs and
+ * 15 minutes on one message this way. The first repeat is the retry this path
+ * exists for; a second identical failure that moved nothing is evidence the
+ * retrying itself is what is broken, not the request.
+ */
+export const MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS = 2;
+
+/**
+ * Forward progress inside ONE chunk, read from the events it actually emitted:
+ * assistant text or tool activity. Same evidence the agent-teams no-progress
+ * budget counts (`agent-teams.ts`), and the same events
+ * `endsAfterCompletedToolWithoutAssistantFinal` reads to tell an unfinished
+ * turn from a finished one.
+ */
+function chunkMadeForwardProgress(run: ActiveRun): boolean {
+  return run.events.some(
+    ({ event }) =>
+      (event.type === "text" && event.text.trim().length > 0) ||
+      event.type === "tool_start" ||
+      event.type === "tool_done",
+  );
+}
+
+/** Consecutive-identical-failure state for one chunk of a background chain. */
+export interface BackgroundNoProgressRepeat {
+  /** This chunk's terminal error code, when it ended having produced nothing. */
+  errorCode?: string;
+  /** Chunks in a row that ended on that code with no forward progress. */
+  count: number;
+  /** True once the streak reaches `MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`. */
+  tripped: boolean;
+}
+
+/**
+ * Advance the no-progress streak across a chunk boundary. A chunk that emitted
+ * any text or tool activity resets it even when it still ended in an error —
+ * that turn IS moving, and cutting it off is what would weaken recovery for
+ * truncated streams. So does a different error code, and so does a boundary
+ * with no error at all (a soft-timeout `auto_continue` is the run-manager's
+ * no-progress backstop to bound, not this one).
+ */
+export function resolveBackgroundNoProgressRepeat(opts: {
+  run: ActiveRun;
+  priorErrorCode?: string;
+  priorCount?: number;
+}): BackgroundNoProgressRepeat {
+  const last = opts.run.events.at(-1)?.event;
+  const errorCode = last?.type === "error" ? (last.errorCode ?? "").trim() : "";
+  if (!errorCode || chunkMadeForwardProgress(opts.run)) {
+    return { count: 0, tripped: false };
+  }
+  const prior =
+    opts.priorErrorCode === errorCode &&
+    typeof opts.priorCount === "number" &&
+    Number.isFinite(opts.priorCount)
+      ? Math.max(0, Math.floor(opts.priorCount))
+      : 0;
+  const count = prior + 1;
+  return {
+    errorCode,
+    count,
+    tripped: count >= MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+  };
+}
+
+/**
+ * The single honest failure the breaker leaves behind. Keeps the underlying
+ * code and the gateway's own message (which carries its `ERROR ID:` reference)
+ * so the failure stays diagnosable, and marks it non-recoverable so neither
+ * this chain nor the client's continuation path re-enters it.
+ */
+export function backgroundNoProgressTerminalEvent(
+  run: ActiveRun,
+  repeat: BackgroundNoProgressRepeat,
+): Extract<AgentChatEvent, { type: "error" }> | null {
+  const last = run.events.at(-1)?.event;
+  if (last?.type !== "error") return null;
+  return {
+    ...last,
+    error:
+      `${last.error}\n\nThis failed ${repeat.count} times in a row without ` +
+      `making any progress, so I stopped instead of retrying again.`,
+    recoverable: false,
+  };
+}
+
+export function installBackgroundNoProgressTerminalEvent(
+  run: ActiveRun,
+  repeat: BackgroundNoProgressRepeat,
+): boolean {
+  const terminalEvent = backgroundNoProgressTerminalEvent(run, repeat);
+  const lastRunEvent = run.events.at(-1);
+  if (!terminalEvent || lastRunEvent?.event.type !== "error") return false;
+  run.events = [
+    ...run.events.slice(0, -1),
+    { ...lastRunEvent, event: terminalEvent },
+  ];
+  run.continuationTerminalEvent = terminalEvent;
+  return true;
+}
+
+/**
  * Whether this run should self-fire the next server-driven continuation chunk
  * instead of depending on the client to re-POST `auto_continue`. True for
  * either of two independently-gated cases, both requiring a recoverable
@@ -7166,7 +7385,9 @@ export const MAX_BACKGROUND_RUN_CONTINUATIONS = 20;
  *     the durable background worker (`dispatchedToBackground` false) — a run
  *     already headed to the durable background path chains via the
  *     `isBackgroundWorker` branch above, never both.
- * Aborted / user-stopped runs do NOT chain either way.
+ * Aborted / user-stopped runs do NOT chain either way, and neither does a run
+ * whose no-progress streak has tripped
+ * (`MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS`).
  */
 export function shouldChainBackgroundContinuation(opts: {
   isBackgroundWorker: boolean;
@@ -7187,6 +7408,10 @@ export function shouldChainBackgroundContinuation(opts: {
    * owned by the background circuit-breaker, not this path.
    */
   dispatchedToBackground?: boolean;
+  /** Streak state carried on the continuation marker — see
+   *  `resolveBackgroundNoProgressRepeat`. Absent on the first chunk. */
+  priorNoProgressErrorCode?: string;
+  priorNoProgressCount?: number;
 }): boolean {
   const eligible =
     opts.isBackgroundWorker ||
@@ -7196,7 +7421,12 @@ export function shouldChainBackgroundContinuation(opts: {
     eligible &&
     opts.run.status !== "aborted" &&
     endsAtContinuationBoundary(opts.run) &&
-    opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS
+    opts.continuationCount < MAX_BACKGROUND_RUN_CONTINUATIONS &&
+    !resolveBackgroundNoProgressRepeat({
+      run: opts.run,
+      priorErrorCode: opts.priorNoProgressErrorCode,
+      priorCount: opts.priorNoProgressCount,
+    }).tripped
   );
 }
 
@@ -7695,6 +7925,9 @@ export async function chainServerDrivenContinuation(opts: {
    *  is derived from it (marker stripped, `internalContinuation` set). */
   requestBody: Record<string, unknown>;
   backgroundContinuationCount: number;
+  /** This chunk's no-progress streak, carried to the successor so the breaker
+   *  can see a repeat across the invocation boundary. */
+  noProgressRepeat?: BackgroundNoProgressRepeat;
   /**
    * Input tokens this logical turn has consumed across every chunk so far,
    * carried on the successor's body so the per-turn token ceiling is a real
@@ -7829,6 +8062,12 @@ export async function chainServerDrivenContinuation(opts: {
     continuationCount: opts.backgroundContinuationCount + 1,
     continuationReason,
     ...(actionPreparationTool ? { actionPreparationTool } : {}),
+    ...(opts.noProgressRepeat?.errorCode
+      ? {
+          noProgressErrorCode: opts.noProgressRepeat.errorCode,
+          noProgressCount: opts.noProgressRepeat.count,
+        }
+      : {}),
     backgroundFunctionRuntimeExpected:
       continuationExpectsNetlifyBackgroundFunction,
   };
@@ -8137,6 +8376,42 @@ export function resolveAgentRequestReasoningEffort({
   );
 }
 
+export type AgentModelSelectionSource =
+  | "request"
+  | "configured"
+  | "stored"
+  | "default";
+
+function isConcreteModelSelection(
+  model: string | null | undefined,
+): model is string {
+  const normalized = typeof model === "string" ? model.trim() : "";
+  return normalized.length > 0 && normalized !== "auto";
+}
+
+/**
+ * Resolve the model before the engine boundary. `auto` is a UI sentinel, not
+ * a model to forward to the gateway, so it gives way to an AN org/user
+ * default, then the configured global engine default.
+ */
+export function resolveAgentModelSelection(options: {
+  requestModel?: string | null;
+  configuredModel?: string | null;
+  storedModel?: string | null;
+  defaultModel: string;
+}): { model: string; source: AgentModelSelectionSource } {
+  if (isConcreteModelSelection(options.requestModel)) {
+    return { model: options.requestModel, source: "request" };
+  }
+  if (isConcreteModelSelection(options.configuredModel)) {
+    return { model: options.configuredModel, source: "configured" };
+  }
+  if (isConcreteModelSelection(options.storedModel)) {
+    return { model: options.storedModel, source: "stored" };
+  }
+  return { model: options.defaultModel, source: "default" };
+}
+
 export function createProductionAgentHandler(
   options: ProductionAgentOptions,
 ): H3EventHandler {
@@ -8276,6 +8551,17 @@ export function createProductionAgentHandler(
       typeof backgroundRunMarker?.continuationCount === "number" &&
       Number.isFinite(backgroundRunMarker.continuationCount)
         ? Math.max(0, Math.floor(backgroundRunMarker.continuationCount))
+        : 0;
+    // No-progress streak so far, carried on the marker: this invocation has no
+    // other memory of what the previous chunk failed with.
+    const priorNoProgressErrorCode =
+      typeof backgroundRunMarker?.noProgressErrorCode === "string"
+        ? backgroundRunMarker.noProgressErrorCode
+        : undefined;
+    const priorNoProgressCount =
+      typeof backgroundRunMarker?.noProgressCount === "number" &&
+      Number.isFinite(backgroundRunMarker.noProgressCount)
+        ? Math.max(0, Math.floor(backgroundRunMarker.noProgressCount))
         : 0;
     let backgroundRunClaimedEarly = false;
     if (isBackgroundWorker && bgRunId) {
@@ -8569,29 +8855,25 @@ export function createProductionAgentHandler(
     // DIAGNOSTIC-ONLY: bracket stored-model resolution (getStoredModelForEngine
     // settings read).
     workerStep("model_start");
+    const requestModelIsExplicit = isConcreteModelSelection(requestModel);
+    const configuredModelIsExplicit = isConcreteModelSelection(configuredModel);
     const storedModel =
-      requestModel == null && configuredModel == null
+      !requestModelIsExplicit && !configuredModelIsExplicit
         ? await getStoredModelForEngine(engine, { appId: options.appId })
         : undefined;
-    const modelCandidate =
-      requestModel ?? configuredModel ?? storedModel ?? engine.defaultModel;
+    const modelSelection = resolveAgentModelSelection({
+      requestModel,
+      configuredModel,
+      storedModel,
+      defaultModel: engine.defaultModel,
+    });
+    const modelCandidate = modelSelection.model;
     // DIAGNOSTIC-ONLY: stored-model resolution finished.
     workerStep("model_done");
     const model = normalizeModelForEngine(engine, modelCandidate);
     let effectiveModel = model;
-    let modelSelectionSource:
-      | "request"
-      | "configured"
-      | "stored"
-      | "default"
-      | "experiment" =
-      requestModel != null
-        ? "request"
-        : configuredModel != null
-          ? "configured"
-          : storedModel != null
-            ? "stored"
-            : "default";
+    let modelSelectionSource: AgentModelSelectionSource | "experiment" =
+      modelSelection.source;
     let experimentAssignments: Array<{
       experimentId: string;
       variantId: string;
@@ -8649,13 +8931,22 @@ export function createProductionAgentHandler(
       setResponseHeader(event, "Cache-Control", "no-cache");
       setResponseHeader(event, "Connection", "keep-alive");
       const encoder = new TextEncoder();
+      // A Builder-credits deployment serves this chat to visitors with no
+      // account, so the owner-facing "connect a provider" copy is unactionable
+      // for them. It is also what they see most of the time once a gateway auth
+      // failure arms the 15-minute marker: the credits lane stops resolving,
+      // engine selection falls back to the anthropic default, and this branch —
+      // not the engine's own error — is what answers the turn.
+      const missingCredentialsError = formatLlmCredentialErrorMessage({
+        visitorFacing: isBuilderGatewayDeployConfigured(),
+      });
       return new ReadableStream({
         start(controller) {
           controller.enqueue(
             encoder.encode(
               `data: ${JSON.stringify({
                 type: "error",
-                error: LLM_MISSING_CREDENTIALS_MESSAGE,
+                error: missingCredentialsError,
                 errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
               })}\n\n`,
             ),
@@ -9121,6 +9412,11 @@ export function createProductionAgentHandler(
             .filter((key: unknown): key is string => typeof key === "string")
             .slice(0, 200)
         : undefined;
+    // The durable approval row is the authorization boundary. Do not require
+    // the client to reproduce the original structured history exactly: the UI
+    // may truncate tool arguments and intentionally assigns fresh replay ids.
+    // The loop still consumes only a matching server-created grant for the
+    // current owner/org/thread/turn/tool/input tuple.
     const exactApprovedToolCall = findApprovedStructuredToolCall(
       structuredHistory,
       requestedApprovedToolCalls,
@@ -9177,13 +9473,27 @@ export function createProductionAgentHandler(
       isBackgroundWorker && backgroundContinuationCount > 0;
     const runId = backgroundRunMarker?.runId ?? generateRunId();
     const effectiveThreadId = threadId ?? runId;
+    const resolvedApprovalTurnId =
+      !isBackgroundWorker &&
+      ownerEmail &&
+      threadId &&
+      requestedApprovedToolCalls?.length
+        ? await resolveAgentToolApprovalTurnId({
+            ownerEmail,
+            orgId: getRequestOrgId() ?? null,
+            threadId,
+            requestedTurnId: requestTurnId,
+            approvalKeys: requestedApprovedToolCalls,
+          })
+        : null;
     const effectiveTurnId =
       typeof backgroundRunMarker?.turnId === "string" &&
       backgroundRunMarker.turnId.trim()
         ? backgroundRunMarker.turnId.trim()
-        : typeof requestTurnId === "string" && requestTurnId.trim()
-          ? requestTurnId.trim()
-          : runId;
+        : (resolvedApprovalTurnId ??
+          (typeof requestTurnId === "string" && requestTurnId.trim()
+            ? requestTurnId.trim()
+            : runId));
     const approvalStoreBinding = (
       binding: AgentApprovalBinding,
     ): AgentToolApprovalBinding => {
@@ -9204,25 +9514,14 @@ export function createProductionAgentHandler(
     };
     const approvalHooks = {
       onApprovalRequired: async (binding: AgentApprovalBinding) => {
-        await createAgentToolApproval(approvalStoreBinding(binding));
+        return createAgentToolApproval(approvalStoreBinding(binding));
       },
       consumeApproval: async (binding: AgentApprovalBinding) => {
         if (!ownerEmail) return false;
         return consumeAgentToolApproval(approvalStoreBinding(binding));
       },
     };
-    const exactApprovedToolEntry = exactApprovedToolCall
-      ? requestActions[exactApprovedToolCall.name]
-      : undefined;
-    const approvedToolCallsForExecution =
-      exactApprovedToolCall && exactApprovedToolEntry?.needsApproval
-        ? [
-            toolCallCacheKey(
-              exactApprovedToolCall.name,
-              exactApprovedToolCall.input,
-            ),
-          ]
-        : undefined;
+    const approvedToolCallsForExecution = requestedApprovedToolCalls;
     if (
       isBackgroundWorker &&
       (await isTurnAborted(effectiveThreadId, effectiveTurnId))
@@ -9263,7 +9562,12 @@ export function createProductionAgentHandler(
           await import("./thread-data-builder.js");
         const priorThreadData = (await getThread(effectiveThreadId))
           ?.threadData;
-        const resumed = threadDataToEngineMessages(priorThreadData);
+        // Replay what earlier chunks DID, not just what they said: the default
+        // text-only rebuild drops every tool call and result, so the next chunk
+        // re-runs work already committed and cannot see its output.
+        const resumed = threadDataToEngineMessages(priorThreadData, {
+          includeToolCalls: true,
+        });
         if (resumed.length > 0) {
           const actionPreparationTool =
             typeof backgroundRunMarker?.actionPreparationTool === "string" &&
@@ -9560,6 +9864,12 @@ export function createProductionAgentHandler(
       typeof threadId === "string" &&
       threadId.trim().length > 0 &&
       isAgentChatForegroundSelfChainEnabled();
+    const noProgressRepeatForRun = (run: ActiveRun) =>
+      resolveBackgroundNoProgressRepeat({
+        run,
+        priorErrorCode: priorNoProgressErrorCode,
+        priorCount: priorNoProgressCount,
+      });
     const willChainBackgroundContinuation = (run: ActiveRun) =>
       shouldChainBackgroundContinuation({
         isBackgroundWorker,
@@ -9567,6 +9877,8 @@ export function createProductionAgentHandler(
         continuationCount: backgroundContinuationCount,
         foregroundSelfChainEligible,
         dispatchedToBackground: dispatchToBackground,
+        priorNoProgressErrorCode,
+        priorNoProgressCount,
       });
 
     const completeTrackedProgressRun = async (
@@ -9675,6 +9987,15 @@ export function createProductionAgentHandler(
                   : "run ended in errored state",
               ).catch(() => {});
             }
+            const noProgressRepeat = noProgressRepeatForRun(run);
+            if (noProgressRepeat.tripped) {
+              // Install the replacement before the thread writer runs. The
+              // writer builds durable thread_data from events, so changing
+              // only continuationTerminalEvent afterwards leaves the original
+              // recoverable error persisted and eligible for another retry.
+              installBackgroundNoProgressTerminalEvent(run, noProgressRepeat);
+            }
+
             // Persist the (partial) assistant turn to thread_data FIRST — the
             // server-driven continuation below rebuilds from it, so it must be
             // committed before we re-fire.
@@ -9706,7 +10027,20 @@ export function createProductionAgentHandler(
             // succeeded — a dispatch fast-fail degrades to the inline
             // foreground fallback, which is not a worker and rides the
             // connected client's auto_continue instead.)
-            if (willChainBackgroundContinuation(run)) {
+            if (noProgressRepeat.tripped) {
+              if (run.continuationTerminalEvent?.type === "error") {
+                console.error(
+                  `[agent-chat] stopping background chain: ${noProgressRepeat.errorCode} ` +
+                    `failed ${noProgressRepeat.count}x with no progress`,
+                  run.runId,
+                );
+                await recordRunDiagnostic(
+                  run.runId,
+                  RUN_DIAG_STAGE.workerThrew,
+                  `chain_stopped_no_progress code=${noProgressRepeat.errorCode} count=${noProgressRepeat.count}`,
+                ).catch(() => {});
+              }
+            } else if (willChainBackgroundContinuation(run)) {
               // Full handoff discipline lives in
               // `chainServerDrivenContinuation` (exported + unit-tested):
               // per-turn SQL run budget, successor row PRE-INSERTED before
@@ -9719,6 +10053,7 @@ export function createProductionAgentHandler(
                 effectiveTurnId,
                 requestBody: body as unknown as Record<string, unknown>,
                 backgroundContinuationCount,
+                noProgressRepeat,
                 turnInputTokens,
                 // Re-evaluate the durable gate rather than keying off
                 // isBackgroundWorker: a successor chunk of a FOREGROUND
@@ -10002,6 +10337,7 @@ export function createProductionAgentHandler(
                 const message =
                   userFacingLlmCredentialError(err, {
                     agentName: ref.name,
+                    visitorFacing: isBuilderGatewayDeployConfigured(),
                   }) ?? `Failed to run ${ref.name}: ${err?.message}`;
                 return `<agent-response name="${ref.name}" id="${ref.refId}" type="custom-agent" error="true">\n${message}\n</agent-response>`;
               }
@@ -10054,6 +10390,7 @@ export function createProductionAgentHandler(
                 const message =
                   userFacingLlmCredentialError(err, {
                     agentName: ref.name,
+                    visitorFacing: isBuilderGatewayDeployConfigured(),
                   }) ?? `Failed to reach ${ref.name}: ${err?.message}`;
                 return `<agent-response name="${ref.name}" id="${ref.refId}" error="true">\n${message}\n</agent-response>`;
               }
@@ -10143,9 +10480,10 @@ export function createProductionAgentHandler(
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
             : {}),
-          // Human-in-the-loop approval grants for this turn (sanitized — the
-          // request is untrusted; only the exact structured call is passed to
-          // the loop, where the durable grant is consumed atomically.
+          // Human-in-the-loop approval grants for this turn. The request is
+          // untrusted; the durable approval consumer below validates every key
+          // against the authenticated owner/org/thread/turn and consumes it
+          // atomically for the exact tool/input tuple.
           ...(approvedToolCallsForExecution
             ? { approvedToolCalls: approvedToolCallsForExecution }
             : {}),

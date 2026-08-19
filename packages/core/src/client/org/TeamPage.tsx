@@ -105,6 +105,7 @@ import {
   useDeleteOrg,
   useSwitchOrg,
   useSetOrgDomain,
+  useSetWorkspaceAppDefaultVisibility,
   useSetOrgWorkspaceUrl,
   useSetOrgAuthProvider,
   useRevealA2ASecret,
@@ -889,6 +890,9 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
               domain={org.allowedDomain}
               ownerEmail={org.email}
             />
+            <WorkspaceAppPrivacySettingsSection
+              visibility={org.workspaceAppDefaultVisibility ?? "org"}
+            />
             <WorkspaceUrlSettingsSection workspaceUrl={org.workspaceUrl} />
             <AuthProviderSettingsSection
               requiredAuthProvider={org.requiredAuthProvider}
@@ -927,6 +931,52 @@ function MembersCard({ appRoles }: { appRoles?: AppRolesDescriptor }) {
 
       {isOwner && <DangerZoneCard orgName={org.orgName ?? ""} />}
     </div>
+  );
+}
+
+function WorkspaceAppPrivacySettingsSection({
+  visibility,
+}: {
+  visibility: "private" | "org";
+}) {
+  const t = useT();
+  const setDefault = useSetWorkspaceAppDefaultVisibility();
+  return (
+    <SettingsRow
+      id="workspace-app-default-visibility"
+      label={t("org.workspaceAppsDefaultPrivacy", {
+        defaultValue: "New app privacy",
+      })}
+      description={t("org.workspaceAppsDefaultPrivacyDescription", {
+        defaultValue:
+          "Choose whether new workspace apps start private to their creator or visible to the organization.",
+      })}
+      control={
+        <Select
+          value={visibility}
+          onValueChange={(value) =>
+            setDefault.mutate(value === "private" ? "private" : "org")
+          }
+          disabled={setDefault.isPending}
+        >
+          <SelectTrigger className="h-auto w-full rounded-md border border-border bg-background px-2.5 py-1.5 text-xs sm:w-auto">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="org">
+              {t("org.workspaceAppsOrganization", {
+                defaultValue: "Organization",
+              })}
+            </SelectItem>
+            <SelectItem value="private">
+              {t("org.workspaceAppsCreatorOnly", {
+                defaultValue: "Creator only",
+              })}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      }
+    />
   );
 }
 

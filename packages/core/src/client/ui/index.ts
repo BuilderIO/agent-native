@@ -37,6 +37,14 @@ export { ClientOnly } from "../ClientOnly.js";
 export { DefaultSpinner } from "../DefaultSpinner.js";
 export { RuntimeConfigNotice } from "../RuntimeConfigNotice.js";
 export {
+  EnvironmentBadge,
+  buildEnvironmentUrl,
+  isBuilderIoEmployee,
+  resolveEnvironmentChannel,
+  resolveEnvironmentTargets,
+  type EnvironmentBadgeTargets,
+} from "../EnvironmentBadge.js";
+export {
   RouteTransitionIndicator,
   ROUTE_TRANSITION_INDICATOR_DELAY_MS,
 } from "../RouteTransitionIndicator.js";

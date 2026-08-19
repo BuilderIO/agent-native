@@ -152,7 +152,6 @@ export {
   type JsonSchema,
 } from "./automation/index.js";
 export {
-  createFeatureFlagsPlugin,
   defineFeatureFlag,
   defineFeatureFlags,
   evaluateFeatureFlag,
@@ -167,6 +166,10 @@ export {
   type FeatureFlagRules,
   type FeatureFlagScope,
 } from "./feature-flags/index.js";
+export {
+  createFeatureFlagA2AActionRouteAuth,
+  createFeatureFlagsPlugin,
+} from "./feature-flags/server.js";
 
 // Server
 export {

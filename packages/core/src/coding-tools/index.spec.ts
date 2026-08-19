@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { actionsToEngineTools } from "../agent/production-agent.js";
 import { createDevScriptRegistry } from "../scripts/dev/index.js";
 import { createDbScriptEntries } from "../server/agent-chat/script-entries.js";
+import { runWithRequestContext } from "../server/request-context.js";
 import {
   BASH_OUTPUT_HEAD_CHARS,
   BASH_OUTPUT_TAIL_CHARS,
@@ -160,6 +161,29 @@ describe("shared coding tools", () => {
         command: 'pnpm action db-query --sql "SELECT 1"',
       }),
     ).resolves.toContain("raw database tools are disabled");
+  });
+
+  it("enforces request-scoped app actions through the local bash path", async () => {
+    const registry = await createDevScriptRegistry({ databaseTools: false });
+
+    await expect(
+      runWithRequestContext(
+        { run: { allowedActionNames: ["allowed-action"] } },
+        () =>
+          registry.bash.run({
+            command: "pnpm action denied-action --value=secret",
+          }),
+      ),
+    ).resolves.toContain(
+      'action "denied-action" is not available in this request\'s action surface',
+    );
+
+    await expect(
+      runWithRequestContext(
+        { run: { allowedActionNames: ["allowed-action"] } },
+        () => registry.bash.run({ command: "printf local-bash" }),
+      ),
+    ).resolves.toContain("local-bash");
   });
 
   it("can expose read-only database tools without raw SQL write tools", async () => {

@@ -11,6 +11,8 @@ import type {
 import type {
   DesktopIdentityAuthRequest,
   DesktopIdentityAuthResult,
+  DesktopIdentityMagicLinkRequest,
+  DesktopIdentityMagicLinkResult,
 } from "../../shared/ipc-channels.js";
 
 export const DESKTOP_IDENTITY_PARTITION = "persist:agent-native-identity";
@@ -29,9 +31,13 @@ const DESKTOP_LOGOUT_ALL_PATH = "/_agent-native/auth/logout-all";
 const DEFAULT_CEREMONY_TIMEOUT_MS = 5 * 60 * 1000;
 const DEFAULT_SESSION_COOKIE_WAIT_MS = 10_000;
 const DEFAULT_AVAILABILITY_TIMEOUT_MS = 5_000;
+const DEFAULT_STATUS_REVALIDATION_INTERVAL_MS = 5 * 60 * 1000;
+const DEFAULT_STATUS_TIMEOUT_MS = 10_000;
 const SESSION_COOKIE_POLL_INTERVAL_MS = 25;
 const DESKTOP_EXCHANGE_POLL_INTERVAL_MS = 500;
 const DESKTOP_EXCHANGE_PATH = "/_agent-native/auth/desktop-exchange";
+const DISPATCH_WORKSPACE_EMBED_ACTION =
+  "/_agent-native/actions/create-workspace-app-embed-session";
 const DESKTOP_IDENTITY_APP_ID_PATTERN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/;
 
 function normalizeIdentityEmail(email: string): string {
@@ -231,6 +237,8 @@ interface DesktopIdentityWindow {
 
 export interface DesktopIdentityBrokerOptions {
   identitySession: Session;
+  /** Opens provider verification in the user's system browser. */
+  openExternal?: (url: string) => void | Promise<void>;
   isAvailable?: (
     authorityApp: DesktopIdentityApp,
     identitySession: Session,
@@ -255,6 +263,8 @@ export interface DesktopIdentityBrokerOptions {
   onStatus?: (status: DesktopIdentityStatus) => void;
   timeoutMs?: number;
   sessionCookieWaitMs?: number;
+  statusRevalidationIntervalMs?: number;
+  statusTimeoutMs?: number;
 }
 
 interface DesktopSignOutIntent {
@@ -374,6 +384,13 @@ async function getSessionCookieHeader(
   return header || undefined;
 }
 
+function cookieHeaderNames(cookieHeader: string | undefined): string[] {
+  return (cookieHeader ?? "")
+    .split(";")
+    .map((part) => part.split("=", 1)[0]?.trim() ?? "")
+    .filter(Boolean);
+}
+
 async function readDesktopIdentityAuthResponse(
   response: Response,
 ): Promise<{ email?: string; error?: string }> {
@@ -399,13 +416,58 @@ async function readDesktopIdentityAuthResponse(
   };
 }
 
+async function readDesktopIdentityMagicLinkResponse(
+  response: Response,
+): Promise<{
+  email?: string;
+  error?: string;
+  flowId?: string;
+  verifier?: string;
+}> {
+  type MagicLinkResponseBody = {
+    email?: unknown;
+    error?: unknown;
+    flowId?: unknown;
+    verifier?: unknown;
+  };
+  let body: MagicLinkResponseBody | null = null;
+  try {
+    body = (await response.json()) as MagicLinkResponseBody;
+  } catch (error) {
+    console.warn("[desktop identity] magic-link response was not valid JSON", {
+      reason: error instanceof Error ? error.message : "unknown error",
+    });
+  }
+  return {
+    ...(typeof body?.email === "string" && body.email.trim()
+      ? { email: body.email.trim() }
+      : {}),
+    ...(typeof body?.error === "string" && body.error.trim()
+      ? { error: body.error.trim() }
+      : {}),
+    ...(typeof body?.flowId === "string" && body.flowId.trim()
+      ? { flowId: body.flowId.trim() }
+      : {}),
+    ...(typeof body?.verifier === "string" && body.verifier.trim()
+      ? { verifier: body.verifier.trim() }
+      : {}),
+  };
+}
+
 export class DesktopIdentityBroker {
   private readonly pendingByApp = new Map<string, Promise<boolean>>();
+  private readonly pendingModernAppSessions = new Map<
+    string,
+    Promise<boolean>
+  >();
+  private readonly completedModernAppSessions = new Set<string>();
   private readonly unsupportedAppIds = new Set<string>();
   private readonly activeSessionCopies = new Set<Promise<void>>();
   private queue: Promise<void> = Promise.resolve();
   private activeWindow: DesktopIdentityWindow | null = null;
   private signInOperation: Promise<boolean> | null = null;
+  private magicLinkRequestOperation: Promise<DesktopIdentityMagicLinkResult> | null =
+    null;
   private passwordAuthOperation: Promise<DesktopIdentityAuthResult> | null =
     null;
   private sessionAdoptionOperation: Promise<boolean> | null = null;
@@ -419,6 +481,8 @@ export class DesktopIdentityBroker {
   private readonly internalRevocationNonce =
     randomBytes(16).toString("base64url");
   private status: DesktopIdentityStatus = "idle";
+  private statusVerifiedAt = 0;
+  private statusRevalidationRetryAt = 0;
   private ceremonyGeneration = 0;
   private availability: "unknown" | "available" | "unavailable";
 
@@ -432,6 +496,7 @@ export class DesktopIdentityBroker {
 
   setStatusForSetting(status: DesktopIdentityStatus): void {
     this.ceremonyGeneration += 1;
+    this.completedModernAppSessions.clear();
     this.setStatus(status);
   }
 
@@ -452,6 +517,23 @@ export class DesktopIdentityBroker {
   }
 
   async refreshStatus(authorityApp: DesktopIdentityApp | null): Promise<void> {
+    // A verified workspace session is the source of truth for the desktop
+    // shell. App tabs must not turn a normal navigation into another remote
+    // session check or strand the user behind a loading gate. Revalidate on a
+    // bounded interval so external expiry or revocation is still observed.
+    // Sign-out is a ceremony boundary: do not let the signed-in fast path
+    // make a tab activation look healthy while session revocation is running.
+    if (this.signOutOperation) return;
+    if (
+      this.status === "signed-in" &&
+      Date.now() -
+        Math.max(this.statusVerifiedAt, this.statusRevalidationRetryAt) <
+        (this.options.statusRevalidationIntervalMs ??
+          DEFAULT_STATUS_REVALIDATION_INTERVAL_MS)
+    ) {
+      return;
+    }
+
     const observedStatus = this.status;
     const observedGeneration = this.ceremonyGeneration;
     if (
@@ -487,9 +569,32 @@ export class DesktopIdentityBroker {
       }
       if (available) this.availability = "available";
     }
-    const verifiedEmail = await this.verifyIdentitySession(authorityApp).catch(
-      () => null,
-    );
+    let verifiedEmail: string | null;
+    try {
+      verifiedEmail = await this.verifyIdentitySession(authorityApp);
+    } catch (error) {
+      // A transient network, server, timeout, or session-partition read
+      // failure must not turn a verified workspace into a sign-in screen. An
+      // authoritative missing-session response still returns null below and
+      // correctly requires sign-in.
+      console.warn("[desktop identity] session status refresh failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      if (
+        this.status !== observedStatus ||
+        this.ceremonyGeneration !== observedGeneration ||
+        this.signOutOperation
+      ) {
+        return;
+      }
+      if (observedStatus === "signed-in") {
+        // Preserve the verified session through a transient outage, but
+        // bound retries so every tab activation does not start another remote
+        // request while the authority is unavailable.
+        this.statusRevalidationRetryAt = Date.now();
+      } else this.setStatus("sign-in-required");
+      return;
+    }
     if (
       this.status !== observedStatus ||
       this.ceremonyGeneration !== observedGeneration ||
@@ -570,14 +675,62 @@ export class DesktopIdentityBroker {
       return Promise.resolve(false);
     }
 
-    const operation = this.ensureAppSessionInternal(appId, {
-      interactive: false,
-      skipIfPresent: true,
-      verifyExistingSession: true,
-      // Lazy child synchronization is scoped to the requested WebView. Do
-      // not replace the workspace-level signed-in state while it runs.
-      preserveStatus: true,
-    });
+    const operation = this.options.openExternal
+      ? this.ensureModernAppSessionDeduped(appId)
+      : this.ensureAppSessionInternal(appId, {
+          interactive: false,
+          skipIfPresent: true,
+          verifyExistingSession: true,
+          // Lazy child synchronization is scoped to the requested WebView. Do
+          // not replace the workspace-level signed-in state while it runs.
+          preserveStatus: true,
+        });
+    return operation;
+  }
+
+  private ensureModernAppSessionDeduped(
+    appId: string,
+    generation = this.ceremonyGeneration,
+    expectedEmail?: string,
+  ): Promise<boolean> {
+    const pendingKey = `${generation}:${appId}`;
+    if (this.completedModernAppSessions.has(pendingKey)) {
+      const app = this.options.resolveApp(appId);
+      if (!app) return Promise.resolve(false);
+      return this.hasAppSession(app).then((hasSession) => {
+        if (hasSession) return true;
+        this.completedModernAppSessions.delete(pendingKey);
+        return this.ensureModernAppSessionDeduped(
+          appId,
+          generation,
+          expectedEmail,
+        );
+      });
+    }
+    const existing = this.pendingModernAppSessions.get(pendingKey);
+    if (existing) return existing;
+
+    const operation = this.ensureModernAppSession(
+      appId,
+      generation,
+      expectedEmail,
+    );
+    this.pendingModernAppSessions.set(pendingKey, operation);
+    void operation.then(
+      (succeeded) => {
+        if (this.pendingModernAppSessions.get(pendingKey) === operation) {
+          this.pendingModernAppSessions.delete(pendingKey);
+        }
+        if (succeeded && this.isCeremonyCurrent(generation)) {
+          this.completedModernAppSessions.add(pendingKey);
+        }
+      },
+      () => {
+        if (this.pendingModernAppSessions.get(pendingKey) === operation) {
+          this.pendingModernAppSessions.delete(pendingKey);
+        }
+      },
+    );
     return operation;
   }
 
@@ -629,12 +782,18 @@ export class DesktopIdentityBroker {
     this.unsupportedAppIds.delete(appId);
     const generation = this.ceremonyGeneration;
     const adoption = this.sessionAdoptionOperation;
-    const operation = adoption
-      ? adoption.then(
-          () => this.runSignInFanout(appId, generation),
-          () => this.runSignInFanout(appId, generation),
-        )
-      : this.runSignInFanout(appId, generation);
+    // Google desktop OAuth is completed inside the isolated identity window.
+    // The initiating-browser binding is held by that window's session cookie;
+    // opening the authorization URL in the system browser would lose the
+    // binding and reintroduce login-CSRF token theft.
+    const operation = this.options.openExternal
+      ? this.runSecureGoogleSignIn(appId, generation)
+      : adoption
+        ? adoption.then(
+            () => this.runSignInFanout(appId, generation),
+            () => this.runSignInFanout(appId, generation),
+          )
+        : this.runSignInFanout(appId, generation);
     this.signInOperation = operation;
     void operation.then(
       () => {
@@ -645,6 +804,285 @@ export class DesktopIdentityBroker {
       },
     );
     return operation;
+  }
+
+  /**
+   * Start a parent magic-link exchange without opening a hosted login window.
+   * The request is acknowledged as soon as the email is queued; the broker
+   * keeps polling the one-time exchange until the system browser verifies it.
+   */
+  requestMagicLink(
+    request: DesktopIdentityMagicLinkRequest,
+  ): Promise<DesktopIdentityMagicLinkResult> {
+    const email = request.email.trim();
+    if (!email) {
+      return Promise.resolve({
+        ok: false,
+        error: "Enter your email to continue.",
+      });
+    }
+    if (this.signOutOperation) {
+      return Promise.resolve({
+        ok: false,
+        error: "Sign-out is still finishing. Please try again.",
+      });
+    }
+    if (this.signInOperation || this.magicLinkRequestOperation) {
+      return Promise.resolve({
+        ok: false,
+        error: "Sign-in is already in progress. Please wait a moment.",
+      });
+    }
+
+    const authority = this.resolveIdentityAuthority();
+    if (!authority) {
+      return Promise.resolve({
+        ok: false,
+        error: "The Agent Native identity service is unavailable.",
+      });
+    }
+
+    const generation = this.ceremonyGeneration;
+    const operation = this.startMagicLinkRequest(email, authority, generation);
+    this.magicLinkRequestOperation = operation;
+    void operation.then(
+      () => {
+        if (this.magicLinkRequestOperation === operation) {
+          this.magicLinkRequestOperation = null;
+        }
+      },
+      () => {
+        if (this.magicLinkRequestOperation === operation) {
+          this.magicLinkRequestOperation = null;
+        }
+      },
+    );
+    return operation;
+  }
+
+  private async startMagicLinkRequest(
+    email: string,
+    authority: DesktopIdentityApp,
+    generation: number,
+  ): Promise<DesktopIdentityMagicLinkResult> {
+    const fail = (error: string): DesktopIdentityMagicLinkResult => {
+      if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
+        this.setStatus("failed");
+      }
+      return { ok: false, error };
+    };
+
+    await this.waitForActiveSessionCopies();
+    if (!this.isCeremonyCurrent(generation)) {
+      return fail("Sign-in was cancelled. Please try again.");
+    }
+    this.setStatus("signing-in");
+
+    let response: Response;
+    try {
+      response = await this.options.identitySession.fetch(
+        new URL("/_agent-native/auth/magic-link", authority.origin).toString(),
+        {
+          method: "POST",
+          redirect: "manual",
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            email,
+            callbackURL: "/_agent-native/auth/magic-link/desktop-callback",
+          }),
+        },
+      );
+    } catch (error) {
+      return fail(
+        error instanceof Error
+          ? error.message
+          : "Could not reach the Agent Native identity service.",
+      );
+    }
+
+    const payload = await readDesktopIdentityMagicLinkResponse(response);
+    if (!response.ok) {
+      return fail(
+        payload.error ?? "Could not send a sign-in link. Please try again.",
+      );
+    }
+    if (!payload.flowId || !payload.verifier) {
+      return fail("The magic-link sign-in flow could not be initialized.");
+    }
+    if (!this.isCeremonyCurrent(generation) || this.signOutOperation) {
+      return fail("Sign-in was cancelled. Please try again.");
+    }
+
+    const exchangeOperation = this.finishExternalAuthentication(
+      authority,
+      payload.flowId,
+      payload.verifier,
+      generation,
+    );
+    this.signInOperation = exchangeOperation;
+    void exchangeOperation.then(
+      () => {
+        if (this.signInOperation === exchangeOperation) {
+          this.signInOperation = null;
+        }
+      },
+      () => {
+        if (this.signInOperation === exchangeOperation) {
+          this.signInOperation = null;
+        }
+      },
+    );
+
+    return { ok: true, email, pending: true };
+  }
+
+  private async runSecureGoogleSignIn(
+    appId: string,
+    generation: number,
+  ): Promise<boolean> {
+    const authority = this.resolveIdentityAuthority();
+    if (!authority) return false;
+
+    const flowId = randomBytes(32).toString("base64url");
+    const verifier = randomBytes(32).toString("base64url");
+    const authUrl = new URL("/_agent-native/google/auth-url", authority.origin);
+    authUrl.searchParams.set("desktop", "1");
+    authUrl.searchParams.set("flow_id", flowId);
+
+    this.setStatus("signing-in");
+    const abortController = new AbortController();
+    let identityWindow: DesktopIdentityWindow | null = null;
+    let closedByBroker = false;
+    try {
+      const response = await this.options.identitySession.fetch(
+        authUrl.toString(),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+            "X-Agent-Native-Desktop-Verifier": verifier,
+          },
+        },
+      );
+      let payload: { url?: unknown; error?: unknown; message?: unknown };
+      try {
+        payload = (await response.json()) as typeof payload;
+      } catch {
+        throw new Error("Could not start Google sign-in.");
+      }
+      if (!response.ok || typeof payload.url !== "string") {
+        throw new Error(
+          typeof payload.message === "string"
+            ? payload.message
+            : typeof payload.error === "string"
+              ? payload.error
+              : "Could not start Google sign-in.",
+        );
+      }
+
+      identityWindow = this.options.createWindow({
+        width: 520,
+        height: 720,
+        title: "Sign in to Agent Native",
+        show: true,
+        backgroundColor: "#111111", // guard:allow-raw-color - native auth window stays neutral before app theme loads.
+        parent: this.options.parentWindow?.() ?? undefined,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+          session: this.options.identitySession,
+        },
+      });
+      this.activeWindow = identityWindow;
+
+      let resolveWindowClosed: (result: boolean) => void = () => {};
+      const windowClosed = new Promise<boolean>((resolve) => {
+        resolveWindowClosed = resolve;
+        identityWindow!.on("closed", () => {
+          if (!closedByBroker) resolve(false);
+        });
+      });
+
+      await identityWindow.loadURL(payload.url);
+      const exchange = this.pollDesktopOAuthExchange(
+        authority,
+        flowId,
+        verifier,
+        generation,
+        abortController.signal,
+      ).then(async () => {
+        const succeeded = await this.runSignInFanout(appId, generation, {
+          interactive: false,
+        });
+        if (succeeded) {
+          closedByBroker = true;
+          resolveWindowClosed(true);
+        }
+        return succeeded;
+      });
+
+      return await Promise.race([exchange, windowClosed]);
+    } catch (error) {
+      if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
+        this.setStatus("failed");
+      }
+      console.warn("[desktop identity] isolated Google sign-in failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      return false;
+    } finally {
+      abortController.abort();
+      if (identityWindow && this.activeWindow === identityWindow) {
+        this.activeWindow = null;
+      }
+      if (identityWindow && !identityWindow.isDestroyed()) {
+        closedByBroker = true;
+        identityWindow.close();
+      }
+    }
+  }
+
+  private async finishExternalAuthentication(
+    authority: DesktopIdentityApp,
+    flowId: string,
+    verifier: string | null,
+    generation: number,
+    requestedAppId = authority.id,
+  ): Promise<boolean> {
+    try {
+      await this.pollDesktopOAuthExchange(
+        authority,
+        flowId,
+        verifier,
+        generation,
+        new AbortController().signal,
+      );
+      const succeeded = await this.runSignInFanout(requestedAppId, generation, {
+        interactive: false,
+      });
+      if (
+        !succeeded &&
+        this.isCeremonyCurrent(generation) &&
+        !this.signOutOperation
+      ) {
+        this.setStatus("failed");
+      }
+      return succeeded;
+    } catch (error) {
+      if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
+        this.setStatus("failed");
+      }
+      console.warn("[desktop identity] desktop exchange failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      return false;
+    }
   }
 
   /**
@@ -851,12 +1289,331 @@ export class DesktopIdentityBroker {
     return { ok: true, email: request.email };
   }
 
+  private async runModernIdentityFanout(
+    appId: string,
+    generation: number,
+  ): Promise<boolean> {
+    if (!this.isCeremonyCurrent(generation) || !this.options.listApps) {
+      return false;
+    }
+    const requestedApp = this.options.resolveApp(appId);
+    if (!requestedApp) return false;
+
+    const appsById = new Map<string, DesktopIdentityApp>();
+    try {
+      for (const app of this.options.listApps()) {
+        if (
+          app.id === appId ||
+          app.identityAuthority === true ||
+          app.workspaceSso === true
+        ) {
+          if (!appsById.has(app.id)) appsById.set(app.id, app);
+        }
+      }
+    } catch (error) {
+      console.warn("[desktop identity] workspace app snapshot failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+    }
+    appsById.set(requestedApp.id, requestedApp);
+
+    const authority =
+      [...appsById.values()].find((app) => app.identityAuthority) ??
+      this.options.resolveApp("dispatch");
+    if (!authority) return false;
+
+    const orderedApps: DesktopIdentityApp[] = [];
+    const orderedIds = new Set<string>();
+    for (const app of [authority, requestedApp, ...appsById.values()]) {
+      if (app && !orderedIds.has(app.id)) {
+        orderedIds.add(app.id);
+        orderedApps.push(app);
+      }
+    }
+    const firstApp = orderedApps[0];
+    if (!firstApp) return false;
+
+    const identityEmail = await this.verifyIdentitySession(
+      authority,
+      this.options.identitySession,
+    );
+    if (!identityEmail) return false;
+
+    const authoritySucceeded = await this.ensureAuthoritySessionFromIdentity(
+      firstApp,
+      generation,
+      identityEmail,
+    );
+    if (!authoritySucceeded || !this.isCeremonyCurrent(generation)) {
+      return false;
+    }
+
+    if (this.options.isAvailable) {
+      let available = false;
+      try {
+        available = await this.options.isAvailable(
+          authority,
+          this.options.identitySession,
+        );
+      } catch (error) {
+        console.warn("[desktop identity] availability probe failed", {
+          reason: error instanceof Error ? error.message : "unknown error",
+        });
+      }
+      if (!this.isCeremonyCurrent(generation)) return false;
+      if (!available) {
+        this.availability = "unavailable";
+        this.setStatus("failed");
+        return false;
+      }
+      this.availability = "available";
+    }
+
+    const remaining = orderedApps.filter((app) => app.id !== firstApp.id);
+    // Each child mint makes Dispatch open a separate outbound MCP session.
+    // Keep first-run fan-out serial so serverless connection resets cannot turn
+    // a valid parent session into a batch of opaque 500 responses.
+    let resolveRequested: (succeeded: boolean) => void = () => {};
+    const requestedResult = new Promise<boolean>((resolve) => {
+      resolveRequested = resolve;
+    });
+    let requestedResultSettled = firstApp.id === appId;
+    if (requestedResultSettled) resolveRequested(true);
+
+    void (async () => {
+      const failedAppIds: string[] = [];
+      for (const app of remaining) {
+        let succeeded = false;
+        try {
+          succeeded = await this.ensureModernAppSessionDeduped(
+            app.id,
+            generation,
+            identityEmail,
+          );
+        } catch (error) {
+          console.warn("[desktop identity] app session fan-out failed", {
+            appId: app.id,
+            reason: error instanceof Error ? error.message : "unknown error",
+          });
+        }
+        if (app.id === appId && !requestedResultSettled) {
+          requestedResultSettled = true;
+          resolveRequested(succeeded && this.isCeremonyCurrent(generation));
+        }
+        if (!succeeded) failedAppIds.push(app.id);
+        if (!this.isCeremonyCurrent(generation)) {
+          if (!requestedResultSettled) {
+            requestedResultSettled = true;
+            resolveRequested(false);
+          }
+          return;
+        }
+      }
+      if (!requestedResultSettled) {
+        requestedResultSettled = true;
+        resolveRequested(firstApp.id === appId);
+      }
+      if (failedAppIds.length > 0) {
+        console.warn("[desktop identity] app session fan-out had failures", {
+          appIds: failedAppIds,
+        });
+      }
+    })().catch((error) => {
+      if (!requestedResultSettled) {
+        requestedResultSettled = true;
+        resolveRequested(false);
+      }
+      console.warn("[desktop identity] app session fan-out stopped", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+    });
+
+    const requestedSucceeded = await requestedResult;
+    if (!requestedSucceeded) {
+      if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
+        this.setStatus("failed");
+      }
+      return false;
+    }
+
+    if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
+      this.setStatus("signed-in");
+    }
+    return true;
+  }
+
+  private async ensureAuthoritySessionFromIdentity(
+    authority: DesktopIdentityApp,
+    generation: number,
+    expectedEmail: string,
+  ): Promise<boolean> {
+    try {
+      await this.copyTargetSession(authority, generation, undefined, true);
+      const appEmail = await this.verifyIdentitySession(
+        authority,
+        authority.session,
+      );
+      if (
+        !appEmail ||
+        normalizeIdentityEmail(appEmail) !==
+          normalizeIdentityEmail(expectedEmail)
+      ) {
+        await this.clearAppSessionCookies(authority);
+        return false;
+      }
+      this.reloadAppSafely(authority);
+      return true;
+    } catch (error) {
+      console.warn("[desktop identity] authority session copy failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      return false;
+    }
+  }
+
+  private async ensureModernAppSession(
+    appId: string,
+    generation = this.ceremonyGeneration,
+    expectedEmail?: string,
+  ): Promise<boolean> {
+    const app = this.options.resolveApp(appId);
+    const authority = this.resolveIdentityAuthority();
+    if (!app || !authority || !this.isCeremonyCurrent(generation)) return false;
+    const identityEmail =
+      expectedEmail ?? (await this.verifyIdentitySession(authority));
+    if (!identityEmail) return false;
+
+    // Status notifications can arrive again after the child reloads. Keep a
+    // matching session in place instead of minting another one-time ticket
+    // and reloading the same WebView forever.
+    if (await this.hasMatchingIdentitySession(app)) {
+      // The OAuth callback can install the child cookie before its WebView is
+      // mounted. Reload once when the broker first adopts that session so the
+      // WebView cannot remain on the pre-auth document.
+      this.reloadAppSafely(app);
+      return true;
+    }
+    if (await this.hasAppSession(app)) {
+      await this.clearAppSessionCookies(app);
+    }
+
+    if (app.identityAuthority === true || app.id === authority.id) {
+      return this.ensureAuthoritySessionFromIdentity(
+        app,
+        generation,
+        identityEmail,
+      );
+    }
+    if (app.workspaceSso !== true) return false;
+
+    try {
+      const startUrl = await this.mintWorkspaceEmbedStartUrl(authority, app);
+      const response = await app.session.fetch(startUrl, {
+        redirect: "follow",
+        credentials: "include",
+        headers: { Accept: "text/html,application/xhtml+xml" },
+      });
+      if (!response.ok) {
+        throw new Error(`Embed session returned ${response.status}`);
+      }
+      const appEmail = await this.verifyIdentitySession(app, app.session);
+      if (
+        !appEmail ||
+        normalizeIdentityEmail(appEmail) !==
+          normalizeIdentityEmail(identityEmail)
+      ) {
+        await this.clearAppSessionCookies(app);
+        return false;
+      }
+      this.reloadAppSafely(app);
+      return true;
+    } catch (error) {
+      console.warn("[desktop identity] workspace app session mint failed", {
+        appId: app.id,
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      return false;
+    }
+  }
+
+  private async mintWorkspaceEmbedStartUrl(
+    authority: DesktopIdentityApp,
+    target: DesktopIdentityApp,
+  ): Promise<string> {
+    const cookieHeader = await getSessionCookieHeader(
+      authority,
+      this.options.identitySession,
+    );
+    console.info("[desktop identity] workspace embed request", {
+      authorityOrigin: authority.origin,
+      targetAppId: target.id,
+      cookieNames: cookieHeaderNames(cookieHeader),
+    });
+    const response = await this.options.identitySession.fetch(
+      new URL(DISPATCH_WORKSPACE_EMBED_ACTION, authority.origin).toString(),
+      {
+        method: "POST",
+        redirect: "manual",
+        credentials: "include",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          "X-Agent-Native-CSRF": "1",
+          ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+        },
+        body: JSON.stringify({ app: target.id, path: "/", chrome: "minimal" }),
+      },
+    );
+    console.info("[desktop identity] workspace embed response", {
+      targetAppId: target.id,
+      status: response.status,
+      ok: response.ok,
+    });
+    let payload: { error?: unknown; startUrl?: unknown } | null;
+    try {
+      payload = (await response.json()) as {
+        error?: unknown;
+        startUrl?: unknown;
+      };
+    } catch (error) {
+      throw new Error(
+        error instanceof Error
+          ? `Dispatch returned invalid workspace app session data: ${error.message}`
+          : "Dispatch returned invalid workspace app session data.",
+      );
+    }
+    if (!response.ok || typeof payload?.startUrl !== "string") {
+      const message =
+        typeof payload?.error === "string" && payload.error.trim()
+          ? payload.error.trim()
+          : `Dispatch could not create a session for ${target.id}.`;
+      throw new Error(message);
+    }
+
+    const startUrl = new URL(payload.startUrl);
+    if (
+      (startUrl.protocol !== "https:" && startUrl.protocol !== "http:") ||
+      startUrl.origin !== target.origin ||
+      !startUrl.pathname.endsWith("/_agent-native/embed/start") ||
+      startUrl.searchParams.get("ticket") === null ||
+      startUrl.username ||
+      startUrl.password ||
+      startUrl.hash
+    ) {
+      throw new Error("Dispatch returned an invalid workspace app session.");
+    }
+    return startUrl.toString();
+  }
+
   private async runSignInFanout(
     appId: string,
     generation: number,
     options: { interactive?: boolean } = {},
   ): Promise<boolean> {
     if (!this.isCeremonyCurrent(generation)) return false;
+    if (this.options.openExternal) {
+      return this.runModernIdentityFanout(appId, generation);
+    }
     if (!this.options.listApps) {
       return this.ensureAppSessionInternal(appId, {
         interactive: options.interactive !== false,
@@ -1100,7 +1857,18 @@ export class DesktopIdentityBroker {
     }
 
     const previousStatus = this.status;
+    const previousStatusVerifiedAt = this.statusVerifiedAt;
     this.setStatus("signing-in");
+    const restorePreviousStatus = () => {
+      if (!this.isCeremonyCurrent(generation)) return;
+      if (previousStatus === "signed-in") {
+        this.status = previousStatus;
+        this.statusVerifiedAt = previousStatusVerifiedAt;
+        this.options.onStatus?.(previousStatus);
+        return;
+      }
+      this.setStatus("idle");
+    };
     const previousAuthorityCookies = currentIdentityCookies.filter(
       (cookie) =>
         cookieMatchesOrigin(cookie, authority.origin) &&
@@ -1133,9 +1901,7 @@ export class DesktopIdentityBroker {
           authority,
           previousAuthorityCookies,
         );
-        if (this.isCeremonyCurrent(generation)) {
-          this.setStatus(previousStatus === "signed-in" ? "signed-in" : "idle");
-        }
+        restorePreviousStatus();
         return false;
       }
 
@@ -1156,9 +1922,7 @@ export class DesktopIdentityBroker {
           authority,
           previousAuthorityCookies,
         );
-        if (this.isCeremonyCurrent(generation)) {
-          this.setStatus(previousStatus === "signed-in" ? "signed-in" : "idle");
-        }
+        restorePreviousStatus();
         return false;
       }
 
@@ -1202,9 +1966,7 @@ export class DesktopIdentityBroker {
         authority,
         previousAuthorityCookies,
       );
-      if (this.isCeremonyCurrent(generation)) {
-        this.setStatus(previousStatus === "signed-in" ? "signed-in" : "idle");
-      }
+      restorePreviousStatus();
       console.warn("[desktop identity] automatic session adoption failed", {
         appId: sourceApp.id,
         reason: error instanceof Error ? error.message : "unknown error",
@@ -1330,30 +2092,74 @@ export class DesktopIdentityBroker {
     authority: DesktopIdentityApp,
     identitySession: Session = this.options.identitySession,
   ): Promise<string | null> {
-    const cookieHeader = await getSessionCookieHeader(
-      authority,
-      identitySession,
-    );
-    const response = await identitySession.fetch(
-      new URL("/_agent-native/auth/session", authority.origin).toString(),
-      {
-        method: "GET",
-        redirect: "manual",
-        credentials: "include",
-        headers: {
-          Accept: "application/json",
-          ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-        },
-      },
-    );
-    if (!response.ok) return null;
-    const body = (await response.json().catch((error) => {
-      void error;
-      return null;
-    })) as { email?: unknown } | null;
-    return typeof body?.email === "string" && body.email.trim().length > 0
-      ? body.email.trim()
-      : null;
+    const controller = new AbortController();
+    const timeoutMs = this.options.statusTimeoutMs ?? DEFAULT_STATUS_TIMEOUT_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(
+          new Error(
+            `Desktop identity session check timed out after ${timeoutMs}ms`,
+          ),
+        );
+      }, timeoutMs);
+    });
+
+    try {
+      const cookieHeader = await Promise.race([
+        getSessionCookieHeader(authority, identitySession),
+        timeout,
+      ]);
+      const response = await Promise.race([
+        identitySession.fetch(
+          new URL("/_agent-native/auth/session", authority.origin).toString(),
+          {
+            method: "GET",
+            redirect: "manual",
+            credentials: "include",
+            signal: controller.signal,
+            headers: {
+              Accept: "application/json",
+              ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+            },
+          },
+        ),
+        timeout,
+      ]);
+      if (!response.ok) {
+        if (
+          response.status >= 500 ||
+          response.status === 408 ||
+          response.status === 429
+        ) {
+          throw new Error(
+            `Desktop identity session check failed with status ${response.status}`,
+          );
+        }
+        return null;
+      }
+
+      let body: { email?: unknown } | null;
+      try {
+        body = (await Promise.race([response.json(), timeout])) as {
+          email?: unknown;
+        } | null;
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          error.message.startsWith("Desktop identity session check timed out")
+        ) {
+          throw error;
+        }
+        throw new Error("Desktop identity session response was invalid.");
+      }
+      return typeof body?.email === "string" && body.email.trim().length > 0
+        ? body.email.trim()
+        : null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   async prepareExternalSignOut(
@@ -1415,7 +2221,10 @@ export class DesktopIdentityBroker {
   ): Promise<boolean> {
     this.ceremonyGeneration += 1;
     this.signInOperation = null;
+    this.magicLinkRequestOperation = null;
     this.pendingByApp.clear();
+    this.pendingModernAppSessions.clear();
+    this.completedModernAppSessions.clear();
     this.unsupportedAppIds.clear();
     this.closeActiveWindow();
     this.updateSignOutIntent(options);
@@ -1713,7 +2522,6 @@ export class DesktopIdentityBroker {
       Date.now() + (this.options.timeoutMs ?? DEFAULT_CEREMONY_TIMEOUT_MS);
     const exchangeUrl = new URL(DESKTOP_EXCHANGE_PATH, authorityApp.origin);
     exchangeUrl.searchParams.set("flow_id", flowId);
-    if (verifier) exchangeUrl.searchParams.set("verifier", verifier);
 
     while (Date.now() < deadline) {
       this.assertCeremonyActive(generation, signal);
@@ -1722,7 +2530,12 @@ export class DesktopIdentityBroker {
         response = await this.options.identitySession.fetch(
           exchangeUrl.toString(),
           {
-            headers: { Accept: "application/json" },
+            headers: {
+              Accept: "application/json",
+              ...(verifier
+                ? { "X-Agent-Native-Desktop-Verifier": verifier }
+                : {}),
+            },
             credentials: "include",
           },
         );
@@ -1732,6 +2545,22 @@ export class DesktopIdentityBroker {
             ? error.message
             : "Could not reach the desktop sign-in exchange.",
         );
+      }
+
+      // A 5xx here is the gateway/runtime in front of our own route failing
+      // (cold start, transient Lambda/DB blip) — the exchange handler itself
+      // only ever answers 200/400/403. Treat it like "pending" and keep
+      // polling instead of aborting the whole sign-in ceremony on one
+      // transient hiccup during the multi-minute polling window.
+      if (response.status >= 500) {
+        await this.waitForCookiePoll(
+          Math.min(
+            DESKTOP_EXCHANGE_POLL_INTERVAL_MS,
+            Math.max(0, deadline - Date.now()),
+          ),
+          signal,
+        );
+        continue;
       }
 
       let payload: {
@@ -1765,10 +2594,12 @@ export class DesktopIdentityBroker {
       const token =
         typeof payload.token === "string" ? payload.token.trim() : "";
       if (token) {
+        this.assertCeremonyActive(generation, signal);
         // The exchange response intentionally returns the one-time credential
         // to the native shell. Store it only in the isolated identity session;
         // copyTargetSession then moves it into the target app partition.
         for (const cookieName of authorityApp.cookieNames) {
+          this.assertCeremonyActive(generation, signal);
           await this.options.identitySession.cookies.set({
             url: authorityApp.origin,
             name: cookieName,
@@ -1983,6 +2814,11 @@ export class DesktopIdentityBroker {
         const flowId = extractDesktopOAuthFlowId(navigationUrl);
         if (!flowId) return;
         const verifier = extractDesktopOAuthVerifier(navigationUrl);
+        // Google OAuth keeps its verifier in the page's HttpOnly-cookie-bound
+        // flow and sends it in the exchange request header. The page owns that
+        // poll; the native ceremony only polls legacy magic-link callbacks,
+        // which still carry their verifier in the callback URL.
+        if (!verifier) return;
         desktopExchangeStarted = true;
         void this.pollDesktopOAuthExchange(
           authorityApp,
@@ -2343,7 +3179,16 @@ export class DesktopIdentityBroker {
   }
 
   private setStatus(status: DesktopIdentityStatus): void {
+    if (
+      status === "signing-in" ||
+      status === "sign-in-required" ||
+      status === "failed"
+    ) {
+      this.completedModernAppSessions.clear();
+    }
     this.status = status;
+    this.statusVerifiedAt = status === "signed-in" ? Date.now() : 0;
+    this.statusRevalidationRetryAt = 0;
     this.options.onStatus?.(status);
   }
 }

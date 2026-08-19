@@ -7,6 +7,31 @@ description: "डिफ़ॉल्ट Node.js Nitro preset के साथ ए
 
 Node.js डिफ़ॉल्ट Nitro preset है। यह पेज इसे सीधे चलाने और Docker के साथ containerize करने को कवर करता है। पहले एक डेटाबेस चुनने के लिए [तैनाती](/docs/deployment) देखें, और Docker Compose के साथ एक multi-app कार्यस्थान को self-host करने के लिए [कार्यस्थान तैनाती](/docs/workspace-deployment#workspace-docker-compose) देखें।
 
+## तेज़ रास्ता: Chat ऐप को स्थानीय रूप से self-host करें {#self-host-quickstart}
+
+शुरू करने के दो अच्छे तरीके हैं:
+
+- **ऐप बना रहे हैं?** [Getting Started](/docs/getting-started) से शुरू करें और ऐप को स्थायी जगह पर रखने के समय यहां लौटें।
+- **ऐप चला रहे हैं?** पहले स्थानीय Docker रास्ता आज़माएं। इससे छोटे सर्वर पर उपयोग होने वाला Node.js, Postgres, authentication और environment variables का वही आकार जांचा जाता है।
+
+स्थानीय stack जानबूझकर उदाहरण authentication secret और स्थानीय Postgres volume का उपयोग करता है। यह `localhost` के लिए है, इंटरनेट पर प्रकाशित करने के लिए नहीं। पूरी Compose फ़ाइल और copy करने योग्य steps के लिए [पूरा quickstart](/docs/node-docker#self-host-quickstart) देखें। यह quickstart PostgreSQL 18 के volume layout का उपयोग करता है। PostgreSQL 17 या उससे पुराने संस्करण से बनाए गए volume को दोबारा उपयोग न करें। image या mount path बदलने से पहले मौजूदा डेटा का backup लेकर migration करें।
+
+### 1. ऐप बनाएं
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. स्थानीय stack चलाएं
+
+```bash
+docker compose up --build
+```
+
+[http://localhost:3000](http://localhost:3000) खोलें। Embedded agent का उपयोग करने के लिए स्थानीय `.env` फ़ाइल में `ANTHROPIC_API_KEY` जोड़ें।
+
 ## Node.js (डिफ़ॉल्ट) {#nodejs}
 
 डिफ़ॉल्ट preset। Build करें और चलाएं:
@@ -24,6 +49,8 @@ Production तैनाती के लिए current Node.js LTS line का �
 
 ## Docker {#docker}
 
+This Dockerfile works for the standalone app created above. Run `pnpm install` before building so `pnpm-lock.yaml` exists in the build context. Keep the dependency manifest and lockfile in sync when you update the app.
+
 ```dockerfile filename="Dockerfile"
 FROM node:24-slim AS build
 WORKDIR /app
@@ -38,9 +65,22 @@ COPY --from=build /app/.output .output
 # data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 # For production, set DATABASE_URL to a hosted Postgres or Turso instance.
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
+```
+
+Create `.dockerignore` alongside the Dockerfile:
+
+```text filename=".dockerignore"
+node_modules
+.output
+data
+.env
+.env.*
+!.env.example
+.git
 ```
 
 इसी standalone Dockerfile पर बना, Docker Compose के साथ एक multi-app

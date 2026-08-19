@@ -1,7 +1,8 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect } from "react-router";
 
 export function loader() {
-  return redirect("/", 302);
+  return withSsrHtmlContentType(redirect("/", 302));
 }
 
 export default function ExamplesRedirect() {

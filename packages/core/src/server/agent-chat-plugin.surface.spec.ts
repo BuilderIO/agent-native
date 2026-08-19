@@ -200,6 +200,69 @@ describe("request-scoped action surface", () => {
     );
   });
 
+  it("keeps request-scoped action surfaces out of the dev-native tool switch", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const devNativeBlock = source.match(
+      /const devNative =[\s\S]*?const basePrompt = prodPrompt;/,
+    )?.[0];
+
+    expect(source).toMatch(
+      /const devNative =[\s\S]*options\?\.nativeActionsInDev === true \|\| leanPrompt;/,
+    );
+    expect(devNativeBlock).toBeDefined();
+    expect(devNativeBlock).not.toContain("resolveActionSurface");
+  });
+
+  it("keeps request-scoped dev actions available without exposing them natively", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const requestScopedDevActions = options\?\.resolveActionSurface\s+\? Object\.fromEntries\([\s\S]*?discoveredActions, \.\.\.templateScripts[\s\S]*?agentTool: false/s,
+    );
+    expect(source).toMatch(
+      /\.\.\.requestScopedDevActions,\s+\.\.\.resourceScripts,/,
+    );
+  });
+
+  it("keeps local coding tools in every dev handler variant", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const devScriptRegistry = await createDevScriptRegistry\(\{[\s\S]*?databaseTools: databaseToolsMode,[\s\S]*?\}\);/,
+    );
+    expect(source).toMatch(
+      /leanPrompt\s+\? \{ \.\.\.devScriptRegistry, \.\.\.leanActions \}/,
+    );
+    expect(source).toMatch(
+      /devNative\s+\? \{ \.\.\.devScriptRegistry, \.\.\.prodActions \}/,
+    );
+  });
+
+  it("keeps local coding tools available while scoping app actions in dev", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const devSource = readFileSync("src/scripts/dev/index.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const localDevActionNames = new Set\(Object\.keys\(devScriptRegistry\)\);/,
+    );
+    expect(source).toMatch(
+      /availableActionNames: appActionNames,[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.surface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
+    );
+    expect(devSource).toMatch(
+      /unauthorizedActionFromBash\([\s\S]*?getRequestRunContext\(\)\?\.allowedActionNames/s,
+    );
+  });
+
   it("removes denied actions before the actions prompt is generated", () => {
     const actions = {
       allowed: {
@@ -237,7 +300,8 @@ describe("request-scoped action surface", () => {
 
     expect(
       source.match(/resolveActionSurface: options\?\.resolveActionSurface,/g),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
+    expect(source).toContain("resolveActionSurface: resolveDevActionSurface");
   });
 
   it("filters late-bound sandbox bridge registries to the request surface", async () => {
@@ -401,6 +465,26 @@ describe("interactive agent run options — wiring guards", () => {
     // startRun's final argument.
     expect(source).toMatch(
       /noProgressTimeoutMs: options\.runNoProgressTimeoutMs,\s*(?:\/\/[^\n]*\n\s*)*turnId: effectiveTurnId,/,
+    );
+  });
+
+  // `/runs/active` is the only server surface the background-follow client can
+  // still read once a run is terminal, and its response object is field-picked
+  // by hand. The client owns the copy for terminal reasons that produce no error
+  // event, so without this field it has to guess who is reading a
+  // missing-credential failure — and guessed the owner, on a site whose visitors
+  // have no Builder account. No route test can see a hand-picked field, so this
+  // guard stands in for one.
+  it("reports whether the deployment pays for its own AI on /runs/active", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /terminalReason: run\.terminalReason \?\? null,\s*(?:\/\/[^\n]*\n\s*)*deploymentPaysForAi: isBuilderGatewayDeployConfigured\(\),/,
+    );
+    expect(source).toContain(
+      'const { isBuilderGatewayDeployConfigured } =\n              await import("./credential-provider.js");',
     );
   });
 

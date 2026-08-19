@@ -1,3 +1,4 @@
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { initializeAgentNativeClient } from "./client-bootstrap.js";
 
 const FRAMEWORK_ROUTE_PREFIX = "/_agent-native";
@@ -45,9 +46,17 @@ function pathMatchesBasePath(pathname: string, basePath: string): boolean {
 
 function isWorkspaceRuntime(): boolean {
   const env = clientEnv();
+  const projected =
+    typeof window !== "undefined" &&
+    (
+      window as Window & {
+        __AGENT_NATIVE_CONFIG__?: { workspaceRuntime?: unknown };
+      }
+    ).__AGENT_NATIVE_CONFIG__?.workspaceRuntime === true;
   return (
-    env?.VITE_AGENT_NATIVE_WORKSPACE === "1" ||
-    env?.AGENT_NATIVE_WORKSPACE === "1" ||
+    projected ||
+    isTruthyRuntimeValue(env?.VITE_AGENT_NATIVE_WORKSPACE) ||
+    isTruthyRuntimeValue(env?.AGENT_NATIVE_WORKSPACE) ||
     typeof env?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON === "string"
   );
 }
@@ -56,7 +65,19 @@ function workspacePathBasePath(): string {
   if (typeof window === "undefined" || !isWorkspaceRuntime()) return "";
   const segment = window.location.pathname.split("/").find(Boolean);
   if (!segment || segment === "_agent-native" || segment === "api") return "";
-  return normalizeBasePath(segment);
+  const basePath = normalizeBasePath(segment);
+  // Guard against treating an app-local route (e.g. a client-rendered
+  // "/settings" page reached via stale client-side navigation) as if it
+  // were a sibling app's workspace mount — that built URLs like
+  // "/settings/_agent-native/builder/connect", which the workspace gateway
+  // 404s (no app is mounted at "/settings") into its app-picker page instead
+  // of the real target route. Only trust the segment when it matches a
+  // known mount from the deployed app manifest; when the manifest can't be
+  // read, fall back to the prior blind-trust behavior (e.g. the same build
+  // reused across sibling app ids without a manifest).
+  const mounts = workspaceAppMountPaths();
+  if (mounts && !mounts.has(basePath)) return "";
+  return basePath;
 }
 
 function externalEmbedTargetBasePath(): string {
@@ -91,7 +112,7 @@ export function appBasePath(): string {
   if (externalEmbed) return externalEmbed;
   const configured = configuredBasePath();
   const derived = pathDerivedBasePath();
-  if (!configured) return derived;
+  if (!configured) return derived || workspacePathBasePath();
   if (typeof window === "undefined") return configured;
 
   const pathname = window.location.pathname;

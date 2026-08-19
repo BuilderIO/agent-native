@@ -7,6 +7,31 @@ description: "使用默认的 Node.js Nitro 预设部署代理本机应用,可�
 
 Node.js 是默认的 Nitro 预设。本页介绍如何直接运行它,以及如何用 Docker 将其容器化。选择数据库的步骤请先参见 [Deployment](/docs/deployment),用 Docker Compose 自托管一个多应用工作区的方法见 [Workspace Deployment](/docs/workspace-deployment#workspace-docker-compose)。
 
+## 快速路径：在本地自行托管 Chat 应用 {#self-host-quickstart}
+
+有两种适合的起点：
+
+- **正在构建应用？** 从 [Getting Started](/docs/getting-started) 开始，准备好将应用放到持久环境中时再回到这里。
+- **正在运行应用？** 先使用本地 Docker 路径。它会验证你在小型服务器上将使用的 Node.js、Postgres、身份验证和环境变量配置。
+
+本地堆栈特意使用示例身份验证密钥和本地 Postgres 卷，仅适用于 `localhost`，不适合直接暴露到互联网。完整的 Compose 文件和可复制步骤请参阅[完整的快速入门](/docs/node-docker#self-host-quickstart)。此快速入门使用 PostgreSQL 18 的卷布局。不要重新使用由 PostgreSQL 17 或更早版本创建的卷。更改镜像或挂载路径前，请先备份并迁移现有数据。
+
+### 1. 创建应用
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. 启动本地堆栈
+
+```bash
+docker compose up --build
+```
+
+打开 [http://localhost:3000](http://localhost:3000)。如果要使用内置代理，请将 `ANTHROPIC_API_KEY` 添加到本地 `.env` 文件中。
+
 ## Node.js(默认) {#nodejs}
 
 默认预设。构建并运行:
@@ -24,6 +49,8 @@ node .output/server/index.mjs
 
 ## Docker {#docker}
 
+This Dockerfile works for the standalone app created above. Run `pnpm install` before building so `pnpm-lock.yaml` exists in the build context. Keep the dependency manifest and lockfile in sync when you update the app.
+
 ```dockerfile filename="Dockerfile"
 FROM node:24-slim AS build
 WORKDIR /app
@@ -38,9 +65,22 @@ COPY --from=build /app/.output .output
 # data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 # For production, set DATABASE_URL to a hosted Postgres or Turso instance.
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
+```
+
+Create `.dockerignore` alongside the Dockerfile:
+
+```text filename=".dockerignore"
+node_modules
+.output
+data
+.env
+.env.*
+!.env.example
+.git
 ```
 
 用 Docker Compose 自托管一个多应用工作区,基于这份同样的

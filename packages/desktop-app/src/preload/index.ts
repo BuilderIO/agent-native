@@ -23,6 +23,10 @@ import {
   type CodeAgentRemoteWaitlistResult,
   type CodeAgentFollowUpRequest,
   type CodeAgentFollowUpResult,
+  type CodeAgentPortalTransferAllRequest,
+  type CodeAgentPortalTransferAllResult,
+  type CodeAgentPortalTransferRequest,
+  type CodeAgentPortalTransferResult,
   type CodeAgentHostMetadata,
   type CodeAgentModelListResult,
   type CodeAgentProjectListResult,
@@ -37,6 +41,8 @@ import {
   type CodeAgentControlResult,
   type CodeAgentMigrationRun,
   type CodeAgentRunListResult,
+  type CodeAgentScheduleListResult,
+  type CodeAgentScheduleResult,
   type CodeAgentTranscriptRequest,
   type CodeAgentTranscriptResult,
   type CodeAgentTerminalRequest,
@@ -54,6 +60,8 @@ import {
   type DesktopAppRuntimeStatus,
   type DesktopIdentityAuthRequest,
   type DesktopIdentityAuthResult,
+  type DesktopIdentityMagicLinkRequest,
+  type DesktopIdentityMagicLinkResult,
   type DesktopIdentityStatus,
   type DesktopIdentitySettings,
   type DesktopCreateAppRequest,
@@ -272,6 +280,10 @@ const electronAPI = {
       request: DesktopIdentityAuthRequest,
     ): Promise<DesktopIdentityAuthResult> =>
       ipcRenderer.invoke(IPC.IDENTITY_AUTHENTICATE, request),
+    requestMagicLink: (
+      request: DesktopIdentityMagicLinkRequest,
+    ): Promise<DesktopIdentityMagicLinkResult> =>
+      ipcRenderer.invoke(IPC.IDENTITY_MAGIC_LINK_REQUEST, request),
     signOut: (): Promise<boolean> => ipcRenderer.invoke(IPC.IDENTITY_SIGN_OUT),
     onStatusChange: (
       cb: (status: DesktopIdentityStatus) => void,
@@ -377,6 +389,16 @@ const electronAPI = {
   codeAgents: {
     listRuns: (goalId?: string): Promise<CodeAgentRunListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_RUNS, goalId),
+    listSchedules: (): Promise<CodeAgentScheduleListResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_SCHEDULES),
+    createSchedule: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_CREATE_SCHEDULE, input),
+    updateSchedule: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_UPDATE_SCHEDULE, input),
+    deleteSchedule: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_DELETE_SCHEDULE, input),
+    runScheduleNow: (input: unknown): Promise<CodeAgentScheduleResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_RUN_SCHEDULE_NOW, input),
     listModels: (): Promise<CodeAgentModelListResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_MODELS),
     createRun: (
@@ -424,6 +446,14 @@ const electronAPI = {
       request: CodeAgentFollowUpRequest,
     ): Promise<CodeAgentFollowUpResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_APPEND_FOLLOW_UP, request),
+    transferRun: (
+      request: CodeAgentPortalTransferRequest,
+    ): Promise<CodeAgentPortalTransferResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PORTAL_TRANSFER_RUN, request),
+    transferAll: (
+      request?: CodeAgentPortalTransferAllRequest,
+    ): Promise<CodeAgentPortalTransferAllResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_PORTAL_TRANSFER_ALL, request),
     updateRun: (
       request: CodeAgentUpdateRunRequest,
     ): Promise<CodeAgentUpdateRunResult> =>

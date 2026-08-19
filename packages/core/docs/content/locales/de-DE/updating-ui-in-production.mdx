@@ -28,6 +28,8 @@ Ihrer App in Produktion ändern kann. Verbinden Sie Ihr Repository mit
 Builder.io (kostenloser Tarif verfügbar) und fordern Sie UI-Änderungen direkt
 an. Keine erneute Bereitstellung nötig.
 
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
 **So funktioniert es:**
 
 1. Verbinden Sie Ihr agentennatives Repository mit Builder.io (kostenloser Tarif verfügbar)

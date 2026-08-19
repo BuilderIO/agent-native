@@ -364,7 +364,6 @@
   flex: 0 0 auto;
   width: auto;
   max-width: 112px;
-  min-width: 96px;
   padding-left: 6px;
 }
 
@@ -609,6 +608,14 @@
   height: 7px;
   background: #3b82f6;
   box-shadow: 0 0 0 2.5px rgba(59, 130, 246, 0.18);
+}
+
+.code-agents-run-status-scheduled {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground) / 0.82);
 }
 
 .code-agents-source-label {
@@ -2153,6 +2160,13 @@
   color: hsl(var(--background));
 }
 
+.code-agents-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
+}
+
 .code-agents-button--ghost {
   border-color: transparent;
   background: transparent;
@@ -2762,6 +2776,50 @@
   margin-top: 0;
   padding-top: 0;
   border-top: 0;
+}
+
+.code-agents-transcript-source {
+  display: inline-flex;
+  max-width: 100%;
+  align-self: flex-end;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid hsl(var(--border) / 0.8);
+  border-radius: 999px;
+  background: hsl(var(--muted) / 0.28);
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.code-agents-transcript-source small,
+.code-agents-transcript-source button {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-agents-transcript-source small {
+  color: hsl(var(--foreground) / 0.72);
+}
+
+.code-agents-transcript-source button {
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: hsl(var(--primary));
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-color: hsl(var(--primary) / 0.45);
+  text-underline-offset: 2px;
+}
+
+.code-agents-transcript-source button:hover {
+  text-decoration-color: currentColor;
 }
 
 .code-agents-transcript__assistant {

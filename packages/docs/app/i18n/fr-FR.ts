@@ -77,6 +77,7 @@ const frFR = {
     suggestionDeploy: "Comment déployer en production ?",
   },
   errors: {
+    loadingLatest: "Chargement de la dernière version...",
     notFoundTitle: "Page introuvable",
     notFoundBody: "La page recherchée n'existe pas ou a été déplacée.",
     goHome: "Accueil",

@@ -81,6 +81,10 @@ export {
   setFrameworkSessionCookie,
   clearFrameworkSessionCookies,
   runAuthGuard,
+  registerDesktopExchange,
+  prepareDesktopOAuthBrowserBinding,
+  matchesDesktopOAuthBrowserBinding,
+  DESKTOP_OAUTH_BROWSER_BINDING_COOKIE,
   setDesktopExchange,
   setDesktopExchangeError,
   safeReturnPath,
@@ -207,7 +211,10 @@ export { createSentryPlugin, defaultSentryPlugin } from "./sentry-plugin.js";
 // (which references "defaultOrgPlugin" from @agent-native/core/server) can
 // resolve it during the deploy build worker-entry generation.
 export { createOrgPlugin, defaultOrgPlugin } from "../org/plugin.js";
-export { createFeatureFlagsPlugin } from "../feature-flags/plugin.js";
+export {
+  createFeatureFlagA2AActionRouteAuth,
+  createFeatureFlagsPlugin,
+} from "../feature-flags/server.js";
 export {
   createContextXrayPlugin,
   defaultContextXrayPlugin,
@@ -542,6 +549,12 @@ export {
   resolveHasCompleteBuilderConnection,
   resolveBuilderCredentials,
   resolveBuilderCredentialsDetailed,
+  // Gateway lane, for the metered surfaces a deployed site can call without an
+  // identity — image and video generation, realtime transcription. Falls
+  // through to the identity credential first, so a consumer moves lane by
+  // swapping the resolver and changing nothing else.
+  resolveBuilderGatewayCredentials,
+  resolveBuilderGatewayCredentialsDetailed,
   resolveBuilderCredentialSource,
   resolveBuilderCredential,
   readDeployCredentialEnv,

@@ -47,6 +47,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   Link,
   useParams,
@@ -187,6 +188,30 @@ function nativeSaveFailureMessage(reason: string | null | undefined): string {
   return "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.";
 }
 
+export function BackToLibraryButton() {
+  const t = useT();
+  const navigate = useNavigate();
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="shrink-0"
+          onClick={() => navigate("/library", { replace: true })}
+          aria-label={t("recordingPage.backToLibrary")}
+        >
+          <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="start">
+        {t("recordingPage.backToLibrary")}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function parseTimeParam(raw: string | null): number {
   if (!raw) return 0;
   const value = raw.trim();
@@ -230,6 +255,8 @@ export default function RecordingPage() {
   const [currentMs, setCurrentMs] = useState(0);
   const [commentOpen, setCommentOpen] = useState(false);
   const [commentAtMs, setCommentAtMs] = useState(0);
+  const [commentDraft, setCommentDraft] = useState("");
+  const [isPlayerFullscreen, setIsPlayerFullscreen] = useState(false);
   const isCompactLayout = useIsCompactRecordingLayout();
   // Resolve the playback position for reactions/comments. Native <video> exposes
   // a live `currentTime`; Loom embeds render in a cross-origin iframe with no
@@ -396,11 +423,10 @@ export default function RecordingPage() {
   const transcriptCleanup = playerDataQ.data?.transcript?.cleanup ?? null;
   const ctas = playerDataQ.data?.ctas ?? [];
   const canEdit = role === "owner" || role === "admin" || role === "editor";
-  const canComment =
-    role === "owner" ||
-    role === "admin" ||
-    role === "editor" ||
-    role === "commenter";
+  // Reaching this page already requires a signed-in session with at least
+  // viewer access to the recording, so any resolved role qualifies to
+  // comment/react — no separate "commenter" tier.
+  const canComment = role != null;
   useEffect(() => {
     if (!canEdit && (panel === "insights" || panel === "settings")) {
       setPanel("comments");
@@ -965,17 +991,7 @@ export default function RecordingPage() {
       return (
         <div className="flex min-h-screen w-full flex-col bg-background">
           <header className="flex min-w-0 shrink-0 items-center gap-3 border-b border-border px-3 py-2 sm:px-4 sm:py-3">
-            <Button
-              asChild
-              variant="ghost"
-              size="icon"
-              className="shrink-0"
-              aria-label={t("recordingPage.backToLibrary")}
-            >
-              <Link to="/library" replace>
-                <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
-              </Link>
-            </Button>
+            <BackToLibraryButton />
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-medium">{visibleTitle}</p>
               <p className="truncate text-xs text-muted-foreground">
@@ -1294,20 +1310,7 @@ export default function RecordingPage() {
       {/* Main video column */}
       <div className="flex w-full min-w-0 flex-col xl:flex-1">
         <header className="flex min-w-0 shrink-0 items-center gap-2 border-b border-border px-3 py-2 sm:gap-3 sm:px-4 sm:py-3">
-          <Button
-            asChild
-            variant="ghost"
-            size="icon"
-            className="shrink-0 sm:w-auto sm:px-2"
-            aria-label={t("recordingPage.backToLibrary")}
-          >
-            <Link to="/library" replace>
-              <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
-              <span className="hidden sm:inline">
-                {t("recordingPage.backToLibrary")}
-              </span>
-            </Link>
-          </Button>
+          <BackToLibraryButton />
           <div className="flex-1 min-w-0">
             <EditableRecordingTitle
               recordingId={recording.id}
@@ -1607,19 +1610,76 @@ export default function RecordingPage() {
                   onCtaClick={() => tracking.reportCtaClick()}
                   onTimeUpdate={(ms) => setCurrentMs(ms)}
                   onCommentClick={openCommentsPanel}
+                  onFullscreenChange={setIsPlayerFullscreen}
+                  enableComments={recording.enableComments}
+                  onAddComment={() => {
+                    // The side panel `openCommentsPanel` opens is a sibling
+                    // outside the element the Fullscreen API paints, so it's
+                    // invisible while fullscreen -- portal the composer
+                    // there instead, same as the non-compact layout.
+                    if (isCompactLayout && !isPlayerFullscreen) {
+                      openCommentsPanel();
+                      return;
+                    }
+                    setCommentAtMs(resolvePlaybackMs());
+                    setCommentOpen(true);
+                  }}
+                  enableReactions={recording.enableReactions}
+                  onReact={(emoji) => {
+                    tracking.reportReaction(emoji);
+                    const liveMs = resolvePlaybackMs();
+                    return fetch(
+                      agentNativePath(
+                        "/_agent-native/actions/react-to-recording",
+                      ),
+                      {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                          recordingId: recording.id,
+                          emoji,
+                          videoTimestampMs: liveMs,
+                        }),
+                      },
+                    )
+                      .then((res) => {
+                        if (!res.ok)
+                          throw new Error(`react failed: ${res.status}`);
+                        return playerDataQ.refetch();
+                      })
+                      .then(() => true)
+                      .catch((err) => {
+                        console.warn("[clips] react failed", err);
+                        return false;
+                      });
+                  }}
                   className="h-full w-full rounded-none sm:rounded-xl"
                 />
-                {commentOpen && canComment ? (
-                  <TimestampedCommentBar
-                    recordingId={recording.id}
-                    atMs={commentAtMs}
-                    onClose={() => setCommentOpen(false)}
-                    onAdded={() => {
-                      setPanel("comments");
-                      void playerDataQ.refetch();
-                    }}
-                  />
-                ) : null}
+                {commentOpen && canComment
+                  ? (() => {
+                      const composer = (
+                        <TimestampedCommentBar
+                          recordingId={recording.id}
+                          atMs={commentAtMs}
+                          draft={commentDraft}
+                          onDraftChange={setCommentDraft}
+                          onClose={() => setCommentOpen(false)}
+                          onAdded={() => {
+                            setPanel("comments");
+                            void playerDataQ.refetch();
+                          }}
+                        />
+                      );
+                      // The Fullscreen API only paints the player's own
+                      // element, so portal the composer there instead of
+                      // exiting fullscreen when it's open.
+                      const fullscreenContainer =
+                        isPlayerFullscreen && playerRef.current?.container;
+                      return fullscreenContainer
+                        ? createPortal(composer, fullscreenContainer)
+                        : composer;
+                    })()
+                  : null}
               </div>
 
               {/* Title + reactions row */}
@@ -1678,11 +1738,12 @@ export default function RecordingPage() {
                     ) : null}
                     {recording.enableReactions ? (
                       <ReactionsTray
+                        reactions={reactions}
                         disabled={!recording.enableReactions || !canComment}
                         onReact={(emoji) => {
                           tracking.reportReaction(emoji);
                           const liveMs = resolvePlaybackMs();
-                          fetch(
+                          return fetch(
                             agentNativePath(
                               "/_agent-native/actions/react-to-recording",
                             ),
@@ -1696,8 +1757,16 @@ export default function RecordingPage() {
                               }),
                             },
                           )
-                            .then(() => playerDataQ.refetch())
-                            .catch(() => {});
+                            .then((res) => {
+                              if (!res.ok)
+                                throw new Error(`react failed: ${res.status}`);
+                              return playerDataQ.refetch();
+                            })
+                            .then(() => true)
+                            .catch((err) => {
+                              console.warn("[clips] react failed", err);
+                              return false;
+                            });
                         }}
                       />
                     ) : null}

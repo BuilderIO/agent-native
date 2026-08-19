@@ -1,15 +1,15 @@
 ---
 title: "Key Concepts"
-description: "How agent-native apps work across three layers: the Core framework, optional Toolkit building blocks, and optional Templates, plus the shared actions, SQL database, app-agent loop, and portability rules."
+description: "How Agent-Native apps work across three layers: the Core framework, optional Toolkit building blocks, and optional Templates, plus the shared actions, SQL database, app-agent loop, and portability rules."
 ---
 
 # Key Concepts
 
-How agent-native apps work under the hood: the principles and the architecture. This page is the contract: the fixed rules an app has to follow to count as agent-native. For the vision and the case for building this way, see [What Is Agent-Native?](/docs/what-is-agent-native).
+How Agent-Native apps work under the hood: the principles and the architecture. This page is the contract: the fixed rules an app has to follow to count as Agent-Native. For the vision and the case for building this way, see [What is Agent-Native?](/docs/what-is-agent-native).
 
 ## The three layers {#three-layers}
 
-Agent Native is a framework with three layers:
+Agent-Native is a framework with three layers:
 
 | Layer                                      | What it is                                                                                                                                                                                            |
 | ------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -21,7 +21,7 @@ Core is the foundation. Toolkit and Templates are optional: a template can use T
 
 ## The architecture {#the-architecture}
 
-At runtime, every agent-native app is three things working together:
+At runtime, every Agent-Native app is three things working together:
 
 - **Agent:** The autonomous AI. It reads data, writes data, runs actions, and uses whatever tools are configured. When its frame is intentionally granted workspace access and write tooling, it can also modify the app's own source. Customizable with skills and instructions.
 - **Application:** The product surface around the agent. It may start as chat, add native inline results, grow into a small control plane, or become a full React UI with dashboards, flows, and visualizations.
@@ -94,7 +94,7 @@ That same agent-application-computer loop is what runs locally and in production
 
 ## Agent building blocks {#agent-building-blocks}
 
-Every agent-native app has the same agent building blocks, regardless of whether
+Every Agent-Native app has the same agent building blocks, regardless of whether
 the product surface is chat-first, automation-first, or a full UI. Each one lives
 in its own file:
 
@@ -141,7 +141,7 @@ Five rules govern the architecture:
 
 ## The four-area checklist {#four-area-checklist}
 
-Every user-facing feature should update all applicable areas. Skipping an applicable area breaks the agent-native contract; forcing a screen onto an automation that no human needs to browse is also a smell.
+Every user-facing feature should update all applicable areas. Skipping an applicable area breaks the Agent-Native contract; forcing a screen onto an automation that no human needs to browse is also a smell.
 
 - **1. UI:** Page, component, or dialog the user interacts with.
 - **2. Action:** Agent-callable action in `actions/` for the same operation.
@@ -150,13 +150,13 @@ Every user-facing feature should update all applicable areas. Skipping an applic
 
 A feature with only UI is invisible to the agent. A full UI feature with only actions is invisible to the user. A feature without app-state means the agent is blind to what the user is doing. An automation-first operation can legitimately start with action + instructions and add chat, UI, or app-state later when humans need to browse, approve, configure, or share it.
 
-## What Agent Native includes {#what-you-get-for-free}
+## What Agent-Native includes {#what-you-get-for-free}
 
 Adopting the framework is valuable mostly because of what you stop having to build. The moment your app follows the five rules above, you inherit:
 
 | Feature                              | What it gives you                                                                                                                                                                                                                                                                                                                                                                    |
 | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| One action = every surface           | Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend hook (`useActionQuery` / `useActionMutation`), a framework-owned HTTP transport, a CLI command, an MCP tool for external clients, and an A2A tool for other agent-native apps. Optional `link` and `mcpApp` metadata add deep links and MCP Apps UI without a second implementation. |
+| One action = every surface           | Every action defined with `defineAction()` is simultaneously an agent tool, a typesafe frontend hook (`useActionQuery` / `useActionMutation`), a framework-owned HTTP transport, a CLI command, an MCP tool for external clients, and an A2A tool for other Agent-Native apps. Optional `link` and `mcpApp` metadata add deep links and MCP Apps UI without a second implementation. |
 | Full agent resources per user        | Skills, shared `LEARNINGS.md`, personal `memory/MEMORY.md`, `AGENTS.md`, custom sub-agents, scheduled jobs, and connected MCP servers. All SQL-backed, no dev-box required. See [Agent Resources](/docs/agent-resources).                                                                                                                                                            |
 | Drop-in React components             | `<AgentPanel />` and `<AgentSidebar />` render chat + resources anywhere in your app. See [Drop-in Agent](/docs/drop-in-agent).                                                                                                                                                                                                                                                      |
 | BYO agent chat runtimes              | The same chat UI can sit on top of OpenAI Agents, OpenAI Responses, Claude Agent SDK, Vercel AI SDK, AG-UI, or your own normalized HTTP stream. See [Native Chat UI](/docs/native-chat-ui#byo-agent-runtimes).                                                                                                                                                                       |
@@ -441,7 +441,7 @@ This works in all deployment environments, including serverless and edge, becaus
 
 A _frame_ is the environment that hosts the agent next to your app. Locally that's the embedded panel; in the cloud it's Builder.io's managed surface. See [Frames](/docs/frames).
 
-Agent-native apps include an embedded agent panel that provides the AI agent alongside the app UI. This is what makes the architecture work: the agent needs a computer (database, browser, code execution), and the app needs the agent for AI work.
+Agent-Native apps include an embedded agent panel that provides the AI agent alongside the app UI. This is what makes the architecture work: the agent needs a computer (database, browser, code execution), and the app needs the agent for AI work.
 
 - **Embedded Agent Panel:** Chat and optional CLI terminal built into every app. Supports Claude Code, Codex, Gemini, OpenCode, and Builder.io. Runs locally, free and open source.
 - **Cloud:** Deploy to any cloud with real-time collaboration, visual editing, roles, and permissions. Best for teams.
@@ -503,7 +503,7 @@ These sit on top of the same contract and have their own deep dives:
 
 <Cards>
 
-### [What Is Agent-Native?](/docs/what-is-agent-native)
+### [What is Agent-Native?](/docs/what-is-agent-native)
 
 The vision and philosophy behind these rules.
 

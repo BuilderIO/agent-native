@@ -7,6 +7,31 @@ description: "انشر تطبيق agent-native باستخدام إعداد Node.
 
 Node.js هو الإعداد المسبق الافتراضي لـ Nitro. تغطي هذه الصفحة تشغيله مباشرةً وتحويله إلى حاوية باستخدام Docker. راجع [النشر](/docs/deployment) لاختيار قاعدة بيانات أولاً، و[نشر مساحة العمل](/docs/workspace-deployment#workspace-docker-compose) للاستضافة الذاتية لمساحة عمل متعددة التطبيقات باستخدام Docker Compose.
 
+## المسار السريع: استضافة تطبيق Chat محليًا {#self-host-quickstart}
+
+هناك مساران مناسبان للبدء:
+
+- **هل تبني تطبيقًا؟** ابدأ بـ [Getting Started](/docs/getting-started)، ثم عد إلى هنا عندما تصبح مستعدًا لوضع التطبيق في مكان دائم.
+- **هل تدير تطبيقًا؟** استخدم مسار Docker المحلي أولًا. فهو يختبر شكل Node.js وPostgres والمصادقة ومتغيرات البيئة الذي ستستخدمه على خادم صغير.
+
+يستخدم هذا المسار سر مصادقة تجريبيًا وحجم Postgres محليًا، ولذلك فهو مخصص لـ `localhost` وليس للنشر على الإنترنت. للحصول على ملف Compose الكامل والخطوات القابلة للنسخ، راجع [المسار السريع الكامل](/docs/node-docker#self-host-quickstart). يستخدم هذا المسار السريع تخطيط وحدة تخزين PostgreSQL 18. لا تعِد استخدام وحدة تخزين أنشأها PostgreSQL 17 أو إصدار أقدم. انسخ البيانات احتياطيًا وانقلها قبل تغيير صورة Postgres أو مسار التحميل.
+
+### 1. إنشاء التطبيق
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. تشغيل المكدس المحلي
+
+```bash
+docker compose up --build
+```
+
+افتح [http://localhost:3000](http://localhost:3000). أضف `ANTHROPIC_API_KEY` إلى ملف `.env` المحلي إذا أردت استخدام الوكيل المضمّن.
+
 ## Node.js (الافتراضي) {#nodejs}
 
 الإعداد المسبق الافتراضي. قم بالبناء والتشغيل:
@@ -22,6 +47,8 @@ node .output/server/index.mjs
 
 ## Docker {#docker}
 
+This Dockerfile works for the standalone app created above. Run `pnpm install` before building so `pnpm-lock.yaml` exists in the build context. Keep the dependency manifest and lockfile in sync when you update the app.
+
 ```dockerfile filename="Dockerfile"
 FROM node:24-slim AS build
 WORKDIR /app
@@ -36,9 +63,22 @@ COPY --from=build /app/.output .output
 # data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 # For production, set DATABASE_URL to a hosted Postgres or Turso instance.
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
+```
+
+Create `.dockerignore` alongside the Dockerfile:
+
+```text filename=".dockerignore"
+node_modules
+.output
+data
+.env
+.env.*
+!.env.example
+.git
 ```
 
 استضافة مساحة عمل متعددة التطبيقات ذاتيًا باستخدام Docker Compose، مبنية على نفس Dockerfile المستقل هذا، مغطاة في

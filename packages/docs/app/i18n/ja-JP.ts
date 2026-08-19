@@ -77,6 +77,7 @@ const jaJP = {
     suggestionDeploy: "本番環境へデプロイするには？",
   },
   errors: {
+    loadingLatest: "最新バージョンを読み込み中...",
     notFoundTitle: "ページが見つかりません",
     notFoundBody: "探しているページは存在しないか移動されました。",
     goHome: "ホームへ",

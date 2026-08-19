@@ -16,6 +16,8 @@ MCP 和已配置的集成)工作的,而不是获得对应用源代码的环境�
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) 是一个独立的、具备代码能力的托管工作流,代理可以在其中于生产环境修改你应用的 UI。把你的代码仓库连接到 Builder.io(提供免费套餐),然后直接提示进行 UI 更改。无需重新部署。
 
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
 **它是如何工作的:**
 
 1. 把你的代理本机代码仓库连接到 Builder.io(提供免费套餐)

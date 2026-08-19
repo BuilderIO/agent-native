@@ -890,6 +890,8 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [preserveSourceNavigationOnClose, setPreserveSourceNavigationOnClose] =
+    useState(false);
   const sourceHandoffActiveRef = useRef(false);
   const addPropertyOpenRequestSequenceRef = useRef(0);
   const [addPropertyOpenRequestId, setAddPropertyOpenRequestId] = useState(0);
@@ -940,12 +942,35 @@ function DatabaseTable({
   };
   async function runSourceHandoffMutation<T>(
     mutation: () => Promise<T>,
+    options: { revealOptimisticPreview?: boolean } = {},
   ): Promise<T | null> {
+    const returnToAddProperty = sourceHandoffActiveRef.current;
+    if (options.revealOptimisticPreview) {
+      sourceHandoffActiveRef.current = false;
+      setPreserveSourceNavigationOnClose(true);
+      setSettingsOpen(false);
+    }
     try {
       const result = await mutation();
-      completeSourceHandoff();
+      if (options.revealOptimisticPreview) {
+        setPreserveSourceNavigationOnClose(false);
+        if (returnToAddProperty) {
+          addPropertyOpenRequestSequenceRef.current += 1;
+          setAddPropertyOpenRequestId(
+            addPropertyOpenRequestSequenceRef.current,
+          );
+        }
+      } else {
+        completeSourceHandoff();
+      }
       return result;
     } catch (error) {
+      if (options.revealOptimisticPreview) {
+        sourceHandoffActiveRef.current = returnToAddProperty;
+        setSettingsPanel("source");
+        setSettingsOpen(true);
+        setPreserveSourceNavigationOnClose(false);
+      }
       toast.error(dbText("failedToAttachSource"), {
         description:
           error instanceof Error ? error.message : dbText("somethingWentWrong"),
@@ -3067,21 +3092,28 @@ function DatabaseTable({
         onClose={closeDatabaseSettings}
         onPanelChange={changeDatabaseSettingsPanel}
         onAttachBuilderSource={(model, relationshipMode) =>
-          runSourceHandoffMutation(() =>
-            attachSource.mutateAsync({
-              documentId: document.id,
-              sourceType: "builder-cms",
-              sourceName: model.displayName,
-              sourceTable: model.name,
-              builderFieldPaths: model.fields.map((field) => field.name),
-              relationshipMode,
-              mode:
-                relationshipMode === "items"
-                  ? "add"
-                  : sources.length > 0 || source
-                    ? undefined
-                    : "replace",
-            }),
+          runSourceHandoffMutation(
+            async () => {
+              const result = await attachSource.mutateAsync({
+                documentId: document.id,
+                sourceType: "builder-cms",
+                sourceName: model.displayName,
+                sourceTable: model.name,
+                builderFieldPaths: model.fields.map((field) => field.name),
+                relationshipMode,
+                mode:
+                  relationshipMode === "items"
+                    ? "add"
+                    : sources.length > 0 || source
+                      ? undefined
+                      : "replace",
+              });
+              if ("responseProjection" in result) {
+                runBuilderHydration(result.sourceId);
+              }
+              return result;
+            },
+            { revealOptimisticPreview: true },
           )
         }
         onFederateSource={(candidate, join) =>
@@ -3194,6 +3226,7 @@ function DatabaseTable({
           setSourceWriteMode.isPending
         }
         sourcePendingOperations={sourcePendingOperations}
+        preserveSourceNavigationOnClose={preserveSourceNavigationOnClose}
         onViewTypeChange={(type) =>
           setViewConfig(updateDatabaseViewType(viewConfig, activeView.id, type))
         }
@@ -7634,6 +7667,7 @@ function DatabaseSettingsPanelSheet({
   onSetBuilderLiveWrites,
   sourceActionPending,
   sourcePendingOperations,
+  preserveSourceNavigationOnClose,
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
@@ -7681,6 +7715,7 @@ function DatabaseSettingsPanelSheet({
   onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
   sourcePendingOperations: DatabaseSourcePendingOperations;
+  preserveSourceNavigationOnClose: boolean;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
@@ -7730,10 +7765,12 @@ function DatabaseSettingsPanelSheet({
     );
   }, [builderAttachPreview.data, documentId, queryClient, sourceActionPending]);
   useEffect(() => {
-    // Always re-enter the Sources panel at its root, and don't retain a path
-    // across close/reopen.
-    if (!open || panel !== "source") setSourceNavStack([]);
-  }, [open, panel]);
+    // Ordinary close/reopen returns to the root. The optimistic attach handoff
+    // keeps the leaf only long enough to restore a failed mutation in place.
+    if (panel !== "source" || (!open && !preserveSourceNavigationOnClose)) {
+      setSourceNavStack([]);
+    }
+  }, [open, panel, preserveSourceNavigationOnClose]);
 
   if (!open) return null;
 

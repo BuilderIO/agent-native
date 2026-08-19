@@ -392,6 +392,9 @@ const messages = {
     aiNotes: "Notas de IA",
     summary: "Resumo",
     actionItems: "Itens de ação",
+    addActionItem: "Adicionar item de ação",
+    removeActionItem: "Remover item de ação",
+    actionItemPlaceholder: "O que precisa ser feito?",
     working: "Trabalhando…",
     noActionItems:
       "Ainda não há itens de ação. Eles aparecem aqui depois que as notas são geradas a partir de uma transcrição.",
@@ -998,7 +1001,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
   commentsPanel: {
     disabled: "Os comentários estão desativados para esta gravação.",
     beFirst: "Seja a primeira pessoa a comentar",
-    leaveNotePanel: "Deixe uma nota no topo deste painel.",
+    leaveNotePanel: "Deixe uma nota na parte inferior deste painel.",
     leaveNoteTimestamp: "Deixe uma nota no timestamp atual.",
     leaveComment: "Deixe um comentário...",
     signInToComment: "Entre para deixar um comentário.",
@@ -1145,6 +1148,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
       "A transcrição ao vivo aparecerá aqui quando as notas começarem.",
     me: "Eu",
     them: "Eles",
+    unknownSpeaker: "Pessoa",
     searchTranscript: "Pesquisar na transcrição",
     searchPlaceholder: "Pesquisar na transcrição…",
     searchMatchCount: "{{current}} de {{total}}",
@@ -1357,10 +1361,11 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     cameraOff: "Camera off",
     includeCameraAria: "Include camera in this recording",
     startRecording: "Start recording",
-    micOffConfirmTitle: "Record without a microphone?",
+    micOffConfirmTitle: "Seu microfone está silenciado",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.",
-    startWithoutMic: "Start anyway",
+      "Para que seu vídeo tenha som, ative o microfone.",
+    startWithoutMic: "Continuar",
+    unmuteMicrophone: "Ativar microfone",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",
     importing: "Importing...",
@@ -1439,6 +1444,10 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips terminará de salvar.",
     connectStorageToRetryLoom:
       "Conecte armazenamento na próxima tela: Builder.io (armazenamento + IA no plano gratuito) ou armazenamento compatível com S3. Clips tentará importar novamente.",
+    leaveConfirmTitle: "Sair e descartar esta gravação?",
+    leaveConfirmDescription:
+      "Sua gravação em andamento ainda não terminou de ser salva. Se você sair desta página agora, ela será descartada.",
+    leaveAndDiscard: "Sair e descartar",
   },
   importRoute: {
     pageTitle: "Importar Loom — Clips",
@@ -1607,7 +1616,6 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     transcriptPending: "Transcript pending",
     notesPending: "Notes pending",
     pastRecordings: "Past recordings",
-    loadOlder: "Carregar mais antigos",
     calendarNeedsReconnect:
       "Google Calendar needs to be reconnected to keep showing your upcoming meetings.",
     connectGoogleCalendar: "Connect Google Calendar",
@@ -1634,7 +1642,14 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     title: "Meetings",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time.",
-    searchPlaceholder: "Search meetings...",
+    searchPlaceholder: "Pesquisar reuniões, participantes e transcrições...",
+    agendaTab: "Agenda",
+    pastTab: "Anteriores",
+    now: "Agora",
+    noPastMeetings: "Ainda não há reuniões anteriores",
+    loadOlder: "Carregar anteriores",
+    searchFailed:
+      "Não foi possível pesquisar as reuniões. Tente novamente em instantes.",
     clearSearch: "Clear search",
     noMeetingsYet: "No meetings yet",
     noMeetingsDescription:

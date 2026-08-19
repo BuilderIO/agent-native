@@ -25,6 +25,8 @@ import {
 
 const AWARENESS_TIMEOUT = 30_000; // 30 seconds
 const CLEAR_TOMBSTONE_TTL = AWARENESS_TIMEOUT + 5_000;
+const AWARENESS_SCOPE_TIMEOUT = AWARENESS_TIMEOUT + 5_000;
+const MAX_AWARENESS_SCOPES = 10_000;
 
 export interface AwarenessEntry {
   clientId: number;
@@ -65,7 +67,26 @@ export interface AwarenessScope {
 const _awarenessEmitter = new EventEmitter();
 _awarenessEmitter.setMaxListeners(0);
 
-const _awarenessScopes = new Map<string, AwarenessScope>();
+interface AwarenessScopeEntry {
+  scope: AwarenessScope;
+  lastSeen: number;
+}
+
+const _awarenessScopes = new Map<string, AwarenessScopeEntry>();
+
+function pruneAwarenessScopes(now: number): void {
+  for (const [docId, entry] of _awarenessScopes) {
+    if (now - entry.lastSeen > AWARENESS_SCOPE_TIMEOUT) {
+      _awarenessScopes.delete(docId);
+    }
+  }
+
+  while (_awarenessScopes.size > MAX_AWARENESS_SCOPES) {
+    const oldest = _awarenessScopes.keys().next().value as string | undefined;
+    if (!oldest) break;
+    _awarenessScopes.delete(oldest);
+  }
+}
 
 export function getAwarenessEmitter(): EventEmitter {
   return _awarenessEmitter;
@@ -75,12 +96,30 @@ export function rememberAwarenessScope(
   docId: string,
   scope: AwarenessScope | undefined,
 ): void {
-  if (!scope) return;
-  const next = { ...(_awarenessScopes.get(docId) ?? {}), ...scope };
+  const now = Date.now();
+  pruneAwarenessScopes(now);
+  const existing = _awarenessScopes.get(docId);
+  if (!scope) {
+    // Agent-presence heartbeats emit scope-less awareness changes. They still
+    // prove the document is active and must keep the access scope alive.
+    if (existing) {
+      _awarenessScopes.delete(docId);
+      _awarenessScopes.set(docId, { ...existing, lastSeen: now });
+    }
+    return;
+  }
+  const next = {
+    ...(existing?.scope ?? {}),
+    ...scope,
+  };
   if (!next.owner && !next.orgId && !next.resourceType && !next.resourceId) {
     return;
   }
-  _awarenessScopes.set(docId, next);
+  _awarenessScopes.delete(docId);
+  _awarenessScopes.set(docId, { scope: next, lastSeen: now });
+  // Enforce the cap after insertion too. Pruning only before insertion lets
+  // the map temporarily exceed its advertised bound on every new document.
+  pruneAwarenessScopes(now);
 }
 
 export function emitAwarenessChange(
@@ -89,7 +128,8 @@ export function emitAwarenessChange(
   scope?: AwarenessScope,
 ): void {
   rememberAwarenessScope(docId, scope);
-  const resolvedScope = _awarenessScopes.get(docId) ?? {};
+  pruneAwarenessScopes(Date.now());
+  const resolvedScope = _awarenessScopes.get(docId)?.scope ?? {};
   const event: AwarenessChangeEvent = {
     source: "awareness",
     type: "awareness-change",

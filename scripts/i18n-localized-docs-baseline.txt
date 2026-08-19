@@ -163,16 +163,9 @@ packages/core/docs/content/locales/hi-IN/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/hi-IN/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/hi-IN/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/hi-IN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
-packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Agent Resources
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Agent Surfaces
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Getting Started
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Key Concepts
-packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|One action, defined once
-packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|One implementation
-packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Team-wide rules
-packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Tool surface
-packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Typed contract
-packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|`/slash` commands
 packages/core/docs/content/locales/ja-JP/actions-access-control.mdx|Needs approval
 packages/core/docs/content/locales/ja-JP/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/ja-JP/agent-surfaces.mdx|Generative UI
@@ -329,6 +322,3 @@ packages/core/docs/content/locales/zh-TW/template-slides.mdx|"10-slide pitch dec
 packages/core/docs/content/locales/zh-TW/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/zh-TW/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/zh-TW/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
-packages/core/docs/content/locales/zh-TW/what-is-agent-native.mdx|Agent Resources
-packages/core/docs/content/locales/zh-TW/what-is-agent-native.mdx|One zod `schema` validates input from **every** surface — agent, UI, HTTP, MCP, and A2A.
-packages/core/docs/content/locales/zh-TW/what-is-agent-native.mdx|The `description` is what the agent reads to decide when to call this as a tool.

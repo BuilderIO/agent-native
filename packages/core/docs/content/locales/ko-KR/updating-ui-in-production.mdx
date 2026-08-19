@@ -17,6 +17,8 @@ description: "배포된 앱의 UI가 출시 후 어떻게 업데이트되는지,
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment)는 에이전트가 프로덕션에서 앱의 UI를 수정할 수 있는, 코드 작업이 가능한 별도의 관리형 워크플로입니다. 저장소를 Builder.io에 연결하고(무료 등급 제공) UI 변경을 직접 프롬프트로 요청하세요. 재배포가 필요하지 않습니다.
 
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
 **작동 방식:**
 
 1. agent-native 저장소를 Builder.io에 연결하세요(무료 등급 제공)

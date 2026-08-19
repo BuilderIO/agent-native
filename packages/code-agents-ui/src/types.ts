@@ -42,6 +42,41 @@ export type CodeAgentFollowUpMode = "immediate" | "queued";
 
 export type CodeAgentExecutionTarget = "local" | "worktree" | "portal";
 
+export type CodeAgentScheduleScope = "global" | "thread";
+export type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
+
+export interface CodeAgentSchedule {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  prompt: string;
+  scope: CodeAgentScheduleScope;
+  targetRunId?: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  nextRunAt: string;
+  lastRunAt?: string;
+  lastStatus?: CodeAgentScheduleStatus;
+  lastError?: string;
+  lastTriggeredRunId?: string;
+  createdByRunId?: string;
+}
+
+export interface CodeAgentScheduleListResult {
+  status: "ok" | "unavailable";
+  schedules: CodeAgentSchedule[];
+  error?: string;
+}
+
+export interface CodeAgentScheduleResult {
+  ok: boolean;
+  schedule?: CodeAgentSchedule;
+  message: string;
+  error?: string;
+}
+
 export interface CodeAgentRemoteWaitlistRequest {
   email: string;
   pageUrl?: string;
@@ -258,6 +293,44 @@ export interface CodeAgentFollowUpResult {
   ok: boolean;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferRequest {
+  runId: string;
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferItem {
+  runId: string;
+  title?: string;
+  ok: boolean;
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferResult {
+  ok: boolean;
+  runId: string;
+  run?: CodeAgentRun;
+  host?: { id: string; label: string };
+  eventCount?: number;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentPortalTransferAllRequest {
+  portalHostId?: string;
+}
+
+export interface CodeAgentPortalTransferAllResult {
+  ok: boolean;
+  host?: { id: string; label: string };
+  transferred: CodeAgentPortalTransferItem[];
+  skipped: CodeAgentPortalTransferItem[];
+  failed: CodeAgentPortalTransferItem[];
   message: string;
   error?: string;
 }

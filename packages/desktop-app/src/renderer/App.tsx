@@ -10,7 +10,7 @@ import {
   MIGRATION_APP_ID,
   getCodeAgentGoal,
 } from "@shared/code-agents";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 
 import type {
@@ -18,6 +18,7 @@ import type {
   DesktopWorkspaceAppListResult,
 } from "../../shared/ipc-channels.js";
 import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
+import { rememberDesktopIdentityStatus } from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
 import WindowControls, {
@@ -43,6 +44,9 @@ export default function App() {
   const [settingsTab, setSettingsTab] = useState("general");
   const [showAddApp, setShowAddApp] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const runtimeStatusByAppRef = useRef(
+    new Map<string, DesktopAppRuntimeStatus["state"]>(),
+  );
   const [activeChatFirstAppId, setActiveChatFirstAppId] = useState("");
   const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
     goalId?: string;
@@ -99,7 +103,10 @@ export default function App() {
     void refreshWorkspaceAppList();
     const onStatusChange = window.electronAPI?.identity?.onStatusChange;
     if (!onStatusChange) return;
-    return onStatusChange(() => {
+    return onStatusChange((status) => {
+      // App is the shell-level subscriber, so sign-out invalidates the
+      // renderer cache even while every individual app webview is inactive.
+      rememberDesktopIdentityStatus(status);
       void refreshWorkspaceAppList();
     });
   }, [refreshWorkspaceAppList]);
@@ -314,8 +321,11 @@ export default function App() {
     if (!appConfigApi?.onRuntimeStatus) return;
     return appConfigApi.onRuntimeStatus((status) => {
       const isPreview = status.appId === chatFirstPreviewRequest?.appId;
+      const previousState = runtimeStatusByAppRef.current.get(status.appId);
+      runtimeStatusByAppRef.current.set(status.appId, status.state);
       if (
         status.state === "running" &&
+        previousState !== "running" &&
         (status.appId === activeChatFirstAppId || isPreview)
       ) {
         setRefreshKey((key) => key + 1);

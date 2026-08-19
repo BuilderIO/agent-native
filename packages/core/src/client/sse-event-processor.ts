@@ -6,6 +6,7 @@ import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
+import { BUILDER_GATEWAY_INTERNAL_ERROR_CODE } from "../agent/engine/error-detail.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { emitChatFirstOpenApp } from "./chat-first.js";
 import { formatChatErrorText, normalizeChatError } from "./error-format.js";
@@ -53,8 +54,12 @@ export type ContentPart =
        * call (opt-in `needsApproval` actions). The action did NOT run; the UI
        * renders an Approve/Deny affordance. `approvalKey` is echoed back in
        * `approvedToolCalls` to approve, `dismissed` records a local Deny.
+       * `askId` identifies THIS gate hit; it changes when a failed resume
+       * re-emits `approval_required` for the same call, which is how the UI
+       * tells that apart from the same ask simply re-rendering (see
+       * `ApprovalAffordance` in chat/tool-call-display.tsx).
        */
-      approval?: { approvalKey: string; dismissed?: boolean };
+      approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
       /**
        * Structured metadata from the coding-tools executor side-channel.
        * Present only on code-agent tool calls from executors new enough to
@@ -82,6 +87,8 @@ export interface SSEEvent {
   approvalKey?: string;
   /** Model-side tool-call id for `approval_required` (mirrors AgentChatEvent). */
   toolCallId?: string;
+  /** Identifies this `approval_required` gate hit (mirrors AgentChatEvent). */
+  askId?: string;
   error?: string;
   seq?: number;
   agent?: string;
@@ -106,6 +113,8 @@ export interface SSEEvent {
   upgradeUrl?: string;
   details?: string;
   recoverable?: boolean;
+  /** The engine said another attempt may succeed — see `AgentChatEvent`. */
+  providerRetryable?: boolean;
   maxIterations?: number;
 }
 
@@ -773,6 +782,17 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
   const code = String(ev.errorCode ?? "").toLowerCase();
   const msg = errMsg.toLowerCase();
 
+  // An explicit `recoverable: false` outranks EVERY inference below — the code
+  // list as well as the message sniff — matching the server's own precedence in
+  // `isRecoverableContinuationError`. The repeat guards stop a turn with a
+  // message that names the looping tool, so a stop on
+  // `list-workspace-connections` matched the "connection" sniff and
+  // auto-continued the very loop it was emitted to break; the background
+  // no-progress breaker stops one while PRESERVING the underlying transient
+  // code (so the failure stays diagnosable), so reading the code instead of the
+  // flag re-POSTs the exact chain the server just refused to continue.
+  if (ev.recoverable === false) return false;
+
   if (
     code === "context_length_exceeded" ||
     code === "input_too_long" ||
@@ -834,25 +854,33 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "http_408" ||
     code === "http_429" ||
     code === "http_500" ||
+    // The gateway's unhandled-500 envelope delivered in-stream instead of as a
+    // status. Recoverable for the same reason `http_500` is.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||
     code === "rate_limited" ||
     code === "too_many_concurrent_requests" ||
-    code === "overloaded_error"
+    code === "overloaded_error" ||
+    // A gateway stream that ended without a stop event. The partial turn is
+    // real, so this continues rather than retrying: the code carries what the
+    // message used to (`msg.includes("stream ended")` below), which a
+    // Builder-credits deployment replaces with its one visitor line.
+    code === "builder_gateway_stream_ended"
   ) {
     return true;
   }
 
   if (ev.recoverable === true) return true;
-  // An explicit flag outranks the message sniff below, which exists only for
-  // events that carry no flag at all. The repeat guards stop a turn with
-  // `recoverable: false` and a message that names the looping tool, so a stop
-  // on `list-workspace-connections` matched the "connection" sniff and
-  // auto-continued the very loop it was emitted to break.
-  if (ev.recoverable === false) return false;
 
   if (msg.includes("daily gateway request cap")) return false;
+
+  // The engine's structural verdict, checked after every terminal code above so
+  // it can never revive a quota or auth rejection. It is the only retry signal
+  // left once the message is one visitor line: an upstream "Overloaded" carries
+  // no code, and its text is what the rewrite removed.
+  if (ev.providerRetryable === true) return true;
 
   // "gateway error" intentionally absent — that's the no-detail Builder
   // gateway fallback and the production-agent already retries it
@@ -1606,7 +1634,10 @@ export function processEvent(
       if (idx >= 0) {
         const part = content[idx];
         if (part.type === "tool-call") {
-          part.approval = { approvalKey };
+          part.approval = {
+            approvalKey,
+            ...(ev.askId ? { askId: ev.askId } : {}),
+          };
         }
       }
     }

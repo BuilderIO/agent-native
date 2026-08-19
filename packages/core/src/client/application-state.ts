@@ -1,4 +1,5 @@
 import { agentNativePath } from "./api-path.js";
+import { assertAgentNativeApiEnabled } from "./api-surface.js";
 
 const APP_STATE_KEY_PATTERN = /^[a-zA-Z0-9_:-]+$/;
 
@@ -111,6 +112,7 @@ export async function readClientAppStateMany(
   keys: readonly string[],
   options: ClientAppStateReadOptions = {},
 ): Promise<ClientAppStateBatch> {
+  assertAgentNativeApiEnabled(`read application state [${keys.join(", ")}]`);
   const unique = [...new Set(keys)];
   for (const key of unique) appStateUrl(key); // validates the key shape
   if (unique.length === 0) return { values: {}, missing: [] };
@@ -211,6 +213,7 @@ export async function writeClientAppState<T = unknown>(
   value: T,
   options: ClientAppStateWriteOptions = {},
 ): Promise<T> {
+  assertAgentNativeApiEnabled(`write application state "${key}"`);
   const response = await fetch(appStateUrl(key), {
     method: "PUT",
     headers: buildHeaders(options.requestSource),
@@ -225,6 +228,7 @@ export async function deleteClientAppState(
   key: string,
   options: ClientAppStateWriteOptions = {},
 ): Promise<void> {
+  assertAgentNativeApiEnabled(`delete application state "${key}"`);
   const response = await fetch(appStateUrl(key), {
     method: "DELETE",
     // DELETE carries no JSON body, so this custom header is the only

@@ -275,6 +275,8 @@ const messages = {
   "errorMessages.builderModelUnauthorized":
     "The provider behind this model rejected the request. Pick a different model, then retry.",
   "errorMessages.errorPrefix": "Error: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "The model gateway hit an internal error before the agent could answer. Retry in a moment, and quote the error id below if it keeps happening.",
   "errorMessages.gatewayNoDetails":
     "The model gateway returned no error details and the chat couldn't recover. Wait a moment and retry, or start a new chat if it keeps happening.",
   "errorMessages.inactivityTimeout":
@@ -349,6 +351,8 @@ const messages = {
   "message.restoreFailed": "Restore failed ({{status}}).",
   "message.restoreQuestion": "Restore to here?",
   "message.restoreRequestFailed": "Restore request failed.",
+  "message.threadNotFound":
+    "This chat thread is no longer available. Start a new chat or retry if this was unexpected.",
   "message.restoring": "Restoring...",
   "message.revertHere": "Revert to here",
   "message.sentAt": "Sent {{time}}",
@@ -522,6 +526,7 @@ const messages = {
   "share.unknownPerson": "Unknown person",
   "share.viewer": "Viewer",
   "share.viewerDescription": "Can view",
+  "share.userGroup": "User group",
   "status.resuming": "Resuming",
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",

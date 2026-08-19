@@ -7,6 +7,31 @@ description: "Implante um app nativo do agente com o preset padrão do Nitro par
 
 O Node.js é o preset padrão do Nitro. Esta página cobre como executá-lo diretamente e containerizá-lo com Docker. Veja [Implantação](/docs/deployment) para escolher um banco de dados primeiro, e [Implantação de Espaço de Trabalho](/docs/workspace-deployment#workspace-docker-compose) para auto-hospedar um espaço de trabalho com vários apps usando Docker Compose.
 
+## Caminho rápido: hospede um app Chat localmente {#self-host-quickstart}
+
+Há dois bons pontos de partida:
+
+- **Você está criando um app?** Comece com [Getting Started](/docs/getting-started) e volte aqui quando quiser colocá-lo em um local permanente.
+- **Você está operando um app?** Use primeiro o caminho local com Docker. Ele testa a mesma combinação de Node.js, Postgres, autenticação e variáveis de ambiente que você usará em um servidor pequeno.
+
+A pilha local usa intencionalmente um segredo de autenticação de exemplo e um volume local do Postgres. Ela é para `localhost`, não para exposição na Internet. Consulte o [guia rápido completo](/docs/node-docker#self-host-quickstart) para obter o arquivo Compose completo e as etapas copiáveis. Este quickstart usa o layout de volume do PostgreSQL 18. Não reutilize um volume criado pelo PostgreSQL 17 ou anterior. Faça backup e migre os dados existentes antes de alterar a imagem ou o caminho de montagem.
+
+### 1. Crie o app
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. Inicie a pilha local
+
+```bash
+docker compose up --build
+```
+
+Abra [http://localhost:3000](http://localhost:3000). Adicione `ANTHROPIC_API_KEY` a um arquivo `.env` local se quiser usar o agente integrado.
+
 ## Node.js (Padrão) {#nodejs}
 
 O preset padrão. Compile e execute:
@@ -24,6 +49,8 @@ de abril de 2026 e não recebe mais atualizações de segurança do upstream.
 
 ## Docker {#docker}
 
+This Dockerfile works for the standalone app created above. Run `pnpm install` before building so `pnpm-lock.yaml` exists in the build context. Keep the dependency manifest and lockfile in sync when you update the app.
+
 ```dockerfile filename="Dockerfile"
 FROM node:24-slim AS build
 WORKDIR /app
@@ -38,9 +65,22 @@ COPY --from=build /app/.output .output
 # data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 # For production, set DATABASE_URL to a hosted Postgres or Turso instance.
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
+```
+
+Create `.dockerignore` alongside the Dockerfile:
+
+```text filename=".dockerignore"
+node_modules
+.output
+data
+.env
+.env.*
+!.env.example
+.git
 ```
 
 Auto-hospedar um espaço de trabalho com vários apps usando Docker Compose,
