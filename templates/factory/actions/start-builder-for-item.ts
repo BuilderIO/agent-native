@@ -25,9 +25,20 @@ import {
 import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
 import { createSlackReader } from "../server/triage/slack-client.js";
 
-const replyTextPrefix =
-  "@builder.io please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the full thread and linked evidence, and fix the owning boundary. Please send a PR when ready, then have the @agent-native bot post a concise Fixed, In progress, or Clarification needed disposition in this same thread; an 👀 reaction or this handoff alone is not completion.";
+/** Slack notifies only with `<@USERID>`. Plaintext @handles do not ping anyone. */
+const BUILDER_SLACK_USER_ID = "U096KN3EL2Y";
+const replyTextPrefix = `<@${BUILDER_SLACK_USER_ID}> please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the full thread and linked evidence, and fix the owning boundary. Please send a PR when ready, then have the @agent-native bot post a concise Fixed, In progress, or Clarification needed disposition in this same thread; an 👀 reaction or this handoff alone is not completion.`;
+const plaintextBuilderReplyPrefix =
+  "@builder.io please run /address-feedback in the repo to address this feedback.";
 const legacyReplyTextPrefix = "@builderio please fix this in a reply.";
+
+function messageHasBuilderHandoff(text: string): boolean {
+  return (
+    text.includes(replyTextPrefix) ||
+    text.includes(plaintextBuilderReplyPrefix) ||
+    text.includes(legacyReplyTextPrefix)
+  );
+}
 
 type RelatedFeedbackItem = {
   id: string;
@@ -199,7 +210,7 @@ export async function recordAutomaticBuilderDecision(input: {
 
 export default defineAction({
   description:
-    "Start the governed clear-bug Builder flow for a Factory item, or record a skip with a reason when clearBug is false. Slack items are kept in-thread by adding 👀 and tagging @builder.io; grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors use the Builder agent run API. Owner-managed Clips, Design, and Content items are always left for their owner.",
+    "Start the governed clear-bug Builder flow for a Factory item, or record a skip with a reason when clearBug is false. Slack items stay in-thread: this action adds 👀 and pings Builder with a Slack user-id mention; do not post Slack messages or @handles yourself. Grouped Slack repeats share one Builder thread. GitHub issues and Sentry errors use the Builder agent run API. Owner-managed Clips, Design, and Content items are always left for their owner.",
   schema: z.object({
     itemId: z.string().min(1),
     clearBug: z.boolean(),
@@ -521,29 +532,22 @@ export default defineAction({
             slackEyesReactionAlreadyPresent: reaction.already_present,
           });
         }
-        const hasCurrentBuilderReply = thread.messages.some((message) =>
-          message.text.includes(replyTextPrefix),
-        );
-        const hasLegacyBuilderReply = thread.messages.some((message) =>
-          message.text.includes(legacyReplyTextPrefix),
+        const hasBuilderReply = thread.messages.some((message) =>
+          messageHasBuilderHandoff(message.text),
         );
         const hasRelatedClusterDetails = thread.messages.some((message) =>
           message.text.includes(
             "Related feedback in the same issue cluster - inspect and fix all of these too:",
           ),
         );
-        if (
-          thread.hasMore &&
-          !hasCurrentBuilderReply &&
-          !hasLegacyBuilderReply
-        ) {
+        if (thread.hasMore && !hasBuilderReply) {
           throw new Error(
             "Slack thread is truncated; refusing to risk a duplicate Builder handoff.",
           );
         }
         if (
           !metadataBoolean(metadata, "slackBuilderReplyAt") &&
-          ((!hasCurrentBuilderReply && !hasLegacyBuilderReply) ||
+          (!hasBuilderReply ||
             (relatedItems.length > 0 && !hasRelatedClusterDetails))
         ) {
           const posted = await slack.postThreadReply(

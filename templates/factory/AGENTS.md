@@ -21,14 +21,14 @@ decisions, feedback, agent runs, and provider audit records.
   reconciliation is not success; preserve typed failure or
   `reconciliation_required` state.
 - Deduplicate by Factory item and rule/run identity, not provider comment ID.
-- Use the generic Slack adapter: clear-bug automations add 👀 and tag
-  `@builder.io`, ask Builder to run `/address-feedback`, and group repeated
-  reports into one Builder thread; GitHub/Sentry clear bugs use the Builder run
+- Slack clear bugs go through `start-builder-for-item` (👀 and a Slack user
+  mention for `/address-feedback`); never post Slack messages or `@handles`.
+  Group repeats into one Builder thread. GitHub/Sentry use the Builder run
   API. Follow `review-latest-feedback` for full-thread evidence, existing
   reaction and owner checks, answered-clarification priority, one-question
   clarification limits, durable rechecks, and the required `@agent-native`
   disposition after every actionable 👀. Clips, Design, and Content stay
-  owner-managed for feedback dispatch.
+  owner-managed outside autonomous dispatch and PR governance.
 - PR governance follows `review-prs`: verify BuilderIO membership and complete
   diff/review/check evidence; skip drafts/current approvals and never approve
   external authors. Keep ultra-scary security, auth, tenant-isolation,

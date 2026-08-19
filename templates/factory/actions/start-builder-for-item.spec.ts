@@ -42,7 +42,7 @@ import {
 } from "./start-builder-for-item.js";
 
 describe("start-builder-for-item Slack handoff", () => {
-  it("uses the Builder.io tag, asks for /address-feedback, and carries repeat links", () => {
+  it("uses a Slack user-id mention, asks for /address-feedback, and carries repeat links", () => {
     const text = replyTextForItem(
       { id: "item-primary", sourceUrl: "https://slack.example/primary" },
       [
@@ -54,10 +54,11 @@ describe("start-builder-for-item Slack handoff", () => {
       ],
     );
 
-    expect(text).toContain("@builder.io");
+    expect(text).toContain("<@U096KN3EL2Y>");
     expect(text).toContain("/address-feedback");
     expect(text).toContain("item-repeat");
     expect(text).toContain("https://slack.example/repeat");
+    expect(text).not.toContain("@builder.io");
     expect(text).not.toContain("@builderio please");
   });
 
