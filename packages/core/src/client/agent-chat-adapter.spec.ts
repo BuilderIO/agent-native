@@ -1171,12 +1171,53 @@ describe("createAgentChatAdapter", () => {
       expect.objectContaining({ type: "agent-chat:run-error" }),
     );
     expect(results[0]).toEqual({
-      content: [{ type: "text", text: "Error: No LLM provider is connected" }],
+      content: [],
       status: { type: "incomplete", reason: "error" },
       metadata: {
         custom: {
           runError: {
             message: "No LLM provider is connected",
+            errorCode: "missing_credentials",
+          },
+        },
+      },
+    });
+  });
+
+  it("keeps raw provider-key HTTP failures on the missing-credential path", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ error: "ANTHROPIC_API_KEY is not set" }, 500),
+        ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-raw-provider-key",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "run the prompt" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(results[0]).toMatchObject({
+      content: [],
+      metadata: {
+        custom: {
+          runError: {
             errorCode: "missing_credentials",
           },
         },
@@ -7405,10 +7446,21 @@ describe("createAgentChatAdapter", () => {
       expect(last.metadata?.custom?.runError?.errorCode).toBe(
         expectedErrorCode,
       );
-      expect(last.content.at(-1).text).toContain(expectedMessage);
-      expect(last.content.at(-1).text).not.toContain(
-        "An earlier chunk timed out",
-      );
+      if (dispatchesMissingKey) {
+        expect(last.content).not.toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "text",
+              text: expect.stringContaining(expectedMessage),
+            }),
+          ]),
+        );
+      } else {
+        expect(last.content.at(-1).text).toContain(expectedMessage);
+        expect(last.content.at(-1).text).not.toContain(
+          "An earlier chunk timed out",
+        );
+      }
     },
   );
 
@@ -7576,8 +7628,12 @@ describe("createAgentChatAdapter", () => {
 
     const last = results.at(-1) as any;
     expect(last.status).toEqual({ type: "incomplete", reason: "error" });
-    expect(last.content.at(-1).text).toContain("No LLM provider is connected");
-    expect(last.content.at(-1).text).not.toContain(staleMessage);
+    const text = last.content
+      .filter((part: any) => part?.type === "text")
+      .map((part: any) => part.text)
+      .join("\n");
+    expect(text).not.toContain("No LLM provider is connected");
+    expect(text).not.toContain(staleMessage);
     expect(last.metadata?.custom?.runError?.errorCode).toBe(
       "missing_credentials",
     );
