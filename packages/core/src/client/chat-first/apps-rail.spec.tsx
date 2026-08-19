@@ -4,7 +4,10 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ChatFirstAppsRail } from "./apps-rail.js";
+import {
+  CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY,
+  ChatFirstAppsRail,
+} from "./apps-rail.js";
 
 describe("ChatFirstAppsRail", () => {
   let container: HTMLDivElement;
@@ -19,6 +22,7 @@ describe("ChatFirstAppsRail", () => {
 
   afterEach(() => {
     act(() => root.unmount());
+    window.localStorage.removeItem(CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY);
     container.remove();
   });
 
@@ -201,5 +205,52 @@ describe("ChatFirstAppsRail", () => {
         (app) => app.dataset.appId,
       ),
     ).toEqual(defaultAppIds);
+  });
+
+  it("persists the expanded rail state across remounts", () => {
+    const apps = Array.from({ length: 7 }, (_, index) => ({
+      id: `app-${index}`,
+      name: `App ${index}`,
+    }));
+
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={apps}
+          onOpenApp={vi.fn()}
+          renderIcon={(app) => <span>{app.name}</span>}
+        />,
+      );
+    });
+
+    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(5);
+    const showMore = [...container.querySelectorAll("button")].find(
+      (button) => button.textContent?.trim() === "Show more",
+    );
+    expect(showMore).toBeDefined();
+
+    act(() => {
+      showMore?.click();
+    });
+
+    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(7);
+
+    act(() => {
+      root.unmount();
+    });
+    root = createRoot(container);
+
+    act(() => {
+      root.render(
+        <ChatFirstAppsRail
+          apps={apps}
+          collapsed
+          onOpenApp={vi.fn()}
+          renderIcon={(app) => <span>{app.name}</span>}
+        />,
+      );
+    });
+
+    expect(container.querySelectorAll("[data-chat-first-app]")).toHaveLength(7);
   });
 });

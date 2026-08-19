@@ -17,7 +17,7 @@ import {
   IconPlus,
   IconTrash,
 } from "@tabler/icons-react";
-import { memo, useMemo, useState, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useState, type ReactNode } from "react";
 
 import {
   CHAT_FIRST_DEFAULT_APP_IDS,
@@ -34,6 +34,32 @@ import type {
   ChatFirstAppRailProps,
   ChatFirstCopy,
 } from "./types.js";
+
+const CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY =
+  "agent-native:chat-first-app-rail-show-all:v1";
+
+function readChatFirstAppRailShowAll(): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    return window.localStorage.getItem(
+      CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY,
+    ) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeChatFirstAppRailShowAll(showAllApps: boolean) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(
+      CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY,
+      String(showAllApps),
+    );
+  } catch {
+    // Keep the in-memory toggle usable when device storage is unavailable.
+  }
+}
 
 function ChatFirstRailAppIcon({
   app,
@@ -240,7 +266,14 @@ export const ChatFirstAppsRail = memo(function ChatFirstAppsRail({
   );
   const layout = controlledLayout ?? localLayout;
   const [draggedAppId, setDraggedAppId] = useState<string | null>(null);
-  const [showAllApps, setShowAllApps] = useState(false);
+  const [showAllApps, setShowAllApps] = useState(() =>
+    readChatFirstAppRailShowAll(),
+  );
+
+  useEffect(() => {
+    writeChatFirstAppRailShowAll(showAllApps);
+  }, [showAllApps]);
+
   const orderedApps = useMemo(() => {
     const orderedIds = orderChatFirstAppIds(
       apps.map((app) => app.id),

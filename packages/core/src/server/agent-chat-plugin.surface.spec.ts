@@ -200,6 +200,21 @@ describe("request-scoped action surface", () => {
     );
   });
 
+  it("keeps request-scoped action surfaces out of the dev-native tool switch", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const devNativeBlock = source.match(
+      /const devNative =[\s\S]*?const basePrompt = prodPrompt;/,
+    )?.[0];
+
+    expect(source).toMatch(
+      /const devNative =[\s\S]*options\?\.nativeActionsInDev === true \|\| leanPrompt;/,
+    );
+    expect(devNativeBlock).toBeDefined();
+    expect(devNativeBlock).not.toContain("resolveActionSurface");
+  });
+
   it("removes denied actions before the actions prompt is generated", () => {
     const actions = {
       allowed: {
