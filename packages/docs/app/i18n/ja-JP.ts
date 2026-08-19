@@ -1551,7 +1551,6 @@ const jaJP = {
     deploymentOverview: "概要",
     deployAnApp: "アプリをデプロイ",
     workspaceDeployment: "ワークスペースのデプロイ",
-    advancedDeployment: "高度なデプロイ",
     deploymentNodeDocker: "Node.js と Docker",
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",

@@ -832,50 +832,40 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "workspace-deployment",
           },
           {
-            id: "advanced-deployment",
-            labelKey: "advancedDeployment",
-            children: [
-              {
-                id: "node-docker",
-                labelKey: "deploymentNodeDocker",
-                slug: "node-docker",
-              },
-              {
-                id: "vercel",
-                labelKey: "deploymentVercel",
-                slug: "vercel",
-              },
-              {
-                id: "netlify",
-                labelKey: "deploymentNetlify",
-                slug: "netlify",
-              },
-              {
-                id: "cloudflare",
-                labelKey: "deploymentCloudflare",
-                slug: "cloudflare",
-              },
-              {
-                id: "other-platforms",
-                labelKey: "deploymentOtherPlatforms",
-                slug: "other-platforms",
-              },
-              {
-                id: "ssr-caching",
-                labelKey: "ssrCaching",
-                slug: "ssr-caching",
-              },
-              {
-                id: "deployment-environment-variables",
-                labelKey: "deploymentEnvironmentVariables",
-                slug: "deployment-environment-variables",
-              },
-              {
-                id: "updating-ui-in-production",
-                labelKey: "updatingUiInProduction",
-                slug: "updating-ui-in-production",
-              },
-            ],
+            id: "node-docker",
+            labelKey: "deploymentNodeDocker",
+            slug: "node-docker",
+          },
+          {
+            id: "vercel",
+            labelKey: "deploymentVercel",
+            slug: "vercel",
+          },
+          {
+            id: "netlify",
+            labelKey: "deploymentNetlify",
+            slug: "netlify",
+          },
+          {
+            id: "cloudflare",
+            labelKey: "deploymentCloudflare",
+            slug: "cloudflare",
+          },
+          {
+            id: "other-platforms",
+            labelKey: "deploymentOtherPlatforms",
+            slug: "other-platforms",
+          },
+          { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
+          {
+            id: "deployment-environment-variables",
+            labelKey: "deploymentEnvironmentVariables",
+            slug: "deployment-environment-variables",
+          },
+          {
+            id: "updating-ui-in-production",
+            labelKey: "updatingUiInProduction",
+            slug: "updating-ui-in-production",
           },
         ],
       },

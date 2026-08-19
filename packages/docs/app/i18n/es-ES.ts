@@ -1554,7 +1554,6 @@ const esES = {
     deploymentOverview: "Resumen",
     deployAnApp: "Desplegar una aplicación",
     workspaceDeployment: "Despliegue del Workspace",
-    advancedDeployment: "Despliegue avanzado",
     deploymentNodeDocker: "Node.js y Docker",
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",

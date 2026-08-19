@@ -1554,7 +1554,6 @@ const deDE = {
     deploymentOverview: "Überblick",
     deployAnApp: "Eine App bereitstellen",
     workspaceDeployment: "Workspace-Deployment",
-    advancedDeployment: "Erweiterte Bereitstellung",
     deploymentNodeDocker: "Node.js und Docker",
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",

@@ -1544,7 +1544,6 @@ const enUS = {
     deploymentOverview: "Overview",
     deployAnApp: "Deploy an app",
     workspaceDeployment: "Workspace Deployment",
-    advancedDeployment: "Advanced deployment",
     deploymentNodeDocker: "Node.js & Docker",
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",

@@ -1526,7 +1526,6 @@ const zhCN = {
     deploymentOverview: "概览",
     deployAnApp: "部署应用",
     workspaceDeployment: "工作区部署",
-    advancedDeployment: "高级部署",
     deploymentNodeDocker: "Node.js 与 Docker",
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",

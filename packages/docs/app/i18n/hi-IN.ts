@@ -1544,7 +1544,6 @@ const hiIN = {
     deploymentOverview: "अवलोकन",
     deployAnApp: "ऐप परिनियोजित करें",
     workspaceDeployment: "वर्कस्पेस परिनियोजन",
-    advancedDeployment: "उन्नत परिनियोजन",
     deploymentNodeDocker: "Node.js और Docker",
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",

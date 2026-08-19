@@ -1524,7 +1524,6 @@ const messages = {
     deploymentOverview: "總覽",
     deployAnApp: "部署應用程式",
     workspaceDeployment: "工作區部署",
-    advancedDeployment: "進階部署",
     deploymentNodeDocker: "Node.js 與 Docker",
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",

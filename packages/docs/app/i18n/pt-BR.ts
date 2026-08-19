@@ -1550,7 +1550,6 @@ const ptBR = {
     deploymentOverview: "Visão geral",
     deployAnApp: "Fazer deploy de um app",
     workspaceDeployment: "Deploy do Workspace",
-    advancedDeployment: "Deploy avançado",
     deploymentNodeDocker: "Node.js e Docker",
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",

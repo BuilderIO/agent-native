@@ -1555,7 +1555,6 @@ const frFR = {
     deploymentOverview: "Vue d’ensemble",
     deployAnApp: "Déployer une application",
     workspaceDeployment: "Déploiement du Workspace",
-    advancedDeployment: "Déploiement avancé",
     deploymentNodeDocker: "Node.js et Docker",
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",

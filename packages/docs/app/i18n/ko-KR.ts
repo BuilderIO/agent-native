@@ -1547,7 +1547,6 @@ const koKR = {
     deploymentOverview: "개요",
     deployAnApp: "앱 배포",
     workspaceDeployment: "워크스페이스 배포",
-    advancedDeployment: "고급 배포",
     deploymentNodeDocker: "Node.js 및 Docker",
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",

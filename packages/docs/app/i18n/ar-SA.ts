@@ -1542,7 +1542,6 @@ const arSA = {
     deploymentOverview: "نظرة عامة",
     deployAnApp: "نشر تطبيق",
     workspaceDeployment: "نشر مساحة العمل",
-    advancedDeployment: "النشر المتقدم",
     deploymentNodeDocker: "Node.js و Docker",
     deploymentVercel: "Vercel",
     deploymentNetlify: "Netlify",
