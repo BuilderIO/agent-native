@@ -346,6 +346,25 @@ describe("code-agent-worktree-registry", () => {
         attachedRunIds: [],
         state: "available",
       });
+
+      const orphan = createOrAttachCodeAgentWorktree({
+        registryPath,
+        sourcePath: root,
+        worktreeRoot: path.join(root, "managed-worktrees"),
+        runId: "orphan-without-lease",
+        policy: "ephemeral",
+      });
+      reconcileCodeAgentWorktreeLeases({
+        registryPath,
+        runStates: new Map(),
+        now: new Date(Date.now() + 10 * 60 * 1000),
+      });
+      expect(
+        getManagedCodeAgentWorktree(registryPath, orphan.id),
+      ).toMatchObject({
+        attachedRunIds: [],
+        state: "available",
+      });
     });
   });
 });

@@ -620,7 +620,13 @@ export function reconcileCodeAgentWorktreeLeases(input: {
         );
       });
       const leaseRunId = worktree.activeLease?.runId;
-      if (!leaseRunId) continue;
+      if (!leaseRunId) {
+        if (worktree.attachedRunIds.length === 0) {
+          worktree.updatedAt = now;
+          updateRuntimeState(worktree, now);
+        }
+        continue;
+      }
       const leaseState = input.runStates.get(leaseRunId);
       if (
         leaseState === "active" ||
