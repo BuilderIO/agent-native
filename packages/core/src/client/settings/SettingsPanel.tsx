@@ -2967,7 +2967,7 @@ function SettingsPanelContent({
     enabled: !builderConnectionOwnedExternally,
   });
   const connected = builder?.configured ?? false;
-  const connectUrl = builder?.cliAuthUrl ?? builder?.connectUrl;
+  const connectUrl = builder?.connectUrl;
   const orgName = builder?.orgName;
   const envManaged = !!builder?.envManaged;
   const credentialSource = builder?.credentialSource;
