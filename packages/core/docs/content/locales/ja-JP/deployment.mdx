@@ -1,250 +1,43 @@
 ---
 title: "デプロイ"
-description: "Nitro プリセットを使って、agent-native アプリを任意のプラットフォームにデプロイします。Node.js、Vercel、Netlify、Cloudflare、AWS などに対応しています。"
+description: "永続 SQL データベースを使って、Agent-Native アプリまたはワークスペースを Nitro 対応プラットフォームにデプロイします。"
 ---
+
+<!-- i18n-docs-ignore -->
 
 # デプロイ
 
-agent-native アプリは内部で [Nitro](https://nitro.build) を使用しています。つまり、設定変更なしで任意のプラットフォームにデプロイできます。プリセットを設定するだけです。
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
 
-## デプロイ前に: 永続的なデータベースを選ぶ {#persistent-database}
+Agent-Native アプリは Nitro で動作します。デプロイするものに合うパスを選択してください。
 
-**永続的な** データベースとは、再起動、再デプロイ、そして複数のサーバーインスタンスでの同時稼働を経てもデータが失われないデータベースのことです。デプロイされるすべてのアプリに必要なものです。
+<Cards columns={2}>
 
-<Comparison>
+### [アプリをデプロイ](/docs/deploy-an-app)
 
-### 変更前
+1 つのアプリを構築し、独自のドメインで起動します。
 
-ローカル開発では `data/app.db` の SQLite ファイルにフォールバックします。これは手元のマシンでは便利ですが、そのファイルはローカルのファイルシステム上にあり、コンテナ、プレビュー、サーバーレスプラットフォームはこれをいつでもリセットしうる場所です。
+### [ワークスペースをデプロイ](/docs/workspace-deployment)
 
-### 変更後
+共有ログインで複数のアプリを 1 つのオリジンの下で実行します。
 
-本番環境には、再起動、再デプロイ、複数インスタンスでの同時稼働を経てもデータが失われない、Postgres や Turso/libSQL のような永続的なデータベースが必要です。
+</Cards>
 
-</Comparison>
+## デプロイ前に: 永続データベースを選択 {#persistent-database}
 
-接続には 3 つのステップがあります。
+デプロイするすべてのアプリには永続 SQL データベースが必要です。最初の本番デプロイ前に、デプロイ環境へ `DATABASE_URL` を設定してください。プロバイダーが別のトークンを必要とする場合は `DATABASE_AUTH_TOKEN` も設定します。
 
-<Steps>
+スタンドアロンアプリには安定した `BETTER_AUTH_SECRET` が必要です。署名付きのアプリ間リクエストを使うワークスペースには `A2A_SECRET` が必要です。
 
-### プロバイダーを選ぶ
+## サポートされるターゲット
 
-Postgres 互換の任意のホスト（Neon、Supabase、Railway、RDS など）や、libSQL/Turso データベースが使えます。Agent-native は、スキーマを手書きの SQL の代わりに型安全なクエリへと変換する TypeScript ライブラリである [Drizzle](https://orm.drizzle.team) を介して読み書きするため、同じアプリコードがそのどれに対しても動作します。
+Agent-Native は Node.js、Vercel、Netlify、Cloudflare、AWS Lambda、Deno Deploy をサポートします。
 
-### 接続文字列を取得する
+高度な設定、シークレット、本番値については [デプロイ環境変数リファレンス](/docs/deployment-environment-variables) を参照してください。
 
-プロバイダーは、データベースとその接続方法を示す URL を提供します。例えば `postgres://user:pass@host:5432/dbname` のような形式です。
+## 次に読む
 
-### `DATABASE_URL` を設定する
-
-初回の本番デプロイの前に、デプロイプロバイダーの環境変数でこれを設定してください。Agent-native はその URL を読み取り、どの**方言**（どの基盤データベースエンジン、Postgres なのか SQLite/libSQL なのか）で通信するかを自動的に検出します。アダプターの完全な一覧は [データベース](/docs/server-database#production) を参照してください。
-
-</Steps>
-
-<Callout tone="info">
-
-Turso や、別トークンで認証する他の libSQL プロバイダーを使っていますか？ `DATABASE_URL` と併せて `DATABASE_AUTH_TOKEN` を設定してください。複数のアプリを持つ [ワークスペース](/docs/multi-app-workspace) を構築していますか？ すべてのアプリはデフォルトでルートの `DATABASE_URL` を継承します。異なるデータベースが必要な、そのアプリだけに `<APP_NAME>_DATABASE_URL` を設定してください。
-
-</Callout>
-
-### 自動スキーマセットアップ {#skip-ensure-tables}
-
-開始するのに、別途マイグレーションのステップは必要ありません。アプリのどこかがデータベースに初めて触れる際、agent-native は必要なテーブル、カラム、インデックスがすでに存在するかを確認し、欠けているものを作成します。これはサーバーの起動ごとに 1 回だけ発生し、通常の使用では目に見えません。
-
-<Diagram id="doc-block-2ddlboot1" title="最初のアクセス時に何が起きるか" summary={"各データストアは、起動ごとに一度だけ自身のスキーマを確認し、実際のリクエストを処理する前に欠けているものを作成します。"}>
-
-```html
-<div class="diagram-boot">
-  <div class="diagram-box" data-rough>サーバー起動</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">ensureTable()</span
-    ><small class="diagram-muted">各ストアのスキーマを確認</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    準備完了<br /><small class="diagram-muted"
-      >不足しているテーブル/カラムを作成</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-boot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-boot .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-boot .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-具体的には、各データストアは、最初に使用される際に内部の `ensureTable()` 関数を呼び出します。この関数はデータベース自身のカタログ（例えば Postgres の `information_schema`）を確認し、本当に欠けているものに対してのみ `CREATE TABLE`、`ADD COLUMN`、`CREATE INDEX` を発行します。これらは **DDL** 文、すなわち Data Definition Language の略で、行の読み書きではなくテーブルの形を定める SQL の部分です。
-
-### サーバーレスでのコールドスタート遅延を減らす {#reducing-cold-start}
-
-長時間稼働するサーバーでは、この確認は起動ごとに 1 回だけ実行され、まず気づくことはないでしょう。サーバーレスプラットフォームは事情が異なります。**コールドスタート** とは、リクエストを処理するためにプラットフォームがサーバーの真新しいインスタンスを立ち上げることです。サーバーレスでは、「最初のアクセス」が約 57 個の異なるストアにまたがるすべてのコールドスタートを意味しかねません。これは、リクエストが実際の処理を始める前に、数百回のラウンドトリップが積み重なることになります。
-
-これを抑える仕組みが 3 つあります。
-
-- **バッチ化されたイントロスペクション。** テーブル、カラム、インデックスごとに 1 クエリを発行する代わりに、上記の確認はデータベースごとに 1 回のイントロスペクションパス、合計わずか 2 クエリとして実行されます。これは自動で行われ、設定は不要です。
-- **マネージドサーバーレスでの自動スキップ。** Netlify Functions、AWS Lambda、Vercel Functions は、いずれも本番環境でこの確認を完全にスキップします。セットアップは不要です。
-- **`AGENT_NATIVE_SKIP_ENSURE_TABLES=1`。** スキーマがすでにマイグレーション済みで、アプリケーションの起動時にテーブルの作成や変更を行いたくない場合、長時間稼働する Node サーバーや Docker、その他のセルフホスト構成など、自動スキップの対象外となるデプロイでこれを設定してください。
-
-<Callout tone="risk">
-
-このフラグも、自動的なサーバーレススキップも、フェイルクローズすることはできません。もし本当にテーブルが欠けていた場合、それを必要とする最初の実クエリは、静かに修復されるのではなく、大きく失敗します。これは意図的なものです（静かな修復は本物のマイグレーションのバグを隠してしまいます）が、その代わりマイグレーションの管理はここから先すべてあなたの責任になります。アプリケーションの起動によるテーブル作成に依存しているデプロイでは、このフラグを設定せず、自動スキップにも頼らないでください。
-
-</Callout>
-
-複数のアプリを 1 つのオリジンにデプロイすること、あるいは Docker Compose でワークスペースを
-セルフホストすることは、それ自体が独立したページです。[ワークスペースのデプロイ](/docs/workspace-deployment) を参照してください。
-
-## 仕組み {#how-it-works}
-
-`npx @agent-native/core@latest build` を実行すると、Nitro はクライアントの SPA とサーバーの API の両方を `.output/` にビルドします。
-
-<FileTree
-  id="doc-block-1vbo81"
-  title="ビルド出力"
-  entries={[
-    {
-      path: ".output/",
-      note: "自己完結型。任意の環境にコピーして実行できます",
-    },
-    {
-      path: ".output/public/",
-      note: "ビルドされた SPA（静的アセット）",
-    },
-    {
-      path: ".output/server/index.mjs",
-      note: "サーバーのエントリポイント",
-    },
-    {
-      path: ".output/server/chunks/",
-      note: "サーバーコードのチャンク",
-    },
-  ]}
-/>
-
-出力は自己完結型です。`.output/` を任意の環境にコピーして実行してください。
-
-<Diagram id="doc-block-1gqwzzp" title="ビルドからデプロイまで" summary={"1 つのソースツリーが 1 つの Nitro プリセットへとビルドされます。同じ自己完結型の出力が、Node、Vercel、Netlify、Cloudflare、AWS、Deno 上で動作します。すべてのインスタンスは、同じ永続的な DATABASE_URL を指します。"}>
-
-```html
-<div class="diagram-deploy">
-  <div class="diagram-box" data-rough>アプリのソース</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">ビルド</span
-    ><small class="diagram-muted">Nitro プリセット</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-grid">
-    <span class="diagram-pill">Node.js</span
-    ><span class="diagram-pill">Vercel</span
-    ><span class="diagram-pill">Netlify</span
-    ><span class="diagram-pill">Cloudflare</span
-    ><span class="diagram-pill">AWS Lambda</span
-    ><span class="diagram-pill">Deno</span>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    永続的な DATABASE_URL<br /><small class="diagram-muted"
-      >すべてのインスタンスで共有</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-deploy {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-deploy .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-deploy .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-.diagram-deploy .diagram-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-```
-
-</Diagram>
-
-## プリセットの設定 {#setting-the-preset}
-
-デフォルトでは、Nitro は Node.js 向けにビルドします。別のプラットフォームを対象にするには、`vite.config.ts` でプリセットを設定します。
-
-```ts
-import { agentNative } from "@agent-native/core/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
-
-あるいは、ビルド時に `NITRO_PRESET` 環境変数を使用します。
-
-```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
-```
-
-ビルドとデプロイの詳細は、お使いのプラットフォームのページを参照してください。
-
-- [**Node.js & Docker**](/docs/node-docker) — デフォルトのプリセットと、スタンドアロンの Dockerfile
-- [**Vercel**](/docs/vercel)
-- [**Netlify**](/docs/netlify) — スケールツーゼロデータベース向けの keep-warm を含む
-- [**Cloudflare**](/docs/cloudflare) — Pages と Workers
-- [**その他のプラットフォーム**](/docs/other-platforms) — AWS Lambda と Deno Deploy
-
-デフォルトの SSR シェルキャッシュポリシーと、`AGENT_NATIVE_SSR_CACHE` によるその上書き方法は、それ自体が独立したページです。[SSR キャッシュ](/docs/ssr-caching) を参照してください。
-
-本番環境変数の完全なリファレンス（ビルド/ランタイム、必須のシークレット、認証、Webhook、セキュリティのオプトイン、ワークスペースの `.env` 継承、強力なシークレットの生成）は、それ自体が独立したページです。[デプロイ: 環境変数](/docs/deployment-environment-variables) を参照してください。
-
-デプロイされた本番エージェントが `frameworkTools` と `codeExecution` を通じてどのフレームワークツールとコード実行機能を持つかは、それ自体が独立したページです。[本番エージェントアクセス](/docs/actions-agent-tools) を参照してください。
-
-デプロイされたアプリの UI がリリース後にどのように更新されるか、本番環境でのビジュアル編集のための Builder.io の別個のマネージドワークフローも含めて、それ自体が独立したページです。[本番環境での UI 更新](/docs/updating-ui-in-production) を参照してください。
-
-## マルチインスタンスデプロイ {#multi-instance}
-
-agent-native アプリは、すべての状態を Drizzle 経由で SQL に保存し、データベースに対する [ポーリング](/docs/key-concepts#polling-sync) を介して UI を同期します。ファイルシステムの状態も、スティッキーセッションも、インメモリキャッシュもありません。つまり、マルチインスタンスとサーバーレスのデプロイはそのまま動作します。すべてのインスタンスを同じ `DATABASE_URL` に向ければ、自動的に収束します。[主要な概念: SQL 内のデータ](/docs/key-concepts#data-in-sql) と [移植性](/docs/key-concepts#hosting-agnostic) を参照してください。
-
-## 次は何ですか
-
-- [**データベース**](/docs/server-database#production) — 初回の本番デプロイの前に永続的な SQL バックエンドを選ぶ
-- [**セキュリティ**](/docs/security) — このページ全体で参照されている本番チェックリストとオプトインフラグ
-- [**認証**](/docs/authentication) — 選んだ認証モードのための OAuth 資格情報と環境変数
-- [**ワークスペースのデプロイ**](/docs/workspace-deployment) — ワークスペース内のすべてのアプリを 1 つのオリジンに配信するか、Docker Compose でセルフホストする
-- [**SSR キャッシュ**](/docs/ssr-caching) — デフォルトのハードキャッシュポリシーとその上書き
-- [**デプロイ: 環境変数**](/docs/deployment-environment-variables) — 本番環境変数の完全なリファレンス
-- [**本番エージェントアクセス**](/docs/actions-agent-tools) — デプロイされたエージェントのための `frameworkTools` と `codeExecution`
-- [**マルチアプリ ワークスペース**](/docs/multi-app-workspace) — `deploy` の単一オリジンビルドの背後にあるワークスペースモデル
-- [**本番環境での UI 更新**](/docs/updating-ui-in-production) — 本番環境での UI 編集における、埋め込みエージェントパネルと Builder.io のクラウドフレームの比較
-- [**公的エージェントのウェブ**](/docs/agent-web-surfaces) — Vite ビルドが公開ルート向けにデプロイ出力へ書き出す `robots.txt`、`llms.txt`、マークダウンミラーファイル
+- [アプリをデプロイ](/docs/deploy-an-app)
+- [ワークスペースをデプロイ](/docs/workspace-deployment)
+- [データベース](/docs/server-database#production)

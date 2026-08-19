@@ -1545,6 +1545,7 @@ const koKR = {
     fileUploads: "파일 업로드",
     deployment: "배포",
     deploymentOverview: "개요",
+    deployAnApp: "앱 배포",
     workspaceDeployment: "워크스페이스 배포",
     deploymentNodeDocker: "Node.js 및 Docker",
     deploymentVercel: "Vercel",

@@ -1,261 +1,178 @@
 ---
 title: "Deployment"
-description: "Deploy agent-native apps to any platform with Nitro presets. Supports Node.js, Vercel, Netlify, Cloudflare, AWS, and more."
+description: "Deploy an Agent-Native app or workspace to a Nitro-compatible platform with a persistent SQL database."
+search: "deployment deploy app workspace hosting database Nitro Vercel Netlify Cloudflare Node.js"
 ---
 
 # Deployment
 
-Agent-native apps use [Nitro](https://nitro.build) under the hood. That means you can deploy to any platform with zero config changes. Just set a preset.
+Agent-Native apps run on [Nitro](https://nitro.build), so the same app can
+deploy to Node.js, serverless functions, edge workers, or a managed host. Pick
+the path that matches what you are shipping:
 
-Building an app? Start with [Getting Started](/docs/getting-started), then return here when you are ready to put the result somewhere permanent. Operating an app? [Node.js & Docker](/docs/node-docker) has a fast path that self-hosts a Chat app locally with Docker Compose, exercising the same Node.js, Postgres, authentication, and environment-variable shape you will use on a small server.
+<Cards columns={2}>
 
-## Before You Deploy: Pick a Persistent Database {#persistent-database}
+### :server: [Deploy an app](/docs/deploy-an-app)
 
-A **persistent** database is one whose data survives restarts, redeploys, and running on more than one server instance at once. That is what every deployed app needs.
+Build and launch one standalone app, or deploy one app from a workspace on its
+own domain.
 
-<Comparison>
+### :network: [Deploy a workspace](/docs/workspace-deployment)
 
-### Before
+Build several apps behind one origin with shared login and same-origin app to
+app communication.
 
-Local development falls back to a SQLite file at `data/app.db`. That's convenient on your machine, but the file lives on the local filesystem, which containers, previews, and serverless platforms can reset at any time.
+</Cards>
 
-### After
+## Before you deploy: choose a persistent database {#persistent-database}
 
-Production needs a persistent database, such as Postgres or Turso/libSQL, that survives restarts, redeploys, and running on more than one instance at once.
-
-</Comparison>
-
-Connecting one takes three steps:
+Every deployed app needs a persistent SQL database. Local development can use
+the SQLite file at `data/app.db`, but container, preview, and serverless
+filesystems can be reset at any time.
 
 <Steps>
 
-### Pick a provider
+### Choose a provider
 
-Any Postgres-compatible host (Neon, Supabase, Railway, RDS, and similar) or a libSQL/Turso database works. Agent-native reads and writes through [Drizzle](https://orm.drizzle.team), a TypeScript library that turns your schema into type-safe queries instead of hand-written SQL, so the same app code runs against any of them.
+Use any Drizzle-compatible SQL backend, such as Postgres, Neon, Supabase,
+Railway, RDS, Turso, or libSQL. The framework detects the database dialect from
+the connection URL.
 
-### Get a connection string
+### Set the connection string
 
-Your provider gives you a URL that identifies the database and how to reach it, for example `postgres://user:pass@host:5432/dbname`.
+Set `DATABASE_URL` in the deployment environment before the first production
+deploy. Use `DATABASE_AUTH_TOKEN` too when the provider requires a separate
+token, such as Turso or libSQL.
 
-### Set `DATABASE_URL`
+### Add production secrets
 
-Set it in your deploy provider's environment variables before your first production deploy. Agent-native reads the URL and automatically detects which **dialect** (which underlying database engine, Postgres versus SQLite/libSQL) to talk to. See [Database](/docs/server-database#production) for the full adapter list.
+Set a stable `BETTER_AUTH_SECRET` for a standalone app. A workspace also needs
+`A2A_SECRET` when it uses signed cross-app requests or background handoffs. The
+[deployment environment reference](/docs/deployment-environment-variables)
+covers the rest of the production configuration.
 
 </Steps>
 
 <Callout tone="info">
 
-Using Turso or another libSQL provider that authenticates with a separate token? Set `DATABASE_AUTH_TOKEN` alongside `DATABASE_URL`. Building a [workspace](/docs/multi-app-workspace) with more than one app? Every app inherits the root `DATABASE_URL` by default. Set `<APP_NAME>_DATABASE_URL` only for the one app that needs a different database.
+In a workspace, every app inherits the root `DATABASE_URL` by default. Set
+`<APP_NAME>_DATABASE_URL` only when one app needs a different database.
 
 </Callout>
 
-### Automatic schema setup {#skip-ensure-tables}
+## Supported deployment targets
 
-You don't need a separate migration step to get started. The first time any part of your app touches the database, agent-native checks whether the tables, columns, and indexes it needs already exist, and creates whatever is missing. This happens once per server boot and is invisible in normal use.
+Set a Nitro preset for the target you choose. The app code and database
+contract stay the same.
 
-<Diagram id="doc-block-2ddlboot1" title="What happens on first touch" summary={"Each data store checks its own schema once per boot and creates whatever is missing before serving a real request."}>
+<Diagram id="doc-block-deployment-targets" title="Supported deployment targets" summary="Agent-Native apps can deploy to Node.js, Vercel, Netlify, Cloudflare, AWS Lambda, and Deno Deploy. Provider logos are shown for the hosted targets with first-party deployment pages.">
 
 ```html
-<div class="diagram-boot">
-  <div class="diagram-box" data-rough>Server boots</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">ensureTable()</span
-    ><small class="diagram-muted">checks each store's schema</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    Ready<br /><small class="diagram-muted"
-      >missing tables/columns created</small
-    >
-  </div>
+<div class="deployment-target-grid">
+  <a class="deployment-target" href="/docs/node-docker">
+    <span class="deployment-target-mark text-mark">N</span>
+    <strong>Node.js</strong>
+  </a>
+  <a class="deployment-target" href="/docs/vercel">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/vercel.svg" alt="" />
+    </span>
+    <strong>Vercel</strong>
+  </a>
+  <a class="deployment-target" href="/docs/netlify">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/netlify.svg" alt="" />
+    </span>
+    <strong>Netlify</strong>
+  </a>
+  <a class="deployment-target" href="/docs/cloudflare">
+    <span class="deployment-target-mark">
+      <img src="/integration-logos/cloudflare.svg" alt="" />
+    </span>
+    <strong>Cloudflare</strong>
+  </a>
+  <a class="deployment-target" href="/docs/other-platforms#aws-lambda">
+    <span class="deployment-target-mark text-mark">AWS</span>
+    <strong>AWS Lambda</strong>
+  </a>
+  <a class="deployment-target" href="/docs/other-platforms#deno-deploy">
+    <span class="deployment-target-mark text-mark">D</span>
+    <strong>Deno Deploy</strong>
+  </a>
 </div>
 ```
 
 ```css
-.diagram-boot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-boot .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-boot .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-Concretely, each data store calls an internal `ensureTable()` function the first time it's used. That function checks the database's own catalog (Postgres's `information_schema`, for example) and only issues `CREATE TABLE`, `ADD COLUMN`, or `CREATE INDEX` for what is genuinely missing. Those are **DDL** statements, short for Data Definition Language, the part of SQL that shapes tables rather than reading or writing the rows inside them.
-
-### Reducing cold-start latency on serverless {#reducing-cold-start}
-
-On a long-lived server, this check runs once per boot and you likely never notice it. Serverless platforms work differently. A **cold start** is when the platform spins up a brand-new instance of your server to handle a request, and on serverless, "first touch" can mean every cold start, across roughly 57 different stores. That adds up to a few hundred round trips before a request does any real work.
-
-Three things keep that in check:
-
-- **Batched introspection.** Instead of one query per table, column, and index, the checks above run as a single introspection pass per database, just two queries total. This is automatic and needs no configuration.
-- **Automatic skip on managed serverless.** Netlify Functions, AWS Lambda, and Vercel Functions all skip this check entirely in production, with no setup required.
-- **`AGENT_NATIVE_SKIP_ENSURE_TABLES=1`.** Set this on deployments the automatic skip doesn't cover, such as a long-lived Node server, Docker, or another self-hosted setup, once your schema is already migrated and you don't want application boot creating or altering tables.
-
-<Callout tone="risk">
-
-Neither the flag nor the automatic serverless skip can fail closed. If a table really is missing, the first real query that needs it fails loudly instead of being silently repaired. That's deliberate (a silent repair would hide a real migration bug), but it means you own the migration story from here. Don't set this flag, and don't rely on the automatic skip, on a deployment that depends on application boot to create its own tables.
-
-</Callout>
-
-Deploying more than one app to a single origin, or self-hosting a workspace
-with Docker Compose, is its own page: see
-[Workspace Deployment](/docs/workspace-deployment).
-
-## How It Works {#how-it-works}
-
-When you run `npx @agent-native/core@latest build`, Nitro builds both the client SPA and the server API into `.output/`:
-
-<FileTree
-  id="doc-block-1vbo81"
-  title="Build output"
-  entries={[
-    {
-      path: ".output/",
-      note: "self-contained, copy to any environment and run",
-    },
-    {
-      path: ".output/public/",
-      note: "built SPA (static assets)",
-    },
-    {
-      path: ".output/server/index.mjs",
-      note: "server entry point",
-    },
-    {
-      path: ".output/server/chunks/",
-      note: "server code chunks",
-    },
-  ]}
-/>
-
-The output is self-contained. Copy `.output/` to any environment and run it.
-
-<Diagram id="doc-block-1gqwzzp" title="Build to deploy" summary={"One source tree builds to a Nitro preset. The same self-contained output runs on Node, Vercel, Netlify, Cloudflare, AWS, or Deno. Every instance points at the same persistent DATABASE_URL."}>
-
-```html
-<div class="diagram-deploy">
-  <div class="diagram-box" data-rough>App source</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">build</span
-    ><small class="diagram-muted">Nitro preset</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-grid">
-    <span class="diagram-pill">Node.js</span
-    ><span class="diagram-pill">Vercel</span
-    ><span class="diagram-pill">Netlify</span
-    ><span class="diagram-pill">Cloudflare</span
-    ><span class="diagram-pill">AWS Lambda</span
-    ><span class="diagram-pill">Deno</span>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    Persistent DATABASE_URL<br /><small class="diagram-muted"
-      >shared by every instance</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-deploy {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-deploy .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-deploy .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-.diagram-deploy .diagram-grid {
+.deployment-target-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
+  gap: 10px;
+}
+.deployment-target {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: 10px;
+  color: inherit;
+  text-decoration: none;
+}
+.deployment-target:hover {
+  border-color: hsl(var(--primary));
+}
+.deployment-target-mark {
+  display: grid;
+  width: 30px;
+  height: 30px;
+  place-items: center;
+  flex: 0 0 auto;
+}
+.deployment-target-mark img {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+}
+.deployment-target-mark.text-mark {
+  border-radius: 7px;
+  background: hsl(var(--muted));
+  font-size: 12px;
+  font-weight: 700;
+}
+@media (max-width: 640px) {
+  .deployment-target-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 ```
 
 </Diagram>
 
-## Setting the Preset {#setting-the-preset}
+## Advanced deployment
 
-By default, Nitro builds for Node.js. To target a different platform, set the preset in your `vite.config.ts`:
+Start with the path above. Use these pages when you need provider-specific
+settings or production controls:
 
-```ts
-import { agentNative } from "@agent-native/core/vite";
-import { defineConfig } from "vite";
+- [**Node.js & Docker**](/docs/node-docker) - run the default preset directly or in a container
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), and [**Cloudflare**](/docs/cloudflare) - configure the main hosted targets
+- [**Other Platforms**](/docs/other-platforms) - deploy to AWS Lambda or Deno Deploy
+- [**SSR Caching**](/docs/ssr-caching) - configure the public shell cache
+- [**Deployment Environment Variables**](/docs/deployment-environment-variables) - production secrets, runtime flags, and workspace inheritance
+- [**Production Agent Access**](/docs/actions-agent-tools) - control framework tools and code execution
+- [**Updating UI in Production**](/docs/updating-ui-in-production) - understand the managed visual-editing workflow
 
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
 
-Or use the `NITRO_PRESET` environment variable at build time:
-
-```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
-```
-
-See the page for your platform for build and deploy details:
-
-- [**Node.js & Docker**](/docs/node-docker) — the default preset, plus a standalone Dockerfile
-- [**Vercel**](/docs/vercel)
-- [**Netlify**](/docs/netlify) — includes keep-warm for scale-to-zero databases
-- [**Cloudflare**](/docs/cloudflare) — Pages and Workers
-- [**Other Platforms**](/docs/other-platforms) — AWS Lambda and Deno Deploy
-
-The default SSR shell cache policy, and how to override it with
-`AGENT_NATIVE_SSR_CACHE`, is its own page: see [SSR Caching](/docs/ssr-caching).
-
-The full production environment variable reference (build/runtime, required
-secrets, auth, webhooks, security opt-ins, workspace `.env` inheritance, and
-generating strong secrets) is its own page: see
-[Deployment: Environment Variables](/docs/deployment-environment-variables).
-
-What framework tools and code-execution capabilities a deployed production
-agent has, through `frameworkTools` and `codeExecution`, is its own page: see
-[Production Agent Access](/docs/actions-agent-tools).
-
-How a deployed app's UI gets updated after launch, including Builder.io's
-separate managed workflow for visual editing in production, is its own page:
-see [Updating UI in Production](/docs/updating-ui-in-production).
-
-## Multi-instance deploys {#multi-instance}
-
-Agent-native apps store all state in SQL via Drizzle and sync the UI via [polling](/docs/key-concepts#polling-sync) against the database. There's no file-system state, no sticky sessions, and no in-memory caches. That means multi-instance and serverless deployments work out of the box: point every instance at the same `DATABASE_URL` and they converge automatically. See [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) and [Portability](/docs/key-concepts#hosting-agnostic).
+For compatibility with older links, the local Docker quickstart now lives on
+[Node.js & Docker](/docs/node-docker#self-host-quickstart). Schema setup and
+cold-start guidance live in the [deployment environment reference](/docs/deployment-environment-variables#skip-ensure-tables).
 
 ## What's next
 
-- [**Database**](/docs/server-database#production) — pick a persistent SQL backend before your first production deploy
-- [**Security**](/docs/security) — the production checklist and opt-in flags referenced throughout this page
-- [**Authentication**](/docs/authentication) — OAuth credentials and env vars for the auth mode you choose
-- [**Workspace Deployment**](/docs/workspace-deployment) — ship every app in a workspace to one origin, or self-host one with Docker Compose
-- [**SSR Caching**](/docs/ssr-caching) — the default hard-cache policy and its override
-- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — the full production env var reference
-- [**Production Agent Access**](/docs/actions-agent-tools) — `frameworkTools` and `codeExecution` for a deployed agent
-- [**Multi-App Workspace**](/docs/multi-app-workspace) — the workspace model behind `deploy`'s one-origin build
-- [**Updating UI in Production**](/docs/updating-ui-in-production) — the embedded agent panel vs. Builder.io's cloud frame for production UI edits
-- [**Public Agent Web**](/docs/agent-web-surfaces) — the `robots.txt`, `llms.txt`, and markdown-mirror files a Vite build writes into the deploy output for public routes
+- [**Deploy an app**](/docs/deploy-an-app)
+- [**Deploy a workspace**](/docs/workspace-deployment)
+- [**Database**](/docs/server-database#production)
+- [**Security**](/docs/security)
+- [**Authentication**](/docs/authentication)

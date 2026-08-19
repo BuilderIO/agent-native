@@ -1548,6 +1548,7 @@ const ptBR = {
     fileUploads: "Uploads de arquivos",
     deployment: "Deploy",
     deploymentOverview: "Visão geral",
+    deployAnApp: "Fazer deploy de um app",
     workspaceDeployment: "Deploy do Workspace",
     deploymentNodeDocker: "Node.js e Docker",
     deploymentVercel: "Vercel",

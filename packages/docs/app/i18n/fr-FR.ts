@@ -1553,6 +1553,7 @@ const frFR = {
     fileUploads: "Téléversements",
     deployment: "Déploiement",
     deploymentOverview: "Vue d’ensemble",
+    deployAnApp: "Déployer une application",
     workspaceDeployment: "Déploiement du Workspace",
     deploymentNodeDocker: "Node.js et Docker",
     deploymentVercel: "Vercel",

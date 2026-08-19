@@ -1540,6 +1540,7 @@ const arSA = {
     fileUploads: "تحميلات الملفات",
     deployment: "Deployment",
     deploymentOverview: "نظرة عامة",
+    deployAnApp: "نشر تطبيق",
     workspaceDeployment: "نشر مساحة العمل",
     deploymentNodeDocker: "Node.js و Docker",
     deploymentVercel: "Vercel",

@@ -1552,6 +1552,7 @@ const deDE = {
     fileUploads: "Datei-Uploads",
     deployment: "Deployment",
     deploymentOverview: "Überblick",
+    deployAnApp: "Eine App bereitstellen",
     workspaceDeployment: "Workspace-Deployment",
     deploymentNodeDocker: "Node.js und Docker",
     deploymentVercel: "Vercel",

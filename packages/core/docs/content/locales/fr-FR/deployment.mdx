@@ -1,260 +1,43 @@
 ---
 title: "Déploiement"
-description: "Déployez les applications agent-native sur n'importe quelle plateforme grâce aux préréglages Nitro. Compatible avec Node.js, Vercel, Netlify, Cloudflare, AWS, et plus encore."
+description: "Déployez une application ou un workspace Agent-Native sur une plateforme compatible avec Nitro et une base SQL persistante."
 ---
+
+<!-- i18n-docs-ignore -->
 
 # Déploiement
 
-Les applications agent-native utilisent [Nitro](https://nitro.build) en interne. Cela signifie que vous pouvez déployer sur n'importe quelle plateforme sans aucune modification de configuration. Il suffit de définir un préréglage.
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
 
-## Avant de déployer : choisissez une base de données persistante {#persistent-database}
+Les applications Agent-Native utilisent Nitro. Choisissez le parcours qui correspond à ce que vous déployez :
 
-Une base de données **persistante** est une base dont les données survivent aux redémarrages, aux redéploiements, et à l'exécution sur plusieurs instances de serveur à la fois. C'est ce dont chaque application déployée a besoin.
+<Cards columns={2}>
 
-<Comparison>
+### [Déployer une application](/docs/deploy-an-app)
 
-### Avant
+Construisez une application et lancez-la sur son propre domaine.
 
-Le développement local se replie sur un fichier SQLite à `data/app.db`. C'est pratique sur votre machine, mais ce fichier vit sur le système de fichiers local, que les conteneurs, les previews, et les plateformes serverless peuvent réinitialiser à tout moment.
+### [Déployer un workspace](/docs/workspace-deployment)
 
-### Après
+Exécutez plusieurs applications sous une même origine avec une session partagée.
 
-La production a besoin d'une base de données persistante, comme Postgres ou Turso/libSQL, qui survit aux redémarrages, aux redéploiements, et à l'exécution sur plusieurs instances à la fois.
+</Cards>
 
-</Comparison>
+## Avant le déploiement : choisissez une base persistante {#persistent-database}
 
-Connecter une base de données prend trois étapes :
+Chaque application déployée a besoin d'une base SQL persistante. Définissez `DATABASE_URL` dans l'environnement de déploiement avant le premier déploiement de production. Ajoutez `DATABASE_AUTH_TOKEN` si votre fournisseur utilise un jeton séparé.
 
-<Steps>
+Une application autonome a besoin d'un `BETTER_AUTH_SECRET` stable. Un workspace avec des requêtes signées entre applications a besoin de `A2A_SECRET`.
 
-### Choisissez un fournisseur
+## Cibles prises en charge
 
-Tout hébergeur compatible Postgres (Neon, Supabase, Railway, RDS, et similaires) ou une base de données libSQL/Turso fonctionne. Agent-native lit et écrit via [Drizzle](https://orm.drizzle.team), une bibliothèque TypeScript qui transforme votre schéma en requêtes typées au lieu de SQL écrit à la main, de sorte que le même code d'application fonctionne avec n'importe laquelle d'entre elles.
+Agent-Native prend en charge Node.js, Vercel, Netlify, Cloudflare, AWS Lambda et Deno Deploy.
 
-### Obtenez une chaîne de connexion
+Consultez la [référence des variables d'environnement de déploiement](/docs/deployment-environment-variables) pour les réglages avancés, les secrets et la production.
 
-Votre fournisseur vous donne une URL qui identifie la base de données et la façon de l'atteindre, par exemple `postgres://user:pass@host:5432/dbname`.
+## Suite
 
-### Définissez `DATABASE_URL`
-
-Définissez-la dans les variables d'environnement de votre fournisseur de déploiement avant votre premier déploiement en production. Agent-native lit l'URL et détecte automatiquement quel **dialecte** (quel moteur de base de données sous-jacent, Postgres ou SQLite/libSQL) utiliser. Voir [Base de données](/docs/server-database#production) pour la liste complète des adaptateurs.
-
-</Steps>
-
-<Callout tone="info">
-
-Vous utilisez Turso ou un autre fournisseur libSQL qui s'authentifie avec un jeton séparé ? Définissez `DATABASE_AUTH_TOKEN` en plus de `DATABASE_URL`. Vous construisez un [workspace](/docs/multi-app-workspace) avec plusieurs applications ? Chaque application hérite par défaut de la `DATABASE_URL` racine. Définissez `<APP_NAME>_DATABASE_URL` uniquement pour l'application qui a besoin d'une base de données différente.
-
-</Callout>
-
-### Configuration automatique du schéma {#skip-ensure-tables}
-
-Vous n'avez pas besoin d'une étape de migration séparée pour démarrer. La première fois qu'une partie de votre application touche la base de données, agent-native vérifie si les tables, colonnes, et index dont elle a besoin existent déjà, et crée ce qui manque. Cela se produit une fois par démarrage du serveur et est invisible en usage normal.
-
-<Diagram id="doc-block-2ddlboot1" title="Ce qui se passe au premier contact" summary={"Chaque magasin de données vérifie son propre schéma une fois par démarrage et crée ce qui manque avant de servir une véritable requête."}>
-
-```html
-<div class="diagram-boot">
-  <div class="diagram-box" data-rough>Le serveur démarre</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">ensureTable()</span
-    ><small class="diagram-muted">vérifie le schéma de chaque magasin</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    Prêt<br /><small class="diagram-muted"
-      >tables/colonnes manquantes créées</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-boot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-boot .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-boot .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-Concrètement, chaque magasin de données appelle une fonction interne `ensureTable()` la première fois qu'il est utilisé. Cette fonction vérifie le propre catalogue de la base de données (`information_schema` de Postgres, par exemple) et n'émet des instructions `CREATE TABLE`, `ADD COLUMN`, ou `CREATE INDEX` que pour ce qui manque réellement. Ce sont des instructions **DDL**, abréviation de Data Definition Language, la partie de SQL qui façonne les tables plutôt que de lire ou écrire les lignes qu'elles contiennent.
-
-### Réduire la latence de démarrage à froid en serverless {#reducing-cold-start}
-
-Sur un serveur à durée de vie longue, cette vérification s'exécute une fois par démarrage et vous ne la remarquez probablement jamais. Les plateformes serverless fonctionnent différemment. Un **démarrage à froid** (cold start) survient lorsque la plateforme démarre une toute nouvelle instance de votre serveur pour traiter une requête, et en serverless, le « premier contact » peut se produire à chaque démarrage à froid, sur environ 57 magasins différents. Cela représente quelques centaines d'allers-retours avant qu'une requête n'effectue un véritable travail.
-
-Trois choses limitent cela :
-
-- **Introspection groupée.** Au lieu d'une requête par table, colonne, et index, les vérifications ci-dessus s'exécutent en une seule passe d'introspection par base de données, seulement deux requêtes au total. Ceci est automatique et ne nécessite aucune configuration.
-- **Saut automatique sur le serverless géré.** Netlify Functions, AWS Lambda, et Vercel Functions sautent tous entièrement cette vérification en production, sans configuration nécessaire.
-- **`AGENT_NATIVE_SKIP_ENSURE_TABLES=1`.** Définissez cette variable sur les déploiements que le saut automatique ne couvre pas, comme un serveur Node à durée de vie longue, Docker, ou une autre configuration auto-hébergée, une fois que votre schéma est déjà migré et que vous ne voulez pas que le démarrage de l'application crée ou modifie des tables.
-
-<Callout tone="risk">
-
-Ni le drapeau ni le saut automatique en serverless ne peuvent échouer de manière sécurisée (fail closed). Si une table est réellement manquante, la première requête réelle qui en a besoin échoue bruyamment au lieu d'être réparée silencieusement. C'est délibéré (une réparation silencieuse masquerait un véritable bug de migration), mais cela signifie que vous êtes désormais responsable de la stratégie de migration. Ne définissez pas ce drapeau, et ne comptez pas sur le saut automatique, sur un déploiement qui dépend du démarrage de l'application pour créer ses propres tables.
-
-</Callout>
-
-Déployer plusieurs applications sur une seule origine, ou auto-héberger un
-workspace avec Docker Compose, fait l'objet de sa propre page : voir
-[Déploiement de workspace](/docs/workspace-deployment).
-
-## Comment ça marche {#how-it-works}
-
-Lorsque vous exécutez `npx @agent-native/core@latest build`, Nitro construit à la fois le SPA client et l'API serveur dans `.output/` :
-
-<FileTree
-  id="doc-block-1vbo81"
-  title="Sortie de build"
-  entries={[
-    {
-      path: ".output/",
-      note: "autonome, copiez vers n'importe quel environnement et exécutez",
-    },
-    {
-      path: ".output/public/",
-      note: "SPA construit (assets statiques)",
-    },
-    {
-      path: ".output/server/index.mjs",
-      note: "point d'entrée du serveur",
-    },
-    {
-      path: ".output/server/chunks/",
-      note: "segments de code serveur",
-    },
-  ]}
-/>
-
-La sortie est autonome. Copiez `.output/` vers n'importe quel environnement et exécutez-la.
-
-<Diagram id="doc-block-1gqwzzp" title="Du build au déploiement" summary={"Un seul arbre source construit vers un préréglage Nitro. La même sortie autonome s'exécute sur Node, Vercel, Netlify, Cloudflare, AWS, ou Deno. Chaque instance pointe vers la même DATABASE_URL persistante."}>
-
-```html
-<div class="diagram-deploy">
-  <div class="diagram-box" data-rough>Code source de l'application</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">build</span
-    ><small class="diagram-muted">préréglage Nitro</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-grid">
-    <span class="diagram-pill">Node.js</span
-    ><span class="diagram-pill">Vercel</span
-    ><span class="diagram-pill">Netlify</span
-    ><span class="diagram-pill">Cloudflare</span
-    ><span class="diagram-pill">AWS Lambda</span
-    ><span class="diagram-pill">Deno</span>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    DATABASE_URL persistante<br /><small class="diagram-muted"
-      >partagée par chaque instance</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-deploy {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-deploy .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-deploy .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-.diagram-deploy .diagram-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-```
-
-</Diagram>
-
-## Définir le préréglage {#setting-the-preset}
-
-Par défaut, Nitro construit pour Node.js. Pour cibler une plateforme différente, définissez le préréglage dans votre `vite.config.ts` :
-
-```ts
-import { agentNative } from "@agent-native/core/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
-
-Ou utilisez la variable d'environnement `NITRO_PRESET` au moment du build :
-
-```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
-```
-
-Consultez la page de votre plateforme pour les détails de build et de déploiement :
-
-- [**Node.js & Docker**](/docs/node-docker) — le préréglage par défaut, plus un Dockerfile autonome
-- [**Vercel**](/docs/vercel)
-- [**Netlify**](/docs/netlify) — inclut le maintien à chaud pour les bases de données scale-to-zero
-- [**Cloudflare**](/docs/cloudflare) — Pages et Workers
-- [**Autres plateformes**](/docs/other-platforms) — AWS Lambda et Deno Deploy
-
-La politique de cache par défaut de la coquille SSR, et comment la surcharger avec
-`AGENT_NATIVE_SSR_CACHE`, fait l'objet de sa propre page : voir [Mise en cache SSR](/docs/ssr-caching).
-
-La référence complète des variables d'environnement de production (build/runtime,
-secrets requis, authentification, webhooks, options de sécurité, héritage `.env`
-de workspace, et génération de secrets solides) fait l'objet de sa propre page : voir
-[Déploiement : Variables d'environnement](/docs/deployment-environment-variables).
-
-Les outils du framework et les capacités d'exécution de code dont dispose un
-agent de production déployé, via `frameworkTools` et `codeExecution`, font l'objet
-de leur propre page : voir
-[Accès de l'agent de production](/docs/actions-agent-tools).
-
-Comment l'interface d'une application déployée est mise à jour après le lancement, y compris
-le workflow géré séparé de Builder.io pour l'édition visuelle en production, fait l'objet
-de sa propre page : voir [Mettre à jour l'interface en production](/docs/updating-ui-in-production).
-
-## Déploiements multi-instances {#multi-instance}
-
-Les applications agent-native stockent tout leur état en SQL via Drizzle et synchronisent l'interface via le [polling](/docs/key-concepts#polling-sync) auprès de la base de données. Il n'y a pas d'état de système de fichiers, pas de sessions collantes, et pas de caches en mémoire. Cela signifie que les déploiements multi-instances et serverless fonctionnent immédiatement : pointez chaque instance vers la même `DATABASE_URL` et elles convergent automatiquement. Voir [Concepts clés — Données en SQL](/docs/key-concepts#data-in-sql) et [Portabilité](/docs/key-concepts#hosting-agnostic).
-
-## Et ensuite
-
-- [**Base de données**](/docs/server-database#production) — choisissez un backend SQL persistant avant votre premier déploiement en production
-- [**Sécurité**](/docs/security) — la checklist de production et les drapeaux optionnels référencés tout au long de cette page
-- [**Authentification**](/docs/authentication) — identifiants OAuth et variables d'environnement pour le mode d'authentification choisi
-- [**Déploiement de workspace**](/docs/workspace-deployment) — déployez chaque application d'un workspace vers une seule origine, ou auto-hébergez-en une avec Docker Compose
-- [**Mise en cache SSR**](/docs/ssr-caching) — la politique de cache dur par défaut et sa surcharge
-- [**Déploiement : Variables d'environnement**](/docs/deployment-environment-variables) — la référence complète des variables d'environnement de production
-- [**Accès de l'agent de production**](/docs/actions-agent-tools) — `frameworkTools` et `codeExecution` pour un agent déployé
-- [**Workspace multi-application**](/docs/multi-app-workspace) — le modèle de workspace derrière le build à origine unique de `deploy`
-- [**Mettre à jour l'interface en production**](/docs/updating-ui-in-production) — le panneau agent intégré face au cadre cloud de Builder.io pour les modifications d'interface en production
-- [**Web agent public**](/docs/agent-web-surfaces) — les fichiers `robots.txt`, `llms.txt`, et miroirs markdown qu'un build Vite écrit dans la sortie de déploiement pour les routes publiques
+- [Déployer une application](/docs/deploy-an-app)
+- [Déployer un workspace](/docs/workspace-deployment)
+- [Base de données](/docs/server-database#production)

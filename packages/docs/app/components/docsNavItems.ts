@@ -822,6 +822,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             slug: "deployment",
           },
           {
+            id: "deploy-an-app",
+            labelKey: "deployAnApp",
+            slug: "deploy-an-app",
+          },
+          {
             id: "workspace-deployment",
             labelKey: "workspaceDeployment",
             slug: "workspace-deployment",
