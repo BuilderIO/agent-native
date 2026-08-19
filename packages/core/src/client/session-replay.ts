@@ -1702,6 +1702,7 @@ function isFinalFlushReason(reason: string): boolean {
     "auth-cleared",
     "manual",
     "pagehide",
+    "pagehide-persisted",
     "beforeunload",
     "url-blocked",
     "max-duration",
@@ -1711,7 +1712,13 @@ function isFinalFlushReason(reason: string): boolean {
 function flushReasonPriority(reason: string): number {
   // Unload reasons must retain their keepalive sequence reservation even when
   // another final request (for example, an explicit manual stop) is coalesced.
-  if (reason === "pagehide" || reason === "beforeunload") return 3;
+  if (
+    reason === "pagehide" ||
+    reason === "pagehide-persisted" ||
+    reason === "beforeunload"
+  ) {
+    return 3;
+  }
   if (isFinalFlushReason(reason)) return 2;
   if (reason === "visibility-hidden") return 1;
   return 0;
@@ -1729,7 +1736,7 @@ function mergePendingFlushReason(
 
 function shouldReserveSequenceBeforeKeepalive(reason: string): boolean {
   return (
-    reason === "pagehide" ||
+    (reason === "pagehide" || reason === "pagehide-persisted") ||
     reason === "beforeunload" ||
     reason === "visibility-hidden"
   );
@@ -2347,8 +2354,14 @@ function installLifecycleListeners(state: SessionReplayState): void {
       void flushSessionReplay("visibility-hidden");
     }
   };
-  const flushOnUnload = () => {
-    void flushSessionReplay("pagehide");
+  const flushOnUnload = (event: PageTransitionEvent) => {
+    // pagehide also fires when the document enters BFCache. That page is
+    // expected to resume capture on pageshow, so keep the timeout fence's
+    // restart behavior for persisted pagehide while retaining terminal
+    // unload semantics for an actual document teardown.
+    void flushSessionReplay(
+      event.persisted ? "pagehide-persisted" : "pagehide",
+    );
   };
   document.addEventListener("visibilitychange", flushOnHidden);
   window.addEventListener("pagehide", flushOnUnload);

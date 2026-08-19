@@ -658,6 +658,55 @@ describe("session replay", () => {
     }
   });
 
+  it("restarts after a persisted pagehide upload timeout for BFCache", async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchMock, fireWindowEvent } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      vi.stubGlobal("AbortController", undefined);
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const replay = await freshSessionReplay();
+
+      await replay.startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxEventsPerBatch: 10,
+        flushIntervalMs: 100_000,
+      });
+
+      let resolveUpload!: (response: Response) => void;
+      fetchMock.mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveUpload = resolve;
+          }),
+      );
+      recordOptions.emit({ type: 3, data: { href: "/bfcache" } });
+      fireWindowEvent("pagehide", { persisted: true });
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(recordMock).toHaveBeenCalledTimes(1);
+
+      resolveUpload(new Response("{}"));
+      await vi.advanceTimersByTimeAsync(0);
+      expect(recordMock).toHaveBeenCalledTimes(2);
+
+      fetchMock.mockResolvedValue(new Response("{}"));
+      recordOptions.emit({ type: 2, data: { href: "/resumed" } });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      await replay.stopSessionReplay();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("aborts a hung replay upload instead of holding the flush lock forever", async () => {
     const { fetchMock } = installBrowser("https://app.agent-native.com/inbox", {
       email: "dev@example.com",
