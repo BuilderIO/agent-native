@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.164.1
+
+### Patch Changes
+
+- 5a05b04: Connect signed-in users to Builder's managed AI gateway with least-privilege OAuth, encrypted per-user token custody, refresh, and revocation while preserving legacy Builder credentials for uncovered integrations.
+
 ## 0.164.0
 
 ### Minor Changes
