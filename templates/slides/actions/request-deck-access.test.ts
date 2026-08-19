@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const state = vi.hoisted(() => ({
   requesterEmail: "requester@example.com" as string | null,
@@ -7,7 +7,15 @@ const state = vi.hoisted(() => ({
     id: "deck-1",
     title: "Quarterly Review",
     ownerEmail: "owner@example.com",
-  } as { id: string; title: string; ownerEmail: string | null } | undefined,
+    visibility: "private" as "private" | "org" | "public",
+  } as
+    | {
+        id: string;
+        title: string;
+        ownerEmail: string | null;
+        visibility: "private" | "org" | "public";
+      }
+    | undefined,
   access: null as { role?: string } | null,
   emailConfigured: true,
   inAppNotification: true,
@@ -108,6 +116,7 @@ vi.mock("../server/db/index.js", () => ({
       id: "decks.id",
       title: "decks.title",
       ownerEmail: "decks.owner_email",
+      visibility: "decks.visibility",
     },
     deckEvents: {
       id: "deck_events.id",
@@ -160,6 +169,7 @@ beforeEach(() => {
     id: "deck-1",
     title: "Quarterly Review",
     ownerEmail: "owner@example.com",
+    visibility: "private",
   };
   state.access = null;
   state.emailConfigured = true;
@@ -170,6 +180,10 @@ beforeEach(() => {
   state.previousRequests = [];
   state.insertedRows = [];
   state.updatedPayload = null;
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe("request-deck-access", () => {
@@ -220,6 +234,7 @@ describe("request-deck-access", () => {
       id: "deck-1",
       title: "Quarterly Review",
       ownerEmail: "Owner@Example.com",
+      visibility: "private",
     };
 
     await action.run({ deckId: "deck-1" });
@@ -254,6 +269,25 @@ describe("request-deck-access", () => {
       emailNotified: false,
       notifiedOwner: true,
     });
+  });
+
+  it("does not record access requests for non-private decks", async () => {
+    state.deck = {
+      id: "deck-1",
+      title: "Quarterly Review",
+      ownerEmail: "owner@example.com",
+      visibility: "org",
+    };
+
+    await expect(action.run({ deckId: "deck-1" })).resolves.toEqual({
+      ok: true,
+      alreadyHasAccess: false,
+      alreadyRequested: false,
+      notifiedOwner: false,
+      message: "Access requests are only available for private decks.",
+    });
+    expect(state.insertedRows).toHaveLength(0);
+    expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
   it("retries only the notification channel that failed", async () => {
@@ -339,6 +373,65 @@ describe("request-deck-access", () => {
       requestId: "access-request-existing",
     });
     expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("renews a notification claim while delivery is still in flight", async () => {
+    vi.useFakeTimers();
+    let resolveDelivery!: (value: {
+      notification: { id: string };
+      deliveredChannels: string[];
+    }) => void;
+    const pendingDelivery = new Promise<{
+      notification: { id: string };
+      deliveredChannels: string[];
+    }>((resolve) => {
+      resolveDelivery = resolve;
+    });
+    notifyWithDelivery.mockImplementationOnce(() => pendingDelivery);
+    const requestId = "access-request-existing";
+    state.previousRequests = [
+      {
+        id: requestId,
+        payload: JSON.stringify({
+          requesterEmail: "REQUESTER@example.com",
+          inAppNotified: false,
+          emailNotified: false,
+          notifiedOwner: false,
+        }),
+      },
+    ];
+
+    const firstRequest = action.run({ deckId: "deck-1" });
+    await vi.waitFor(() => expect(notifyWithDelivery).toHaveBeenCalledOnce());
+    const firstClaim = JSON.parse(state.previousRequests[0].payload as string);
+
+    await vi.advanceTimersByTimeAsync(120_000);
+
+    const renewedClaim = JSON.parse(
+      state.previousRequests[0].payload as string,
+    );
+    expect(renewedClaim.notificationClaimToken).toBe(
+      firstClaim.notificationClaimToken,
+    );
+    expect(Date.parse(renewedClaim.notificationClaimedAt)).toBeGreaterThan(
+      Date.parse(firstClaim.notificationClaimedAt),
+    );
+    await expect(action.run({ deckId: "deck-1" })).resolves.toMatchObject({
+      alreadyRequested: true,
+      notifiedOwner: false,
+      requestId,
+    });
+    expect(notifyWithDelivery).toHaveBeenCalledOnce();
+
+    resolveDelivery({
+      notification: { id: "notification-1" },
+      deliveredChannels: ["inbox", "email"],
+    });
+    await expect(firstRequest).resolves.toMatchObject({
+      alreadyRequested: true,
+      notifiedOwner: true,
+      requestId,
+    });
   });
 
   it("reports a durable request when delivery status cannot be persisted", async () => {

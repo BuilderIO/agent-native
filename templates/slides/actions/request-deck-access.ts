@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core";
 import { notifyWithDelivery } from "@agent-native/core/notifications";
@@ -60,6 +60,7 @@ type AccessRequestPayload = {
   inAppNotified?: boolean;
   emailNotified?: boolean;
   notificationClaimedAt?: string;
+  notificationClaimToken?: string;
 };
 
 type AccessRequestNotificationState = {
@@ -70,6 +71,9 @@ type AccessRequestNotificationState = {
 };
 
 const NOTIFICATION_CLAIM_TTL_MS = 5 * 60 * 1000;
+const NOTIFICATION_CLAIM_HEARTBEAT_MS = Math.floor(
+  NOTIFICATION_CLAIM_TTL_MS / 3,
+);
 
 function parseAccessRequestPayload(
   payload: string | null | undefined,
@@ -208,6 +212,7 @@ export default defineAction({
       const claimedPayload: AccessRequestPayload = {
         ...payload,
         notificationClaimedAt: new Date().toISOString(),
+        notificationClaimToken: randomUUID(),
       };
       try {
         const [claimed] = await db
@@ -228,6 +233,75 @@ export default defineAction({
         return null;
       }
     };
+    const renewNotificationClaim = async (
+      requestId: string,
+      claimedPayload: AccessRequestPayload,
+    ): Promise<AccessRequestPayload | null> => {
+      const renewedPayload: AccessRequestPayload = {
+        ...claimedPayload,
+        notificationClaimedAt: new Date().toISOString(),
+      };
+      try {
+        const [renewed] = await db
+          .update(schema.deckEvents)
+          .set({
+            payload: JSON.stringify(renewedPayload),
+          })
+          .where(
+            and(
+              eq(schema.deckEvents.id, requestId),
+              eq(schema.deckEvents.payload, JSON.stringify(claimedPayload)),
+            ),
+          )
+          .returning({ id: schema.deckEvents.id });
+        return renewed ? renewedPayload : null;
+      } catch (error) {
+        // Keep the current payload so the next heartbeat can retry a
+        // transient database failure without dropping the claim.
+        console.warn("[deck-access] notification claim renewal failed:", error);
+        return claimedPayload;
+      }
+    };
+    const notifyWithClaimHeartbeat = async (
+      requestId: string,
+      claimedPayload: AccessRequestPayload,
+      notify: () => Promise<AccessRequestNotificationState>,
+    ): Promise<{
+      state: AccessRequestNotificationState;
+      claimedPayload: AccessRequestPayload;
+    }> => {
+      let currentPayload = claimedPayload;
+      let stopped = false;
+      let renewalInFlight = Promise.resolve();
+      const renew = () => {
+        if (stopped) return renewalInFlight;
+        renewalInFlight = renewalInFlight.then(async () => {
+          if (stopped) return;
+          const renewedPayload = await renewNotificationClaim(
+            requestId,
+            currentPayload,
+          );
+          if (renewedPayload) currentPayload = renewedPayload;
+        });
+        return renewalInFlight;
+      };
+      const heartbeat = setInterval(renew, NOTIFICATION_CLAIM_HEARTBEAT_MS);
+      let deliveredState: AccessRequestNotificationState | null = null;
+      try {
+        deliveredState = await notify();
+      } finally {
+        stopped = true;
+        clearInterval(heartbeat);
+        await renewalInFlight;
+      }
+      if (!deliveredState) {
+        throw new Error("Notification delivery did not return a state.");
+      }
+      return {
+        state: deliveredState,
+        claimedPayload: currentPayload,
+      };
+    };
     const recordNotification = async (
       requestId: string,
       claimedPayload: AccessRequestPayload,
@@ -240,6 +314,7 @@ export default defineAction({
         emailNotified: state.emailNotified,
         notifiedOwner: delivered,
         notificationClaimedAt: undefined,
+        notificationClaimToken: undefined,
         ...(delivered ? { notifiedAt: new Date().toISOString() } : {}),
       };
       try {
@@ -270,6 +345,7 @@ export default defineAction({
         id: schema.decks.id,
         title: schema.decks.title,
         ownerEmail: schema.decks.ownerEmail,
+        visibility: schema.decks.visibility,
       })
       .from(schema.decks)
       .where(eq(schema.decks.id, deckId))
@@ -286,6 +362,15 @@ export default defineAction({
         alreadyHasAccess: true,
         notifiedOwner: false,
         message: "You already have access. Refreshing the deck...",
+      };
+    }
+    if ((deck.visibility ?? "private") !== "private") {
+      return {
+        ok: true as const,
+        alreadyHasAccess: false,
+        alreadyRequested: false,
+        notifiedOwner: false,
+        message: "Access requests are only available for private decks.",
       };
     }
 
@@ -372,21 +457,27 @@ export default defineAction({
         };
       }
 
-      const deliveredState = await notifyAccessRequestOwner({
-        deckId,
-        deckTitle: deck.title,
-        ownerEmail,
-        requesterEmail,
-        requesterName: previousPayload?.requesterName?.trim() || requesterName,
-        state: previousState,
-      });
-      const persisted = await recordNotification(
+      const delivery = await notifyWithClaimHeartbeat(
         previousRequestId,
         claimedPayload,
-        deliveredState,
+        () =>
+          notifyAccessRequestOwner({
+            deckId,
+            deckTitle: deck.title,
+            ownerEmail,
+            requesterEmail,
+            requesterName:
+              previousPayload?.requesterName?.trim() || requesterName,
+            state: previousState,
+          }),
+      );
+      const persisted = await recordNotification(
+        previousRequestId,
+        delivery.claimedPayload,
+        delivery.state,
       );
       const notifiedOwner =
-        persisted && notificationWasDelivered(deliveredState);
+        persisted && notificationWasDelivered(delivery.state);
 
       return {
         ok: true as const,
@@ -411,6 +502,7 @@ export default defineAction({
       inAppNotified: false,
       emailNotified: false,
       notificationClaimedAt: requestedAt,
+      notificationClaimToken: randomUUID(),
     };
     const initialPayloadJson = JSON.stringify(initialPayload);
 
@@ -444,20 +536,25 @@ export default defineAction({
       requesterEmail,
       emailConfigured,
     );
-    const deliveredState = await notifyAccessRequestOwner({
-      deckId,
-      deckTitle: deck.title,
-      ownerEmail,
-      requesterEmail,
-      requesterName,
-      state: initialState,
-    });
-    const persisted = await recordNotification(
+    const delivery = await notifyWithClaimHeartbeat(
       requestId,
       initialPayload,
-      deliveredState,
+      () =>
+        notifyAccessRequestOwner({
+          deckId,
+          deckTitle: deck.title,
+          ownerEmail,
+          requesterEmail,
+          requesterName,
+          state: initialState,
+        }),
     );
-    const notifiedOwner = persisted && notificationWasDelivered(deliveredState);
+    const persisted = await recordNotification(
+      requestId,
+      delivery.claimedPayload,
+      delivery.state,
+    );
+    const notifiedOwner = persisted && notificationWasDelivered(delivery.state);
 
     return {
       ok: true as const,
