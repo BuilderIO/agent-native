@@ -384,6 +384,9 @@ const messages = {
     aiNotes: "AI notes",
     summary: "Summary",
     actionItems: "Action items",
+    addActionItem: "Add action item",
+    removeActionItem: "Remove action item",
+    actionItemPlaceholder: "What needs to happen?",
     working: "Working…",
     noActionItems:
       "No action items yet. They appear here after notes are generated from a transcript.",
@@ -974,7 +977,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
   commentsPanel: {
     disabled: "Comments are disabled for this recording.",
     beFirst: "Be the first to comment",
-    leaveNotePanel: "Leave a note at the top of this panel.",
+    leaveNotePanel: "Leave a note at the bottom of this panel.",
     leaveNoteTimestamp: "Leave a note at the current timestamp.",
     leaveComment: "Leave a comment...",
     signInToComment: "Sign in to leave a comment.",
@@ -1119,6 +1122,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "The live transcript will appear here once notes start.",
     me: "Me",
     them: "Them",
+    unknownSpeaker: "Speaker",
     searchTranscript: "Search transcript",
     searchPlaceholder: "Search transcript…",
     searchMatchCount: "{{current}} of {{total}}",
@@ -1331,10 +1335,11 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     cameraOff: "Camera off",
     includeCameraAria: "Include camera in this recording",
     startRecording: "Start recording",
-    micOffConfirmTitle: "Record without a microphone?",
+    micOffConfirmTitle: "Your mic is muted",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration.",
-    startWithoutMic: "Start anyway",
+      "To have sound in your video, you’ll need to unmute your microphone.",
+    startWithoutMic: "Continue",
+    unmuteMicrophone: "Unmute",
     uploadVideo: "Upload video",
     importLoom: "Import Loom",
     importing: "Importing...",
@@ -1413,6 +1418,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will finish saving it.",
     connectStorageToRetryLoom:
       "Connect storage on the next screen: Builder.io (free tier storage + AI) or S3-compatible storage. Clips will retry the import.",
+    leaveConfirmTitle: "Leave and discard this recording?",
+    leaveConfirmDescription:
+      "Your in-progress recording hasn't finished saving. Leaving this page now will discard it.",
+    leaveAndDiscard: "Leave and discard",
   },
   importRoute: {
     pageTitle: "Import Loom — Clips",

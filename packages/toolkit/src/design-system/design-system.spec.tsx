@@ -12,7 +12,8 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "../ui/dropdown-menu.js";
-import { ActionButton } from "./components.js";
+import { Popover, PopoverContent, PopoverTrigger } from "../ui/popover.js";
+import { ActionButton, IconButton } from "./components.js";
 import { defaultDesignSystemComponents } from "./default-adapter.js";
 import { defineDesignSystem } from "./definition.js";
 import { defineTheme } from "./theme.js";
@@ -252,6 +253,80 @@ describe("design-system contract", () => {
       expect(onOpenChange).toHaveBeenLastCalledWith(false);
       expect(trigger?.getAttribute("aria-expanded")).toBe("false");
       expect(trigger?.dataset.state).toBe("closed");
+    },
+  );
+
+  it("forwards a native ref passed to ActionButton to the real DOM button node", () => {
+    let node: HTMLButtonElement | null = null;
+
+    act(() => {
+      root.render(
+        <ActionButton
+          ref={(el) => {
+            node = el;
+          }}
+        >
+          Save
+        </ActionButton>,
+      );
+    });
+
+    const button = container.querySelector("button");
+    expect(button).not.toBeNull();
+    expect(node).toBe(button);
+  });
+
+  it("resolves a Radix asChild Popover trigger's ref to the real IconButton DOM node", async () => {
+    // Radix positions a popover by measuring the DOM node its `asChild`
+    // Slot clones a ref onto. If that ref is dropped, Radix has nothing to
+    // measure and falls back to an unpositioned, off-screen placement.
+    let node: HTMLButtonElement | null = null;
+
+    await act(async () => {
+      root.render(
+        <Popover>
+          <PopoverTrigger asChild>
+            <IconButton
+              label="Manage"
+              icon={<span />}
+              ref={(el) => {
+                node = el;
+              }}
+            />
+          </PopoverTrigger>
+          <PopoverContent>Content</PopoverContent>
+        </Popover>,
+      );
+    });
+
+    const button = container.querySelector("button");
+    expect(button).not.toBeNull();
+    expect(node).toBe(button);
+  });
+
+  it.each([
+    ["IconButton", <IconButton label="Manage" icon={<span />} />],
+    ["ActionButton", <ActionButton>Manage</ActionButton>],
+  ])(
+    "opens a Radix asChild Popover trigger built on %s when clicked",
+    async (_name, trigger) => {
+      // Radix passes its toggle handler down as `onClick`. An adapter that
+      // spreads props and then sets its own `onClick` silently drops it, so
+      // the trigger renders correctly and never opens.
+      await act(async () => {
+        root.render(
+          <Popover>
+            <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+            <PopoverContent>Content</PopoverContent>
+          </Popover>,
+        );
+      });
+
+      const button = container.querySelector("button");
+      await act(async () => {
+        button?.click();
+      });
+      expect(button?.dataset.state).toBe("open");
     },
   );
 

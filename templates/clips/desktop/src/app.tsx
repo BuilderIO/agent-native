@@ -37,16 +37,6 @@ import {
   useState,
 } from "react";
 
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "./components/AlertDialog";
 import { FeedbackButton } from "./components/FeedbackButton";
 import {
   CamIcon,
@@ -58,6 +48,7 @@ import {
   SettingsIcon,
 } from "./components/Icons";
 import { MediaDeviceRow } from "./components/MediaDeviceRow";
+import { MicOffConfirmation } from "./components/MicOffConfirmation";
 import { ReadinessPanel } from "./components/ReadinessPanel";
 import { SourceRow, type CaptureSource } from "./components/SourceRow";
 import { Switch } from "./components/Switch";
@@ -112,6 +103,7 @@ import {
   copyRecordingShareLink,
   recordingShareUrl,
 } from "./lib/recording-link";
+import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
 import {
@@ -3218,16 +3210,14 @@ export function App() {
         bubbleStreamTransferredToRecorder.current = false;
         recordingFlowGateRef.current = false;
         setRecordingFlowActive(false);
-        try {
-          await invoke("set_recording_state", { active: false });
-        } catch {
-          // ignore — best-effort
-        }
-        try {
-          await invoke("show_popover");
-        } catch {
-          // ignore — best-effort
-        }
+        // Bounded, not just best-effort: a plain unbounded await here would
+        // let a stuck native command (e.g. a ScreenCaptureKit handshake that
+        // never returns) turn this "always recovers" block into another
+        // permanent hang on top of the one that just failed — exactly the
+        // "stuck on Preparing…, have to restart" symptom this exists to
+        // prevent.
+        await boundedCleanup(invoke("set_recording_state", { active: false }));
+        await boundedCleanup(invoke("show_popover"));
       }
     }
 
@@ -3331,6 +3321,22 @@ export function App() {
       setMicOffConfirmOpen(true);
       return;
     }
+    void handleStartRecording(options);
+  }
+
+  function closeMicOffConfirmation() {
+    pendingStartOptionsRef.current = undefined;
+    setMicOffConfirmOpen(false);
+  }
+
+  function unmuteFromConfirmation() {
+    setMicOn(true);
+    closeMicOffConfirmation();
+  }
+
+  function continueWithoutMic() {
+    const options = pendingStartOptionsRef.current;
+    closeMicOffConfirmation();
     void handleStartRecording(options);
   }
 
@@ -3961,7 +3967,19 @@ export function App() {
 
   return (
     <div className="app app-recorder" ref={appRef}>
-      <div className="recorder-home-content">
+      {micOffConfirmOpen ? (
+        <MicOffConfirmation
+          onBack={closeMicOffConfirmation}
+          onUnmute={unmuteFromConfirmation}
+          onContinue={continueWithoutMic}
+        />
+      ) : null}
+
+      <div
+        className="recorder-home-content"
+        hidden={micOffConfirmOpen}
+        aria-hidden={micOffConfirmOpen}
+      >
         <Header
           mode={mode}
           onModeChange={setMode}
@@ -4078,35 +4096,6 @@ export function App() {
           </button>
         ) : null}
 
-        <AlertDialog
-          open={micOffConfirmOpen}
-          onOpenChange={(open) => {
-            setMicOffConfirmOpen(open);
-            if (!open) pendingStartOptionsRef.current = undefined;
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Record without a microphone?</AlertDialogTitle>
-              <AlertDialogDescription>
-                Your mic is off, so this recording won&apos;t capture any audio.
-                Turn it on before starting if you want narration.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogAction
-                onClick={() => {
-                  const options = pendingStartOptionsRef.current;
-                  pendingStartOptionsRef.current = undefined;
-                  void handleStartRecording(options);
-                }}
-              >
-                Start anyway
-              </AlertDialogAction>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
         {recError ? (
           recError === MACOS_UPDATE_RESTART_MESSAGE ? (
             <UpdateRestartBanner message={recError} />

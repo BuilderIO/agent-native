@@ -31,6 +31,9 @@ import { Link } from "react-router";
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
   mergeChatFirstWorkspaceApps,
+  isWorkspaceSsoApp,
+  navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppDirectHref,
   workspaceAppEmbedTarget,
   workspaceAppHref,
@@ -244,6 +247,7 @@ export interface WorkspaceAppFrameApp {
 
 interface WorkspaceAppFrameProps {
   app: WorkspaceAppFrameApp;
+  navigateToTopWindow?: (href: string) => boolean | void;
   /** Chat-first app tabs use their own route while standalone hosts use app metadata. */
   embedPath?: string;
   /** Chat-first app surfaces own the parent chat rail around the iframe. */
@@ -253,6 +257,7 @@ interface WorkspaceAppFrameProps {
 
 export function WorkspaceAppFrame({
   app,
+  navigateToTopWindow = navigateToWorkspaceApp,
   embedPath,
   chatSidebar = false,
   copy = defaultChatFirstCopy,
@@ -269,6 +274,8 @@ export function WorkspaceAppFrame({
   const [embedError, setEmbedError] = useState<Error | null>(null);
   const [isDirectFallback, setIsDirectFallback] = useState(false);
   const [embedAttempt, setEmbedAttempt] = useState(0);
+  const [topWindowNavigationFailed, setTopWindowNavigationFailed] =
+    useState(false);
   const embedFrameRef = useRef<HTMLIFrameElement>(null);
   const postThemeToFrame = useCallback(() => {
     embedFrameRef.current?.contentWindow?.postMessage(
@@ -281,6 +288,7 @@ export function WorkspaceAppFrame({
     if (isDirectFallback) setEmbedError(null);
   }, [isDirectFallback, postThemeToFrame]);
   const workspaceSsoEnabled = useFeatureFlag(DISPATCH_WORKSPACE_SSO_FLAG.key);
+  const useWorkspaceSso = workspaceSsoEnabled && isWorkspaceSsoApp(app);
   const createEmbedSession = useActionMutation<
     EmbedSessionResult,
     EmbedSessionInput
@@ -299,6 +307,23 @@ export function WorkspaceAppFrame({
     path: app.path ?? "",
     url: app.url,
   });
+  const topWindowHref = useMemo(() => {
+    if (embedPath !== undefined) {
+      return workspaceAppDirectHref(
+        { path: app.path, url: app.url },
+        embedPath,
+      );
+    }
+
+    const target = workspaceAppEmbedTarget({
+      path: app.path ?? "",
+      url: app.url,
+    });
+    return target.url ?? target.path ?? null;
+  }, [app.path, app.url, embedPath]);
+  const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
+  const topWindowSsoAttemptKey = `${app.id}\u0000${app.path ?? ""}\u0000${app.url ?? ""}\u0000${embedPath ?? ""}\u0000${embedAttempt}`;
+  const topWindowSsoAttemptedRef = useRef<string | null>(null);
   const embedInput = useMemo<EmbedSessionInput | null>(() => {
     if (embedPath !== undefined) {
       return buildChatFirstEmbedSessionInput(app.id, embedPath);
@@ -312,23 +337,79 @@ export function WorkspaceAppFrame({
   }, [app.id, app.path, app.url, appHref, embedPath]);
 
   useEffect(() => {
-    if (!embedInput) return;
+    if (openInTopWindow && useWorkspaceSso && embedInput) {
+      setTopWindowNavigationFailed(false);
+      return;
+    }
+    if (!openInTopWindow) {
+      setTopWindowNavigationFailed(false);
+      return;
+    }
+    if (!topWindowHref) {
+      setTopWindowNavigationFailed(true);
+      return;
+    }
+
+    let didNavigate = false;
+    try {
+      didNavigate = navigateToTopWindow(topWindowHref) !== false;
+    } catch {
+      didNavigate = false;
+    }
+    setTopWindowNavigationFailed(!didNavigate);
+  }, [
+    embedInput,
+    navigateToTopWindow,
+    openInTopWindow,
+    topWindowHref,
+    useWorkspaceSso,
+  ]);
+
+  useEffect(() => {
+    const useTopWindowSso = openInTopWindow && useWorkspaceSso && !!embedInput;
+    if (
+      !embedInput ||
+      (openInTopWindow && !useWorkspaceSso && !topWindowNavigationFailed)
+    ) {
+      return;
+    }
+    if (
+      useTopWindowSso &&
+      topWindowSsoAttemptedRef.current === topWindowSsoAttemptKey
+    ) {
+      return;
+    }
+    if (useTopWindowSso) {
+      topWindowSsoAttemptedRef.current = topWindowSsoAttemptKey;
+    }
     let cancelled = false;
     setEmbedUrl(null);
     setEmbedError(null);
     setIsDirectFallback(false);
-    const createSession = workspaceSsoEnabled
+    const createSession = useWorkspaceSso
       ? createWorkspaceSsoEmbedSession
       : createEmbedSession;
     void createSession
       .mutateAsync(embedInput)
       .then((result) => {
-        if (!cancelled) setEmbedUrl(result.startUrl);
+        if (cancelled) return;
+        if (useTopWindowSso) {
+          let didNavigate = false;
+          try {
+            didNavigate = navigateToTopWindow(result.startUrl) !== false;
+          } catch {
+            didNavigate = false;
+          }
+          setTopWindowNavigationFailed(!didNavigate);
+          setEmbedUrl(didNavigate ? null : result.startUrl);
+          return;
+        }
+        setEmbedUrl(result.startUrl);
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
         const error = cause instanceof Error ? cause : new Error(String(cause));
-        if (workspaceSsoEnabled) {
+        if (useWorkspaceSso) {
           // An SSO-enabled pane must never fall back to the child app's
           // unauthenticated shell. Keep the parent-owned retry surface in
           // place so a transient exchange failure cannot expose another
@@ -336,6 +417,7 @@ export function WorkspaceAppFrame({
           setIsDirectFallback(false);
           setEmbedUrl(null);
           setEmbedError(error);
+          if (useTopWindowSso) setTopWindowNavigationFailed(true);
           return;
         }
         setIsDirectFallback(true);
@@ -359,7 +441,11 @@ export function WorkspaceAppFrame({
     embedInput,
     embedPath,
     embedAttempt,
-    workspaceSsoEnabled,
+    openInTopWindow,
+    navigateToTopWindow,
+    topWindowSsoAttemptKey,
+    topWindowNavigationFailed,
+    useWorkspaceSso,
   ]);
 
   useEffect(() => {
@@ -424,25 +510,62 @@ export function WorkspaceAppFrame({
   );
 }
 
-export function WorkspaceAppHost({ appId }: { appId?: string }) {
+export function WorkspaceAppHost({
+  appId,
+  navigateToTopWindow = navigateToWorkspaceApp,
+}: {
+  appId?: string;
+  navigateToTopWindow?: (href: string) => boolean | void;
+}) {
   const t = useT();
   const workspaceAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
-    { includeAgentCards: false },
+    { includeAgentCards: false, includeArchived: true },
+  );
+  const workspaceApps = useMemo(
+    () => mergeChatFirstWorkspaceApps(workspaceAppsQuery.data),
+    [workspaceAppsQuery.data],
+  );
+  const visibleWorkspaceApps = useMemo(
+    () => workspaceApps.filter((item) => !item.archived),
+    [workspaceApps],
+  );
+  const workspaceAppIds = useMemo(
+    () => new Set(workspaceApps.map((item) => item.id.trim().toLowerCase())),
+    [workspaceApps],
+  );
+  const workspaceApp = useMemo(
+    () =>
+      visibleWorkspaceApps.find(
+        (item) => item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
+      ) ?? null,
+    [appId, visibleWorkspaceApps],
   );
   const grantedAppsQuery = useActionQuery<GrantedWorkspaceAppsResult>(
     "list_apps",
     {},
+    {
+      // Mounted workspace apps are already fully described by the workspace
+      // registry. Defer the broader MCP grant/discovery scan until that
+      // lookup misses; it is only needed for externally granted apps.
+      enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
+    },
   );
   const apps = useMemo(() => {
     const merged = new Map<string, WorkspaceAppSummary>();
 
-    for (const app of mergeChatFirstWorkspaceApps(workspaceAppsQuery.data)) {
+    for (const app of visibleWorkspaceApps) {
       merged.set(app.id.trim().toLowerCase(), app);
     }
     for (const app of grantedAppsQuery.data?.apps ?? []) {
       const id = app.id.trim();
-      if (!id || merged.has(id.toLowerCase())) continue;
+      if (
+        !id ||
+        workspaceAppIds.has(id.toLowerCase()) ||
+        merged.has(id.toLowerCase())
+      ) {
+        continue;
+      }
       merged.set(id.toLowerCase(), {
         id,
         name: app.name.trim() || id,
@@ -453,7 +576,7 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
     }
 
     return [...merged.values()];
-  }, [grantedAppsQuery.data?.apps, workspaceAppsQuery.data]);
+  }, [grantedAppsQuery.data?.apps, visibleWorkspaceApps, workspaceAppIds]);
   const app = useMemo(
     () =>
       apps.find(
@@ -575,7 +698,10 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
       className="flex h-full min-h-0 flex-col bg-background"
     >
       <div className="min-h-0 flex-1 bg-muted/20">
-        <WorkspaceAppFrame app={app} />
+        <WorkspaceAppFrame
+          app={app}
+          navigateToTopWindow={navigateToTopWindow}
+        />
       </div>
     </div>
   );

@@ -116,6 +116,11 @@ describe("CodeAgentsApp full-page chat width", () => {
     expect(css).toMatch(
       /\.code-agents-project-picker--bar \.code-agents-project-select\s*\{[\s\S]*?flex: 0 1 auto;/,
     );
+    const executionTargetRule = css.match(
+      /\.code-agents-project-picker--bar \.code-agents-execution-target-select\s*\{([^}]*)\}/,
+    )?.[1];
+    expect(executionTargetRule).toContain("flex: 0 0 auto;");
+    expect(executionTargetRule).not.toContain("min-width:");
   });
 });
 

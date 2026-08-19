@@ -510,9 +510,6 @@ export function DocumentToolbar({
   const { data: connection } = useNotionConnection();
   const { data: syncStatus } = useDocumentSyncStatus(
     canEdit && !isLocalFileDocument ? documentId : null,
-    {
-      autoSync,
-    },
   );
   const linkDocument = useLinkDocumentToNotion(documentId);
   const unlinkDocument = useUnlinkDocumentFromNotion(documentId);

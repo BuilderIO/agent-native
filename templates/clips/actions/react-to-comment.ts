@@ -44,7 +44,10 @@ export default defineAction({
       if (!existing) throw new Error(`Comment not found: ${args.commentId}`);
 
       if (attempt === 0) {
-        await assertAccess("recording", existing.recordingId, "commenter");
+        // Same floor as add-comment/react-to-recording: any signed-in
+        // viewer with access may react (the `viewerEmail` check above
+        // requires an account).
+        await assertAccess("recording", existing.recordingId, "viewer");
       }
 
       const previousJson = existing.emojiReactionsJson;

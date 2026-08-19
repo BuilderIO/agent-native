@@ -45,6 +45,7 @@ import {
   type PenNode,
   type PenPath,
 } from "@shared/pen-path";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import {
   IconCopy,
   IconDots,
@@ -7998,6 +7999,11 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
     ? canvasFrames.find((entry) => entry.screen.id === singleSelectedFrame.id)
         ?.screen
     : undefined;
+  const singleSelectedFrameIsRunningApp = singleSelectedFrameScreen
+    ? isRunningAppSourceType(
+        getResolvedMetadata(singleSelectedFrameScreen).source,
+      )
+    : false;
   // Overview element selection (a Layers-panel row or an in-canvas click
   // resolving to a specific node) also suppresses the frame box: the parent
   // still carries the screen in `selectedIds` (other UI — z-order, "topmost
@@ -8382,8 +8388,13 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             onStartRotate={(event) =>
               beginRotate(singleSelectedFrame.id, event)
             }
-            onStartDrag={(event) =>
-              beginFrameDrag(singleSelectedFrame.id, event)
+            onStartDrag={
+              // A running app's frame is dragged by its label. Blanketing its
+              // content with a drag surface would make the app unclickable the
+              // moment it is selected, which is most of the time.
+              singleSelectedFrameIsRunningApp
+                ? undefined
+                : (event) => beginFrameDrag(singleSelectedFrame.id, event)
             }
           />
         ) : null}
@@ -9720,9 +9731,13 @@ const Screen = memo(function Screen({
     !isSelected &&
     !groupSelected &&
     !suppressFrameChromeForChild;
+  // A running app's `content` is its URL, so it never "has child layers" — but
+  // its live DOM does, and that DOM is the only thing there is to select.
   const screenContentInteractive =
     Boolean(screenContent) &&
-    (isSelected || hasScreenChildLayers(screen.content)) &&
+    (isSelected ||
+      isRunningAppSourceType(metadata.source) ||
+      hasScreenChildLayers(screen.content)) &&
     !locked &&
     !penActive &&
     !creationToolActive &&

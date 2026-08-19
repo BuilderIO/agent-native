@@ -29,8 +29,15 @@ export function resolveDesktopUpdateSupport(
     };
   }
 
-  // A locally packaged stable app still needs a recovery path to the current
-  // production release. Keep deliberately named non-stable channels isolated.
+  // Local packaged builds must not install a production release behind the
+  // source being tested. Only an explicitly named release build can update.
+  if (buildChannel === "dev") {
+    return {
+      supported: false,
+      reason: "Auto-update is unavailable for local packaged builds",
+    };
+  }
+
   if (buildChannel !== "dev" && buildChannel !== "release") {
     return {
       supported: false,

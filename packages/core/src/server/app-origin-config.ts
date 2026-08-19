@@ -21,8 +21,12 @@ export function resolvePublicAppOriginConfig(): {
   appUrl?: string;
   workspaceGatewayUrl?: string;
   workspaceOAuthOrigin?: string;
+  workspaceRuntime?: boolean;
 } | null {
   const config = getAppConfig();
+  const workspaceRuntime =
+    config.workspace.isWorkspace === true ||
+    typeof config.workspace.appsJson === "string";
   const resolved = {
     ...(config.app.url ? { appUrl: config.app.url } : {}),
     ...(config.workspace.gatewayUrl
@@ -31,6 +35,7 @@ export function resolvePublicAppOriginConfig(): {
     ...(config.workspace.oauthOrigin
       ? { workspaceOAuthOrigin: config.workspace.oauthOrigin }
       : {}),
+    ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
   };
   return Object.keys(resolved).length > 0 ? resolved : null;
 }

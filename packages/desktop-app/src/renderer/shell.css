@@ -598,6 +598,14 @@ body {
   width: min(100%, var(--code-agents-chat-max));
   max-width: var(--code-agents-chat-max);
   box-sizing: border-box;
+  /* The composer frame has an 8px bottom inset; offset the shared 12px flex
+     gap so the visible chat-to-picker spacing is about 10px. */
+  margin-top: -10px;
+}
+
+.desktop-chat-first-hub .code-agents-start .code-agents-overview-footer {
+  /* Keep the Apps section a little more distinct from the picker row. */
+  margin-top: 10px;
 }
 
 .desktop-chat-first-hub--no-chats [data-chat-first-chat-history] {
@@ -1125,7 +1133,7 @@ body {
 }
 
 .desktop-identity-gate__panel {
-  width: min(620px, 100%);
+  width: min(350px, 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1140,22 +1148,22 @@ body {
 }
 
 .desktop-identity-gate__heading {
-  margin-bottom: 28px;
+  margin-bottom: 24px;
 }
 
 .desktop-identity-gate__heading h1 {
   margin: 0;
   color: var(--shell-fg);
-  font-size: 32px;
-  font-weight: 650;
-  letter-spacing: -0.03em;
-  line-height: 1.15;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.2;
 }
 
 .desktop-identity-gate__heading p {
-  margin: 8px 0 0;
+  margin: 4px 0 0;
   color: var(--label-inactive);
-  font-size: 18px;
+  font-size: 13px;
   line-height: 1.35;
 }
 
@@ -1175,14 +1183,14 @@ body {
   justify-content: center;
   gap: 9px;
   width: 100%;
-  min-height: 42px;
-  padding: 12px 14px;
+  min-height: 34px;
+  padding: 8px 12px;
   border: 1px solid var(--shell-fg);
   border-radius: 8px;
   color: var(--shell-bg);
   background: var(--shell-fg);
-  font-size: 13px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   transition:
     background var(--ease),
     border-color var(--ease);
@@ -1203,10 +1211,10 @@ body {
 .desktop-identity-gate__divider {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 14px 0;
+  gap: 12px;
+  margin: 20px 0;
   color: var(--label-inactive);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .desktop-identity-gate__divider::before,
@@ -1220,29 +1228,29 @@ body {
 .desktop-identity-gate__form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
   text-align: left;
 }
 
 .desktop-identity-gate__form label {
-  margin-top: 2px;
+  margin-top: 0;
   color: var(--label-inactive);
-  font-size: 14px;
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .desktop-identity-gate__form input {
   width: 100%;
   box-sizing: border-box;
-  min-height: 52px;
-  padding: 13px 14px;
+  min-height: 36px;
+  padding: 8px 12px;
   border: 1px solid var(--separator);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--shell-fg);
   background: var(--shell-bg);
   font: inherit;
-  font-size: 16px;
+  font-size: 14px;
   outline: none;
 }
 
@@ -1262,18 +1270,18 @@ body {
   line-height: 1.45;
 }
 
-.desktop-identity-gate__submit {
+.desktop-identity-gate__form .desktop-identity-gate__submit {
   width: 100%;
-  min-height: 48px;
-  margin-top: 2px;
-  padding: 10px 14px;
+  min-height: 36px;
+  margin-top: 4px;
+  padding: 8px 12px;
   border: 1px solid var(--separator);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--shell-fg);
   background: var(--surface-active-bg);
   font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
   transition:
     background var(--ease),
@@ -1281,7 +1289,7 @@ body {
   -webkit-app-region: no-drag;
 }
 
-.desktop-identity-gate__submit--primary {
+.desktop-identity-gate__form .desktop-identity-gate__submit--primary {
   border-color: var(--label-active);
   color: var(--shell-bg);
   background: var(--label-active);
@@ -1305,22 +1313,22 @@ body {
   outline-offset: 2px;
 }
 
-.desktop-identity-gate__mode-link {
-  align-self: center;
-  margin-top: 2px;
-  padding: 2px 4px;
+.desktop-identity-gate__form .desktop-identity-gate__mode-link {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 2px 0;
   color: var(--label-inactive);
   background: transparent;
   font: inherit;
-  font-size: 15px;
-  font-weight: 500;
+  font-size: 12px;
+  font-weight: 400;
   text-decoration: underline;
 }
 
 .desktop-identity-gate__legal {
   margin: 0;
   color: var(--label-inactive);
-  font-size: 13px;
+  font-size: 11px;
   line-height: 1.45;
 }
 
@@ -2092,6 +2100,14 @@ body {
 }
 
 .settings-provider-actions .settings-btn {
+  width: auto;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+/* Shared settings rows use compact action controls instead of the legacy
+   overlay's full-width button treatment. */
+.settings-page-tabs-content .agent-native-settings-row__control .settings-btn {
   width: auto;
   margin-bottom: 0;
   white-space: nowrap;
@@ -3168,8 +3184,8 @@ body {
   flex-direction: column;
   gap: 14px;
   padding: 16px 18px 14px;
-  background: #161616;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
   border-radius: 12px;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
   -webkit-app-region: no-drag;
@@ -3216,13 +3232,13 @@ body {
 .update-prompt-title {
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
+  color: hsl(var(--card-foreground));
 }
 
 .update-prompt-subtitle {
   font-size: 12px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, 0.55);
+  color: hsl(var(--muted-foreground));
 }
 
 .update-prompt-actions {
@@ -3246,12 +3262,12 @@ body {
 
 .update-prompt-btn--ghost {
   background: transparent;
-  color: rgba(255, 255, 255, 0.6);
+  color: hsl(var(--muted-foreground));
 }
 
 .update-prompt-btn--ghost:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: hsl(var(--foreground) / 0.06);
+  color: hsl(var(--foreground));
 }
 
 .update-prompt-btn--primary {
@@ -3276,14 +3292,14 @@ body {
   justify-content: center;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.4);
+  color: hsl(var(--muted-foreground) / 0.8);
   border-radius: 5px;
   cursor: pointer;
 }
 
 .update-prompt-close:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.85);
+  background: hsl(var(--foreground) / 0.08);
+  color: hsl(var(--foreground) / 0.85);
 }
 
 /* ─── Full-page settings ──────────────────────────────────────

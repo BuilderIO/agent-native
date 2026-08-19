@@ -325,7 +325,7 @@ function stripPlaceholderZws(root: Element): void {
   }
   for (const textNode of textNodes) {
     if (!textNode.data.includes(ZERO_WIDTH_SPACE)) continue;
-    const withoutZws = textNode.data.replaceAll(ZERO_WIDTH_SPACE, "");
+    const withoutZws = textNode.data.split(ZERO_WIDTH_SPACE).join("");
     if (withoutZws.length > 0) {
       textNode.data = withoutZws;
     } else if (textNode.parentNode?.childNodes.length !== 1) {
@@ -662,9 +662,13 @@ interface SlideEditorProps {
    * reconcile path knows not to replace the deck under an active in-progress
    * edit, even before a `content` update has been flushed.
    */
-  onInlineEditStart?: () => void;
-  /** Called after inline edit mode exits and its draft has been handed off. */
-  onInlineEditEnd?: () => void;
+  onInlineEditStart?: (slideId: string) => void;
+  /** Called after inline edit mode exits and its draft has been handed off.
+   *  Always receives the slide that was actually being edited — the slide
+   *  prop may have already advanced to a new slide by the time this fires
+   *  (see the slide-switch effect), so callers must not substitute their own
+   *  "current slide" state for this argument. */
+  onInlineEditEnd?: (slideId: string) => void;
   /** Other users (besides the current user) currently viewing/editing THIS
    *  slide. Drives the soft same-slide-edit indicator on the canvas so a user
    *  knows before they clobber someone else's last-writer-wins text edit. */
@@ -1183,6 +1187,11 @@ export default function SlideEditor({
     () => getCopiedElementStyle() !== null,
   );
   const contextMenuTargetRef = useRef<HTMLElement | null>(null);
+  const contextMenuTableCellRef = useRef<HTMLTableCellElement | null>(null);
+  const [contextMenuTableInfo, setContextMenuTableInfo] = useState<{
+    rowCount: number;
+    colCount: number;
+  } | null>(null);
   const selectionOverlayMeasurementKey = createSelectionOverlayMeasurementKey({
     slideId: slide.id,
     content,
@@ -1527,6 +1536,13 @@ export default function SlideEditor({
   useEffect(() => {
     onUpdateSlideRef.current = onUpdateSlide;
   }, [onUpdateSlide]);
+  /** Latest onInlineEditEnd in a ref so the unmount cleanup below (which must
+   *  run with a stable, empty dependency array) always calls the current
+   *  version instead of whatever was passed on the very first render. */
+  const onInlineEditEndRef = useRef(onInlineEditEnd);
+  useEffect(() => {
+    onInlineEditEndRef.current = onInlineEditEnd;
+  }, [onInlineEditEnd]);
   const inlineEditDraftRef = useRef<InlineEditContentSnapshot | null>(null);
   const inlineEditInitialContentRef = useRef<InlineEditContentSnapshot | null>(
     null,
@@ -1870,7 +1886,7 @@ export default function SlideEditor({
     ) {
       onUpdateSlideRef.current({ content: html });
     }
-    onInlineEditEnd?.();
+    onInlineEditEnd?.(slide.id);
     inlineEditDraftRef.current = null;
     inlineEditInitialContentRef.current = null;
     const escape = slidesCanvasInteractionCore.escape({
@@ -1910,7 +1926,7 @@ export default function SlideEditor({
       // Mark the deck dirty immediately so SSE/poll refreshes do not replace
       // the deck under an active contentEditable edit, even before the user
       // types and triggers an onUpdateSlide flush.
-      onInlineEditStart?.();
+      onInlineEditStart?.(slide.id);
       // Don't override the selection. The browser's native double-click
       // word-select (or single-click caret) is already on the element from the
       // user's gesture; re-selecting from JS clobbers it. focus() on an
@@ -1953,11 +1969,22 @@ export default function SlideEditor({
       onUpdateSlideRef.current({ content: draft.content }, previousSlideId);
       inlineEditDraftRef.current = null;
     }
-    if (editing || draft) onInlineEditEnd?.();
+    if (editing || draft) onInlineEditEnd?.(previousSlideId);
     inlineEditInitialContentRef.current = null;
 
     previousSlideIdRef.current = slide.id;
   }, [onInlineEditEnd, slide.id]);
+
+  // Editor unmount (navigating away, closing the deck) skips the slide-switch
+  // effect above entirely, so an active edit's "mid-edit" marker would
+  // otherwise never clear and permanently block live sync for that slide.
+  useEffect(() => {
+    return () => {
+      if (editingElRef.current || inlineEditDraftRef.current) {
+        onInlineEditEndRef.current?.(previousSlideIdRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     if (!editingEl) return;
@@ -2608,6 +2635,107 @@ export default function SlideEditor({
     resolveSelectedElement,
   ]);
 
+  const commitTableMutation = useCallback(() => {
+    const html = readCurrentSlideContentHtml();
+    if (html !== null) onUpdateSlideRef.current({ content: html });
+  }, [readCurrentSlideContentHtml]);
+
+  /** Row/column ops below index cells by position, which only holds for a
+   *  regular grid. `colspan`/`rowspan` are valid on imported tables
+   *  (sanitize-slide-html allows them), so every op bails here rather than
+   *  silently touching the wrong cell. */
+  const tableHasMergedCells = useCallback((table: HTMLTableElement) => {
+    return Array.from(table.rows).some((row) =>
+      Array.from(row.cells).some((c) => c.colSpan > 1 || c.rowSpan > 1),
+    );
+  }, []);
+
+  /** Column ops change cell count per row but not col tracks. A colgroup
+   *  (imported decks can carry one — sanitize-slide-html allows it)
+   *  positionally maps each col element to a column, so an unsynced insert
+   *  or delete leaves too few/many tracks and visually misaligns columns.
+   *  Row ops don't touch columns, so this only guards column ops. */
+  const tableHasColgroup = useCallback((table: HTMLTableElement) => {
+    return table.querySelector("colgroup") !== null;
+  }, []);
+
+  const insertTableRow = useCallback(
+    (cell: HTMLTableCellElement, position: "above" | "below") => {
+      const row = cell.closest("tr");
+      const table = row?.closest("table");
+      if (!row || !table || tableHasMergedCells(table)) return;
+      const newRow = row.cloneNode(true) as HTMLTableRowElement;
+      Array.from(newRow.cells).forEach((c) => {
+        c.innerHTML = "";
+      });
+      row.insertAdjacentElement(
+        position === "above" ? "beforebegin" : "afterend",
+        newRow,
+      );
+      commitTableMutation();
+    },
+    [commitTableMutation, tableHasMergedCells],
+  );
+
+  const deleteTableRow = useCallback(
+    (cell: HTMLTableCellElement) => {
+      const row = cell.closest("tr");
+      const table = row?.closest("table");
+      if (
+        !row ||
+        !table ||
+        table.rows.length <= 1 ||
+        tableHasMergedCells(table)
+      ) {
+        return;
+      }
+      row.remove();
+      commitTableMutation();
+    },
+    [commitTableMutation, tableHasMergedCells],
+  );
+
+  const insertTableColumn = useCallback(
+    (cell: HTMLTableCellElement, position: "left" | "right") => {
+      const table = cell.closest("table");
+      if (!table) return;
+      const columnIndex = cell.cellIndex;
+      Array.from(table.rows).forEach((row) => {
+        const refCell = row.cells[columnIndex];
+        if (!refCell) return;
+        if (tableHasMergedCells(table) || tableHasColgroup(table)) return;
+        const newCell = document.createElement(
+          refCell.tagName,
+        ) as HTMLTableCellElement;
+        newCell.className = refCell.className;
+        const style = refCell.getAttribute("style");
+        if (style) newCell.setAttribute("style", style);
+        refCell.insertAdjacentElement(
+          position === "left" ? "beforebegin" : "afterend",
+          newCell,
+        );
+      });
+      commitTableMutation();
+    },
+    [commitTableMutation, tableHasMergedCells, tableHasColgroup],
+  );
+
+  const deleteTableColumn = useCallback(
+    (cell: HTMLTableCellElement) => {
+      const table = cell.closest("table");
+      if (!table) return;
+      const columnIndex = cell.cellIndex;
+      const firstRow = table.rows[0];
+      if (!firstRow || firstRow.cells.length <= 1) return;
+      Array.from(table.rows).forEach((row) => {
+        if (tableHasMergedCells(table) || tableHasColgroup(table)) return;
+        row.cells[columnIndex]?.remove();
+      });
+      commitTableMutation();
+    },
+    [commitTableMutation, tableHasMergedCells, tableHasColgroup],
+  );
+
   // Delete/Backspace removes the selected slide content (single or
   // multi-select). Only active when something is selected for styling (not
   // while inline-editing text, where Backspace should delete a character) and
@@ -2687,6 +2815,23 @@ export default function SlideEditor({
           continue;
         }
         if (el.getAttribute("data-builder-id")) return el;
+        el = el.parentElement;
+      }
+      return null;
+    },
+    [],
+  );
+
+  const findTableCell = useCallback(
+    (
+      target: HTMLElement,
+      slideContent: HTMLElement,
+    ): HTMLTableCellElement | null => {
+      let el: HTMLElement | null = target;
+      while (el && slideContent.contains(el) && el !== slideContent) {
+        if (el.tagName === "TD" || el.tagName === "TH") {
+          return el as HTMLTableCellElement;
+        }
         el = el.parentElement;
       }
       return null;
@@ -4525,7 +4670,6 @@ export default function SlideEditor({
 
       applyMultiSelection(hits);
     };
-
     const onUp = () => finish(false);
     const onCancel = () => finish(true);
     window.addEventListener("pointermove", onMove);
@@ -4838,13 +4982,29 @@ export default function SlideEditor({
       const slideContent = getSlideContent();
       if (!slideContent) {
         contextMenuTargetRef.current = null;
+        contextMenuTableCellRef.current = null;
+        setContextMenuTableInfo(null);
         return;
       }
+
+      const tableCell = readOnly ? null : findTableCell(target, slideContent);
+      contextMenuTableCellRef.current = tableCell;
+      const table = tableCell?.closest("table") ?? null;
+      setContextMenuTableInfo(
+        table
+          ? {
+              rowCount: table.rows.length,
+              colCount: tableCell
+                ? (tableCell.parentElement?.childElementCount ?? 0)
+                : 0,
+            }
+          : null,
+      );
 
       const selectable = findSelectableElement(target, slideContent);
       if (!selectable) {
         contextMenuTargetRef.current = null;
-        clearCanvasSelection();
+        if (!tableCell) clearCanvasSelection();
         return;
       }
 
@@ -4866,8 +5026,10 @@ export default function SlideEditor({
       clearCanvasSelection,
       clearMultiSelection,
       findSelectableElement,
+      findTableCell,
       getSlideContent,
       multiSelection,
+      readOnly,
       selectElementForStyling,
     ],
   );
@@ -5251,7 +5413,11 @@ export default function SlideEditor({
                   >
                     <ContextMenu
                       onOpenChange={(open) => {
-                        if (!open) contextMenuTargetRef.current = null;
+                        if (!open) {
+                          contextMenuTargetRef.current = null;
+                          contextMenuTableCellRef.current = null;
+                          setContextMenuTableInfo(null);
+                        }
                       }}
                     >
                       <ContextMenuTrigger asChild disabled={readOnly}>
@@ -5341,6 +5507,62 @@ export default function SlideEditor({
                         </div>
                       </ContextMenuTrigger>
                       <ContextMenuContent>
+                        {contextMenuTableInfo && (
+                          <>
+                            <ContextMenuItem
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) insertTableRow(cell, "above");
+                              }}
+                            >
+                              {t("styleInspector.insertRowAbove")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) insertTableRow(cell, "below");
+                              }}
+                            >
+                              {t("styleInspector.insertRowBelow")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              disabled={contextMenuTableInfo.rowCount <= 1}
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) deleteTableRow(cell);
+                              }}
+                            >
+                              {t("styleInspector.deleteRow")}
+                            </ContextMenuItem>
+                            <ContextMenuSeparator />
+                            <ContextMenuItem
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) insertTableColumn(cell, "left");
+                              }}
+                            >
+                              {t("styleInspector.insertColumnLeft")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) insertTableColumn(cell, "right");
+                              }}
+                            >
+                              {t("styleInspector.insertColumnRight")}
+                            </ContextMenuItem>
+                            <ContextMenuItem
+                              disabled={contextMenuTableInfo.colCount <= 1}
+                              onSelect={() => {
+                                const cell = contextMenuTableCellRef.current;
+                                if (cell) deleteTableColumn(cell);
+                              }}
+                            >
+                              {t("styleInspector.deleteColumn")}
+                            </ContextMenuItem>
+                            <ContextMenuSeparator />
+                          </>
+                        )}
                         <ContextMenuItem
                           disabled={!hasObjectSelection}
                           onSelect={copySelectedObjects}

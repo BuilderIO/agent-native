@@ -76,6 +76,7 @@ const zhCN = {
     suggestionDeploy: "如何部署到生产环境？",
   },
   errors: {
+    loadingLatest: "正在加载最新版本...",
     notFoundTitle: "页面未找到",
     notFoundBody: "你要查找的页面不存在或已移动。",
     goHome: "返回首页",

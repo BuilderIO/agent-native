@@ -133,3 +133,126 @@ describe("history fidelity: client trim → wire → server engine messages", ()
     );
   });
 });
+
+/**
+ * A prompt cache matches a byte-identical prefix. The trimmer's window ends at
+ * the newest message, so if its START moves every turn the first bytes of the
+ * conversation change every turn and nothing is ever a cache hit — the exact
+ * "moving window invalidates cache-hit" failure. The window start is quantized
+ * so it only moves once per stride; a plain `slice(-MAX)` makes the count below
+ * equal the number of turns.
+ */
+describe("history fidelity: the replayed prefix is stable across turns", () => {
+  const shortTurns = (userTurns: number) => {
+    const messages: unknown[] = [];
+    for (let i = 0; i < userTurns; i++) {
+      messages.push({
+        role: "user",
+        content: [{ type: "text", text: `ask ${i}` }],
+      });
+      messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: `answer ${i}` }],
+      });
+    }
+    // The turn being sent now: its user message travels as `message`.
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: "latest ask" }],
+    });
+    return messages;
+  };
+
+  async function firstHistoryMessage(userTurns: number) {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: `prefix-stability-${userTurns}`,
+    });
+    await drain(
+      adapter.run({
+        messages: shortTurns(userTurns),
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    return JSON.stringify(body.structuredHistory[0]);
+  }
+
+  it("moves the window start once per stride, not once per turn", async () => {
+    const heads: string[] = [];
+    // 12 consecutive turns, all well past the message cap.
+    for (let userTurns = 20; userTurns < 32; userTurns++) {
+      heads.push(await firstHistoryMessage(userTurns));
+    }
+    expect(heads.every((head) => head && head !== "undefined")).toBe(true);
+    // One distinct prefix per stride block. A window that slides every turn
+    // yields 12 — one full cache write per turn for the whole conversation.
+    expect(new Set(heads).size).toBeLessThanOrEqual(4);
+  });
+
+  it("still ends on the most recent completed turn", async () => {
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "prefix-stability-recency",
+    });
+    await drain(
+      adapter.run({
+        messages: shortTurns(20),
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(JSON.stringify(body.structuredHistory)).toContain("answer 19");
+  });
+});
+/**
+ * Reducing a long thread belongs to Observational Memory, which cannot help
+ * with turns the client already dropped before the request left the browser.
+ * The message-count cap is a backstop; what a request carries is bounded by the
+ * char budgets, so short asks keep surviving far past the old cap of 24.
+ */
+describe("history fidelity: user asks survive past the old message cap", () => {
+  it("keeps asks from well beyond 24 messages back", async () => {
+    const messages: unknown[] = [];
+    for (let i = 0; i < 25; i++) {
+      messages.push({
+        role: "user",
+        content: [{ type: "text", text: `ask number ${i}` }],
+      });
+      messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: `answer number ${i}` }],
+      });
+    }
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: "latest ask" }],
+    });
+
+    const fetchSpy = vi.fn().mockResolvedValue(sseResponse([{ type: "done" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "beyond-old-cap",
+    });
+    await drain(
+      adapter.run({
+        messages,
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const delivered = JSON.stringify(
+      JSON.parse(fetchSpy.mock.calls[0][1].body).structuredHistory,
+    );
+    // 50 prior messages of prose fit the word budget, so none of these asks
+    // should have been evicted by a message count.
+    expect(delivered).toContain("ask number 0");
+    expect(delivered).toContain("ask number 12");
+    expect(delivered).toContain("ask number 24");
+  });
+});

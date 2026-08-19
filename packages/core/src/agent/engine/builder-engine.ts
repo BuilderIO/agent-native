@@ -215,12 +215,20 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
+    // The Builder gateway has an "auto" fallback mode, but Agent Native owns
+    // model selection. Always send a concrete model so the gateway cannot
+    // select an organization-level override or another fallback model.
+    const requestedModel = opts.model.trim();
+    const model =
+      requestedModel.length === 0 || requestedModel === "auto"
+        ? BUILDER_DEFAULT_MODEL
+        : requestedModel;
     const messages = engineMessagesToBuilderGatewayAnthropic(opts.messages);
     const tools = engineToolsToAnthropic(opts.tools);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
     const reasoningEffort = normalizeReasoningEffortForModel(
-      opts.model,
+      model,
       opts.reasoningEffort ??
         (typeof thinkingBudget === "number"
           ? mapReasoningEffort(thinkingBudget)
@@ -290,16 +298,16 @@ class BuilderEngine implements AgentEngine {
     }
 
     const gptToolsRequireExplicitNoReasoning =
-      cachedTools.length > 0 && isGPTReasoningModel(opts.model);
+      cachedTools.length > 0 && isGPTReasoningModel(model);
     const body: Record<string, unknown> = {
-      model: opts.model,
+      model,
       messages: cachedMessages,
       ...(systemValue !== undefined ? { system: systemValue } : {}),
       ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
       max_tokens: resolveMaxOutputTokensForEngine(
         this.name,
         opts.maxOutputTokens,
-        opts.model,
+        model,
       ),
       ...(typeof opts.temperature === "number"
         ? { temperature: opts.temperature }
@@ -327,7 +335,7 @@ class BuilderEngine implements AgentEngine {
     // gateway outage are the same capture.
     const payload = JSON.stringify(body);
     const requestShape: EngineRequestShape = {
-      model: opts.model,
+      model,
       payloadBytes: new TextEncoder().encode(payload).length,
       toolCount: cachedTools.length,
       messageCount: cachedMessages.length,
@@ -342,7 +350,7 @@ class BuilderEngine implements AgentEngine {
     const orgLabel = creds.orgName || "unknown-org";
     const tStart = Date.now();
     console.log(
-      `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${opts.model} tools=${tools.length} org=${orgLabel}`,
+      `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${model} tools=${tools.length} org=${orgLabel}`,
     );
 
     const gatewayTimeoutMs = getBuilderGatewayTimeoutMs();
@@ -375,7 +383,7 @@ class BuilderEngine implements AgentEngine {
         if (timedOut || isBuilderGatewayNetworkError(err)) {
           captureBuilderGatewayTransportError(err, {
             phase: "request",
-            model: opts.model,
+            model,
             gatewayUrl,
             timeoutMs: gatewayAbort.effectiveTimeoutMs(),
             timedOut,
@@ -453,7 +461,7 @@ class BuilderEngine implements AgentEngine {
         return;
       }
 
-      yield* parseJsonlStream(reader, opts.model, {
+      yield* parseJsonlStream(reader, model, {
         creditsLane,
         abortSignal: gatewayAbort.signal,
         didGatewayTimeout: gatewayAbort.didTimeout,

@@ -20,6 +20,7 @@ import {
   _nitroStartupRecovery,
   agentNative,
   defineConfig,
+  isFrameworkDynamicDevPath,
   isFrameworkDevPath,
   stripMountedDevApiPath,
 } from "./client.js";
@@ -283,6 +284,85 @@ describe("dev server mounted path helpers", () => {
     expect(isFrameworkDevPath("/docs-extra/_agent-native/ping", "/docs/")).toBe(
       false,
     );
+  });
+
+  it("treats framework and well-known paths as dynamic for the dev forwarder", () => {
+    expect(
+      isFrameworkDynamicDevPath("/_agent-native/speculation-rules.json", "/"),
+    ).toBe(true);
+    expect(
+      isFrameworkDynamicDevPath(
+        "/docs/_agent-native/speculation-rules.json",
+        "/docs/",
+      ),
+    ).toBe(true);
+    expect(
+      isFrameworkDynamicDevPath("/docs/.well-known/agent-card.json", "/docs/"),
+    ).toBe(true);
+    expect(isFrameworkDynamicDevPath("/assets/logo.png", "/")).toBe(false);
+    expect(isFrameworkDynamicDevPath("/favicon.ico", "/")).toBe(false);
+  });
+
+  it("forces Nitro's dev classifier to treat framework assets as dynamic", () => {
+    const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+    plugin.configureServer(server as any);
+    expect(typeof middleware).toBe("function");
+
+    const request: any = {
+      url: "/_agent-native/speculation-rules.json",
+      headers: { accept: "application/json" },
+    };
+    const next = vi.fn();
+    middleware?.(request, {}, next);
+    expect(request.headers.accept).toContain("text/html");
+    expect(request.headers["sec-fetch-dest"]).toBe("empty");
+    expect(next).toHaveBeenCalledOnce();
+
+    const assetRequest: any = {
+      url: "/assets/logo.png",
+      headers: { accept: "image/png" },
+    };
+    middleware?.(assetRequest, {}, vi.fn());
+    expect(assetRequest.headers.accept).toBe("image/png");
+  });
+
+  it("preserves document and iframe destinations for embed-start", () => {
+    const plugin = findPlugin("agent-native-framework-dev-dynamic-forwarder");
+    let middleware: Function | null = null;
+    const server = {
+      config: { base: "/" },
+      middlewares: {
+        use: vi.fn((fn: Function) => {
+          middleware = fn;
+        }),
+      },
+    };
+    plugin.configureServer(server as any);
+
+    for (const destination of ["document", "iframe"]) {
+      const request: any = {
+        url: "/_agent-native/embed/start",
+        headers: {
+          accept: "text/html",
+          "sec-fetch-dest": destination,
+        },
+      };
+      const next = vi.fn();
+
+      middleware?.(request, {}, next);
+
+      expect(request.headers["sec-fetch-dest"]).toBe(destination);
+      expect(next).toHaveBeenCalledOnce();
+    }
   });
 
   it("serves base-prefixed Vite module requests for embed sessions", async () => {
@@ -876,6 +956,16 @@ describe("route warmup config", () => {
     }
   });
 
+  it("embeds the configured deployment lane into the server bundle", () => {
+    const config = defineConfig({
+      agentNativeConfig: { deployment: { environment: "beta" } },
+    });
+
+    expect(
+      config.define?.["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
+    ).toBe(JSON.stringify("beta"));
+  });
+
   it("exposes the build-time GTM container id for SSR bundles", () => {
     const previous = process.env.GTM_CONTAINER_ID;
     process.env.GTM_CONTAINER_ID = "  gtm-UNITTEST123  ";
@@ -918,6 +1008,7 @@ describe("agent-native app config", () => {
     ).toEqual({
       version: 1,
       onboarding: { firstRun: "connect" },
+      deployment: { environment: "local" },
     });
   });
 
@@ -975,6 +1066,7 @@ describe("agent-native app config", () => {
       ).toEqual({
         version: 1,
         onboarding: { firstRun: "connect" },
+        deployment: { environment: "local" },
       });
     } finally {
       process.chdir(previousCwd);
@@ -1011,6 +1103,7 @@ describe("agent-native app config", () => {
       ).toEqual({
         version: 1,
         onboarding: { firstRun: "connect" },
+        deployment: { environment: "local" },
       });
     } finally {
       process.chdir(previousCwd);
@@ -1100,6 +1193,7 @@ describe("agent-native app config", () => {
             required: ["NOTION_API_KEY", "GOOGLE_CLIENT_ID"],
           },
         },
+        deployment: { environment: "local" },
       });
     } finally {
       process.chdir(previousCwd);

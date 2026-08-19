@@ -67,7 +67,32 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
   const followGenerationRef = useRef(0);
   const lastScrollTopRef = useRef(0);
   const lastTouchYRef = useRef<number | null>(null);
+  const pendingAnimationFrameIdsRef = useRef<Set<number>>(new Set());
+  const pendingTimeoutIdsRef = useRef<Set<number>>(new Set());
   const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+
+  const cancelPendingScrolls = useCallback(() => {
+    for (const id of pendingAnimationFrameIdsRef.current) {
+      window.cancelAnimationFrame(id);
+    }
+    pendingAnimationFrameIdsRef.current.clear();
+    for (const id of pendingTimeoutIdsRef.current) {
+      window.clearTimeout(id);
+    }
+    pendingTimeoutIdsRef.current.clear();
+  }, []);
+
+  const scheduleAnimationFrame = useCallback(
+    (callback: FrameRequestCallback) => {
+      let id = 0;
+      id = window.requestAnimationFrame((time) => {
+        pendingAnimationFrameIdsRef.current.delete(id);
+        callback(time);
+      });
+      pendingAnimationFrameIdsRef.current.add(id);
+    },
+    [],
+  );
 
   const isAtBottom = useCallback(
     (el: HTMLElement) =>
@@ -248,14 +273,24 @@ export function useNearBottomAutoscroll<TElement extends HTMLElement>({
   }, [detachFromBottom, enabled, scrollToBottomIfFollowing, updateBottomState]);
 
   const scrollToBottomAfterPaint = useCallback(() => {
+    cancelPendingScrolls();
     const generation = followGenerationRef.current;
     scrollToBottomIfFollowing(generation);
-    requestAnimationFrame(() => {
+    scheduleAnimationFrame(() => {
       scrollToBottomIfFollowing(generation);
-      requestAnimationFrame(() => scrollToBottomIfFollowing(generation));
+      scheduleAnimationFrame(() => scrollToBottomIfFollowing(generation));
     });
-    window.setTimeout(() => scrollToBottomIfFollowing(generation), 80);
-  }, [scrollToBottomIfFollowing]);
+    const timeoutId = window.setTimeout(() => {
+      pendingTimeoutIdsRef.current.delete(timeoutId);
+      scrollToBottomIfFollowing(generation);
+    }, 80);
+    pendingTimeoutIdsRef.current.add(timeoutId);
+  }, [cancelPendingScrolls, scheduleAnimationFrame, scrollToBottomIfFollowing]);
+
+  useEffect(() => {
+    if (!enabled) cancelPendingScrolls();
+    return cancelPendingScrolls;
+  }, [cancelPendingScrolls, enabled]);
 
   const resumeFollowing = useCallback(() => {
     const el = scrollRef.current;

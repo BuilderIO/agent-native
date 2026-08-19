@@ -268,9 +268,13 @@ export default defineEventHandler(async (event) => {
     return { error: "Not found" };
   }
 
+  // Any signed-in viewer with access to the recording may comment or react —
+  // this covers an explicit share at any role (not just "commenter"), org
+  // membership, and a public link, which grants a viewer role that
+  // `resolveAccess` may not surface without an explicit share row.
   const viewerCanComment = Boolean(
     session?.email &&
-    (rec.visibility === "public" || viewerIsOwner || viewerIsOrgMember),
+    (rec.visibility === "public" || viewerAccess || viewerIsOrgMember),
   );
 
   // Expiry check

@@ -6,6 +6,7 @@ import { z } from "zod";
 
 import { formatSlideHtml } from "../server/lib/slide-content-patch.js";
 import { summarizeSlideAnimationTargets } from "../server/lib/validate-slide-animations.js";
+import { normalizeOwnerEmail } from "../shared/ownership.js";
 import { hashSlideContent } from "../shared/slide-fit.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 
@@ -112,6 +113,7 @@ export default defineAction({
     const data = JSON.parse(row.data);
     const slides = data?.slides || [];
     const ownerEmail = getRequestUserEmail();
+    const normalizedOwnerEmail = normalizeOwnerEmail(ownerEmail);
     const selectedSlideIndex =
       args.slideId === undefined
         ? -1
@@ -198,7 +200,9 @@ export default defineAction({
       id: row.id,
       title: row.title || data?.title,
       visibility: row.visibility,
-      createdByMe: ownerEmail ? row.ownerEmail === ownerEmail : false,
+      createdByMe:
+        normalizedOwnerEmail !== null &&
+        normalizeOwnerEmail(row.ownerEmail) === normalizedOwnerEmail,
       designSystemId: row.designSystemId ?? null,
       slideCount: slides.length,
       slideNumbering:

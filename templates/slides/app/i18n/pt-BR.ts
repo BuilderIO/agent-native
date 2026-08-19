@@ -447,6 +447,12 @@ const messages = {
     pasteStyle: "Colar estilo",
     copy: "Copiar",
     paste: "Colar",
+    insertRowAbove: "Inserir linha acima",
+    insertRowBelow: "Inserir linha abaixo",
+    deleteRow: "Excluir linha",
+    insertColumnLeft: "Inserir coluna à esquerda",
+    insertColumnRight: "Inserir coluna à direita",
+    deleteColumn: "Excluir coluna",
   },
   animations: {
     appear: "Aparecer",
@@ -567,7 +573,19 @@ const messages = {
       "Este enlace apunta a una presentación de equipo. Únete al equipo indicado arriba y el deck se abrirá aquí automáticamente.",
     deckUnavailableDescription:
       "Este deck puede haberse eliminado o tu cuenta no tiene acceso.",
-    backToDecks: "Volver a decks",
+    privateDeckTitle: "Este deck é privado",
+    privateDeckDescription:
+      "Peça acesso ao proprietário para abrir este deck. Ele será notificado quando você enviar a solicitação.",
+    signedInAs: "Você está conectado como",
+    accessRequestSentDescription:
+      "O proprietário foi notificado. Você poderá abrir este deck quando o acesso for concedido.",
+    accessRequestRecordedDescription:
+      "Sua solicitação foi registrada. Você poderá abrir este deck quando o acesso for concedido.",
+    requestAccessPending: "Enviando solicitação…",
+    accessRequestSent: "Solicitação enviada",
+    requestAccess: "Solicitar acesso",
+    signInToRequestAccess: "Entre para solicitar acesso",
+    backToDecks: "Voltar aos decks",
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:
