@@ -21,6 +21,15 @@ const credentialState = vi.hoisted(() => ({
   recordBuilderGatewayAuthFailure: vi.fn(async () => {}),
 }));
 
+const oauthState = vi.hoisted(() => ({
+  ownerEmail: undefined as string | undefined,
+  accessToken: null as string | null,
+  stored: false,
+  resolveAccess: vi.fn(),
+  hasSession: vi.fn(),
+  markReconnect: vi.fn(async () => {}),
+}));
+
 const AGENT_NATIVE_UPGRADE_URL =
   "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=gateway_quota_upgrade";
 
@@ -63,6 +72,17 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
     getBuilderGatewayBaseUrl: original.getBuilderGatewayBaseUrl,
   };
 });
+
+vi.mock("../../server/builder-oauth.js", () => ({
+  BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
+  resolveBuilderOAuthRequestAccess: oauthState.resolveAccess,
+  hasBuilderOAuthSession: oauthState.hasSession,
+  markBuilderOAuthReconnectRequired: oauthState.markReconnect,
+}));
+
+vi.mock("../../server/request-context.js", () => ({
+  getRequestUserEmail: vi.fn(() => oauthState.ownerEmail),
+}));
 
 async function collectEvents(iterable: AsyncIterable<any>) {
   const events: any[] = [];
@@ -108,6 +128,22 @@ describe("createBuilderEngine", () => {
     credentialState.builderOrgName = null;
     credentialState.lane = "identity";
     credentialState.recordBuilderGatewayAuthFailure.mockClear();
+    oauthState.ownerEmail = undefined;
+    oauthState.accessToken = null;
+    oauthState.stored = false;
+    oauthState.resolveAccess.mockReset().mockImplementation(async () =>
+      oauthState.accessToken
+        ? {
+            accessToken: oauthState.accessToken,
+            ownerEmail: oauthState.ownerEmail,
+            scopes: ["builder:ai:invoke"],
+          }
+        : null,
+    );
+    oauthState.hasSession
+      .mockReset()
+      .mockImplementation(async () => oauthState.stored);
+    oauthState.markReconnect.mockClear();
     vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
     vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
     vi.stubEnv("BUILDER_USER_ID", "builder-user-123");
@@ -150,6 +186,46 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(stop?.error).toContain("Manage agent > LLM");
     expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
+  });
+
+  it("uses per-user Builder OAuth without legacy space credentials", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(oauthState.resolveAccess).toHaveBeenCalledWith({
+      ownerEmail: "person@example.com",
+      requiredScope: "builder:ai:invoke",
+    });
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://test.example/gateway/v1/messages");
+    expect(init.headers.Authorization).toBe("Bearer oauth-access-token");
+    expect(init.headers["x-builder-api-key"]).toBeUndefined();
+    expect(init.headers["x-builder-user-id"]).toBeUndefined();
+  });
+
+  it("does not fall back to legacy credentials when Builder OAuth custody exists", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.stored = true;
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stop",
+        reason: "error",
+        errorCode: "missing_credentials",
+      }),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("short-circuits with missing-credentials when resolved Builder credentials are incomplete", async () => {
@@ -728,6 +804,32 @@ describe("createBuilderEngine", () => {
       code: "unauthorized",
       message: "Invalid key",
     });
+    expect(oauthState.markReconnect).not.toHaveBeenCalled();
+  });
+
+  it("marks OAuth custody for reconnect on gateway 401 instead of the legacy key fingerprint", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(401, {
+          code: "unauthorized",
+          message: "Invalid token",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events.find((e) => e.type === "stop")?.errorCode).toBe(
+      "builder_auth_error",
+    );
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+    expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
   });
 
   it("maps 403 invalid token to Builder auth stop-error", async () => {

@@ -57,7 +57,9 @@ current factory graph, and executes only the explicit automation prompts that
 are stored in the organization.
 Use the Factory actions as the source of truth. When a user asks to
 create or change a factory, first inspect the current graph, then propose a complete
-versioned graph through save-factory-graph with source=ai and a concise changeSummary.
+versioned graph through save-factory-graph with source=ai, the inspected graphVersion
+as expectedGraphVersion, and a concise changeSummary. Never save a graph from a
+stale read: refresh and re-propose when the action reports a version conflict.
 Never hide a graph change in prose: the visual map and the saved graph must agree.
 The graph is currently a reviewable blueprint, not the runtime router: automation
 markdown resources are the runtime prompts, while enabled triage rules are evaluated
@@ -89,13 +91,15 @@ Builder, auto-approve, or auto-merge those items. Slack clear bugs use the
 thread-preserving start-builder-for-item flow; GitHub and Sentry clear bugs use
 the Builder agent-run flow. Slack repeat reports must be clustered by underlying
 symptom, with one Builder thread for the cluster and 👀 on every grouped report.
-Use /address-feedback for the repository feedback workflow. For pull requests,
-follow review-prs: read the complete diff and review evidence, verify current
-BuilderIO membership, preserve the ultra-scary safety gate, and distinguish
-unknown or unresolved checks from clean ones. Auto-merge also requires a
-verified Factory Builder run. When a user says to do a review-gated item now,
-use the explicit approval action, which records the approver and applies the
-rule's configured executor policy. Keep Slack replies concise and link to the
+After classifying an item, call start-builder-for-item with clearBug true or
+false and a short reason so a skip is recorded. Use /address-feedback for the
+repository feedback workflow. For pull requests, follow review-prs: read the
+complete diff and review evidence, verify current BuilderIO membership, preserve
+the ultra-scary safety gate, and distinguish unknown or unresolved checks from
+clean ones. Auto-merge also requires a verified Factory Builder run. When a user
+says to do a review-gated item now, use the explicit approval action, which
+records the approver and applies the rule's configured executor policy. Keep
+Slack replies concise and link to the
 Factory item when a review is needed. The scheduled builder-io-bot PR babysitter
 posts its exact feedback-fix request through GitHub, persists a 20-minute quiet
 window, and never approves or merges.`,

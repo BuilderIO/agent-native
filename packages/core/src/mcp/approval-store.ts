@@ -3,7 +3,7 @@ import { ensureTableExists } from "../db/ddl-guard.js";
 
 let initPromise: Promise<void> | undefined;
 
-async function ensureApprovalTable(): Promise<void> {
+export async function ensureApprovalTable(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const createSql = `

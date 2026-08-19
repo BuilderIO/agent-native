@@ -171,7 +171,7 @@ Adopter le framework est utile surtout pour ce que vous arrêtez de devoir const
 
 ## Données en SQL {#data-in-sql}
 
-Tout l'état de l'application vit dans une base de données SQL via Drizzle ORM. Les schémas sont indépendants du fournisseur ; les bases de données prises en charge, la configuration `DATABASE_URL` et les règles de portabilité se trouvent dans [Database](/docs/database).
+Tout l'état de l'application vit dans une base de données SQL via Drizzle ORM. Les schémas sont indépendants du fournisseur ; les bases de données prises en charge, la configuration `DATABASE_URL` et les règles de portabilité se trouvent dans [Database](/docs/server-database).
 
 Les magasins SQL Core sont créés automatiquement et disponibles dans chaque template :
 
@@ -287,7 +287,7 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 Le plug-in de chat de l'agent de production met les outils SQL bruts en lecture seule par défaut (`frameworkTools: { database: "read" }`), donc les agents inspectent les données avec `db-schema` / `db-query` et écrivent via les actions typées de l'application. Définissez `database: "write"` (ou `true`) seulement pour les surfaces de maintenance qui doivent exposer `db-exec` / `db-patch`; utilisez `database: "off"` / `false` pour exiger des actions typées pour tout accès aux données.
 
-`frameworkTools` gouverne de la même façon les autres outils propres au framework : partage, commentaires de revue, historique de versions, feature flags, localisation, audit, Context X-Ray, profil, automatisations, docs, resources, web, délégation inter-apps, chat et email. Voir [Production Agent Tools](/docs/deployment#production-agent-tools) pour la liste complète, le preset `"minimal"` et pourquoi désactiver un groupe laisse ses routes HTTP montées.
+`frameworkTools` gouverne de la même façon les autres outils propres au framework : partage, commentaires de revue, historique de versions, feature flags, localisation, audit, Context X-Ray, profil, automatisations, docs, resources, web, délégation inter-apps, chat et email. Voir [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools) pour la liste complète, le preset `"minimal"` et pourquoi désactiver un groupe laisse ses routes HTTP montées.
 
 </Callout>
 
@@ -470,7 +470,7 @@ Le framework n'accorde pas à l'agent intégré un accès ambiant au code source
 
 Deux règles architecturales garantissent la portabilité des applications entre bases de données et hébergeurs :
 
-- **Indépendant de la base de données.** Écrivez les schémas avec `@agent-native/core/db/schema` et les lectures/écritures avec le DSL de requête portable de Drizzle, afin que le même code s'exécute sur n'importe quel fournisseur pris en charge. N'utilisez du SQL brut que pour des migrations additives ou de la maintenance ponctuelle, en le gardant paramétré et indépendant du dialecte. Voir [Database](/docs/database).
+- **Indépendant de la base de données.** Écrivez les schémas avec `@agent-native/core/db/schema` et les lectures/écritures avec le DSL de requête portable de Drizzle, afin que le même code s'exécute sur n'importe quel fournisseur pris en charge. N'utilisez du SQL brut que pour des migrations additives ou de la maintenance ponctuelle, en le gardant paramétré et indépendant du dialecte. Voir [Database](/docs/server-database).
 - **Indépendant de l'hébergement.** Le serveur s'exécute sur Nitro et se compile vers n'importe quelle cible de déploiement. N'utilisez jamais d'API spécifiques à Node (`fs`, `child_process`, `path`) dans les routes ou plugins serveur, et ne supposez jamais un processus serveur persistant. Serverless et edge sont sans état, gardez donc tout l'état dans SQL. Voir [Deployment](/docs/deployment).
 
 ## Agent Resources {#workspace}

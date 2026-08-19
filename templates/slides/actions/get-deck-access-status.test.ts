@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
     | { id: string; visibility: string }
     | undefined,
   access: null as { role?: string } | null,
+  accessProbeError: null as Error | null,
 }));
 
 const limitSelect = vi.hoisted(() =>
@@ -34,7 +35,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   currentAccess: () => ({ userEmail: state.viewerEmail }),
-  resolveAccess: vi.fn(async () => state.access),
+  resolveAccess: vi.fn(async () => {
+    if (state.accessProbeError) throw state.accessProbeError;
+    return state.access;
+  }),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -53,13 +57,14 @@ beforeEach(() => {
   state.viewerName = "Viewer";
   state.deck = { id: "deck-1", visibility: "private" };
   state.access = null;
+  state.accessProbeError = null;
 });
 
 describe("get-deck-access-status", () => {
   it("returns safe private-deck metadata without deck content", async () => {
     const result = await action.run({ deckId: "deck-1" });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       exists: true,
       hasAccess: false,
       signedIn: true,
@@ -68,6 +73,7 @@ describe("get-deck-access-status", () => {
       role: null,
       visibility: "private",
     });
+    expect(result.accessRequestToken).toEqual(expect.any(String));
     expect(result).not.toHaveProperty("data");
   });
 
@@ -97,5 +103,23 @@ describe("get-deck-access-status", () => {
       role: "editor",
       visibility: "org",
     });
+  });
+
+  it("mints a fallback request capability when the access probe fails", async () => {
+    state.viewerEmail = null;
+    state.viewerName = null;
+    state.accessProbeError = new Error("temporary access lookup failure");
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result).toMatchObject({
+      exists: true,
+      hasAccess: false,
+      signedIn: false,
+      viewerEmail: null,
+      viewerName: null,
+      visibility: "private",
+    });
+    expect(result.accessRequestToken).toEqual(expect.any(String));
   });
 });

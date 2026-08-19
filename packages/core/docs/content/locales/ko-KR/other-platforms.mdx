@@ -1,0 +1,27 @@
+---
+title: "기타 플랫폼"
+description: "일치하는 Nitro 프리셋으로 agent-native 앱을 AWS Lambda나 Deno Deploy에 배포하세요."
+---
+
+# 기타 플랫폼
+
+## AWS Lambda {#aws-lambda}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
+});
+```
+
+## Deno Deploy {#deno-deploy}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
+});
+```
+
+## 다음 단계
+
+- [**Deployment**](/docs/deployment) — 첫 프로덕션 배포 전에 영구 데이터베이스와 프리셋을 선택하세요
+- [**Node.js & Docker**](/docs/node-docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare) — 그 외 Nitro 프리셋들

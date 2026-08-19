@@ -81,6 +81,7 @@ import {
   abortTurnDurably,
   subscribeToRun,
   type ActionEntry,
+  type AgentActionSurfaceDetails,
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
@@ -487,14 +488,17 @@ export async function resolveA2ARecoverableArtifactSecret(
   orgId: string | null | undefined = getRequestOrgId(),
 ): Promise<string | undefined> {
   const globalSecret = process.env.A2A_SECRET?.trim();
-  if (globalSecret) return globalSecret;
-  if (!orgId) return undefined;
-  try {
-    const { getOrgA2ASecret } = await import("../org/context.js");
-    return (await getOrgA2ASecret(orgId))?.trim() || undefined;
-  } catch {
-    return undefined;
+  if (orgId) {
+    try {
+      const { getOrgA2ASecret } = await import("../org/context.js");
+      const orgSecret = (await getOrgA2ASecret(orgId))?.trim();
+      if (orgSecret) return orgSecret;
+      // coercion-ok: undefined is the fail-closed result when organization secret lookup throws
+    } catch {
+      return undefined;
+    }
   }
+  return globalSecret || undefined;
 }
 
 export function buildLeanRunPolicyPrompt(
@@ -2151,6 +2155,7 @@ export function createAgentChatPlugin(
                           baseUrl: artifactBaseUrl,
                           includePersistedArtifactMarker: true,
                           persistedArtifactSecret: recoverableArtifactSecret,
+                          delegatedTaskId: context.taskId,
                         },
                       )
                     : null;
@@ -2274,11 +2279,13 @@ export function createAgentChatPlugin(
             return;
           }
 
-          const { responseText, finalText } = assembleA2AFinalResponse(
-            a2aEvents,
-            a2aToolResults,
-            { event: context.event, outcome: a2aOutcome },
-          );
+          const { responseText, finalText, mutationReceipts } =
+            assembleA2AFinalResponse(a2aEvents, a2aToolResults, {
+              event: context.event,
+              outcome: a2aOutcome,
+              persistedArtifactSecret: recoverableArtifactSecret,
+              delegatedTaskId: context.taskId,
+            });
 
           console.log(
             `[A2A] Loop complete. Text: ${responseText.slice(0, 100)}...`,
@@ -2293,6 +2300,18 @@ export function createAgentChatPlugin(
                 type: "text" as const,
                 text: finalText,
               },
+              ...(mutationReceipts.length > 0
+                ? [
+                    {
+                      type: "data" as const,
+                      data: {
+                        kind: "agent-native/mutation-receipts",
+                        version: 1,
+                        receipts: mutationReceipts,
+                      },
+                    },
+                  ]
+                : []),
             ],
           };
         },
@@ -2378,10 +2397,7 @@ export function createAgentChatPlugin(
       // `nativeActionsInDev` or `leanPrompt`), the dev prompt's "invoke
       // template actions via bash" guidance is wrong — use the prod prompt
       // + tool-format action list instead, same as production.
-      const devNative =
-        options?.nativeActionsInDev === true ||
-        leanPrompt ||
-        Boolean(options?.resolveActionSurface);
+      const devNative = options?.nativeActionsInDev === true || leanPrompt;
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
       const getFrameworkPromptActions = (): Record<string, ActionEntry> =>
@@ -2629,8 +2645,11 @@ export function createAgentChatPlugin(
               },
             );
 
+            const persistedArtifactSecret =
+              await resolveA2ARecoverableArtifactSecret();
             return assembleA2AFinalResponse(mcpEvents, mcpToolResults, {
               outcome: mcpOutcome,
+              persistedArtifactSecret,
             }).finalText;
           },
         });
@@ -3768,12 +3787,53 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // template's actions as native tools instead of routing through bash.
         // Templates with structured-arg actions (objects/arrays) need this to
         // avoid round-tripping JSON through the CLI parser.
+        // Request-scoped dev actions are present for authorization and the
+        // `pnpm action` prompt, but remain CLI-only instead of becoming native
+        // tools. The resolver therefore sees the same action names that the
+        // dev prompt can teach without changing the shell-backed dev surface.
+        const requestScopedDevActions = options?.resolveActionSurface
+          ? Object.fromEntries(
+              Object.entries({ ...discoveredActions, ...templateScripts }).map(
+                ([name, entry]) => [name, { ...entry, agentTool: false }],
+              ),
+            )
+          : {};
+        // Keep the local coding registry in every dev handler variant. Native
+        // action mode changes how app actions are called; it must not remove
+        // bash/read/edit/write from Electron's local chat surface.
+        const devScriptRegistry = await createDevScriptRegistry({
+          databaseTools: databaseToolsMode,
+        });
+        const localDevActionNames = new Set(Object.keys(devScriptRegistry));
+        const resolveDevActionSurface = options?.resolveActionSurface
+          ? async (details: AgentActionSurfaceDetails) => {
+              const appActionNames = details.availableActionNames.filter(
+                (name) => !localDevActionNames.has(name),
+              );
+              const surface = await options.resolveActionSurface!({
+                ...details,
+                availableActionNames: appActionNames,
+              });
+              const localActionNames = details.availableActionNames.filter(
+                (name) => localDevActionNames.has(name),
+              );
+              return {
+                allowedActionNames: [
+                  ...new Set([
+                    ...surface.allowedActionNames,
+                    ...localActionNames,
+                  ]),
+                ],
+              };
+            }
+          : undefined;
         const devActions = attachToolSearch(
           leanPrompt
-            ? leanActions
+            ? { ...devScriptRegistry, ...leanActions }
             : devNative
-              ? prodActions
+              ? { ...devScriptRegistry, ...prodActions }
               : {
+                  ...requestScopedDevActions,
                   ...resourceScripts,
                   ...docsScripts,
                   ...(lazyContext ? frameworkContextTool : {}),
@@ -3795,9 +3855,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...coreAttachmentTools,
                   ...browserTools,
                   ...mcpActionEntries,
-                  ...(await createDevScriptRegistry({
-                    databaseTools: databaseToolsMode,
-                  })),
+                  ...devScriptRegistry,
                   // Full-database admin tools (NODE_ENV=development gate — see
                   // dbAdminScripts; also in prodActions so App mode has them too).
                   ...dbAdminScripts,
@@ -3924,7 +3982,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             return options?.prepareRequest?.(details);
           },
-          resolveActionSurface: options?.resolveActionSurface,
+          resolveActionSurface: resolveDevActionSurface,
           skipFilesContext,
           initialToolNames: effectiveInitialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),

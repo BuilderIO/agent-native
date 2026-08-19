@@ -1,5 +1,44 @@
 # @agent-native/dispatch
 
+## 0.31.0
+
+### Minor Changes
+
+- 8690e40: Make automation details inspectable in Dispatch, including the prompt, trigger configuration, capabilities, and past runs.
+
+## 0.30.5
+
+### Patch Changes
+
+- 8e51925: Fix Electron chat feedback around app visibility, local development tools, and run recovery.
+
+## 0.30.4
+
+### Patch Changes
+
+- Updated dependencies [fc85cb2]
+  - @agent-native/toolkit@0.16.7
+
+## 0.30.3
+
+### Patch Changes
+
+- c58cd6e: Preserve verified mutation receipts and exact member identity across Dispatch and A2A delegation.
+
+## 0.30.2
+
+### Patch Changes
+
+- 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
+
+## 0.30.1
+
+### Patch Changes
+
+- a2f21dc: Keep workspace apps inline outside Builder.io embeds.
+- Updated dependencies [a2f21dc]
+  - @agent-native/toolkit@0.16.6
+
 ## 0.30.0
 
 ### Minor Changes

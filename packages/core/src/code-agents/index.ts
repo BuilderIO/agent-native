@@ -93,3 +93,30 @@ export {
   executePendingCodeAgentApproval,
   type ExecuteCodeAgentRunOptions,
 } from "../cli/code-agent-executor.js";
+export {
+  codeAgentSchedulesPath,
+  createCodeAgentSchedule,
+  deleteCodeAgentSchedule,
+  getCodeAgentSchedule,
+  isCodeAgentScheduleDue,
+  listCodeAgentSchedules,
+  markCodeAgentScheduleRun,
+  nextCodeAgentScheduleRunAt,
+  updateCodeAgentSchedule,
+  type CodeAgentScheduleRecord,
+  type CodeAgentScheduleRunPatch,
+  type CodeAgentScheduleScope,
+  type CodeAgentScheduleStatus,
+  type CreateCodeAgentScheduleInput,
+  type UpdateCodeAgentScheduleInput,
+} from "../cli/code-agent-schedules.js";
+export {
+  createCodeAgentThread,
+  listCodeAgentThreadSummaries,
+  messageCodeAgentThread,
+  type CodeAgentThreadSummary,
+  type CreateCodeAgentThreadInput,
+  type CreateCodeAgentThreadResult,
+  type MessageCodeAgentThreadInput,
+  type MessageCodeAgentThreadResult,
+} from "../cli/code-agent-collaboration.js";

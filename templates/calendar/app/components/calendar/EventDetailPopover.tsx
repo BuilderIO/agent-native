@@ -82,6 +82,7 @@ import {
 } from "@/lib/calendar-timezone";
 import {
   attachmentsToDrafts,
+  buildCustomRecurrenceRules,
   buildRecurrenceRules,
   buildReminderPayload,
   dateTimeInTimezoneToIso,
@@ -90,6 +91,7 @@ import {
   getEventEndValidationMessage,
   getLocalTimezone,
   getRecurrencePreset,
+  type CustomRecurrenceDraft,
   remindersToDraftState,
   resolveTimeEditScope,
   type AttachmentDraft,
@@ -468,6 +470,8 @@ interface EventDetailPopoverProps {
   onDismissNew?: (eventId: string, accountEmail?: string) => void;
   /** Called after the popover's visible open state changes through its normal lifecycle. */
   onOpenChange?: (open: boolean) => void;
+  /** Prefer a placement that keeps Day-view detail controls inside the grid. */
+  popoverSide?: "top" | "right" | "bottom" | "left";
   onDraftUpdate?: (
     eventId: string,
     updates: Partial<CalendarEvent> & {
@@ -500,6 +504,7 @@ export function EventDetailPopover({
   onDraftUpdate,
   onDraftCreate,
   onDraftDiscard,
+  popoverSide,
 }: EventDetailPopoverProps) {
   const t = useT();
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
@@ -1307,6 +1312,16 @@ export function EventDetailPopover({
     ],
   );
 
+  const handleSaveCustomRecurrence = useCallback(
+    (draft: CustomRecurrenceDraft) => {
+      saveField({
+        recurrence: buildCustomRecurrenceRules(draft),
+        scope: isRecurringEvent ? "all" : "single",
+      });
+    },
+    [isRecurringEvent, saveField],
+  );
+
   const handleAddAttendee = useCallback(
     (attendee: AttendeeRecipient) => {
       const email = attendee.email.trim().toLowerCase();
@@ -1521,7 +1536,7 @@ export function EventDetailPopover({
       </PopoverTrigger>
       <PopoverContent
         align={isMobile ? "center" : "start"}
-        side={isMobile ? "bottom" : "right"}
+        side={isMobile ? "bottom" : (popoverSide ?? "right")}
         sideOffset={isMobile ? 6 : 8}
         collisionPadding={12}
         className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(420px,calc(100vw-2rem))] flex-col overflow-hidden p-0"
@@ -1790,7 +1805,9 @@ export function EventDetailPopover({
                 <RepeatPicker
                   preset={getRecurrencePreset(recurrenceRules)}
                   referenceDate={event.start}
+                  recurrence={recurrenceRules}
                   onChange={handleSaveRecurrence}
+                  onCustomChange={handleSaveCustomRecurrence}
                 />
               )}
 

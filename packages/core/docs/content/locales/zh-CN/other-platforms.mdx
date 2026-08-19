@@ -1,0 +1,27 @@
+---
+title: "其他平台"
+description: "使用匹配的 Nitro 预设将代理本机应用部署到 AWS Lambda 或 Deno Deploy。"
+---
+
+# 其他平台
+
+## AWS Lambda {#aws-lambda}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
+});
+```
+
+## Deno Deploy {#deno-deploy}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
+});
+```
+
+## 下一步
+
+- [**Deployment**](/docs/deployment) — 在第一次生产部署之前选择一个持久数据库和一个预设
+- [**Node.js & Docker**](/docs/node-docker)、[**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify) 和 [**Cloudflare**](/docs/cloudflare) — 其他 Nitro 预设

@@ -29,7 +29,7 @@ description: "defineAction() の構造 (スキーマ、run、HTTP 設定) と、
     {
       lines: "12-16",
       label: "唯一の実装",
-      note: "`run` の本体が唯一の信頼できる情報源です。UI のボタンもエージェント ツールも、まったく同じこれを実行します。`getDb()` と `schema` は、アプリの `server/db/index.ts` から取得します。[データベース](/docs/database) を参照してください。",
+      note: "`run` の本体が唯一の信頼できる情報源です。UI のボタンもエージェント ツールも、まったく同じこれを実行します。`getDb()` と `schema` は、アプリの `server/db/index.ts` から取得します。[データベース](/docs/server-database) を参照してください。",
     },
   ]}
 />
@@ -271,5 +271,5 @@ POST がデフォルトで、`http: { method: "GET" }` を指定すると GET �
 - [**アクセスと認可**](/docs/actions-access-control) — `agentTool`、`toolCallable`、`authorize`、`ctx` によるスコープ設定
 - [**実行コンテキスト**](/docs/actions-run-context) — `ctx` の全フィールド一覧表
 - [**その他のサーフェス**](/docs/actions-other-surfaces) — ネイティブ チャット UI、CLI、A2A、MCP、標準アクション
-- [**データベース**](/docs/database) — `run()` の中で使う `getDb()`/`schema`
+- [**データベース**](/docs/server-database) — `run()` の中で使う `getDb()`/`schema`
 - [**データと同期**](/docs/client-data) — UI からこのアクションを呼び出す

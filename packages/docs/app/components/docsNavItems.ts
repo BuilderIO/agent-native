@@ -39,20 +39,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "getting-started",
         labelKey: "gettingStarted",
         slug: "getting-started",
-        children: [
-          {
-            id: "getting-started-actions",
-            labelKey: "gettingStartedActions",
-            slug: "getting-started-actions",
-          },
-          {
-            id: "getting-started-pages",
-            labelKey: "gettingStartedPages",
-            slug: "getting-started-pages",
-          },
-        ],
       },
-      { id: "deployment", labelKey: "deployment", slug: "deployment" },
       {
         id: "what-is-agent-native",
         labelKey: "whatIsAgentNative",
@@ -159,6 +146,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "template-content-sync",
             labelKey: "contentSync",
             slug: "template-content-sync",
+          },
+          {
+            id: "template-content-local-files",
+            labelKey: "localFileMode",
+            slug: "template-content-local-files",
           },
           {
             id: "template-content-developers",
@@ -594,48 +586,23 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             labelKey: "actionsAdvanced",
             slug: "actions-advanced",
           },
+          {
+            id: "actions-agent-tools",
+            labelKey: "actionsAgentTools",
+            slug: "actions-agent-tools",
+          },
         ],
       },
-      {
-        id: "human-approval",
-        labelKey: "humanApproval",
-        slug: "human-approval",
-      },
-      {
-        id: "agent-web-surfaces",
-        labelKey: "publicAgentWeb",
-        slug: "agent-web-surfaces",
-      },
-      { id: "database", labelKey: "database", slug: "database" },
       {
         id: "internationalization",
         labelKey: "internationalization",
         slug: "internationalization",
-      },
-      {
-        id: "local-file-mode",
-        labelKey: "localFileMode",
-        slug: "local-file-mode",
       },
       { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
       {
         id: "environment-variables",
         labelKey: "environmentVariables",
         slug: "environment-variables",
-      },
-      { id: "progress", labelKey: "progress", slug: "progress" },
-      {
-        id: "agents-group",
-        labelKey: "agents",
-        draft: true,
-        children: [
-          {
-            id: "agents-overview",
-            labelKey: "agentsOverview",
-            slug: "agents",
-            draft: true,
-          },
-        ],
       },
     ],
   },
@@ -803,9 +770,15 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "externalAgentsCatalog",
         slug: "external-agents-catalog",
       },
+      {
+        id: "agent-web-surfaces",
+        labelKey: "publicAgentWeb",
+        slug: "agent-web-surfaces",
+      },
       { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
       { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
       { id: "notifications", labelKey: "notifications", slug: "notifications" },
+      { id: "progress", labelKey: "progress", slug: "progress" },
       {
         id: "automation-connectors",
         labelKey: "automationConnectors",
@@ -839,6 +812,63 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
       { id: "frames", labelKey: "frames", slug: "frames" },
+      {
+        id: "deployment-section",
+        labelKey: "deployment",
+        children: [
+          {
+            id: "deployment",
+            labelKey: "deploymentOverview",
+            slug: "deployment",
+          },
+          {
+            id: "deploy-an-app",
+            labelKey: "deployAnApp",
+            slug: "deploy-an-app",
+          },
+          {
+            id: "workspace-deployment",
+            labelKey: "workspaceDeployment",
+            slug: "workspace-deployment",
+          },
+          {
+            id: "node-docker",
+            labelKey: "deploymentNodeDocker",
+            slug: "node-docker",
+          },
+          {
+            id: "vercel",
+            labelKey: "deploymentVercel",
+            slug: "vercel",
+          },
+          {
+            id: "netlify",
+            labelKey: "deploymentNetlify",
+            slug: "netlify",
+          },
+          {
+            id: "cloudflare",
+            labelKey: "deploymentCloudflare",
+            slug: "cloudflare",
+          },
+          {
+            id: "other-platforms",
+            labelKey: "deploymentOtherPlatforms",
+            slug: "other-platforms",
+          },
+          { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
+          {
+            id: "deployment-environment-variables",
+            labelKey: "deploymentEnvironmentVariables",
+            slug: "deployment-environment-variables",
+          },
+          {
+            id: "updating-ui-in-production",
+            labelKey: "updatingUiInProduction",
+            slug: "updating-ui-in-production",
+          },
+        ],
+      },
     ],
   },
   {

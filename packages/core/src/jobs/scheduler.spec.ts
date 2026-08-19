@@ -15,6 +15,16 @@ const resourcePutMock = vi.hoisted(() => vi.fn());
 const resourcePutIfCurrentMock = vi.hoisted(() => vi.fn());
 const resourceGetByPathMock = vi.hoisted(() => vi.fn());
 const createThreadMock = vi.hoisted(() => vi.fn());
+const getThreadMock = vi.hoisted(() =>
+  vi.fn(async () => ({
+    id: "thread-1",
+    title: "Job: nightly",
+    preview: "",
+    threadData: "{}",
+    messageCount: 0,
+  })),
+);
+const updateThreadDataMock = vi.hoisted(() => vi.fn(async () => {}));
 const runAgentLoopMock = vi.hoisted(() => vi.fn());
 const recordUsageMock = vi.hoisted(() => vi.fn());
 const dbExecuteMock = vi.hoisted(() => vi.fn());
@@ -48,6 +58,10 @@ vi.mock("../resources/emitter.js", () => ({
 
 vi.mock("../chat-threads/store.js", () => ({
   createThread: createThreadMock,
+  getThread: getThreadMock,
+  updateThreadData: updateThreadDataMock,
+  withThreadDataLock: async (_threadId: string, fn: () => Promise<unknown>) =>
+    fn(),
 }));
 
 const actionsToEngineToolsMock = vi.hoisted(() => vi.fn(() => []));

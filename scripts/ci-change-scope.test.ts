@@ -17,6 +17,10 @@ test("recognizes documentation surfaces and package metadata", () => {
   assert.equal(isDocsPath("packages/core/CHANGELOG.md"), true);
   assert.equal(isDocsPath(".changeset/docs-refresh.md"), true);
   assert.equal(isDocsPath("scripts/i18n-raw-literal-baseline.txt"), true);
+  assert.equal(
+    isDocsPath("scripts/i18n-localized-doc-coverage-baseline.txt"),
+    true,
+  );
 });
 
 test("does not treat implementation and instruction paths as docs-only", () => {

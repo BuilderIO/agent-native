@@ -413,7 +413,7 @@ function SignInCta() {
 
 Las páginas normales de la aplicación usan una única shell SSR impersonal y almacenable en caché pública para todos los visitantes. `AppProviders` comprueba la sesión en el cliente; en una ruta privada como `/dashboard`, redirige al visitante anónimo a `/sign-in?return=%2Fdashboard` antes de montar la interfaz privada. Tras iniciar sesión, vuelve a `/dashboard`. Usa `isPublicPath` para rutas públicas o de SEO, o `sessionBypass` para una superficie autenticada mediante otro mecanismo limitado, como un token de inserción MCP.
 
-Cuánto tiempo se almacena en caché esa shell es una configuración de toda la implementación — consulta [SSR Caching](/docs/deployment#ssr-caching) para `AGENT_NATIVE_SSR_CACHE`. Acortar o desactivar la caché solo cambia la duración; el SSR sigue renderizando la rama anónima con las cookies eliminadas.
+Cuánto tiempo se almacena en caché esa shell es una configuración de toda la implementación — consulta [SSR Caching](/docs/ssr-caching) para `AGENT_NATIVE_SSR_CACHE`. Acortar o desactivar la caché solo cambia la duración; el SSR sigue renderizando la rama anónima con las cookies eliminadas.
 
 ### Detrás de escena: Google OAuth
 

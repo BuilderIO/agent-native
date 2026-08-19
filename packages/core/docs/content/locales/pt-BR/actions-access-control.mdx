@@ -83,7 +83,143 @@ Use isso apenas para actions seguras, somente leitura, ou apenas de ingestão, o
 
 Um punhado de actions é consequencial demais para deixar o agente executar por conta própria, como enviar um e-mail, cobrar um cartão ou excluir uma conta. Defina `needsApproval: true` (ou um predicado `(args, ctx) => boolean | Promise<boolean>`) em `defineAction()`, e o loop pausa antes de `run()`, exigindo que um humano aprove aquela chamada específica. O padrão é **desligado**, e quase toda action deveria continuar assim.
 
-Veja [Human-in-the-Loop Approvals](/docs/human-approval) para a API do predicado, o evento `approval_required`, e o fluxo completo de ponta a ponta.
+<Callout tone="warning">
+  Mantenha as aprovações raras. Toda action com portão é uma parada total no
+  loop do agente. Ela interrompe a execução e exige uma ida e volta com um
+  humano. Use `needsApproval` apenas para operações genuinamente consequenciais,
+  difíceis de desfazer e voltadas para fora. Se você perceber que está colocando
+  portão em leituras ou escritas rotineiras, está usando o recurso de forma
+  errada. O padrão é **desligado**, e quase toda action deveria continuar assim.
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="Colocando portão na única action consequencial"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "O portão inteiro",
+      note: "Uma única flag. Quando ela é truthy e a chamada ainda não foi aprovada, o loop para antes de `run`. O modelo nunca alcança o efeito colateral por conta própria.",
+    },
+    {
+      lines: "11-13",
+      label: "run() continua intocado",
+      note: "O handler continua o mesmo. A aprovação é aplicada pelo loop ao redor dele, não por nada dentro de `run`.",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** sempre exige aprovação.
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** exige aprovação apenas quando o predicado retorna true. Use isso para colocar portão de forma condicional, por exemplo apenas para destinatários externos ou apenas acima de um determinado valor em dinheiro:
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  Mantenha o predicado puro e rápido. Se o predicado lançar um erro, o framework trata a chamada da mesma forma que trataria se o predicado tivesse retornado true, então a action pausa para aprovação em vez de ser executada. Isso significa que um predicado quebrado nunca pode deixar, silenciosamente, uma action consequencial rodar sem que um humano a aprove primeiro.
+
+Quando `needsApproval` é omitido, o comportamento permanece idêntico byte a byte. Não há custo extra no caminho comum.
+
+Isso funciona da mesma forma para actions legadas no estilo `parameters` e para actions baseadas em schema. Também funciona da mesma forma para o agente dentro do app, sub-agentes, A2A e chamadores MCP, porque toda superfície de agente passa pelo mesmo loop.
+
+### Como o loop pausa {#loop}
+
+Quando o agente chama uma action com portão e esta chamada específica **ainda não** foi aprovada, o loop **não** executa `run()`. Em vez disso, ele:
+
+1. Resolve o portão. Para um predicado, o loop chama `needsApproval(input, ctx)`. Se essa chamada lançar um erro, o loop trata o resultado da mesma forma que trataria um resultado `true`, então a action passa a exigir aprovação.
+2. Emite um evento `tool_start` (para que a UI mostre a chamada), seguido imediatamente por um evento **`approval_required`**, e então interrompe o turno. O efeito colateral da action nunca acontece.
+
+O evento `approval_required` carrega tudo o que o cliente precisa para renderizar um controle:
+
+| Campo         | Tipo     | Notas                                                                      |
+| ------------- | -------- | -------------------------------------------------------------------------- |
+| `tool`        | `string` | O nome da action que o agente tentou chamar.                               |
+| `input`       | object   | Os argumentos que o agente passou.                                         |
+| `approvalKey` | `string` | **Chave estável** que o cliente devolve para aprovar _esta chamada exata_. |
+| `toolCallId`  | `string` | O id da chamada de ferramenta do lado do modelo, quando disponível.        |
+
+`approvalKey` é derivada de forma determinística a partir do nome da ferramenta mais sua entrada, então a mesma chamada lógica sempre produz a mesma chave. O modelo nunca a vê nem a define. Ela existe apenas como um handshake entre o framework e o controle de Aprovar do humano.
+
+A ferramenta pausada retorna um resultado avisando ao modelo que o turno está pausado e que ele não deve tentar novamente, para que o modelo não fique repetindo a tentativa sem parar.
+
+### Como o humano aprova {#approve}
+
+Quando ocorre `approval_required`, a UI de chat renderiza um controle de **Aprovar / Negar** na chamada de ferramenta pausada. Isso já vem conectado automaticamente em `AssistantChat`. Você não precisa construir isso para cada template.
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **Aprovar** reenvia o turno como uma mensagem de continuação comum que carrega a chave da chamada em `approvedToolCalls: [approvalKey]`. No turno reenviado, o portão vê a chave no conjunto aprovado e deixa aquela chamada específica rodar normalmente.
+- **Negar** descarta o controle localmente. Nada é reenviado, então a action nunca roda.
+
+`approvedToolCalls` é um campo na requisição de chat (`AgentChatRequest.approvedToolCalls`). Chaves que não estão presentes nele continuam pausadas. Aprovar uma chamada nunca aprova nenhuma outra chamada. Como a chave é content-addressed (derivada do conteúdo da chamada), uma aprovação só autoriza aquela chamada exata, com aqueles argumentos exatos. Se o modelo depois propuser um envio diferente, isso vira uma nova chave e precisa da sua própria aprovação, feita do zero.
+
+### Ponta a ponta {#flow}
+
+<Diagram id="doc-block-2nor1g" title="A interrupção de aprovação" summary={"Uma chamada com portão pausa o turno antes que run() dispare. A aprovação reenvia o turno carregando a chave da chamada. Só então o efeito colateral acontece."}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>O agente chama send-email</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>Portão verdadeiro, chamada ainda não aprovada</strong
+    ><small class="diagram-muted"
+      >o loop emite tool_start + approval_required { tool, input, approvalKey
+      }</small
+    ><span class="diagram-pill warn">run() ainda não foi executado</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    O humano clica em Aprovar no chat<br /><small class="diagram-muted"
+      >o cliente reenvia o turno com approvedToolCalls: [approvalKey]</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >O portão reconhece a chave &rarr; run() é executado &rarr; o e-mail é
+      enviado</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+A action `send-email` do template Mail é o uso canônico deste portão no framework, e ele é intencionalmente raro. Ela define `needsApproval: true` para que o agente possa rascunhar e enfileirar e-mails livremente. Ela nunca consegue de fato enviar uma mensagem sem que um humano aprove aquele envio específico.
 
 ## Restringir chamadores por função {#authorize}
 
@@ -220,7 +356,7 @@ Mais algumas opções. `audit: { onRead: true }` audita uma leitura sensível, c
 - [**Visão geral**](/docs/actions-overview) — o que é uma action e o passo a passo hello-world
 - [**Definindo Actions**](/docs/actions-defining) — anatomia de `defineAction()`, schema e configuração de HTTP
 - [**Contexto de Execução**](/docs/actions-run-context) — o argumento `ctx` que essas verificações leem
-- [**Human-in-the-Loop Approvals**](/docs/human-approval) — a porta `needsApproval` em profundidade
+- [**Mail**](/docs/template-mail) — `send-email` é o exemplo de referência para `needsApproval`
 - [**Audit Log**](/docs/audit-log) — a trilha automática de quem-mudou-o-quê
 - [**Security**](/docs/security) — `accessFilter`/`assertAccess` e o limite de confiança do iframe de extensão
 - [**Sharing**](/docs/sharing) — o sistema de sharing do framework que esses helpers usam por trás

@@ -72,9 +72,19 @@ export interface DesktopAppChatShellProps {
   appId: string;
   appName: string;
   children: ReactNode;
+  desktopIdentityUnauthenticated?: boolean;
+  desktopIdentityAuthenticated?: boolean;
+  isActive?: boolean;
   onLocalCodeChangeStarted?: (
     result: DesktopPrepareLocalCodeChangeResult,
   ) => void;
+}
+
+export function shouldAnimateDesktopAppChatSidebar(input: {
+  isActive: boolean;
+  hasSwitchedAway: boolean;
+}): boolean {
+  return input.isActive && !input.hasSwitchedAway;
 }
 
 type LocalCodeChangeState =
@@ -87,9 +97,14 @@ export default function DesktopAppChatShell({
   appId,
   appName,
   children,
+  desktopIdentityUnauthenticated = false,
+  desktopIdentityAuthenticated = false,
+  isActive = true,
   onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
   const shellRootRef = useRef<HTMLDivElement>(null);
+  const hasBeenActiveRef = useRef(isActive);
+  const hasSwitchedAwayRef = useRef(false);
   const [apiUrl, setApiUrl] = useState<string | null>(null);
   const [localAgentModels, setLocalAgentModels] = useState<
     CodeAgentModelOption[]
@@ -99,6 +114,19 @@ export default function DesktopAppChatShell({
   const [localCodeChangePrompt, setLocalCodeChangePrompt] = useState("");
   const [localCodeChange, setLocalCodeChange] = useState<LocalCodeChangeState>({
     status: "idle",
+  });
+
+  useEffect(() => {
+    if (isActive) {
+      hasBeenActiveRef.current = true;
+    } else if (hasBeenActiveRef.current) {
+      hasSwitchedAwayRef.current = true;
+    }
+  }, [isActive]);
+
+  const animateDesktopChatSidebar = shouldAnimateDesktopAppChatSidebar({
+    isActive,
+    hasSwitchedAway: hasSwitchedAwayRef.current,
   });
 
   useEffect(() => {
@@ -424,6 +452,7 @@ export default function DesktopAppChatShell({
               <AgentSidebar
                 position="left"
                 defaultOpen
+                animateDesktop={animateDesktopChatSidebar}
                 openStorageKey="desktop-app-chat"
                 storageKey={`desktop-app-chat:${appId}`}
                 scope={{
@@ -434,6 +463,8 @@ export default function DesktopAppChatShell({
                 }}
                 apiUrl={apiUrl}
                 agentChatSurface="desktop"
+                desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
+                desktopIdentityAuthenticated={desktopIdentityAuthenticated}
                 showTabBar
                 suppressInlineOpenApp
                 dynamicSuggestions={false}

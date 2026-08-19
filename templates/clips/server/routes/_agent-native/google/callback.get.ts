@@ -6,6 +6,7 @@ import {
   oauthErrorPage,
   resolveGoogleSignInCredentials,
   resolveOAuthOwner,
+  matchesDesktopOAuthBrowserBinding,
   setDesktopExchange,
   type OAuthStatePayload,
 } from "@agent-native/core/server";
@@ -31,6 +32,17 @@ async function handleGoogleSignInCallback(
 ) {
   const desktop = state.desktop;
   const flowId = state.flowId;
+  if (
+    flowId &&
+    (!state.desktopVerifierHash ||
+      !state.desktopBrowserBindingHash ||
+      !matchesDesktopOAuthBrowserBinding(
+        event,
+        state.desktopBrowserBindingHash,
+      ))
+  ) {
+    return oauthErrorPage("Desktop OAuth browser binding is invalid.");
+  }
 
   try {
     const query = getQuery(event);
@@ -107,12 +119,21 @@ async function handleGoogleSignInCallback(
     });
 
     if (flowId && sessionToken) {
-      setDesktopExchange(flowId, sessionToken, email);
+      if (!state.desktopVerifierHash) {
+        throw new Error("Missing desktop exchange challenge.");
+      }
+      await setDesktopExchange(
+        flowId,
+        sessionToken,
+        email,
+        state.desktopVerifierHash,
+      );
     }
 
     return oauthCallbackResponse(event, email, {
       sessionToken,
       desktop,
+      desktopWebview: state.desktopWebview,
       returnUrl: state.returnUrl,
       flowId,
       appName: "Clips",

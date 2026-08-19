@@ -169,6 +169,8 @@ const FACTORY_DEFAULT_MODEL =
   process.env.FACTORY_AUTOMATION_MODEL?.trim() || "gpt-5.6-luna";
 const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
+const SKIP_RECORD_GUARD =
+  "After classifying each processed item, call start-builder-for-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.";
 
 const AUTOMATION_SEEDS: AutomationSeed[] = [
   {
@@ -224,6 +226,7 @@ the representative source, every related source, and the need to fix the
 underlying boundary across the whole cluster. Never add the reaction or tag
 Builder for owner-managed Clips, Design, or Content work, or for a non-bug
 report.
+After classifying each processed item, call start-builder-for-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.
 
 Keep each run bounded. Preserve action errors and do not claim a Builder reply,
 PR, merge, or fix unless an action returned that state.
@@ -254,6 +257,7 @@ For each eligible clear bug, call start-builder-for-item with clearBug true,
 an evidence-grounded reason, and clearErrorReport containing only the bounded
 Sentry evidence. Builder should open a PR; do not claim it did so until the
 run callback or PR observation confirms it.
+After classifying each processed item, call start-builder-for-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.
 `,
   },
   {
@@ -281,6 +285,7 @@ For each eligible item call start-builder-for-item with clearBug true,
 evidence-grounded reason, and the bounded issue body as clearErrorReport.
 Preserve failures and never report a successful Builder run without its action
 confirmation.
+After classifying each processed item, call start-builder-for-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.
 `,
   },
   {
@@ -521,6 +526,14 @@ async function ensureOrganizationAutomations(
       const promptGuard = automationPromptGuard(seed.name);
       if (promptGuard && !repaired.includes(promptGuard)) {
         repaired = `${repaired.trimEnd()}\n\n${promptGuard}\n`;
+      }
+      if (
+        (seed.name === "factory-slack-feedback" ||
+          seed.name === "factory-sentry-errors" ||
+          seed.name === "factory-github-issues") &&
+        !repaired.includes(SKIP_RECORD_GUARD)
+      ) {
+        repaired = `${repaired.trimEnd()}\n\n${SKIP_RECORD_GUARD}\n`;
       }
       if (repaired === existing.content) return;
 

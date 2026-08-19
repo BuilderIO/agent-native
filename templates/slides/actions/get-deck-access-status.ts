@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import { signScopedAgentAccessToken } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -8,6 +9,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX,
+  SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
+  SLIDES_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
+} from "../shared/deck-access.js";
 
 export type DeckAccessStatus = {
   exists: boolean;
@@ -17,6 +23,7 @@ export type DeckAccessStatus = {
   viewerName: string | null;
   role: "owner" | "viewer" | "commenter" | "editor" | "admin" | null;
   visibility: "private" | "org" | "public" | null;
+  accessRequestToken?: string;
 };
 
 export default defineAction({
@@ -53,7 +60,32 @@ export default defineAction({
       };
     }
 
-    const access = await resolveAccess("deck", deckId, currentAccess());
+    let access: Awaited<ReturnType<typeof resolveAccess>> = null;
+    let accessProbeFailed = false;
+    try {
+      access = await resolveAccess("deck", deckId, currentAccess());
+    } catch (error) {
+      // coercion-ok: an access probe failure must fail closed as no access so
+      // the page stays gated while a separate fallback request capability
+      // keeps the owner-notification path available.
+      accessProbeFailed = true;
+      console.warn(
+        "[slides] deck access probe failed; treating the deck as private:",
+        error,
+      );
+    }
+    const visibility = deck.visibility ?? "private";
+    const accessRequestToken =
+      !access && visibility === "private"
+        ? signScopedAgentAccessToken({
+            resourceKind: accessProbeFailed
+              ? SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX
+              : SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
+            resourceId: deckId,
+            ...(viewerEmail ? { viewerEmail } : {}),
+            ttlSeconds: SLIDES_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
+          })
+        : undefined;
     return {
       exists: true,
       hasAccess: Boolean(access),
@@ -61,7 +93,8 @@ export default defineAction({
       viewerEmail,
       viewerName,
       role: access?.role ?? null,
-      visibility: deck.visibility ?? "private",
+      visibility,
+      ...(accessRequestToken ? { accessRequestToken } : {}),
     };
   },
 });

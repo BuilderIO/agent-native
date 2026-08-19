@@ -60,6 +60,7 @@
     "guard:no-pnpm-patches": "tsx scripts/guard-no-pnpm-patches.ts",
     "guard:chat-first-shared-ui": "tsx scripts/guard-chat-first-shared-ui.ts",
     "guard:no-empty-migrations": "tsx scripts/guard-no-empty-migrations.ts",
+    "guard:release-schema-complete": "tsx scripts/guard-release-schema-complete.ts",
     "guard:no-unscoped-queries": "node scripts/guard-no-unscoped-queries.mjs",
     "guard:no-env-credentials": "node scripts/guard-no-env-credentials.mjs",
     "guard:env-documentation": "tsx scripts/guard-env-documentation.ts",

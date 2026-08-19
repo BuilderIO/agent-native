@@ -131,6 +131,14 @@ export function isDesktopIdentityGateEligible(
   return canonical !== undefined;
 }
 
+export function shouldUseDesktopIdentityGate(input: {
+  eligible: boolean;
+  active: boolean;
+  enabled: boolean | null;
+}): boolean {
+  return input.eligible && input.active && input.enabled !== false;
+}
+
 export function shouldSuppressDesktopSignInPrompt(
   app: Pick<AppDefinition, "id">,
   appConfig: Pick<
@@ -140,6 +148,25 @@ export function shouldSuppressDesktopSignInPrompt(
   identityAvailable: boolean,
 ): boolean {
   return identityAvailable && isDesktopIdentityGateEligible(app, appConfig);
+}
+
+export function isDesktopIdentityGateUnauthenticated(
+  status: DesktopIdentityStatus | "checking" | undefined,
+): boolean {
+  return status === "sign-in-required" || status === "failed";
+}
+
+export function isDesktopIdentityAuthenticated(
+  status: DesktopIdentityStatus | "checking" | undefined,
+): boolean {
+  return status === "signed-in";
+}
+
+export function resolveDesktopIdentityStatusForChat(
+  status: DesktopIdentityStatus | "checking",
+  sessionReady: boolean,
+): DesktopIdentityStatus | "checking" {
+  return status === "signed-in" && !sessionReady ? "checking" : status;
 }
 
 export function resolveDesktopIdentityLazySyncStatus(
@@ -209,6 +236,10 @@ interface AppWebviewProps {
   onTitleChange?: (title: string) => void;
   /** Emits the guest page's coarse session state for host-owned UI. */
   onAuthStateChange?: (state: AppWebviewAuthState) => void;
+  /** Emits the native desktop identity state for sibling host surfaces. */
+  onDesktopIdentityStatusChange?: (
+    status: DesktopIdentityStatus | "checking",
+  ) => void;
   onAppsChanged?: (apps: AppConfig[]) => void;
 }
 
@@ -390,6 +421,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
       refreshKey = 0,
       onTitleChange,
       onAuthStateChange,
+      onDesktopIdentityStatusChange,
       onAppsChanged,
     }: AppWebviewProps,
     ref,
@@ -422,19 +454,23 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     >("idle");
     const [desktopIdentityEnabled, setDesktopIdentityEnabled] = useState<
       boolean | null
-    >(() => (desktopIdentityGateEligible && isActive ? null : false));
+    >(() => (desktopIdentityGateEligible ? null : false));
     const [desktopIdentitySessionReady, setDesktopIdentitySessionReady] =
-      useState(() => !desktopIdentityGateEligible || !isActive);
-    const desktopIdentityGateActive =
-      desktopIdentityGateEligible &&
-      isActive &&
-      desktopIdentityEnabled === true;
+      useState(() => !desktopIdentityGateEligible);
+    const desktopIdentityGateActive = shouldUseDesktopIdentityGate({
+      eligible: desktopIdentityGateEligible,
+      active: isActive,
+      enabled: desktopIdentityEnabled,
+    });
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
     const prevIsActiveRef = useRef(isActive);
     const onTitleChangeRef = useRef(onTitleChange);
     const onAuthStateChangeRef = useRef(onAuthStateChange);
+    const onDesktopIdentityStatusChangeRef = useRef(
+      onDesktopIdentityStatusChange,
+    );
     const perAppChatOpenRef = useRef(false);
 
     const applyGuestTheme = useCallback(() => {
@@ -475,16 +511,35 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     }, [onAuthStateChange]);
 
     useEffect(() => {
+      onDesktopIdentityStatusChangeRef.current = onDesktopIdentityStatusChange;
+    }, [onDesktopIdentityStatusChange]);
+
+    useEffect(() => {
+      onDesktopIdentityStatusChangeRef.current?.(
+        resolveDesktopIdentityStatusForChat(
+          desktopIdentityStatus,
+          desktopIdentitySessionReady,
+        ),
+      );
+    }, [desktopIdentitySessionReady, desktopIdentityStatus]);
+
+    useEffect(() => {
       const identity = window.electronAPI?.identity;
-      if (!identity || !desktopIdentityGateEligible || !isActive) {
+      if (!identity || !desktopIdentityGateEligible) {
+        setDesktopIdentityEnabled(false);
+        setDesktopIdentityStatus("idle");
+        setDesktopIdentitySessionReady(true);
+        return;
+      }
+      if (!isActive) {
         const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
           rememberedDesktopIdentityStatus,
           undefined,
           rememberedDesktopIdentityStatusAt,
         );
-        setDesktopIdentityEnabled(false);
+        setDesktopIdentityEnabled(null);
         setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
-        setDesktopIdentitySessionReady(true);
+        setDesktopIdentitySessionReady(false);
         return;
       }
       let active = true;

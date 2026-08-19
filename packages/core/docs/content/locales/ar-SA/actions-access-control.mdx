@@ -83,7 +83,143 @@ export default defineAction({
 
 عدد قليل من actions ذو عواقب كبيرة بحيث لا يمكن ترك الوكيل يشغّله بمفرده، مثل إرسال بريد إلكتروني، أو شحن بطاقة، أو حذف حساب. اضبط `needsApproval: true` (أو مسندًا `(args, ctx) => boolean | Promise<boolean>`) على `defineAction()`، وستتوقف الحلقة مؤقتًا قبل `run()`، ما يتطلب موافقة إنسان على ذلك الاستدعاء المحدد. الافتراضي هو **معطَّل**، ويجب أن يبقى كل action تقريبًا على هذا الحال.
 
-راجع [موافقات الإنسان في الحلقة](/docs/human-approval) للاطلاع على واجهة برمجة المسند، وحدث `approval_required`، والتدفق الكامل من طرف إلى طرف.
+<Callout tone="warning">
+  أبقِ الموافقات نادرة. كل action خاضع لبوابة موافقة يمثّل توقفًا صارمًا في حلقة
+  الوكيل. فهو يقاطع التشغيل ويستلزم جولة ذهاب وإياب مع إنسان. استخدم
+  `needsApproval` فقط للعمليات الموجَّهة إلى الخارج التي تكون بالفعل عالية
+  العواقب ويصعب التراجع عنها. إذا وجدت نفسك تضع بوابة على عمليات القراءة أو على
+  كتابات روتينية، فهذا يعني أنك تستخدم `needsApproval` في غير موضعه الصحيح.
+  الافتراضي هو **معطَّل**، ويجب أن يترك كل action تقريبًا هذا الإعداد على حاله.
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="وضع بوابة على action الوحيد ذي العواقب"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "البوابة كاملة",
+      note: "علم واحد فقط. عندما تكون قيمته صحيحة (truthy) ولم تتم الموافقة بعد على الاستدعاء، تتوقف الحلقة مؤقتًا قبل `run`. لا يصل النموذج أبدًا إلى الأثر الجانبي بمفرده.",
+    },
+    {
+      lines: "11-13",
+      label: "`run()` بلا تغيير",
+      note: "تبقى الدالة المعالجة كما هي دون تغيير. تُفرض الموافقة بواسطة الحلقة المحيطة بها، لا بأي شيء داخل `run`.",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** يتطلب الموافقة دائمًا.
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** يتطلب الموافقة فقط عندما يُرجع المسند القيمة true. استخدم هذا لوضع بوابة بشرط معيّن، على سبيل المثال فقط للمستلمين الخارجيين أو فقط عند تجاوز مبلغ معيّن بالدولار:
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  حافظ على أن يكون المسند نقيًا (pure) وسريعًا. إذا طرح المسند خطأً، يتعامل إطار العمل مع الاستدعاء كما لو أن المسند أرجع القيمة true، بحيث يتوقف action مؤقتًا لانتظار الموافقة بدلًا من أن يعمل. هذا يعني أن مسندًا معطوبًا لا يمكن أبدًا أن يسمح بصمت لعملية عالية العواقب بالعمل من دون أن يوافق عليها إنسان أولًا.
+
+عندما تُحذف `needsApproval`، يبقى السلوك دون أي تغيير حرفيًا. لا توجد أي تكلفة إضافية على المسار الشائع.
+
+يعمل هذا بالطريقة نفسها لأجل actions من النمط القديم القائم على `parameters` وactions المستندة إلى schema. كما يعمل بالطريقة نفسها لأجل الوكيل داخل التطبيق، والوكلاء الفرعيين، ومستدعي A2A وMCP، لأن كل سطح وكيل يمر عبر الحلقة نفسها.
+
+### كيف تتوقف الحلقة مؤقتًا {#loop}
+
+عندما يستدعي الوكيل action خاضعًا لبوابة موافقة، ولم تتم الموافقة بعد على هذا الاستدعاء بالتحديد، لا تُنفِّذ الحلقة `run()`. بدلًا من ذلك، تقوم بما يلي:
+
+1. تحلّ البوابة. في حالة المسند، تستدعي الحلقة `needsApproval(input, ctx)`. إذا طرح هذا الاستدعاء خطأً، تتعامل الحلقة معه كما لو أنه أرجع النتيجة true، بحيث يتطلب action الموافقة.
+2. تُصدر حدث `tool_start` (بحيث تعرض واجهة المستخدم الاستدعاء) يتبعه مباشرة حدث **`approval_required`**، ثم توقف الدور. لا يحدث الأثر الجانبي لـ action أبدًا.
+
+يحمل حدث `approval_required` كل ما يحتاجه العميل لعرض عنصر تحكم للموافقة:
+
+| الحقل         | النوع    | الملاحظات                                                                |
+| ------------- | -------- | ------------------------------------------------------------------------ |
+| `tool`        | `string` | اسم action الذي حاول الوكيل استدعاءه.                                    |
+| `input`       | object   | الوسائط التي مررها الوكيل.                                               |
+| `approvalKey` | `string` | **مفتاح ثابت** يعيد العميل إرساله للموافقة على _هذا الاستدعاء بالتحديد_. |
+| `toolCallId`  | `string` | معرّف استدعاء الأداة من جهة النموذج، عند توفره.                          |
+
+يُشتق `approvalKey` بشكل حتمي من اسم الأداة مضافًا إليه مدخلاتها، بحيث ينتج الاستدعاء المنطقي نفسه المفتاح نفسه دائمًا. لا يرى النموذج هذا المفتاح أبدًا ولا يضبطه. فهو موجود فقط كمصافحة بين إطار العمل وعنصر تحكم الموافقة الذي يستخدمه الإنسان.
+
+تُرجع الأداة المتوقفة مؤقتًا نتيجة تخبر النموذج أن الدور متوقف مؤقتًا وأنه يجب ألا يعيد المحاولة، بحيث لا يستمر النموذج في تكرار الاستدعاء من دون جدوى.
+
+### كيف يوافق الإنسان {#approve}
+
+عند وقوع `approval_required`، تعرض واجهة الدردشة عنصر تحكم **موافقة / رفض** على استدعاء الأداة المتوقف. هذا موصول تلقائيًا داخل `AssistantChat`. لست بحاجة إلى بنائه لكل قالب على حدة.
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **الموافقة** تعيد إصدار الدور كرسالة استكمال عادية تحمل مفتاح الاستدعاء ضمن `approvedToolCalls: [approvalKey]`. في الدور المُعاد إصداره، ترى البوابة المفتاح ضمن مجموعة الموافقات المقبولة، فتسمح لذلك الاستدعاء المحدد بالعمل بشكل طبيعي.
+- **الرفض** يُخفي عنصر التحكم محليًا. لا يُعاد إصدار أي شيء، لذا لا يعمل action أبدًا.
+
+`approvedToolCalls` هو حقل في طلب الدردشة (`AgentChatRequest.approvedToolCalls`). المفاتيح غير الموجودة فيه تبقى متوقفة مؤقتًا. الموافقة على استدعاء واحد لا توافق أبدًا على أي استدعاء آخر. ولأن المفتاح مُعنوَن بحسب المحتوى (content-addressed)، فإن الموافقة تخوّل فقط ذلك الاستدعاء المحدد بتلك الوسائط بالذات. إذا اقترح النموذج لاحقًا عملية إرسال مختلفة، يصبح ذلك مفتاحًا جديدًا يحتاج إلى موافقة جديدة خاصة به.
+
+### من البداية إلى النهاية {#flow}
+
+<Diagram id="doc-block-2nor1g" title="مقاطعة الموافقة" summary={"يوقف الاستدعاء الخاضع لبوابة الدور مؤقتًا قبل تنفيذ run(). تعيد الموافقة إصدار الدور حاملةً مفتاح الاستدعاء. عندئذ فقط يحدث الأثر الجانبي."}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>الوكيل يستدعي send-email</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>البوابة صحيحة، والاستدعاء لم يوافَق عليه بعد</strong
+    ><small class="diagram-muted"
+      >تُصدر الحلقة tool_start + approval_required { tool, input, approvalKey
+      }</small
+    ><span class="diagram-pill warn">لم يُنفَّذ run() بعد</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    ينقر الإنسان على زر الموافقة في الدردشة<br /><small class="diagram-muted"
+      >يعيد العميل إصدار الدور مع approvedToolCalls: [approvalKey]</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >ترى البوابة المفتاح &rarr; يُنفَّذ run() &rarr; يُرسَل البريد
+      الإلكتروني</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+action الخاص بـ `send-email` في قالب Mail هو الاستخدام المرجعي لهذه البوابة داخل إطار العمل، وهو نادر عن قصد. فهو يضبط `needsApproval: true` بحيث يمكن للوكيل صياغة رسائل البريد الإلكتروني وإدراجها في قائمة الانتظار بحرية. ولا يمكنه أبدًا إرسال رسالة فعليًا من دون أن يوافق إنسان على ذلك الإرسال المحدد.
 
 ## تقييد المستدعين حسب الدور {#authorize}
 
@@ -220,7 +356,7 @@ export default defineAction({
 - [**نظرة عامة**](/docs/actions-overview) — ما هو action وجولة hello-world
 - [**تعريف Actions**](/docs/actions-defining) — تشريح `defineAction()`، والمخطط، وإعداد HTTP
 - [**سياق التشغيل**](/docs/actions-run-context) — وسيطة `ctx` التي تقرأها هذه الفحوصات
-- [**موافقات الإنسان في الحلقة**](/docs/human-approval) — بوابة `needsApproval` بالتفصيل
+- [**قالب Mail**](/docs/template-mail) — `send-email` هو المثال المرجعي لـ `needsApproval`
 - [**سجل التدقيق**](/docs/audit-log) — المسار التلقائي لمن غيّر ماذا
 - [**الأمان**](/docs/security) — `accessFilter`/`assertAccess` وحدود الثقة الخاصة بـ iframe الامتداد
 - [**المشاركة والخصوصية**](/docs/sharing) — نظام المشاركة في إطار العمل الذي يدعم هذين المساعدَين

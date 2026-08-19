@@ -232,6 +232,51 @@ describe("ddl-guard", () => {
       expect(calls).toEqual([]);
     });
 
+    // The release runner is the only thing that CAN create schema on a hosted
+    // deploy. If the skip applied to it too, `migrate:production` would report
+    // success having created nothing — which is exactly how published sites came
+    // up with an empty database.
+    it("does NOT skip while the caller holds migration duty", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
+      delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const { withMigrationRuntime } = await import("./migrations.js");
+      const { client, calls } = introspectingClient({});
+
+      // `true` = the table was genuinely missing and the DDL ran.
+      await expect(
+        withMigrationRuntime(() =>
+          ensureTableExists("settings", "CREATE TABLE settings (k TEXT)", {
+            injectedClient: client,
+            dialectIsPostgres: true,
+          }),
+        ),
+      ).resolves.toBe(true);
+      expect(calls.length).toBeGreaterThan(0);
+    });
+
+    it("resumes skipping once migration duty is released", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NETLIFY_FUNCTION_NAME", "analytics");
+      delete process.env.AGENT_NATIVE_SKIP_ENSURE_TABLES;
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const { withMigrationRuntime } = await import("./migrations.js");
+      const { client, calls } = introspectingClient({});
+
+      await withMigrationRuntime(async () => {});
+
+      await expect(
+        ensureTableExists("settings", "CREATE TABLE settings (k TEXT)", {
+          injectedClient: client,
+          dialectIsPostgres: true,
+        }),
+      ).resolves.toBe(false);
+      expect(calls).toEqual([]);
+    });
+
     it("is OFF unless explicitly enabled", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       for (const value of ["", "0", "false", "off"]) {
