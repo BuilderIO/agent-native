@@ -1,0 +1,362 @@
+---
+title: "アクセスと認可"
+description: "誰がアクションを呼び出せるか: 公開フラグ (agentTool、toolCallable)、ctx によるスコープ設定、accessFilter/assertAccess、authorize ガード。"
+---
+
+# アクセスと認可
+
+誰がアクションを呼び出せるかは、5つの設定によって決まります。エージェント、フロントエンド、拡張機能、外部の API 呼び出し元、あるいは人間の承認がない限り誰も呼び出せない、というものです。通常の UI とエージェントの利用にはデフォルトのままで十分なので、ほとんどのアクションはこれらに触れる必要がありません。
+
+### 公開フラグ {#exposure-flags}
+
+5つのフラグはすべて、デフォルトで許可寄りの値になっています。特定のサーフェスを絞りたいときだけ設定してください。以下の表は簡単なまとめです。その後のセクションで、各フラグに必要な詳細を1つずつ補足します。
+
+| フラグ          | デフォルト    | 制限値 → それでも呼び出せる相手                                                     | 典型的な用途                                                            |
+| --------------- | ------------- | ----------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `agentTool`     | `true`        | `false` → UI、HTTP、CLI のみ (モデル、MCP、A2A からは非表示)                        | ツール枠を消費すべきでない、UI 専用またはプログラム的なアクション       |
+| `toolCallable`  | `true`        | `false` → サンドボックス化された拡張機能の iframe ブリッジ**以外**のすべて (403)    | 機密性の高いアカウントや組織の変更 (アカウント削除、メンバーシップ変更) |
+| `publicAgent`   | オフ (非公開) | `{ expose: true }` → **公開** MCP/A2A/OpenAPI サーフェスにこのアクションを追加      | 認証を必要としない、安全な読み取りまたは取り込みツール                  |
+| `needsApproval` | `false`       | `true` → エージェントが**一時停止**し、人間がその特定の呼び出しを承認する必要がある | 重大な副作用を伴う操作 (メール送信、カードへの課金、削除)               |
+| `authorize`     | なし          | ガード関数 → **すべて**のサーフェスで、そのガードが認めた呼び出し元のみ             | 特定のロールに制限された操作 (アプリごとの RBAC、管理者専用の操作)      |
+
+これらのフラグは互いに独立しているため、1つを設定しても他には影響しません。`agentTool` はモデルに何が見えるかを制御します。下記の[モデルから隠す](#agent-tool)を参照してください。`toolCallable` は拡張機能の iframe のみを制御します。下記の[拡張機能の iframe をブロックする](#tool-callable)を参照してください。`publicAgent` はオプトインの公開サーフェスを追加するものであり、公開 Web ルートが公開ツールの公開を意味することは決してありません。下記の[公開エージェントに公開する](#public-agent)を参照してください。`needsApproval` は、呼び出しがすでに行われた後の実行をゲートします。下記の[人間の承認を必須にする](#needs-approval)を参照してください。`authorize` は、`run()` に入る前に、すべてのディスパッチ経路で、この呼び出し元がそもそもこのアクションを実行してよいかを判定します。下記の[ロールで呼び出し元を制限する](#authorize)を参照してください。
+
+## モデルから隠す {#agent-tool}
+
+デフォルトでは、すべてのアクションが呼び出し可能なエージェント ツールです。`agentTool: false` を設定すると、フレームワークの認証とアクション サーフェスの裏に残したまま、すべてのエージェント ツール一覧から削除できます。UI (`useActionMutation()` や `callAction()`)、CLI、`/_agent-native/actions/<name>` からは引き続き呼び出せます。
+
+```ts
+export default defineAction({
+  description: "Persist the user's sidebar width.",
+  agentTool: false, // UI-only, not a tool in the model's context window
+  schema: z.object({ widthPx: z.number() }),
+  http: { method: "PUT" },
+  run: async ({ widthPx }) => {
+    /* ... */
+  },
+});
+```
+
+UI 専用または純粋にプログラム的なアクションを追加するとき、あるいは UI がアクションを使わなくなったのに、そのままではモデルに公開され続けてしまうときに使用してください。
+
+## 拡張機能の iframe をブロックする {#tool-callable}
+
+拡張機能 ([サンドボックス化された iframe 内の Alpine.js ミニアプリ](/docs/extensions)) は、`appAction(name, params)` を通じてアクションを呼び出し、閲覧者自身の権限、シークレット、SQL スコープで実行されます。機密性の高い操作にとって、これはデフォルトでは信頼しすぎです。`toolCallable: false` を設定すると、拡張機能ブリッジは 403 を返すようになりますが、UI、エージェント、CLI、MCP、A2A からは引き続き呼び出せます。
+
+```ts
+export default defineAction({
+  description: "Delete the current user's account.",
+  toolCallable: false, // never callable from an extension iframe
+  schema: z.object({ confirm: z.literal("yes") }),
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+アカウントや組織の削除・譲渡、認証状態の変更、組織メンバーシップの変更、共有アクセスの付与を行うアクションに使用してください。フレームワーク組み込みの `share-resource`、`unshare-resource`、`set-resource-visibility` アクションは、すでにこれをオプトアウトしています。フレームワークは、ホストが iframe 呼び出しに設定するヘッダー (iframe 側が偽装できないもの) でこれを強制します。通常の UI、エージェント、CLI、MCP、A2A の呼び出しには影響しません。詳細は [セキュリティ](/docs/security) を参照してください。
+
+## 公開エージェントに公開する {#public-agent}
+
+Web ルートが公開されているアクションであっても、すべてのアクションはデフォルトで、いかなる公開プロトコル サーフェスからも外れています。ページをクロール可能にすることが、ツールを公開することを意味することはありません。安全なアクションを1つ、公開の MCP、A2A、OpenAPI サーフェスにオプトインさせるには `publicAgent: { expose: true, readOnly: true, ... }` を設定します。
+
+```ts
+export default defineAction({
+  description: "Search published docs.",
+  schema: z.object({ query: z.string() }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: {
+    expose: true,
+    readOnly: true,
+    requiresAuth: false,
+  },
+  run: async ({ query }) => {
+    /* ... */
+  },
+});
+```
+
+これは、サインインなしで見知らぬ相手に呼び出させても構わないような、安全で読み取り専用または取り込み専用のアクションにのみ使用してください。`requiresAuth: false` は、認証前に一覧表示しても安全なアクションであることを公開サーフェスに伝えます。アカウントごとの取り込みツールのように、接続済みの呼び出し元の ID がなお必要なアクションでは `true` のままにしてください。これがオプトインする先の完全なカタログと認証モデルについては、[外部エージェント](/docs/external-agents) と [MCP プロトコル](/docs/mcp-protocol) を参照してください。
+
+## 人間の承認を必須にする {#needs-approval}
+
+メール送信、カードへの課金、アカウント削除のように、エージェントに単独で実行させるには重大すぎるアクションがいくつかあります。`defineAction()` に `needsApproval: true` (または述語 `(args, ctx) => boolean | Promise<boolean>`) を設定すると、`run()` の前にループが一時停止し、人間がその特定の呼び出しを承認する必要が生じます。デフォルトは**オフ**であり、ほとんどすべてのアクションはそのままにしておくべきです。
+
+<Callout tone="warning">
+  承認は稀にとどめてください。ゲートされたアクションはそれぞれ、エージェント
+  ループにおけるハード ストップです。実行を中断し、人間との往復を必要とします。
+  `needsApproval` は、本当に重大な影響を持ち、元に戻すのが難しく、外部に向けた
+  操作にのみ使用してください。読み取りや日常的な書き込みをゲートしたくなったと
+  きは、使い方を誤っています。デフォルトは**オフ**であり、ほとんどすべてのアク
+  ションはオフのままにしておくべきです。
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="重大な影響を伴うこの1つのアクションをゲートする"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "ゲート全体",
+      note: "たった1つのフラグです。これが真になっていて、かつその呼び出しがまだ承認されていない場合、ループは `run` の前で停止します。モデルが自分だけの判断で副作用に到達することはありません。",
+    },
+    {
+      lines: "11-13",
+      label: "`run()` はそのまま",
+      note: "ハンドラーは変更されません。承認は `run` の内部ではなく、それを取り囲むループによって強制されます。",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** は常に承認を必須にします。
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** は、述語が true を返したときにのみ承認を必須にします。条件付きでゲートしたいとき、例えば外部の受信者宛てのときだけ、または一定の金額を超えたときだけ承認を必須にしたい場合に使用します。
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  述語は純粋かつ高速に保ってください。述語がエラーをスローした場合、フレームワークはその呼び出しを述語が true を返した場合と同じものとして扱うため、アクションは実行される代わりに承認待ちで一時停止します。これはつまり、壊れた述語が人間の承認なしに重大なアクションをこっそり実行させてしまうことは決してない、ということです。
+
+`needsApproval` を省略した場合、動作はバイト単位でまったく変わりません。通常の経路に余分なコストはかかりません。
+
+これはレガシーな `parameters` 形式のアクションでも、スキーマベースのアクションでも同じように機能します。アプリ内エージェント、サブエージェント、A2A、MCP の呼び出し元に対しても同じように機能します。すべてのエージェント サーフェスが同じループを経由するからです。
+
+### ループが一時停止する仕組み {#loop}
+
+エージェントがゲートされたアクションを呼び出し、この特定の呼び出しがまだ承認され**ていない**場合、ループは `run()` を実行**しません**。代わりに、次のことを行います。
+
+1. ゲートを解決します。述語の場合、ループは `needsApproval(input, ctx)` を呼び出します。この呼び出しがエラーをスローした場合、ループはそれを `true` という結果と同じものとして扱うため、そのアクションは承認を必要とします。
+2. `tool_start` イベントを発行し (UI がその呼び出しを表示できるように)、続けてすぐに **`approval_required`** イベントを発行してから、ターンを停止します。そのアクションの副作用が起きることは決してありません。
+
+`approval_required` イベントは、クライアントが操作可能な UI を描画するために必要なものをすべて含んでいます。
+
+| フィールド    | 型       | 備考                                                                                 |
+| ------------- | -------- | ------------------------------------------------------------------------------------ |
+| `tool`        | `string` | エージェントが呼び出そうとしたアクション名です。                                     |
+| `input`       | object   | エージェントが渡した引数です。                                                       |
+| `approvalKey` | `string` | クライアントが**この特定の呼び出し**を承認するために送り返す、**安定したキー**です。 |
+| `toolCallId`  | `string` | 利用可能な場合の、モデル側のツール呼び出し ID です。                                 |
+
+`approvalKey` は、ツール名とその入力から決定論的に導出されるため、同じ論理的な呼び出しは常に同じキーを生成します。モデルがこれを見たり設定したりすることは決してありません。これは、フレームワークと人間の「承認」操作との間のハンドシェイクとしてのみ存在します。
+
+一時停止したツールは、ターンが一時停止していて再試行すべきではないことをモデルに伝える結果を返すため、モデルが空回りすることはありません。
+
+### 人間が承認する仕組み {#approve}
+
+`approval_required` が発生すると、チャット UI は一時停止したツール呼び出しに **承認 / 拒否** の操作を描画します。これは `AssistantChat` の中で自動的に配線されています。テンプレートごとに構築する必要はありません。
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **承認**は、その呼び出しのキーを `approvedToolCalls: [approvalKey]` に含めた、通常の継続メッセージとしてターンを再発行します。再発行されたターンでは、ゲートが承認済みセットの中にそのキーを見つけ、その特定の呼び出しを通常どおり実行させます。
+- **拒否**は、その操作をローカルで消去するだけです。何も再発行されないため、そのアクションが実行されることはありません。
+
+`approvedToolCalls` は、チャット リクエストのフィールドです (`AgentChatRequest.approvedToolCalls`)。ここに含まれていないキーは、一時停止したままになります。ある呼び出しを承認しても、他の呼び出しが承認されることは決してありません。キーはコンテンツ アドレス方式であるため、承認はその正確な引数を持つその正確な呼び出しのみを許可します。モデルが後で別の送信を提案した場合、それは新しいキーになり、あらためて新しい承認が必要になります。
+
+### エンドツーエンド {#flow}
+
+<Diagram id="doc-block-2nor1g" title="承認による割り込み" summary={"ゲートされた呼び出しは、run() が発火する前にターンを一時停止します。承認は、その呼び出しのキーを伴ってターンを再発行します。副作用が起きるのは、その後だけです。"}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>エージェントが send-email を呼び出す</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>ゲートが true、呼び出しはまだ承認されていない</strong
+    ><small class="diagram-muted"
+      >ループが tool_start + approval_required { tool, input, approvalKey }
+      を発行</small
+    ><span class="diagram-pill warn">run() はまだ実行されていない</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    人間がチャットで承認をクリック<br /><small class="diagram-muted"
+      >クライアントが approvedToolCalls: [approvalKey]
+      を伴ってターンを再発行</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >ゲートがキーを検出 &rarr; run() が実行 &rarr; メールが送信される</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Mail テンプレートの `send-email` アクションは、フレームワークにおけるこのゲートの典型的な使用例であり、意図的に稀な例になっています。`needsApproval: true` を設定しているため、エージェントは自由にメールを下書きしたりキューに入れたりできます。しかし、人間がその特定の送信を承認しない限り、実際にメッセージを送信することは決してできません。
+
+## ロールで呼び出し元を制限する {#authorize}
+
+`authorize` は、たった1つの具体的な問いに答えます。**そもそもこの呼び出し元は、この操作を実行してよいのか?** ガード関数を渡すと、エージェント ツール、HTTP、フロントエンド、MCP、A2A、CLI のすべての呼び出し元に対して、`run()` の前に実行されます。
+
+`defineAppRoles()` を使って、ロールの語彙を一度だけ宣言します。
+
+```ts
+// server/lib/access.ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member", // display only, never satisfies a guard
+});
+```
+
+続いて、許可するロールを明示的に列挙してアクションをガードします。
+
+```ts
+// actions/archive-plan.ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+このガードは、アクションの他の部分に付随するのではなく、`run()` 自体をラップします。`run()` は、6つのディスパッチ サイトすべてが通過する唯一の場所であるため、呼び出し元がチェックを通過せずに本体に到達する方法がないからです。スローするガードは、それ自身のエラー メッセージで呼び出しを拒否します。`false` を返すガードは、一般的な 403 で呼び出しを拒否します。`undefined` を含め、それ以外を返すと呼び出しは許可されます。このチェックには呼び出し元の ID が必要なため、ユーザー メールのない無人の CLI や cron からの呼び出しは、通過させるのではなく拒否されます。
+
+ラッパーは次の順序で構成されます。
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+認可は入力検証の*内側*に位置するため、`args` を検査するガードは、呼び出し元が送った生の形ではなく、`run()` が受け取るのと同じ解析済み・型チェック済みの値を受け取ります。監査は最も外側にあるため、拒否された呼び出しも記録されます。
+
+`requireAny()` は、リクエスト時ではなく定義時に失敗します。ロールを指定せずに呼び出したり、宣言済みの一覧にないロールを指定したりすると、モジュールの読み込み時点で即座にスローされます。そのため、引数の書き忘れのような、`authorize: coachAccess.requireAny()` の間違いは、後になって説明のつかない 403 として現れるのではなく、その場で発覚します。
+
+### アクション内でのアクセス制御 {#access-control}
+
+`authorize` は、その呼び出し元がそもそもこの操作を実行してよいかにしか答えません。どの行に触れてよいかについては何も語らず、それは別の、行レベルのチェックです。`ownableColumns()` で構築され、`registerShareableResource()` で登録されたテーブル ([共有](/docs/sharing#building) を参照) には、これに対応する2つのヘルパーがあります。`accessFilter()` は、呼び出し元が見てよい行にリスト/読み取りクエリの範囲を絞り込み、`assertAccess()` は、呼び出し元がその行に必要なロールを持っていない場合、書き込みの前にスローします。
+
+リストまたは読み取りアクションのクエリ内で `accessFilter()` を使用します。
+
+```ts
+// actions/list-decks.ts
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the decks the current user can see.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const db = getDb();
+    return await db
+      .select()
+      .from(schema.decks)
+      .where(accessFilter(schema.decks, schema.deckShares));
+  },
+});
+```
+
+`WHERE` 句だけでは、除外した行への書き込みを止められないため、更新や削除の前に `assertAccess()` を使用します。
+
+```ts
+// actions/rename-deck.ts
+import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Rename a deck.",
+  schema: z.object({ id: z.string(), title: z.string() }),
+  run: async ({ id, title }) => {
+    await assertAccess("deck", id, "editor");
+    const db = getDb();
+    await db.update(schema.decks).set({ title }).where(eq(schema.decks.id, id));
+    return { ok: true };
+  },
+});
+```
+
+作成アクションは、どちらのヘルパーも呼び出しません。新しい行を挿入する際に、リクエスト コンテキストから `ownerEmail` (と `orgId`) を刻印するだけで十分です。まだアクセスをチェックする対象の既存行が存在しないためです。登録と作成の完全なパターンについては [共有](/docs/sharing#building) を、上記で使われている第二引数 `ctx` の完全な形については [実行コンテキスト](/docs/actions-run-context) を参照してください。
+
+この3つの仕組みは互いに置き換え可能ではありません。
+
+| 仕組み                            | 答える問い                                                        | 適用範囲                         |
+| --------------------------------- | ----------------------------------------------------------------- | -------------------------------- |
+| `authorize`                       | そもそもこの呼び出し元は操作を実行してよいか?                     | 6つのディスパッチ サイトすべて   |
+| `needsApproval`                   | この特定の、許可された呼び出しを人間が承認すべきか?               | エージェント ループのみ          |
+| `accessFilter()`/`assertAccess()` | この許可された呼び出し元が見たり書き込んだりしてよいのはどの行か? | `run()` 内部、クエリまたは行ごと |
+
+制限された書き込みアクションには、通常 `authorize` と `assertAccess()` の両方が必要です。前者はコーチ以外をその操作から締め出します。後者は、あるコーチが別の組織のプランに触れないようにします。`needsApproval` は別の軸です。誰が呼び出せるかを制限することは決してなく、エージェントが人間の立ち会いなしに進めてよいかどうかだけを制御します。
+
+上記の `coachAccess` は、組織メンバーシップの上に重ねるアプリごとのロールである `defineAppRoles()` に由来します。ロール モデルとその保証内容については、[組織、チーム、権限 → アプリ ロール](/docs/organizations-teams-permissions#app-roles-per-app-rbac) を参照してください。
+
+## 監査ログ {#audit}
+
+変更を伴うすべてのアクションは自動的に監査されます。フレームワークは、誰が、いつ、どのサーフェスから実行したか、そしてそれがエージェントだった場合はどのスレッドとターンだったかを、認証情報を伏せた入力とともに記録します。読み取り専用 (`GET`) のアクションはスキップされます。このためにコードを書く必要はありません。`defineAction()` の内部で自動的に行われます。
+
+キャプチャを細かく調整したいときだけ `audit` ブロックを追加してください。もっとも多い理由は、アクションが変更したリソースを宣言し、その変更がリソース所有者の証跡にも表示されるようにすることです。
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({ type: "recording", id: args.id }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+他にもいくつかのオプションがあります。`audit: { onRead: true }` は、シークレットへのアクセスや一括エクスポートのような、機密性の高い読み取りを監査します。`audit: { enabled: false }` は、ノイズの多い書き込みをオプトアウトします。`audit: { recordInputs: false }` は、引数のキャプチャをスキップします。組み込みの `list-audit-events` と `get-audit-event` アクションで証跡を読み戻せます。詳細は [監査ログ](/docs/audit-log) を参照してください。
+
+## 次は何ですか
+
+- [**概要**](/docs/actions-overview) — アクションとは何か、hello world のウォークスルー
+- [**アクションを定義する**](/docs/actions-defining) — `defineAction()` の構造、スキーマ、HTTP 設定
+- [**実行コンテキスト**](/docs/actions-run-context) — これらのチェックが読み取る `ctx` 引数
+- [**Mail テンプレート**](/docs/template-mail) — `send-email` は `needsApproval` の参考例です
+- [**監査ログ**](/docs/audit-log) — 誰が何を変更したかを自動記録する証跡
+- [**セキュリティ**](/docs/security) — `accessFilter`/`assertAccess` と拡張機能 iframe の信頼境界
+- [**共有**](/docs/sharing) — これらのヘルパーが支えるフレームワークの共有システム

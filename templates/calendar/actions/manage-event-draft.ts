@@ -20,6 +20,7 @@ import {
   googleColorIdInput,
   normalizeAttendees,
   normalizeCreateEventInput,
+  normalizeRecurrence,
   reminderMethodInput,
   reminderMinutesInput,
   remindersInput,
@@ -136,6 +137,12 @@ export default defineAction({
     reminders: remindersInput.describe(
       "Custom reminder overrides, max 5, such as [{method:'popup', minutes:10}].",
     ),
+    recurrence: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .describe(
+        "Google recurrence rules, such as RRULE:FREQ=DAILY. Pass an empty string or [] to clear recurrence.",
+      ),
     reminderMinutes: reminderMinutesInput.describe(
       "Convenience field for a single reminder in minutes before the event.",
     ),
@@ -239,6 +246,7 @@ export default defineAction({
     setIfPresent(draft, "transparency", args.transparency);
     setIfPresent(draft, "visibility", args.visibility);
     setIfPresent(draft, "colorId", args.colorId);
+    setIfPresent(draft, "recurrence", normalizeRecurrence(args.recurrence));
     setIfPresent(draft, "attachments", args.attachments);
     setIfPresent(draft, "workingLocationType", args.workingLocationType);
     setIfPresent(draft, "workingLocationLabel", args.workingLocationLabel);

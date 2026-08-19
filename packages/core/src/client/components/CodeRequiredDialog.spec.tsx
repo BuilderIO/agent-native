@@ -20,7 +20,7 @@ describe("CodeRequiredDialog", () => {
             JSON.stringify({
               configured: true,
               builderEnabled: false,
-              connectUrl: "https://builder.io/cli-auth",
+              connectUrl: "/_agent-native/builder/connect?_an_connect=signed",
             }),
             { headers: { "Content-Type": "application/json" } },
           ),
@@ -60,5 +60,41 @@ describe("CodeRequiredDialog", () => {
     expect(document.body.textContent).not.toContain(
       "Builder Cloud Agents coming soon",
     );
+  });
+
+  it("does not offer agents-run when OAuth is connected without legacy Builder keys", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              configured: true,
+              builderEnabled: true,
+              privateKeyConfigured: false,
+              publicKeyConfigured: false,
+              connectUrl: "/_agent-native/builder/connect?_an_connect=signed",
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    await act(async () => {
+      root.render(
+        <CodeRequiredDialog
+          open
+          onClose={() => {}}
+          featureLabel="Update the dashboard layout"
+        />,
+      );
+    });
+
+    await vi.waitFor(() => {
+      expect(document.body.textContent).toContain(
+        "This requires a code change",
+      );
+    });
+    expect(document.body.textContent).not.toContain("Use Builder.io Agent");
   });
 });

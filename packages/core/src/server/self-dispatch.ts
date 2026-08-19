@@ -1,3 +1,4 @@
+import { getAppConfig } from "../app-config/index.js";
 import { isLocalDatabase } from "../db/client.js";
 import { signInternalToken } from "../integrations/internal-token.js";
 /**
@@ -61,12 +62,14 @@ function readHeader(event: any, name: string): string | undefined {
  * fallback to a bad host there would drop background work invisibly.
  */
 export function resolveSelfDispatchBaseUrl(event?: any): string {
+  // The first three are platform facts — Netlify sets them per deploy, and
+  // they are what makes this resolve to *this* deployment rather than the
+  // canonical one. `app.url` is the last rung, not the first, for that reason.
   const fromEnv =
     process.env.DEPLOY_PRIME_URL ||
     process.env.DEPLOY_URL ||
     process.env.URL ||
-    process.env.APP_URL ||
-    process.env.BETTER_AUTH_URL;
+    getAppConfig().app.url;
   if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
 
   if (process.env.NODE_ENV === "production" || !isLocalDatabase()) {

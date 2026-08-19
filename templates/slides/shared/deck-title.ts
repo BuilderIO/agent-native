@@ -107,14 +107,22 @@ export function deriveDeckTitleFromSlideContent(
     }
   }
 
-  const styledTextPattern =
-    /<([a-z][\w:-]*)\b[^>]*\bstyle\s*=\s*(["'])([\s\S]*?)\2[^>]*>([\s\S]*?)<\/\1>/gi;
-  for (const match of content.matchAll(styledTextPattern)) {
+  const styledOpeningPattern =
+    /<([a-z][\w:-]*)\b[^>]*\bstyle\s*=\s*(["'])([\s\S]*?)\2[^>]*>/gi;
+  for (const match of content.matchAll(styledOpeningPattern)) {
     const fontSize = Number.parseFloat(
       match[3]?.match(/(?:^|;)\s*font-size\s*:\s*([\d.]+)px/i)?.[1] ?? "0",
     );
     if (fontSize < 28) continue;
-    const text = usableCandidate(match[4] ?? "");
+
+    const bodyStart = (match.index ?? 0) + match[0].length;
+    const closingTag = new RegExp(`</${match[1]}\\s*>`, "i").exec(
+      content.slice(bodyStart),
+    );
+    const body = closingTag
+      ? content.slice(bodyStart, bodyStart + closingTag.index)
+      : "";
+    const text = usableCandidate(body);
     if (text) candidates.push({ score: fontSize, text });
   }
 

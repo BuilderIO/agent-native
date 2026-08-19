@@ -298,6 +298,7 @@ const messages = {
     creatingLink: "جار إنشاء الرابط...",
     createShareLink: "إنشاء رابط مشاركة",
     copyLink: "نسخ الرابط",
+    copied: "تم النسخ",
     openSharedLink: "فتح الرابط المشترك",
     anyoneWithLink: "يمكن لأي شخص لديه هذا الرابط عرض هذا العرض التقديمي.",
   },
@@ -446,6 +447,12 @@ const messages = {
     pasteStyle: "لصق النمط",
     copy: "نسخ",
     paste: "لصق",
+    insertRowAbove: "إدراج صف أعلاه",
+    insertRowBelow: "إدراج صف أسفله",
+    deleteRow: "حذف الصف",
+    insertColumnLeft: "إدراج عمود إلى اليسار",
+    insertColumnRight: "إدراج عمود إلى اليمين",
+    deleteColumn: "حذف العمود",
   },
   animations: {
     appear: "Aparecer",
@@ -536,6 +543,11 @@ const messages = {
     newSlide: "شريحة جديدة",
     closeAddSlides: "إغلاق",
     describeThisSlide: "صف هذه الشريحة",
+    cut: "قص",
+    copy: "نسخ",
+    paste: "لصق",
+    skipSlide: "تخطي الشريحة",
+    unskipSlide: "عدم تخطي الشريحة",
   },
   presentation: {
     loadFailed: "تعذّر تحميل هذا العرض التقديمي.",
@@ -555,18 +567,55 @@ const messages = {
   },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
-    teamAccessCheckFailed: "No se pudo comprobar el acceso del equipo",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
-    verifySharedAccessFailed:
-      "No pudimos verificar si esta presentación está compartida con tu cuenta. Inténtalo de nuevo para recargar el acceso del equipo y el deck.",
     joinTeamDescription:
       "Este enlace apunta a una presentación de equipo. Únete al equipo indicado arriba y el deck se abrirá aquí automáticamente.",
     deckUnavailableDescription:
       "Este deck puede haberse eliminado o tu cuenta no tiene acceso.",
-    backToDecks: "Volver a decks",
+    privateDeckTitle: "هذا العرض خاص",
+    privateDeckDescription:
+      "اطلب الوصول من المالك لفتح هذا العرض. سيتلقى المالك إشعارًا عند إرسال الطلب.",
+    signedInAs: "تم تسجيل الدخول باسم",
+    accessRequestSentDescription:
+      "تم إشعار المالك. يمكنك فتح هذا العرض بعد منحك الوصول.",
+    accessRequestRecordedDescription:
+      "تم تسجيل طلبك. يمكنك فتح هذا العرض بعد منحك الوصول.",
+    requestAccessPending: "جارٍ إرسال الطلب…",
+    accessRequestSent: "تم إرسال الطلب",
+    requestAccess: "طلب الوصول",
+    signInToRequestAccess: "سجّل الدخول لطلب الوصول",
+    requestAccessDialogTitle: "طلب الوصول",
+    requestAccessDialogDescription:
+      "سجّل الدخول أو أدخل عنوان البريد الإلكتروني الذي يجب على المالك مشاركة هذا العرض معه.",
+    requestAccessSignIn: "تسجيل الدخول أو إنشاء حساب",
+    requestAccessOr: "أو",
+    requestAccessEmailLabel: "عنوان البريد الإلكتروني",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "بعد منح الوصول، سجّل الدخول باستخدام هذا البريد الإلكتروني لعرض العرض.",
+    requestAccessWithEmail: "طلب باستخدام البريد الإلكتروني",
+    requestAccessEmailRequired: "أدخل عنوان بريد إلكتروني صالحًا.",
+    requestingAccess: "جارٍ طلب الوصول…",
+    accessRequestSentWithEmail:
+      "طُلب من مالك العرض مشاركة هذا العرض مع {{email}}.",
+    accessRequestFailed: "تعذّر طلب الوصول. حاول مرة أخرى.",
+    accessApprovalTitle: "تم منح الوصول",
+    accessApprovalAlreadyTitle: "تم منح الوصول بالفعل",
+    accessApprovalMessage: "يمكن لـ {{email}} فتح هذا العرض الآن.",
+    accessApprovalAlreadyMessage:
+      "لدى {{email}} صلاحية الوصول إلى هذا العرض بالفعل.",
+    accessApprovalErrorTitle: "تعذّر منح الوصول",
+    accessApprovalInvalid: "طلب الوصول هذا غير صالح أو منتهي الصلاحية.",
+    accessApprovalSignInTitle: "سجّل الدخول للسماح بالوصول",
+    accessApprovalSignInMessage:
+      "سجّل الدخول بصفتك مالك العرض أو مسؤولاً للموافقة على هذا الطلب.",
+    accessApprovalOpenDeck: "فتح العرض",
+    accessApprovalSignIn: "تسجيل الدخول",
+    accessApprovalLoading: "جارٍ منح الوصول...",
+    backToDecks: "العودة إلى العروض",
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:

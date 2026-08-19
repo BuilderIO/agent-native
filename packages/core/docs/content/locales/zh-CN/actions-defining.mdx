@@ -1,0 +1,270 @@
+---
+title: "定义 Actions"
+description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如何让 action 界面保持精简。"
+---
+
+# 定义 Actions
+
+每个 action 都从一次 `defineAction()` 调用开始。它把面向代理的 description、用于校验输入的 schema,以及执行实际工作的 `run` 函数打包在一起,所以 UI 和代理调用的是完全相同的代码。
+
+<AnnotatedCode
+  id="doc-block-actions-defining-1"
+  title="一个 action 的结构"
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "工具界面",
+      note: "`description` 是代理用来判断何时调用它的依据。每个字段上的 `.describe()` 调用也会流入 JSON Schema。",
+    },
+    {
+      lines: "8-11",
+      label: "有类型的契约",
+      note: "一份 schema 校验**每一个**界面的输入,并被转换为供模型使用的 JSON Schema。无效的输入永远不会到达 `run`。",
+    },
+    {
+      lines: "12-16",
+      label: "一份实现",
+      note: "`run` 函数体是唯一的事实来源。UI 按钮和代理工具执行的都是完全相同的代码。`getDb()` 和 `schema` 来自你应用的 `server/db/index.ts`。参阅 [数据库](/docs/server-database)。",
+    },
+  ]}
+/>
+
+框架会自动发现 `actions/` 中的每个文件并在启动时挂载它。没有其他需要手动注册的东西。
+
+<Signature
+  id="doc-block-actions-defining-2"
+  name="defineAction"
+  params={[
+    {
+      name: "config",
+      type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
+      description:
+        "下面的一切都是一个配置对象。只有 description、schema 和 run 是必需的。",
+      fields: [
+        {
+          name: "description",
+          type: "string",
+          description: "代理用来判断何时调用这个 action 的依据。",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description: "校验每个界面上的输入。参见下方的 Schema 选项。",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description: "每个界面调用的唯一实现。ctx 参数见运行上下文。",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "覆盖挂载的方法/路径,或彻底禁用 HTTP 端点。参见下方的 HTTP 配置。",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "当 http.method 为 GET 时自动为 true。跳过 UI 的轮询刷新和写入审计。不是访问控制。",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description: "校验 run() 的返回值。参见下方的校验返回值。",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "输出不匹配时会发生什么。",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            '当 outputErrorStrategy 为 "fallback" 时,用它代替无效结果返回。',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "允许一个变更类 action 与同一轮次的其他工具调用并发运行。",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "设为 false 可以从每一个代理工具列表中隐藏。参见访问与授权。",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "设为 false 可以阻止沙盒化的扩展 iframe 桥接调用。参见访问与授权。",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } 会把该 action 加入公共 MCP/A2A/OpenAPI 界面。参见访问与授权。",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "在 run() 之前暂停代理循环以等待人工批准。参见人在环批准。",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "决定这个调用者是否可以运行该 action 的守卫函数。参见访问与授权。",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "调整每个变更类 action 已经自动获得的审计捕获行为。参见审核日志。",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "为该 action 的结果声明一个原生聊天 UI 渲染器。参见其他界面。",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "ActionDefinition<TInput, TReturn>",
+    description: "有类型的 action 定义。把它作为文件的默认导出。",
+  }}
+/>
+
+## Schema 选项 {#schemas}
+
+`schema` 接受任何兼容 [Standard Schema](https://standardschema.dev) 的库:
+
+- **Zod**(v4):最常见的选择,拥有最好的类型推断,并能自动转换为 JSON Schema。
+- **Valibot**:当包体积是关键考量时的不错选择。
+- **ArkType**:如果你偏好它的语法,这是个不错的选择。
+
+这份 schema 承担两项职责。它会转换为供 Claude API 工具定义使用的 JSON Schema,并在 `run()` 触发前对运行时输入进行校验。无效输入永远不会到达你的处理函数。
+
+## 校验返回值 {#output-schema}
+
+`schema` 校验的是*输入*。要同时校验一个 action **返回**的内容,传入一个 `outputSchema`(任何兼容 Standard Schema 的 schema:Zod、Valibot、ArkType,与 `schema` 相同的接口)。框架会在 `run()` 之前校验输入,并在 `run()` 解析完成之后校验结果。
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` 控制不匹配时会发生什么:
+
+| 策略         | 不匹配时的行为                                                                |
+| ------------ | ----------------------------------------------------------------------------- |
+| `"warn"`     | **默认值。**用 `console.warn` 记录问题,并原样返回**原始**结果。不会中断运行。 |
+| `"strict"`   | 抛出一个明确的错误,让 action 中的 bug 容易被发现。                            |
+| `"fallback"` | 返回提供的 `outputFallback` 值,代替无效的结果。                               |
+
+当 `run()` 成功时,框架会返回校验后的值,所以 `outputSchema` 上的任何默认值或类型转换都会生效,和输入的处理方式一样。如果你没有传入 `outputSchema`,返回值不会有任何变化。
+
+## HTTP 配置 {#http}
+
+默认情况下,每个 action 都会以 `POST /_agent-native/actions/<name>` 的形式暴露。用 `http` 选项覆盖它:
+
+```ts
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+对于 `GET` action,`leadId` 会作为查询参数传入:`/_agent-native/actions/get-lead?leadId=abc`。
+
+<Endpoint id="doc-block-actions-defining-3" title="自动挂载的 action 端点" method="GET" path="/_agent-native/actions/get-lead" summary={"每个 action 都会自动挂载到这里。文件名就是 action 的名称。"} auth={"会话 cookie(前端调用会携带 `X-Agent-Native-Frontend: 1`),或者外部调用者使用 `Authorization: Bearer <token>`"} params={[
+  {
+    "name": "leadId",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "GET 参数以查询参数的形式到达。POST 参数以 JSON 请求体的形式到达。"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "该 action 的返回值,以 JSON 形式呈现。"
+  },
+  {
+    "status": "400",
+    "description": "输入在 run() 触发前未通过 schema 校验。"
+  }
+]}>
+
+POST 是默认方法,`http: { method: "GET" }` 会让它变成 GET。React 钩子和 `callAction()` 总是按名称调用这个路径,不受任何 `http.path` 覆盖的影响。外部系统可以用一个长期有效的 bearer token 调用同一个路由。参阅 [HTTP API](/docs/http-api)。
+
+</Endpoint>
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**:默认为 `POST`。`GET` action 会被自动标记为 `readOnly`,因此一次成功的调用不会触发 UI 的轮询刷新。
+- **`http: { path: "..." }`**:覆盖挂载在 `/_agent-native/actions/` 下的 URL。它默认为文件名。这个覆盖只会改变直接 HTTP 调用者所使用的 URL。`useActionQuery()`、`useActionMutation()` 和 `callAction()` 始终调用 `/_agent-native/actions/<name>`,不受这个覆盖的影响,所以覆盖路径会让这些钩子返回 404。只在面向外部 HTTP 调用者时才使用路径覆盖。另外要注意,覆盖路径中的 `:param` 路由片段不会被解析进 `run()` 的参数,只有查询字符串参数和 JSON 请求体字段才会。
+- **`http: false`**:彻底禁用 HTTP 端点。只有代理和 CLI 可以调用该 action。
+- **`readOnly: true`**:显式跳过轮询刷新,即便是那些实际上不做任何变更的 POST action 也一样。这不是访问控制。它不限制谁可以调用该 action,也不影响 `useActionQuery()`、`useActionMutation()` 或任何客户端钩子。它唯一的效果是抑制调用后的刷新事件,并让该 action 不参与写入审计。要在模型面前隐藏一个 action,使用 `agentTool: false`。要限制谁可以调用它,使用 [访问与授权](/docs/actions-access-control) 中的鉴权和访问选项。
+- **`parallelSafe: true`**:允许一个变更类 action 与同一轮次里的其他工具调用同时运行。只有在该 action 确实可以安全并发、且不依赖调用顺序时才设置它。变更类 action 默认是串行执行的。
+
+## 让 action 界面保持精简 {#small-surface}
+
+代理能看到的每一个 action,都会占用模型工具列表中的一个位置,而一份又长又重叠的列表会让模型更难选对工具。把 action 界面当作一套你在维护的 API 来设计,而不是 UI 里每个按钮配一个 action:
+
+- 优先选择**一个 CRUD 风格的 `update` action**,它接受一份包含可选字段的补丁,而不是 `update-name`、`update-order`、`update-color` 这样按字段拆分的许多 action。调用者只需要发送发生变化的字段。
+- 在为每一种查询或过滤条件新增一个读取类 action 之前,先考虑更通用的方案:面向 provider 数据的 [provider API 三件套](/docs/template-dispatch-vault-integrations#provider-api)(`provider-api-catalog`、`provider-api-docs` 和 `provider-api-request`),或者面向应用数据的开发用 `db-query` 工具。
+- 把仅供 UI 使用或程序化调用的 action 标记为 [`agentTool: false`](/docs/actions-access-control#agent-tool)。它们仍然可以从前端或通过 HTTP 调用,但不会占用模型工具列表中的位置。
+- 删除或隐藏 UI 已经不再使用的 action,而不是继续把它们暴露给模型。
+
+仓库内置了一个仅供参考的辅助工具 `node scripts/audit-template-actions.mjs [template ...]`(别名 `pnpm actions:audit`)。它会扫描某个模板的 `actions/` 文件夹,标记出 UI 可能已经不再使用的 action,以及那些可以合并为一个的、按字段拆分的 action 组。它总是以退出码 0 结束,从不会让 CI 失败,而且它的启发式规则是保守的,所以请把它的输出当作建议,而不是错误。
+
+## 下一步
+
+- [**概览**](/docs/actions-overview) — action 是什么,以及 hello-world 演练
+- [**访问与授权**](/docs/actions-access-control) — `agentTool`、`toolCallable`、`authorize`,以及 `ctx` 范围界定
+- [**运行上下文**](/docs/actions-run-context) — 完整的 `ctx` 字段表
+- [**其他界面**](/docs/actions-other-surfaces) — 原生聊天 UI、CLI、A2A、MCP,以及标准 actions
+- [**数据库**](/docs/server-database) — `run()` 内部使用的 `getDb()`/`schema`
+- [**数据与同步**](/docs/client-data) — 从 UI 中调用这个 action

@@ -17,6 +17,7 @@ vi.mock("expo-notifications", () => ({
 vi.mock("react-native", () => ({
   AppState: { currentState: "active" },
   Linking: {},
+  Platform: { OS: "ios" },
 }));
 vi.mock("@/lib/capture-queue", () => ({
   enqueueCaptureJob: mocks.enqueueCaptureJob,

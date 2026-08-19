@@ -258,12 +258,37 @@ const messages = {
     privateClipMessage:
       "यह क्लिप निजी है। पहुंच का अनुरोध करें और मालिक को सूचित किया जाएगा।",
     privateClipSignedOutMessage:
-      "यह क्लिप निजी है। मालिक से पहुंच का अनुरोध करने के लिए साइन इन करें।",
+      "यह क्लिप निजी है। पहुंच का अनुरोध करने के लिए साइन इन करें या अपना ईमेल दर्ज करें।",
     requestAccess: "पहुंच का अनुरोध करें",
+    requestAccessDialogTitle: "पहुंच का अनुरोध करें",
+    requestAccessDialogDescription:
+      "चुनें कि क्लिप साझा करते समय मालिक आपकी पहचान कैसे करे।",
+    requestAccessSignIn: "साइन इन या साइन अप करें",
+    requestAccessOr: "या",
+    requestAccessEmailLabel: "ईमेल पता",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "पहुंच मिलने के बाद क्लिप देखने के लिए इसी ईमेल से साइन इन करें।",
+    requestAccessWithEmail: "ईमेल से अनुरोध करें",
+    requestAccessEmailRequired: "मान्य ईमेल पता दर्ज करें।",
     requestingAccess: "पहुंच का अनुरोध किया जा रहा है...",
     accessRequested: "पहुंच का अनुरोध किया गया",
     accessRequestSent: "क्लिप के मालिक को सूचित कर दिया गया है।",
+    accessRequestSentWithEmail:
+      "मालिक से यह क्लिप {{email}} के साथ साझा करने को कहा गया है।",
     accessRequestFailed: "पहुंच का अनुरोध नहीं किया जा सका। फिर से कोशिश करें।",
+    accessApprovalTitle: "पहुंच दे दी गई",
+    accessApprovalAlreadyTitle: "पहुंच पहले से दी गई है",
+    accessApprovalMessage: "{{email}} अब इस क्लिप को देख सकते हैं।",
+    accessApprovalAlreadyMessage: "{{email}} के पास इस क्लिप की पहुंच पहले से है।",
+    accessApprovalErrorTitle: "पहुंच नहीं दी जा सकी",
+    accessApprovalInvalid: "यह पहुंच अनुरोध अमान्य या समाप्त हो चुका है।",
+    accessApprovalSignInTitle: "पहुंच देने के लिए साइन इन करें",
+    accessApprovalSignInMessage:
+      "इस अनुरोध को मंजूर करने के लिए क्लिप मालिक या एडमिन के रूप में साइन इन करें।",
+    accessApprovalOpenClip: "क्लिप खोलें",
+    accessApprovalSignIn: "साइन इन करें",
+    accessApprovalLoading: "पहुंच दी जा रही है...",
     clipUnavailable: "क्लिप अनुपलब्ध",
     clipUnavailableMessage:
       "यह रिकॉर्डिंग सार्वजनिक नहीं है, या लिंक अमान्य है. यदि यह आपकी क्लिप है, तो पहुंच जांचने के लिए साइन इन करें।",
@@ -357,6 +382,9 @@ const messages = {
     aiNotes: "एआई नोट्स",
     summary: "सारांश",
     actionItems: "एक्शन आइटम्स",
+    addActionItem: "एक्शन आइटम जोड़ें",
+    removeActionItem: "एक्शन आइटम हटाएं",
+    actionItemPlaceholder: "क्या करना है?",
     working: "कार्यरत…",
     noActionItems:
       "अभी तक कोई कार्रवाई आइटम नहीं. प्रतिलेख से नोट्स तैयार होने के बाद वे यहां दिखाई देते हैं।",
@@ -653,13 +681,13 @@ const messages = {
     collapse: "समेटें",
     changelogMarkdown: `# बदलाव लॉग
 
-Clips में उपयोगकर्ताओं को दिखने वाले सभी महत्वपूर्ण बदलाव यहां दर्ज किए जाते हैं। आप इसे कमांड मेनू (Cmd K -> "नया क्या है") या सेटिंग्स से कभी भी खोल सकते हैं।
+Clips में उपयोगकर्ताओं को दिखने वाले सभी महत्वपूर्ण बदलाव यहां दर्ज किए जाते हैं। आप इसे कमांड मेनू (Cmd+K -> "नया क्या है") या सेटिंग्स से कभी भी खोल सकते हैं।
 
 ## 2026-06-23
 
 ### जोड़ा गया
 
-- अब आप Clips के अंदर ही नया क्या है देख सकते हैं। बदलाव लॉग अब कमांड मेनू (Cmd K) और सेटिंग्स में उपलब्ध है।`,
+- अब आप Clips के अंदर ही नया क्या है देख सकते हैं। बदलाव लॉग अब कमांड मेनू (Cmd+K) और सेटिंग्स में उपलब्ध है।`,
     playback: "प्लेबैक",
     defaultPlaybackSpeed: "डिफ़ॉल्ट प्लेबैक गति",
     playbackDescription: "रिकॉर्डिंग खोलने पर अपने आप लागू होती है।",
@@ -943,7 +971,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
   commentsPanel: {
     disabled: "इस रिकॉर्डिंग के लिए टिप्पणियां बंद हैं।",
     beFirst: "पहली टिप्पणी करें",
-    leaveNotePanel: "इस पैनल के शीर्ष पर एक नोट छोड़ें।",
+    leaveNotePanel: "इस पैनल के नीचे एक नोट छोड़ें।",
     leaveNoteTimestamp: "वर्तमान टाइमस्टैम्प पर एक नोट छोड़ें।",
     leaveComment: "टिप्पणी छोड़ें...",
     signInToComment: "टिप्पणी छोड़ने के लिए साइन इन करें।",
@@ -1000,8 +1028,13 @@ Clips में उपयोगकर्ताओं को दिखने व�
     pauseShortcut: "रोकें (⌥⇧P)",
     stop: "रिकॉर्डिंग बंद करें",
     elapsed: "बीता समय",
-    cancel: "रिकॉर्डिंग रद्द करें",
-    cancelShortcut: "रद्द करें (⌥⇧C)",
+    cancel: "रिकॉर्डिंग हटाएं",
+    cancelShortcut: "हटाएं (⌥⇧C)",
+    discardConfirmTitle: "क्या इस रिकॉर्डिंग को हटाना है?",
+    discardConfirmDescription:
+      "इसे पूर्ववत नहीं किया जा सकता। अब तक की आपकी रिकॉर्डिंग स्थायी रूप से हटा दी जाएगी।",
+    resume: "फिर शुरू करें",
+    discardRecording: "रिकॉर्डिंग हटाएं",
   },
   countdownOverlay: {
     startsIn: "रिकॉर्डिंग {{count}} में शुरू होगी",
@@ -1080,6 +1113,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     liveTranscriptDescription: "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
     me: "मैं",
     them: "वे",
+    unknownSpeaker: "वक्ता",
     searchTranscript: "प्रतिलेख में खोजें",
     searchPlaceholder: "प्रतिलेख में खोजें…",
     searchMatchCount: "{{total}} में से {{current}}",
@@ -1087,6 +1121,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     searchPrevMatch: "पिछला मिलान",
     searchNextMatch: "अगला मिलान",
     searchClose: "खोज बंद करें",
+  },
+  bulletLink: {
+    jumpToTranscript: "प्रतिलेख में {{time}} पर जाएं",
+    noMatchingMoment: "कोई मेल खाता क्षण नहीं मिला",
   },
   editorLayout: {
     trimmed: "ट्रिम किया गया",
@@ -1196,7 +1234,7 @@ Clips में उपयोगकर्ताओं को दिखने व�
     seekTo: "Seek to {{time}} (स्थानीयकृत)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (स्थानीयकृत)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (स्थानीयकृत)",
     playPauseTooltip: "Play / Pause (Space) (स्थानीयकृत)",
     sourceDuration: "({{duration}} src) (स्थानीयकृत)",
     previewSpeed: "Preview speed (स्थानीयकृत)",
@@ -1290,10 +1328,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     cameraOff: "Camera off (स्थानीयकृत)",
     includeCameraAria: "Include camera in this recording (स्थानीयकृत)",
     startRecording: "Start recording (स्थानीयकृत)",
-    micOffConfirmTitle: "Record without a microphone? (स्थानीयकृत)",
-    micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (स्थानीयकृत)",
-    startWithoutMic: "Start anyway (स्थानीयकृत)",
+    micOffConfirmTitle: "आपका माइक म्यूट है",
+    micOffConfirmDescription: "अपने वीडियो में आवाज़ के लिए माइक्रोफ़ोन अनम्यूट करें।",
+    startWithoutMic: "जारी रखें",
+    unmuteMicrophone: "माइक चालू करें",
     uploadVideo: "Upload video (स्थानीयकृत)",
     importLoom: "Import Loom (स्थानीयकृत)",
     importing: "Importing... (स्थानीयकृत)",
@@ -1376,6 +1414,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips सेव पूरा करेगा.",
     connectStorageToRetryLoom:
       "अगली स्क्रीन पर स्टोरेज कनेक्ट करें: Builder.io (free tier storage + AI) या S3-संगत स्टोरेज. Clips इंपोर्ट फिर से करेगा.",
+    leaveConfirmTitle: "इस रिकॉर्डिंग को छोड़कर हटाएं?",
+    leaveConfirmDescription:
+      "आपकी चल रही रिकॉर्डिंग अभी पूरी तरह सेव नहीं हुई है. अभी इस पेज से बाहर जाने पर यह हट जाएगी.",
+    leaveAndDiscard: "बाहर जाएं और हटाएं",
   },
   importRoute: {
     pageTitle: "Loom आयात करें — Clips",
@@ -1571,7 +1613,14 @@ Clips में उपयोगकर्ताओं को दिखने व�
     title: "Meetings (स्थानीयकृत)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (स्थानीयकृत)",
-    searchPlaceholder: "Search meetings... (स्थानीयकृत)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (स्थानीयकृत)",
+    agendaTab: "Agenda (स्थानीयकृत)",
+    pastTab: "Past (स्थानीयकृत)",
+    now: "Now (स्थानीयकृत)",
+    noPastMeetings: "No past meetings yet (स्थानीयकृत)",
+    loadOlder: "Load older (स्थानीयकृत)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (स्थानीयकृत)",
     clearSearch: "Clear search (स्थानीयकृत)",
     noMeetingsYet: "No meetings yet (स्थानीयकृत)",
     noMeetingsDescription:

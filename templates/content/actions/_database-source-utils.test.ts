@@ -1148,6 +1148,80 @@ describe("database source helpers", () => {
     expect(change).toBeNull();
   });
 
+  it("does not restage converter-owned media for a current-codec hydrated baseline", async () => {
+    const localContent = "![Current](https://cdn.example.com/current.png)";
+    const change = await builderBodyChangeForLocalContent({
+      row: {
+        sourceValuesJson: JSON.stringify({
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "builder-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: localContent,
+        }),
+      },
+      localContent,
+      usesCurrentHydrationCodec: true,
+    });
+
+    expect(change).toBeNull();
+  });
+
+  it("merges current-codec media edits through the escaped lossless baseline", async () => {
+    const entry = await withBuilderBodySourceValues({
+      id: "current-codec-media-edit",
+      model: "blog-article",
+      title: "Current codec media edit",
+      urlPath: "/blog/current-codec-media-edit",
+      updatedAt: "2026-08-13T00:00:00.000Z",
+      sourceValues: { "data.title": "Current codec media edit" },
+      rawEntry: {
+        id: "current-codec-media-edit",
+        model: "blog-article",
+        data: {
+          title: "Current codec media edit",
+          blocks: [
+            {
+              "@type": "@builder.io/sdk:Element",
+              "@version": 2,
+              id: "text-with-braces",
+              component: {
+                name: "Text",
+                options: { text: "<p>Use {curly} braces.</p>" },
+              },
+            },
+            {
+              "@type": "@builder.io/sdk:Element",
+              "@version": 2,
+              id: "current-image",
+              component: {
+                name: "Image",
+                options: {
+                  image: "https://cdn.example.com/current.png",
+                  altText: "Current",
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+    const currentContent = String(
+      entry.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY],
+    );
+    const change = await builderBodyChangeForLocalContent({
+      row: { sourceValuesJson: JSON.stringify(entry.sourceValues) },
+      localContent: currentContent.replace(
+        "Use {curly} braces.",
+        "Use {curly} braces. violet canary",
+      ),
+      usesCurrentHydrationCodec: true,
+    });
+
+    expect(change).toMatchObject({
+      summary: "Builder body blocks changed.",
+      warnings: [],
+    });
+    expect(change?.proposedBlocksJson).toContain("violet canary");
+  });
+
   it("stages Quiet Comet converter-only native media drift once, then reaches a fixpoint", async () => {
     const localContent = [
       "![Quiet Comet](https://cdn.example.com/quiet-comet.png)",

@@ -1,5 +1,7 @@
 import type { ActionRunContext } from "../action.js";
+import { resolveDeployEnvironment } from "../server/deploy-environment.js";
 import { getRequestContext } from "../server/request-context.js";
+import { ANALYTICS_CLIENT_PLATFORM_PROPERTY } from "../shared/analytics-platform.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 const REGISTRY_KEY = Symbol.for("@agent-native/core/tracking.registry");
@@ -81,9 +83,17 @@ export function track(
   source?: TrackingSource,
 ): void {
   const { userId, anonymousId, sessionId } = resolveTrackingSource(source);
+  const clientPlatform = getRequestContext()?.clientPlatform;
+  const trackedProperties = {
+    ...(properties ?? {}),
+    deployment_environment: resolveDeployEnvironment(),
+    ...(clientPlatform
+      ? { [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: clientPlatform }
+      : {}),
+  };
   const event: TrackingEvent = {
     name,
-    properties,
+    properties: trackedProperties,
     timestamp: new Date().toISOString(),
     userId,
     anonymousId,

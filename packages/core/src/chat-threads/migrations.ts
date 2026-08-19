@@ -4,6 +4,10 @@ import { runMigrations } from "../db/migrations.js";
 import { repairLegacyChatThreadMessageCounts } from "./store.js";
 
 export const CHAT_THREADS_MIGRATIONS_TABLE = "_chat_threads_migrations";
+export {
+  CHAT_THREAD_SCHEMA_MIGRATIONS,
+  CHAT_THREAD_SCHEMA_MIGRATIONS_TABLE,
+} from "./schema-migrations.js";
 
 export const CHAT_THREADS_REPAIR_MESSAGE_COUNTS_MIGRATION =
   "chat-threads-repair-legacy-message-counts";

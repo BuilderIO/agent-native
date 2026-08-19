@@ -33,6 +33,7 @@ import {
   LOCALE_METADATA,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
+  localeDisplayName,
   localeDirection,
   normalizeLocalizationPreference,
   resolveLocaleFromCandidates,
@@ -707,6 +708,9 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "runsTray.statusDone": "Done",
   "runsTray.statusFailed": "Failed",
   "runsTray.statusStopped": "Stopped",
+  "runsTray.statusNeedsApproval": "Needs approval",
+  "runsTray.statusNeedsInput": "Needs input",
+  "runsTray.statusPaused": "Paused",
   "runsTray.updatedJustNow": "Updated just now",
   "runsTray.finishedJustNow": "Finished just now",
   "runsTray.updatedMinutes": "Updated {{count}}m ago",
@@ -715,8 +719,8 @@ const CORE_FALLBACK_MESSAGES: Record<string, string> = {
   "runsTray.finishedHours": "Finished {{count}}h ago",
   "runsTray.updatedDate": "Updated {{date}}",
   "runsTray.finishedDate": "Finished {{date}}",
-  "agentTask.backgroundTask": "Background task",
-  "agentTask.stop": "Stop background task",
+  "agentTask.spawnedAgent": "Spawned agent",
+  "agentTask.stop": "Stop spawned agent",
   "agentTask.openThread": "Open task thread",
   "codeRequired.fallbackDetail":
     "Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.",
@@ -911,20 +915,24 @@ export function LanguagePicker({
   const [open, setOpen] = useState(false);
   const copy =
     LANGUAGE_PICKER_COPY[locale] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
+  const systemCopy =
+    LANGUAGE_PICKER_COPY[
+      resolveLocaleFromCandidates(browserLanguageCandidates())
+    ] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
   const resolvedLabel = label ?? copy.label;
   const options = [
     ...(includeSystem
       ? [
           {
             value: "system" as const,
-            label: copy.system,
-            description: copy.systemDescription,
+            label: systemCopy.system,
+            description: systemCopy.systemDescription,
           },
         ]
       : []),
     ...supportedLocales.map((code) => ({
       value: code,
-      label: `${LOCALE_METADATA[code].nativeName} (${code})`,
+      label: localeDisplayName(code),
       description: code,
     })),
   ];

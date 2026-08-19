@@ -11,6 +11,7 @@ export default defineAction({
   }),
   http: false,
   readOnly: true,
+  publicAgent: { expose: true, readOnly: true },
   run: async ({ slug }) => {
     const matter = (await import("gray-matter")).default;
     const sanitized = sanitizeDocSlug(slug);

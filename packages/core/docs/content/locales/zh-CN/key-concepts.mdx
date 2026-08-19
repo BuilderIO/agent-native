@@ -170,7 +170,7 @@ Skills 和 actions 一起工作。一个 skill 教会代理如何完成一类
 
 ## SQL 中的数据 {#data-in-sql}
 
-所有应用状态都通过 Drizzle ORM 存在于一个 SQL 数据库中。Schema 与提供商无关；支持的数据库、`DATABASE_URL` 配置和可移植性规则见 [Database](/docs/database)。
+所有应用状态都通过 Drizzle ORM 存在于一个 SQL 数据库中。Schema 与提供商无关；支持的数据库、`DATABASE_URL` 配置和可移植性规则见 [Database](/docs/server-database)。
 
 Core 的 SQL 存储会自动创建，并在每个模板中可用：
 
@@ -284,7 +284,7 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 生产代理聊天插件默认将原始 SQL 工具设为只读（`frameworkTools: { database: "read" }`），因此代理使用 `db-schema` / `db-query` 检查应用拥有的数据，并通过类型化应用 actions 执行写入。只有在刻意的维护界面也需要公开带范围限制的 `db-exec` / `db-patch` 时，才设置 `database: "write"`（或 `true`）；设置 `database: "off"` / `false` 可要求所有数据访问都通过类型化应用 actions。
 
-`frameworkTools` 以同样的方式管理框架自带的其余工具：分享、审阅评论、版本历史、feature flags、本地化、审计、Context X-Ray、个人资料、自动化、docs、resources、web、跨应用委派、聊天和邮件。完整列表、`"minimal"` 预设，以及为什么关闭分组仍保留其 HTTP 路由，请参见 [Production Agent Tools](/docs/deployment#production-agent-tools)。
+`frameworkTools` 以同样的方式管理框架自带的其余工具：分享、审阅评论、版本历史、feature flags、本地化、审计、Context X-Ray、个人资料、自动化、docs、resources、web、跨应用委派、聊天和邮件。完整列表、`"minimal"` 预设，以及为什么关闭分组仍保留其 HTTP 路由，请参见 [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools)。
 
 </Callout>
 
@@ -351,7 +351,7 @@ graph LR
 - **CLI：** `pnpm action fetch-data --source=signups`，用于脚本编写和代理开发循环。
 - **MCP 工具 / A2A 工具：** 当 MCP 服务器或 A2A 启用时，同一个 action 也会出现在那里。
 
-每一个消费者调用的都是同一个底层函数，因此只需要编写和维护一份实现。完整参考请见 [Actions](/docs/actions)。
+每一个消费者调用的都是同一个底层函数，因此只需要编写和维护一份实现。完整参考请见 [Actions](/docs/actions-overview)。
 
 ## 实时同步 {#polling-sync}
 
@@ -463,7 +463,7 @@ UI 会在路由变化时写入这条数据；代理在采取任何行动之前�
 
 两条架构规则让应用可以跨数据库和主机移植：
 
-- **数据库无关。** 使用 `@agent-native/core/db/schema` 编写 schema，并使用 Drizzle 的可移植查询 DSL 进行读写，这样相同的代码可以在任何受支持的提供商上运行。仅将原始 SQL 用于增量迁移或一次性维护，且要保持参数化并与具体方言无关。参见 [Database](/docs/database)。
+- **数据库无关。** 使用 `@agent-native/core/db/schema` 编写 schema，并使用 Drizzle 的可移植查询 DSL 进行读写，这样相同的代码可以在任何受支持的提供商上运行。仅将原始 SQL 用于增量迁移或一次性维护，且要保持参数化并与具体方言无关。参见 [Database](/docs/server-database)。
 - **主机无关。** 服务器运行在 Nitro 之上，可以编译到任意部署目标。切勿在服务器路由或插件中使用 Node 特有的 API（`fs`、`child_process`、`path`），也不要假设存在一个持久化的服务器进程。无服务器和边缘环境都是无状态的，因此要把所有状态保存在 SQL 中。参见 [Deployment](/docs/deployment)。
 
 ## 代理资源 {#workspace}

@@ -13,6 +13,7 @@ import {
   getDesktopReleaseError,
   isDesktopUpdateMetadataAsset,
   isDesktopUpdaterAsset,
+  type DesktopReleaseChannel,
 } from "../../../../lib/desktop-releases";
 
 function safeAssetName(value: string | undefined): string {
@@ -39,8 +40,20 @@ function assetNameCandidates(assetName: string): string[] {
   return candidates;
 }
 
+function parseUpdatePath(value: string | undefined): {
+  channel: DesktopReleaseChannel;
+  assetName: string;
+} {
+  const segments = (value ?? "").split("/");
+  if (segments[0] === "nightly") {
+    return { channel: "nightly", assetName: segments.slice(1).join("/") };
+  }
+  return { channel: "production", assetName: value ?? "" };
+}
+
 export default defineEventHandler(async (event) => {
-  const assetName = safeAssetName(getRouterParam(event, "asset"));
+  const request = parseUpdatePath(getRouterParam(event, "asset"));
+  const assetName = safeAssetName(request.assetName);
   if (!isDesktopUpdaterAsset(assetName)) {
     throw createError({
       statusCode: 404,
@@ -50,7 +63,7 @@ export default defineEventHandler(async (event) => {
 
   let manifest;
   try {
-    manifest = await getDesktopDownloadManifest();
+    manifest = await getDesktopDownloadManifest(request.channel);
   } catch (error) {
     const e = getDesktopReleaseError(error);
     setResponseStatus(event, e.statusCode, e.statusMessage);
@@ -73,21 +86,11 @@ export default defineEventHandler(async (event) => {
   }
 
   if (isDesktopUpdateMetadataAsset(asset.name)) {
-    const upstream = await fetch(asset.url, {
-      headers: { "user-agent": "agent-native-desktop-update-feed" },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!upstream.ok) {
-      throw createError({
-        statusCode: 502,
-        statusMessage: `Desktop update metadata fetch failed (${upstream.status})`,
-      });
-    }
-    setResponseHeaders(event, {
-      "content-type": "application/x-yaml; charset=utf-8",
-      ...DESKTOP_RELEASE_CACHE_HEADERS,
-    });
-    return upstream.text();
+    // Let the updater follow GitHub's signed asset redirect directly. Proxying
+    // the YAML through the docs function adds a second fragile upstream fetch
+    // to the update path and turns transient GitHub asset failures into a 502.
+    setResponseHeaders(event, DESKTOP_RELEASE_CACHE_HEADERS);
+    return sendRedirect(event, asset.url, 302);
   }
 
   setResponseHeaders(event, DESKTOP_RELEASE_CACHE_HEADERS);

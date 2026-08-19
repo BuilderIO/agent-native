@@ -1,0 +1,361 @@
+---
+title: "存取與授權"
+description: "誰可以呼叫一個 action：曝露旗標（agentTool、toolCallable）、以 ctx 為基礎的範圍限定、accessFilter/assertAccess，以及 authorize 守衛。"
+---
+
+# 存取與授權
+
+五項設定決定誰可以呼叫一個 action：代理、前端、擴充功能、外部 API 呼叫者，或是在沒有人工先核准的情況下沒有任何人可以呼叫。大多數 action 永遠不需要碰這些設定，因為預設值已經符合一般 UI 與代理的使用情境。
+
+### 曝露旗標 {#exposure-flags}
+
+這五個旗標預設都是寬鬆值，因此只有在需要收緊特定介面時才需要設定其中一個。下方表格是快速摘要，其後的章節則補充每個旗標各自需要的細節。
+
+| 旗標            | 預設值       | 收緊後的值 → 誰仍然可以呼叫                                                      | 典型用途                                                            |
+| --------------- | ------------ | -------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| `agentTool`     | `true`       | `false` → 僅限 UI、HTTP 與 CLI（對模型、MCP 與 A2A 隱藏）                        | 不該佔用工具位置的僅限 UI 或程式化用途的 action                     |
+| `toolCallable`  | `true`       | `false` → 除了沙盒化擴充功能 iframe 橋接以外的一切都仍可呼叫（該橋接會收到 403） | 敏感的帳號或組織變更（刪除帳號、變更成員資格）                      |
+| `publicAgent`   | 關閉（私有） | `{ expose: true }` → 將此 action 加入**公開**的 MCP/A2A/OpenAPI 介面             | 不需要驗證的安全讀取或匯入工具                                      |
+| `needsApproval` | `false`      | `true` → 代理會**暫停**，必須由人工核准該次特定呼叫                              | 具有重大影響的副作用（傳送電子郵件、刷卡扣款、刪除）                |
+| `authorize`     | 無           | 一個守衛函式 → 只有它接受的呼叫者才能通過，適用於**每一種**介面                  | 限定角色才能執行的操作（每個應用程式各自的 RBAC、僅限管理員的操作） |
+
+這些旗標彼此獨立，設定其中一個不會影響其他旗標。`agentTool` 控制模型能看到什麼，請參閱下方的[對模型隱藏](#agent-tool)。`toolCallable` 只控制擴充功能 iframe，請參閱下方的[封鎖擴充功能 iframe](#tool-callable)。`publicAgent` 會新增一個選擇加入的公開介面，公開的網頁路由絕不代表工具也會公開曝露，請參閱下方的[曝露給公開代理](#public-agent)。`needsApproval` 會在呼叫已經發出之後、於執行前設下關卡，請參閱下方的[要求人工核准](#needs-approval)。`authorize` 則決定此呼叫者是否完全可以執行此 action，適用於每一條分派路徑，且在進入 `run()` 之前執行，請參閱下方的[依角色限制呼叫者](#authorize)。
+
+## 對模型隱藏 {#agent-tool}
+
+預設情況下，每個 action 都是可呼叫的代理工具。設定 `agentTool: false` 可以將它從所有代理工具清單中移除，同時仍保留在框架的驗證與 action 介面之下。它仍然可以從 UI（`useActionMutation()` 或 `callAction()`）、CLI，以及 `/_agent-native/actions/<name>` 呼叫：
+
+```ts
+export default defineAction({
+  description: "Persist the user's sidebar width.",
+  agentTool: false, // UI-only, not a tool in the model's context window
+  schema: z.object({ widthPx: z.number() }),
+  http: { method: "PUT" },
+  run: async ({ widthPx }) => {
+    /* ... */
+  },
+});
+```
+
+當您新增一個僅供 UI 使用或純粹程式化用途的 action，或是當 UI 不再使用某個原本仍會曝露給模型的 action 時，可以使用此設定。
+
+## 封鎖擴充功能 iframe {#tool-callable}
+
+擴充功能（[沙盒化 iframe 中的 Alpine.js 迷你應用程式](/docs/extensions)）會透過 `appAction(name, params)` 呼叫 action，並以檢視者自己的權限、密鑰與 SQL 範圍執行。對於敏感操作來說，預設情況下這信任程度過高。設定 `toolCallable: false` 可以讓擴充功能橋接回傳 403，同時保留此 action 仍可從 UI、代理、CLI、MCP 與 A2A 呼叫：
+
+```ts
+export default defineAction({
+  description: "Delete the current user's account.",
+  toolCallable: false, // never callable from an extension iframe
+  schema: z.object({ confirm: z.literal("yes") }),
+  run: async () => {
+    /* ... */
+  },
+});
+```
+
+請將它用於會刪除或轉移帳號／組織、變更驗證狀態、修改組織成員資格，或授予分享存取權的 action。框架內建的 `share-resource`、`unshare-resource` 與 `set-resource-visibility` action 已經退出此項。框架是透過主機在 iframe 呼叫上設定的一個標頭來強制執行此規則，而 iframe 無法偽造這個標頭。一般的 UI、代理、CLI、MCP 與 A2A 呼叫不受影響。詳情請參閱[安全性](/docs/security)。
+
+## 曝露給公開代理 {#public-agent}
+
+預設情況下，每個 action 都不會出現在任何公開協定介面上，即使它的網頁路由是公開的也一樣。讓一個頁面可被爬取，絕不會因此曝露工具。設定 `publicAgent: { expose: true, readOnly: true, ... }` 可以讓一個安全的 action 選擇加入公開的 MCP、A2A 與 OpenAPI 介面：
+
+```ts
+export default defineAction({
+  description: "Search published docs.",
+  schema: z.object({ query: z.string() }),
+  http: { method: "GET" },
+  readOnly: true,
+  publicAgent: {
+    expose: true,
+    readOnly: true,
+    requiresAuth: false,
+  },
+  run: async ({ query }) => {
+    /* ... */
+  },
+});
+```
+
+只將它用於安全、唯讀，或僅供匯入用途的 action，也就是您願意讓陌生人在不登入的情況下呼叫的那種。`requiresAuth: false` 會告訴公開介面，此 action 在驗證之前列出也是安全的。若某個 action 仍需要已連線呼叫者的身分（例如每個帳號各自的匯入工具），則應保留 `true`。此設定所選擇加入的完整目錄與驗證模型，請參閱[外部代理](/docs/external-agents)與 [MCP 協定](/docs/mcp-protocol)。
+
+## 要求人工核准 {#needs-approval}
+
+少數 action 的後果太過重大，不能放任代理自行執行，例如傳送電子郵件、刷卡扣款，或刪除帳號。在 `defineAction()` 上設定 `needsApproval: true`（或一個判斷式 `(args, ctx) => boolean | Promise<boolean>`），迴圈就會在 `run()` 之前暫停，要求人工核准那次特定的呼叫。預設值是**關閉**，幾乎所有 action 都應該維持這個狀態。
+
+<Callout tone="warning">
+  核准的使用應該保持稀少。每一個設有關卡的
+  action，都會是代理迴圈中的一次硬性停止。
+  它會中斷這次執行，並要求人工介入往返。請只將 `needsApproval`
+  用在真正具有重大後
+  果、難以復原、且面向外部的操作上。如果您發現自己正在為讀取或例行寫入設下關卡，就
+  代表用法不對。預設值是**關閉**，幾乎每個 action 都應該維持關閉。
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="為唯一具有重大後果的操作設下關卡"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "整個關卡",
+      note: "僅僅一個旗標。當它為真值，且該次呼叫尚未獲得核准時，迴圈就會在 `run` 之前停止。模型永遠不會自行觸及該副作用。",
+    },
+    {
+      lines: "11-13",
+      label: "`run()` 維持不變",
+      note: "處理函式維持不變。核准是由包覆在外層的迴圈強制執行，而不是由 `run` 內部的任何程式碼強制執行。",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** 永遠需要核准。
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** 只有在判斷式回傳 `true` 時才需要核准。可以用它來做條件式的關卡設定，例如只針對外部收件者，或只在超過某個金額門檻時：
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  請讓判斷式保持單純且快速執行。如果判斷式拋出例外，框架會將該次呼叫視為判斷式回傳了 `true` 一樣處理，因此該 action 會暫停以等待核准，而不會直接執行。這代表即使判斷式本身出錯，也絕不會讓一個具有重大後果的 action 在沒有人工事先核准的情況下悄悄執行。
+
+當省略 `needsApproval` 時，行為完全不受影響，一般路徑上也不會產生任何額外成本。
+
+無論是舊式的 `parameters` 風格 action，還是以架構為基礎的 action，運作方式都相同。這對應用程式內的代理、子代理、A2A 與 MCP 呼叫者來說也同樣適用，因為每一種代理介面都會經過同一個迴圈。
+
+### 迴圈如何暫停 {#loop}
+
+當代理呼叫一個設有關卡的 action，而這次特定的呼叫**尚未**獲得核准時，迴圈就**不會**執行 `run()`。取而代之，它會：
+
+1. 解析這道關卡。若是判斷式，迴圈會呼叫 `needsApproval(input, ctx)`。如果這次呼叫拋出例外，迴圈會將它視為回傳了 `true` 一樣處理，因此該 action 需要核准。
+2. 發出一個 `tool_start` 事件（讓 UI 顯示此次呼叫），緊接著立刻發出一個**`approval_required`**事件，然後停止這一回合。該 action 的副作用永遠不會發生。
+
+`approval_required` 事件會攜帶客戶端呈現操作介面所需的一切資訊：
+
+| 欄位          | 型別     | 說明                                                            |
+| ------------- | -------- | --------------------------------------------------------------- |
+| `tool`        | `string` | 代理嘗試呼叫的 action 名稱。                                    |
+| `input`       | object   | 代理傳入的引數。                                                |
+| `approvalKey` | `string` | **穩定的金鑰**，客戶端會將它原樣回傳，以核准 _這次確切的呼叫_。 |
+| `toolCallId`  | `string` | 模型端的工具呼叫 id，如果有提供的話。                           |
+
+`approvalKey` 是由工具名稱加上其輸入值以確定性方式推導而成，因此同一個邏輯上的呼叫，永遠會產生相同的金鑰。模型永遠不會看到或設定這個值。它的存在純粹是框架與人工核准操作介面之間的一種握手機制。
+
+這個被暫停的工具會回傳一個結果，告訴模型這一回合已經暫停，且不應該重試。這樣一來，模型就不會不斷空轉重複嘗試。
+
+### 人工如何核准 {#approve}
+
+當收到 `approval_required` 時，聊天 UI 會在被暫停的工具呼叫上，顯示一個**核准／拒絕**的操作介面。這在 `AssistantChat` 中已經自動接好線路，您不需要在每個範本中自行建置。
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **核准**會以一般的延續訊息重新發出這一回合，並在 `approvedToolCalls: [approvalKey]` 中攜帶該次呼叫的金鑰。在重新發出的這一回合中，關卡會在已核准的集合中看到這把金鑰，並讓那次特定的呼叫正常執行。
+- **拒絕**只會在本機端關閉這個操作介面。不會重新發出任何內容，因此該 action 永遠不會執行。
+
+`approvedToolCalls` 是聊天請求上的一個欄位（`AgentChatRequest.approvedToolCalls`）。不在其中的金鑰會維持暫停狀態。核准一次呼叫，永遠不會核准任何其他呼叫。由於這把金鑰是以內容定址的方式產生，一次核准只會授權那一次確切的呼叫與那些確切的引數。如果模型之後提議一次不同的傳送，那會產生一把新的金鑰，需要重新獲得一次核准。
+
+### 端對端流程 {#flow}
+
+<Diagram id="doc-block-2nor1g" title="核准中斷" summary={"一次設有關卡的呼叫，會在 run() 執行之前暫停這一回合。核准會重新發出這一回合，並攜帶該次呼叫的金鑰。唯有到那時候，副作用才會發生。"}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>代理呼叫 send-email</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>關卡為真值，呼叫尚未核准</strong
+    ><small class="diagram-muted"
+      >迴圈發出 tool_start + approval_required { tool, input, approvalKey
+      }</small
+    ><span class="diagram-pill warn">run() 尚未執行</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    人工在聊天中點擊核准<br /><small class="diagram-muted"
+      >客戶端會以 approvedToolCalls: [approvalKey] 重新發出這一回合</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >關卡看到這把金鑰 &rarr; run() 執行 &rarr; 電子郵件送出</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+Mail 範本的 `send-email` action，是框架中這道關卡的標準用例，而且它刻意保持稀少。它設定了 `needsApproval: true`，讓代理可以自由地草擬與排入佇列電子郵件。但在沒有人工核准那次特定傳送的情況下，它永遠無法真正傳送出去。
+
+## 依角色限制呼叫者 {#authorize}
+
+`authorize` 回答一個特定的問題：**這位呼叫者到底是否可以執行此操作？** 提供一個守衛函式給它，它就會在每一種呼叫者（代理工具、HTTP、前端、MCP、A2A 與 CLI）呼叫 `run()` 之前先執行。
+
+用 `defineAppRoles()` 一次宣告角色詞彙：
+
+```ts
+// server/lib/access.ts
+import { defineAppRoles } from "@agent-native/core/org-team";
+
+export const coachAccess = defineAppRoles({
+  appId: "coach",
+  roles: ["member", "coach-admin"] as const,
+  defaultRole: "member", // display only, never satisfies a guard
+});
+```
+
+接著用一份明確的可接受角色清單來守衛此 action：
+
+```ts
+// actions/archive-plan.ts
+import { coachAccess } from "../server/lib/access.js";
+
+export default defineAction({
+  description: "Archive a training plan.",
+  schema: z.object({ id: z.string() }),
+  authorize: coachAccess.requireAny("coach-admin"),
+  run: async ({ id }) => {
+    /* ... */
+  },
+});
+```
+
+此守衛包裹的是 `run()` 本身，而不是附加在 action 的其他部分。這是因為 `run()` 是全部六個分派點都會經過的唯一環節，因此呼叫者沒有辦法在不通過檢查的情況下抵達主體。拋出例外的守衛會以自己的錯誤訊息拒絕該次呼叫。回傳 `false` 的守衛會以一般性的 403 拒絕該次呼叫。除此之外的任何回傳值，包括 `undefined`，都會允許該次呼叫。由於此檢查需要呼叫者身分，一次沒有使用者電子郵件的無人值守 CLI 或 cron 呼叫會被拒絕，而不是被放行。
+
+這些包裝器會依下列順序組合：
+
+```text
+validate input -> authorize -> run -> validate output -> audit
+```
+
+授權處理位於輸入驗證的*內側*，因此檢查 `args` 的守衛所拿到的，會是與 `run()` 收到的相同、已解析且經過型別檢查的值，而不是呼叫者傳入的原始形狀。稽核則位於最外層，因此即使遭到拒絕，仍會被記錄下來。
+
+`requireAny()` 是在定義時失敗，而不是在請求時失敗。呼叫它時若沒有提供角色，或提供了宣告清單以外的角色，模組一載入就會拋出例外。這樣一來，像是 `authorize: coachAccess.requireAny()` 漏掉引數這類錯誤，會在發生的當下就直接出錯，而不是之後才以一個無法解釋的 403 出現。
+
+### Action 中的存取控制 {#access-control}
+
+`authorize` 只回答呼叫者是否完全可以執行此操作，並不涉及他們可以觸及哪些資料列，那是另一項獨立的、資料列層級的檢查。一張用 `ownableColumns()` 建置、並以 `registerShareableResource()` 註冊的資料表（請參閱[分享](/docs/sharing#building)）會取得兩個輔助函式來處理這件事：`accessFilter()` 會把一個列表或讀取查詢限定在呼叫者可以看見的資料列範圍內，而 `assertAccess()` 則會在呼叫者對該資料列不具備所需角色時，於寫入前拋出例外。
+
+在列表或讀取 action 的查詢中使用 `accessFilter()`：
+
+```ts
+// actions/list-decks.ts
+import { defineAction } from "@agent-native/core/action";
+import { accessFilter } from "@agent-native/core/sharing";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "List the decks the current user can see.",
+  schema: z.object({}),
+  http: { method: "GET" },
+  run: async () => {
+    const db = getDb();
+    return await db
+      .select()
+      .from(schema.decks)
+      .where(accessFilter(schema.decks, schema.deckShares));
+  },
+});
+```
+
+在更新或刪除之前使用 `assertAccess()`，因為單靠 `WHERE` 子句無法阻止對其排除在外的資料列進行寫入：
+
+```ts
+// actions/rename-deck.ts
+import { defineAction } from "@agent-native/core/action";
+import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
+import { z } from "zod";
+import { getDb, schema } from "../server/db/index.js";
+
+export default defineAction({
+  description: "Rename a deck.",
+  schema: z.object({ id: z.string(), title: z.string() }),
+  run: async ({ id, title }) => {
+    await assertAccess("deck", id, "editor");
+    const db = getDb();
+    await db.update(schema.decks).set({ title }).where(eq(schema.decks.id, id));
+    return { ok: true };
+  },
+});
+```
+
+建立用的 action 兩個輔助函式都不需要呼叫。它只需要在插入新資料列時，從請求情境中蓋上 `ownerEmail`（與 `orgId`）即可，因為此時還沒有既有的資料列可供檢查存取權。完整的註冊與建立模式請參閱[分享](/docs/sharing#building)，上方所用的第二個引數 `ctx` 的完整結構請參閱[執行情境](/docs/actions-run-context)。
+
+這三種機制無法互相替代：
+
+| 機制                              | 它回答的問題                                   | 適用範圍                          |
+| --------------------------------- | ---------------------------------------------- | --------------------------------- |
+| `authorize`                       | 這位呼叫者到底是否可以執行此操作？             | 全部六個分派點                    |
+| `needsApproval`                   | 這次已獲准許的特定呼叫，是否應該由人工核准？   | 僅限代理迴圈                      |
+| `accessFilter()`/`assertAccess()` | 這位已獲准許的呼叫者可以看見或寫入哪些資料列？ | 在 `run()` 內，依查詢或資料列而定 |
+
+一個受限制的寫入 action 通常同時需要 `authorize` 與 `assertAccess()`。前者將非教練排除在此操作之外，後者則將某位教練排除在其他組織的計畫之外。`needsApproval` 是另一個獨立的維度，它從不限制誰可以呼叫，只決定代理是否可以在無人看管的情況下繼續執行。
+
+上方的 `coachAccess` 來自 `defineAppRoles()`，是疊加在組織成員資格之上、各應用程式自訂的角色層。角色模型及其保證，請參閱[組織、團隊與權限 → 應用程式角色](/docs/organizations-teams-permissions#app-roles-per-app-rbac)。
+
+## 稽核記錄 {#audit}
+
+每個變更資料的 action 都會自動被稽核。框架會記錄是誰執行的、何時執行、來自哪一種介面，若是代理執行的，還會記錄是哪一個對話串與哪一回合，並且會遮蔽輸入中的憑證。唯讀（`GET`）的 action 會被略過。您不需要為此撰寫任何程式碼，這一切都在 `defineAction()` 內部自動發生。
+
+只有在需要微調擷取方式時才需要加上 `audit` 區塊。最常見的原因是要宣告此 action 變更的資源，讓這項變更出現在該資源擁有者的紀錄中：
+
+```ts
+export default defineAction({
+  description: "Delete a recording.",
+  schema: z.object({ id: z.string() }),
+  audit: {
+    target: (args, result) => ({ type: "recording", id: args.id }),
+    summary: (args) => `Deleted recording ${args.id}`,
+  },
+  run: async (args, ctx) => {
+    /* ...delete... */
+  },
+});
+```
+
+還有幾個選項。`audit: { onRead: true }` 會稽核一次敏感讀取，例如存取密鑰或批次匯出。`audit: { enabled: false }` 可以讓一個雜訊過多的寫入退出稽核。`audit: { recordInputs: false }` 會跳過擷取引數。可以用內建的 `list-audit-events` 與 `get-audit-event` action 讀回紀錄。完整細節請參閱[稽核記錄](/docs/audit-log)。
+
+## 下一步是什麼
+
+- [**總覽**](/docs/actions-overview) — action 是什麼，以及 hello-world 示範
+- [**定義 Actions**](/docs/actions-defining) — `defineAction()` 的結構、架構與 HTTP 設定
+- [**執行情境**](/docs/actions-run-context) — 這些檢查所讀取的 `ctx` 引數
+- [**郵件範本**](/docs/template-mail) — `send-email` 是 `needsApproval` 的參考範例
+- [**稽核記錄**](/docs/audit-log) — 自動記錄誰變更了什麼的紀錄
+- [**安全性**](/docs/security) — `accessFilter`/`assertAccess`，以及擴充功能 iframe 的信任邊界
+- [**分享**](/docs/sharing) — 這些輔助函式所支援的框架分享系統

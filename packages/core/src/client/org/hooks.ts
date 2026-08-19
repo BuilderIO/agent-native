@@ -334,6 +334,22 @@ export function useSetOrgDomain() {
   });
 }
 
+export type WorkspaceAppDefaultVisibility = "private" | "org";
+
+export function useSetWorkspaceAppDefaultVisibility() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (visibility: WorkspaceAppDefaultVisibility) =>
+      apiFetch(`${ORG_BASE}/workspace-app-default-visibility`, {
+        method: "PUT",
+        body: JSON.stringify({ visibility }),
+      }),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ["org-me"] });
+    },
+  });
+}
+
 export function useSetOrgWorkspaceUrl() {
   const qc = useQueryClient();
   return useMutation({

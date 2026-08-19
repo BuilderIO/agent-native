@@ -94,15 +94,40 @@ export function formatOverflowForTool(
   deckId: string,
   m: SlideFitMeasurement,
 ): string {
+  const hasHorizontal = (m.horizontalOverflow ?? 0) > 0;
+  const hasVertical = m.verticalOverflow > 0;
+
+  // A row of side-by-side cards/columns that's too wide is a *width formula*
+  // bug (fixed px flex-basis, a wrong container-width assumption, a missing
+  // `min-width: 0`), not a density bug. The old list was vertical-only —
+  // "tighten copy" / "fewer stacked cards" — which cannot shrink a fixed
+  // column width no matter how many times it's applied, so a horizontal
+  // overflow looped forever against fixes that could never touch the actual
+  // defect (see the Oliver Robertson Slack thread this regression test
+  // reproduces).
+  const fixes = [
+    ...(hasHorizontal
+      ? [
+          `Use percentage or flex-based column widths (e.g. \`flex: 1 1 0%\` with \`min-width: 0\`, or \`width: calc((100% - <gaps>) / <count>)\` measured against this slide's own content width) instead of a fixed pixel width per column.`,
+          `Reduce the number of side-by-side columns, or wrap to a second row, if the content cannot fit at the slide's actual content width.`,
+        ]
+      : []),
+    ...(hasVertical || !hasHorizontal
+      ? [
+          `Tighten copy — shorter headings/bullets, drop low-value lines.`,
+          `Reduce vertical density — fewer stacked cards, smaller gaps, body font no smaller than 16px.`,
+          `Reduce slide padding (e.g. 40px top/bottom instead of 60-80px).`,
+          `Split across two slides only if the content cannot be compressed.`,
+        ]
+      : []),
+  ];
+
   return [
     ``,
-    `⚠ Layout overflows the canvas${m.verticalOverflow > 0 ? ` vertically by ${m.verticalOverflow}px` : ""}${(m.horizontalOverflow ?? 0) > 0 ? ` and horizontally by ${m.horizontalOverflow}px` : ""} — natural content is ${m.contentWidth ?? "unknown"}x${m.contentHeight}px inside a ${m.viewportWidth ?? "unknown"}x${m.viewportHeight}px content area.`,
+    `⚠ Layout overflows the canvas${hasVertical ? ` vertically by ${m.verticalOverflow}px` : ""}${hasHorizontal ? ` and horizontally by ${m.horizontalOverflow}px` : ""} — natural content is ${m.contentWidth ?? "unknown"}x${m.contentHeight}px inside a ${m.viewportWidth ?? "unknown"}x${m.viewportHeight}px content area.`,
     ``,
     `Make one structural repair now with \`update-slide --deckId ${deckId} --slideId ${m.slideId}\`. Prefer small surgical patches (--find / --replace) over a full rewrite:`,
-    `1. Tighten copy — shorter headings/bullets, drop low-value lines.`,
-    `2. Reduce vertical density — fewer stacked cards, smaller gaps, body font no smaller than 16px.`,
-    `3. Reduce slide padding (e.g. 40px top/bottom instead of 60-80px).`,
-    `4. Split across two slides only if the content cannot be compressed.`,
+    ...fixes.map((fix, index) => `${index + 1}. ${fix}`),
     ``,
     `Do **not** use zoom, \`transform: scale\`, clipping, \`overflow: scroll\`, or a smaller-than-16px body font. Preserve existing absolute text boxes and fix the normal-flow HTML. Verify the action result and then use \`view-screen\`; do not spin through another repair loop.`,
   ].join("\n");

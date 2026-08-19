@@ -144,6 +144,11 @@ export interface AgentChatScope {
   label?: string;
 }
 
+export interface AgentChatHarnessRequest {
+  /** Hosted tools-only runtime selected in the production app picker. */
+  runtime: "claude-code" | "codex" | "pi" | "opencode";
+}
+
 export interface AgentChatRequest {
   message: string;
   /** Stable identity of a durable queued message, used to reject replayed delivery. */
@@ -194,6 +199,16 @@ export interface AgentChatRequest {
      */
     continuationCount?: number;
     /**
+     * Terminal error code the previous chunk failed with, plus how many chunks
+     * in a row have now ended on that same code having emitted no assistant
+     * text and no tool activity. Carried on the marker because each chunk is a
+     * separate invocation with no memory of the last one — without it the
+     * no-progress circuit breaker in `shouldChainBackgroundContinuation`
+     * cannot see a repeat at all.
+     */
+    noProgressErrorCode?: string;
+    noProgressCount?: number;
+    /**
      * True when the dispatcher expects the self-POST to land in a real
      * Netlify `-background` function rather than the ~60s synchronous function.
      * This is diagnostic only; the 15-minute budget is unlocked by the worker's
@@ -239,6 +254,8 @@ export interface AgentChatRequest {
   browserTabId?: string;
   /** Resource scope for this chat thread, e.g. the deck currently bound to the tab. */
   scope?: AgentChatScope | null;
+  /** Optional hosted tools-only harness selection. */
+  harness?: AgentChatHarnessRequest;
   /** When true, expose this chat turn as a user-visible run in RunsTray. */
   trackInRunsTray?: boolean;
   /**
@@ -248,7 +265,9 @@ export interface AgentChatRequest {
    * `approval_required`; the client re-issues the turn (typically an empty
    * continuation) with the approved call's key here so the gate lets it run.
    * Keys not present here keep the action paused. The model never sees or sets
-   * this — it is supplied by the human's approve affordance.
+   * this — it is supplied by the human's approve affordance. Clients should
+   * preserve the original turnId; the server can recover one uniquely pending
+   * durable grant when a transport drops it, but refuses ambiguous matches.
    */
   approvedToolCalls?: string[];
 }
@@ -296,6 +315,15 @@ export type AgentChatEvent =
       approvalKey: string;
       /** The model-side tool-call id for this paused call, when available. */
       toolCallId?: string;
+      /**
+       * Identifies THIS gate hit, distinct from any earlier ask carrying the
+       * same `approvalKey`/`toolCallId`. A failed resume (expired grant,
+       * turn-id mismatch) re-emits `approval_required` for the same call with
+       * a fresh `askId`; the client uses the change to tell that apart from
+       * the same ask simply re-rendering, so a stale "approved" mark can't
+       * permanently hide Approve/Deny with no way to retry.
+       */
+      askId?: string;
     }
   | {
       type: "agent_call";
@@ -387,6 +415,15 @@ export type AgentChatEvent =
       details?: string;
       /** True when the user can reasonably continue/retry from partial work. */
       recoverable?: boolean;
+      /**
+       * The engine's own verdict that another attempt at the same request may
+       * succeed (`EngineError.providerRetryable`). Distinct from `recoverable`,
+       * which the server's continuation classifiers read as "this run ended at
+       * an internal boundary, fold it and chain the next chunk". A provider
+       * throttle is retryable without being a boundary — conflating them makes
+       * a rate limit self-chain background continuations.
+       */
+      providerRetryable?: boolean;
     }
   /**
    * Legacy SSE terminal event. New streams emit

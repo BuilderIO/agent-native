@@ -18,6 +18,7 @@ import {
   isAlwaysVisibleAssistantTool,
   isCollapsibleAssistantWorkPart,
   isMissingFinalResponseWarningText,
+  isMissingCredentialAssistantMessage,
   latestUserMessageText,
   messageTextFromContent,
   shouldShowAssistantWorkSummary,
@@ -84,6 +85,47 @@ describe("assistant request ID resolution", () => {
       }),
     ).toBe(true);
     expect(assistantMessageWasUserStopped({})).toBe(false);
+  });
+});
+
+describe("isMissingCredentialAssistantMessage", () => {
+  it("detects the structured missing-provider error", () => {
+    expect(
+      isMissingCredentialAssistantMessage({
+        content: [
+          { type: "text", text: "Error: No LLM provider is connected" },
+        ],
+        metadata: {
+          custom: {
+            runError: {
+              errorCode: "missing_credentials",
+              message: "No LLM provider is connected",
+            },
+          },
+        },
+      }),
+    ).toBe(true);
+  });
+
+  it("does not hide provider authentication failures", () => {
+    expect(
+      isMissingCredentialAssistantMessage({
+        content: [
+          {
+            type: "text",
+            text: "Error: The model provider rejected the saved API key.",
+          },
+        ],
+        metadata: {
+          custom: {
+            runError: {
+              errorCode: "authentication_error",
+              message: "The model provider rejected the saved API key.",
+            },
+          },
+        },
+      }),
+    ).toBe(false);
   });
 });
 

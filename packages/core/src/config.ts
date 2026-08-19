@@ -52,6 +52,17 @@ export interface AgentNativeRuntimeConfig {
   environment?: AgentNativeRuntimeEnvironmentConfig;
 }
 
+export type AgentNativeDeploymentEnvironment =
+  | "local"
+  | "beta"
+  | "production"
+  | "preview";
+
+export interface AgentNativeDeploymentConfig {
+  /** The release lane that produced the currently running client bundle. */
+  environment?: AgentNativeDeploymentEnvironment;
+}
+
 export interface AgentNativeDiagnosticsConfig {
   /** Fail a production Vite build when runtime configuration has issues. */
   failOnBuild?: boolean;
@@ -77,14 +88,33 @@ export interface AgentNativeChangelogConfig {
   enabled?: boolean;
 }
 
+export type AgentNativeHarnessRuntime =
+  | "claude-code"
+  | "codex"
+  | "pi"
+  | "opencode";
+
+export interface AgentNativeHarnessConfig {
+  /** Optionally narrow the hosted harness picker to these runtimes. */
+  runtimes?: AgentNativeHarnessRuntime[];
+}
+
+/**
+ * The intentionally small app-level switch for hosted tools-only harnesses.
+ * `true` enables every supported runtime; an object narrows the picker.
+ */
+export type AgentNativeHarnessSetting = boolean | AgentNativeHarnessConfig;
+
 export interface AgentNativeConfig {
   version?: typeof AGENT_NATIVE_CONFIG_VERSION;
   onboarding?: AgentNativeOnboardingConfig;
   runtime?: AgentNativeRuntimeConfig;
+  deployment?: AgentNativeDeploymentConfig;
   diagnostics?: AgentNativeDiagnosticsConfig;
   instructions?: AgentNativeInstructionsConfig;
   translations?: AgentNativeTranslationsConfig;
   changelog?: AgentNativeChangelogConfig;
+  harness?: AgentNativeHarnessSetting;
 }
 
 export interface AgentNativeConfigContext {
@@ -134,10 +164,12 @@ export function normalizeAgentNativeConfig(
 
   const onboardingValue = input.onboarding;
   const runtimeValue = input.runtime;
+  const deploymentValue = input.deployment;
   const diagnosticsValue = input.diagnostics;
   const instructionsValue = input.instructions;
   const translationsValue = input.translations;
   const changelogValue = input.changelog;
+  const harnessValue = input.harness;
 
   const normalized: AgentNativeConfig = {
     ...(input.version === undefined
@@ -160,6 +192,13 @@ export function normalizeAgentNativeConfig(
     normalized.runtime = normalizeRuntimeConfig(
       runtimeValue,
       `${source}.runtime`,
+    );
+  }
+
+  if (deploymentValue !== undefined) {
+    normalized.deployment = normalizeDeploymentConfig(
+      deploymentValue,
+      `${source}.deployment`,
     );
   }
 
@@ -188,6 +227,13 @@ export function normalizeAgentNativeConfig(
     normalized.changelog = normalizeChangelogConfig(
       changelogValue,
       `${source}.changelog`,
+    );
+  }
+
+  if (harnessValue !== undefined) {
+    normalized.harness = normalizeHarnessConfig(
+      harnessValue,
+      `${source}.harness`,
     );
   }
 
@@ -244,6 +290,13 @@ export function mergeAgentNativeConfigs(
                 : undefined,
           }
         : undefined,
+    deployment:
+      base.deployment || override.deployment
+        ? {
+            ...base.deployment,
+            ...override.deployment,
+          }
+        : undefined,
     diagnostics:
       base.diagnostics || override.diagnostics
         ? {
@@ -280,6 +333,7 @@ export function mergeAgentNativeConfigs(
             ...override.changelog,
           }
         : undefined,
+    harness: mergeHarnessSettings(base.harness, override.harness),
   };
 }
 
@@ -380,6 +434,23 @@ function normalizeRuntimeConfig(
   return result;
 }
 
+function normalizeDeploymentConfig(
+  value: unknown,
+  source: string,
+): AgentNativeDeploymentConfig {
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be an object`);
+  }
+  const environment = value.environment;
+  if (environment === undefined) return {};
+  if (!isAgentNativeDeploymentEnvironment(environment)) {
+    throw new Error(
+      `${source}.environment must be "local", "beta", "production", or "preview"`,
+    );
+  }
+  return { environment };
+}
+
 function normalizeDiagnosticsConfig(
   value: unknown,
   source: string,
@@ -456,6 +527,57 @@ function normalizeChangelogConfig(
   return value.enabled === undefined ? {} : { enabled: value.enabled };
 }
 
+function normalizeHarnessConfig(
+  value: unknown,
+  source: string,
+): AgentNativeHarnessSetting {
+  if (typeof value === "boolean") return value;
+  if (!isRecord(value)) {
+    throw new Error(`${source} must be a boolean or object`);
+  }
+  if ("enabled" in value || "ui" in value) {
+    throw new Error(`${source} must be true or an object with runtimes`);
+  }
+
+  const runtimes = value.runtimes;
+  if (runtimes !== undefined) {
+    if (
+      !Array.isArray(runtimes) ||
+      runtimes.some((runtime) => !isAgentNativeHarnessRuntime(runtime))
+    ) {
+      throw new Error(
+        `${source}.runtimes must contain only "claude-code", "codex", "pi", or "opencode"`,
+      );
+    }
+  }
+
+  return {
+    ...(runtimes === undefined
+      ? {}
+      : { runtimes: [...new Set(runtimes as AgentNativeHarnessRuntime[])] }),
+  };
+}
+
+function mergeHarnessSettings(
+  base: AgentNativeHarnessSetting | undefined,
+  override: AgentNativeHarnessSetting | undefined,
+): AgentNativeHarnessSetting | undefined {
+  if (override === undefined) return base;
+  if (typeof override === "boolean") return override;
+  if (typeof base !== "object" || base === null) return override;
+  if (base.runtimes === undefined && override.runtimes === undefined) {
+    return {};
+  }
+  return {
+    runtimes: [
+      ...new Set<AgentNativeHarnessRuntime>([
+        ...(base.runtimes ?? []),
+        ...(override.runtimes ?? []),
+      ]),
+    ],
+  };
+}
+
 function normalizeRelativeFilePath(value: string, source: string): string {
   const normalized = value.trim().replaceAll("\\", "/");
   if (
@@ -502,6 +624,73 @@ function isFirstRunMode(
     value === "connect" ||
     value === "connect-and-integrations"
   );
+}
+
+function isAgentNativeHarnessRuntime(
+  value: unknown,
+): value is AgentNativeHarnessRuntime {
+  return (
+    value === "claude-code" ||
+    value === "codex" ||
+    value === "pi" ||
+    value === "opencode"
+  );
+}
+
+export function isAgentNativeDeploymentEnvironment(
+  value: unknown,
+): value is AgentNativeDeploymentEnvironment {
+  return (
+    value === "local" ||
+    value === "beta" ||
+    value === "production" ||
+    value === "preview"
+  );
+}
+
+/**
+ * Resolve the public deployment lane from hosting facts at build time.
+ *
+ * Netlify exposes `CONTEXT` and `BRANCH` to builds. Keeping this inference in
+ * the Vite/config boundary means browser code consumes typed public config and
+ * never parses process.env itself.
+ */
+export function inferAgentNativeDeploymentEnvironment(
+  env: Record<string, string | undefined>,
+  mode?: string,
+): AgentNativeDeploymentEnvironment | undefined {
+  const explicit =
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim().toLowerCase();
+  if (explicit && !isAgentNativeDeploymentEnvironment(explicit)) {
+    throw new Error(
+      'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+    );
+  }
+  if (isAgentNativeDeploymentEnvironment(explicit)) return explicit;
+
+  const context = env.CONTEXT?.trim().toLowerCase();
+  const branch = env.BRANCH?.trim().toLowerCase();
+  const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
+
+  if (
+    branch === "production" ||
+    (context === "production" && branch !== "beta")
+  ) {
+    return "production";
+  }
+  if (branch === "beta" || (context === "branch-deploy" && branch === "main")) {
+    return "beta";
+  }
+  if (vercelEnv === "preview") return "preview";
+  if (
+    context === "deploy-preview" ||
+    context === "branch-deploy" ||
+    branch?.startsWith("deploy-preview")
+  ) {
+    return "preview";
+  }
+  if (mode === "development") return "local";
+  return undefined;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

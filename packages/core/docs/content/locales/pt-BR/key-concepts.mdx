@@ -170,7 +170,7 @@ Adotar o framework é valioso principalmente pelo que você deixa de precisar co
 
 ## Dados em SQL {#data-in-sql}
 
-Todo o estado da aplicação reside em um banco de dados SQL via Drizzle ORM. Os schemas são agnósticos de provedor; os bancos de dados suportados, a configuração de `DATABASE_URL` e as regras de portabilidade estão em [Database](/docs/database).
+Todo o estado da aplicação reside em um banco de dados SQL via Drizzle ORM. Os schemas são agnósticos de provedor; os bancos de dados suportados, a configuração de `DATABASE_URL` e as regras de portabilidade estão em [Database](/docs/server-database).
 
 As stores SQL do Core são criadas automaticamente e estão disponíveis em todo template:
 
@@ -286,7 +286,7 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 O plug-in de bate-papo do agente de produção deixa as ferramentas SQL brutas em modo somente leitura por padrão (`frameworkTools: { database: "read" }`). Os agentes inspecionam dados do app com `db-schema` / `db-query` e escrevem por meio de actions tipadas do app. Defina `database: "write"` (ou `true`) apenas para superfícies de manutenção intencionais que também devam expor `db-exec` / `db-patch` com escopo; use `database: "off"` / `false` para exigir actions tipadas para todo acesso a dados.
 
-`frameworkTools` governa da mesma forma as demais ferramentas próprias do framework: sharing, comentários de revisão, histórico de versões, feature flags, localização, auditoria, Context X-Ray, perfil, automações, docs, resources, web, delegação entre apps, chat e email. Veja [Production Agent Tools](/docs/deployment#production-agent-tools) para a lista completa, o preset `"minimal"` e por que desativar um grupo mantém suas rotas HTTP montadas.
+`frameworkTools` governa da mesma forma as demais ferramentas próprias do framework: sharing, comentários de revisão, histórico de versões, feature flags, localização, auditoria, Context X-Ray, perfil, automações, docs, resources, web, delegação entre apps, chat e email. Veja [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools) para a lista completa, o preset `"minimal"` e por que desativar um grupo mantém suas rotas HTTP montadas.
 
 </Callout>
 
@@ -353,7 +353,7 @@ graph LR
 - **CLI:** `pnpm action fetch-data --source=signups` para scripts e loops de desenvolvimento do agente.
 - **Ferramenta MCP / ferramenta A2A:** quando o servidor MCP ou o A2A está habilitado, a mesma ação também aparece lá.
 
-Todo consumidor chama a mesma função subjacente, então há apenas uma implementação para escrever e manter. Consulte [Actions](/docs/actions) para a referência completa.
+Todo consumidor chama a mesma função subjacente, então há apenas uma implementação para escrever e manter. Consulte [Actions](/docs/actions-overview) para a referência completa.
 
 ## Sincronização ao vivo {#polling-sync}
 
@@ -469,7 +469,7 @@ O framework não concede ao agente incorporado acesso ambiente ao código-fonte 
 
 Duas regras arquiteturais mantêm os aplicativos portáteis entre bancos de dados e hosts:
 
-- **Agnóstico de banco de dados.** Escreva schemas com `@agent-native/core/db/schema` e leituras/gravações com o DSL de query portátil do Drizzle, para que o mesmo código rode em qualquer provedor suportado. Use SQL bruto apenas para migrações aditivas ou manutenção pontual, mantendo-o parametrizado e agnóstico de dialeto. Consulte [Database](/docs/database).
+- **Agnóstico de banco de dados.** Escreva schemas com `@agent-native/core/db/schema` e leituras/gravações com o DSL de query portátil do Drizzle, para que o mesmo código rode em qualquer provedor suportado. Use SQL bruto apenas para migrações aditivas ou manutenção pontual, mantendo-o parametrizado e agnóstico de dialeto. Consulte [Database](/docs/server-database).
 - **Agnóstico de hosting.** O servidor roda sobre Nitro e compila para qualquer destino de implantação. Nunca use APIs específicas do Node (`fs`, `child_process`, `path`) em rotas ou plugins do servidor, e nunca assuma um processo de servidor persistente. Serverless e edge são stateless, então mantenha todo o estado em SQL. Consulte [Deployment](/docs/deployment).
 
 ## Recursos do Agente {#workspace}

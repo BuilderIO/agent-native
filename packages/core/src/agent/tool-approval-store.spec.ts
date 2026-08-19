@@ -49,7 +49,7 @@ describe("agent tool approval store", () => {
     await createAgentToolApproval(binding);
 
     expect(dbMocks.execute).toHaveBeenNthCalledWith(
-      3,
+      5,
       expect.objectContaining({
         sql: expect.stringContaining("INSERT INTO agent_tool_approvals"),
         args: expect.arrayContaining([
@@ -57,9 +57,73 @@ describe("agent tool approval store", () => {
         ]),
       }),
     );
-    expect(dbMocks.execute.mock.calls[2]?.[0].args).not.toContain(
+    expect(dbMocks.execute.mock.calls[4]?.[0].args).not.toContain(
       binding.approvalKey,
     );
+  });
+
+  it("gives a delayed approval click at least 30 minutes before the grant expires", async () => {
+    // Regression for a user who steps away mid-approval (e.g. updating their
+    // client) and comes back to a click that silently does nothing because
+    // the durable grant already expired. 15 minutes was not enough room.
+    const { createAgentToolApproval } =
+      await import("./tool-approval-store.js");
+
+    const before = Date.now();
+    await createAgentToolApproval(binding);
+    const after = Date.now();
+
+    const insertArgs = dbMocks.execute.mock.calls[4]?.[0].args as unknown[];
+    const expiresAt = insertArgs[8] as number;
+    expect(expiresAt - after).toBeGreaterThanOrEqual(30 * 60_000);
+    expect(expiresAt - before).toBeLessThanOrEqual(60 * 60_000 + 1_000);
+  });
+
+  it("recovers a unique pending turn when a continuation omits its turn id", async () => {
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [{ turn_id: "turn-1" }],
+        rowsAffected: 0,
+      });
+    const { resolveAgentToolApprovalTurnId } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      resolveAgentToolApprovalTurnId({
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+        requestedTurnId: "turn-replayed",
+        approvalKeys: [binding.approvalKey],
+      }),
+    ).resolves.toBe("turn-1");
+  });
+
+  it("does not guess between pending approvals from different turns", async () => {
+    dbMocks.execute
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({
+        rows: [{ turn_id: "turn-1" }, { turn_id: "turn-2" }],
+        rowsAffected: 0,
+      });
+    const { resolveAgentToolApprovalTurnId } =
+      await import("./tool-approval-store.js");
+
+    await expect(
+      resolveAgentToolApprovalTurnId({
+        ownerEmail: binding.ownerEmail,
+        orgId: binding.orgId,
+        threadId: binding.threadId,
+        approvalKeys: [binding.approvalKey],
+      }),
+    ).resolves.toBeNull();
   });
 
   it.each([
@@ -70,6 +134,8 @@ describe("agent tool approval store", () => {
     async ({ rowsAffected, expected }) => {
       dbMocks.execute
         .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+        .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
         .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
         .mockResolvedValueOnce({ rows: [], rowsAffected });
       const { consumeAgentToolApproval } =
@@ -84,17 +150,27 @@ describe("agent tool approval store", () => {
           args: expect.arrayContaining([
             binding.ownerEmail,
             binding.toolName,
-            binding.callId,
             expect.any(String),
           ]),
         }),
       );
+      const consumeQuery = dbMocks.execute.mock.calls.at(-1)?.[0] as {
+        sql: string;
+        args: unknown[];
+      };
+      expect(consumeQuery.sql).toContain("turn_id");
+      expect(consumeQuery.sql).not.toContain("call_id = ?");
+      expect(consumeQuery.args).toContain(binding.turnId);
+      expect(consumeQuery.args).not.toContain(binding.callId);
     },
   );
 
   it("propagates database failures instead of authorizing", async () => {
     dbMocks.execute
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
+      .mockResolvedValueOnce({ rows: [], rowsAffected: 1 })
       .mockRejectedValueOnce(new Error("consume unavailable"));
     const { consumeAgentToolApproval } =
       await import("./tool-approval-store.js");

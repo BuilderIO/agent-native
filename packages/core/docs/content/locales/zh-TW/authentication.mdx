@@ -414,7 +414,7 @@ function SignInCta() {
 
 一般應用程式頁面會為所有訪客使用同一個非個人化、可公開快取的 SSR 外殼。`AppProviders` 會在用戶端檢查工作階段；造訪 `/dashboard` 等私人路徑時，它會在掛載私人應用程式介面之前將匿名訪客重新導向至 `/sign-in?return=%2Fdashboard`。登入後，訪客會返回 `/dashboard`。公開或 SEO 路由請使用 `isPublicPath`；透過 MCP 內嵌權杖等其他受限機制驗證的介面請使用 `sessionBypass`。
 
-此外殼的快取時長是一個部署範圍的設定——關於 `AGENT_NATIVE_SSR_CACHE`，參見 [SSR Caching](/docs/deployment#ssr-caching)。縮短或停用快取只會改變時長；SSR 仍會在剝離 cookie 後渲染匿名分支。
+此外殼的快取時長是一個部署範圍的設定——關於 `AGENT_NATIVE_SSR_CACHE`，參見 [SSR Caching](/docs/ssr-caching)。縮短或停用快取只會改變時長；SSR 仍會在剝離 cookie 後渲染匿名分支。
 
 ### 幕後花絮：GoogleOAuth
 
@@ -458,5 +458,5 @@ const state = encodeOAuthState({
 
 Dispatch 的 `desktop.workspace-sso` 旗標預設關閉，且只控制可用性；驗證、簽章、nonce、來源、回呼、工作階段及撤銷檢查一律強制執行。旗標關閉或無法讀取時，Desktop 不會變更逐一應用程式登入、登出或設定。
 User-Agent 中的 Canary 標記僅是可用性提示，不是遠端證明；驗證與授權皆不信任該標記。
-標準託管應用程式無需為每個應用程式設定身分中心環境變數，即可辨識封裝版 Desktop SSO Canary 的要求。一般瀏覽器和自行託管的應用程式仍需設定 `AGENT_NATIVE_IDENTITY_HUB_URL`。穩定版 Desktop 在後續版本獲得單獨核准前不會初始化代理程式。
+每個 Desktop 版本都可以在裝置偏好設定 `desktopSsoEnabled` 為 true（預設值）時初始化代理程式；明確持久化的 `false` 仍代表使用者選擇退出。Dispatch 的 `desktop.workspace-sso` 旗標也必須啟用。Canary User-Agent 標記不再控制代理程式初始化，只用於識別更新頻道。
 Canary 不會攔截匿名使用者前往應用程式登入頁面的導覽。使用者必須在 Desktop 設定中，為目前啟用的已註冊應用程式明確選擇工作區登入；一般應用程式登入仍是預設路徑。

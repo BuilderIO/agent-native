@@ -262,12 +262,38 @@ const messages = {
     privateClipMessage:
       "이 클립은 비공개입니다. 액세스를 요청하면 소유자에게 알림이 전송됩니다.",
     privateClipSignedOutMessage:
-      "이 클립은 비공개입니다. 소유자에게 액세스를 요청하려면 로그인하세요.",
+      "이 클립은 비공개입니다. 로그인하거나 이메일을 입력해 액세스를 요청하세요.",
     requestAccess: "액세스 요청",
+    requestAccessDialogTitle: "액세스 요청",
+    requestAccessDialogDescription:
+      "이 클립을 공유할 때 소유자가 나를 확인할 방법을 선택하세요.",
+    requestAccessSignIn: "로그인 또는 가입",
+    requestAccessOr: "또는",
+    requestAccessEmailLabel: "이메일 주소",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "액세스가 허용되면 이 이메일로 로그인해 클립을 볼 수 있습니다.",
+    requestAccessWithEmail: "이메일로 요청",
+    requestAccessEmailRequired: "유효한 이메일 주소를 입력하세요.",
     requestingAccess: "액세스 요청 중...",
     accessRequested: "액세스 요청됨",
     accessRequestSent: "클립 소유자에게 알림을 보냈습니다.",
+    accessRequestSentWithEmail:
+      "소유자에게 이 클립을 {{email}} 님과 공유해 달라고 요청했습니다.",
     accessRequestFailed: "액세스를 요청하지 못했습니다. 다시 시도하세요.",
+    accessApprovalTitle: "액세스 권한이 부여되었습니다",
+    accessApprovalAlreadyTitle: "이미 액세스 권한이 있습니다",
+    accessApprovalMessage: "이제 {{email}} 님이 이 클립을 볼 수 있습니다.",
+    accessApprovalAlreadyMessage:
+      "{{email}} 님은 이미 이 클립에 액세스할 수 있습니다.",
+    accessApprovalErrorTitle: "액세스 권한을 부여하지 못했습니다",
+    accessApprovalInvalid: "이 액세스 요청은 유효하지 않거나 만료되었습니다.",
+    accessApprovalSignInTitle: "액세스 권한을 부여하려면 로그인하세요",
+    accessApprovalSignInMessage:
+      "이 요청을 승인하려면 클립 소유자 또는 관리자로 로그인하세요.",
+    accessApprovalOpenClip: "클립 열기",
+    accessApprovalSignIn: "로그인",
+    accessApprovalLoading: "액세스 권한을 부여하는 중...",
     clipUnavailable: "클립을 사용할 수 없음",
     clipUnavailableMessage:
       "이 녹음 파일은 공개되지 않았거나 링크가 유효하지 않습니다. 귀하의 클립인 경우 로그인하여 액세스 권한을 확인하세요.",
@@ -362,6 +388,9 @@ const messages = {
     aiNotes: "AI 노트",
     summary: "요약",
     actionItems: "조치사항",
+    addActionItem: "액션 아이템 추가",
+    removeActionItem: "액션 아이템 삭제",
+    actionItemPlaceholder: "무엇을 해야 하나요?",
     working: "일하고 있는…",
     noActionItems:
       "아직 작업 항목이 없습니다. 성적표에서 메모가 생성된 후에 여기에 표시됩니다.",
@@ -661,13 +690,13 @@ const messages = {
     collapse: "접기",
     changelogMarkdown: `# 변경 로그
 
-Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명령 메뉴(Cmd K -> "새 소식") 또는 설정에서 언제든지 열 수 있습니다.
+Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명령 메뉴(Cmd+K -> "새 소식") 또는 설정에서 언제든지 열 수 있습니다.
 
 ## 2026-06-23
 
 ### 추가됨
 
-- 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd K)와 설정에 있습니다.`,
+- 이제 Clips 안에서 바로 새 소식을 볼 수 있습니다. 변경 로그는 명령 메뉴(Cmd+K)와 설정에 있습니다.`,
     playback: "재생",
     defaultPlaybackSpeed: "기본 재생 속도",
     playbackDescription: "녹화를 열 때 자동으로 적용됩니다.",
@@ -951,7 +980,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
   commentsPanel: {
     disabled: "이 녹화에서는 댓글이 비활성화되어 있습니다.",
     beFirst: "첫 댓글을 남겨보세요",
-    leaveNotePanel: "이 패널 상단에 메모를 남기세요.",
+    leaveNotePanel: "이 패널 하단에 메모를 남기세요.",
     leaveNoteTimestamp: "현재 타임스탬프에 메모를 남기세요.",
     leaveComment: "댓글 남기기...",
     signInToComment: "댓글을 남기려면 로그인하세요.",
@@ -1008,8 +1037,13 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     pauseShortcut: "일시정지 (⌥⇧P)",
     stop: "녹화 중지",
     elapsed: "경과 시간",
-    cancel: "녹화 취소",
-    cancelShortcut: "취소 (⌥⇧C)",
+    cancel: "녹화 삭제",
+    cancelShortcut: "삭제 (⌥⇧C)",
+    discardConfirmTitle: "이 녹화를 삭제할까요?",
+    discardConfirmDescription:
+      "이 작업은 되돌릴 수 없습니다. 지금까지 녹화한 내용이 영구적으로 삭제됩니다.",
+    resume: "재개",
+    discardRecording: "녹화 삭제",
   },
   countdownOverlay: {
     startsIn: "{{count}} 후 녹화 시작",
@@ -1091,6 +1125,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "노트가 시작되면 실시간 기록이 여기에 표시됩니다.",
     me: "나",
     them: "상대",
+    unknownSpeaker: "화자",
     searchTranscript: "기록 검색",
     searchPlaceholder: "기록 검색…",
     searchMatchCount: "{{total}}개 중 {{current}}번째",
@@ -1098,6 +1133,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     searchPrevMatch: "이전 일치 항목",
     searchNextMatch: "다음 일치 항목",
     searchClose: "검색 닫기",
+  },
+  bulletLink: {
+    jumpToTranscript: "기록에서 {{time}}(으)로 이동",
+    noMatchingMoment: "일치하는 순간을 찾을 수 없음",
   },
   editorLayout: {
     trimmed: "잘라냈습니다",
@@ -1207,7 +1246,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     seekTo: "Seek to {{time}} (현지화됨)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (현지화됨)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (현지화됨)",
     playPauseTooltip: "Play / Pause (Space) (현지화됨)",
     sourceDuration: "({{duration}} src) (현지화됨)",
     previewSpeed: "Preview speed (현지화됨)",
@@ -1301,10 +1340,11 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     cameraOff: "Camera off (현지화됨)",
     includeCameraAria: "Include camera in this recording (현지화됨)",
     startRecording: "Start recording (현지화됨)",
-    micOffConfirmTitle: "Record without a microphone? (현지화됨)",
+    micOffConfirmTitle: "마이크가 음소거되었습니다",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (현지화됨)",
-    startWithoutMic: "Start anyway (현지화됨)",
+      "동영상에 소리를 넣으려면 마이크 음소거를 해제하세요.",
+    startWithoutMic: "계속",
+    unmuteMicrophone: "음소거 해제",
     uploadVideo: "Upload video (현지화됨)",
     importLoom: "Import Loom (현지화됨)",
     importing: "Importing... (현지화됨)",
@@ -1387,6 +1427,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
+    leaveConfirmTitle: "나가서 이 녹화를 삭제하시겠습니까?",
+    leaveConfirmDescription:
+      "진행 중인 녹화가 아직 저장되지 않았습니다. 지금 이 페이지를 나가면 삭제됩니다.",
+    leaveAndDiscard: "나가서 삭제",
   },
   importRoute: {
     pageTitle: "Loom 가져오기 — Clips",
@@ -1582,7 +1626,14 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     title: "Meetings (현지화됨)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (현지화됨)",
-    searchPlaceholder: "Search meetings... (현지화됨)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (현지화됨)",
+    agendaTab: "Agenda (현지화됨)",
+    pastTab: "Past (현지화됨)",
+    now: "Now (현지화됨)",
+    noPastMeetings: "No past meetings yet (현지화됨)",
+    loadOlder: "Load older (현지화됨)",
+    searchFailed: "Couldn't search meetings. Try again in a moment. (현지화됨)",
     clearSearch: "Clear search (현지화됨)",
     noMeetingsYet: "No meetings yet (현지화됨)",
     noMeetingsDescription:

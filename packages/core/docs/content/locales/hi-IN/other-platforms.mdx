@@ -1,0 +1,27 @@
+---
+title: "अन्य प्लेटफ़ॉर्म"
+description: "मैचिंग Nitro preset के साथ एक agent-native ऐप को AWS Lambda या Deno Deploy पर तैनात करें।"
+---
+
+# अन्य प्लेटफ़ॉर्म
+
+## AWS Lambda {#aws-lambda}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
+});
+```
+
+## Deno Deploy {#deno-deploy}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
+});
+```
+
+## आगे क्या है
+
+- [**तैनाती**](/docs/deployment) — पहले production deploy से पहले एक स्थायी डेटाबेस और एक preset चुनें
+- [**Node.js और Docker**](/docs/node-docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), और [**Cloudflare**](/docs/cloudflare) — बाकी Nitro presets

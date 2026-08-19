@@ -297,6 +297,7 @@ const messages = {
     creatingLink: "リンクを作成中...",
     createShareLink: "共有リンクを作成",
     copyLink: "リンクをコピー",
+    copied: "コピーしました",
     openSharedLink: "共有リンクを開く",
     anyoneWithLink:
       "このリンクを持つ人は誰でもこのプレゼンテーションを表示できます。",
@@ -446,6 +447,12 @@ const messages = {
     pasteStyle: "スタイルを貼り付け",
     copy: "コピー",
     paste: "貼り付け",
+    insertRowAbove: "上に行を挿入",
+    insertRowBelow: "下に行を挿入",
+    deleteRow: "行を削除",
+    insertColumnLeft: "左に列を挿入",
+    insertColumnRight: "右に列を挿入",
+    deleteColumn: "列を削除",
   },
   animations: {
     appear: "出现",
@@ -521,6 +528,11 @@ const messages = {
     newSlide: "新しいスライド",
     closeAddSlides: "閉じる",
     describeThisSlide: "このスライドを説明してください",
+    cut: "切り取り",
+    copy: "コピー",
+    paste: "貼り付け",
+    skipSlide: "スライドをスキップ",
+    unskipSlide: "スキップを解除",
   },
   presentation: {
     loadFailed: "このプレゼンテーションを読み込めませんでした。",
@@ -540,16 +552,54 @@ const messages = {
   },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
-    teamAccessCheckFailed: "无法检查团队访问权限",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
-    verifySharedAccessFailed:
-      "无法验证此演示文稿是否与你的账户共享。请重试以重新加载团队访问权限和幻灯片。",
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
     deckUnavailableDescription: "此幻灯片可能已被移除，或你的账户无权访问。",
-    backToDecks: "返回幻灯片",
+    privateDeckTitle: "このデッキは非公開です",
+    privateDeckDescription:
+      "このデッキを開くには所有者にアクセスをリクエストしてください。リクエストを送信すると所有者に通知されます。",
+    signedInAs: "ログイン中のアカウント",
+    accessRequestSentDescription:
+      "所有者に通知しました。アクセスが許可されると、このデッキを開けます。",
+    accessRequestRecordedDescription:
+      "リクエストを記録しました。アクセスが許可されると、このデッキを開けます。",
+    requestAccessPending: "リクエストを送信中…",
+    accessRequestSent: "リクエストを送信しました",
+    requestAccess: "アクセスをリクエスト",
+    signInToRequestAccess: "ログインしてアクセスをリクエスト",
+    requestAccessDialogTitle: "アクセスをリクエスト",
+    requestAccessDialogDescription:
+      "サインインするか、所有者がこのデッキを共有するメールアドレスを入力してください。",
+    requestAccessSignIn: "サインインまたは登録",
+    requestAccessOr: "または",
+    requestAccessEmailLabel: "メールアドレス",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "アクセスが許可されたら、このメールアドレスでサインインしてデッキを表示します。",
+    requestAccessWithEmail: "メールでリクエスト",
+    requestAccessEmailRequired: "有効なメールアドレスを入力してください。",
+    requestingAccess: "アクセスをリクエスト中…",
+    accessRequestSentWithEmail:
+      "所有者に {{email}} とのデッキ共有を依頼しました。",
+    accessRequestFailed:
+      "アクセスをリクエストできませんでした。もう一度お試しください。",
+    accessApprovalTitle: "アクセスを許可しました",
+    accessApprovalAlreadyTitle: "アクセスはすでに許可されています",
+    accessApprovalMessage: "{{email}} はこのデッキを開けるようになりました。",
+    accessApprovalAlreadyMessage:
+      "{{email}} はすでにこのデッキにアクセスできます。",
+    accessApprovalErrorTitle: "アクセスを許可できませんでした",
+    accessApprovalInvalid: "このアクセスリクエストは無効か、期限切れです。",
+    accessApprovalSignInTitle: "アクセスを許可するにはサインインしてください",
+    accessApprovalSignInMessage:
+      "このリクエストを承認するには、デッキの所有者または管理者としてサインインしてください。",
+    accessApprovalOpenDeck: "デッキを開く",
+    accessApprovalSignIn: "サインイン",
+    accessApprovalLoading: "アクセスを許可しています...",
+    backToDecks: "デッキに戻る",
     tryAgain: "重试",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:

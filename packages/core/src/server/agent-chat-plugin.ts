@@ -68,6 +68,7 @@ import {
 import { SYSTEM_PROMPT_CACHE_SPLIT } from "../agent/engine/prompt-cache.js";
 import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
 import type { EngineMessage } from "../agent/engine/types.js";
+import { hostedHarnessSystemPrompt } from "../agent/harness/hosted.js";
 import {
   createProductionAgentHandler,
   actionsToEngineTools,
@@ -80,6 +81,7 @@ import {
   abortTurnDurably,
   subscribeToRun,
   type ActionEntry,
+  type AgentActionSurfaceDetails,
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
@@ -110,6 +112,7 @@ import type {
   AgentChatEvent,
   MentionProvider,
 } from "../agent/types.js";
+import { getAppConfig } from "../app-config/index.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
 import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
@@ -144,6 +147,7 @@ import {
   isProductionServerlessFunctionRuntime,
   isTransientDatabaseError,
 } from "../db/client.js";
+import { isFeatureFlagEnabled } from "../feature-flags/index.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -181,6 +185,10 @@ import {
 import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
 import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
+import {
+  ANALYTICS_CLIENT_PLATFORM_BODY_FIELD,
+  normalizeAnalyticsClientPlatform,
+} from "../shared/analytics-platform.js";
 import { docsUrl } from "../shared/docs-url.js";
 import {
   handleSharedThreadRequest,
@@ -199,7 +207,7 @@ import {
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
-import { getSession } from "./auth.js";
+import { getSession, registerAuthPublicPaths } from "./auth.js";
 import { captureError } from "./capture-error.js";
 import {
   getH3App,
@@ -208,6 +216,7 @@ import {
 } from "./framework-request-handler.js";
 import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
+import { loadHostedHarnessConfig } from "./hosted-harness-policy.js";
 import { startIntervalJob } from "./interval-job.js";
 import { getModelFamilyOverlay } from "./prompts/index.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
@@ -294,6 +303,7 @@ import {
 // `createAgentChatPlugin` below stays a thinner orchestrator.
 // ---------------------------------------------------------------------------
 import {
+  buildSelectedA2AReceiverContext,
   createA2AEngineToolSurface,
   DEFAULT_DELEGATED_MAX_ITERATIONS,
   DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
@@ -302,6 +312,7 @@ import {
   filterPublicAgentActions,
   filterDirectA2AActions,
   filterReadOnlyActions,
+  isSelectedA2AReceiver,
   resolveInitialToolNames,
   runA2AAgentLoop,
   runMCPAgentLoop,
@@ -393,6 +404,7 @@ export type { AgentChatPluginOptions };
 export { runA2AAgentLoop };
 export { runMCPAgentLoop };
 export { createA2AEngineToolSurface };
+export { buildSelectedA2AReceiverContext, isSelectedA2AReceiver };
 export {
   DEFAULT_DELEGATED_MAX_ITERATIONS,
   DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
@@ -478,14 +490,17 @@ export async function resolveA2ARecoverableArtifactSecret(
   orgId: string | null | undefined = getRequestOrgId(),
 ): Promise<string | undefined> {
   const globalSecret = process.env.A2A_SECRET?.trim();
-  if (globalSecret) return globalSecret;
-  if (!orgId) return undefined;
-  try {
-    const { getOrgA2ASecret } = await import("../org/context.js");
-    return (await getOrgA2ASecret(orgId))?.trim() || undefined;
-  } catch {
-    return undefined;
+  if (orgId) {
+    try {
+      const { getOrgA2ASecret } = await import("../org/context.js");
+      const orgSecret = (await getOrgA2ASecret(orgId))?.trim();
+      if (orgSecret) return orgSecret;
+      // coercion-ok: undefined is the fail-closed result when organization secret lookup throws
+    } catch {
+      return undefined;
+    }
   }
+  return globalSecret || undefined;
 }
 
 export function buildLeanRunPolicyPrompt(
@@ -639,10 +654,11 @@ export function createAgentChatPlugin(
       // recovery sweep below handles abandoned runs with no connected client.
 
       const env = process.env.NODE_ENV;
+      const hostedHarnessConfig = await loadHostedHarnessConfig();
       // AGENT_MODE=production forces production agent constraints even in dev
       const canToggle =
         (env === "development" || env === "test") &&
-        process.env.AGENT_MODE !== "production";
+        getAppConfig().agent.mode !== "production";
       const routePath = options?.path ?? "/_agent-native/agent-chat";
       const a2aAgentDelegationEnabled =
         resolveA2AAgentDelegationEnabled(options);
@@ -1225,14 +1241,14 @@ export function createAgentChatPlugin(
             await import("../extensions/web-search-tool.js");
           const {
             getBuilderWebSearchBaseUrl,
-            resolveBuilderCredentials,
+            resolveBuilderGatewayCredentials,
             resolveSecret,
           } = await import("./credential-provider.js");
           const { getBuilderGatewayRequestHeaders } =
             await import("../agent/engine/builder-gateway-headers.js");
           webSearchTool = createWebSearchToolEntry({
             resolveSecret,
-            resolveBuilderCredentials,
+            resolveBuilderCredentials: resolveBuilderGatewayCredentials,
             getBuilderWebSearchBaseUrl,
             getBuilderRequestHeaders: getBuilderGatewayRequestHeaders,
           });
@@ -1869,15 +1885,25 @@ export function createAgentChatPlugin(
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
 
+          const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
+          const receiverOwnsObjective =
+            isSelectedA2AReceiver(
+              correlation.selectedReceiverApp,
+              options?.appId,
+            ) &&
+            !!options?.a2aReceiverOwnershipFlag &&
+            (await isFeatureFlagEnabled(options.a2aReceiverOwnershipFlag, {
+              userEmail,
+              userKey: userEmail,
+              orgId: getRequestOrgId() ?? undefined,
+            }));
           const a2aStoredModel = await getStoredModelForEngine(a2aEngine, {
             appId: options?.appId,
           });
           // Preference only, and last before the default: an app that pinned
           // a model keeps it. Read separately from the correlation sanitizer
           // below so it stays out of every identity/access path.
-          const a2aCallerModelHint = sanitizeA2ACorrelationMetadata(
-            context.metadata,
-          ).callerModel;
+          const a2aCallerModelHint = correlation.callerModel;
           const model = resolveDelegatedRunModel(a2aEngine, {
             explicitModel: options?.model,
             storedModel: a2aStoredModel,
@@ -1921,6 +1947,10 @@ export function createAgentChatPlugin(
           // a day rollover (or the resources/extra content changing) only
           // invalidates the cached prompt prefix as late as possible.
           const runtimeContext = runtimeContextForEvent(context.event);
+          const selectedReceiverContext =
+            receiverOwnsObjective && options?.appId
+              ? buildSelectedA2AReceiverContext(options.appId)
+              : "";
           // Delegated turns use native template actions in every environment,
           // so they must also receive the native-tool prompt. The interactive
           // dev prompt teaches `pnpm action` and would send this receiver back
@@ -1932,6 +1962,7 @@ export function createAgentChatPlugin(
             schemaBlock +
             extra +
             modelOverlay +
+            selectedReceiverContext +
             runtimeContext;
           if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
@@ -2001,6 +2032,10 @@ export function createAgentChatPlugin(
           const a2aToolSurface = createA2AEngineToolSurface(
             actionsToEngineTools(a2aActions),
             effectiveInitialToolNames,
+            {
+              receiverOwnsObjective,
+              localCapabilityNames: mcpOptions.connectorCatalog,
+            },
           );
 
           // Precise current time rides the user message (not the cached
@@ -2051,7 +2086,6 @@ export function createAgentChatPlugin(
             recoverableArtifactStatusWriter.enqueue(activityStatusMessage());
           };
           const controller = new AbortController();
-          const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
           const telemetryThreadId =
             sanitizeA2ACorrelationId(context.contextId) ??
             correlation.callerThreadId ??
@@ -2123,6 +2157,7 @@ export function createAgentChatPlugin(
                           baseUrl: artifactBaseUrl,
                           includePersistedArtifactMarker: true,
                           persistedArtifactSecret: recoverableArtifactSecret,
+                          delegatedTaskId: context.taskId,
                         },
                       )
                     : null;
@@ -2246,11 +2281,13 @@ export function createAgentChatPlugin(
             return;
           }
 
-          const { responseText, finalText } = assembleA2AFinalResponse(
-            a2aEvents,
-            a2aToolResults,
-            { event: context.event, outcome: a2aOutcome },
-          );
+          const { responseText, finalText, mutationReceipts } =
+            assembleA2AFinalResponse(a2aEvents, a2aToolResults, {
+              event: context.event,
+              outcome: a2aOutcome,
+              persistedArtifactSecret: recoverableArtifactSecret,
+              delegatedTaskId: context.taskId,
+            });
 
           console.log(
             `[A2A] Loop complete. Text: ${responseText.slice(0, 100)}...`,
@@ -2265,6 +2302,18 @@ export function createAgentChatPlugin(
                 type: "text" as const,
                 text: finalText,
               },
+              ...(mutationReceipts.length > 0
+                ? [
+                    {
+                      type: "data" as const,
+                      data: {
+                        kind: "agent-native/mutation-receipts",
+                        version: 1,
+                        receipts: mutationReceipts,
+                      },
+                    },
+                  ]
+                : []),
             ],
           };
         },
@@ -2350,10 +2399,7 @@ export function createAgentChatPlugin(
       // `nativeActionsInDev` or `leanPrompt`), the dev prompt's "invoke
       // template actions via bash" guidance is wrong — use the prod prompt
       // + tool-format action list instead, same as production.
-      const devNative =
-        options?.nativeActionsInDev === true ||
-        leanPrompt ||
-        Boolean(options?.resolveActionSurface);
+      const devNative = options?.nativeActionsInDev === true || leanPrompt;
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
       const getFrameworkPromptActions = (): Record<string, ActionEntry> =>
@@ -2601,8 +2647,11 @@ export function createAgentChatPlugin(
               },
             );
 
+            const persistedArtifactSecret =
+              await resolveA2ARecoverableArtifactSecret();
             return assembleA2AFinalResponse(mcpEvents, mcpToolResults, {
               outcome: mcpOutcome,
+              persistedArtifactSecret,
             }).finalText;
           },
         });
@@ -2663,6 +2712,12 @@ export function createAgentChatPlugin(
       }
       if (Object.keys(httpActions).length > 0) {
         const { mountActionRoutes } = await import("./action-routes.js");
+        if (options?.actionRoutePublicPaths?.length) {
+          registerAuthPublicPaths(
+            options.actionRoutePublicPaths,
+            getH3App(nitroApp),
+          );
+        }
         mountActionRoutes(nitroApp, httpActions, {
           getOwnerFromEvent,
           getUserNameFromEvent,
@@ -3462,6 +3517,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           )
             ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
             : "";
+          const hostedHarnessRuntime =
+            getRequestRunContext()?.hostedHarnessRuntime;
+          const hostedHarnessPromptNote = hostedHarnessRuntime
+            ? hostedHarnessSystemPrompt(hostedHarnessRuntime)
+            : "";
+          const requestProdCodeExecPromptNote = hostedHarnessRuntime
+            ? ""
+            : prodCodeExecPromptNote;
           // Per-model overlay: nudge GPT/Gemini engines toward our behavioral norms.
           const modelOverlay = resolveModelOverlay();
           // Stable-first ordering: base prompt / schema / extra come before
@@ -3475,7 +3538,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           if (leanPrompt) {
             const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
               codeEditingSurfaceRestriction,
-              prodCodeExecPromptNote,
+              `${requestProdCodeExecPromptNote}${hostedHarnessPromptNote ? `\n\n${hostedHarnessPromptNote}` : ""}`,
             );
             const resources = await loadResourcesForPrompt(
               owner,
@@ -3538,7 +3601,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             modelOverlay,
             runtimeContext,
             additionalFramework:
-              codeEditingSurfaceRestriction + prodCodeExecPromptNote,
+              codeEditingSurfaceRestriction +
+              requestProdCodeExecPromptNote +
+              (hostedHarnessPromptNote ? `\n\n${hostedHarnessPromptNote}` : ""),
           });
           return setSystemPromptOnContext(
             requestBasePrompt +
@@ -3546,7 +3611,10 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               resources +
               schemaBlock +
               codeEditingSurfaceRestriction +
-              prodCodeExecPromptNote +
+              requestProdCodeExecPromptNote +
+              (hostedHarnessPromptNote
+                ? `\n\n${hostedHarnessPromptNote}`
+                : "") +
               extra +
               modelOverlay +
               runtimeContext,
@@ -3554,6 +3622,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         },
         model: options?.model,
         appId: options?.appId,
+        hostedHarnessConfig,
         apiKey: options?.apiKey,
         ...resolveInteractiveAgentRunOptions(options),
         finalResponseGuard: options?.finalResponseGuard,
@@ -3720,12 +3789,53 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         // template's actions as native tools instead of routing through bash.
         // Templates with structured-arg actions (objects/arrays) need this to
         // avoid round-tripping JSON through the CLI parser.
+        // Request-scoped dev actions are present for authorization and the
+        // `pnpm action` prompt, but remain CLI-only instead of becoming native
+        // tools. The resolver therefore sees the same action names that the
+        // dev prompt can teach without changing the shell-backed dev surface.
+        const requestScopedDevActions = options?.resolveActionSurface
+          ? Object.fromEntries(
+              Object.entries({ ...discoveredActions, ...templateScripts }).map(
+                ([name, entry]) => [name, { ...entry, agentTool: false }],
+              ),
+            )
+          : {};
+        // Keep the local coding registry in every dev handler variant. Native
+        // action mode changes how app actions are called; it must not remove
+        // bash/read/edit/write from Electron's local chat surface.
+        const devScriptRegistry = await createDevScriptRegistry({
+          databaseTools: databaseToolsMode,
+        });
+        const localDevActionNames = new Set(Object.keys(devScriptRegistry));
+        const resolveDevActionSurface = options?.resolveActionSurface
+          ? async (details: AgentActionSurfaceDetails) => {
+              const appActionNames = details.availableActionNames.filter(
+                (name) => !localDevActionNames.has(name),
+              );
+              const surface = await options.resolveActionSurface!({
+                ...details,
+                availableActionNames: appActionNames,
+              });
+              const localActionNames = details.availableActionNames.filter(
+                (name) => localDevActionNames.has(name),
+              );
+              return {
+                allowedActionNames: [
+                  ...new Set([
+                    ...surface.allowedActionNames,
+                    ...localActionNames,
+                  ]),
+                ],
+              };
+            }
+          : undefined;
         const devActions = attachToolSearch(
           leanPrompt
-            ? leanActions
+            ? { ...devScriptRegistry, ...leanActions }
             : devNative
-              ? prodActions
+              ? { ...devScriptRegistry, ...prodActions }
               : {
+                  ...requestScopedDevActions,
                   ...resourceScripts,
                   ...docsScripts,
                   ...(lazyContext ? frameworkContextTool : {}),
@@ -3747,9 +3857,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   ...coreAttachmentTools,
                   ...browserTools,
                   ...mcpActionEntries,
-                  ...(await createDevScriptRegistry({
-                    databaseTools: databaseToolsMode,
-                  })),
+                  ...devScriptRegistry,
                   // Full-database admin tools (NODE_ENV=development gate — see
                   // dbAdminScripts; also in prodActions so App mode has them too).
                   ...dbAdminScripts,
@@ -3876,7 +3984,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             return options?.prepareRequest?.(details);
           },
-          resolveActionSurface: options?.resolveActionSurface,
+          resolveActionSurface: resolveDevActionSurface,
           skipFilesContext,
           initialToolNames: effectiveInitialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
@@ -4099,8 +4207,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
       const modelDefaultsAppId =
         normalizeAgentAppModelDefaultAppId(
           options?.appId ??
-            process.env.AGENT_NATIVE_APP_ID ??
-            process.env.VITE_AGENT_NATIVE_TEMPLATE ??
+            getAppConfig().app.id ??
+            getAppConfig().app.template ??
             "app",
         ) ?? "app";
 
@@ -5306,6 +5414,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const workerClaim = run.runId
               ? await readBackgroundRunClaim(run.runId).catch(() => null)
               : null;
+            const { isBuilderGatewayDeployConfigured } =
+              await import("./credential-provider.js");
 
             return {
               active: true,
@@ -5323,6 +5433,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // `/runs/active?threadId=...` and inspect `diagStage`.
               dispatchMode: run.dispatchMode ?? null,
               terminalReason: run.terminalReason ?? null,
+              // Who is paying for AI here, which is also who is reading a
+              // failure. `terminalReason` is a bare error CODE, and the client
+              // owns the copy for the handoff failures that never produce an
+              // error event — so without this it has to author credential copy
+              // for a reader it cannot identify, and picks the owner's.
+              deploymentPaysForAi: isBuilderGatewayDeployConfigured(),
               diagStage: run.diagStage ?? null,
               workerStage: workerClaim?.workerStage ?? null,
               // Server clock so the client computes "stuck" elapsed time
@@ -5958,10 +6074,15 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // separate agent surface such as Builder or the dev frame.
             const blockInProductCodeEditing =
               shouldBlockInProductCodeEditing(event);
+            const hostedHarnessRequest =
+              getHeader(event, "x-agent-native-hosted-harness") === "1";
             const handler =
               ownerContext.anonymous && anonymousHandler
                 ? anonymousHandler
-                : !blockInProductCodeEditing && currentDevMode && devHandler
+                : !hostedHarnessRequest &&
+                    !blockInProductCodeEditing &&
+                    currentDevMode &&
+                    devHandler
                   ? devHandler
                   : prodHandler;
             return handler(event);
@@ -6207,6 +6328,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // is already consumed, so the handler reads this instead.
             (event as any).context = (event as any).context ?? {};
             (event as any).context.__agentChatBackgroundBody = workerBody;
+            const persistedClientPlatform = normalizeAnalyticsClientPlatform(
+              workerBody[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD],
+            );
+            if (persistedClientPlatform) {
+              (event as any).context[ANALYTICS_CLIENT_PLATFORM_BODY_FIELD] =
+                persistedClientPlatform;
+            }
 
             // Durable owner context: this self-dispatch is cookieless (HMAC-only).
             // Resolve the owner from the persisted run row, never the request
@@ -6403,17 +6531,33 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            // Rides the same site-tick as the reap above, for the same reason:
+            // it is the only durable driver on serverless. Never fatal to the
+            // job sweep, and its own failure is a distinguishable outcome
+            // rather than a silent healthy.
+            const { checkChatHealthAndAlert } =
+              await import("../agent/chat-health-alert.js");
+            const chatHealth = await checkChatHealthAndAlert().catch(
+              (error: unknown) => {
+                console.error("[agent-chat] chat-health alert failed:", error);
+                return null;
+              },
+            );
             try {
               // Jobs may request MCP tools, and `getActions` is synchronous —
               // hydrate before the sweep so a serverless container that never
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
-              return { ok: true, staleRunsReaped };
+              return { ok: true, staleRunsReaped, chatHealth };
             } catch (error) {
               console.error("[recurring-jobs] Sweep route failed:", error);
               setResponseStatus(event, 500);
-              return { error: "Recurring-job sweep failed", staleRunsReaped };
+              return {
+                error: "Recurring-job sweep failed",
+                staleRunsReaped,
+                chatHealth,
+              };
             }
           }),
         );

@@ -48,8 +48,10 @@ import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
+  SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
@@ -385,6 +387,14 @@ export const CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES: Record<string, string> = {
     "export class CanvasFactory {}",
     "export const getData = unavailable;",
     "export default { CanvasFactory, getData };",
+    "",
+  ].join("\n"),
+  "pdfjs-dist/legacy/build/pdf.mjs": [
+    "const unavailable = () => { throw new Error('pdfjs-dist unavailable in Cloudflare Pages worker'); };",
+    "export const OPS = new Proxy({}, { get: unavailable });",
+    "export const Util = new Proxy({}, { get: unavailable });",
+    "export const getDocument = unavailable;",
+    "export default { OPS, Util, getDocument };",
     "",
   ].join("\n"),
 };
@@ -1132,6 +1142,85 @@ function firstNonEmpty() {
   }
 }
 
+function isTruthyRuntimeValue(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return false;
+  return ["1", "true", "yes", "on"].includes(
+    value.trim().toLowerCase(),
+  );
+}
+
+function normalizeExplicitDeploymentEnvironment(value) {
+  const normalized = firstNonEmpty(value)?.toLowerCase();
+  if (!normalized) return;
+  if (
+    normalized !== "local" &&
+    normalized !== "beta" &&
+    normalized !== "production" &&
+    normalized !== "preview"
+  ) {
+    throw new Error(
+      'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+    );
+  }
+  return normalized;
+}
+
+function normalizeFallbackDeploymentEnvironment(value) {
+  const normalized = firstNonEmpty(value)?.toLowerCase();
+  if (normalized === "development" || normalized === "test") return "local";
+  return normalized === "local" ||
+    normalized === "beta" ||
+    normalized === "production" ||
+    normalized === "preview"
+    ? normalized
+    : undefined;
+}
+
+function resolveDeploymentEnvironment() {
+  const env = globalThis.process?.env || {};
+  const explicit = normalizeExplicitDeploymentEnvironment(
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT,
+  );
+  if (explicit) return explicit;
+
+  const context = firstNonEmpty(
+    typeof env.CONTEXT === "string" ? env.CONTEXT : undefined,
+    typeof env.NETLIFY_CONTEXT === "string" ? env.NETLIFY_CONTEXT : undefined,
+    typeof env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT === "string"
+      ? env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT
+      : undefined,
+  )?.toLowerCase();
+  const branch =
+    typeof env.BRANCH === "string" ? env.BRANCH.trim().toLowerCase() : "";
+  const vercelEnv = String(env.VERCEL_ENV || "").trim().toLowerCase();
+  const sentryEnvironment = firstNonEmpty(env.SENTRY_ENVIRONMENT);
+  if (branch === "beta") return "beta";
+  if (
+    branch === "production" ||
+    (context === "production" && branch !== "beta")
+  ) {
+    return "production";
+  }
+  if (context === "branch-deploy" && branch === "main") return "beta";
+  if (
+    context === "deploy-preview" ||
+    context === "branch-deploy" ||
+    branch.startsWith("deploy-preview") ||
+    vercelEnv === "preview"
+  ) {
+    return "preview";
+  }
+  if (!context && !branch && !vercelEnv && sentryEnvironment) {
+    return normalizeFallbackDeploymentEnvironment(sentryEnvironment) || "production";
+  }
+  return (
+    normalizeFallbackDeploymentEnvironment(firstNonEmpty(context, vercelEnv)) ||
+    normalizeFallbackDeploymentEnvironment(env.NODE_ENV) ||
+    "production"
+  );
+}
+
 function getSentryClientConfigScript() {
   const env = globalThis.process?.env || {};
   const key = firstNonEmpty(env.SENTRY_CLIENT_KEY, env.VITE_SENTRY_CLIENT_KEY);
@@ -1150,16 +1239,15 @@ function getSentryClientConfigScript() {
       env.VITE_SENTRY_DSN,
       env.SENTRY_DSN,
     ) || (key && projectId && host ? "https://" + key + "@" + host + "/" + projectId : undefined);
-  if (!dsn) return null;
+  const deploymentEnvironment = resolveDeploymentEnvironment();
   const config = {
-    sentryDsn: dsn,
-    sentryEnvironment:
-      firstNonEmpty(
-        env.SENTRY_ENVIRONMENT,
-        env.NETLIFY_CONTEXT,
-        env.VERCEL_ENV,
-        env.NODE_ENV,
-      ) || "production",
+    ...(dsn
+      ? {
+          sentryDsn: dsn,
+          sentryEnvironment: deploymentEnvironment,
+        }
+      : {}),
+    deploymentEnvironment,
   };
   return (
     '<script data-agent-native-sentry-config>' +
@@ -1222,6 +1310,52 @@ function getRealtimeClientConfigScript() {
   );
 }
 
+function getAppOriginClientConfigScript() {
+  // MUST stay consistent with resolvePublicAppOriginConfig in
+  // server/app-origin-config.ts, and with the alias order declared on
+  // app.url / workspace.* in app-config (worker bundles a string copy; it
+  // can't import them). Impersonal values only — this ships into the
+  // CDN-cached shell.
+  const env = globalThis.process?.env || {};
+  const appUrl = firstNonEmpty(
+    env.APP_URL,
+    env.VITE_APP_URL,
+    env.BETTER_AUTH_URL,
+    env.VITE_BETTER_AUTH_URL,
+  );
+  const workspaceGatewayUrl = firstNonEmpty(
+    env.WORKSPACE_GATEWAY_URL,
+    env.VITE_WORKSPACE_GATEWAY_URL,
+  );
+  const workspaceOAuthOrigin = firstNonEmpty(
+    env.WORKSPACE_OAUTH_ORIGIN,
+    env.VITE_WORKSPACE_OAUTH_ORIGIN,
+  );
+  const workspaceRuntime = [
+    env.AGENT_NATIVE_WORKSPACE,
+    env.VITE_AGENT_NATIVE_WORKSPACE,
+  ].some((value) => isTruthyRuntimeValue(value)) ||
+    Boolean(
+      firstNonEmpty(
+        env.AGENT_NATIVE_WORKSPACE_APPS_JSON,
+        env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON,
+      ),
+    );
+  const config = {
+    ...(appUrl ? { appUrl } : {}),
+    ...(workspaceGatewayUrl ? { workspaceGatewayUrl } : {}),
+    ...(workspaceOAuthOrigin ? { workspaceOAuthOrigin } : {}),
+    ...(workspaceRuntime ? { workspaceRuntime: true } : {}),
+  };
+  if (Object.keys(config).length === 0) return null;
+  return (
+    '<script data-agent-native-app-origin-config>' +
+    'window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__,' +
+    JSON.stringify(config) +
+    ");</script>"
+  );
+}
+
 function injectHeadScript(html, script) {
   if (!script) return html;
   const headCloseIdx = html.indexOf("</head>");
@@ -1232,6 +1366,7 @@ function injectHeadScript(html, script) {
 // Resolved from AGENT_NATIVE_SSR_CACHE at build time.
 const SSR_CACHE_HEADERS = ${JSON.stringify(ssrCacheHeaders)};
 const SSR_CACHE_KEY_HEADERS = ${JSON.stringify(ssrCacheKeyHeaders)};
+const SSR_QUERY_CACHE_KEY_HEADER = ${JSON.stringify(SSR_QUERY_CACHE_KEY_HEADER)};
 const DEFAULT_SPECULATION_RULES_PATH = ${JSON.stringify(DEFAULT_SPECULATION_RULES_PATH)};
 const IMMUTABLE_ASSET_CACHE_CONTROL = ${JSON.stringify(IMMUTABLE_ASSET_CACHE_CONTROL)};
 const IMMUTABLE_ASSET_PATHS = new Set(${JSON.stringify(
@@ -1313,6 +1448,9 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
  * from the canonical Nitro/Netlify handler or send normal pages to origin.
  */
 function applyDefaultSsrCacheHeader(headers, status, pathname) {
+  const varyByQuery =
+    (headers.get(SSR_QUERY_CACHE_KEY_HEADER) || "").trim().toLowerCase() === "query";
+  headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   headers.delete("set-cookie");
@@ -1332,9 +1470,11 @@ function applyDefaultSsrCacheHeader(headers, status, pathname) {
   for (const [name, value] of Object.entries(SSR_CACHE_HEADERS)) {
     headers.set(name, value);
   }
-  for (const [name, value] of Object.entries(SSR_CACHE_KEY_HEADERS)) {
-    headers.set(name, value);
-  }
+  const netlifyVary = varyByQuery
+    ? SSR_CACHE_KEY_HEADERS["netlify-vary"] ? "query" : undefined
+    : SSR_CACHE_KEY_HEADERS["netlify-vary"];
+  if (netlifyVary) headers.set("netlify-vary", netlifyVary);
+  else headers.delete("netlify-vary");
 }
 
 function applyDefaultSpeculationRulesHeader(headers, status, basePath) {
@@ -1377,6 +1517,7 @@ async function rewriteMountedResponse(response, basePath, pathname, request) {
       getSentryClientConfigScript(),
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
+      getAppOriginClientConfigScript(),
     ]
       .filter(Boolean)
       .join("") || null;
@@ -1517,7 +1658,7 @@ async function getHandler() {
         headers: {
           "Access-Control-Allow-Origin": "*",
           "Access-Control-Allow-Methods": "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS",
-          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
+          "Access-Control-Allow-Headers": "Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,X-Agent-Native-Embed-Target",
         },
       });
     }
@@ -3562,7 +3703,7 @@ export function bundleYjsRuntimeForServerlessOutput(
 
   if (unsupportedSubpathImports.length > 0) {
     throw new Error(
-      `[deploy] Serverless output left unsupported yjs subpath imports in ${unsupportedSubpathImports.join(", ")}`,
+      `[deploy] Node/server output left unsupported yjs subpath imports in ${unsupportedSubpathImports.join(", ")}`,
     );
   }
   if (bareImports.length === 0) return [];
@@ -3622,16 +3763,68 @@ export function bundleYjsRuntimeForServerlessOutput(
   return bareImports;
 }
 
-// Netlify's hard limit is 250MB unzipped per function; a bundle this far under
-// it still leaves room for growth, and today's server functions land near 70MB
-// once the dead weight is out. Apps that legitimately ship the browser runtime
-// get its ~85MB on top, so the budget stays a regression signal rather than a
-// tax on Chromium-backed templates.
+/** Presets whose Node-style output needs the emitted Yjs runtime bundle. */
+export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
+  return (
+    targetPreset === "netlify" ||
+    targetPreset === "vercel" ||
+    targetPreset === "aws-lambda" ||
+    targetPreset === "node" ||
+    targetPreset === "node-server"
+  );
+}
+
+// Netlify's hard limit is 250MB unzipped per function; keep 10MB of headroom
+// for packaging variance so a passing guard does not sit on the platform edge.
 const NETLIFY_FUNCTION_SIZE_BUDGET_BYTES = 120 * 1024 * 1024;
+const NETLIFY_FUNCTION_HARD_LIMIT_BYTES = 240 * 1024 * 1024;
 const NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES = 100 * 1024 * 1024;
+// Clips intentionally ships ffmpeg-static for server-side frame extraction,
+// WebM seekability, filmstrips, and audio-only transcription. Keep that known
+// runtime payload separate from the ordinary bundle-growth budget.
+const NETLIFY_FFMPEG_RUNTIME_SIZE_ALLOWANCE_BYTES = 80 * 1024 * 1024;
+
+function hasBundledFfmpegStaticRuntime(functionDir: string): boolean {
+  if (!fs.existsSync(functionDir)) return false;
+  const binaryName = FFMPEG_STATIC_BINARY_NAMES[0];
+  return fs.existsSync(
+    path.join(
+      functionDir,
+      "node_modules",
+      FFMPEG_STATIC_PACKAGE_NAME,
+      binaryName,
+    ),
+  );
+}
+
+function hasBundledServerlessBrowserRuntime(functionDir: string): boolean {
+  return fs.existsSync(
+    path.join(
+      functionDir,
+      "node_modules",
+      "@sparticuz",
+      "chromium",
+      "bin",
+      "chromium.br",
+    ),
+  );
+}
+
+function netlifyFunctionSizeBudget(functionDir: string): number {
+  const allowance =
+    (hasBundledServerlessBrowserRuntime(functionDir)
+      ? NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES
+      : 0) +
+    (hasBundledFfmpegStaticRuntime(functionDir)
+      ? NETLIFY_FFMPEG_RUNTIME_SIZE_ALLOWANCE_BYTES
+      : 0);
+  return Math.min(
+    NETLIFY_FUNCTION_SIZE_BUDGET_BYTES + allowance,
+    NETLIFY_FUNCTION_HARD_LIMIT_BYTES,
+  );
+}
 
 function reportNetlifyFunctionSizes(
-  projectCwd: string,
   internalDir: string,
   failures: string[],
 ): void {
@@ -3659,12 +3852,8 @@ function reportNetlifyFunctionSizes(
       .join(", ")}) — ${toMb(total)}MB uploaded in total.`,
   );
 
-  const budget =
-    NETLIFY_FUNCTION_SIZE_BUDGET_BYTES +
-    (findServerlessBrowserRuntimeConsumer(projectCwd)
-      ? NETLIFY_BROWSER_RUNTIME_SIZE_ALLOWANCE_BYTES
-      : 0);
   for (const fn of functions) {
+    const budget = netlifyFunctionSizeBudget(fn.dir);
     if (fn.size <= budget) continue;
     // node_modules is always the biggest child and names nothing useful; the
     // packages inside it are what a regression actually adds.
@@ -3693,8 +3882,12 @@ export function assertSingleTemplateNetlifyBuildOutput(
   const failures: string[] = [];
   const publishDir = path.join(projectCwd, "dist");
   const workspaceAppBasePath =
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
+    [
+      process.env.AGENT_NATIVE_WORKSPACE,
+      process.env.VITE_AGENT_NATIVE_WORKSPACE,
+    ].some((value) => isTruthyRuntimeValue(value)) ||
+    Boolean(process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
+    Boolean(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim())
       ? normalizeConfiguredAppBasePath()
       : "";
   const assetsRelativeDir = workspaceAppBasePath
@@ -3913,7 +4106,7 @@ export function assertSingleTemplateNetlifyBuildOutput(
     }
   }
 
-  reportNetlifyFunctionSizes(projectCwd, internalDir, failures);
+  reportNetlifyFunctionSizes(internalDir, failures);
 
   if (failures.length > 0) {
     throw new Error(
@@ -4482,8 +4675,8 @@ export function createCloudflareModuleStubPlugin() {
 }
 
 /**
- * Dependencies Nitro itself must bundle outside the controlled serverless
- * output pass. Netlify, Vercel, and Lambda keep Yjs external through Nitro;
+ * Dependencies Nitro itself must bundle outside the controlled Yjs output pass.
+ * Node and controlled serverless presets keep Yjs external through Nitro;
  * `bundleYjsRuntimeForServerlessOutput` then creates their one portable copy.
  */
 export const NITRO_SERVER_RUNTIME_BUNDLED_DEPS = ["yjs"] as const;
@@ -4504,8 +4697,8 @@ export function resolveNitroBundledYjsEntry(): string {
 }
 
 /**
- * Edge runtimes have no node_modules, while Node/serverless outputs only need
- * the small set above bundled to keep their package manifests traceable.
+ * Edge runtimes have no node_modules, while Node/serverless outputs receive the
+ * small set above through the controlled post-build pass.
  */
 export function nitroNoExternalsForPreset(
   targetPreset: string,
@@ -4515,7 +4708,9 @@ export function nitroNoExternalsForPreset(
     ? true
     : targetPreset === "netlify" ||
         targetPreset === "vercel" ||
-        targetPreset === "aws-lambda"
+        targetPreset === "aws-lambda" ||
+        targetPreset === "node" ||
+        targetPreset === "node-server"
       ? []
       : NITRO_SERVER_RUNTIME_BUNDLED_DEPS;
 }
@@ -4568,7 +4763,11 @@ function createBrowserOnlyServerStubPlugin() {
 
 export function resolveNitroBuildReplacements(
   env: NodeJS.ProcessEnv = process.env,
+  deploymentEnvironment?: string,
 ): Record<string, string> {
+  const configuredDeploymentEnvironment =
+    deploymentEnvironment?.trim() ||
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim();
   return {
     // Netlify exposes DEPLOY_ID only while building. Embed it into the Nitro
     // function so preview OAuth relays can target this immutable deployment
@@ -4590,8 +4789,15 @@ export function resolveNitroBuildReplacements(
       env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
     ),
     "process.env.AGENT_NATIVE_BUILD_DEPLOY_CONTEXT": JSON.stringify(
-      env.CONTEXT?.trim() || "",
+      env.CONTEXT?.trim() || env.NETLIFY_CONTEXT?.trim() || "",
     ),
+    ...(configuredDeploymentEnvironment
+      ? {
+          "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(
+            configuredDeploymentEnvironment,
+          ),
+        }
+      : {}),
   };
 }
 
@@ -4695,7 +4901,10 @@ export default bundle;
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
-    replace: resolveNitroBuildReplacements(),
+    replace: resolveNitroBuildReplacements(
+      process.env,
+      nitroAgentConfig.deployment?.environment,
+    ),
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
     // Excalidraw into a shared vendor chunk imported statically by the SSR render
@@ -4705,10 +4914,14 @@ export default bundle;
     rollupConfig: {
       // Nitro treats the intermediate React Router SSR files as prebuilt
       // chunks, while core's server collaboration files participate in the
-      // final Rolldown graph. Externalize Yjs consistently on serverless so
+      // final Rolldown graph. Externalize Yjs consistently on Node/serverless so
       // both graphs retain their public import shapes; the controlled
       // post-build pass below bundles and rewrites them to one module.
-      ...(preset === "netlify" || preset === "vercel" || preset === "aws-lambda"
+      ...(preset === "netlify" ||
+      preset === "vercel" ||
+      preset === "aws-lambda" ||
+      preset === "node" ||
+      preset === "node-server"
         ? { external: ["yjs"] }
         : {}),
       plugins: [
@@ -4723,9 +4936,9 @@ export default bundle;
       : {}),
     routeRules: mcpEmbedStaticAssetRouteRules(appBasePath),
     // Edge presets (cloudflare, deno) bundle all deps because node_modules are
-    // unavailable at runtime. Ordinary Node presets bundle Yjs through Nitro.
-    // Controlled serverless presets externalize it above, then emit one full
-    // runtime module after Nitro has preserved every consumer's public imports.
+    // unavailable at runtime. Node and controlled serverless presets
+    // externalize Yjs above, then emit one full runtime module after Nitro has
+    // preserved every consumer's public imports.
     noExternals: nitroNoExternalsForPreset(preset),
   } as any);
 
@@ -4751,6 +4964,9 @@ export default bundle;
     // Before the Netlify block below clones this dir into the extra functions,
     // so they inherit the pruned bundle instead of a second full copy.
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
+  }
+
+  if (shouldBundleYjsRuntimeForPreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 

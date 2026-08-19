@@ -366,7 +366,7 @@ The schema is strictly additive — hosted templates share their production
 database across every deploy context, so add columns via
 `ALTER TABLE ... ADD COLUMN IF NOT EXISTS ...` in a new migration version in
 `server/plugins/db.ts`; never rename or drop a column, and never run
-`drizzle-kit push` against production. See [Database](/docs/database#migrations)
+`drizzle-kit push` against production. See [Database](/docs/server-database#migrations)
 for the full migration pattern.
 
 ## Customizing it
@@ -451,6 +451,6 @@ on the integrations page.
 
 - [**Using Assets from other apps and agents**](/docs/template-assets-integrations) — embedding, A2A, Creative Context, and the packaged skill bundle
 - [**Sharing & Privacy**](/docs/sharing#building) — `ownableColumns()` and the visibility model this template relies on
-- [**Database**](/docs/database) — migrations, dialects, and `getDb`/`schema`
-- [**Actions**](/docs/actions#access-control) — the action system powering every entry above
+- [**Database**](/docs/server-database) — migrations, dialects, and `getDb`/`schema`
+- [**Actions**](/docs/actions-access-control#access-control) — the action system powering every entry above
 - [**Assets**](/docs/template-assets) — back to the overview

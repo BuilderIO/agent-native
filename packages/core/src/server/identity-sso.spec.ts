@@ -93,6 +93,7 @@ vi.mock("./better-auth-instance.js", () => ({
   }),
 }));
 vi.mock("./identity-sso-store.js", () => ({
+  CANONICAL_IDENTITY_SSO_HUB_URL: "https://dispatch.agent-native.com",
   SSO_STATE_TTL_MS: 600_000,
   getIdentityHubUrl: () => {
     const raw = process.env.AGENT_NATIVE_IDENTITY_HUB_URL?.trim();
@@ -109,8 +110,14 @@ vi.mock("./identity-sso-store.js", () => ({
   isCanonicalAgentNativeAppRequest: (host: string, protocol: string) =>
     protocol === "https" &&
     ["mail.agent-native.com", "dispatch.agent-native.com"].includes(host),
+  isCanonicalIdentitySsoClientRequest: (host: string, protocol: string) =>
+    protocol === "https" && host === "mail.agent-native.com",
+  isDesktopSsoUserAgent: (userAgent: string | undefined) =>
+    /AgentNativeDesktop(?:SsoCanary)?\//i.test(userAgent ?? ""),
   isDesktopSsoCanaryUserAgent: (userAgent: string | undefined) =>
     /AgentNativeDesktopSsoCanary\//i.test(userAgent ?? ""),
+  isIdentitySsoExplicitlyEnabled: () =>
+    !!process.env.AGENT_NATIVE_IDENTITY_HUB_URL,
   isIdentitySsoEnabled: () => !!process.env.AGENT_NATIVE_IDENTITY_HUB_URL,
   isJtiReplayed: vi.fn(async (jti: string | undefined) => {
     if (!jti) return true;
@@ -242,21 +249,67 @@ afterEach(() => {
 });
 
 describe("identity SSO browser contract", () => {
-  it("is a true no-op when the hub env is unset", async () => {
+  it("is a true no-op for self-hosted apps when the hub env is unset", async () => {
     delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
     const response = await handleIdentitySso(
-      event("/_agent-native/identity/login"),
+      event("/_agent-native/identity/login", {
+        headers: { host: "workspace.example.test" },
+      }),
       "/login",
     );
     expect(response.status).toBe(404);
     expect(createOAuthSessionMock).not.toHaveBeenCalled();
   });
 
-  it("allows the packaged Canary to reach canonical apps without per-app env", async () => {
+  it("allows the packaged Desktop client to reach canonical apps without per-app env", async () => {
     delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
     const request = event("/_agent-native/identity/login?return=/inbox", {
-      headers: { "user-agent": "AgentNativeDesktopSsoCanary/1.0" },
+      headers: { "user-agent": "AgentNativeDesktop/1.0" },
     });
+    getSessionMock.mockResolvedValue(null);
+    const response = await handleIdentitySso(request, "/login");
+    expect(resolveIdentityHubUrl(request)).toBe(HUB);
+    expect(response.status).toBe(302);
+  });
+
+  it("does not make Dispatch federate to itself for the packaged Desktop client", async () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    const request = event("/_agent-native/identity/login?return=/", {
+      headers: {
+        host: "dispatch.agent-native.com",
+        "user-agent": "AgentNativeDesktopSsoCanary/1.0",
+      },
+    });
+
+    expect(resolveIdentityHubUrl(request)).toBeUndefined();
+    await expect(handleIdentitySso(request, "/login")).resolves.toMatchObject({
+      status: 404,
+    });
+  });
+
+  it("serves the Dispatch desktop completion page after ordinary sign-in", async () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    getSessionMock.mockResolvedValue({ email: "alice@example.test" });
+    const request = event(
+      `/_agent-native/identity/desktop-complete?nonce=${"n".repeat(32)}`,
+      {
+        headers: {
+          host: "dispatch.agent-native.com",
+          "user-agent": "AgentNativeDesktopSsoCanary/1.0",
+        },
+      },
+    );
+
+    expect(resolveIdentityHubUrl(request)).toBeUndefined();
+    const response = await handleIdentitySso(request, "/desktop-complete");
+
+    expect(response.status).toBe(200);
+    await expect(response.text()).resolves.toContain("Signed in");
+  });
+
+  it("allows ordinary browsers to reach canonical apps without per-app env", async () => {
+    delete process.env.AGENT_NATIVE_IDENTITY_HUB_URL;
+    const request = event("/_agent-native/identity/login?return=/inbox");
     getSessionMock.mockResolvedValue(null);
     const response = await handleIdentitySso(request, "/login");
     expect(resolveIdentityHubUrl(request)).toBe(HUB);
@@ -377,6 +430,40 @@ describe("identity SSO browser contract", () => {
     expect(await response.text()).toContain("Google sign-in is required.");
     expect(signUpEmailMock).not.toHaveBeenCalled();
     expect(createOAuthSessionMock).not.toHaveBeenCalled();
+  });
+
+  it("accepts a signed Google-backed assertion for a Google-required organization", async () => {
+    googleAuthRequiredMock.mockResolvedValue(true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              assertion: await signAssertion({
+                identity_auth_provider: "google",
+              }),
+            }),
+            { status: 200 },
+          ),
+      ),
+    );
+    const { loginEvent, state } = await startLogin();
+    const response = await handleIdentitySso(
+      event(
+        `/_agent-native/identity/callback?code=${"i".repeat(43)}&state=${state}`,
+        {
+          cookies: { ...loginEvent.cookies },
+        },
+      ),
+      "/callback",
+    );
+    expect(response.status).toBe(302);
+    expect(createOAuthSessionMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "alice@example.test",
+      expect.objectContaining({ hasProductionSession: false }),
+    );
   });
 });
 

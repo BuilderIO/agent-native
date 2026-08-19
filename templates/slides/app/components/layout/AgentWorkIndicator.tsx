@@ -15,7 +15,25 @@ export function isAgentSidebarVisible() {
   if (style.display === "none" || style.visibility === "hidden") return false;
 
   const rect = panel.getBoundingClientRect();
-  return rect.width > 0 && rect.height > 0;
+  if (rect.width <= 0 || rect.height <= 0) return false;
+
+  for (
+    let ancestor = panel.parentElement;
+    ancestor && ancestor !== document.body;
+    ancestor = ancestor.parentElement
+  ) {
+    if (ancestor.getAttribute("aria-hidden") === "true") return false;
+    if (ancestor.inert) return false;
+    const ancestorStyle = window.getComputedStyle(ancestor);
+    if (
+      ancestorStyle.display === "none" ||
+      ancestorStyle.visibility === "hidden"
+    ) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function useAgentSidebarVisible() {
@@ -25,20 +43,49 @@ function useAgentSidebarVisible() {
     const update = () => setVisible(isAgentSidebarVisible());
     update();
 
-    const observer = new MutationObserver(update);
-    observer.observe(document.body, {
-      attributes: true,
-      attributeFilter: ["aria-hidden", "class", "inert", "style"],
-      childList: true,
-      subtree: true,
-    });
+    // The panel is a portal and is normally a direct child of body. Discover
+    // portal mount/unmounts with a shallow child-list observer, then watch only
+    // the panel and its immediate parent. Observing every body attribute and
+    // descendant mutation made this tiny indicator run on every editor render.
+    let panelObserver: MutationObserver | null = null;
+    let parentObserver: MutationObserver | null = null;
+
+    const observePanel = () => {
+      panelObserver?.disconnect();
+      parentObserver?.disconnect();
+      const panel = document.querySelector<HTMLElement>(".agent-sidebar-panel");
+      if (!panel) return;
+
+      panelObserver = new MutationObserver(update);
+      panelObserver.observe(panel, {
+        attributes: true,
+        attributeFilter: ["aria-hidden", "class", "inert", "style"],
+      });
+      if (panel.parentElement && panel.parentElement !== document.body) {
+        parentObserver = new MutationObserver(update);
+        parentObserver.observe(panel.parentElement, {
+          attributes: true,
+          attributeFilter: ["aria-hidden", "class", "inert", "style"],
+          childList: true,
+        });
+      }
+    };
+    const updateAndObserve = () => {
+      update();
+      observePanel();
+    };
+    const discovery = new MutationObserver(updateAndObserve);
+    discovery.observe(document.body, { childList: true });
+    updateAndObserve();
     window.addEventListener("resize", update);
     window.addEventListener("agent-panel:open", update);
     window.addEventListener("agent-panel:toggle", update);
     window.addEventListener("agent-panel:set-mode", update);
 
     return () => {
-      observer.disconnect();
+      discovery.disconnect();
+      panelObserver?.disconnect();
+      parentObserver?.disconnect();
       window.removeEventListener("resize", update);
       window.removeEventListener("agent-panel:open", update);
       window.removeEventListener("agent-panel:toggle", update);

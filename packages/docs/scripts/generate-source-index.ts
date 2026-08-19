@@ -4,6 +4,11 @@ import { join, relative } from "node:path";
 
 const CORE_SRC = join(import.meta.dirname, "../../core/src");
 const OUTPUT = join(import.meta.dirname, "../public/source-index.json");
+const CORE_DOCS = join(import.meta.dirname, "../../core/docs/content");
+const DOCS_OUTPUT = join(
+  import.meta.dirname,
+  "../public/docs-source-index.json",
+);
 
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "__tests__"]);
 const EXTENSIONS = new Set([".ts", ".tsx"]);
@@ -11,6 +16,11 @@ const MAX_FILE_SIZE = 50_000;
 
 interface SourceEntry {
   path: string;
+  content: string;
+}
+
+interface DocSourceEntry {
+  filename: string;
   content: string;
 }
 
@@ -39,6 +49,25 @@ async function walkDir(dir: string, base: string): Promise<SourceEntry[]> {
   return entries;
 }
 
+async function readDocSources(): Promise<DocSourceEntry[]> {
+  const entries = await readdir(CORE_DOCS, { withFileTypes: true });
+  const files = entries
+    .filter(
+      (entry) =>
+        entry.isFile() &&
+        [".md", ".mdx"].includes(entry.name.slice(entry.name.lastIndexOf("."))),
+    )
+    .map((entry) => entry.name)
+    .sort();
+
+  return Promise.all(
+    files.map(async (filename) => ({
+      filename,
+      content: await readFile(join(CORE_DOCS, filename), "utf-8"),
+    })),
+  );
+}
+
 async function main() {
   console.log(`Indexing source files from ${CORE_SRC}...`);
   const entries = await walkDir(CORE_SRC, CORE_SRC);
@@ -46,6 +75,11 @@ async function main() {
 
   writeFileSync(OUTPUT, JSON.stringify(entries));
   console.log(`Written to ${OUTPUT}`);
+
+  const docSources = await readDocSources();
+  console.log(`Indexed ${docSources.length} documentation source files`);
+  writeFileSync(DOCS_OUTPUT, JSON.stringify(docSources));
+  console.log(`Written to ${DOCS_OUTPUT}`);
 }
 
 main().catch(console.error);

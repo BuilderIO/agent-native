@@ -47,29 +47,34 @@ export type ScreenCaptureDisplayOptions = {
 /**
  * The `getDisplayMedia` options for a screen recording.
  *
- * Screen/tab audio is requested ALWAYS, and deliberately does not depend on
- * whether the microphone is on. They are two different sources, and one toggle
- * used to govern both: with the mic off, Chrome was never even offered the
- * "share tab audio" checkbox, so a screen recording of a call or a demo
- * captured zero audio tracks. Measured in production, 345 recordings landed
- * with `has_audio = false` — 95 over a minute, 17 over five — and each was told
- * "No speech was detected because this recording was saved without audio",
- * blaming the recording for a capture setting. That was 64% of recent
- * transcript failures. The Chrome extension always requested display audio and
- * never had the problem.
+ * Screen/tab audio is requested whenever the microphone is enabled, and
+ * withheld when it's off. The mic toggle is the only audio control the
+ * recorder UI shows, so a user who turns it off reasonably expects the
+ * recording to capture no audio at all — not just their voice. Requesting
+ * system audio anyway relies on the user separately noticing and unchecking
+ * the browser's native "share tab audio" checkbox, which they may not even
+ * know exists. See Slack thread 1786086902028429: a user turned the mic off
+ * and still got system audio in the recording; the agreed fix is to gate
+ * system audio on the same toggle.
  *
- * Declining the checkbox is still respected; the user simply gets the choice.
+ * When the mic IS on, audio is still requested unconditionally (not made
+ * conditional on some separate "include system audio" flag) — that used to be
+ * one toggle governing both, and with the mic off Chrome never even offered
+ * the checkbox, so 345 production recordings landed with `has_audio = false`
+ * while recording a call/demo. Declining the checkbox is still respected; the
+ * user simply gets the choice whenever the mic is on.
  */
 export function screenCaptureDisplayOptions(
   displaySurface: ScreenCaptureSurface,
+  wantsMic: boolean,
 ): ScreenCaptureDisplayOptions {
   return {
     video: screenCaptureVideoConstraints(displaySurface),
-    audio: true,
+    audio: wantsMic,
     // Let "Browser tab" open the tab picker. preferCurrentTab turns it into a
     // current-tab shortcut, which makes choosing another tab harder.
     selfBrowserSurface: displaySurface === "browser" ? "include" : "exclude",
     surfaceSwitching: "include",
-    systemAudio: "include",
+    systemAudio: wantsMic ? "include" : "exclude",
   };
 }

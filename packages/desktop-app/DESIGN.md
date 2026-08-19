@@ -2,11 +2,11 @@
 
 ## Direction
 
-The opt-in desktop mode is a quiet command center: a narrow, persistent
-conversation rail, a generous chat canvas, and a contextual app pane that
-appears only when the user or agent asks for one. It borrows the information
-architecture of Codex and T3 Code while keeping Agent-Native's existing
-surface, typography, iconography, and app URLs.
+The desktop is a quiet command center: a narrow, persistent conversation rail,
+a generous chat canvas, and contextual app panes that appear when the user or
+agent asks for one. It borrows the information architecture of Codex and T3
+Code while keeping Agent-Native's existing surface, typography, iconography,
+and app URLs.
 
 ## Layout contract
 
@@ -18,11 +18,12 @@ surface, typography, iconography, and app URLs.
   no address bar, and no nested app/sidebar chrome.
 - Chat rows expose a right-click menu for copying the stable session ID and
   opening a live watch/message panel backed by the existing run-manager host.
-- The tabbed side-surface shell currently ships app, browser, and watched-session
-  surfaces. Terminal, files, diff, and live-agent panes stay explicit deferred
-  cards until their platform-specific data boundaries are connected.
-- The mode is opt-in and persisted in frame settings; the existing app-first
-  shell remains the default.
+- The contextual side-surface shell currently ships app, browser, and
+  watched-session surfaces. Terminal, files, diff, and live-agent panes stay
+  explicit deferred cards until their platform-specific data boundaries are
+  connected.
+- Chat-first is the only desktop shell. There is no alternate app-first mode or
+  shell preference.
 
 ## Future boundary
 

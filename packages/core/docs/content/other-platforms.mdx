@@ -1,0 +1,27 @@
+---
+title: "Other Platforms"
+description: "Deploy an agent-native app to AWS Lambda or Deno Deploy with the matching Nitro preset."
+---
+
+# Other Platforms
+
+## AWS Lambda {#aws-lambda}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
+});
+```
+
+## Deno Deploy {#deno-deploy}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
+});
+```
+
+## What's next
+
+- [**Deployment**](/docs/deployment) — pick a persistent database and a preset before your first production deploy
+- [**Node.js & Docker**](/docs/node-docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), and [**Cloudflare**](/docs/cloudflare) — the other Nitro presets

@@ -169,7 +169,7 @@ UI만 있는 기능은 에이전트에게 보이지 않습니다. 액션만 있�
 
 ## SQL의 데이터 {#data-in-sql}
 
-모든 애플리케이션 상태는 Drizzle ORM을 통해 SQL 데이터베이스에 있습니다. 스키마는 프로바이더에 구애받지 않습니다. 지원되는 데이터베이스, `DATABASE_URL` 구성, 이식성 규칙은 [Database](/docs/database)에 있습니다.
+모든 애플리케이션 상태는 Drizzle ORM을 통해 SQL 데이터베이스에 있습니다. 스키마는 프로바이더에 구애받지 않습니다. 지원되는 데이터베이스, `DATABASE_URL` 구성, 이식성 규칙은 [Database](/docs/server-database)에 있습니다.
 
 핵심 SQL 스토어는 자동으로 생성되며 모든 템플릿에서 사용할 수 있습니다:
 
@@ -287,7 +287,7 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 </Callout>
 
-`frameworkTools`는 프레임워크 자체의 나머지 도구도 같은 방식으로 관리합니다: 공유, 리뷰 코멘트, 버전 이력, feature flags, 로컬라이제이션, 감사, Context X-Ray, 프로필, 자동화, docs, resources, web, 앱 간 위임, 채팅, 이메일. 전체 목록과 `"minimal"` 프리셋, 그룹을 꺼도 HTTP 라우트가 유지되는 이유는 [Production Agent Tools](/docs/deployment#production-agent-tools)를 참고하세요.
+`frameworkTools`는 프레임워크 자체의 나머지 도구도 같은 방식으로 관리합니다: 공유, 리뷰 코멘트, 버전 이력, feature flags, 로컬라이제이션, 감사, Context X-Ray, 프로필, 자동화, docs, resources, web, 앱 간 위임, 채팅, 이메일. 전체 목록과 `"minimal"` 프리셋, 그룹을 꺼도 HTTP 라우트가 유지되는 이유는 [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools)를 참고하세요.
 
 ## 에이전트 채팅 브리지 {#agent-chat-bridge}
 
@@ -352,7 +352,7 @@ graph LR
 - **CLI:** 스크립팅과 에이전트 개발 루프를 위한 `pnpm action fetch-data --source=signups`입니다.
 - **MCP 도구 / A2A 도구:** MCP 서버 또는 A2A가 활성화되면 동일한 액션이 그곳에도 나타납니다.
 
-모든 소비자는 동일한 기반 함수를 호출하므로, 작성하고 유지 관리해야 할 구현은 단 하나뿐입니다. 전체 레퍼런스는 [Actions](/docs/actions)를 참조하세요.
+모든 소비자는 동일한 기반 함수를 호출하므로, 작성하고 유지 관리해야 할 구현은 단 하나뿐입니다. 전체 레퍼런스는 [Actions](/docs/actions-overview)를 참조하세요.
 
 ## 라이브 동기화 {#polling-sync}
 
@@ -474,7 +474,7 @@ UI는 라우트가 바뀔 때 이를 기록합니다. 에이전트는 어떤 행
 
 두 가지 아키텍처 규칙이 앱을 데이터베이스와 호스트에 걸쳐 이식 가능하게 유지합니다:
 
-- **데이터베이스에 구애받지 않음.** `@agent-native/core/db/schema`로 스키마를 작성하고, Drizzle의 이식 가능한 쿼리 DSL로 읽기/쓰기를 수행하면, 동일한 코드가 지원되는 모든 프로바이더에서 실행됩니다. 원시 SQL은 추가적인 마이그레이션이나 일회성 유지 관리에만 사용하고, 매개변수화하고 방언에 구애받지 않게 유지하세요. [Database](/docs/database)를 참조하세요.
+- **데이터베이스에 구애받지 않음.** `@agent-native/core/db/schema`로 스키마를 작성하고, Drizzle의 이식 가능한 쿼리 DSL로 읽기/쓰기를 수행하면, 동일한 코드가 지원되는 모든 프로바이더에서 실행됩니다. 원시 SQL은 추가적인 마이그레이션이나 일회성 유지 관리에만 사용하고, 매개변수화하고 방언에 구애받지 않게 유지하세요. [Database](/docs/server-database)를 참조하세요.
 - **호스팅에 구애받지 않음.** 서버는 Nitro에서 실행되며 어떤 배포 대상으로도 컴파일됩니다. 서버 라우트나 플러그인에서 Node 전용 API(`fs`, `child_process`, `path`)를 절대 사용하지 말고, 영구적인 서버 프로세스를 가정하지 마세요. 서버리스와 엣지는 상태를 저장하지 않으므로, 모든 상태를 SQL에 유지하세요. [Deployment](/docs/deployment)를 참조하세요.
 
 ## 에이전트 리소스 {#workspace}

@@ -29,6 +29,7 @@ import {
   getSession,
   getSessionMaxAge,
   hasLegacySessionForEmail,
+  safeReturnPath,
   setFrameworkSessionCookie,
 } from "./auth.js";
 import {
@@ -452,6 +453,13 @@ export interface OAuthStatePayload {
   owner?: string;
   orgId?: string;
   desktop?: boolean;
+  /**
+   * Explicit native-mobile intent from an embedded app. The callback may be
+   * served by a browser with a non-mobile user-agent, so relying on
+   * `isMobile(event)` alone can strand the native client on the web sign-in
+   * page.
+   */
+  mobile?: boolean;
   addAccount?: boolean;
   app?: string;
   /**
@@ -463,6 +471,12 @@ export interface OAuthStatePayload {
    */
   returnUrl?: string;
   flowId?: string;
+  /** Hash of the client-held verifier binding a desktop exchange to its initiator. */
+  desktopVerifierHash?: string;
+  /** Hash of the initiating browser binding for a desktop OAuth exchange. */
+  desktopBrowserBindingHash?: string;
+  /** Complete the callback in the already-bound native WebView. */
+  desktopWebview?: boolean;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
 }
@@ -524,10 +538,14 @@ export interface EncodeOAuthStateOptions {
   owner?: string;
   orgId?: string;
   desktop?: boolean;
+  mobile?: boolean;
   addAccount?: boolean;
   app?: string;
   returnUrl?: string;
   flowId?: string;
+  desktopVerifierHash?: string;
+  desktopBrowserBindingHash?: string;
+  desktopWebview?: boolean;
   signupAttribution?: Record<string, string | undefined>;
   signupAnonymousId?: string;
 }
@@ -603,10 +621,15 @@ export function encodeOAuthState(
   if (opts.owner) payload.o = opts.owner;
   if (opts.orgId) payload.g = opts.orgId;
   if (opts.desktop) payload.d = true;
+  if (opts.mobile) payload.m = true;
   if (opts.addAccount) payload.a = true;
   if (opts.app) payload.app = opts.app;
   if (opts.returnUrl) payload.r2 = opts.returnUrl;
   if (opts.flowId) payload.f = opts.flowId;
+  if (opts.desktopVerifierHash) payload.vh = opts.desktopVerifierHash;
+  if (opts.desktopBrowserBindingHash)
+    payload.bh = opts.desktopBrowserBindingHash;
+  if (opts.desktopWebview) payload.dw = true;
   if (opts.signupAttribution) payload.ft = opts.signupAttribution;
   const signupAnonymousId = normalizeAnalyticsAnonymousId(
     opts.signupAnonymousId,
@@ -654,6 +677,7 @@ export function decodeOAuthState(
         owner: parsed.o || undefined,
         orgId: typeof parsed.g === "string" ? parsed.g : undefined,
         desktop: !!parsed.d,
+        mobile: !!parsed.m,
         addAccount: !!parsed.a,
         app: typeof parsed.app === "string" ? parsed.app : undefined,
         // Pass returnUrl through as-is — same-origin validation runs at the
@@ -662,6 +686,11 @@ export function decodeOAuthState(
         // depth in case the signing key ever leaks.
         returnUrl: typeof parsed.r2 === "string" ? parsed.r2 : undefined,
         flowId: parsed.f || undefined,
+        desktopVerifierHash:
+          typeof parsed.vh === "string" ? parsed.vh : undefined,
+        desktopBrowserBindingHash:
+          typeof parsed.bh === "string" ? parsed.bh : undefined,
+        desktopWebview: parsed.dw === true,
         signupAttribution: sanitizeStateAttribution(parsed.ft),
         signupAnonymousId: sanitizeStateAnonymousId(parsed.ai),
       };
@@ -712,6 +741,7 @@ export async function createOAuthSession(
   opts: {
     hasProductionSession: boolean;
     desktop?: boolean;
+    mobile?: boolean;
     trackSignup?: {
       authProvider: string;
       authUserId?: string;
@@ -721,7 +751,10 @@ export async function createOAuthSession(
     };
   },
 ): Promise<OAuthSessionResult> {
-  const mobile = isMobile(event);
+  // A native callback can arrive through a browser whose callback request
+  // user-agent does not identify as mobile. Prefer the signed flow intent and
+  // retain UA detection for ordinary mobile web sign-ins.
+  const mobile = opts.mobile || isMobile(event);
   const needsDeepLink = opts.desktop || mobile;
   const maxAge = getSessionMaxAge();
 
@@ -788,6 +821,7 @@ export function oauthCallbackResponse(
   opts: {
     sessionToken?: string;
     desktop?: boolean;
+    mobile?: boolean;
     addAccount?: boolean;
     /**
      * Same-origin path to return the viewer to after a successful web
@@ -798,9 +832,12 @@ export function oauthCallbackResponse(
     returnUrl?: string;
     flowId?: string;
     appName?: string;
+    desktopWebview?: boolean;
   },
 ): Response | string | unknown | Promise<Response | string | unknown> {
-  const mobile = isMobile(event);
+  // The mobile flag is carried inside HMAC-signed OAuth state by native
+  // clients. UA detection remains the fallback for ordinary mobile browsers.
+  const mobile = opts.mobile || isMobile(event);
   const query = getQuery(event);
   const callbackState =
     typeof query.state === "string" && query.state.length > 0
@@ -845,6 +882,25 @@ export function oauthCallbackResponse(
   // protocol deep link so the popup returns focus to the desktop app.
   if (opts.desktop && opts.flowId && isElectron(event) && opts.sessionToken) {
     return desktopSuccessPage(event, email, opts.sessionToken, callbackState);
+  }
+
+  // A Tauri WebView cannot share cookies with the system browser or another
+  // Tauri WebviewWindow. When the callback stays in the initiating WebView,
+  // createOAuthSession has already staged its session cookie on this event;
+  // carry that cookie onto the HTML response before returning to the app.
+  if (opts.desktop && opts.flowId && opts.desktopWebview) {
+    const returnPath = safeReturnPath(opts.returnUrl);
+    const headers = new Headers({
+      "Content-Type": "text/html; charset=utf-8",
+      "Referrer-Policy": "no-referrer",
+    });
+    for (const cookie of event.res?.headers?.getSetCookie?.() ?? []) {
+      headers.append("set-cookie", cookie);
+    }
+    return new Response(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:Canvas;color:CanvasText;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to Clips…</p><script>setTimeout(function(){window.location.replace(${JSON.stringify(returnPath)})},50)</script></body></html>`,
+      { status: 200, headers },
+    );
   }
 
   // Desktop exchange flow (non-Electron tray app): the tray app polls the
@@ -931,11 +987,13 @@ export function oauthErrorPage(message: string): Response {
 
 export function oauthDesktopExchangePage(
   message = "Returning to the app...",
+  closeWindow = true,
 ): Response {
   const safe = escapeHtml(message);
-  return htmlResponse(
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Returning</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p style="font-size:14px">${safe}</p><script>window.close()</script></body></html>`,
-  );
+  const closeScript = closeWindow ? "<script>window.close()</script>" : "";
+  // guard:allow-raw-color - standalone callback page intentionally uses fixed dark colors.
+  const page = `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Returning</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p style="font-size:14px">${safe}</p></body></html>`;
+  return htmlResponse(page.replace("</body>", `${closeScript}</body>`));
 }
 
 // ─── Internal ────────────────────────────────────────────────────────────────

@@ -373,7 +373,7 @@ Si estás construyendo o extendiendo una aplicación agent-native, aquí está e
     {
       lines: "9-12",
       label: "Una implementación",
-      note: "El cuerpo de `run` es la única fuente de verdad. El botón de la interfaz y la herramienta del agente ejecutan exactamente esto. `getDb()` y `schema` provienen del `server/db/index.ts` de tu aplicación — consulta [Base de Datos](/docs/database).",
+      note: "El cuerpo de `run` es la única fuente de verdad. El botón de la interfaz y la herramienta del agente ejecutan exactamente esto. `getDb()` y `schema` provienen del `server/db/index.ts` de tu aplicación — consulta [Base de Datos](/docs/server-database).",
     },
   ]}
 />
@@ -393,7 +393,7 @@ import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 <AgentSidebar />;
 ```
 
-Una acción, muchas superficies: el agente la llama como herramienta, la interfaz la llama como una mutación con tipos seguros, el [chat nativo](/docs/native-chat-ui) puede renderizar resultados explícitos de widgets, los agentes externos llegan a ella a través de [A2A](/docs/a2a-protocol), y los hosts MCP la llaman a través del [servidor MCP](/docs/mcp-protocol) de la aplicación, opcionalmente con recursos de interfaz de usuario de MCP Apps y OAuth MCP remoto estándar gestionado por el framework. Consulta [Acciones](/docs/actions) para la referencia completa.
+Una acción, muchas superficies: el agente la llama como herramienta, la interfaz la llama como una mutación con tipos seguros, el [chat nativo](/docs/native-chat-ui) puede renderizar resultados explícitos de widgets, los agentes externos llegan a ella a través de [A2A](/docs/a2a-protocol), y los hosts MCP la llaman a través del [servidor MCP](/docs/mcp-protocol) de la aplicación, opcionalmente con recursos de interfaz de usuario de MCP Apps y OAuth MCP remoto estándar gestionado por el framework. Consulta [Acciones](/docs/actions-overview) para la referencia completa.
 
 ## Qué sigue {#whats-next}
 

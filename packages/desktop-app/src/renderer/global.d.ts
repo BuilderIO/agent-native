@@ -24,6 +24,10 @@ type DesktopIdentityStatus =
   | "sign-in-required"
   | "failed";
 
+type DesktopIdentitySettings = {
+  ssoEnabled: boolean;
+};
+
 type CodeAgentRunStatus =
   | "queued"
   | "running"
@@ -100,6 +104,7 @@ type CodeAgentRemoteConnectorStatus = {
   configured: boolean;
   configPath: string;
   relayUrl?: string;
+  workspacePath?: string;
   pid?: number;
   startedAt?: string;
   lastExitAt?: string;
@@ -119,6 +124,7 @@ type CodeAgentRemoteConnectorControlResult = {
 type CodeAgentRemoteConnectorPairRequest = {
   relayUrl?: string;
   label?: string;
+  workspacePath?: string;
 };
 
 type CodeAgentRemoteConnectorPairResult = {
@@ -295,6 +301,41 @@ type CodeAgentRunListResult<TRun extends CodeAgentRun = CodeAgentRun> = {
   error?: string;
 };
 
+type CodeAgentScheduleScope = "global" | "thread";
+type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
+
+type CodeAgentSchedule = {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  prompt: string;
+  scope: CodeAgentScheduleScope;
+  targetRunId?: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  nextRunAt: string;
+  lastRunAt?: string;
+  lastStatus?: CodeAgentScheduleStatus;
+  lastError?: string;
+  lastTriggeredRunId?: string;
+  createdByRunId?: string;
+};
+
+type CodeAgentScheduleListResult = {
+  status: "ok" | "unavailable";
+  schedules: CodeAgentSchedule[];
+  error?: string;
+};
+
+type CodeAgentScheduleResult = {
+  ok: boolean;
+  schedule?: CodeAgentSchedule;
+  message: string;
+  error?: string;
+};
+
 type CodeAgentTranscriptEventType = "user" | "system" | "artifact" | "status";
 
 type CodeAgentTranscriptEvent = {
@@ -331,6 +372,8 @@ type CodeAgentCreateRunRequest = {
   goalId?: string;
   prompt: string;
   cwd?: string;
+  executionTarget?: "local" | "worktree" | "portal";
+  worktree?: CodeAgentWorktreeSelection;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -339,12 +382,82 @@ type CodeAgentCreateRunRequest = {
   metadata?: Record<string, unknown>;
 };
 
+type CodeAgentWorktreeSelection = {
+  mode: "new" | "named";
+  name?: string;
+};
+
+type CodeAgentWorktreeSummary = {
+  id: string;
+  name: string;
+  branch: string;
+  path: string;
+  sourcePath: string;
+  state:
+    | "available"
+    | "attached"
+    | "cleanup-pending"
+    | "recoverable"
+    | "removed"
+    | "error";
+  attached: boolean;
+  lastUsedAt: string;
+  lastCleanupError?: string;
+};
+
+type CodeAgentWorktreeListResult = {
+  status: "ok" | "unavailable";
+  sourcePath: string;
+  worktrees: CodeAgentWorktreeSummary[];
+  error?: string;
+};
+
+type CodeAgentForkRunRequest = {
+  goalId?: string;
+  sourceRunId: string;
+  executionTarget: "local" | "worktree";
+};
+
+type CodeAgentForkRunResult = {
+  ok: boolean;
+  sourceRunId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+};
+
+type CodeAgentRestoreWorktreeRequest = {
+  worktreeId: string;
+  runId?: string;
+};
+
+type CodeAgentRestoreWorktreeResult = {
+  ok: boolean;
+  worktreeId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+};
+
 type CodeAgentCreateRunResult = {
   ok: boolean;
   run?: CodeAgentRun;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
   message: string;
+  error?: string;
+};
+
+type CodeAgentRemoteWaitlistRequest = {
+  email: string;
+  pageUrl?: string;
+  source?: string;
+  useCase?: string;
+};
+
+type CodeAgentRemoteWaitlistResult = {
+  ok: boolean;
+  message?: string;
   error?: string;
 };
 
@@ -365,6 +478,44 @@ type CodeAgentFollowUpResult = {
   ok: boolean;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
+  message: string;
+  error?: string;
+};
+
+type CodeAgentPortalTransferRequest = {
+  runId: string;
+  portalHostId?: string;
+};
+
+type CodeAgentPortalTransferItem = {
+  runId: string;
+  title?: string;
+  ok: boolean;
+  eventCount?: number;
+  message: string;
+  error?: string;
+};
+
+type CodeAgentPortalTransferResult = {
+  ok: boolean;
+  runId: string;
+  run?: CodeAgentRun;
+  host?: { id: string; label: string };
+  eventCount?: number;
+  message: string;
+  error?: string;
+};
+
+type CodeAgentPortalTransferAllRequest = {
+  portalHostId?: string;
+};
+
+type CodeAgentPortalTransferAllResult = {
+  ok: boolean;
+  host?: { id: string; label: string };
+  transferred: CodeAgentPortalTransferItem[];
+  skipped: CodeAgentPortalTransferItem[];
+  failed: CodeAgentPortalTransferItem[];
   message: string;
   error?: string;
 };
@@ -422,6 +573,7 @@ type CodeAgentRerunRequest = {
   runId: string;
   prompt?: string;
   cwd?: string;
+  executionTarget?: "local" | "worktree" | "portal";
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -593,6 +745,9 @@ type QuickPromptPreferences = {
 type QuickPromptSubmitRequest = {
   prompt: string;
   cwd?: string;
+  engine?: string;
+  model?: string;
+  effort?: CodeAgentReasoningEffort | string;
   attachments?: CodeAgentPromptAttachment[];
 };
 
@@ -631,6 +786,13 @@ type DesktopCreateAppResult = {
   message: string;
   error?: string;
 };
+
+type DesktopPrepareLocalCodeChangeRequest = {
+  appId: string;
+  prompt: string;
+};
+
+type DesktopPrepareLocalCodeChangeResult = DesktopCreateAppResult;
 
 type DesktopAppContextAction = "edit" | "remove" | "move-up" | "move-down";
 
@@ -672,11 +834,13 @@ interface ElectronAPI {
     enabled: boolean;
   };
   webviewPreloadPath: string;
+  webviewChatPreloadPath: string;
 
   windowControls: {
     minimize(): void;
     maximize(): void;
     close(): void;
+    setNativeTrafficLightsVisible(visible: boolean): void;
     isMaximized(): Promise<boolean>;
     onMaximizedChange(cb: (isMaximized: boolean) => void): () => void;
   };
@@ -686,9 +850,11 @@ interface ElectronAPI {
     onKeydown(
       cb: (info: {
         key: string;
+        code?: string;
         shiftKey: boolean;
         altKey?: boolean;
         ctrlKey?: boolean;
+        metaKey?: boolean;
       }) => void,
     ): () => void;
     loadBindings(): Promise<DesktopShortcutSettings>;
@@ -704,7 +870,21 @@ interface ElectronAPI {
 
   identity: {
     getStatus(): Promise<DesktopIdentityStatus>;
+    getSettings(): Promise<DesktopIdentitySettings>;
+    setSsoEnabled(enabled: boolean): Promise<boolean>;
+    ensureAppSession(appId: string): Promise<boolean>;
+    getAvailability(): Promise<boolean>;
     signIn(): Promise<boolean>;
+    authenticate(
+      request: import("../../shared/ipc-channels.js").DesktopIdentityAuthRequest,
+    ): Promise<
+      import("../../shared/ipc-channels.js").DesktopIdentityAuthResult
+    >;
+    requestMagicLink(
+      request: import("../../shared/ipc-channels.js").DesktopIdentityMagicLinkRequest,
+    ): Promise<
+      import("../../shared/ipc-channels.js").DesktopIdentityMagicLinkResult
+    >;
     signOut(): Promise<boolean>;
     onStatusChange(cb: (status: DesktopIdentityStatus) => void): () => void;
   };
@@ -730,35 +910,14 @@ interface ElectronAPI {
     on(cb: (from: string, event: string, data: unknown) => void): () => void;
   };
 
-  frame: {
-    load(): Promise<{
-      enabled: boolean;
-      showCodeTab: boolean;
-      chatFirstMode: boolean;
-      mode: "dev" | "prod";
-      prodUrl?: string;
-    }>;
-    update(settings: {
-      enabled?: boolean;
-      showCodeTab?: boolean;
-      chatFirstMode?: boolean;
-      mode?: "dev" | "prod";
-      prodUrl?: string;
-    }): Promise<{
-      enabled: boolean;
-      showCodeTab: boolean;
-      chatFirstMode: boolean;
-      mode: "dev" | "prod";
-      prodUrl?: string;
-    }>;
-  };
-
   quickPrompt: {
     load(): Promise<QuickPromptSettings>;
     update(
       settings: Partial<QuickPromptPreferences>,
     ): Promise<QuickPromptSettings>;
     dismiss(): void;
+    setPickerOpen(open: boolean): void;
+    onHidden(cb: () => void): () => void;
     submit(request: QuickPromptSubmitRequest): Promise<QuickPromptSubmitResult>;
   };
 
@@ -772,10 +931,23 @@ interface ElectronAPI {
 
   codeAgents: {
     listRuns(goalId?: string): Promise<CodeAgentRunListResult>;
+    listSchedules(): Promise<CodeAgentScheduleListResult>;
+    createSchedule(input: unknown): Promise<CodeAgentScheduleResult>;
+    updateSchedule(input: unknown): Promise<CodeAgentScheduleResult>;
+    deleteSchedule(input: unknown): Promise<CodeAgentScheduleResult>;
+    runScheduleNow(input: unknown): Promise<CodeAgentScheduleResult>;
+    listWorktrees(cwd?: string): Promise<CodeAgentWorktreeListResult>;
     listModels(): Promise<CodeAgentModelListResult>;
     createRun(
       request: CodeAgentCreateRunRequest,
     ): Promise<CodeAgentCreateRunResult>;
+    forkRun(request: CodeAgentForkRunRequest): Promise<CodeAgentForkRunResult>;
+    restoreWorktree(
+      request: CodeAgentRestoreWorktreeRequest,
+    ): Promise<CodeAgentRestoreWorktreeResult>;
+    submitRemoteWaitlist(
+      request: CodeAgentRemoteWaitlistRequest,
+    ): Promise<CodeAgentRemoteWaitlistResult>;
     readTranscript(
       request: CodeAgentTranscriptRequest,
     ): Promise<CodeAgentTranscriptResult>;
@@ -786,6 +958,12 @@ interface ElectronAPI {
     appendFollowUp(
       request: CodeAgentFollowUpRequest,
     ): Promise<CodeAgentFollowUpResult>;
+    transferRun(
+      request: CodeAgentPortalTransferRequest,
+    ): Promise<CodeAgentPortalTransferResult>;
+    transferAll(
+      request?: CodeAgentPortalTransferAllRequest,
+    ): Promise<CodeAgentPortalTransferAllResult>;
     updateRun(
       request: CodeAgentUpdateRunRequest,
     ): Promise<CodeAgentUpdateRunResult>;
@@ -878,6 +1056,9 @@ interface ElectronAPI {
 
   appConfig: {
     load(): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
+    loadWorkspace?(): Promise<
+      import("../../shared/ipc-channels.js").DesktopWorkspaceAppListResult
+    >;
     add(
       app: import("@agent-native/shared-app-config").AppConfig,
     ): Promise<import("@agent-native/shared-app-config").AppConfig[]>;
@@ -901,12 +1082,16 @@ interface ElectronAPI {
     createFromPrompt(
       request: DesktopCreateAppRequest,
     ): Promise<DesktopCreateAppResult>;
+    prepareLocalCodeChange(
+      request: DesktopPrepareLocalCodeChangeRequest,
+    ): Promise<DesktopPrepareLocalCodeChangeResult>;
     showContextMenu(appId: string): Promise<DesktopAppContextAction | null>;
     onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
   };
 
   desktopChat: {
     getApiUrl(appId: string): Promise<string | null>;
+    getTerminalInfoUrl(appId: string): Promise<string | null>;
   };
 
   mcpServers: {

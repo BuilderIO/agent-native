@@ -1,5 +1,11 @@
 import { CHAT_FIRST_DEFAULT_APP_IDS } from "@agent-native/core/client/chat-first";
+import { isInBuilderFrame } from "@agent-native/core/client/host";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
+
+import {
+  CANONICAL_WORKSPACE_SSO_APP_ORIGINS,
+  isWorkspaceSsoAppUrl,
+} from "../shared/workspace-sso";
 
 export interface WorkspaceAppSummary {
   id: string;
@@ -9,6 +15,7 @@ export interface WorkspaceAppSummary {
   url?: string | null;
   isDispatch?: boolean;
   audience?: "internal" | "public";
+  visibility?: "private" | "org";
   publicPaths?: string[];
   protectedPaths?: string[];
   status?: "ready" | "pending";
@@ -25,15 +32,106 @@ export interface WorkspaceAppSummary {
   agentName?: string | null;
   agentSkillsCount?: number | null;
   archived?: boolean;
+  workspaceSso?: boolean;
 }
 
 interface WorkspaceAppHrefSource {
   path?: string | null;
   url?: string | null;
+  workspaceSso?: boolean;
 }
 
 export function isDispatchWorkspaceAppId(appId: string): boolean {
   return appId.trim().toLowerCase() === "dispatch";
+}
+
+function clientRuntimeEnvironment(): "production" | "development" {
+  const importMetaEnv = (
+    import.meta as unknown as {
+      env?: Record<string, string | boolean | undefined>;
+    }
+  ).env;
+  const processEnv = (
+    globalThis as typeof globalThis & {
+      process?: { env?: Record<string, string | boolean | undefined> };
+    }
+  ).process?.env;
+  const env = { ...processEnv, ...importMetaEnv };
+  if (
+    env.PROD === true ||
+    env.MODE === "production" ||
+    env.NODE_ENV === "production"
+  ) {
+    return "production";
+  }
+  if (
+    env.DEV === true ||
+    env.MODE === "development" ||
+    env.MODE === "test" ||
+    env.NODE_ENV === "development" ||
+    env.NODE_ENV === "test"
+  ) {
+    return "development";
+  }
+  return "production";
+}
+
+/**
+ * The workspace SSO action only accepts an exact registered app identity and
+ * origin. The catalog's boolean is a server-derived projection for custom
+ * registrations; the URL check keeps malformed metadata out of the action.
+ */
+export function isWorkspaceSsoApp(
+  app: WorkspaceAppHrefSource & { id: string },
+): boolean {
+  const rawUrl = app.url?.trim();
+  if (!rawUrl) return false;
+  try {
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return false;
+    if (app.workspaceSso === true) return true;
+    return isWorkspaceSsoAppUrl(
+      { id: app.id, url: rawUrl },
+      { nodeEnv: clientRuntimeEnvironment() },
+    );
+    // coercion-ok: malformed app metadata is not eligible for workspace SSO.
+  } catch {
+    return false;
+  }
+}
+
+function isCanonicalWorkspaceSsoOrigin(rawUrl: string): boolean {
+  try {
+    const origin = new URL(rawUrl).origin;
+    return Object.values(CANONICAL_WORKSPACE_SSO_APP_ORIGINS).some(
+      (canonicalOrigin) => canonicalOrigin === origin,
+    );
+  } catch {
+    // coercion-ok: malformed app metadata is not a canonical first-party app.
+    return false;
+  }
+}
+
+/**
+ * A mounted app URL leaves Dispatch's `/apps/:id` host route. Canonical
+ * first-party origins can stay inline even at `/`, while external published
+ * apps must open at their own origin regardless of their path.
+ */
+export function isPathMountedWorkspaceApp(
+  app: WorkspaceAppHrefSource,
+): boolean {
+  const rawUrl = app.url?.trim();
+  if (rawUrl) {
+    try {
+      const pathname = new URL(rawUrl).pathname.replace(/\/+$/, "") || "/";
+      return pathname !== "/" || !isCanonicalWorkspaceSsoOrigin(rawUrl);
+      // coercion-ok: invalid absolute URLs use the mounted path fallback.
+    } catch {
+      // Fall through to the mounted path for relative manifest values.
+    }
+  }
+  const path = app.path?.trim().replace(/\/+$/, "") || "/";
+  return path !== "/";
 }
 
 export function isDefaultWorkspaceAppHiddenId(appId: string): boolean {
@@ -156,6 +254,31 @@ export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
   return app.status === "pending" && !!app.builderUrl;
 }
 
+export function shouldOpenWorkspaceAppInTopWindow(): boolean {
+  if (typeof window === "undefined") return false;
+  // A generic iframe is an inline host by design. Only Builder owns the
+  // parent navigation contract for workspace apps.
+  return isInBuilderFrame();
+}
+
+export function navigateToWorkspaceApp(href: string): boolean {
+  if (typeof window === "undefined") return false;
+
+  try {
+    const targetUrl = new URL(href, window.location.href);
+    if (targetUrl.protocol !== "http:" && targetUrl.protocol !== "https:") {
+      return false;
+    }
+    const targetWindow =
+      shouldOpenWorkspaceAppInTopWindow() && window.top ? window.top : window;
+    targetWindow.location.href = targetUrl.href;
+    return true;
+  } catch {
+    // coercion-ok: a blocked top-window assignment is an expected fallback signal.
+    return false;
+  }
+}
+
 /**
  * Keep the chat-first rail useful before a workspace manifest is populated.
  * Mounted workspace rows still win, so custom names and routes remain the
@@ -169,8 +292,11 @@ export function mergeChatFirstWorkspaceApps(
     merged.set(id, {
       id,
       name: id.charAt(0).toUpperCase() + id.slice(1),
-      path: `/${id}`,
-      url: null,
+      // The five default rows are hosted sibling apps, not routes owned by
+      // Dispatch. Keep a mounted path for legacy callers, but give embed
+      // session resolution the exact canonical origin.
+      path: "/",
+      url: CANONICAL_WORKSPACE_SSO_APP_ORIGINS[id],
       status: "ready",
     });
   }

@@ -118,6 +118,8 @@ export interface RequestRunContext {
   model?: string;
   /** Request-authorized action names exposed to this agent run. */
   allowedActionNames?: readonly string[];
+  /** Hosted tools-only harness selected for this agent run. */
+  hostedHarnessRuntime?: "claude-code" | "codex" | "pi" | "opencode";
   /**
    * True when this run is executing inside the durable background-function
    * worker (the `_process-run` self-dispatch), not the synchronous foreground
@@ -132,6 +134,8 @@ export interface RequestRunContext {
   toolResults?: Array<{ name: string; content: string; isError: boolean }>;
   /** Per-run fingerprints for large extension bodies already sent to the LLM. */
   extensionContentReads?: Record<string, string>;
+  /** Per-run keys for extension excerpt reads already sent to the LLM. */
+  extensionExcerptReads?: Record<string, true>;
   /** Per-run fingerprints for repeated tool-search calls already sent to the LLM. */
   toolSearchReads?: Record<
     string,
@@ -156,6 +160,8 @@ export interface RequestContext {
    * replay; never used for authorization.
    */
   browserSessionId?: string;
+  /** Canonical client surface for analytics attribution. */
+  clientPlatform?: import("../shared/analytics-platform.js").AnalyticsClientPlatform;
   /**
    * Set when code reads authenticated request context. Public SSR shell/data
    * should not depend on this value; user/org-specific reads belong behind

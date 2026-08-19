@@ -71,6 +71,7 @@ const messages = {
     status: "Status",
     coverage: "Abdeckung",
     reason: "Grund",
+    updatedAt: "Aktualisiert",
     detailTitle: "Entscheidungsdetails",
     selectItem: "Element auswählen, um Belege und Entscheidungen zu prüfen.",
     detailError: "Diese Beobachtung konnte nicht geladen werden.",
@@ -206,6 +207,49 @@ const messages = {
     auditUxImpact: "UX-Auswirkung",
     auditOwnerArea: "Verantwortungsbereich",
     auditGuardsLabel: "Guards",
+    historyTab: "Verlauf",
+    historyTitle: "Gespeicherte Versionen",
+    historyLoading: "Gespeicherte Versionen werden geladen",
+    historyLoadError: "Der Factory-Verlauf konnte nicht geladen werden.",
+    historyEmpty: "Noch keine gespeicherten Versionen",
+    historyEmptyHint:
+      "Speichere den visuellen Graphen einmal, damit Factory jede Version hier zur Prüfung und Wiederherstellung aufbewahrt.",
+    historyVersion: "Version {{version}}",
+    historyCurrent: "Aktuell",
+    historySource: "Quelle",
+    historySourceManual: "Visueller Editor",
+    historySourceAi: "Agentenvorschlag",
+    historySourceSeed: "Factory-Startversion",
+    historySourceRestore: "Zurücksetzung",
+    historySourceSaved: "Gespeicherter Graph",
+    historyNodes: "Knoten",
+    historyConnections: "Verbindungen",
+    historyChangeSummary: "Änderungszusammenfassung",
+    historyNoSummary: "Es wurde keine Änderungszusammenfassung aufgezeichnet.",
+    historyCurrentHint: "Dies ist die aktuell von Factory verwendete Version.",
+    historyRestore: "Diese Version wiederherstellen",
+    historyRestoreTitle: "Version {{version}} wiederherstellen?",
+    historyRestoreDescription:
+      "Factory erstellt aus diesem Snapshot eine neue aktuelle Version. Bestehende Versionen bleiben im Verlauf verfügbar.",
+    historyRestoreUnsaved:
+      "Du hast außerdem nicht gespeicherte visuelle Änderungen. Die Wiederherstellung verwirft sie.",
+    historyCancel: "Abbrechen",
+    historyRestoreConfirm: "Version wiederherstellen",
+    historyRestored:
+      "Version wiederhergestellt. Eine neue aktuelle Version wurde erstellt.",
+    historyRestoreFailed:
+      "Diese Factory-Version konnte nicht wiederhergestellt werden.",
+    historyRestoreConflict:
+      "Factory wurde während der Wiederherstellung geändert. Prüfe den aktualisierten Verlauf, bevor du es erneut versuchst.",
+    historyRefreshFailed:
+      "Die Version wurde wiederhergestellt, aber die Factory-Ansicht konnte nicht aktualisiert werden.",
+    historyLoadOlder: "Ältere Versionen laden",
+    historySnapshotLoadError:
+      "Die Vorschau dieser Version konnte nicht geladen werden.",
+    historyRestoreUnverified:
+      "Die Wiederherstellung wurde abgeschlossen, aber das Ergebnis konnte nicht überprüft werden. Aktualisiere den Verlauf, bevor du es erneut versuchst.",
+    saveConflictFallback:
+      "Factory wurde während des Speicherns geändert. Aktualisiere Factory und versuche es erneut.",
     automationsTitle: "Automatisierungen",
     automationsDescription: "Factory-Prompts planen und ausführen.",
     automationsLoading: "Automatisierungen werden geladen...",
@@ -224,11 +268,15 @@ const messages = {
     automationSchedulePlaceholder: "Zum Beispiel werktags um 09:00 Uhr",
     automationEnabledLabel: "Automatisierung ist aktiviert",
     automationPrompt: "Prompt",
+    automationLastUpdated: "zuletzt aktualisiert",
     automationPromptPlaceholder: "Was soll Factory bei der Ausführung tun?",
     promptEditorHint: "Hier bearbeiten und anschließend speichern.",
     pastRuns: "Vergangene Läufe",
     pastRunsEmpty: "Noch keine Läufe aufgezeichnet.",
     saveAutomation: "Speichern",
+    automationSaved: "Gespeichert",
+    automationSaveFailed:
+      "Die Automatisierung konnte nicht gespeichert werden.",
     runNow: "Jetzt ausführen",
     automationHealthTitle: "Scheduler-Status",
     automationHealthDescription:
@@ -319,6 +367,10 @@ const messages = {
     addComment: "Kommentar hinzufügen",
     savingGraph: "Graph wird gespeichert...",
     saveGraph: "Factory-Änderungen speichern",
+    saveConflictHint:
+      "Deine nicht gespeicherten Änderungen bleiben erhalten. Verwirf sie, um die neuere Factory-Version zu laden.",
+    discardLocalChanges:
+      "Lokale Änderungen verwerfen und aktuelle Version laden",
     savedGraph: "Factory ist gespeichert",
     saveNote:
       "Speichert eine neue Version. Bestehende Läufe behalten ihren ursprünglichen Kontext.",

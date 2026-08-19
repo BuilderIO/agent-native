@@ -2116,7 +2116,7 @@ describe("SSE event processor error classification", () => {
       expect.objectContaining({ type: "agent-chat:run-error" }),
     );
     expect(results[0]).toEqual({
-      content: [{ type: "text", text: "Error: No LLM provider is connected" }],
+      content: [],
       status: { type: "incomplete", reason: "error" },
       metadata: {
         custom: {
@@ -2257,12 +2257,7 @@ describe("SSE event processor error classification", () => {
     expect(dispatchEvent).toHaveBeenCalledWith(
       expect.objectContaining({ type: "agent-chat:run-error" }),
     );
-    expect(results[0]?.content).toEqual([
-      {
-        type: "text",
-        text: expect.stringMatching(/^Error: No LLM provider is connected/),
-      },
-    ]);
+    expect(results[0]?.content).toEqual([]);
     expect(results[0]?.status).toEqual({
       type: "incomplete",
       reason: "error",
@@ -3713,6 +3708,44 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("auto-continues the Builder gateway internal-error envelope", async () => {
+    const message =
+      "Sorry, we ran into an issue processing your request. " +
+      "ERROR ID: bebaeb5da13441539790834b63ff955a";
+    const err = await readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error: message,
+          errorCode: "builder_gateway_internal_error",
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-gateway-internal",
+    )
+      [Symbol.asyncIterator]()
+      .next()
+      .then(
+        () => undefined,
+        (caught) => caught,
+      );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
+      errorCode: "builder_gateway_internal_error",
+      recoverable: true,
+    });
+    // The correlation id is the only part support can act on, so it stays —
+    // just not as the whole sentence the user reads.
+    expect((err as AgentAutoContinueSignal).errorInfo?.details).toContain(
+      "bebaeb5da13441539790834b63ff955a",
+    );
+    expect((err as AgentAutoContinueSignal).errorInfo?.message).not.toContain(
+      "ERROR ID",
+    );
+  });
+
   it("surfaces run_budget_exhausted as a loud terminal error without auto-continuing", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -3814,6 +3847,53 @@ describe("SSE event processor error classification", () => {
       | undefined;
     expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
     expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+  });
+
+  it("does not auto-continue a breaker stop that preserved its underlying transient code", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    // The server's no-progress breaker keeps the gateway code and reference id
+    // so the failure stays diagnosable. Reading the code instead of the flag
+    // re-POSTs the exact chain the server just refused to continue.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: 0f3c9ab21d7e\n\nThis failed 2 times in a row without making any progress, so I stopped instead of retrying again.",
+            errorCode: "builder_gateway_internal_error",
+            recoverable: false,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-no-progress-breaker",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { errorCode?: string } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.errorCode).toBe(
+      "builder_gateway_internal_error",
+    );
   });
 
   it("does not auto-continue a repeat-guard stop whose message names a tool that matches the transient message sniff", async () => {
@@ -4569,5 +4649,84 @@ describe("settleInterruptedToolCalls", () => {
     expect(
       (content[0] as Extract<ContentPart, { type: "tool-call" }>).outcome,
     ).toBe("unknown");
+  });
+});
+
+// A Builder-credits deployment answers every gateway rejection with one visitor
+// line and keeps the real reason on `errorCode`. Auto-continue used to be
+// decided from the message text, so on those sites alone a transient upstream
+// failure — which carries no code at all — ended the turn.
+describe("auto-continue on a deployment that replaces the error message", () => {
+  const VISITOR_LINE = "AI features aren't available on this site right now.";
+
+  async function readError(event: Record<string, unknown>) {
+    const content: ContentPart[] = [];
+    try {
+      const results = await drain(
+        readSSEStream(
+          eventStream([{ type: "error", error: VISITOR_LINE, ...event }]),
+          content,
+          { value: 0 },
+          undefined,
+        ),
+      );
+      return { continued: false, results };
+    } catch (err) {
+      if (err instanceof AgentAutoContinueSignal) {
+        return { continued: true, signal: err };
+      }
+      throw err;
+    }
+  }
+
+  it("continues on the engine's structural retry verdict", async () => {
+    // No error code: an upstream "Overloaded" reaches the client with the
+    // reason only in `providerRetryable`.
+    expect((await readError({ providerRetryable: true })).continued).toBe(true);
+  });
+
+  it("does not continue the same message without that verdict", async () => {
+    expect((await readError({})).continued).toBe(false);
+  });
+
+  it("continues a truncated stream by its code", async () => {
+    expect(
+      (await readError({ errorCode: "builder_gateway_stream_ended" }))
+        .continued,
+    ).toBe(true);
+  });
+
+  // The verdict is checked after the terminal codes, so it can never revive a
+  // quota, auth or daily-cap rejection into a retry loop.
+  for (const errorCode of [
+    "rate_limit_exceeded",
+    "credits-limit-reached",
+    "builder_auth_error",
+    "builder_gateway_error",
+    "gateway_not_enabled",
+  ]) {
+    it(`stays terminal for ${errorCode} even with the retry verdict set`, async () => {
+      expect(
+        (await readError({ errorCode, providerRetryable: true })).continued,
+      ).toBe(false);
+    });
+  }
+
+  // End of the wire: what a terminal gateway rejection actually renders as. The
+  // error code is preserved for the owner's logs, and the rendered text is the
+  // one line — not the "Reconnect Builder in Settings" copy this code maps to.
+  it("renders the terminal rejection as the one line the server chose", async () => {
+    const outcome = await readError({ errorCode: "builder_auth_error" });
+
+    expect(outcome.continued).toBe(false);
+    const last = outcome.results?.at(-1) as any;
+    expect(last.content.at(-1)).toEqual({
+      type: "text",
+      text: `Error: ${VISITOR_LINE}`,
+    });
+    expect(last.metadata.custom.runError).toStrictEqual({
+      message: VISITOR_LINE,
+      errorCode: "builder_auth_error",
+    });
   });
 });

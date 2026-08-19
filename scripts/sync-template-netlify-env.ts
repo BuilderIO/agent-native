@@ -7,7 +7,9 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { TEMPLATES } from "../packages/core/src/cli/templates-meta.js";
 
 type TemplateSite = {
+  betaSiteId?: string;
   name: string;
+  betaHost?: string;
   siteId: string;
   sourceTemplate: string;
 };
@@ -45,17 +47,31 @@ const REPO_ROOT = path.resolve(
 const NETLIFY_SITES = JSON.parse(
   readFileSync(path.join(REPO_ROOT, "scripts/netlify-sites.json"), "utf8"),
 ) as Record<string, string>;
+const NETLIFY_BETA_SITES = JSON.parse(
+  readFileSync(path.join(REPO_ROOT, "scripts/netlify-beta-sites.json"), "utf8"),
+) as Array<{ host: string; id: string; siteId: string }>;
 
 const NETLIFY_SITE_SOURCE_TEMPLATES = new Map([["starter", "chat"]]);
 const NETLIFY_TEMPLATE_ALIASES = new Map([["chat", "starter"]]);
 const NETLIFY_SITE_PRODUCTION_URLS = new Map([
   ["starter", "https://starter.agent-native.com"],
 ]);
+const NETLIFY_BETA_SITE_BY_NAME = new Map(
+  NETLIFY_BETA_SITES.flatMap((site) => {
+    const names = new Set([
+      site.id,
+      NETLIFY_TEMPLATE_ALIASES.get(site.id) ?? site.id,
+    ]);
+    return [...names].map((name) => [name, site] as const);
+  }),
+);
 
 const TEMPLATE_SITES: TemplateSite[] = Object.entries(NETLIFY_SITES)
   // fw is the public framework site, not a template environment target.
   .filter(([name]) => name !== "fw")
   .map(([name, siteId]) => ({
+    betaHost: NETLIFY_BETA_SITE_BY_NAME.get(name)?.host,
+    betaSiteId: NETLIFY_BETA_SITE_BY_NAME.get(name)?.siteId,
     name,
     siteId,
     sourceTemplate: NETLIFY_SITE_SOURCE_TEMPLATES.get(name) ?? name,
@@ -68,6 +84,9 @@ const DEFAULT_CONTEXT = "production";
 const DEFAULT_HOSTED_TEMPLATE_ENV = new Map([
   ["GA_MEASUREMENT_ID", "G-ESF7FYXGN9"],
   ["GTM_CONTAINER_ID", "GTM-N3WSTXZ"],
+  // Hosted harnesses are tools-only; app config still controls which
+  // deployments expose the runtime picker.
+  ["AGENT_NATIVE_HOSTED_HARNESS", "true"],
   [
     "VITE_AGENT_NATIVE_FEEDBACK_URL",
     "https://forms.agent-native.com/f/agent-native-feedback/_16ewV",
@@ -83,12 +102,14 @@ const AGENT_NATIVE_ANALYTICS_PUBLIC_ENV_KEYS = [
 ];
 const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   ...AGENT_NATIVE_ANALYTICS_PUBLIC_ENV_KEYS,
+  "AGENT_NATIVE_HOSTED_HARNESS",
   "APP_URL",
   "BETTER_AUTH_URL",
   "DATABASE_AUTH_TOKEN",
   "DATABASE_URL",
   "EMAIL_FROM",
   "ENABLE_BUILDER",
+  "FIGMA_ACCESS_TOKEN",
   "GA4_PROPERTY_ID",
   "GA_MEASUREMENT_ID",
   "GTM_CONTAINER_ID",
@@ -109,12 +130,14 @@ const HOSTED_TEMPLATE_ENV_ALLOWLIST_EXACT = new Set([
   "SENTRY_DSN",
   "SENTRY_SERVER_DSN",
   "SUPABASE_URL",
+  "SUPABASE_ANON_KEY",
   "ZOOM_CLIENT_ID",
 ]);
 const HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES = ["VITE_"];
 const HOSTED_TEMPLATE_ALLOWED_SECRET_EXACT = new Set([
   "DATABASE_AUTH_TOKEN",
   "DATABASE_URL",
+  "FIGMA_ACCESS_TOKEN",
   "GOOGLE_CLIENT_SECRET",
   "GOOGLE_LEGACY_CLIENT_SECRET",
   "GOOGLE_SIGN_IN_CLIENT_SECRET",
@@ -149,6 +172,7 @@ const PUBLIC_KEY_EXACT = new Set([
   "NEON_AUTH_BASE_URL",
   "NITRO_PRESET",
   "SUPABASE_URL",
+  "SUPABASE_ANON_KEY",
   "ZOOM_CLIENT_ID",
 ]);
 const PUBLIC_KEY_PREFIXES = HOSTED_TEMPLATE_ENV_ALLOWLIST_PREFIXES;
@@ -159,6 +183,15 @@ const TEMPLATE_PROD_URL_BY_NAME = new Map([
   ),
   ...NETLIFY_SITE_PRODUCTION_URLS,
 ]);
+const TEMPLATE_BETA_URL_BY_NAME = new Map(
+  NETLIFY_BETA_SITES.flatMap((site) => {
+    const names = new Set([
+      site.id,
+      NETLIFY_TEMPLATE_ALIASES.get(site.id) ?? site.id,
+    ]);
+    return [...names].map((name) => [name, `https://${site.host}`] as const);
+  }),
+);
 
 export function resolveNetlifyTemplateName(name: string): string {
   return NETLIFY_TEMPLATE_ALIASES.get(name) ?? name;
@@ -445,18 +478,44 @@ export function normalizeProductionUrlEntry(
   key: string,
   value: string,
 ): { value: string; normalized: boolean } {
-  if (context !== "production" || !PRODUCTION_URL_KEYS.has(key)) {
+  if (!PRODUCTION_URL_KEYS.has(key)) {
     return { value, normalized: false };
   }
 
-  const prodUrl = TEMPLATE_PROD_URL_BY_NAME.get(template);
-  if (!prodUrl || value === prodUrl) {
+  const targetUrl =
+    context === "production"
+      ? TEMPLATE_PROD_URL_BY_NAME.get(template)
+      : isBetaContext(context)
+        ? TEMPLATE_BETA_URL_BY_NAME.get(template)
+        : undefined;
+  if (!targetUrl || value === targetUrl) {
     return { value, normalized: false };
   }
 
   // This syncs first-party Netlify sites. A local workspace URL must never
-  // become the production auth origin because Google validates the exact URI.
-  return { value: prodUrl, normalized: true };
+  // become a hosted auth origin because Google validates the exact URI.
+  return { value: targetUrl, normalized: true };
+}
+
+function isBetaContext(context: string): boolean {
+  return context === "beta" || context === "branch:beta";
+}
+
+export function resolveNetlifyApiContext(context: string): string {
+  // The dedicated beta projects promote their beta branch as the project's
+  // production branch. Their beta runtime therefore reads production-scoped
+  // values, not generic branch-deploy values.
+  return isBetaContext(context) ? "production" : context;
+}
+
+function siteIdForContext(site: TemplateSite, context: string): string {
+  if (!isBetaContext(context)) return site.siteId;
+  if (!site.betaSiteId) {
+    throw new Error(
+      `No beta Netlify site mapping exists for template ${site.name}.`,
+    );
+  }
+  return site.betaSiteId;
 }
 
 function netlifyEnvUrl(
@@ -534,6 +593,7 @@ async function syncKey({
   value: string;
 }): Promise<"created" | "updated"> {
   const is_secret = isSecretKey(key);
+  const apiContext = resolveNetlifyApiContext(context);
   const create = await requestNetlifyEnv(
     token,
     "POST",
@@ -543,7 +603,7 @@ async function syncKey({
         key,
         is_secret,
         scopes,
-        values: [{ context, value }],
+        values: [{ context: apiContext, value }],
       },
     ],
   );
@@ -571,7 +631,7 @@ async function syncKey({
           key,
           is_secret,
           scopes,
-          values: [{ context, value }],
+          values: [{ context: apiContext, value }],
         },
       ],
     );
@@ -589,7 +649,7 @@ async function syncKey({
       key,
       is_secret,
       scopes,
-      values: [{ context, value }],
+      values: [{ context: apiContext, value }],
     },
   );
 
@@ -646,13 +706,14 @@ async function main() {
   for (const plan of plans) {
     const site = SITE_BY_NAME.get(plan.siteName);
     if (!site) throw new Error(`Missing site mapping for ${plan.template}.`);
+    const targetSiteId = siteIdForContext(site, options.context);
 
     const entries = plan.entries;
     const keys = entries.map(([key]) => key).sort();
 
     console.log("");
     console.log(
-      `[${plan.siteName}] template=${plan.template} site=${site.siteId}`,
+      `[${plan.siteName}] template=${plan.template} site=${targetSiteId}`,
     );
     console.log(
       `  sources: ${plan.foundSources.length > 0 ? plan.foundSources.join(", ") : "(none)"}`,
@@ -692,7 +753,7 @@ async function main() {
         context: options.context,
         key,
         scopes: options.scopes,
-        siteId: site.siteId,
+        siteId: targetSiteId,
         token: token!,
         value,
       });

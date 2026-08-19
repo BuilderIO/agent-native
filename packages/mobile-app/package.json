@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/mobile-app",
-  "version": "0.1.2",
+  "version": "0.1.50",
   "private": true,
   "bugs": {
     "url": "https://github.com/BuilderIO/agent-native/issues"
@@ -20,6 +20,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
     "@bacons/apple-targets": "5.0.0",
     "@expo/dom-webview": "57.0.1",
@@ -31,6 +32,7 @@
     "expo": "57.0.6",
     "expo-asset": "~57.0.5",
     "expo-audio": "~57.0.2",
+    "expo-blur": "~57.0.2",
     "expo-build-properties": "~57.0.7",
     "expo-calendar": "~57.0.1",
     "expo-camera": "~57.0.2",
@@ -40,6 +42,8 @@
     "expo-document-picker": "~57.0.1",
     "expo-file-system": "~57.0.1",
     "expo-font": "~57.0.1",
+    "expo-glass-effect": "~57.0.1",
+    "expo-glass-tabs": "^0.1.1",
     "expo-haptics": "~57.0.1",
     "expo-image-picker": "~57.0.4",
     "expo-linking": "~57.0.3",
@@ -49,11 +53,13 @@
     "expo-sharing": "~57.0.5",
     "expo-splash-screen": "~57.0.5",
     "expo-status-bar": "~57.0.1",
+    "expo-symbols": "~57.0.2",
     "expo-video": "~57.0.1",
     "expo-web-browser": "~57.0.1",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "react-native": "0.86.0",
+    "react-native-gesture-handler": "~2.32.0",
     "react-native-keyboard-controller": "1.22.1",
     "react-native-reanimated": "4.5.2",
     "react-native-safe-area-context": "~5.7.0",

@@ -1,0 +1,95 @@
+---
+title: "Node.js & Docker"
+description: "Stellen Sie eine agentennative App mit der standardmäßigen Node.js-Nitro-Voreinstellung bereit, eigenständig oder containerisiert mit Docker."
+---
+
+# Node.js & Docker
+
+Node.js ist die Standard-Nitro-Voreinstellung. Diese Seite behandelt das direkte Ausführen und das Containerisieren mit Docker. Wählen Sie zuerst unter [Bereitstellung](/docs/deployment) eine Datenbank, und siehe [Arbeitsbereichsbereitstellung](/docs/workspace-deployment#workspace-docker-compose) für das Selbsthosten eines Multi-App-Arbeitsbereichs mit Docker Compose.
+
+## Schnellstart: eine Chat-App lokal selbst hosten {#self-host-quickstart}
+
+Es gibt zwei gute Einstiegspunkte:
+
+- **Sie bauen eine App?** Beginnen Sie mit [Getting Started](/docs/getting-started) und kehren Sie hierher zurück, wenn Sie die App dauerhaft bereitstellen möchten.
+- **Sie betreiben eine App?** Verwenden Sie zuerst den lokalen Docker-Pfad. Er nutzt dieselbe Form aus Node.js, Postgres, Authentifizierung und Umgebungsvariablen wie ein kleiner Server.
+
+Der lokale Stack verwendet absichtlich ein Beispiel-Auth-Secret und ein lokales Postgres-Volume. Er ist für `localhost`, nicht für eine Bereitstellung im Internet gedacht. Die vollständige Compose-Datei und kopierbaren Schritte finden Sie im [vollständigen Schnellstart](/docs/node-docker#self-host-quickstart). Dieser Schnellstart verwendet das Volume-Layout von PostgreSQL 18. Verwenden Sie kein Volume wieder, das von PostgreSQL 17 oder älter erstellt wurde. Sichern und migrieren Sie vorhandene Daten, bevor Sie Image oder Mount-Pfad ändern.
+
+### 1. App erstellen
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. Lokalen Stack starten
+
+```bash
+docker compose up --build
+```
+
+Öffnen Sie [http://localhost:3000](http://localhost:3000). Fügen Sie `ANTHROPIC_API_KEY` zu einer lokalen `.env`-Datei hinzu, wenn Sie den eingebetteten Agenten verwenden möchten.
+
+## Node.js (Standard) {#nodejs}
+
+Die Standardvoreinstellung. Bauen und ausführen:
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+Legen Sie `PORT` fest, um den Listen-Port zu konfigurieren (Standard: `3000`).
+
+Verwenden Sie für Produktionsbereitstellungen die aktuelle Node.js-LTS-Reihe. Mit
+Stand Mai 2026 ist das Node.js 24. Node.js 20 hat am 30. April 2026 sein
+End-of-Life erreicht und erhält keine Upstream-Sicherheitsupdates mehr.
+
+## Docker {#docker}
+
+This Dockerfile works for the standalone app created above. Run `pnpm install` before building so `pnpm-lock.yaml` exists in the build context. Keep the dependency manifest and lockfile in sync when you update the app.
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
+# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+RUN mkdir -p /app/data
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+Create `.dockerignore` alongside the Dockerfile:
+
+```text filename=".dockerignore"
+node_modules
+.output
+data
+.env
+.env.*
+!.env.example
+.git
+```
+
+Das Selbsthosten eines Multi-App-Arbeitsbereichs mit Docker Compose, aufbauend
+auf demselben eigenständigen Dockerfile, wird in
+[Arbeitsbereichsbereitstellung](/docs/workspace-deployment#workspace-docker-compose)
+behandelt.
+
+## Was kommt als nächstes?
+
+- [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank und eine Voreinstellung vor Ihrer ersten Produktionsbereitstellung
+- [**Arbeitsbereichsbereitstellung**](/docs/workspace-deployment) — einen Multi-App-Arbeitsbereich mit Docker Compose selbst hosten
+- [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify), [**Cloudflare**](/docs/cloudflare) und [**Andere Plattformen**](/docs/other-platforms) — die anderen Nitro-Voreinstellungen

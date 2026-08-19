@@ -14,11 +14,13 @@ import type {
   RemoteComputerCapabilities,
   RemoteDevice,
   RemoteDeviceMetadata,
+  RemoteExecutionCapabilities,
+  RemoteExecutionWorkload,
 } from "./remote-types.js";
 
 let _initPromise: Promise<void> | undefined;
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
@@ -176,6 +178,14 @@ export function getRemoteComputerCapabilities(
   const value = device.metadata?.computerCapabilities;
   if (!value || typeof value !== "object") return null;
   return normalizeComputerCapabilities(value);
+}
+
+export function getRemoteExecutionCapabilities(
+  device: Pick<RemoteDevice, "metadata">,
+): RemoteExecutionCapabilities | null {
+  const value = device.metadata?.executionCapabilities;
+  if (!value || typeof value !== "object") return null;
+  return normalizeExecutionCapabilities(value);
 }
 
 export async function createRemoteDevice(input: {
@@ -440,6 +450,11 @@ function serializeRemoteDeviceMetadata(
       metadata.computerCapabilities,
     );
   }
+  if (metadata.executionCapabilities !== undefined) {
+    normalized.executionCapabilities = normalizeExecutionCapabilities(
+      metadata.executionCapabilities,
+    );
+  }
   const json = JSON.stringify(normalized);
   if (new TextEncoder().encode(json).byteLength > 32_768) {
     throw new Error("Remote device metadata exceeds 32 KiB");
@@ -473,6 +488,56 @@ function normalizeComputerCapabilities(
     };
   }
   return result;
+}
+
+function normalizeExecutionCapabilities(
+  value: RemoteExecutionCapabilities,
+): RemoteExecutionCapabilities {
+  const result: RemoteExecutionCapabilities = {};
+  if (
+    value.backend === "desktop" ||
+    value.backend === "container" ||
+    value.backend === "kubernetes" ||
+    value.backend === "external"
+  ) {
+    result.backend = value.backend;
+  }
+  if (Array.isArray(value.workloads)) {
+    result.workloads = normalizeStringList(value.workloads, 16).filter(
+      (entry): entry is RemoteExecutionWorkload =>
+        entry === "code-agent" ||
+        entry === "scheduled-code" ||
+        entry === "external-agent",
+    );
+  }
+  if (Array.isArray(value.engines)) {
+    result.engines = normalizeStringList(value.engines, 32);
+  }
+  if (typeof value.acceptsScheduledWork === "boolean") {
+    result.acceptsScheduledWork = value.acceptsScheduledWork;
+  }
+  if (
+    value.persistence === "local-files" ||
+    value.persistence === "persistent-volume" ||
+    value.persistence === "ephemeral"
+  ) {
+    result.persistence = value.persistence;
+  }
+  if (Array.isArray(value.adapters)) {
+    result.adapters = normalizeStringList(value.adapters, 32);
+  }
+  return result;
+}
+
+function normalizeStringList(value: unknown[], max: number): string[] {
+  return [
+    ...new Set(
+      value
+        .filter((entry): entry is string => typeof entry === "string")
+        .map((entry) => entry.trim().slice(0, 120))
+        .filter(Boolean),
+    ),
+  ].slice(0, max);
 }
 
 function looksLikeLargeBase64(value: string): boolean {

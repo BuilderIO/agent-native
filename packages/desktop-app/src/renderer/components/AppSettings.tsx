@@ -18,7 +18,6 @@ import {
   getDesktopTemplateGatewayAppUrl,
   isDefaultDesktopTemplateDevTarget,
   type AppConfig,
-  type FrameSettings,
 } from "@shared/app-registry";
 import {
   formatDesktopShortcutAccelerator,
@@ -33,6 +32,7 @@ import type { DesktopIdentityStatus, UpdateStatus } from "@shared/ipc-channels";
 import {
   IconAlertCircle,
   IconArrowLeft,
+  IconBrain,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
@@ -61,6 +61,11 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
 } from "react";
 
+import {
+  DESKTOP_TERMINAL_AGENT_OPTIONS,
+  useDesktopTerminalPreferences,
+  writeDesktopTerminalPreferences,
+} from "../lib/desktop-terminal-preferences.js";
 import { CodeProviderSettings } from "./CodeProviderSettings";
 import { useUpdateStatus } from "./UpdateIndicator.js";
 
@@ -69,9 +74,9 @@ const desktopSettingsQueryClient = createAgentNativeQueryClient();
 interface AppSettingsProps {
   apps: AppConfig[];
   onClose: () => void;
+  initialTab?: string;
   onAppsChanged: (apps: AppConfig[]) => void;
   onAddAppClick?: () => void;
-  onFrameSettingsChanged?: (settings: FrameSettings) => void;
   onCodeAgentProvidersChanged?: () => void;
 }
 
@@ -138,28 +143,28 @@ function remoteStatusCopy(status: CodeAgentRemoteConnectorStatus | null): {
   if (!status) {
     return {
       label: "Checking",
-      description: "Reading remote-control status.",
+      description: "Reading Portal host status.",
       tone: "pending",
     };
   }
   if (!status.configured) {
     return {
       label: "Offline",
-      description: "Pair this computer with an Agent-Native app.",
+      description: "Pair this computer with the Portal relay.",
       tone: "offline",
     };
   }
   if (!status.enabled) {
     return {
       label: "Off",
-      description: "Remote requests are paused on this computer.",
+      description: "Portal requests are paused on this computer.",
       tone: "offline",
     };
   }
   if (status.state === "error") {
     return {
       label: "Error",
-      description: status.error ?? "Remote control needs attention.",
+      description: status.error ?? "Portal host needs attention.",
       tone: "error",
     };
   }
@@ -175,13 +180,13 @@ function remoteStatusCopy(status: CodeAgentRemoteConnectorStatus | null): {
       label: "Connecting",
       description: status.nextRestartAt
         ? "Waiting to retry the remote connector."
-        : "Starting remote control.",
+        : "Starting Portal host.",
       tone: "pending",
     };
   }
   return {
     label: "Offline",
-    description: "Remote control is not currently polling.",
+    description: "Portal host is not currently polling.",
     tone: "offline",
   };
 }
@@ -508,20 +513,19 @@ function SoftwareUpdateCard() {
 export default function AppSettings({
   apps,
   onClose,
+  initialTab,
   onAppsChanged,
   onAddAppClick,
-  onFrameSettingsChanged,
   onCodeAgentProvidersChanged,
 }: AppSettingsProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [frameSettings, setFrameSettings] = useState<FrameSettings | null>(
-    null,
-  );
   const [identityStatus, setIdentityStatus] =
     useState<DesktopIdentityStatus>("idle");
+  const [desktopSsoEnabled, setDesktopSsoEnabled] = useState(false);
   const [remoteStatus, setRemoteStatus] =
     useState<CodeAgentRemoteConnectorStatus | null>(null);
   const [remotePairUrl, setRemotePairUrl] = useState("");
+  const [remoteWorkspacePath, setRemoteWorkspacePath] = useState("");
   const [remotePairing, setRemotePairing] = useState(false);
   const [showRemotePairing, setShowRemotePairing] = useState(false);
   const [remoteMessage, setRemoteMessage] = useState<string | null>(null);
@@ -542,6 +546,7 @@ export default function AppSettings({
   const [shortcutMessage, setShortcutMessage] = useState<string | null>(null);
   const [shortcutSaving, setShortcutSaving] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
+  const terminalPreferences = useDesktopTerminalPreferences();
   const closingTimerRef = useRef<number | null>(null);
   const visibleApps = useMemo(() => getDesktopVisibleApps(apps), [apps]);
   const shortcutTargetApps = useMemo(
@@ -580,20 +585,13 @@ export default function AppSettings({
     [isClosing, onClose],
   );
 
-  // Load frame settings
-  useEffect(() => {
-    if (window.electronAPI?.frame) {
-      window.electronAPI.frame.load().then((settings) => {
-        setFrameSettings(settings);
-        onFrameSettingsChanged?.(settings);
-      });
-    }
-  }, [onFrameSettingsChanged]);
-
   useEffect(() => {
     const identity = window.electronAPI?.identity;
     if (!identity) return;
     let active = true;
+    void identity.getSettings().then((settings) => {
+      if (active) setDesktopSsoEnabled(settings.ssoEnabled);
+    });
     void identity.getStatus().then((status) => {
       if (active) setIdentityStatus(status);
     });
@@ -604,6 +602,19 @@ export default function AppSettings({
       active = false;
       unsubscribe();
     };
+  }, []);
+
+  const handleDesktopSsoToggle = useCallback(async (enabled: boolean) => {
+    const identity = window.electronAPI?.identity;
+    if (!identity) return;
+    const saved = await identity.setSsoEnabled(enabled);
+    if (!saved) return;
+    setDesktopSsoEnabled(enabled);
+    if (!enabled) {
+      setIdentityStatus("idle");
+      return;
+    }
+    setIdentityStatus(await identity.getStatus());
   }, []);
 
   const handleWorkspaceSignOut = useCallback(async () => {
@@ -671,6 +682,9 @@ export default function AppSettings({
       setRemotePairUrl(
         (current) => current || status.relayUrl || defaultRemoteRelayUrl(apps),
       );
+      setRemoteWorkspacePath(
+        (current) => current || status.workspacePath || "",
+      );
       if (!status.configured) setShowRemotePairing(true);
     } catch (err) {
       setRemoteMessage(err instanceof Error ? err.message : String(err));
@@ -689,29 +703,6 @@ export default function AppSettings({
     }, 5000);
     return () => window.clearInterval(timer);
   }, [refreshRemoteStatus]);
-
-  const handleCodeTabToggle = useCallback(
-    async (showCodeTab: boolean) => {
-      if (window.electronAPI?.frame) {
-        const updated = await window.electronAPI.frame.update({ showCodeTab });
-        setFrameSettings(updated);
-        onFrameSettingsChanged?.(updated);
-      }
-    },
-    [onFrameSettingsChanged],
-  );
-
-  const handleChatFirstToggle = useCallback(
-    async (chatFirstMode: boolean) => {
-      if (!window.electronAPI?.frame) return;
-      const updated = await window.electronAPI.frame.update({
-        chatFirstMode,
-      });
-      setFrameSettings(updated);
-      onFrameSettingsChanged?.(updated);
-    },
-    [onFrameSettingsChanged],
-  );
 
   const desktopMcpApi = useMemo<McpServersApi | null>(() => {
     const api = window.electronAPI?.mcpServers;
@@ -768,6 +759,7 @@ export default function AppSettings({
       const result = await api.pairRemoteConnector({
         relayUrl: remotePairUrl.trim(),
         label: "Agent Native Desktop",
+        workspacePath: remoteWorkspacePath.trim() || undefined,
       });
       setRemoteStatus(result.status);
       setRemoteMessage(result.error ?? result.message ?? null);
@@ -777,7 +769,7 @@ export default function AppSettings({
     } finally {
       setRemotePairing(false);
     }
-  }, [remotePairUrl]);
+  }, [remotePairUrl, remoteWorkspacePath]);
 
   const shortcutRegistrations = useMemo(() => {
     const map = new Map<string, DesktopShortcutRegistration>();
@@ -965,7 +957,7 @@ export default function AppSettings({
     {
       id: "providers",
       label: "AI providers",
-      icon: IconTerminal2,
+      icon: IconBrain,
       group: "agent",
       content: (
         <div className="w-full max-w-3xl space-y-8">
@@ -990,6 +982,57 @@ export default function AppSettings({
       ),
     },
     {
+      id: "terminal",
+      label: "Terminal tabs",
+      icon: IconTerminal2,
+      group: "agent",
+      content: (
+        <div className="w-full max-w-3xl space-y-8">
+          <SettingsGroup
+            title="Terminal tabs"
+            description="Replace the main chat surface with local coding-agent terminals."
+          >
+            <SettingsRow
+              label="Use terminal tabs"
+              description="Open each desktop chat surface as a terminal instead of hosted chat."
+              control={
+                <Switch
+                  checked={terminalPreferences.enabled}
+                  onCheckedChange={(enabled) =>
+                    writeDesktopTerminalPreferences({ enabled })
+                  }
+                  aria-label="Use terminal tabs"
+                />
+              }
+            />
+            <SettingsRow
+              label="Terminal agent"
+              description="Choose the CLI launched in new terminal tabs."
+              control={
+                <select
+                  className="desktop-terminal-settings-select"
+                  value={terminalPreferences.agent}
+                  onChange={(event) =>
+                    writeDesktopTerminalPreferences({
+                      agent: event.target
+                        .value as (typeof DESKTOP_TERMINAL_AGENT_OPTIONS)[number]["id"],
+                    })
+                  }
+                  aria-label="Terminal agent"
+                >
+                  {DESKTOP_TERMINAL_AGENT_OPTIONS.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              }
+            />
+          </SettingsGroup>
+        </div>
+      ),
+    },
+    {
       id: "workspace",
       label: "Workspace",
       icon: IconFolder,
@@ -998,38 +1041,10 @@ export default function AppSettings({
         <div className="w-full max-w-3xl space-y-8">
           <SettingsGroup
             title="Workspace"
-            description="Choose the shell, apps, and remote access for this workspace."
+            description="Manage apps and Portal hosts for this workspace."
           >
-            {frameSettings ? (
-              <SettingsRow
-                label="Agent in the sidebar"
-                description="Keep the Agent workspace available in the desktop navigation."
-                control={
-                  <Switch
-                    checked={frameSettings.showCodeTab}
-                    onCheckedChange={handleCodeTabToggle}
-                    aria-label="Show Agent in the sidebar"
-                  />
-                }
-              />
-            ) : null}
-            {frameSettings ? (
-              <SettingsRow
-                label="Chat-first workbench"
-                description="Keep chats at the center and open workspace apps beside them."
-                control={
-                  <Switch
-                    checked={frameSettings.chatFirstMode}
-                    onCheckedChange={(checked) =>
-                      void handleChatFirstToggle(checked)
-                    }
-                    aria-label="Use the chat-first desktop shell"
-                  />
-                }
-              />
-            ) : null}
             <SettingsRow
-              label="Remote control"
+              label="Portal host"
               description={remoteCopy.label + " · " + remoteCopy.description}
               control={
                 <Switch
@@ -1037,8 +1052,8 @@ export default function AppSettings({
                   onCheckedChange={handleRemoteToggle}
                   aria-label={
                     remoteStatus?.enabled
-                      ? "Turn remote control off"
-                      : "Turn remote control on"
+                      ? "Turn Portal host off"
+                      : "Turn Portal host on"
                   }
                 />
               }
@@ -1076,16 +1091,26 @@ export default function AppSettings({
                       placeholder="https://dispatch.agent-native.com"
                       className="h-9 min-w-0 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40"
                     />
+                    <input
+                      type="text"
+                      value={remoteWorkspacePath}
+                      onChange={(event) =>
+                        setRemoteWorkspacePath(event.target.value)
+                      }
+                      placeholder="/Users/you/Projects/your-repo"
+                      aria-label="Portal workspace path"
+                      className="h-9 min-w-0 rounded-md border border-border bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring/40 sm:col-span-2"
+                    />
                     <button
                       type="button"
                       className="settings-btn settings-btn--primary"
                       onClick={handleRemotePair}
                       disabled={remotePairing || !remotePairUrl.trim()}
                     >
-                      {remotePairing ? "Pairing…" : "Pair this Mac"}
+                      {remotePairing ? "Pairing…" : "Pair this computer"}
                     </button>
                     <span className="text-xs text-muted-foreground sm:col-span-2">
-                      Use an app you are signed into inside Desktop.
+                      Use the repository folder that should receive Portal code.
                     </span>
                   </div>
                 ) : null}
@@ -1282,15 +1307,15 @@ export default function AppSettings({
                   aria-label="Shortcut target view"
                   className="settings-shortcut-view-input"
                 />
-                <div className="settings-mode-toggle settings-shortcut-behavior">
+                <div className="settings-shortcut-behavior-toggle">
                   {(["toggle", "show"] as const).map((behavior) => (
                     <button
                       key={behavior}
                       type="button"
                       className={
                         shortcutDraft.behavior === behavior
-                          ? "settings-mode-btn settings-mode-btn--active"
-                          : "settings-mode-btn"
+                          ? "settings-shortcut-behavior-btn settings-shortcut-behavior-btn--active"
+                          : "settings-shortcut-behavior-btn"
                       }
                       onClick={() =>
                         setShortcutDraft((current) => ({
@@ -1446,11 +1471,28 @@ export default function AppSettings({
               <SettingsTabsPage
                 general={
                   <div className="w-full max-w-3xl space-y-8">
-                    {identityStatus !== "idle" ? (
-                      <SettingsGroup
-                        title="Workspace account"
-                        description="One Agent Native identity across first-party desktop apps. Provider connections remain separate."
-                      >
+                    <SettingsGroup
+                      title="Workspace account"
+                      description="One Agent Native identity across first-party desktop apps. Provider connections remain separate."
+                    >
+                      <SettingsRow
+                        label="Shared app sign-in"
+                        description={
+                          desktopSsoEnabled
+                            ? "Show the parent sign-in once, then open eligible apps automatically."
+                            : "Off by default while shared app sign-in is being tested on this device."
+                        }
+                        control={
+                          <Switch
+                            checked={desktopSsoEnabled}
+                            onCheckedChange={(enabled) =>
+                              void handleDesktopSsoToggle(enabled)
+                            }
+                            aria-label="Enable shared app sign-in"
+                          />
+                        }
+                      />
+                      {desktopSsoEnabled && identityStatus !== "idle" ? (
                         <SettingsRow
                           label="Agent Native workspace"
                           description={
@@ -1482,8 +1524,8 @@ export default function AppSettings({
                             )
                           }
                         />
-                      </SettingsGroup>
-                    ) : null}
+                      ) : null}
+                    </SettingsGroup>
                     <SettingsGroup
                       title="Software updates"
                       description="Keep Agent Native current."
@@ -1495,6 +1537,7 @@ export default function AppSettings({
                 extraTabs={settingsTabs}
                 enableSearch
                 searchPlaceholder="Search settings…"
+                defaultTab={initialTab}
                 className="h-full"
                 navClassName="settings-page-tabs-nav"
                 navHeader={
@@ -1675,7 +1718,7 @@ export function AddAppDialog({
           <h3>New App</h3>
           <p className="settings-form-subtitle">
             Describe what you want. The coding agent will build it and add it to
-            your sidebar.
+            your workspace.
           </p>
         </div>
 

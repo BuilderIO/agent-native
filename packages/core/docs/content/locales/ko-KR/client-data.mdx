@@ -5,7 +5,7 @@ description: "app/이 에이전트가 호출하는 동일한 actions를 읽고 �
 
 # 데이터 및 동기화
 
-클라이언트 애플리케이션에서 앱 데이터를 읽고 쓰는 주된 방법은 [action](/docs/actions) 후크를 사용하는 것입니다. 요청을 actions에 담아 보내면 클라이언트와 에이전트가 동일한 방식으로 애플리케이션과 상호작용할 수 있습니다.
+클라이언트 애플리케이션에서 앱 데이터를 읽고 쓰는 주된 방법은 [action](/docs/actions-overview) 후크를 사용하는 것입니다. 요청을 actions에 담아 보내면 클라이언트와 에이전트가 동일한 방식으로 애플리케이션과 상호작용할 수 있습니다.
 
 아래 예시에서는 티켓이 드롭다운을 통해 수동으로, 그리고 채팅 에이전트를 통해 현재 사용자에게 배정됩니다. UI와 에이전트는 동일한 action에 접근합니다.
 
@@ -428,7 +428,7 @@ function App() {
 
 - [**개요**](/docs/client-overview) — 이 페이지의 후크들이 속한 `app/` 및 `public/` 디렉터리 구조
 - [**Agent 채팅**](/docs/client-agent-chat) — 프롬프트 전송과 에이전트를 위한 컨텍스트 준비
-- [**Actions**](/docs/actions) — 이 페이지의 모든 후크 뒤에 있는 `defineAction` 표면
+- [**Actions**](/docs/actions-overview) — 이 페이지의 모든 후크 뒤에 있는 `defineAction` 표면
 - [**고급**](/docs/client-advanced) — `application_state` 직접 접근
 - [**동기화 내부**](/docs/client-sync-internals) — `useChangeVersion`으로 원시 `useQuery` 동기화하기
 - [**Real-Time Sync**](/docs/key-concepts#polling-sync) — `useDbSync`가 UI를 최신 상태로 유지하는 방법

@@ -14,6 +14,7 @@ import { isActionContractError, isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
+import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
 import { resolveOrgByDomain, resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
@@ -25,6 +26,7 @@ import {
 import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
 import {
   readBrowserSessionIdHeader,
+  readAnalyticsClientPlatformHeader,
   seedAgentRunOwnerContext,
   type AgentRunOwnerContext,
 } from "./agent-run-context.js";
@@ -65,7 +67,7 @@ function currentBuildId(): string {
  * Actions are exposed as POST by default. Use `http: { method: "GET" }` in
  * defineAction to expose as GET. Use `http: false` to mark as agent-only.
  */
-import { isLoopbackRequest } from "./auth.js";
+import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
@@ -88,7 +90,8 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
   if (!claims || !claims.scope.includes(required))
     throw new Error("Invalid feature flag delegation");
   const localOrg = await resolveOrgByDomain(claims.orgDomain);
-  if (!localOrg) throw new Error("Invalid feature flag delegation");
+  if (!localOrg && !isFeatureFlagAdminEmail(claims.email))
+    throw new Error("Invalid feature flag delegation");
   if (
     actionName === "set-feature-flag" &&
     (await consumeOneTimeJti(claims.jti))
@@ -97,7 +100,7 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
   }
   return {
     owner: claims.email,
-    orgId: localOrg.orgId,
+    orgId: localOrg?.orgId ?? null,
     anonymous: false,
     delegationJti: claims.jti,
     delegationIssuer: claims.issuer,
@@ -189,7 +192,10 @@ function getAllowedCorsOrigin(origin: string | undefined): CorsOrigin | null {
     // keeps production from trusting arbitrary localhost callers.
   });
   if (allowedOrigin) {
-    return { origin: allowedOrigin, credentials: true };
+    return {
+      origin: allowedOrigin,
+      credentials: shouldAllowMcpEmbedCredentials(allowedOrigin),
+    };
   }
   if (origin && isMcpEmbedCorsOrigin(origin)) {
     return {
@@ -226,7 +232,7 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
         : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
@@ -248,12 +254,14 @@ export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
    * Org to scope the request to, verified from the same credential as the
    * caller identity (e.g. the A2A token's org claim). When omitted, the org
    * is derived from the verified owner email via the framework's owner→org
-   * membership lookup. The ambient session/org state on the request is never
-   * consulted for adapter-resolved callers: a request can carry both a valid
-   * A2A bearer and an unrelated browser cookie, and the cookie user's org
-   * must not leak into the token caller's request context.
+   * membership lookup. An explicit `null` means the verified caller has no
+   * org and must not fall back to another membership. The ambient session/org
+   * state on the request is never consulted for adapter-resolved callers: a
+   * request can carry both a valid A2A bearer and an unrelated browser cookie,
+   * and the cookie user's org must not leak into the token caller's request
+   * context.
    */
-  orgId?: string;
+  orgId?: string | null;
   /** Verified A2A correlation and issuer metadata for the audit row. */
   delegationJti?: string;
   delegationIssuer?: string;
@@ -385,6 +393,7 @@ export function mountActionRoutes(
   options?: MountActionRoutesOptions,
 ) {
   const mounted: string[] = [];
+  const app = getH3App(nitroApp);
 
   for (const [name, entry] of Object.entries(actions)) {
     // Skip agent-only actions
@@ -394,7 +403,15 @@ export function mountActionRoutes(
     const path = entry.http?.path ?? name;
     const routePath = `${ROUTE_PREFIX}/${path}`;
 
-    getH3App(nitroApp).use(
+    // These two actions authenticate with a scoped A2A bearer rather than a
+    // browser session. Let that verifier see the request before the cookie
+    // auth guard rejects it; the action route still fails closed on invalid
+    // or missing credentials.
+    if (name === "list-feature-flags" || name === "set-feature-flag") {
+      registerAuthPublicPaths([routePath], app);
+    }
+
+    app.use(
       routePath,
       defineEventHandler(async (event) => {
         const reqMethod = getMethod(event);
@@ -533,7 +550,8 @@ export function mountActionRoutes(
         }
         // Org scoping. For adapter-resolved callers the org must come
         // exclusively from the verified credential: the adapter-asserted
-        // orgId when present, otherwise the owner-email membership lookup.
+        // orgId when present, explicit null when the caller has no org,
+        // otherwise the owner-email membership lookup.
         // The request's ambient session/org state (`resolveOrgId`, usually
         // getSession-backed) is deliberately NOT consulted — a request can
         // carry both a valid A2A bearer and an unrelated same-origin browser
@@ -543,7 +561,12 @@ export function mountActionRoutes(
         let orgId: string | undefined;
         if (resolvedCaller) {
           orgId = normalizeOrgId(resolvedCaller.orgId);
-          if (!orgId && resolvedCaller.owner && !resolvedCaller.anonymous) {
+          if (
+            resolvedCaller.orgId !== null &&
+            !orgId &&
+            resolvedCaller.owner &&
+            !resolvedCaller.anonymous
+          ) {
             orgId = await storedActiveOrgId(resolvedCaller.owner);
           }
         } else {
@@ -554,6 +577,7 @@ export function mountActionRoutes(
         }
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
+        const clientPlatform = readAnalyticsClientPlatformHeader(event);
 
         return runWithRequestContext(
           {
@@ -563,6 +587,7 @@ export function mountActionRoutes(
             authCapability,
             timezone,
             browserSessionId,
+            clientPlatform,
             requestOrigin: getRequestURL(event).origin,
             // Captured here because this is the last layer that still holds
             // the h3 event; everything below reads it off the request store.

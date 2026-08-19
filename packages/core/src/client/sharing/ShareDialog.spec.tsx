@@ -58,7 +58,13 @@ afterEach(() => {
   vi.clearAllMocks();
 });
 
-async function renderDialog(onClose = vi.fn()) {
+async function renderDialog(
+  onClose = vi.fn(),
+  options: Partial<{
+    shareUrl: string;
+    embedUrl: string;
+  }> = {},
+) {
   await act(async () => {
     root.render(
       <QueryClientProvider client={queryClient}>
@@ -68,6 +74,8 @@ async function renderDialog(onClose = vi.fn()) {
           resourceType="document"
           resourceId="doc-1"
           resourceTitle="Quarterly plan"
+          shareUrl={options.shareUrl}
+          embedUrl={options.embedUrl}
         />
       </QueryClientProvider>,
     );
@@ -96,6 +104,40 @@ describe("ShareDialog primitive normalization", () => {
   it("does not bypass Toolkit with raw portal or Radix select imports", () => {
     expect(source).not.toContain('from "react-dom"');
     expect(source).not.toContain('from "@agent-native/toolkit/ui/select"');
+  });
+
+  it("renders the share link as a copy-only row", async () => {
+    await renderDialog(vi.fn(), {
+      shareUrl: "https://share.example.test/doc-1",
+    });
+
+    expect(
+      document.body.querySelector('button[aria-label="share.copy"]'),
+    ).not.toBeNull();
+    expect(document.body.textContent).not.toContain(
+      "https://share.example.test/doc-1",
+    );
+  });
+
+  it("keeps individual access on the primary link surface", async () => {
+    await renderDialog(vi.fn(), {
+      shareUrl: "https://share.example.test/doc-1",
+    });
+
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("share.peopleWithAccess");
+    expect(text).not.toContain("share.invite");
+  });
+
+  it("keeps general access above people with access", async () => {
+    await renderDialog();
+
+    const text = document.body.textContent ?? "";
+    expect(text.indexOf("share.generalAccess")).toBeGreaterThan(-1);
+    expect(text.indexOf("share.peopleWithAccess")).toBeGreaterThan(-1);
+    expect(text.indexOf("share.generalAccess")).toBeLessThan(
+      text.indexOf("share.peopleWithAccess"),
+    );
   });
 
   it("moves focus into the modal and closes on Escape", async () => {

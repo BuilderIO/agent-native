@@ -29,6 +29,7 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private
   Builder/internal data, customer data, or credential-looking literals. Use
   secrets/OAuth/runtime config and obvious placeholders.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use actions for recording metadata, transcripts, cleanup, summaries, chapters,
   comments, spaces/folders, meetings, and sharing. Never bypass access helpers.
 - Comment text accepts inline Markdown for emphasis, inline code, links, and
@@ -88,6 +89,7 @@ video sharing app. The agent and the UI share the same SQL data and actions.
 | `regenerate-title`, `-summary`, `-chapters` | AI metadata |
 | `trim-`, `split-recording`, `remove-silences`, `remove-filler-words` | Edits |
 | `list-meetings`, `get-`, `update-`, `finalize-meeting` | Meetings |
+| `search-meetings` | Find a meeting by title, summary, notes, attendee, or transcript |
 | `list-dictations`, `cleanup-dictation` | Dictation history |
 | `add-comment`, `update-comment`, `create-folder`, `create-space` | Comments, folders |
 | `share-resource`, `set-resource-visibility`, `build-embed-url` | Share, embed |

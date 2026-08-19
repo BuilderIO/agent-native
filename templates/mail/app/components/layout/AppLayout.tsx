@@ -5,12 +5,16 @@ import {
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { DevDatabaseLink } from "@agent-native/core/client/db-admin";
+import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { openCommandMenu } from "@agent-native/core/client/navigation";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/core/client/org";
 import { FeedbackButton } from "@agent-native/core/client/ui";
 import { SidebarFooterActions } from "@agent-native/toolkit/app-shell";
-import { normalizeMailLabel } from "@shared/gmail-labels";
+import {
+  isInboxScopedAppLabel,
+  normalizeMailLabel,
+} from "@shared/gmail-labels";
 import type { Label } from "@shared/types";
 import {
   IconMenu2,
@@ -168,6 +172,18 @@ function shortLabelName(name: string): string {
 
 function labelDepth(name: string): number {
   return Math.max(0, name.split("/").length - 1);
+}
+
+// Gmail's inbox-only categories (important, social, promotions, ...) only
+// ever exist inside the inbox, so their tab stays scoped there. Regular user
+// labels are filed/archived independently of the inbox — routing them
+// through /inbox forces `in:inbox` server-side and hides every message the
+// user has archived out of the inbox while keeping the label, which reads as
+// "label is empty" even though it has mail. Route those through /all so the
+// label search is unscoped.
+export function labelTabHref(labelId: string): string {
+  const view = isInboxScopedAppLabel(labelId) ? "inbox" : "all";
+  return `/${view}?label=${encodeURIComponent(labelId)}`;
 }
 
 interface AppLayoutProps {
@@ -372,6 +388,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     if (typeof window === "undefined") return false;
     return localStorage.getItem(SIDEBAR_COLLAPSE_KEY) === "true";
   });
+  const perAppChatOpen = usePerAppChatOpen();
   useEffect(() => {
     if (sidebarPinned) localStorage.setItem("mail-sidebar-pinned", "true");
     else localStorage.removeItem("mail-sidebar-pinned");
@@ -384,7 +401,10 @@ function AppLayoutInner({ children }: AppLayoutProps) {
     }
   }, [sidebarCollapsed]);
   const showSidebar = sidebarOpen || (sidebarPinned && !isMobile);
-  const showCollapsedSidebar = sidebarPinned && sidebarCollapsed && !isMobile;
+  const showCollapsedSidebar =
+    !isMobile &&
+    showSidebar &&
+    (sidebarPinned ? sidebarCollapsed : perAppChatOpen);
   const closeSidebar = useCallback(() => {
     if (!sidebarPinned || isMobile) setSidebarOpen(false);
   }, [sidebarPinned, isMobile]);
@@ -585,7 +605,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           pinnedId: id,
           label: aliasedName,
           fullLabel: lbl.name,
-          href: `/inbox?label=${encodeURIComponent(lbl.id)}`,
+          href: labelTabHref(lbl.id),
           isActive: activeLabel === lbl.id,
           color: lbl.color,
           type: "label",
@@ -625,7 +645,7 @@ function AppLayoutInner({ children }: AppLayoutProps) {
           id: active.id,
           label: aliasedName,
           fullLabel: active.name,
-          href: `/inbox?label=${encodeURIComponent(active.id)}`,
+          href: labelTabHref(active.id),
           isActive: true,
           color: active.color,
           type: "label",

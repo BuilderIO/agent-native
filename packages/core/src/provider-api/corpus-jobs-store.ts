@@ -77,7 +77,7 @@ export interface UpdateProviderCorpusJobOptions {
 
 let initPromise: Promise<void> | undefined;
 
-async function ensureTables(): Promise<void> {
+export async function ensureTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const db = getDbExec();

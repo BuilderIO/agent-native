@@ -68,6 +68,51 @@ describe("useBlockFieldEditor (identity-safe save wiring)", () => {
     return null;
   }
 
+  function ImmediateSaveHarness({
+    save,
+    onReady,
+  }: {
+    save: (req: SaveCall) => Promise<unknown>;
+    onReady: (onSaveContent: (markdown: string) => Promise<boolean>) => void;
+  }) {
+    const { onSaveContent } = useBlockFieldEditor({
+      documentId: "doc",
+      propertyId: "field",
+      initialContent: "",
+      initialRevision: 0,
+      save,
+    });
+    onReady(onSaveContent);
+    return null;
+  }
+
+  it("awaits an immediate Blocks-field save before reporting persistence", async () => {
+    const save = vi.fn(async (_request: SaveCall) => {});
+    let onSaveContent!: (markdown: string) => Promise<boolean>;
+
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root!.render(
+        createElement(ImmediateSaveHarness, {
+          save,
+          onReady: (callback) => {
+            onSaveContent = callback;
+          },
+        }),
+      );
+    });
+
+    await expect(onSaveContent("persisted now")).resolves.toBe(true);
+    expect(save).toHaveBeenCalledWith({
+      documentId: "doc",
+      propertyId: "field",
+      value: "persisted now",
+      expectedBlocksFieldRevision: 0,
+    });
+  });
+
   it("an edit after switching docs persists to the NEW doc's field", async () => {
     vi.useFakeTimers();
     const calls: SaveCall[] = [];

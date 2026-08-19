@@ -118,6 +118,15 @@ beforeEach(() => {
       role TEXT NOT NULL,
       joined_at INTEGER NOT NULL
     );
+    CREATE TABLE workspace_user_groups (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      member_emails_json TEXT NOT NULL DEFAULT '[]',
+      created_by_email TEXT NOT NULL DEFAULT '',
+      created_at INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL DEFAULT 0
+    );
   `);
   db = drizzle(sqlite);
   registerShareableResource({
@@ -127,6 +136,7 @@ beforeEach(() => {
     displayName: "QA Doc",
     titleColumn: "title",
     getDb: () => db,
+    supportsGroupShares: true,
   });
 });
 
@@ -290,6 +300,38 @@ describe("shareable resource access helpers", () => {
         includePublic: true,
       }),
     ).resolves.toEqual(["public-other", "shared-user"]);
+  });
+
+  it("includes group-only shares in filtered listings while checking current membership", async () => {
+    await insertDoc({ id: "shared-group", ownerEmail: outsiderEmail });
+    sqlite
+      .prepare(
+        `INSERT INTO workspace_user_groups
+         (id, org_id, name, member_emails_json)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run("gtm-team", orgId, "GTM team", JSON.stringify([viewerEmail]));
+    await db.insert(docShares).values({
+      id: "share-group",
+      resourceId: "shared-group",
+      principalType: "group",
+      principalId: "gtm-team",
+      role: "viewer",
+      createdBy: ownerEmail,
+      createdAt: "2026-04-30T00:00:00.000Z",
+    });
+    addOrgMember(orgId, viewerEmail);
+
+    await expect(
+      listVisible({ userEmail: viewerEmail, orgId }),
+    ).resolves.toContain("shared-group");
+
+    sqlite
+      .prepare("DELETE FROM org_members WHERE org_id = ? AND email = ?")
+      .run(orgId, viewerEmail);
+    await expect(
+      listVisible({ userEmail: viewerEmail, orgId }),
+    ).resolves.not.toContain("shared-group");
   });
 
   it("resolves read and write roles without letting visibility imply edit access", async () => {

@@ -1,0 +1,275 @@
+---
+title: "Actions परिभाषित करना"
+description: "defineAction() की संरचना: schema, run, और HTTP config, साथ ही action सतह को छोटा कैसे रखें।"
+---
+
+# Actions परिभाषित करना
+
+हर action `defineAction()` के एक कॉल से शुरू होता है। यह एजेंट के लिए एक description, इनपुट को वैलिडेट करने वाला एक schema, और काम करने वाला एक `run` फ़ंक्शन बंडल करता है, ताकि UI और एजेंट बिल्कुल वही कोड कॉल करें।
+
+<AnnotatedCode
+  id="doc-block-actions-defining-1"
+  title="एक action की संरचना"
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "टूल सतह",
+      note: "`description` वह है जिसे एजेंट यह तय करने के लिए पढ़ता है कि इसे कब कॉल करना है। प्रति-फ़ील्ड `.describe()` कॉल भी JSON Schema में शामिल हो जाते हैं।",
+    },
+    {
+      lines: "8-11",
+      label: "टाइप्ड कॉन्ट्रैक्ट",
+      note: "एक schema **हर** सतह से इनपुट को वैलिडेट करता है और मॉडल के लिए JSON Schema में बदला जाता है। अमान्य इनपुट कभी `run` तक नहीं पहुंचते।",
+    },
+    {
+      lines: "12-16",
+      label: "एक इम्प्लीमेंटेशन",
+      note: "`run` बॉडी एकमात्र सत्य स्रोत है। UI बटन और एजेंट टूल दोनों बिल्कुल यही एक्ज़िक्यूट करते हैं। `getDb()` और `schema` आपके ऐप के `server/db/index.ts` से आते हैं। [Database](/docs/server-database) देखें।",
+    },
+  ]}
+/>
+
+फ्रेमवर्क `actions/` में हर फ़ाइल को अपने आप खोज लेता है और स्टार्टअप पर माउंट कर देता है। हाथ से रजिस्टर करने के लिए और कुछ नहीं है।
+
+<Signature
+  id="doc-block-actions-defining-2"
+  name="defineAction"
+  params={[
+    {
+      name: "config",
+      type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
+      description:
+        "नीचे दिया गया सब कुछ एक config ऑब्जेक्ट है। केवल description, schema, और run आवश्यक हैं।",
+      fields: [
+        {
+          name: "description",
+          type: "string",
+          description:
+            "एजेंट यह तय करने के लिए क्या पढ़ता है कि इस action को कब कॉल करना है।",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "हर सतह पर इनपुट को वैलिडेट करता है। नीचे Schema विकल्प देखें।",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "एकमात्र इम्प्लीमेंटेशन जिसे हर सतह कॉल करती है। `ctx` आर्ग्युमेंट के लिए Run Context देखें।",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "माउंट किए गए method/path को ओवरराइड करता है, या HTTP endpoint को पूरी तरह डिसेबल करता है। नीचे HTTP कॉन्फ़िग देखें।",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "जब http.method GET होता है तो अपने आप true हो जाता है। UI poll-refresh और write-auditing को छोड़ देता है। यह access control नहीं है।",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "run() जो लौटाता है उसे वैलिडेट करता है। नीचे Return वैल्यू को वैलिडेट करना देखें।",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "आउटपुट मिसमैच होने पर क्या होता है।",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            'जब outputErrorStrategy "fallback" हो तो अमान्य result की जगह लौटाया जाता है।',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "किसी mutating action को उसी टर्न के अन्य tool calls के साथ समवर्ती रूप से चलने देता है।",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "हर एजेंट टूल लिस्ट से छिपाने के लिए false सेट करें। Access & Authorization देखें।",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "sandboxed extension iframe ब्रिज को ब्लॉक करने के लिए false सेट करें। Access & Authorization देखें।",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } action को public MCP/A2A/OpenAPI सतहों में जोड़ता है। Access & Authorization देखें।",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "run() से पहले मानव अनुमोदन के लिए एजेंट लूप को रोक देता है। Human-in-the-Loop Approvals देखें।",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "यह तय करने वाला गार्ड फ़ंक्शन कि क्या यह कॉलर बिल्कुल भी action चला सकता है। Access & Authorization देखें।",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "हर mutating action को पहले से मिलने वाले automatic audit capture को ट्यून करता है। Audit Log देखें।",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "action के result के लिए एक नेटिव चैट UI renderer घोषित करता है। Other Surfaces देखें।",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "ActionDefinition<TInput, TReturn>",
+    description:
+      "टाइप्ड action परिभाषा। इसे फ़ाइल के डिफ़ॉल्ट एक्सपोर्ट के रूप में एक्सपोर्ट करें।",
+  }}
+/>
+
+## Schema विकल्प {#schemas}
+
+`schema` कोई भी [Standard Schema](https://standardschema.dev)-संगत लाइब्रेरी स्वीकार करता है:
+
+- **Zod** (v4): सबसे सामान्य विकल्प, सबसे अच्छे type inference और JSON Schema में automatic conversion के साथ।
+- **Valibot**: एक अच्छा विकल्प जब bundle size मायने रखता है।
+- **ArkType**: एक अच्छा विकल्प अगर आप इसका syntax पसंद करते हैं।
+
+schema दो काम करता है। यह Claude API टूल परिभाषा के लिए JSON Schema में बदल जाता है, और यह `run()` चलने से पहले runtime पर इनपुट को वैलिडेट करता है। अमान्य इनपुट कभी आपके handler तक नहीं पहुंचता।
+
+## Return वैल्यू को वैलिडेट करना {#output-schema}
+
+`schema` _inputs_ को वैलिडेट करता है। कोई action क्या **लौटाता** है उसे भी वैलिडेट करने के लिए, एक `outputSchema` पास करें (कोई भी Standard Schema-संगत schema: Zod, Valibot, ArkType, `schema` जैसी ही सतह)। फ्रेमवर्क `run()` से पहले इनपुट को वैलिडेट करता है और `run()` के resolve होने के बाद result को वैलिडेट करता है।
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` यह नियंत्रित करता है कि मिसमैच पर क्या होता है:
+
+| रणनीति       | मिसमैच पर व्यवहार                                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------------------------- |
+| `"warn"`     | **डिफ़ॉल्ट।** समस्याओं को `console.warn` करता है और **original** result को अपरिवर्तित लौटाता है। Non-breaking। |
+| `"strict"`   | एक स्पष्ट error throw करता है, ताकि action में किसी बग को नोटिस करना आसान हो।                                  |
+| `"fallback"` | अमान्य result की जगह दिया गया `outputFallback` वैल्यू लौटाता है।                                               |
+
+जब `run()` सफल होता है, फ्रेमवर्क वैलिडेटेड वैल्यू लौटाता है, इसलिए `outputSchema` पर कोई भी defaults या coercions उसी तरह लागू होते हैं जैसे वे input के लिए होते हैं। जब आप कोई `outputSchema` पास नहीं करते, तो return वैल्यू अपरिवर्तित रहता है।
+
+## HTTP कॉन्फ़िग {#http}
+
+डिफ़ॉल्ट रूप से हर action `POST /_agent-native/actions/<name>` के रूप में एक्सपोज़ होता है। `http` विकल्प के साथ ओवरराइड करें:
+
+```ts
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+किसी `GET` action के लिए, `leadId` एक query param के रूप में पास किया जाता है: `/_agent-native/actions/get-lead?leadId=abc`।
+
+<Endpoint id="doc-block-actions-defining-3" title="ऑटो-माउंटेड action endpoint" method="GET" path="/_agent-native/actions/get-lead" summary={"हर action यहां अपने आप माउंट होता है। फ़ाइल नाम ही action का नाम है।"} auth={"Session cookie (फ्रंटएंड कॉल में `X-Agent-Native-Frontend: 1` होता है), या बाहरी कॉलर्स के लिए `Authorization: Bearer <token>`"} params={[
+  {
+    "name": "leadId",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "GET args query params के रूप में आते हैं। POST args JSON body में आते हैं।"
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "action का return वैल्यू JSON के रूप में।"
+  },
+  {
+    "status": "400",
+    "description": "run() चलने से पहले इनपुट schema validation में विफल रहा।"
+  }
+]}>
+
+POST डिफ़ॉल्ट है, और `http: { method: "GET" }` इसे GET बना देता है। React हुक और `callAction()` हमेशा इस पथ को नाम से कॉल करते हैं, चाहे कोई भी `http.path` ओवरराइड हो। बाहरी सिस्टम एक लॉन्ग-लिव्ड bearer टोकन के साथ उसी रूट को कॉल कर सकते हैं। [HTTP API](/docs/http-api) देखें।
+
+</Endpoint>
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: डिफ़ॉल्ट रूप से `POST` है। `GET` actions को अपने आप `readOnly` चिह्नित किया जाता है, इसलिए एक सफल कॉल UI poll-refresh ट्रिगर नहीं करती।
+- **`http: { path: "..." }`**: `/_agent-native/actions/` के अंतर्गत माउंट किए गए URL को ओवरराइड करता है। यह डिफ़ॉल्ट रूप से फ़ाइल नाम होता है। यह ओवरराइड केवल डायरेक्ट HTTP कॉलर्स के लिए URL बदलता है। `useActionQuery()`, `useActionMutation()`, और `callAction()` हमेशा `/_agent-native/actions/<name>` को कॉल करते हैं, चाहे यह ओवरराइड हो, इसलिए path को ओवरराइड करने से वे हुक 404 हो जाते हैं। path ओवरराइड का उपयोग केवल बाहरी HTTP कॉलर्स के लिए करें। यह भी ध्यान रखें कि ओवरराइड पथ में `:param` route segments को `run()` args में पार्स नहीं किया जाता। केवल query-string params और JSON body फ़ील्ड ही होते हैं।
+- **`http: false`**: HTTP endpoint को पूरी तरह डिसेबल कर देता है। केवल एजेंट और CLI ही action को कॉल कर सकते हैं।
+- **`readOnly: true`**: poll-refresh को स्पष्ट रूप से छोड़ देता है, यहां तक कि उन POST actions के लिए भी जो कुछ भी mutate नहीं करते। यह access control नहीं है। यह प्रतिबंधित नहीं करता कि action को कौन कॉल कर सकता है, और यह `useActionQuery()`, `useActionMutation()`, या किसी client हुक को प्रभावित नहीं करता। इसके एकमात्र प्रभाव हैं post-call refresh इवेंट को दबाना और action को write-auditing से बाहर करना। किसी action को मॉडल से छिपाने के लिए, `agentTool: false` का उपयोग करें। यह गेट करने के लिए कि इसे कौन कॉल कर सकता है, [Access & Authorization](/docs/actions-access-control) पर auth और access विकल्पों का उपयोग करें।
+- **`parallelSafe: true`**: किसी mutating action को उसी टर्न में अन्य tool calls के साथ एक ही समय पर चलने देता है। इसे तभी सेट करें जब action समवर्ती रूप से चलने के लिए सुरक्षित हो और order पर निर्भर न हो। Mutating actions डिफ़ॉल्ट रूप से serialize होते हैं।
+
+## Action सतह को छोटा रखें {#small-surface}
+
+जो भी action एजेंट देख सकता है वह मॉडल की tool list में एक स्लॉट लेता है, और एक लंबी, ओवरलैपिंग लिस्ट मॉडल के लिए सही टूल चुनना मुश्किल बना देती है। action सतह को एक ऐसे API की तरह डिज़ाइन करें जिसे आप मेंटेन करते हैं, न कि UI में हर बटन के लिए एक action:
+
+- कई प्रति-फ़ील्ड actions जैसे `update-name`, `update-order`, और `update-color` के बजाय, ऑप्शनल फ़ील्ड्स का एक patch लेने वाले **एक CRUD-स्टाइल `update` action** को प्राथमिकता दें। कॉलर केवल बदले गए फ़ील्ड्स भेजता है।
+- हर query या filter के लिए एक नया read action जोड़ने से पहले, पहले एक अधिक सामान्य विकल्प पर विचार करें: provider डेटा के लिए [provider API trio](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`, `provider-api-docs`, और `provider-api-request`), या ऐप डेटा के लिए dev `db-query` टूल।
+- UI-only या प्रोग्रामेटिक actions को [`agentTool: false`](/docs/actions-access-control#agent-tool) चिह्नित करें। वे मॉडल की tool list में स्लॉट लिए बिना फ्रंटएंड से या HTTP पर कॉल करने योग्य बने रहते हैं।
+- उन actions को हटाएं या छिपाएं जिन्हें UI अब उपयोग नहीं करता, बजाय उन्हें मॉडल के सामने एक्सपोज़्ड छोड़ने के।
+
+रेपो में एक सलाहकार हेल्पर शामिल है, `node scripts/audit-template-actions.mjs [template ...]` (उपनाम `pnpm actions:audit`)। यह किसी टेम्पलेट के `actions/` फ़ोल्डर को स्कैन करता है और उन actions को फ़्लैग करता है जिन्हें UI अब उपयोग नहीं करता होगा, साथ ही प्रति-फ़ील्ड actions के उन समूहों को जिन्हें एक में जोड़ा जा सकता है। यह हमेशा कोड 0 के साथ exit होता है और कभी CI को फेल नहीं करता, और इसकी heuristics रूढ़िवादी हैं, इसलिए इसके आउटपुट को एक सुझाव मानें, error नहीं।
+
+## आगे क्या
+
+- [**अवलोकन**](/docs/actions-overview) — action क्या है और hello-world वॉकथ्रू
+- [**Access और Authorization**](/docs/actions-access-control) — `agentTool`, `toolCallable`, `authorize`, और `ctx` scoping
+- [**Run Context**](/docs/actions-run-context) — पूरी `ctx` फ़ील्ड तालिका
+- [**अन्य सतहें**](/docs/actions-other-surfaces) — नेटिव चैट UI, CLI, A2A, MCP, और स्टैंडर्ड actions
+- [**Database**](/docs/server-database) — `run()` के अंदर उपयोग किया गया `getDb()`/`schema`
+- [**डेटा और सिंक**](/docs/client-data) — UI से इस action को कॉल करना

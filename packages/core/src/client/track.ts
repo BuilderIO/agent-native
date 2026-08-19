@@ -1,3 +1,8 @@
+import {
+  ANALYTICS_CLIENT_PLATFORM_HEADER,
+  ANALYTICS_CLIENT_PLATFORM_PROPERTY,
+} from "../shared/analytics-platform.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
 import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
 import { agentNativePath } from "./api-path.js";
 
@@ -31,11 +36,14 @@ export function track(
   if (typeof fetch !== "function") return Promise.resolve();
   if (typeof name !== "string" || !name.trim()) return Promise.resolve();
 
+  const clientPlatform = getAnalyticsClientPlatform();
+  const trackedProperties = {
+    ...(properties ?? {}),
+    [ANALYTICS_CLIENT_PLATFORM_PROPERTY]: clientPlatform,
+  };
   let body: string;
   try {
-    body = JSON.stringify(
-      properties === undefined ? { name } : { name, properties },
-    );
+    body = JSON.stringify({ name, properties: trackedProperties });
   } catch {
     // Non-serializable properties — drop rather than throw into the caller.
     return Promise.resolve();
@@ -51,6 +59,7 @@ export function track(
       // middleware trusts it as a first-party marker. Matches the convention
       // used by other client writes (application-state, guided-questions).
       "X-Agent-Native-CSRF": "1",
+      [ANALYTICS_CLIENT_PLATFORM_HEADER]: clientPlatform,
       // Same session the action client and agent chat send, so a client event
       // and the server events from the same visit share one session.
       ...(browserSessionId

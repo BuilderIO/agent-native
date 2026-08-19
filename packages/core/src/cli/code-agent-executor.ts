@@ -28,6 +28,7 @@ import {
   TOOL_SEARCH_ACTION_NAME,
 } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
+import { getAppConfig } from "../app-config/index.js";
 import {
   formatPromptWithAttachments,
   type AgentPromptAttachment,
@@ -67,6 +68,7 @@ import {
   runClaudeCodeParticipant,
   type ClaudeCodeParticipantEvent,
 } from "./claude-code-participant.js";
+import { createCodeAgentAgentTools } from "./code-agent-agent-tools.js";
 import {
   codexMcpConfigArgs,
   mergeCodeAgentMcpConfig,
@@ -127,6 +129,8 @@ const MAX_TOOL_OUTPUT_CHARS = 50_000;
 const MAX_FILE_READ_CHARS = 120_000;
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
 const CLAUDE_CLI_ENGINE_NAME = "claude-cli";
+const PI_CLI_ENGINE_NAME = "pi-cli";
+const OPENCODE_CLI_ENGINE_NAME = "opencode-cli";
 const CLAUDE_CLI_DEFAULT_MODEL = "claude-sonnet-5";
 const RECAP_SOURCE_TOOL_PROFILE = "recap-source";
 const RECAP_SOURCE_OUTPUT_FILE = "recap-source.json";
@@ -222,7 +226,7 @@ export async function executeCodeAgentRun(
   // Without it, `AGENT_ENGINE=codex-cli` skips this Codex branch and is handed
   // to resolveEngine (LLM providers only), which throws `Unknown engine`.
   const requestedEngine = normalizeRequestedEngine(
-    metadataString(existing, "engine") ?? process.env.AGENT_ENGINE,
+    metadataString(existing, "engine") ?? getAppConfig().agent.engine,
   );
   if (requestedEngine === CODEX_CLI_ENGINE_NAME) {
     return executeCodexCliRun({
@@ -237,6 +241,32 @@ export async function executeCodeAgentRun(
   }
   if (requestedEngine === CLAUDE_CLI_ENGINE_NAME) {
     return executeClaudeCliRun({
+      run: existing,
+      prompt: executionPrompt,
+      model: options.model ?? metadataString(existing, "model"),
+      reasoningEffort:
+        options.reasoningEffort ?? metadataReasoningEffort(existing),
+      permissionMode: existing.permissionMode ?? "full-auto",
+      stdout: options.stdout,
+      streamToolOutputToStdout,
+      signal: options.signal,
+    });
+  }
+  if (requestedEngine === PI_CLI_ENGINE_NAME) {
+    return executePiCliRun({
+      run: existing,
+      prompt: executionPrompt,
+      model: options.model ?? metadataString(existing, "model"),
+      reasoningEffort:
+        options.reasoningEffort ?? metadataReasoningEffort(existing),
+      permissionMode: existing.permissionMode ?? "full-auto",
+      stdout: options.stdout,
+      streamToolOutputToStdout,
+      signal: options.signal,
+    });
+  }
+  if (requestedEngine === OPENCODE_CLI_ENGINE_NAME) {
+    return executeOpenCodeCliRun({
       run: existing,
       prompt: executionPrompt,
       model: options.model ?? metadataString(existing, "model"),
@@ -280,7 +310,7 @@ export async function executeCodeAgentRun(
   const modelCandidate =
     options.model ??
     metadataString(existing, "model") ??
-    process.env.AGENT_MODEL ??
+    getAppConfig().agent.model ??
     (await getStoredModelForEngine(engine).catch(() => undefined)) ??
     engine.defaultModel;
   const model = normalizeModelForEngine(engine, modelCandidate);
@@ -632,6 +662,7 @@ async function executeClaudeCliRun(options: {
     options.streamToolOutputToStdout ??
     process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
   const assistantText: string[] = [];
+  const claudeToolNames = new Map<string, string>();
 
   appendCodeAgentTranscriptEvent({
     runId: options.run.id,
@@ -661,7 +692,11 @@ async function executeClaudeCliRun(options: {
       effort: reasoningEffort,
       signal: options.signal,
       onEvent: (event) => {
-        const text = readClaudeParticipantAssistantText(event);
+        const text = appendClaudeParticipantTranscriptEvents(
+          options.run.id,
+          event,
+          claudeToolNames,
+        );
         if (!text) return;
         assistantText.push(text);
         if (streamToolOutputToStdout) options.stdout?.write(text);
@@ -804,6 +839,7 @@ function buildClaudeCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
     process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   return [
     `You are running from Agent-Native Code in ${run.cwd || process.cwd()}.`,
+    `Treat ${run.cwd || process.cwd()} as the only project checkout for this run. Keep shell commands, file operations, git pushes, and pull requests rooted there; do not use absolute paths or .. to reach another checkout.`,
     "Follow the repository AGENTS.md and any relevant skill instructions.",
     ...(additionalSkillsRoot
       ? [
@@ -830,19 +866,276 @@ function normalizeClaudeCliEffort(
   return effort && effort !== "auto" ? effort : undefined;
 }
 
-function readClaudeParticipantAssistantText(
+function appendClaudeParticipantTranscriptEvents(
+  runId: string,
   event: ClaudeCodeParticipantEvent,
+  toolNames: Map<string, string>,
 ): string | null {
-  if (event.type !== "assistant") return null;
+  const eventType = cliStringValue(event.type);
   const message = asRecordValue(event.message);
-  const content = message?.content;
-  if (!Array.isArray(content)) return null;
-  const text = content
-    .filter((part): part is Record<string, unknown> => isRecordValue(part))
-    .map((part) => (typeof part.text === "string" ? part.text : ""))
-    .filter(Boolean)
-    .join("");
-  return text.trim() || null;
+  const messageContent = Array.isArray(message?.content)
+    ? message.content.filter((part): part is Record<string, unknown> =>
+        isRecordValue(part),
+      )
+    : [];
+  const content =
+    messageContent.length > 0
+      ? messageContent
+      : eventType === "tool_use" || eventType === "tool_result"
+        ? [event]
+        : [];
+  let assistantText = "";
+
+  for (const part of content) {
+    const partType = cliStringValue(part.type);
+    if (eventType === "assistant" && partType === "text") {
+      const text = typeof part.text === "string" ? part.text : "";
+      if (!text.trim()) continue;
+      assistantText += text;
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "system",
+        message: text,
+        metadata: { role: "assistant", source: "claude-cli" },
+      });
+      continue;
+    }
+
+    if (eventType === "assistant" && partType === "thinking") {
+      const thinking = cliTranscriptValue(part.thinking ?? part.text);
+      if (!thinking) continue;
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: thinking,
+        metadata: { type: "thinking", source: "claude-cli" },
+      });
+      continue;
+    }
+
+    if (partType === "tool_use") {
+      const toolName =
+        cliStringValue(part.name) ?? cliStringValue(part.tool_name) ?? "tool";
+      const toolCallId = cliStringValue(part.id);
+      if (toolCallId) toolNames.set(toolCallId, toolName);
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Running ${toolName}.`,
+        metadata: {
+          type: "tool_start",
+          tool: toolName,
+          input: part.input ?? {},
+          ...(toolCallId ? { toolCallId } : {}),
+          source: "claude-cli",
+        },
+      });
+      continue;
+    }
+
+    if (partType === "tool_result") {
+      const toolCallId = cliStringValue(part.tool_use_id);
+      const toolName =
+        cliStringValue(part.tool_name) ??
+        (toolCallId ? toolNames.get(toolCallId) : undefined) ??
+        "tool";
+      const result = cliTranscriptValue(
+        part.content ?? part.output ?? part.result ?? "",
+      );
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Finished ${toolName}.`,
+        metadata: {
+          type: "tool_done",
+          tool: toolName,
+          result,
+          ...(part.is_error === true ? { isError: true } : {}),
+          ...(toolCallId ? { toolCallId } : {}),
+          source: "claude-cli",
+        },
+      });
+      if (toolCallId) toolNames.delete(toolCallId);
+    }
+  }
+
+  return assistantText.trim() || null;
+}
+
+function appendCodexCliTranscriptEvent(
+  runId: string,
+  event: Record<string, unknown>,
+): void {
+  const eventType = cliStringValue(event.type);
+  const item = asRecordValue(event.item);
+  if (eventType?.startsWith("item.") && item) {
+    const itemType = cliStringValue(item.type);
+    if (itemType === "agent_message") {
+      const text = cliStringValue(item.text ?? item.message ?? item.content);
+      if (text) {
+        appendCodeAgentTranscriptEvent({
+          runId,
+          kind: "system",
+          message: text,
+          metadata: {
+            role: "assistant",
+            source: "codex-cli",
+            cliEventType: eventType,
+            itemType,
+          },
+        });
+      }
+      return;
+    }
+
+    if (itemType === "reasoning") {
+      const text = cliTranscriptValue(item.text ?? item.summary);
+      if (text) {
+        appendCodeAgentTranscriptEvent({
+          runId,
+          kind: "status",
+          message: text,
+          metadata: {
+            type: "thinking",
+            source: "codex-cli",
+            cliEventType: eventType,
+            itemType,
+          },
+        });
+      }
+      return;
+    }
+
+    const toolName = codexCliToolName(itemType, item);
+    if (!toolName) return;
+    const toolCallId = cliStringValue(item.id);
+    const metadata = {
+      source: "codex-cli",
+      cliEventType: eventType,
+      itemType,
+      tool: toolName,
+      ...(toolCallId ? { toolCallId } : {}),
+    };
+    if (eventType === "item.started") {
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Running ${toolName}.`,
+        metadata: {
+          ...metadata,
+          type: "tool_start",
+          input: codexCliToolInput(item),
+        },
+      });
+    } else if (eventType === "item.completed") {
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Finished ${toolName}.`,
+        metadata: {
+          ...metadata,
+          type: "tool_done",
+          result: cliTranscriptValue(codexCliToolResult(item)),
+        },
+      });
+    } else {
+      appendCodeAgentTranscriptEvent({
+        runId,
+        kind: "status",
+        message: `Working with ${toolName}.`,
+        metadata: { ...metadata, type: "activity" },
+      });
+    }
+    return;
+  }
+
+  if (eventType === "error" || eventType === "turn.failed") {
+    const message = cliStringValue(event.message ?? event.error) ?? eventType;
+    appendCodeAgentTranscriptEvent({
+      runId,
+      kind: "status",
+      message,
+      metadata: { type: "error", source: "codex-cli", cliEventType: eventType },
+    });
+  }
+}
+
+function codexCliToolName(
+  itemType: string | undefined,
+  item: Record<string, unknown>,
+): string | null {
+  switch (itemType) {
+    case "command_execution":
+      return "bash";
+    case "file_change":
+      return "file-change";
+    case "mcp_tool_call":
+      return (
+        cliStringValue(item.name) ?? cliStringValue(item.tool) ?? "mcp-tool"
+      );
+    case "web_search":
+      return "web-search";
+    case "function_call":
+      return cliStringValue(item.name) ?? "function";
+    default:
+      return itemType?.includes("tool")
+        ? (cliStringValue(item.name) ?? itemType)
+        : null;
+  }
+}
+
+function codexCliToolInput(item: Record<string, unknown>): unknown {
+  if (typeof item.command === "string") return { command: item.command };
+  return item.arguments ?? item.input ?? item.params ?? item.changes ?? {};
+}
+
+function codexCliToolResult(item: Record<string, unknown>): unknown {
+  return (
+    item.aggregated_output ??
+    item.output ??
+    item.result ??
+    item.error ??
+    item.content ??
+    item.status ??
+    ""
+  );
+}
+
+function consumeCodexJsonLine(
+  line: string,
+  onEvent?: (event: Record<string, unknown>) => void,
+): void {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith("{")) return;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (isRecordValue(parsed)) onEvent?.(parsed);
+  } catch {
+    // coercion-ok: older CLI output is intentionally ignored when it is not JSON.
+    // Older Codex versions and test doubles can still emit human-readable
+    // stdout. Keep that output available to terminal callers without making
+    // the structured transcript parser fail the run.
+  }
+}
+
+function cliStringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function cliTranscriptValue(value: unknown): string {
+  if (typeof value === "string") {
+    return truncateBashOutput(
+      truncateCodingOutput(value, MAX_TOOL_OUTPUT_CHARS),
+    );
+  }
+  if (value == null) return "";
+  try {
+    return truncateBashOutput(
+      truncateCodingOutput(JSON.stringify(value) ?? "", MAX_TOOL_OUTPUT_CHARS),
+    );
+  } catch {
+    return truncateCodingOutput(String(value), MAX_TOOL_OUTPUT_CHARS);
+  }
 }
 
 function readClaudeParticipantResultText(
@@ -861,6 +1154,361 @@ function isRecordValue(value: unknown): value is Record<string, unknown> {
 
 function asRecordValue(value: unknown): Record<string, unknown> | null {
   return isRecordValue(value) ? value : null;
+}
+
+interface SimpleLocalCliRunOptions {
+  run: CodeAgentRunRecord;
+  prompt: string;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+  permissionMode: CodeAgentPermissionMode;
+  stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
+  signal?: AbortSignal;
+  engine: string;
+  label: string;
+  command: string;
+  args: string[];
+}
+
+async function executePiCliRun(options: {
+  run: CodeAgentRunRecord;
+  prompt: string;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+  permissionMode: CodeAgentPermissionMode;
+  stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
+  signal?: AbortSignal;
+}): Promise<CodeAgentRunRecord | null> {
+  const model = normalizeLocalCliModel(options.model, PI_CLI_ENGINE_NAME);
+  const thinking = normalizePiCliThinking(options.reasoningEffort);
+  const args = ["--print", "--mode", "text", "--no-session"];
+  if (options.permissionMode === "read-only") {
+    args.push("--tools", "read,grep,find,ls");
+  }
+  if (model) args.push("--model", model);
+  if (thinking) args.push("--thinking", thinking);
+  args.push(buildLocalCliPrompt(options.run, options.prompt));
+  return executeSimpleLocalCliRun({
+    ...options,
+    engine: PI_CLI_ENGINE_NAME,
+    label: "Pi",
+    command: "pi",
+    args,
+    model,
+  });
+}
+
+async function executeOpenCodeCliRun(options: {
+  run: CodeAgentRunRecord;
+  prompt: string;
+  model?: string;
+  reasoningEffort?: ReasoningEffort;
+  permissionMode: CodeAgentPermissionMode;
+  stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
+  signal?: AbortSignal;
+}): Promise<CodeAgentRunRecord | null> {
+  const model = normalizeLocalCliModel(options.model, OPENCODE_CLI_ENGINE_NAME);
+  const variant = normalizeOpenCodeVariant(options.reasoningEffort);
+  const cwd = options.run.cwd || process.cwd();
+  const args = ["run", "--format", "default", "--dir", cwd];
+  if (options.permissionMode === "read-only") {
+    args.push("--agent", "plan");
+  }
+  if (model) args.push("--model", model);
+  if (variant) args.push("--variant", variant);
+  args.push(buildLocalCliPrompt(options.run, options.prompt));
+  return executeSimpleLocalCliRun({
+    ...options,
+    engine: OPENCODE_CLI_ENGINE_NAME,
+    label: "OpenCode",
+    command: "opencode",
+    args,
+    model,
+  });
+}
+
+async function executeSimpleLocalCliRun(
+  options: SimpleLocalCliRunOptions,
+): Promise<CodeAgentRunRecord | null> {
+  const cwd = options.run.cwd || process.cwd();
+  const streamToolOutputToStdout =
+    options.streamToolOutputToStdout ??
+    process.env.AGENT_NATIVE_CODE_AGENT_STRUCTURED_STDOUT !== "1";
+  appendCodeAgentTranscriptEvent({
+    runId: options.run.id,
+    kind: "status",
+    message: `Starting ${options.label} locally.`,
+    metadata: {
+      status: "running",
+      phase: "executing",
+      engine: options.engine,
+    },
+  });
+
+  try {
+    const result = await runLocalCliProcess({
+      command: options.command,
+      args: options.args,
+      cwd,
+      prompt: options.prompt,
+      stdout: options.stdout,
+      streamToolOutputToStdout,
+      signal: options.signal,
+    });
+    if (result.exitCode !== 0) {
+      const interrupted = options.signal?.aborted === true;
+      const message =
+        result.error ||
+        result.stderr.trim() ||
+        `${options.label} exited with ${result.exitSignal ?? result.exitCode}.`;
+      const summary = interrupted
+        ? `${options.label} run paused.`
+        : `${options.label} run failed: ${message}`;
+      if (streamToolOutputToStdout) options.stdout?.write(`\n${summary}\n`);
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message: summary,
+        metadata: {
+          status: interrupted ? "paused" : "errored",
+          phase: interrupted ? "paused" : "error",
+          engine: options.engine,
+          exitCode: result.exitCode,
+          exitSignal: result.exitSignal,
+        },
+      });
+      return updateCodeAgentRunRecord(options.run.id, {
+        status: interrupted ? "paused" : "errored",
+        phase: interrupted ? "paused" : "error",
+        progress: {
+          label: interrupted ? "Paused" : "Error",
+          completed: 0,
+          total: 1,
+          failed: interrupted ? 0 : 1,
+          percent: 0,
+        },
+        metadata: {
+          ...(interrupted
+            ? { executionPausedAt: new Date().toISOString() }
+            : {
+                executionError: message,
+                executionErroredAt: new Date().toISOString(),
+              }),
+          engine: options.engine,
+          ...(options.model ? { model: options.model } : {}),
+        },
+      });
+    }
+
+    const finalMessage =
+      result.stdout.trim() || `${options.label} run completed.`;
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "system",
+      message: finalMessage,
+      metadata: {
+        role: "assistant",
+        engine: options.engine,
+        ...(options.model ? { model: options.model } : {}),
+      },
+    });
+
+    const pendingFollowUp = dequeueCodeAgentFollowUp(options.run.id);
+    if (pendingFollowUp) {
+      const message =
+        pendingFollowUp.mode === "queued"
+          ? `${options.label} run completed; running queued follow-up.`
+          : `${options.label} run completed; applying steering follow-up.`;
+      appendCodeAgentTranscriptEvent({
+        runId: options.run.id,
+        kind: "status",
+        message,
+        metadata: {
+          status: "running",
+          phase: "follow-up",
+          followUpId: pendingFollowUp.id,
+          followUpMode: pendingFollowUp.mode,
+          engine: options.engine,
+        },
+      });
+      if (pendingFollowUp.permissionMode) {
+        updateCodeAgentRunRecord(options.run.id, {
+          permissionMode: pendingFollowUp.permissionMode,
+        });
+      }
+      return executeCodeAgentRun({
+        runId: options.run.id,
+        prompt: pendingFollowUp.prompt,
+        attachments:
+          pendingFollowUp.attachments ??
+          userPromptAttachmentsForEvent(
+            options.run.id,
+            pendingFollowUp.eventId,
+          ),
+        appendUserEvent: false,
+        stdout: options.stdout,
+        streamToolOutputToStdout: options.streamToolOutputToStdout,
+        signal: options.signal,
+      });
+    }
+
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "status",
+      message: `${options.label} run completed.`,
+      metadata: {
+        status: "completed",
+        phase: "complete",
+        engine: options.engine,
+      },
+    });
+    return updateCodeAgentRunRecord(options.run.id, {
+      status: "completed",
+      phase: "complete",
+      needsApproval: false,
+      progress: {
+        label: "Complete",
+        completed: 1,
+        total: 1,
+        percent: 100,
+      },
+      metadata: {
+        executionCompletedAt: new Date().toISOString(),
+        engine: options.engine,
+        ...(options.model ? { model: options.model } : {}),
+        permissionMode: options.permissionMode,
+      },
+    });
+  } catch (error) {
+    const interrupted = options.signal?.aborted === true;
+    const message = error instanceof Error ? error.message : String(error);
+    const summary = interrupted
+      ? `${options.label} run paused.`
+      : `${options.label} run failed: ${message}`;
+    if (streamToolOutputToStdout) options.stdout?.write(`\n${summary}\n`);
+    appendCodeAgentTranscriptEvent({
+      runId: options.run.id,
+      kind: "status",
+      message: summary,
+      metadata: {
+        status: interrupted ? "paused" : "errored",
+        phase: interrupted ? "paused" : "error",
+        engine: options.engine,
+      },
+    });
+    return updateCodeAgentRunRecord(options.run.id, {
+      status: interrupted ? "paused" : "errored",
+      phase: interrupted ? "paused" : "error",
+      progress: {
+        label: interrupted ? "Paused" : "Error",
+        completed: 0,
+        total: 1,
+        failed: interrupted ? 0 : 1,
+        percent: 0,
+      },
+      metadata: {
+        ...(interrupted
+          ? { executionPausedAt: new Date().toISOString() }
+          : {
+              executionError: message,
+              executionErroredAt: new Date().toISOString(),
+            }),
+        engine: options.engine,
+        ...(options.model ? { model: options.model } : {}),
+      },
+    });
+  }
+}
+
+function runLocalCliProcess(options: {
+  command: string;
+  args: string[];
+  cwd: string;
+  prompt: string;
+  stdout?: NodeJS.WritableStream;
+  streamToolOutputToStdout?: boolean;
+  signal?: AbortSignal;
+}): Promise<CodexCliProcessResult> {
+  return new Promise((resolve) => {
+    let stdout = "";
+    let stderr = "";
+    let settled = false;
+    const child = spawn(options.command, options.args, {
+      cwd: options.cwd,
+      stdio: ["pipe", "pipe", "pipe"],
+      env: process.env,
+    });
+    const finish = (
+      result: Omit<CodexCliProcessResult, "stdout" | "stderr">,
+    ) => {
+      if (settled) return;
+      settled = true;
+      options.signal?.removeEventListener("abort", onAbort);
+      resolve({ ...result, stdout, stderr });
+    };
+    const onAbort = () => child.kill("SIGTERM");
+    if (options.signal) {
+      if (options.signal.aborted) onAbort();
+      else options.signal.addEventListener("abort", onAbort, { once: true });
+    }
+    child.stdout?.on("data", (chunk) => {
+      const text = chunk.toString();
+      stdout += text;
+      if (options.streamToolOutputToStdout ?? true) {
+        options.stdout?.write(text);
+      }
+    });
+    child.stderr?.on("data", (chunk) => {
+      const text = chunk.toString();
+      stderr += text;
+      if (options.streamToolOutputToStdout ?? true) {
+        options.stdout?.write(text);
+      }
+    });
+    child.on("error", (error) =>
+      finish({
+        exitCode: null,
+        exitSignal: null,
+        error: error.message,
+      }),
+    );
+    child.on("close", (exitCode, exitSignal) =>
+      finish({ exitCode, exitSignal }),
+    );
+    // Pi and OpenCode receive the prompt as a positional argument. Close the
+    // pipe without sending it a second time.
+    child.stdin?.end();
+  });
+}
+
+function buildLocalCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
+  return buildClaudeCliPrompt(run, prompt);
+}
+
+function normalizeLocalCliModel(
+  model: string | undefined,
+  engine: string,
+): string | undefined {
+  const trimmed = model?.trim();
+  if (!trimmed || trimmed === "auto" || trimmed === engine) return undefined;
+  return trimmed;
+}
+
+function normalizePiCliThinking(
+  effort: ReasoningEffort | undefined,
+): string | undefined {
+  if (!effort || effort === "auto" || effort === "none") return undefined;
+  return effort === "max" ? "xhigh" : effort;
+}
+
+function normalizeOpenCodeVariant(
+  effort: ReasoningEffort | undefined,
+): string | undefined {
+  if (!effort || effort === "auto" || effort === "none") return undefined;
+  return effort;
 }
 
 async function executeCodexCliRun(options: {
@@ -894,6 +1542,7 @@ async function executeCodexCliRun(options: {
     "exec",
     "--color",
     "never",
+    "--json",
     "--skip-git-repo-check",
     "--ignore-user-config",
     "--output-last-message",
@@ -928,6 +1577,9 @@ async function executeCodexCliRun(options: {
       prompt: buildCodexCliPrompt(options.run, options.prompt),
       stdout: options.stdout,
       streamToolOutputToStdout,
+      onEvent: (event) => {
+        appendCodexCliTranscriptEvent(options.run.id, event);
+      },
       signal: options.signal,
     });
 
@@ -1070,11 +1722,13 @@ function runCodexCliProcess(options: {
   prompt: string;
   stdout?: NodeJS.WritableStream;
   streamToolOutputToStdout?: boolean;
+  onEvent?: (event: Record<string, unknown>) => void;
   signal?: AbortSignal;
 }): Promise<CodexCliProcessResult> {
   return new Promise((resolve) => {
     let stdout = "";
     let stderr = "";
+    let pendingJson = "";
     let settled = false;
     const child = spawn("codex", options.args, {
       cwd: options.cwd,
@@ -1099,6 +1753,13 @@ function runCodexCliProcess(options: {
     child.stdout?.on("data", (chunk) => {
       const text = chunk.toString();
       stdout += text;
+      pendingJson += text;
+      let newline = pendingJson.indexOf("\n");
+      while (newline !== -1) {
+        consumeCodexJsonLine(pendingJson.slice(0, newline), options.onEvent);
+        pendingJson = pendingJson.slice(newline + 1);
+        newline = pendingJson.indexOf("\n");
+      }
       if (options.streamToolOutputToStdout ?? true) {
         options.stdout?.write(text);
       }
@@ -1119,6 +1780,8 @@ function runCodexCliProcess(options: {
       });
     });
     child.on("exit", (exitCode, exitSignal) => {
+      if (pendingJson.trim())
+        consumeCodexJsonLine(pendingJson, options.onEvent);
       finish({ exitCode, exitSignal });
     });
     child.stdin?.end(options.prompt);
@@ -1139,6 +1802,7 @@ function buildCodexCliPrompt(run: CodeAgentRunRecord, prompt: string): string {
     process.env.AGENT_NATIVE_CODE_AGENT_SKILLS_ROOT?.trim();
   return [
     `You are running from Agent-Native Code in ${run.cwd || process.cwd()}.`,
+    `Treat ${run.cwd || process.cwd()} as the only project checkout for this run. Keep shell commands, file operations, git pushes, and pull requests rooted there; do not use absolute paths or .. to reach another checkout.`,
     "Follow the repository AGENTS.md and any relevant skill instructions.",
     ...(additionalSkillsRoot
       ? [
@@ -1534,12 +2198,12 @@ async function resolveExecutorEngine(
   registerBuiltinEngines();
   if (!hasAnyProviderCredential()) return null;
   return resolveEngine({
-    engineOption: requestedEngine ?? process.env.AGENT_ENGINE,
+    engineOption: requestedEngine ?? getAppConfig().agent.engine,
   });
 }
 
 function hasAnyProviderCredential(): boolean {
-  if (process.env.AGENT_ENGINE) return true;
+  if (getAppConfig().agent.engine) return true;
   if (PROVIDER_ENV_VARS.some((key) => Boolean(process.env[key]))) return true;
   return Boolean(
     process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY,
@@ -2005,6 +2669,7 @@ You bring a senior engineer's judgment to the work, but you let it arrive throug
 - When you search for text or files, reach first for \`rg\` or \`rg --files\`; they are much faster than \`grep\` or \`find\`. If \`rg\` is unavailable, use the next best tool without fuss.
 - Parallelize independent read-only work (file reads, searches) so you gather context quickly. Keep mutating steps ordered.
 - Read relevant files before editing them. Do not edit a file you have not actually read.
+- Treat ${cwd} as the only project checkout for this run. Keep shell commands, file operations, git pushes, and pull requests rooted there; do not use absolute paths or .. to reach another checkout.
 
 # Engineering judgment
 
@@ -2037,6 +2702,10 @@ Current run mode: ${mode} mode (${permissionMode}).
 - Done means verified, not generated. Match the check to the change: use the narrowest relevant test, typecheck, formatter, or direct invocation for a localized edit; use \`pnpm run prep\` for shared or cross-cutting changes. Do not restart a dev server or run broad checks as a generic post-edit ritual. Fix failures before you call it done, and keep any repository-required guards or doctor checks that apply.
 - In an Agent-Native app or workspace, also run \`pnpm agent-native:doctor\` (or \`pnpm doctor\`) after source changes. Treat every finding as a fix-required security issue; do not disable a guard without a reviewer-readable reason.
 - Do not claim a change works, tests pass, or a build succeeds unless you actually ran it and saw the result. If you could not verify something, say exactly what is unverified and why.
+
+# Schedules and cooperating threads
+
+In Auto mode, use \`manage-schedules\` for durable local desktop schedules. A global schedule starts a fresh thread on each interval; a thread schedule queues a message into an existing thread. Use \`intervalMinutes: 360\` for every 6 hours. Use \`manage-agent-threads\` to list threads, create a peer thread, or message another thread. Messages include source-agent metadata so the recipient can link back to the sender.
 
 # Tools beyond the basics
 
@@ -2126,6 +2795,7 @@ function createLocalCodeAgentActions(
       read: actions.read,
     };
   }
+  Object.assign(actions, createCodeAgentAgentTools(runId, cwd));
   return actions;
 }
 

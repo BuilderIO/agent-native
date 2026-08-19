@@ -9,24 +9,22 @@ metadata:
 
 Monitor PR #$ARGUMENTS in the current repo. Fix CI failures and human or bot review feedback until everything is green and no new feedback arrives for 30 minutes.
 
-## Non-Negotiable Branch Ownership Rule
+A worktree is a valid PR checkout. When monitoring from one, keep Git and
+GitHub commands in that worktree's cwd and current branch; do not copy changes
+to the shared checkout or require that an agent publish from the root checkout.
 
-During `/babysit-pr`, the PR branch is the unit of ownership. Every tick must
-commit and push **all current** non-gitignored local changes on the current
-branch, including changes made by the user or other concurrent agents. Do not
-limit commits to files you personally edited. A live lease protects a peer's
-editing session but does not hold that file or the rest of the branch back:
-re-read and stage the whole current file, never a partial hunk. Private/generated
-`bridge/**` and local `data/**` database or asset artifacts stay out of every
-slice. If the file-lease hook rejects one path, unstage only that path, push
-everything else immediately, and report the exact blocker. Do not stash, skip,
-or leave behind any other non-ignored path.
+## Branch-wide Snapshot Rule
 
-When the branch is actively changing, batch a slice for no more than two
-minutes, then push it to the existing PR so CI and review agents can work in
-parallel. Do not wait for a peer-owned file, generated mirror, or full prep
-before publishing the current snapshot. The final clean-tree and merge-soak
-gates still apply before merging.
+During `/babysit-pr`, the PR remains the unit of review and the shared checkout
+is the branch snapshot. At the first tick, record the status. Every later tick
+must publish all nonignored local work with `corepack pnpm ship:push`; the helper
+excludes `learnings.md`, `bridge/**`, and `data/**`. Never revert, stash,
+overwrite, or absorb concurrent work.
+
+When the branch is actively changing, publish a coherent snapshot for no more
+than two minutes, then push it to the existing PR so CI and review agents can
+work in parallel. The final clean-tree and merge-soak gates still apply before
+merging, except when the user explicitly invokes `/ship-now`.
 
 **If no PR number is given**, auto-detect it: get the current branch (`git branch --show-current`), find the open PR for it (`gh pr list --head <branch> --state open --json number --limit 1`). If no open PR exists, check recent merged/closed PRs. Only ask the user if no PR can be found.
 
@@ -41,37 +39,54 @@ gates still apply before merging.
 - **Cadence: tick every 60–120 seconds while the PR is active** (CI running, recent pushes, feedback within the last few minutes, or a fast-moving branch where concurrent agents keep adding files). Only relax toward ~3 minutes once the PR is genuinely quiet (all checks green, no new commits or comments for a while). A churning branch needs the tight end of that range — new local files and new CI results show up constantly and must be picked up promptly.
 - **NEVER stall waiting.** Do not end a turn "waiting" for CI, a review, or a background command without a scheduled wake-up. If you kick off a background command (e.g. `pnpm run prep`), you may rely on its completion notification **but always also schedule a fallback `ScheduleWakeup`** — notifications can silently fail to fire, and an unguarded wait becomes an indefinite stall. The loop must keep ticking regardless.
 - **Do not let slow or flaky local validation block the loop.** `pnpm run prep` / `vitest` can hang or take minutes, and on a branch with concurrent edits a full local run is contaminated by other agents' in-flight files anyway. If local validation is slow, hung, or unreliable, **push and let the CI you are already monitoring be the validation gate** — a red CI job is caught and fixed on the very next tick. Prefer pushing your work over holding it for a clean local run.
-- **Every tick, expect new local files.** On an active shared branch, concurrent agents commit into the same checkout continuously. Re-run Step 0 every single tick and push every current non-ignored path — never assume "I already pushed, the tree is clean".
+- **Every tick, expect new local files.** On an active shared branch, concurrent
+  agents may edit the checkout continuously. Re-run Step 0 every single tick
+  and publish all nonignored changes in the current branch snapshot.
 
 ## Each tick
 
 **Step 0 — always do this first, before anything else:**
 
 ```bash
-pnpm ship:push
+git status --short
+git diff --name-only
+git log --oneline origin/$(git branch --show-current)..HEAD
 ```
 
-One command: it stages every current non-ignored path as whole files
-(including leased and peer-owned ones), excludes only `bridge/**`, `data/**`,
-and `learnings.md`, commits, pushes, and verifies the remote sha moved. It also
-covers the case where the tree is clean but commits are unpushed. Whatever it
-prints under "left behind" goes into your tick report by name.
+Run `corepack pnpm ship:push` after the status check to commit and push all
+nonignored local work. If the tree is clean but the branch has unpushed commits,
+push those commits directly.
 
-Prefer a real message for a coherent slice — `pnpm ship:push -m "fix(analytics):
-update sidebar layout"` — over the generated one. Never write "chore: sweep
-concurrent agent changes".
+Every tick starts here, no exceptions: on an active shared branch local files
+can change within minutes, so re-check before every push.
 
-Every tick starts here, no exceptions: on an active shared branch the tree is
-dirty again within minutes, so "I already pushed" is never a reason to skip it.
-The worktree need not be clean until the final merge soak.
-
-**Never `git stash` concurrent changes.** Stashes get orphaned, and a stash named `babysit-tickN-concurrent-work-*` left on the source branch while babysit-pr's PR ships without it is exactly how real work has been lost (2026-05-05: stash@{0} held a Sentry-instrumentation feature for clips, including a new `analytics.ts` module, that was meant to merge with PR #511's followup but stayed stuck in the stash list because babysit stashed instead of committing). If you see local changes you don't recognize, that's still other agents' work — commit it with a descriptive message based on the diff, don't hide it in a stash.
+**Never `git stash` concurrent changes.** Stashes get orphaned, and a stash named `babysit-tickN-concurrent-work-*` left on the source branch while babysit-pr's PR ships without it is exactly how real work gets lost. If you see local changes you don't recognize, preserve them for their owner; do not hide them in a stash or commit them here.
 
 **Step 1 — check for merge conflicts:**
 
 1. Run `gh pr view $ARGUMENTS --json mergeable --jq '.mergeable'`.
-2. If `CONFLICTING`: bring `main` in and resolve. **Commit/push any local changes first (Step 0) so the tree is clean**, then prefer a **merge** over a rebase — `git fetch origin main && git merge --no-edit origin/main` — because this branch is shared with concurrent agents and a rebase would rewrite history and require a force-push that can clobber their unpushed commits. Resolve the conflicts (for `pnpm-lock.yaml`, take one side with `git checkout --theirs -- pnpm-lock.yaml` then regenerate with `pnpm install --lockfile-only` against the merged `package.json`), `git add` the resolved files, complete the merge commit, and push (a normal push, never `--force`). This resets the soak timer. Only rebase if the user explicitly asks for a linear history.
+2. If `CONFLICTING`: bring `main` in and resolve. **Publish the complete
+   current snapshot first (Step 0)**, then prefer a **merge** over a rebase —
+   `git fetch origin main && git merge --no-edit
+   origin/main` — because this branch is shared with concurrent agents and a
+   rebase would rewrite history and require a force-push that can clobber their
+   unpushed commits. Resolve the conflicts (for `pnpm-lock.yaml`, take one side
+   with `git checkout --theirs -- pnpm-lock.yaml` then regenerate with `pnpm
+   install --lockfile-only` against the merged `package.json`), complete the
+   merge commit, and push (a normal push, never `--force`). This resets the soak
+   timer. Only rebase if the user explicitly asks for a linear history.
 3. If `MERGEABLE` or `UNKNOWN`: proceed. (`mergeStateStatus: BLOCKED` with `mergeable: MERGEABLE` just means required checks are still pending/red — that is not a conflict; keep going.)
+
+## Latest-feedback handoff
+
+If the PR body or branch cites `/review-latest-feedback`, treat its start
+cursor, grouped reports, evidence links, and disposition table as part of the
+PR's review state. At the first tick, record that handoff. On every later tick
+before the merge gate, re-read the handoff and check for new Slack replies,
+GitHub feedback, and Sentry findings after its cursor using the configured
+connectors. A new actionable report resets the soak timer and needs a fix or a
+concise reply before merge. If a connector is unavailable, record it as
+unavailable in the recap rather than treating it as no findings.
 
 **Then proceed with PR checks:**
 
@@ -106,7 +121,7 @@ The worktree need not be clean until the final merge soak.
    - Read the relevant files
    - Fix the issues
    - Run `pnpm run prep` to verify locally
-   - Commit and push
+   - Run `corepack pnpm ship:push` to publish the complete fix snapshot
    - Reply inline to each addressed inline comment, or post a PR comment summarizing addressed items when the feedback was in a review body
    - Reset the 30-min timer
 
@@ -114,7 +129,7 @@ The worktree need not be clean until the final merge soak.
    - Investigate the failure logs
    - Fix the root cause
    - Run `pnpm run prep` locally
-   - Commit and push
+   - Run `corepack pnpm ship:push` to publish the complete fix snapshot
    - Reset the 30-min timer
 
    **Special case: missing changeset.** If the failing job is `Require changeset for publishable package changes` (from `.github/workflows/changeset-check.yml`), do NOT treat it as a code bug. The job log includes a structured line `MISSING_CHANGESET_PACKAGES: pkg1,pkg2`. Parse that, then write a `.changeset/<short-slug>.md` directly — do NOT run the interactive `pnpm changeset add`. Use the PR title and diff to decide bump type (default to `patch` for bugfixes / docs / refactors; `minor` for additive features; `major` only when the PR description clearly signals breaking). Shape:
@@ -164,15 +179,21 @@ Fix issues that are:
 
 **Never auto-merge by default.** Only merge when the user explicitly asks you to.
 
+`/ship-now` is an explicit fast-path exception. When it is invoked, follow
+`ship-now`'s local targeted-recovery gate and immediate admin-merge rule instead
+of waiting for this section's remote-CI and soak requirements.
+
 When the user does ask to merge, all of these must be true **simultaneously for 10 consecutive minutes** before merging:
 
-1. **No local uncommitted changes** — `git status --short` must be empty
-2. **No unpushed commits** — `git log --oneline origin/<branch>..HEAD` must be empty
+1. **No local uncommitted changes** except the documented routine exclusions
+2. **No unpushed commits** — `git log --oneline origin/<branch>..HEAD` must be
+   empty
 3. **All GitHub Actions CI green** — Build, Lint, Test, Typecheck, Scaffold E2E, Guard
 4. **All review comments addressed** — every human/bot inline comment and review-body item has a fix or a reply
 5. **No merge conflicts** — `gh pr view --json mergeable --jq '.mergeable'` must be `MERGEABLE`
 
-The 10-minute soak timer **resets to zero** whenever you push anything, CI fails, a new review comment arrives, merge conflicts appear, or local changes are found and committed.
+The 10-minute soak timer **resets to zero** whenever the branch is pushed, CI
+fails, a new review comment arrives, or merge conflicts appear.
 
 Only after 10 consecutive clean minutes, force merge with `gh pr merge <number> --squash --admin`.
 

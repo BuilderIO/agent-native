@@ -68,6 +68,69 @@ export function isProviderConnectionError(err: unknown): boolean {
   return isProviderConnectionErrorMessage(describeErrorWithCauses(err));
 }
 
+/**
+ * The single context-window-overflow classifier, shared by the layer that reads
+ * a provider's raw reply and the layer that decides to trim and retry.
+ *
+ * It lives here, beside the transport classifier, because the Builder gateway
+ * reports an overflow as an ordinary 400 `invalid_request_error` whose prose is
+ * the only carrier — and on a Builder-credits deployment that prose is replaced
+ * by one visitor line before any agent-level predicate sees it. The engine
+ * therefore runs this against the RAW reply and hands the verdict on as a
+ * structural field; `isContextTooLongError` (production-agent) keeps calling it
+ * for every other engine, which still delivers its own message intact.
+ */
+export function isContextOverflowMessage(message: string): boolean {
+  const msg = message.toLowerCase();
+  return (
+    msg.includes("context_length_exceeded") ||
+    msg.includes("input_too_long") ||
+    msg.includes("too many tokens") ||
+    msg.includes("prompt is too long") ||
+    msg.includes("reduce the length") ||
+    // Gemini phrasing
+    msg.includes("input token count exceeds") ||
+    msg.includes("request too large")
+  );
+}
+
+/**
+ * The Builder gateway's own 500 envelope, which is the whole message: an
+ * apology sentence plus a correlation id, e.g. "Sorry, we ran into an issue
+ * processing your request. ERROR ID: 0f3c...". The apology prose varies; the
+ * correlation id does not, so that is what the predicate below anchors on.
+ */
+export const BUILDER_GATEWAY_INTERNAL_ERROR_CODE =
+  "builder_gateway_internal_error";
+
+const BUILDER_GATEWAY_ERROR_ID_PATTERN = /\berror id:\s*([0-9a-f]+)\b/i;
+const BUILDER_GATEWAY_ERROR_ID_MIN_CHARS = 8;
+
+/**
+ * The gateway attaches that envelope to an unhandled 500, and it arrives two
+ * ways: as an HTTP body, which is already retried because 500 is in the
+ * engine's retryable status set, and as an in-stream error frame after the
+ * gateway has already answered 200, where there is no status to read and the
+ * prose carries no keyword any other predicate here matches. Naming it is what
+ * makes the second path behave like the first instead of dying uncoded on the
+ * first attempt.
+ */
+export function isBuilderGatewayInternalErrorMessage(message: string): boolean {
+  const match = BUILDER_GATEWAY_ERROR_ID_PATTERN.exec(message);
+  return (
+    match !== null && match[1].length >= BUILDER_GATEWAY_ERROR_ID_MIN_CHARS
+  );
+}
+
+/** The overflow codes a provider or gateway may report instead of prose. */
+export function isContextOverflowCode(code: string | undefined): boolean {
+  const normalized = (code ?? "").toLowerCase();
+  return (
+    normalized.includes("context_length") ||
+    normalized.includes("input_too_long")
+  );
+}
+
 /** Classification fields an AI SDK provider failure carries. */
 export interface ProviderErrorClassification {
   errorCode?: string;
@@ -215,6 +278,11 @@ export function classifyTerminalErrorCode(
     )
   ) {
     return "provider_network_error";
+  }
+  // Last, so a gateway 500 whose body happens to quote a more specific upstream
+  // failure keeps that classification instead of collapsing to this one.
+  if (isBuilderGatewayInternalErrorMessage(message)) {
+    return BUILDER_GATEWAY_INTERNAL_ERROR_CODE;
   }
   return undefined;
 }

@@ -1,4 +1,5 @@
 import { AgentSidebar } from "@agent-native/core/client/agent-chat";
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import {
   ChatFirstAppPane,
   defaultChatFirstCopy,
@@ -11,19 +12,37 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { withBuilderUtmTrackingParams } from "@agent-native/core/shared/builder-link-tracking";
-import { IconArrowLeft, IconClockHour4 } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  IconAlertTriangle,
+  IconArrowLeft,
+  IconClockHour4,
+} from "@tabler/icons-react";
+import { useTheme } from "next-themes";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router";
 
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
+  mergeChatFirstWorkspaceApps,
+  isWorkspaceSsoApp,
+  navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppDirectHref,
   workspaceAppEmbedTarget,
   workspaceAppHref,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
 import { DISPATCH_WORKSPACE_SSO_FLAG } from "../shared/feature-flags";
+import { workspaceAppChatProxyPath } from "../shared/workspace-app-chat";
 import { ActionQueryError } from "./action-query-error";
+import { Alert, AlertDescription } from "./ui/alert";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Skeleton } from "./ui/skeleton";
@@ -39,11 +58,184 @@ interface EmbedSessionInput {
   chrome: "minimal";
 }
 
+interface GrantedWorkspaceAppSummary {
+  id: string;
+  name: string;
+  url?: string | null;
+}
+
+interface GrantedWorkspaceAppsResult {
+  apps: GrantedWorkspaceAppSummary[];
+}
+
+type WorkspaceAppTheme = "light" | "dark";
+function buildWorkspaceAppThemeUpdate(theme: WorkspaceAppTheme) {
+  return {
+    type: "agent-native-theme-update" as const,
+    theme,
+    isDark: theme === "dark",
+  };
+}
+
 export function buildChatFirstEmbedSessionInput(
   appId: string,
   path: string,
 ): EmbedSessionInput {
   return { app: appId, path, chrome: "minimal" };
+}
+
+async function readWorkspaceAppChatProxyError(
+  response: Response,
+): Promise<string> {
+  let body: string;
+  try {
+    body = await response.text();
+  } catch {
+    // coercion-ok: an unreadable body is reported as such, not as an empty error.
+    return `Agent chat proxy returned ${response.status} with an unreadable body.`;
+  }
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown };
+    if (typeof parsed.error === "string" && parsed.error) return parsed.error;
+  } catch {
+    // coercion-ok: a non-JSON body is still reportable as the status line.
+  }
+  return body.trim() || `Agent chat proxy returned ${response.status}.`;
+}
+
+/**
+ * Point the app pane's chat rail at the app's OWN agent through the Dispatch
+ * proxy, and prove the proxy answers before claiming it works. A rail that
+ * quietly fell back to Dispatch's agent would look identical while running the
+ * wrong tools, instructions, and app resources, so a failed probe is a visible
+ * error state instead.
+ */
+function useWorkspaceAppChatApi(appId: string) {
+  const apiUrl = useMemo(
+    () => agentNativePath(workspaceAppChatProxyPath(appId)),
+    [appId],
+  );
+  const [attempt, setAttempt] = useState(0);
+  const [unavailable, setUnavailable] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    setUnavailable(false);
+    // `/mode` is the app's own dev-mode surface: reaching it proves the proxy
+    // minted an app session and the app's agent-chat routes answer.
+    void fetch(`${apiUrl}/mode`, { credentials: "include" })
+      .then(async (response) => {
+        if (response.ok) return;
+        throw new Error(await readWorkspaceAppChatProxyError(response));
+      })
+      .catch((cause: unknown) => {
+        if (cancelled) return;
+        console.warn(
+          `[dispatch] app chat proxy unavailable for ${appId}`,
+          cause,
+        );
+        setUnavailable(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [apiUrl, appId, attempt]);
+
+  return {
+    apiUrl,
+    unavailable,
+    retry: useCallback(() => setAttempt((value) => value + 1), []),
+  };
+}
+
+export interface WorkspaceAppChatRailProps {
+  appId: string;
+  appName: string;
+  children: ReactNode;
+  copy?: ChatFirstCopy;
+  agentPageHref?: string;
+  onFullscreenRequest?: () => void;
+}
+
+/**
+ * The chat beside an open workspace app. Every surface that hosts an app pane
+ * must go through here so the rail is always the app's own agent — same tools,
+ * AGENTS.md, skills, app-scoped resources, and dev-mode surface as the app's
+ * native chat — and so an unreachable app is one visible error state rather
+ * than a per-surface silent handoff back to Dispatch's agent.
+ */
+export function WorkspaceAppChatRail({
+  appId,
+  appName,
+  children,
+  copy = defaultChatFirstCopy,
+  agentPageHref,
+  onFullscreenRequest,
+}: WorkspaceAppChatRailProps) {
+  const t = useT();
+  const appChat = useWorkspaceAppChatApi(appId);
+
+  if (appChat.unavailable) {
+    return (
+      <div className="flex h-full min-h-0">
+        <div
+          data-dispatch-app-chat-unavailable
+          className="w-88 shrink-0 overflow-auto border-r p-4"
+        >
+          <Alert variant="destructive">
+            <IconAlertTriangle className="size-4" />
+            <AlertDescription className="flex flex-wrap items-center justify-between gap-3">
+              <span>
+                {t("dispatch.pages.appChatUnavailable", {
+                  defaultValue:
+                    "Dispatch could not connect to {{name}}'s agent, so its chat is unavailable here.",
+                  name: appName,
+                })}
+              </span>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={appChat.retry}
+              >
+                {copy("retry")}
+              </Button>
+            </AlertDescription>
+          </Alert>
+        </div>
+        <div className="min-w-0 flex-1">{children}</div>
+      </div>
+    );
+  }
+
+  return (
+    <AgentSidebar
+      position="left"
+      defaultOpen
+      openStorageKey="dispatch-app-chat"
+      storageKey={`dispatch-app-chat:${appId}`}
+      scope={{
+        type: "workspace-app",
+        id: appId,
+        label: appName,
+        contextKey: `workspace-app:${appId}`,
+      }}
+      // The app's own server answers this chat, so its tools, AGENTS.md,
+      // skills, app-scoped resources, and dev-mode surface are the real ones
+      // rather than a copy maintained inside Dispatch.
+      apiUrl={appChat.apiUrl}
+      agentChatSurface="app"
+      showTabBar
+      suppressInlineOpenApp
+      dynamicSuggestions={false}
+      suggestions={[]}
+      emptyStateText={`Ask about ${appName}`}
+      {...(agentPageHref ? { agentPageHref } : {})}
+      {...(onFullscreenRequest ? { onFullscreenRequest } : {})}
+    >
+      {children}
+    </AgentSidebar>
+  );
 }
 
 export interface WorkspaceAppFrameApp {
@@ -55,6 +247,7 @@ export interface WorkspaceAppFrameApp {
 
 interface WorkspaceAppFrameProps {
   app: WorkspaceAppFrameApp;
+  navigateToTopWindow?: (href: string) => boolean | void;
   /** Chat-first app tabs use their own route while standalone hosts use app metadata. */
   embedPath?: string;
   /** Chat-first app surfaces own the parent chat rail around the iframe. */
@@ -64,15 +257,38 @@ interface WorkspaceAppFrameProps {
 
 export function WorkspaceAppFrame({
   app,
+  navigateToTopWindow = navigateToWorkspaceApp,
   embedPath,
   chatSidebar = false,
   copy = defaultChatFirstCopy,
 }: WorkspaceAppFrameProps) {
+  const { resolvedTheme } = useTheme();
+  const theme: WorkspaceAppTheme =
+    resolvedTheme === "dark" || resolvedTheme === "light"
+      ? resolvedTheme
+      : typeof document !== "undefined" &&
+          document.documentElement.classList.contains("dark")
+        ? "dark"
+        : "light";
   const [embedUrl, setEmbedUrl] = useState<string | null>(null);
   const [embedError, setEmbedError] = useState<Error | null>(null);
+  const [isDirectFallback, setIsDirectFallback] = useState(false);
   const [embedAttempt, setEmbedAttempt] = useState(0);
+  const [topWindowNavigationFailed, setTopWindowNavigationFailed] =
+    useState(false);
   const embedFrameRef = useRef<HTMLIFrameElement>(null);
+  const postThemeToFrame = useCallback(() => {
+    embedFrameRef.current?.contentWindow?.postMessage(
+      buildWorkspaceAppThemeUpdate(theme),
+      "*",
+    );
+  }, [theme]);
+  const handleFrameLoad = useCallback(() => {
+    postThemeToFrame();
+    if (isDirectFallback) setEmbedError(null);
+  }, [isDirectFallback, postThemeToFrame]);
   const workspaceSsoEnabled = useFeatureFlag(DISPATCH_WORKSPACE_SSO_FLAG.key);
+  const useWorkspaceSso = workspaceSsoEnabled && isWorkspaceSsoApp(app);
   const createEmbedSession = useActionMutation<
     EmbedSessionResult,
     EmbedSessionInput
@@ -91,6 +307,23 @@ export function WorkspaceAppFrame({
     path: app.path ?? "",
     url: app.url,
   });
+  const topWindowHref = useMemo(() => {
+    if (embedPath !== undefined) {
+      return workspaceAppDirectHref(
+        { path: app.path, url: app.url },
+        embedPath,
+      );
+    }
+
+    const target = workspaceAppEmbedTarget({
+      path: app.path ?? "",
+      url: app.url,
+    });
+    return target.url ?? target.path ?? null;
+  }, [app.path, app.url, embedPath]);
+  const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
+  const topWindowSsoAttemptKey = `${app.id}\u0000${app.path ?? ""}\u0000${app.url ?? ""}\u0000${embedPath ?? ""}\u0000${embedAttempt}`;
+  const topWindowSsoAttemptedRef = useRef<string | null>(null);
   const embedInput = useMemo<EmbedSessionInput | null>(() => {
     if (embedPath !== undefined) {
       return buildChatFirstEmbedSessionInput(app.id, embedPath);
@@ -104,29 +337,97 @@ export function WorkspaceAppFrame({
   }, [app.id, app.path, app.url, appHref, embedPath]);
 
   useEffect(() => {
-    if (!embedInput) return;
+    if (openInTopWindow && useWorkspaceSso && embedInput) {
+      setTopWindowNavigationFailed(false);
+      return;
+    }
+    if (!openInTopWindow) {
+      setTopWindowNavigationFailed(false);
+      return;
+    }
+    if (!topWindowHref) {
+      setTopWindowNavigationFailed(true);
+      return;
+    }
+
+    let didNavigate = false;
+    try {
+      didNavigate = navigateToTopWindow(topWindowHref) !== false;
+    } catch {
+      didNavigate = false;
+    }
+    setTopWindowNavigationFailed(!didNavigate);
+  }, [
+    embedInput,
+    navigateToTopWindow,
+    openInTopWindow,
+    topWindowHref,
+    useWorkspaceSso,
+  ]);
+
+  useEffect(() => {
+    const useTopWindowSso = openInTopWindow && useWorkspaceSso && !!embedInput;
+    if (
+      !embedInput ||
+      (openInTopWindow && !useWorkspaceSso && !topWindowNavigationFailed)
+    ) {
+      return;
+    }
+    if (
+      useTopWindowSso &&
+      topWindowSsoAttemptedRef.current === topWindowSsoAttemptKey
+    ) {
+      return;
+    }
+    if (useTopWindowSso) {
+      topWindowSsoAttemptedRef.current = topWindowSsoAttemptKey;
+    }
     let cancelled = false;
     setEmbedUrl(null);
     setEmbedError(null);
-    const createSession = workspaceSsoEnabled
+    setIsDirectFallback(false);
+    const createSession = useWorkspaceSso
       ? createWorkspaceSsoEmbedSession
       : createEmbedSession;
     void createSession
       .mutateAsync(embedInput)
       .then((result) => {
-        if (!cancelled) setEmbedUrl(result.startUrl);
+        if (cancelled) return;
+        if (useTopWindowSso) {
+          let didNavigate = false;
+          try {
+            didNavigate = navigateToTopWindow(result.startUrl) !== false;
+          } catch {
+            didNavigate = false;
+          }
+          setTopWindowNavigationFailed(!didNavigate);
+          setEmbedUrl(didNavigate ? null : result.startUrl);
+          return;
+        }
+        setEmbedUrl(result.startUrl);
       })
       .catch((cause: unknown) => {
         if (cancelled) return;
+        const error = cause instanceof Error ? cause : new Error(String(cause));
+        if (useWorkspaceSso) {
+          // An SSO-enabled pane must never fall back to the child app's
+          // unauthenticated shell. Keep the parent-owned retry surface in
+          // place so a transient exchange failure cannot expose another
+          // login form.
+          setIsDirectFallback(false);
+          setEmbedUrl(null);
+          setEmbedError(error);
+          if (useTopWindowSso) setTopWindowNavigationFailed(true);
+          return;
+        }
+        setIsDirectFallback(true);
         setEmbedUrl(
           workspaceAppDirectHref(
             { path: app.path ?? "", url: app.url },
             embedPath ?? "/",
           ),
         );
-        setEmbedError(
-          cause instanceof Error ? cause : new Error(String(cause)),
-        );
+        setEmbedError(error);
       });
     return () => {
       cancelled = true;
@@ -140,7 +441,11 @@ export function WorkspaceAppFrame({
     embedInput,
     embedPath,
     embedAttempt,
-    workspaceSsoEnabled,
+    openInTopWindow,
+    navigateToTopWindow,
+    topWindowSsoAttemptKey,
+    topWindowNavigationFailed,
+    useWorkspaceSso,
   ]);
 
   useEffect(() => {
@@ -157,6 +462,10 @@ export function WorkspaceAppFrame({
     return () =>
       window.removeEventListener("message", handleEmbedSessionExpired);
   }, [embedUrl]);
+
+  useEffect(() => {
+    postThemeToFrame();
+  }, [embedUrl, postThemeToFrame]);
 
   const appPane = (
     <ChatFirstAppPane
@@ -182,6 +491,7 @@ export function WorkspaceAppFrame({
           src={url}
           title={title ?? app.name}
           ref={embedFrameRef}
+          onLoad={handleFrameLoad}
           referrerPolicy="no-referrer"
           allow="clipboard-read; clipboard-write"
           className="h-full w-full border-0 bg-background"
@@ -194,48 +504,103 @@ export function WorkspaceAppFrame({
   if (!chatSidebar) return appPane;
 
   return (
-    <AgentSidebar
-      position="left"
-      defaultOpen
-      openStorageKey="dispatch-app-chat"
-      storageKey={`dispatch-app-chat:${app.id}`}
-      scope={{
-        type: "workspace-app",
-        id: app.id,
-        label: app.name,
-        contextKey: `workspace-app:${app.id}`,
-      }}
-      agentChatSurface="app"
-      showTabBar
-      suppressInlineOpenApp
-      dynamicSuggestions={false}
-      suggestions={[]}
-      emptyStateText={`Ask about ${app.name}`}
-    >
+    <WorkspaceAppChatRail appId={app.id} appName={app.name} copy={copy}>
       {appPane}
-    </AgentSidebar>
+    </WorkspaceAppChatRail>
   );
 }
 
-export function WorkspaceAppHost({ appId }: { appId?: string }) {
+export function WorkspaceAppHost({
+  appId,
+  navigateToTopWindow = navigateToWorkspaceApp,
+}: {
+  appId?: string;
+  navigateToTopWindow?: (href: string) => boolean | void;
+}) {
   const t = useT();
-  const appsQuery = useActionQuery("list-workspace-apps", {
-    includeAgentCards: false,
-  });
-  const { data: apps = [], isLoading } = appsQuery;
+  const workspaceAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
+    "list-workspace-apps",
+    { includeAgentCards: false, includeArchived: true },
+  );
+  const workspaceApps = useMemo(
+    () => mergeChatFirstWorkspaceApps(workspaceAppsQuery.data),
+    [workspaceAppsQuery.data],
+  );
+  const visibleWorkspaceApps = useMemo(
+    () => workspaceApps.filter((item) => !item.archived),
+    [workspaceApps],
+  );
+  const workspaceAppIds = useMemo(
+    () => new Set(workspaceApps.map((item) => item.id.trim().toLowerCase())),
+    [workspaceApps],
+  );
+  const workspaceApp = useMemo(
+    () =>
+      visibleWorkspaceApps.find(
+        (item) => item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
+      ) ?? null,
+    [appId, visibleWorkspaceApps],
+  );
+  const grantedAppsQuery = useActionQuery<GrantedWorkspaceAppsResult>(
+    "list_apps",
+    {},
+    {
+      // Mounted workspace apps are already fully described by the workspace
+      // registry. Defer the broader MCP grant/discovery scan until that
+      // lookup misses; it is only needed for externally granted apps.
+      enabled: !workspaceAppsQuery.isLoading && !workspaceApp,
+    },
+  );
+  const apps = useMemo(() => {
+    const merged = new Map<string, WorkspaceAppSummary>();
+
+    for (const app of visibleWorkspaceApps) {
+      merged.set(app.id.trim().toLowerCase(), app);
+    }
+    for (const app of grantedAppsQuery.data?.apps ?? []) {
+      const id = app.id.trim();
+      if (
+        !id ||
+        workspaceAppIds.has(id.toLowerCase()) ||
+        merged.has(id.toLowerCase())
+      ) {
+        continue;
+      }
+      merged.set(id.toLowerCase(), {
+        id,
+        name: app.name.trim() || id,
+        path: "",
+        url: app.url?.trim() || null,
+        status: "ready",
+      });
+    }
+
+    return [...merged.values()];
+  }, [grantedAppsQuery.data?.apps, visibleWorkspaceApps, workspaceAppIds]);
   const app = useMemo(
     () =>
-      (apps as WorkspaceAppSummary[]).find((item) => item.id === appId) ?? null,
+      apps.find(
+        (item) => item.id.trim().toLowerCase() === appId?.trim().toLowerCase(),
+      ) ?? null,
     [appId, apps],
   );
+  const isLoading = workspaceAppsQuery.isLoading || grantedAppsQuery.isLoading;
+  const queryError = workspaceAppsQuery.isError
+    ? workspaceAppsQuery.error
+    : grantedAppsQuery.isError
+      ? grantedAppsQuery.error
+      : null;
 
-  if (appsQuery.isError) {
+  if (queryError && !app) {
     return (
       <div className="flex h-full min-h-0 items-center justify-center p-6">
         <div className="w-full max-w-2xl">
           <ActionQueryError
-            error={appsQuery.error}
-            onRetry={() => void appsQuery.refetch()}
+            error={queryError}
+            onRetry={() => {
+              void workspaceAppsQuery.refetch();
+              void grantedAppsQuery.refetch();
+            }}
           />
         </div>
       </div>
@@ -333,7 +698,10 @@ export function WorkspaceAppHost({ appId }: { appId?: string }) {
       className="flex h-full min-h-0 flex-col bg-background"
     >
       <div className="min-h-0 flex-1 bg-muted/20">
-        <WorkspaceAppFrame app={app} />
+        <WorkspaceAppFrame
+          app={app}
+          navigateToTopWindow={navigateToTopWindow}
+        />
       </div>
     </div>
   );

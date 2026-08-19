@@ -270,13 +270,40 @@ const messages = {
     privateClipMessage:
       "Dieser Clip ist privat. Fordern Sie Zugriff an, und der Eigentümer wird benachrichtigt.",
     privateClipSignedOutMessage:
-      "Dieser Clip ist privat. Melden Sie sich an, um beim Eigentümer Zugriff anzufordern.",
+      "Dieser Clip ist privat. Melden Sie sich an oder geben Sie Ihre E-Mail-Adresse ein, um Zugriff anzufordern.",
     requestAccess: "Zugriff anfordern",
+    requestAccessDialogTitle: "Zugriff anfordern",
+    requestAccessDialogDescription:
+      "Wählen Sie, woran der Eigentümer Sie beim Teilen dieses Clips erkennen soll.",
+    requestAccessSignIn: "Anmelden oder registrieren",
+    requestAccessOr: "oder",
+    requestAccessEmailLabel: "E-Mail-Adresse",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Melden Sie sich nach der Freigabe mit dieser E-Mail-Adresse an, um den Clip anzusehen.",
+    requestAccessWithEmail: "Per E-Mail Zugriff anfordern",
+    requestAccessEmailRequired: "Geben Sie eine gültige E-Mail-Adresse ein.",
     requestingAccess: "Zugriff wird angefordert...",
     accessRequested: "Zugriff angefordert",
     accessRequestSent: "Der Eigentümer des Clips wurde benachrichtigt.",
+    accessRequestSentWithEmail:
+      "Der Eigentümer wurde gebeten, diesen Clip mit {{email}} zu teilen.",
     accessRequestFailed:
       "Zugriff konnte nicht angefordert werden. Versuchen Sie es erneut.",
+    accessApprovalTitle: "Zugriff gewährt",
+    accessApprovalAlreadyTitle: "Zugriff bereits gewährt",
+    accessApprovalMessage: "{{email}} kann diesen Clip jetzt ansehen.",
+    accessApprovalAlreadyMessage:
+      "{{email}} hat bereits Zugriff auf diesen Clip.",
+    accessApprovalErrorTitle: "Zugriff konnte nicht gewährt werden",
+    accessApprovalInvalid:
+      "Diese Zugriffsanfrage ist ungültig oder abgelaufen.",
+    accessApprovalSignInTitle: "Anmelden, um Zugriff zu gewähren",
+    accessApprovalSignInMessage:
+      "Melden Sie sich als Clip-Eigentümer oder Admin an, um diese Anfrage zu genehmigen.",
+    accessApprovalOpenClip: "Clip öffnen",
+    accessApprovalSignIn: "Anmelden",
+    accessApprovalLoading: "Zugriff wird gewährt...",
     clipUnavailable: "Clip nicht verfügbar",
     clipUnavailableMessage:
       "Diese Aufzeichnung ist nicht öffentlich oder der Link ist ungültig. Wenn es sich um Ihren Clip handelt, melden Sie sich an, um den Zugriff zu überprüfen.",
@@ -375,6 +402,9 @@ const messages = {
     aiNotes: "KI-Notizen",
     summary: "Zusammenfassung",
     actionItems: "Aktionselemente",
+    addActionItem: "Aktion hinzufügen",
+    removeActionItem: "Aktion entfernen",
+    actionItemPlaceholder: "Was muss erledigt werden?",
     working: "Arbeiten…",
     noActionItems:
       "Noch keine Aktionspunkte. Sie erscheinen hier, nachdem Notizen aus einem Transkript generiert wurden.",
@@ -682,13 +712,13 @@ const messages = {
     collapse: "Einklappen",
     changelogMarkdown: `# Änderungsprotokoll
 
-Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd K -> "Neuigkeiten") oder über die Einstellungen öffnen.
+Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kannst es jederzeit über das Befehlsmenü (Cmd+K -> "Neuigkeiten") oder über die Einstellungen öffnen.
 
 ## 2026-06-23
 
 ### Hinzugefügt
 
-- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd K) und in den Einstellungen verfügbar.`,
+- Du kannst Neuigkeiten jetzt direkt in Clips ansehen. Das Änderungsprotokoll ist im Befehlsmenü (Cmd+K) und in den Einstellungen verfügbar.`,
     playback: "Wiedergabe",
     defaultPlaybackSpeed: "Standard-Wiedergabegeschwindigkeit",
     playbackDescription:
@@ -984,7 +1014,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
   commentsPanel: {
     disabled: "Kommentare sind für diese Aufzeichnung deaktiviert.",
     beFirst: "Schreibe den ersten Kommentar",
-    leaveNotePanel: "Hinterlasse oben in diesem Bereich eine Notiz.",
+    leaveNotePanel: "Hinterlasse unten in diesem Bereich eine Notiz.",
     leaveNoteTimestamp: "Hinterlasse eine Notiz am aktuellen Zeitstempel.",
     leaveComment: "Kommentar hinterlassen...",
     signInToComment: "Melde dich an, um einen Kommentar zu hinterlassen.",
@@ -1042,8 +1072,13 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     pauseShortcut: "Pause (⌥⇧P)",
     stop: "Aufnahme stoppen",
     elapsed: "Verstrichene Zeit",
-    cancel: "Aufnahme abbrechen",
-    cancelShortcut: "Abbrechen (⌥⇧C)",
+    cancel: "Aufnahme verwerfen",
+    cancelShortcut: "Verwerfen (⌥⇧C)",
+    discardConfirmTitle: "Diese Aufnahme verwerfen?",
+    discardConfirmDescription:
+      "Dies kann nicht rückgängig gemacht werden. Deine bisherige Aufnahme wird endgültig gelöscht.",
+    resume: "Fortsetzen",
+    discardRecording: "Aufnahme verwerfen",
   },
   countdownOverlay: {
     startsIn: "Aufnahme startet in {{count}}",
@@ -1126,6 +1161,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Das Live-Transkript erscheint hier, sobald Notizen starten.",
     me: "Ich",
     them: "Sie",
+    unknownSpeaker: "Sprecher",
     searchTranscript: "Transkript durchsuchen",
     searchPlaceholder: "Transkript durchsuchen…",
     searchMatchCount: "{{current}} von {{total}}",
@@ -1133,6 +1169,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     searchPrevMatch: "Vorheriger Treffer",
     searchNextMatch: "Nächster Treffer",
     searchClose: "Suche schließen",
+  },
+  bulletLink: {
+    jumpToTranscript: "Zu {{time}} im Transkript springen",
+    noMatchingMoment: "Kein passender Moment gefunden",
   },
   editorLayout: {
     trimmed: "Getrimmt",
@@ -1242,7 +1282,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     seekTo: "Seek to {{time}} (Lokalisiert)",
   },
   editorToolbar: {
-    undoTooltip: "Undo (Cmd/Ctrl Z) (Lokalisiert)",
+    undoTooltip: "Undo (Cmd/Ctrl+Z) (Lokalisiert)",
     playPauseTooltip: "Play / Pause (Space) (Lokalisiert)",
     sourceDuration: "({{duration}} src) (Lokalisiert)",
     previewSpeed: "Preview speed (Lokalisiert)",
@@ -1336,10 +1376,11 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     cameraOff: "Camera off (Lokalisiert)",
     includeCameraAria: "Include camera in this recording (Lokalisiert)",
     startRecording: "Start recording (Lokalisiert)",
-    micOffConfirmTitle: "Record without a microphone? (Lokalisiert)",
+    micOffConfirmTitle: "Dein Mikrofon ist stummgeschaltet",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (Lokalisiert)",
-    startWithoutMic: "Start anyway (Lokalisiert)",
+      "Damit dein Video Ton hat, musst du dein Mikrofon wieder einschalten.",
+    startWithoutMic: "Weiter",
+    unmuteMicrophone: "Stummschaltung aufheben",
     uploadVideo: "Upload video (Lokalisiert)",
     importLoom: "Import Loom (Lokalisiert)",
     importing: "Importing... (Lokalisiert)",
@@ -1423,6 +1464,10 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips schließt das Speichern ab.",
     connectStorageToRetryLoom:
       "Verbinde Speicher im nächsten Bildschirm: Builder.io (Speicher + KI im kostenlosen Tarif) oder S3-kompatibler Speicher. Clips versucht den Import erneut.",
+    leaveConfirmTitle: "Diese Aufnahme verlassen und verwerfen?",
+    leaveConfirmDescription:
+      "Deine laufende Aufnahme wurde noch nicht vollständig gespeichert. Wenn du diese Seite jetzt verlässt, wird sie verworfen.",
+    leaveAndDiscard: "Verlassen und verwerfen",
   },
   importRoute: {
     pageTitle: "Loom importieren — Clips",
@@ -1619,7 +1664,15 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     title: "Meetings (Lokalisiert)",
     intro:
       "Upcoming calendar meetings and your recorded notes. Start live notes from Clips Desktop at meeting time. (Lokalisiert)",
-    searchPlaceholder: "Search meetings... (Lokalisiert)",
+    searchPlaceholder:
+      "Search meetings, attendees, and transcripts... (Lokalisiert)",
+    agendaTab: "Agenda (Lokalisiert)",
+    pastTab: "Past (Lokalisiert)",
+    now: "Now (Lokalisiert)",
+    noPastMeetings: "No past meetings yet (Lokalisiert)",
+    loadOlder: "Load older (Lokalisiert)",
+    searchFailed:
+      "Couldn't search meetings. Try again in a moment. (Lokalisiert)",
     clearSearch: "Clear search (Lokalisiert)",
     noMeetingsYet: "No meetings yet (Lokalisiert)",
     noMeetingsDescription:

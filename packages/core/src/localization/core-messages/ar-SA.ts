@@ -281,6 +281,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "رفض المزوّد الذي يشغّل هذا النموذج الطلب. اختر نموذجًا آخر، ثم أعد المحاولة.",
   "errorMessages.errorPrefix": "خطأ: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "حدث خطأ داخلي في بوابة النموذج قبل أن يتمكن الوكيل من الإجابة. أعد المحاولة بعد قليل، وإذا تكرر الأمر فأرفق معرّف الخطأ الظاهر أدناه.",
   "errorMessages.gatewayNoDetails":
     "لم تُرجع بوابة النموذج أي تفاصيل عن الخطأ وتعذّر على المحادثة الاسترداد. انتظر قليلًا ثم أعد المحاولة، أو ابدأ محادثة جديدة إذا استمرت المشكلة.",
   "errorMessages.inactivityTimeout":
@@ -302,10 +304,14 @@ const messages: AgentChatTranslation = {
   "errorMessages.startNewChat": "بدء محادثة جديدة",
   "errorMessages.upgradeAtBuilder": "الترقية عبر Builder.io",
   "feedback.inaccurate": "غير دقيق",
+  "feedback.keyboardHint": "{{shortcut}} Enter للإرسال",
   "feedback.notHelpful": "غير مفيد",
+  "feedback.placeholder": "أخبرنا بما حدث من خطأ...",
+  "feedback.submit": "إرسال",
   "feedback.thumbsDown": "عدم إعجاب",
   "feedback.thumbsUp": "إعجاب",
   "feedback.tooSlow": "بطيء جدًا",
+  "feedback.whatWentWrong": "ما الذي حدث بشكل خاطئ؟",
   "feedback.wrongTool": "أداة غير صحيحة",
   "header.switchToCli": "التبديل إلى CLI",
   "history.active": "نشطة",
@@ -358,6 +364,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "فشلت الاستعادة ({{status}}).",
   "message.restoreQuestion": "هل تريد الاستعادة إلى هنا؟",
   "message.restoreRequestFailed": "فشل طلب الاستعادة.",
+  "message.threadNotFound":
+    "لم تعد سلسلة الدردشة هذه متاحة. ابدأ دردشة جديدة أو أعد المحاولة إذا كان ذلك غير متوقع.",
   "message.restoring": "جارٍ الاستعادة...",
   "message.revertHere": "الرجوع إلى هنا",
   "message.sentAt": "أُرسلت في {{time}}",
@@ -490,6 +498,12 @@ const messages: AgentChatTranslation = {
     "تحكّم في كيفية ظهور وصول المؤسسة في نتائج البحث.",
   "share.copied": "تم النسخ",
   "share.copy": "نسخ",
+  "share.shareWithAgents": "مشاركة مع الوكلاء",
+  "share.agentContext": "رابط سياق الوكيل",
+  "share.agentContextDescription": "سياق للقراءة فقط لوكيل خارجي.",
+  "share.preparingAgentLink": "جارٍ إعداد رابط الوكيل...",
+  "share.agentLinkUnavailable": "تعذر إنشاء رابط الوكيل.",
+  "share.retryAgentLink": "إعادة المحاولة",
   "share.editor": "محرر",
   "share.editorDescription": "يمكنه التعديل",
   "share.generalAccess": "الوصول العام",
@@ -526,6 +540,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "شخص غير معروف",
   "share.viewer": "مشاهد",
   "share.viewerDescription": "يمكنه العرض",
+  "share.userGroup": "مجموعة مستخدمين",
   "status.resuming": "جارٍ الاستئناف",
   "status.stillWorking": "لا يزال قيد العمل",
   "status.thinking": "يفكّر",

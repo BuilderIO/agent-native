@@ -15,8 +15,9 @@ crate-type = ["lib", "cdylib", "staticlib"]
 
 # Force the dev binary name so macOS shows "Clips" in the Dock / app switcher
 # (macOS derives the display name from the executable filename when the app
-# is unbundled — e.g. during `tauri dev`). Bundled .app builds read the name
-# from `productName` in tauri.conf.json instead.
+# is unbundled — e.g. during `tauri dev`). The Nightly release workflow
+# rewrites this target and tauri.conf.json's mainBinaryName to
+# `Clips-Nightly` before packaging so both lanes can coexist.
 [[bin]]
 name = "Clips"
 path = "src/main.rs"

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import type { useActionQuery } from "../use-action.js";
+import { useActionQuery } from "../use-action.js";
 import {
   DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
   DEFAULT_MEMBER_SUGGESTION_LIMIT,
@@ -18,10 +18,16 @@ export type ShareButtonRole = "viewer" | "commenter" | "editor" | "admin";
 
 export interface ShareButtonShare {
   id: string;
-  principalType: "user" | "org";
+  principalType: "user" | "group" | "org";
   principalId: string;
   displayName?: string | null;
   role: ShareButtonRole;
+}
+
+export interface ShareButtonGroup {
+  id: string;
+  name: string;
+  memberEmails?: string[];
 }
 
 export interface ShareButtonSharesResponse {
@@ -29,10 +35,12 @@ export interface ShareButtonSharesResponse {
   orgId: string | null;
   visibility: ShareButtonVisibility | null;
   role?: "owner" | ShareButtonRole;
+  agentReadable?: boolean;
   shares: ShareButtonShare[];
   policy?: {
     allowPublic: boolean;
     requireOrgMemberForUserShares: boolean;
+    supportsGroupShares?: boolean;
   };
 }
 
@@ -84,6 +92,7 @@ export interface ShareButtonController {
   policy: {
     allowPublic: boolean;
     requireOrgMemberForUserShares: boolean;
+    supportsGroupShares?: boolean;
   };
   visibility: ShareButtonVisibility;
   triggerVisibility: ShareButtonVisibility | null;
@@ -103,7 +112,10 @@ export interface ShareButtonController {
   inFlight: Set<string>;
   memberSearch: ShareButtonOrgMemberSearch;
   memberSuggestions: ShareButtonOrgMember[];
+  groupSuggestions: ShareButtonGroup[];
   knownMembers: ShareButtonOrgMember[];
+  selectedGroup: ShareButtonGroup | null;
+  selectGroup: (group: ShareButtonGroup) => void;
   shares: ShareButtonShare[];
   handleVisibility: (visibility: ShareButtonVisibility) => void;
   handleHideInSearch: () => void;
@@ -117,6 +129,9 @@ export function useShareButtonController(
 ): ShareButtonController {
   const [open, setOpen] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
+  const [selectedGroup, setSelectedGroup] = useState<ShareButtonGroup | null>(
+    null,
+  );
   const shareTabDefaultValue = options.shareTabs?.defaultValue ?? "share";
   const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
   const [visibilityOverride, setVisibilityOverride] =
@@ -151,6 +166,7 @@ export function useShareButtonController(
 
   useEffect(() => {
     setInviteEmail("");
+    setSelectedGroup(null);
     setShareMessage("");
     setMessageOpen(false);
   }, [options.resourceId, options.resourceType]);
@@ -302,6 +318,15 @@ export function useShareButtonController(
       debounceMs: DEFAULT_MEMBER_SEARCH_DEBOUNCE_MS,
     },
   );
+  const groupsQuery = useActionQuery<ShareButtonGroup[]>(
+    "list-workspace-user-groups",
+    {},
+    {
+      enabled:
+        canManage && policy.supportsGroupShares === true && suggestionsOpen,
+      staleTime: 30_000,
+    },
+  );
   const serverShares = data?.shares ?? [];
   const shares: ShareButtonShare[] = [
     ...serverShares
@@ -325,7 +350,29 @@ export function useShareButtonController(
   const memberSuggestions = memberSearch.members.filter(
     (member) => !excludedMemberEmails.has(member.email.toLowerCase()),
   );
+  const excludedGroupIds = new Set(
+    shares
+      .filter((share) => share.principalType === "group")
+      .map((share) => share.principalId),
+  );
+  const groupSuggestions = (
+    Array.isArray(groupsQuery.data) ? groupsQuery.data : []
+  ).filter(
+    (group) =>
+      !excludedGroupIds.has(group.id) &&
+      (!inviteEmail.trim() ||
+        group.name.toLowerCase().includes(inviteEmail.trim().toLowerCase())),
+  );
   const knownMembers = memberSearch.members;
+
+  const setInviteEmailValue = useCallback((email: string) => {
+    setSelectedGroup(null);
+    setInviteEmail(email);
+  }, []);
+  const selectGroup = useCallback((group: ShareButtonGroup) => {
+    setSelectedGroup(group);
+    setInviteEmail(group.name);
+  }, []);
 
   const handleVisibility = useCallback(
     (next: ShareButtonVisibility) => {
@@ -358,11 +405,15 @@ export function useShareButtonController(
   const handleAdd = useCallback(() => {
     const trimmed = inviteEmail.trim();
     if (!trimmed || !canManage) return;
-    const message = notifyPeople ? shareMessage.trim() : "";
+    const principalType = selectedGroup ? "group" : "user";
+    const principalId = selectedGroup?.id ?? trimmed;
+    const message =
+      principalType === "user" && notifyPeople ? shareMessage.trim() : "";
     const optimistic: ShareButtonShare = {
-      id: `pending-${trimmed}`,
-      principalType: "user",
-      principalId: trimmed,
+      id: `pending-${principalType}-${principalId}`,
+      principalType,
+      principalId,
+      ...(selectedGroup ? { displayName: selectedGroup.name } : {}),
       role,
     };
     const key = keyOf(optimistic);
@@ -370,6 +421,7 @@ export function useShareButtonController(
     setShareError(null);
     setPendingAdds((previous) => [...previous, optimistic]);
     setInviteEmail("");
+    setSelectedGroup(null);
     setShareMessage("");
     setMessageOpen(false);
     setSuggestionsOpen(false);
@@ -384,10 +436,10 @@ export function useShareButtonController(
       {
         resourceType: options.resourceType,
         resourceId: options.resourceId,
-        principalType: "user",
-        principalId: trimmed,
+        principalType,
+        principalId,
         role,
-        notify: notifyPeople,
+        notify: principalType === "user" && notifyPeople,
         resourceUrl: getNotificationUrl(options.shareUrl),
         ...(message ? { message } : {}),
       } as never,
@@ -407,6 +459,7 @@ export function useShareButtonController(
           );
           clearInFlight(key);
           setInviteEmail(trimmed);
+          setSelectedGroup(selectedGroup);
           setShareMessage((current) => current || message);
           setMessageOpen((current) => current || Boolean(message));
           setShareError(extractShareErrorMessage(error));
@@ -424,6 +477,7 @@ export function useShareButtonController(
     options.resourceType,
     options.shareUrl,
     role,
+    selectedGroup,
     shareMessage,
     share,
     queryClient,
@@ -574,7 +628,7 @@ export function useShareButtonController(
     activeShareTab,
     handleShareTabChange,
     inviteEmail,
-    setInviteEmail,
+    setInviteEmail: setInviteEmailValue,
     sharesQuery,
     visibilityOverride,
     handleVisibilityChange,
@@ -605,6 +659,9 @@ export function useShareButtonController(
     handleAdd,
     handleChangeRole,
     handleRemove,
+    groupSuggestions,
+    selectedGroup,
+    selectGroup,
   };
 }
 

@@ -39,28 +39,18 @@
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
   --sidebar-ring: 0 0% 40%;
-  --sidebar-width: 56px;
-  --tabbar-height: 38px;
+  --window-titlebar-height: 38px;
   --macos-traffic-light-safe-area: 100px;
   --sidebar-bg: hsl(var(--sidebar-background, 0 0% 97%));
   --app-surface-radius: 12px;
   --item-hover-bg: hsl(var(--foreground, 0 0% 10%) / 0.06);
-  --icon-inactive: hsl(var(--foreground, 0 0% 10%) / 0.52);
-  --icon-hover: hsl(var(--foreground, 0 0% 10%) / 0.8);
-  --icon-active: hsl(var(--foreground, 0 0% 10%));
   --label-inactive: hsl(var(--foreground, 0 0% 10%) / 0.48);
   --label-hover: hsl(var(--foreground, 0 0% 10%) / 0.72);
   --label-active: hsl(var(--foreground, 0 0% 10%) / 0.88);
   --shell-bg: hsl(var(--background, 0 0% 100%));
   --shell-fg: hsl(var(--foreground, 0 0% 10%));
   --separator: hsl(var(--foreground, 0 0% 10%) / 0.1);
-  --tabbar-bg: hsl(var(--background, 0 0% 100%));
-  --tab-bg: transparent;
-  --tab-active-bg: hsl(var(--muted, 0 0% 95%));
-  --tab-hover-bg: hsl(var(--foreground, 0 0% 10%) / 0.04);
-  --tab-text: hsl(var(--muted-foreground, 0 0% 45%));
-  --tab-active-text: hsl(var(--foreground, 0 0% 10%));
-  --tab-close-hover: hsl(var(--foreground, 0 0% 10%) / 0.08);
+  --surface-active-bg: hsl(var(--muted, 0 0% 95%));
 
   /* Transition */
   --ease: 0.15s ease;
@@ -97,21 +87,13 @@
   --sidebar-ring: 0 0% 60%;
   --sidebar-bg: hsl(var(--sidebar-background, 0 0% 7%));
   --item-hover-bg: hsl(var(--foreground, 0 0% 100%) / 0.1);
-  --icon-inactive: hsl(var(--foreground, 0 0% 100%) / 0.52);
-  --icon-hover: hsl(var(--foreground, 0 0% 100%) / 0.8);
-  --icon-active: hsl(var(--foreground, 0 0% 100%));
   --label-inactive: hsl(var(--foreground, 0 0% 100%) / 0.48);
   --label-hover: hsl(var(--foreground, 0 0% 100%) / 0.72);
   --label-active: hsl(var(--foreground, 0 0% 100%) / 0.88);
   --shell-bg: hsl(var(--background, 0 0% 10%));
   --shell-fg: hsl(var(--foreground, 0 0% 100%));
   --separator: hsl(var(--foreground, 0 0% 100%) / 0.1);
-  --tabbar-bg: hsl(var(--background, 0 0% 10%));
-  --tab-active-bg: hsl(var(--muted, 0 0% 10%));
-  --tab-hover-bg: hsl(var(--foreground, 0 0% 100%) / 0.06);
-  --tab-text: hsl(var(--muted-foreground, 0 0% 60%));
-  --tab-active-text: hsl(var(--foreground, 0 0% 90%));
-  --tab-close-hover: hsl(var(--foreground, 0 0% 100%) / 0.12);
+  --surface-active-bg: hsl(var(--muted, 0 0% 10%));
 }
 
 /* ─── Base ───────────────────────────────────────────────────── */
@@ -134,7 +116,6 @@ body {
 }
 
 /* ─── Shell layout ───────────────────────────────────────────── */
-/* New layout: tab bar full width on top, sidebar + content below */
 .shell {
   display: flex;
   flex-direction: column;
@@ -143,368 +124,12 @@ body {
   position: relative;
 }
 
-.find-overlay {
-  position: absolute;
-  top: 10px;
-  right: 16px;
-  z-index: 30;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px;
-  border: 1px solid var(--separator);
-  border-radius: 10px;
-  background: rgba(18, 18, 18, 0.96);
-  box-shadow: 0 18px 36px rgba(0, 0, 0, 0.35);
-}
-
-.find-input {
-  width: 220px;
-  height: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #fff;
-  padding: 0 10px;
-  font-size: 13px;
-  outline: none;
-}
-
-.find-input:focus {
-  border-color: rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.find-button {
-  height: 32px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.04);
-  color: rgba(255, 255, 255, 0.82);
-  padding: 0 10px;
-  font-size: 12px;
-  cursor: pointer;
-  transition:
-    background var(--ease),
-    color var(--ease),
-    border-color var(--ease);
-}
-
-.find-button:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: #fff;
-}
-
-.find-button--close {
-  color: rgba(255, 255, 255, 0.65);
-}
-
 .shell-body {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
   height: auto;
   overflow: hidden;
-}
-
-/* ─── Tab bar (full width, top of window) ────────────────────── */
-.tabbar {
-  height: var(--tabbar-height);
-  min-height: var(--tabbar-height);
-  background: var(--tabbar-bg);
-  display: flex;
-  align-items: stretch;
-  overflow: hidden;
-  -webkit-app-region: drag;
-}
-
-.tabbar-window-spacer {
-  flex: 0 0 var(--macos-traffic-light-safe-area);
-  align-self: stretch;
-  background: var(--tabbar-bg);
-  -webkit-app-region: drag;
-}
-
-.tabbar-strip {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  flex: 1 1 auto;
-  min-width: 0;
-  height: 100%;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-  -webkit-app-region: drag;
-}
-
-.tabbar-strip::-webkit-scrollbar {
-  display: none;
-}
-
-.tab {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 0 14px;
-  height: 28px;
-  background: var(--tab-bg);
-  border: none;
-  border-radius: 7px;
-  color: var(--tab-text);
-  font-size: 12px;
-  font-weight: 450;
-  cursor: pointer;
-  white-space: nowrap;
-  transition:
-    background var(--ease),
-    color var(--ease);
-  -webkit-app-region: no-drag;
-  min-width: 0;
-  max-width: 200px;
-}
-
-.tab:hover {
-  background: var(--tab-hover-bg);
-  color: var(--tab-active-text);
-}
-
-.tab--active {
-  background: var(--tab-active-bg);
-  color: var(--tab-active-text);
-}
-
-.tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.tab-close,
-.tab-refresh {
-  flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: inherit;
-  border-radius: 3px;
-  cursor: pointer;
-  opacity: 0;
-  transition:
-    opacity var(--ease),
-    background var(--ease);
-}
-
-.tab:hover .tab-close {
-  opacity: 0.5;
-}
-
-.tab-close:hover {
-  opacity: 1 !important;
-  background: var(--tab-close-hover);
-}
-
-/* Refresh reveals — and is clickable — only on the active tab, so it isn't an
-   accidental click target when you're reaching for another tab to switch to.
-   pointer-events:none lets clicks on the (invisible) slot fall through to the
-   tab button on non-active tabs. */
-.tab-refresh {
-  pointer-events: none;
-}
-
-.tab--active .tab-refresh {
-  pointer-events: auto;
-}
-
-.tab--active:hover .tab-refresh {
-  opacity: 0.5;
-}
-
-.tab--active .tab-refresh:hover {
-  opacity: 1 !important;
-  background: var(--tab-close-hover);
-}
-
-.tab-new {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  min-width: 32px;
-  height: 28px;
-  border: none;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--tab-text);
-  cursor: pointer;
-  transition:
-    background var(--ease),
-    color var(--ease);
-  -webkit-app-region: no-drag;
-}
-
-.tab-new:hover {
-  background: var(--tab-hover-bg);
-  color: var(--tab-active-text);
-}
-
-.tabbar--shell {
-  overflow: hidden;
-}
-
-.tab--locked {
-  cursor: default;
-  -webkit-app-region: drag;
-}
-
-/* ─── Sidebar ────────────────────────────────────────────────── */
-.sidebar {
-  width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
-  background: var(--sidebar-bg);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  padding-top: 8px;
-  /* Sidebar is draggable (moves the window) except for interactive elements */
-  -webkit-app-region: drag;
-}
-
-.sidebar-nav {
-  flex: 1;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 0;
-  overflow-y: auto;
-  overflow-x: hidden;
-  scrollbar-width: none;
-}
-
-.sidebar-nav::-webkit-scrollbar {
-  display: none;
-}
-
-.sidebar:focus,
-.sidebar:focus-visible,
-.sidebar-nav:focus,
-.sidebar-nav:focus-visible,
-.sidebar-footer:focus,
-.sidebar-footer:focus-visible,
-.sidebar-item:focus,
-.sidebar-item:focus-visible {
-  outline: none;
-}
-
-.sidebar-footer {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 2px;
-  padding: 8px 0 12px;
-}
-
-/* ─── Sidebar item ───────────────────────────────────────────── */
-.sidebar-item {
-  position: relative;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 3px;
-  padding: 6px 0;
-  cursor: pointer;
-  border: none;
-  background: none;
-  color: inherit;
-  -webkit-app-region: no-drag;
-}
-
-/* ─── Icon wrapper ───────────────────────────────────────────── */
-.icon-wrapper {
-  width: 36px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 9px;
-  color: var(--icon-inactive);
-  transition:
-    background var(--ease),
-    color var(--ease);
-}
-
-.sidebar-item:hover .icon-wrapper {
-  background: var(--item-hover-bg);
-  color: var(--icon-hover);
-}
-
-.sidebar-item.sidebar-item--active .icon-wrapper {
-  background: color-mix(in srgb, #888 15%, transparent);
-  color: var(--icon-active);
-}
-
-.sidebar-agent-native-icon {
-  width: 21px;
-  height: auto;
-  display: block;
-  opacity: 0.55;
-  transition:
-    opacity var(--ease),
-    filter var(--ease);
-}
-
-.sidebar-item:hover .sidebar-agent-native-icon,
-.sidebar-item.sidebar-item--active .sidebar-agent-native-icon {
-  opacity: 1;
-}
-
-.sidebar-item--add {
-  margin-top: 4px;
-}
-
-/* Same size and resting color as its siblings — the only distinction
-   is a faint dashed outline that reads as "action, not destination". */
-.sidebar-item--add .icon-wrapper {
-  border: 1px dashed rgba(255, 255, 255, 0.13);
-}
-
-.sidebar-item--add:hover .icon-wrapper {
-  border-color: rgba(255, 255, 255, 0.22);
-  background: var(--item-hover-bg);
-  color: var(--icon-hover);
-}
-
-/* ─── Item label ─────────────────────────────────────────────── */
-.item-label {
-  font-size: 9px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  color: var(--label-inactive);
-  line-height: 1;
-  transition: color var(--ease);
-}
-
-.item-label--two-line {
-  max-width: 46px;
-  line-height: 1.05;
-  text-align: center;
-  white-space: normal;
-}
-
-.sidebar-item:hover .item-label {
-  color: var(--label-hover);
-}
-
-.sidebar-item.sidebar-item--active .item-label {
-  color: var(--label-active);
 }
 
 /* ─── Windows/Linux custom window controls ───────────────────── */
@@ -572,10 +197,6 @@ body {
   isolation: isolate;
 }
 
-.content-area > .agent-sidebar-shell {
-  height: 100%;
-}
-
 .code-agents-shell-surface {
   position: absolute;
   inset: 0;
@@ -585,12 +206,6 @@ body {
   background: var(--shell-bg);
   isolation: isolate;
   transform: translate3d(0, 0, 0);
-}
-
-.code-agents-shell-surface--hidden {
-  opacity: 0;
-  pointer-events: none;
-  transform: translate3d(-200vw, 0, 0);
 }
 
 .content-area--chat-first {
@@ -623,6 +238,8 @@ body {
   --sidebar-accent: 0 0% 95%;
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
+  --desktop-chat-composer-background: 0 0% 100%;
+  --agent-native-lower-surface: hsl(var(--sidebar-background));
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -632,7 +249,35 @@ body {
   background: var(--shell-bg);
 }
 
-.desktop-chat-first-hub--enabled:has(.chat-first-surface-panel) {
+/* The light desktop chat shell needs more contrast between the composer and
+   its surrounding surface; leave the shared card treatment unchanged. */
+.light
+  .desktop-chat-first-hub
+  [data-chat-first-app-pane]
+  .agent-sidebar-panel
+  .agent-composer-root {
+  background: hsl(var(--desktop-chat-composer-background));
+}
+
+@supports (background: color-mix(in srgb, white, black)) {
+  .desktop-chat-first-hub {
+    --agent-native-lower-surface: color-mix(
+      in srgb,
+      hsl(var(--sidebar-background)) 98%,
+      hsl(var(--code-agents-dark-shadow)) 2%
+    );
+  }
+
+  .dark .desktop-chat-first-hub {
+    --agent-native-lower-surface: color-mix(
+      in srgb,
+      hsl(var(--sidebar-background)) 94%,
+      hsl(var(--code-agents-dark-shadow)) 6%
+    );
+  }
+}
+
+.desktop-chat-first-hub:has(.chat-first-surface-panel) {
   grid-template-columns: minmax(0, 1fr) minmax(
       320px,
       var(--chat-first-surface-width, 40%)
@@ -663,6 +308,8 @@ body {
 
 .desktop-chat-first-hub .code-agents-rail {
   position: relative;
+  min-height: 0;
+  height: 100%;
   border-right: 0;
   padding-top: 36px;
 }
@@ -695,8 +342,110 @@ body {
   -webkit-app-region: drag;
 }
 
-.desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-nav-list {
-  padding-inline: 8px;
+/* Collapsed macOS rails use a fixed-width custom cluster because native
+   traffic lights cannot expose only two buttons. Keep it at shell level so it
+   remains above the settings surface. */
+.desktop-chat-first-mac-window-controls {
+  display: none;
+}
+
+.platform-darwin
+  .shell:has(.code-agents-surface--rail-collapsed)
+  .desktop-chat-first-mac-window-controls {
+  display: block;
+  z-index: 200;
+}
+
+.collapsed-mac-window-controls {
+  position: absolute;
+  z-index: 20;
+  top: 8px;
+  left: 10px;
+  width: 76px;
+  height: 28px;
+  -webkit-app-region: no-drag;
+}
+
+.collapsed-mac-window-controls::before {
+  position: absolute;
+  z-index: 0;
+  top: -3px;
+  left: -5px;
+  width: 78px;
+  height: 28px;
+  border: 1px solid hsl(var(--sidebar-foreground) / 0.14);
+  border-radius: 999px;
+  background-color: hsl(var(--sidebar-background));
+  box-shadow: 0 4px 14px hsl(var(--sidebar-background) / 0.42);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity var(--ease-collapse);
+}
+
+.collapsed-mac-window-controls .win-btn {
+  position: absolute;
+  z-index: 1;
+  top: 5px;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  transition:
+    opacity var(--ease-collapse),
+    transform var(--ease-collapse);
+}
+
+.collapsed-mac-window-controls .win-btn--close {
+  left: 4px;
+}
+
+.collapsed-mac-window-controls .win-btn--minimize {
+  left: 27px;
+}
+
+.collapsed-mac-window-controls .win-btn--maximize {
+  left: 50px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-7px) scale(0.86);
+}
+
+.collapsed-mac-window-controls:hover::before,
+.collapsed-mac-window-controls:focus-within::before {
+  opacity: 1;
+}
+
+.collapsed-mac-window-controls:hover .win-btn--maximize,
+.collapsed-mac-window-controls:focus-within .win-btn--maximize {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+}
+
+.platform-darwin
+  .shell:has(.settings-overlay)
+  .collapsed-mac-window-controls::before,
+.platform-darwin
+  .shell:has(.settings-overlay)
+  .collapsed-mac-window-controls:hover::before,
+.platform-darwin
+  .shell:has(.settings-overlay)
+  .collapsed-mac-window-controls:focus-within::before {
+  opacity: 0;
+}
+
+.platform-darwin
+  .shell:has(.settings-overlay)
+  .collapsed-mac-window-controls
+  .win-btn--maximize {
+  opacity: 1;
+  pointer-events: auto;
+  transform: translateX(0) scale(1);
+}
+
+.collapsed-mac-window-controls .win-btn:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
 }
 
 .desktop-chat-first-hub
@@ -710,24 +459,10 @@ body {
   .code-agents-rail--collapsed
   .code-agents-primary-new-chat-shell
   .code-agents-primary-new-chat,
-.desktop-chat-first-hub
-  .code-agents-rail--collapsed
-  .code-agents-nav-list
-  .code-agents-nav-link,
-.desktop-chat-first-hub
-  .code-agents-rail--collapsed
-  .code-agents-nav-list
-  [role="tablist"]
-  > button,
-.desktop-chat-first-hub
-  .code-agents-rail--collapsed
-  .code-agents-nav-list
-  > div
-  > button,
-.desktop-chat-first-hub
-  .code-agents-rail--collapsed
-  .code-agents-nav-list
-  > button {
+.desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-nav-link,
+.desktop-chat-first-hub .code-agents-rail--collapsed [role="tablist"] > button,
+.desktop-chat-first-hub .code-agents-rail--collapsed > div > button,
+.desktop-chat-first-hub .code-agents-rail--collapsed > button {
   justify-content: center;
   padding-inline: 0;
 }
@@ -737,10 +472,6 @@ body {
   .code-agents-primary-new-chat-shell
   .code-agents-primary-new-chat
   > span,
-.desktop-chat-first-hub
-  .code-agents-rail--collapsed
-  .code-agents-nav-list
-  span:not(.code-agents-mobile-indicator),
 .desktop-chat-first-hub
   .code-agents-rail--collapsed
   .desktop-chat-first-rail-footer-actions
@@ -761,6 +492,21 @@ body {
   border: 0;
 }
 
+/* App icons are spans too; keep their visual wrapper in the compact rail. */
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-app-icon] {
+  position: static;
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  overflow: visible;
+  clip: auto;
+  white-space: normal;
+  border: 0;
+}
+
 .desktop-chat-first-hub .code-agents-rail--collapsed .code-agents-run-list {
   visibility: hidden;
   pointer-events: none;
@@ -770,9 +516,67 @@ body {
   display: none;
 }
 
-.desktop-chat-first-hub .code-agents-nav-list,
 .desktop-chat-first-hub .code-agents-main-toolbar {
   border-bottom: 0;
+}
+
+/* Terminal mode occupies the same chat stream/composer region. */
+.desktop-chat-first-hub .code-agents-overview--chat-surface {
+  display: flex;
+  overflow: hidden;
+  padding: 0;
+}
+
+.desktop-chat-first-hub .code-agents-overview--chat-surface > * {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.desktop-chat-first-hub .desktop-terminal-surface {
+  display: flex;
+  width: min(100%, 1000px);
+  max-width: 1000px;
+  margin-inline: auto;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.desktop-chat-first-hub .desktop-terminal-surface__header {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  min-width: 0;
+  height: 48px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px;
+  background: hsl(var(--background));
+  border-bottom: 0;
+}
+
+.desktop-chat-first-hub .desktop-terminal-surface__body {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.desktop-chat-first-hub .desktop-terminal-surface__tab-content {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .desktop-chat-first-hub .code-agents-start {
@@ -802,7 +606,17 @@ body {
 
 .desktop-chat-first-hub .code-agents-start .code-agents-project-picker--bar {
   align-self: center;
-  width: min(100%, 750px);
+  width: min(100%, var(--code-agents-chat-max));
+  max-width: var(--code-agents-chat-max);
+  box-sizing: border-box;
+  /* The composer frame has an 8px bottom inset; offset the shared 12px flex
+     gap so the visible chat-to-picker spacing is about 10px. */
+  margin-top: -10px;
+}
+
+.desktop-chat-first-hub .code-agents-start .code-agents-overview-footer {
+  /* Keep the Apps section a little more distinct from the picker row. */
+  margin-top: 10px;
 }
 
 .desktop-chat-first-hub--no-chats [data-chat-first-chat-history] {
@@ -964,6 +778,15 @@ body {
   background: hsl(var(--muted) / 0.3);
 }
 
+.desktop-app-card.is-dragging {
+  opacity: 0.45;
+}
+
+.desktop-app-card.is-drag-over {
+  border-color: hsl(var(--ring) / 0.55);
+  background: hsl(var(--ring) / 0.08);
+}
+
 .desktop-app-card__body {
   display: flex;
   min-width: 0;
@@ -983,6 +806,19 @@ body {
 .desktop-app-card__actions {
   flex: 0 0 auto;
   align-self: center;
+}
+
+.desktop-app-card__drag-handle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground) / 0.7);
+  cursor: grab;
+}
+
+.desktop-app-card__drag-handle:active {
+  cursor: grabbing;
 }
 
 .desktop-app-card__icon {
@@ -1047,6 +883,15 @@ body {
   font-size: 11px;
 }
 
+.desktop-app-card__source {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: hsl(var(--muted-foreground) / 0.8);
+  font-size: 10px;
+  font-weight: 500;
+}
+
 .desktop-apps-grid__empty {
   display: grid;
   justify-items: start;
@@ -1099,7 +944,7 @@ body {
 }
 
 @media (max-width: 767px) {
-  .desktop-chat-first-hub--enabled:has(.chat-first-surface-panel) {
+  .desktop-chat-first-hub:has(.chat-first-surface-panel) {
     position: relative;
     grid-template-columns: minmax(0, 1fr);
   }
@@ -1113,8 +958,11 @@ body {
 }
 
 .desktop-chat-first-hub .code-agents-rail-footer {
+  position: relative;
+  z-index: 1;
   flex-shrink: 0;
   margin-top: auto;
+  background: hsl(var(--sidebar-background));
 }
 
 .desktop-chat-first-rail-footer-actions {
@@ -1167,9 +1015,34 @@ body {
   width: 40px;
 }
 
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-rail-collapse] {
+  background: hsl(var(--sidebar-accent));
+  color: hsl(var(--sidebar-accent-foreground));
+}
+
+.desktop-chat-first-hub
+  .code-agents-rail--collapsed
+  [data-chat-first-rail-collapse]:hover {
+  background: hsl(var(--sidebar-accent) / 0.85);
+  color: hsl(var(--sidebar-accent-foreground));
+}
+
 @media (prefers-reduced-motion: reduce) {
   .desktop-chat-first-hub > .code-agents-surface {
     transition: none;
+  }
+
+  .desktop-chat-first-mac-window-controls,
+  .collapsed-mac-window-controls,
+  .collapsed-mac-window-controls::before,
+  .collapsed-mac-window-controls .win-btn {
+    transition: none;
+  }
+
+  .collapsed-mac-window-controls .win-btn--maximize {
+    transform: none;
   }
 }
 
@@ -1216,10 +1089,10 @@ body {
 }
 
 /* ─── Webview slot ───────────────────────────────────────────── */
-/* Each slot is absolutely positioned so tabs stack on top of each
+/* Each slot is absolutely positioned so contextual surfaces stack on top of each
    other. Electron <webview> is a native guest surface on macOS, and
-   visibility:hidden can leave stale pixels composited over the active
-   tab. Move inactive tabs out of the viewport instead. */
+   visibility:hidden can leave stale pixels composited over the active surface.
+   Move inactive surfaces out of the viewport instead. */
 .webview-slot {
   position: absolute;
   top: 0;
@@ -1242,22 +1115,6 @@ body {
   transform: translate3d(-200vw, 0, 0);
 }
 
-.content-area--code-agents .webview-slot {
-  z-index: 0;
-  opacity: 0;
-  pointer-events: none;
-  transform: translate3d(-200vw, 0, 0);
-}
-
-/* Chat-first owns the visible center slot. The legacy code-agent rule above
-   must not hide its active Dispatch guest when both shells share a surface. */
-.content-area--code-agents .desktop-chat-first-hub .webview-slot--active {
-  z-index: 1;
-  opacity: 1;
-  pointer-events: auto;
-  transform: translate3d(0, 0, 0);
-}
-
 .webview-slot--fullscreen {
   position: fixed;
   top: 0;
@@ -1272,6 +1129,252 @@ body {
 .app-webview {
   flex: 1 1 auto;
   border: none;
+}
+
+/* ─── Desktop identity gate ────────────────────────────────── */
+.desktop-identity-gate {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: var(--shell-bg);
+}
+
+.desktop-identity-gate__panel {
+  width: min(350px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  text-align: center;
+}
+
+.desktop-identity-gate__panel--form {
+  align-items: stretch;
+  gap: 0;
+  text-align: left;
+}
+
+.desktop-identity-gate__heading {
+  margin-bottom: 24px;
+}
+
+.desktop-identity-gate__heading h1 {
+  margin: 0;
+  color: var(--shell-fg);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.2;
+}
+
+.desktop-identity-gate__heading p {
+  margin: 4px 0 0;
+  color: var(--label-inactive);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.desktop-identity-gate__tabs button,
+.desktop-identity-gate__form button {
+  border: 0;
+  color: var(--label-inactive);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+}
+
+.desktop-identity-gate__form .desktop-identity-gate__provider {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 1px solid var(--shell-fg);
+  border-radius: 8px;
+  color: var(--shell-bg);
+  background: var(--shell-fg);
+  font-size: 14px;
+  font-weight: 500;
+  transition:
+    background var(--ease),
+    border-color var(--ease);
+}
+
+.desktop-identity-gate__provider:hover:not(:disabled) {
+  border-color: var(--label-inactive);
+  opacity: 0.86;
+}
+
+.desktop-identity-gate__provider:disabled,
+.desktop-identity-gate__submit:disabled,
+.desktop-identity-gate__mode-link:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.desktop-identity-gate__divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 20px 0;
+  color: var(--label-inactive);
+  font-size: 12px;
+}
+
+.desktop-identity-gate__divider::before,
+.desktop-identity-gate__divider::after {
+  content: "";
+  height: 1px;
+  flex: 1;
+  background: var(--separator);
+}
+
+.desktop-identity-gate__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+}
+
+.desktop-identity-gate__form label {
+  margin-top: 0;
+  color: var(--label-inactive);
+  font-size: 13px;
+  font-weight: 400;
+}
+
+.desktop-identity-gate__form input {
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 8px 12px;
+  border: 1px solid var(--separator);
+  border-radius: 6px;
+  color: var(--shell-fg);
+  background: var(--shell-bg);
+  font: inherit;
+  font-size: 14px;
+  outline: none;
+}
+
+.desktop-identity-gate__form input + input {
+  margin-top: 0;
+}
+
+.desktop-identity-gate__form input:focus {
+  border-color: var(--label-inactive);
+}
+
+.desktop-identity-gate__error {
+  max-width: none;
+  margin: 0;
+  color: hsl(var(--destructive));
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.desktop-identity-gate__form .desktop-identity-gate__submit {
+  width: 100%;
+  min-height: 36px;
+  margin-top: 4px;
+  padding: 8px 12px;
+  border: 1px solid var(--separator);
+  border-radius: 6px;
+  color: var(--shell-fg);
+  background: var(--surface-active-bg);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    background var(--ease),
+    border-color var(--ease);
+  -webkit-app-region: no-drag;
+}
+
+.desktop-identity-gate__form .desktop-identity-gate__submit--primary {
+  border-color: var(--label-active);
+  color: var(--shell-bg);
+  background: var(--label-active);
+}
+
+.desktop-identity-gate__submit:hover:not(:disabled) {
+  border-color: var(--label-inactive);
+  background: var(--separator);
+}
+
+.desktop-identity-gate__submit--primary:hover:not(:disabled) {
+  border-color: var(--shell-fg);
+  color: var(--shell-bg);
+  background: var(--shell-fg);
+}
+
+.desktop-identity-gate__submit:focus-visible,
+.desktop-identity-gate__provider:focus-visible,
+.desktop-identity-gate__mode-link:focus-visible {
+  outline: 2px solid var(--label-active);
+  outline-offset: 2px;
+}
+
+.desktop-identity-gate__form .desktop-identity-gate__mode-link {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 2px 0;
+  color: var(--label-inactive);
+  background: transparent;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 400;
+  text-decoration: underline;
+}
+
+.desktop-identity-gate__legal {
+  margin: 0;
+  color: var(--label-inactive);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.desktop-identity-gate__legal a {
+  color: inherit;
+  text-underline-offset: 2px;
+}
+
+.desktop-identity-gate__spinner {
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--separator);
+  border-top-color: var(--label-active);
+  border-radius: 50%;
+  animation: app-webview-spin 0.9s linear infinite;
+}
+
+.desktop-identity-gate__status {
+  color: var(--label-inactive);
+  font-size: 12px;
+}
+
+.desktop-identity-gate__success-title {
+  color: var(--label-active);
+  font-size: 16px;
+  font-weight: 600;
+  text-align: center;
+}
+
+.desktop-identity-gate__success-copy {
+  margin: 10px 0 0;
+  color: var(--label-inactive);
+  font-size: 12px;
+  line-height: 1.55;
+  text-align: center;
 }
 
 /* ─── Error overlay ──────────────────────────────────────────── */
@@ -1734,15 +1837,15 @@ body {
   background: rgba(59, 130, 246, 0.1);
 }
 
-/* Dev/Prod mode toggle */
-.settings-mode-toggle {
+/* Shortcut behavior selector */
+.settings-shortcut-behavior-toggle {
   display: flex;
   border-radius: 4px;
   overflow: hidden;
   border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.settings-mode-btn {
+.settings-shortcut-behavior-btn {
   background: none;
   border: none;
   color: #555;
@@ -1755,55 +1858,14 @@ body {
     background var(--ease);
 }
 
-.settings-mode-btn:hover {
+.settings-shortcut-behavior-btn:hover {
   color: #aaa;
   background: rgba(255, 255, 255, 0.04);
 }
 
-.settings-mode-btn--active {
+.settings-shortcut-behavior-btn--active {
   color: #fff;
   background: rgba(255, 255, 255, 0.1);
-}
-
-/* Larger pill for the global mode toggle */
-.settings-mode-toggle--lg {
-  border-radius: 6px;
-}
-
-.settings-mode-toggle--lg .settings-mode-btn {
-  padding: 6px 14px;
-  font-size: 12px;
-}
-
-/* Global mode hero card */
-.settings-mode-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  border-radius: 10px;
-  margin-bottom: 12px;
-}
-
-.settings-mode-card-text {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.settings-mode-card-title {
-  font-size: 13px;
-  font-weight: 600;
-  color: #fff;
-}
-
-.settings-mode-card-status {
-  font-size: 11px;
-  color: #777;
 }
 
 .settings-provider-card {
@@ -2054,38 +2116,20 @@ body {
   white-space: nowrap;
 }
 
+/* Shared settings rows use compact action controls instead of the legacy
+   overlay's full-width button treatment. */
+.settings-page-tabs-content .agent-native-settings-row__control .settings-btn {
+  width: auto;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
 .settings-provider-message {
   color: hsl(var(--muted-foreground));
   font-size: 11px;
   line-height: 1.45;
   overflow-wrap: anywhere;
   word-break: break-word;
-}
-
-.settings-code-tab-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  background: hsl(var(--foreground) / 0.025);
-  border: 1px solid hsl(var(--border) / 0.6);
-  border-radius: 10px;
-  margin-bottom: 12px;
-}
-
-.settings-chat-first-card {
-  background: linear-gradient(
-    135deg,
-    hsl(var(--primary) / 0.08),
-    hsl(var(--foreground) / 0.025) 55%
-  );
-  border-color: hsl(var(--primary) / 0.22);
-}
-
-.settings-chat-first-card:focus-within {
-  border-color: hsl(var(--primary) / 0.5);
-  box-shadow: 0 0 0 2px hsl(var(--primary) / 0.12);
 }
 
 .settings-subscriptions-card {
@@ -2162,13 +2206,6 @@ body {
 
 .settings-subscription-status--ok {
   color: hsl(var(--primary));
-}
-
-.settings-code-tab-copy {
-  display: flex;
-  min-width: 0;
-  flex-direction: column;
-  gap: 2px;
 }
 
 .settings-update-card {
@@ -2552,11 +2589,11 @@ body {
   border-color: rgba(59, 130, 246, 0.5);
 }
 
-.settings-shortcut-form .settings-mode-toggle {
+.settings-shortcut-form .settings-shortcut-behavior-toggle {
   height: 34px;
 }
 
-.settings-shortcut-form .settings-mode-btn {
+.settings-shortcut-form .settings-shortcut-behavior-btn {
   padding: 0 8px;
 }
 
@@ -3121,39 +3158,17 @@ body {
   margin-bottom: 0;
 }
 
-/* ─── Update indicator (sidebar pill) ─────────────────────────── */
-.update-indicator .icon-wrapper {
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.update-indicator .item-label {
-  color: rgba(255, 255, 255, 0.55);
-}
-
-.update-indicator--pending .icon-wrapper,
-.update-indicator--downloading .icon-wrapper {
-  background: rgba(59, 130, 246, 0.15);
+/* ─── Update indicator (chat-first rail action) ───────────────── */
+.desktop-chat-first-hub .update-indicator--pending,
+.desktop-chat-first-hub .update-indicator--downloading {
   color: #60a5fa;
 }
 
-.update-indicator--pending .item-label,
-.update-indicator--downloading .item-label {
-  color: rgba(96, 165, 250, 0.85);
-}
-
-.update-indicator--ready .icon-wrapper {
+.desktop-chat-first-hub .update-indicator--ready,
+.desktop-chat-first-hub .update-indicator--ready:hover {
   background: transparent;
-  color: #60a5fa;
-  box-shadow: none;
-}
-
-.update-indicator--ready .item-label {
   color: #60a5fa;
   font-weight: 600;
-}
-
-.update-indicator--ready:hover .icon-wrapper {
-  background: transparent;
 }
 
 @keyframes update-spin {
@@ -3180,8 +3195,8 @@ body {
   flex-direction: column;
   gap: 14px;
   padding: 16px 18px 14px;
-  background: #161616;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
   border-radius: 12px;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
   -webkit-app-region: no-drag;
@@ -3228,13 +3243,13 @@ body {
 .update-prompt-title {
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
+  color: hsl(var(--card-foreground));
 }
 
 .update-prompt-subtitle {
   font-size: 12px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, 0.55);
+  color: hsl(var(--muted-foreground));
 }
 
 .update-prompt-actions {
@@ -3258,12 +3273,12 @@ body {
 
 .update-prompt-btn--ghost {
   background: transparent;
-  color: rgba(255, 255, 255, 0.6);
+  color: hsl(var(--muted-foreground));
 }
 
 .update-prompt-btn--ghost:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: hsl(var(--foreground) / 0.06);
+  color: hsl(var(--foreground));
 }
 
 .update-prompt-btn--primary {
@@ -3288,45 +3303,14 @@ body {
   justify-content: center;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.4);
+  color: hsl(var(--muted-foreground) / 0.8);
   border-radius: 5px;
   cursor: pointer;
 }
 
 .update-prompt-close:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.85);
-}
-
-/* ─── Shell snackbar (shadcn/sonner) ─────────────────────────── */
-.shell [data-sonner-toaster].shell-snackbar-toaster {
-  --width: auto;
-}
-
-.shell [data-sonner-toast].shell-snackbar[data-styled="true"] {
-  width: max-content;
-  min-width: 148px;
-  max-width: min(360px, calc(100vw - 32px));
-  justify-content: center;
-  padding: 10px 14px;
-  background: hsl(var(--popover, 0 0% 100%));
-  color: hsl(var(--popover-foreground, 0 0% 10%));
-  border-color: hsl(var(--border, 0 0% 90%) / 0.78);
-  border-radius: 8px;
-  box-shadow:
-    0 18px 42px hsl(var(--foreground, 0 0% 10%) / 0.14),
-    0 0 0 1px hsl(var(--border, 0 0% 90%) / 0.2) inset;
-}
-
-.shell [data-sonner-toast].shell-snackbar [data-content] {
-  align-items: center;
-}
-
-.shell-snackbar-title {
-  font-size: 13px;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: hsl(var(--popover-foreground, 0 0% 10%));
+  background: hsl(var(--foreground) / 0.08);
+  color: hsl(var(--foreground) / 0.85);
 }
 
 /* ─── Full-page settings ──────────────────────────────────────
@@ -3410,7 +3394,7 @@ body {
 }
 
 .settings-sidebar-link--active {
-  background: var(--tab-active-bg);
+  background: var(--surface-active-bg);
   color: var(--label-active);
   font-weight: 500;
 }
@@ -3499,25 +3483,20 @@ body {
   line-height: 1.45;
 }
 
-.settings-mode-card,
 .settings-provider-card,
 .settings-builder-connect-card,
-.settings-code-tab-card,
 .settings-remote-card,
 .settings-update-card {
   border-color: var(--separator);
-  background: var(--tab-active-bg);
+  background: var(--surface-active-bg);
   box-shadow: none;
 }
 
-.settings-mode-card,
-.settings-code-tab-card,
 .settings-remote-card {
   min-height: 62px;
   border-radius: 8px;
 }
 
-.settings-mode-card-title,
 .settings-app-name,
 .settings-header h2,
 .settings-update-title,
@@ -3525,7 +3504,6 @@ body {
   color: var(--shell-fg);
 }
 
-.settings-mode-card-status,
 .settings-app-url,
 .settings-provider-card small,
 .settings-field-hint,
@@ -3662,10 +3640,10 @@ body {
   background: var(--sidebar-bg);
 }
 
-/* The settings destination covers the normal tab bar, so preserve the native
+/* The settings destination covers the workbench, so preserve the native
    macOS title-bar clearance before placing the back affordance in the rail. */
 .platform-darwin .settings-page-tabs-nav {
-  padding-top: calc(var(--tabbar-height) + 16px);
+  padding-top: calc(var(--window-titlebar-height) + 16px);
 }
 
 .settings-page-tabs-content {
@@ -3674,7 +3652,7 @@ body {
 
 .settings-page-tabs-content .rounded-xl {
   border-color: var(--separator);
-  background: var(--tab-active-bg);
+  background: var(--surface-active-bg);
 }
 
 .settings-page-tabs-content .divide-border\/60 > :not(:last-child) {
@@ -3735,18 +3713,18 @@ body {
   color: hsl(var(--foreground));
 }
 
-.settings-page-tabs-content .settings-mode-toggle {
+.settings-page-tabs-content .settings-shortcut-behavior-toggle {
   border-color: hsl(var(--border));
   border-radius: calc(var(--radius) - 2px);
   background: hsl(var(--background));
 }
 
-.settings-page-tabs-content .settings-mode-btn {
+.settings-page-tabs-content .settings-shortcut-behavior-btn {
   color: hsl(var(--muted-foreground));
 }
 
-.settings-page-tabs-content .settings-mode-btn:hover,
-.settings-page-tabs-content .settings-mode-btn--active {
+.settings-page-tabs-content .settings-shortcut-behavior-btn:hover,
+.settings-page-tabs-content .settings-shortcut-behavior-btn--active {
   background: hsl(var(--accent));
   color: hsl(var(--foreground));
 }
@@ -3773,4 +3751,401 @@ body {
   border-color: hsl(var(--border));
   background: hsl(var(--accent));
   color: hsl(var(--foreground));
+}
+
+/* Embedded terminals inherit the chat stream surface so the max-width frame
+   does not introduce a second background band. */
+.desktop-terminal-tabs {
+  --desktop-terminal-background: hsl(var(--background));
+  display: flex;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--desktop-terminal-background);
+  color: var(--shell-fg);
+}
+
+.desktop-terminal-tabs__body {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+  background: var(--desktop-terminal-background);
+}
+
+.desktop-terminal-tabs__terminal {
+  width: 100%;
+  height: 100%;
+  background: var(--desktop-terminal-background);
+}
+
+.desktop-terminal-tabs__state {
+  display: flex;
+  height: 100%;
+  min-height: 160px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--label-inactive);
+  font-size: 12px;
+  text-align: center;
+}
+
+.desktop-terminal-settings-select {
+  min-width: 176px;
+  height: 34px;
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  padding: 0 9px;
+}
+
+.desktop-code-agent-schedules {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.desktop-code-agent-schedules__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 36px 48px 22px;
+}
+
+.desktop-code-agent-schedules__header h1,
+.desktop-code-agent-schedules__detail h2 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.desktop-code-agent-schedules__header h1 {
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.desktop-code-agent-schedules__header p:last-child {
+  margin: 7px 0 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+}
+
+.desktop-code-agent-schedules__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.desktop-code-agent-schedules__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 48px 16px;
+  padding: 0 10px;
+  border: 1px solid hsl(var(--input));
+  border-radius: calc(var(--radius) + 2px);
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-code-agent-schedules__toolbar input {
+  height: 40px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.desktop-code-agent-schedules__toolbar input:focus-visible {
+  box-shadow: none;
+}
+
+.desktop-code-agent-schedules__error {
+  margin: 0 48px 12px;
+  padding: 9px 11px;
+  border: 1px solid hsl(var(--destructive) / 0.35);
+  border-radius: var(--radius);
+  color: hsl(var(--destructive));
+  font-size: 12px;
+}
+
+.desktop-code-agent-schedules__body {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0 48px 36px;
+  overflow: hidden;
+}
+
+.desktop-code-agent-schedules__body--selected {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) + 2px);
+}
+
+.desktop-code-agent-schedules__list {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.desktop-code-agent-schedules__row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  align-items: center;
+  gap: 12px;
+}
+
+.desktop-code-agent-schedules__row {
+  width: 100%;
+  min-height: 70px;
+  padding: 13px 16px;
+  border: 0;
+  border-bottom: 1px solid hsl(var(--border) / 0.75);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.desktop-code-agent-schedules__row:hover,
+.desktop-code-agent-schedules__row--selected {
+  background: hsl(var(--accent) / 0.58);
+}
+
+.desktop-code-agent-schedules__row-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 50%;
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-code-agent-schedules__row-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.desktop-code-agent-schedules__row-copy strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-code-agent-schedules__row-copy span,
+.desktop-code-agent-schedules__row-next {
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-code-agent-schedules__empty {
+  display: grid;
+  min-height: 260px;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  padding: 40px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  text-align: center;
+}
+
+.desktop-code-agent-schedules__empty strong {
+  color: hsl(var(--foreground));
+  font-size: 14px;
+}
+
+.desktop-code-agent-schedules__detail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 18px;
+  overflow: auto;
+  padding: 24px;
+  border-left: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / 0.45);
+}
+
+.desktop-code-agent-schedules__detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.desktop-code-agent-schedules__detail h2 {
+  max-width: 270px;
+  font-size: 19px;
+}
+
+.desktop-code-agent-schedules__detail-description {
+  margin: 7px 0 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.desktop-code-agent-schedules__status {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.desktop-code-agent-schedules__status--paused {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-code-agent-schedules__detail > label {
+  display: grid;
+  gap: 6px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.desktop-code-agent-schedules__detail > label input,
+.desktop-code-agent-schedules__detail > label textarea,
+.desktop-code-agent-schedules__detail > label button {
+  font-weight: 400;
+}
+
+.desktop-code-agent-schedules__prompt {
+  padding: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground) / 0.86);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.desktop-code-agent-schedules__metadata {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.desktop-code-agent-schedules__metadata > div {
+  display: grid;
+  gap: 3px;
+}
+
+.desktop-code-agent-schedules__metadata dt,
+.desktop-code-agent-schedules__metadata dd {
+  margin: 0;
+}
+
+.desktop-code-agent-schedules__metadata dt {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.desktop-code-agent-schedules__metadata dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: hsl(var(--foreground));
+  font-size: 12px;
+}
+
+.desktop-code-agent-schedules__field-hint {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.desktop-code-agent-schedules__interval-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.desktop-code-agent-schedules__interval-input input {
+  flex: 1 1 auto;
+}
+
+.desktop-code-agent-schedules__interval-input > span {
+  flex: 0 0 auto;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.desktop-code-agent-schedules__detail-actions,
+.desktop-code-agent-schedules__danger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.desktop-code-agent-schedules__danger {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+
+.desktop-code-agent-schedules__last-error {
+  margin: 0;
+  color: hsl(var(--destructive));
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 860px) {
+  .desktop-code-agent-schedules__header,
+  .desktop-code-agent-schedules__toolbar,
+  .desktop-code-agent-schedules__body {
+    margin-inline: 20px;
+  }
+
+  .desktop-code-agent-schedules__header {
+    padding-inline: 0;
+  }
+
+  .desktop-code-agent-schedules__body--selected {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  .desktop-code-agent-schedules__detail {
+    border-top: 1px solid hsl(var(--border));
+    border-left: 0;
+  }
 }

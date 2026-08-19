@@ -18,6 +18,12 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
     failAllocation: false,
     /** Simulates commit-then-timeout: the row lands, then the call throws. */
     failAllocationAfterCommit: false,
+    /** Simulates a missing allocator row followed by a failed reseed. */
+    returnEmptyAllocationOnce: false,
+    /** Keep the allocator row missing through the retry after a failed reseed. */
+    returnEmptyAllocationWhileReseedingFails: false,
+    failReseed: false,
+    seedCalls: 0,
     async execute(query: string | { sql: string; args?: unknown[] }) {
       const sql = typeof query === "string" ? query : query.sql;
       const args = typeof query === "string" ? [] : (query.args ?? []);
@@ -29,6 +35,10 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
         return { rows: [{ "1": 1 }], rowsAffected: 0 };
       }
       if (sql.includes("INSERT INTO sync_version")) {
+        db.seedCalls++;
+        if (db.failReseed && db.seedCalls > 1) {
+          throw new Error("allocator reseed unavailable");
+        }
         if (state.v === 0) state.v = Date.now();
         return { rows: [], rowsAffected: 1 };
       }
@@ -44,6 +54,12 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
         };
       }
       if (sql.includes("WITH alloc")) {
+        if (db.returnEmptyAllocationOnce) {
+          if (!db.returnEmptyAllocationWhileReseedingFails) {
+            db.returnEmptyAllocationOnce = false;
+          }
+          return { rows: [], rowsAffected: 0 };
+        }
         if (db.failAllocation) throw new Error("neon unavailable");
         const floor = Number(args[0]);
         const id = String(args[1]);
@@ -63,7 +79,11 @@ function makeAllocatorDb(shared?: { v: number; ids: Map<string, number> }) {
       return { rows: [], rowsAffected: 0 };
     },
   };
-  return db;
+  const transactionalDb = db as typeof db & {
+    transaction: (fn: (tx: typeof db) => Promise<unknown>) => Promise<unknown>;
+  };
+  transactionalDb.transaction = async (fn) => fn(db);
+  return transactionalDb;
 }
 
 function baseEvent(extra: Record<string, unknown> = {}) {
@@ -227,6 +247,41 @@ describe("dbAssignedVersions", () => {
       ),
     ).toBe(true);
     expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  it("warns when allocator reseeding fails before retrying allocation", async () => {
+    const db = makeAllocatorDb();
+    db.returnEmptyAllocationOnce = true;
+    db.returnEmptyAllocationWhileReseedingFails = true;
+    db.failReseed = true;
+    const s = new AppSyncState({
+      getDb: () => db as never,
+      isPostgres: () => true,
+      dbAssignedVersions: true,
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    s.recordChange(baseEvent());
+    await flush();
+
+    expect(warn).toHaveBeenCalledWith(
+      "[agent-native] sync version allocator reseed failed; retrying allocation:",
+      "allocator reseed unavailable",
+    );
+    const events = s.getChangesSince(0).events;
+    expect(events).toHaveLength(1);
+    expect(events[0]?.version).toBeGreaterThan(0);
+    expect(
+      db.log.some(
+        (q) =>
+          q.sql.includes("INSERT INTO sync_events") &&
+          !q.sql.includes("WITH alloc"),
+      ),
+    ).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      "[agent-native] sync version allocation failed; falling back to clock-assigned versions",
+    );
     warn.mockRestore();
   });
 

@@ -392,7 +392,7 @@ function persistenceTemporarilyUnavailable(): boolean {
   );
 }
 
-async function ensureCooldownTable(): Promise<void> {
+export async function ensureCooldownTable(): Promise<void> {
   if (!shouldPersistCooldowns()) return;
   if (persistenceTemporarilyUnavailable()) return;
   if (!state.initPromise) {

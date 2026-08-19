@@ -1,0 +1,275 @@
+---
+title: "Defining Actions"
+description: "The defineAction() anatomy: schema, run, and HTTP config, plus how to keep the action surface small."
+---
+
+# Defining Actions
+
+Every action starts with a call to `defineAction()`. It bundles a description for the agent, a schema that validates input, and a `run` function that does the work, so the UI and the agent call the exact same code.
+
+<AnnotatedCode
+  id="doc-block-actions-defining-1"
+  title="Anatomy of an action"
+  filename="actions/reply-to-email.ts"
+  language="ts"
+  code={
+    'import { defineAction } from "@agent-native/core/action";\nimport { z } from "zod";\n\nimport { getDb, schema } from "../server/db/index.js";\n\nexport default defineAction({\n  description: "Reply to an email thread in the user\'s voice.",\n  schema: z.object({\n    emailId: z.string().describe("The id of the email to reply to."),\n    body: z.string().describe("The reply body, in markdown."),\n  }),\n  run: async ({ emailId, body }) => {\n    const db = getDb();\n    await db.insert(schema.replies).values({ emailId, body });\n    return { ok: true, emailId };\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "7",
+      label: "Tool surface",
+      note: "`description` is what the agent reads to decide when to call this. The per-field `.describe()` calls flow into the JSON Schema too.",
+    },
+    {
+      lines: "8-11",
+      label: "Typed contract",
+      note: "One schema validates input from **every** surface and is converted to JSON Schema for the model. Invalid inputs never reach `run`.",
+    },
+    {
+      lines: "12-16",
+      label: "One implementation",
+      note: "The `run` body is the single source of truth. The UI button and the agent tool both execute exactly this. `getDb()` and `schema` come from your app's `server/db/index.ts`. See [Database](/docs/server-database).",
+    },
+  ]}
+/>
+
+The framework auto-discovers every file in `actions/` and mounts it on startup. There's nothing else to register by hand.
+
+<Signature
+  id="doc-block-actions-defining-2"
+  name="defineAction"
+  params={[
+    {
+      name: "config",
+      type: "DefineActionConfig<TSchema, TReturn, TOutputSchema>",
+      description:
+        "Everything below is one config object. Only description, schema, and run are required.",
+      fields: [
+        {
+          name: "description",
+          type: "string",
+          description:
+            "What the agent reads to decide when to call this action.",
+        },
+        {
+          name: "schema",
+          type: "StandardSchemaV1",
+          description:
+            "Validates input on every surface. See Schema options below.",
+        },
+        {
+          name: "run",
+          type: "(args, ctx?) => Promise<TReturn> | TReturn",
+          description:
+            "The single implementation every surface calls. See Run Context for the ctx argument.",
+        },
+        {
+          name: "http",
+          type: "ActionHttpConfig | false",
+          optional: true,
+          description:
+            "Overrides the mounted method/path, or disables the HTTP endpoint entirely. See HTTP config below.",
+        },
+        {
+          name: "readOnly",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Auto-true when http.method is GET. Skips the UI poll-refresh and write-auditing. Not access control.",
+        },
+        {
+          name: "outputSchema",
+          type: "StandardSchemaV1",
+          optional: true,
+          description:
+            "Validates what run() returns. See Validating the return value below.",
+        },
+        {
+          name: "outputErrorStrategy",
+          type: '"warn" | "strict" | "fallback"',
+          optional: true,
+          default: '"warn"',
+          description: "What happens on an output mismatch.",
+        },
+        {
+          name: "outputFallback",
+          type: "TReturn",
+          optional: true,
+          description:
+            'Returned in place of an invalid result when outputErrorStrategy is "fallback".',
+        },
+        {
+          name: "parallelSafe",
+          type: "boolean",
+          optional: true,
+          description:
+            "Allows a mutating action to run concurrently with other same-turn tool calls.",
+        },
+        {
+          name: "agentTool",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Set false to hide from every agent tool list. See Access & Authorization.",
+        },
+        {
+          name: "toolCallable",
+          type: "boolean",
+          optional: true,
+          default: "true",
+          description:
+            "Set false to block the sandboxed extension iframe bridge. See Access & Authorization.",
+        },
+        {
+          name: "publicAgent",
+          type: "PublicAgentActionConfig",
+          optional: true,
+          description:
+            "{ expose: true } adds the action to public MCP/A2A/OpenAPI surfaces. See Access & Authorization.",
+        },
+        {
+          name: "needsApproval",
+          type: "boolean | ((args, ctx?) => boolean | Promise<boolean>)",
+          optional: true,
+          default: "false",
+          description:
+            "Pauses the agent loop for human approval before run(). See Human-in-the-Loop Approvals.",
+        },
+        {
+          name: "authorize",
+          type: "ActionAuthorize<TInput>",
+          optional: true,
+          description:
+            "Guard function deciding whether this caller may run the action at all. See Access & Authorization.",
+        },
+        {
+          name: "audit",
+          type: "ActionAuditConfig",
+          optional: true,
+          description:
+            "Tunes the automatic audit capture every mutating action already gets. See Audit Log.",
+        },
+        {
+          name: "chatUI",
+          type: "ActionChatUIConfig",
+          optional: true,
+          description:
+            "Declares a native chat UI renderer for the action's result. See Other Surfaces.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "ActionDefinition<TInput, TReturn>",
+    description:
+      "The typed action definition. Export it as the file's default export.",
+  }}
+/>
+
+## Schema options {#schemas}
+
+`schema` accepts any [Standard Schema](https://standardschema.dev)-compatible library:
+
+- **Zod** (v4): the most common choice, with the best type inference and automatic conversion to JSON Schema.
+- **Valibot**: a good pick when bundle size matters.
+- **ArkType**: a good pick if you prefer its syntax.
+
+The schema does two jobs. It converts to JSON Schema for the Claude API tool definition, and it validates input at runtime before `run()` fires. Invalid input never reaches your handler.
+
+## Validating the return value {#output-schema}
+
+`schema` validates _inputs_. To also validate what an action **returns**, pass an `outputSchema` (any Standard Schema-compatible schema: Zod, Valibot, ArkType, the same surface as `schema`). The framework validates input before `run()` and validates the result after `run()` resolves.
+
+```ts
+export default defineAction({
+  description: "Summarize a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({
+    summary: z.string(),
+    messageCount: z.number(),
+  }),
+  outputErrorStrategy: "warn", // default
+  run: async ({ threadId }) => {
+    /* ...returns { summary, messageCount } ... */
+  },
+});
+```
+
+`outputErrorStrategy` controls what happens on a mismatch:
+
+| Strategy     | Behavior on mismatch                                                                               |
+| ------------ | -------------------------------------------------------------------------------------------------- |
+| `"warn"`     | **Default.** `console.warn` the issues and return the **original** result unchanged. Non-breaking. |
+| `"strict"`   | Throw a clear error, so a bug in the action is easy to notice.                                     |
+| `"fallback"` | Return the provided `outputFallback` value in place of the invalid result.                         |
+
+When `run()` succeeds, the framework returns the validated value, so any defaults or coercions on `outputSchema` take effect, the same way they do for input. When you don't pass an `outputSchema`, the return value is unchanged.
+
+## HTTP config {#http}
+
+By default every action is exposed as `POST /_agent-native/actions/<name>`. Override with the `http` option:
+
+```ts
+export default defineAction({
+  description: "Get details for a lead.",
+  schema: z.object({ leadId: z.string() }),
+  http: { method: "GET" },
+  run: async ({ leadId }) => {
+    return await db.select().from(leads).where(eq(leads.id, leadId));
+  },
+});
+```
+
+For a `GET` action, `leadId` is passed as a query param: `/_agent-native/actions/get-lead?leadId=abc`.
+
+<Endpoint id="doc-block-actions-defining-3" title="The auto-mounted action endpoint" method="GET" path="/_agent-native/actions/get-lead" summary={"Every action is mounted here automatically. The filename is the action name."} auth={"Session cookie (frontend calls carry `X-Agent-Native-Frontend: 1`), or `Authorization: Bearer <token>` for external callers"} params={[
+  {
+    "name": "leadId",
+    "in": "query",
+    "type": "string",
+    "required": true,
+    "description": "GET args arrive as query params. POST args arrive in the JSON body."
+  }
+]} responses={[
+  {
+    "status": "200",
+    "description": "The action's return value as JSON."
+  },
+  {
+    "status": "400",
+    "description": "Input failed schema validation before run() fired."
+  }
+]}>
+
+POST is the default, and `http: { method: "GET" }` makes it a GET. The React hooks and `callAction()` always call this path by name, regardless of any `http.path` override. External systems can call the same route with a long-lived bearer token. See [HTTP API](/docs/http-api).
+
+</Endpoint>
+
+- **`http: { method: "GET" | "POST" | "PUT" | "DELETE" }`**: defaults to `POST`. `GET` actions are auto-marked `readOnly`, so a successful call doesn't trigger a UI poll-refresh.
+- **`http: { path: "..." }`**: overrides the mounted URL under `/_agent-native/actions/`. It defaults to the filename. This override only changes the URL for direct HTTP callers. `useActionQuery()`, `useActionMutation()`, and `callAction()` always call `/_agent-native/actions/<name>`, regardless of this override, so overriding the path makes those hooks 404. Use a path override only for external HTTP callers. Also note that `:param` route segments in the override path are not parsed into `run()` args. Only query-string params and JSON body fields are.
+- **`http: false`**: disables the HTTP endpoint entirely. Only the agent and CLI can call the action.
+- **`readOnly: true`**: explicitly skips the poll-refresh, even for POST actions that don't mutate anything. This is not access control. It doesn't restrict who may call the action, and it doesn't affect `useActionQuery()`, `useActionMutation()`, or any client hook. Its only effects are suppressing the post-call refresh event and opting the action out of write-auditing. To hide an action from the model, use `agentTool: false`. To gate who can call it, use the auth and access options on [Access & Authorization](/docs/actions-access-control).
+- **`parallelSafe: true`**: allows a mutating action to run at the same time as other tool calls in the same turn. Only set this when the action is safe to run concurrently and doesn't depend on order. Mutating actions serialize by default.
+
+## Keep the action surface small {#small-surface}
+
+Every action the agent can see takes up a slot in the model's tool list, and a long, overlapping list makes it harder for the model to pick the right tool. Design the action surface like an API you maintain, not one action per button in the UI:
+
+- Prefer **one CRUD-style `update` action** that takes a patch of optional fields, over many per-field actions like `update-name`, `update-order`, and `update-color`. The caller only sends the fields that changed.
+- Before adding a new read action for every query or filter, consider a more general option first: the [provider API trio](/docs/template-dispatch-vault-integrations#provider-api) (`provider-api-catalog`, `provider-api-docs`, and `provider-api-request`) for provider data, or the dev `db-query` tool for app data.
+- Mark UI-only or programmatic actions [`agentTool: false`](/docs/actions-access-control#agent-tool). They stay callable from the frontend or over HTTP, without taking a slot in the model's tool list.
+- Delete or hide actions the UI no longer uses, instead of leaving them exposed to the model.
+
+The repo includes an advisory helper, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`). It scans a template's `actions/` folder and flags actions the UI may no longer use, along with groups of per-field actions that could be combined into one. It always exits with code 0 and never fails CI, and its heuristics are conservative, so treat its output as a suggestion, not an error.
+
+## What's next
+
+- [**Overview**](/docs/actions-overview) — what an action is and the hello-world walkthrough
+- [**Access & Authorization**](/docs/actions-access-control) — `agentTool`, `toolCallable`, `authorize`, and `ctx` scoping
+- [**Run Context**](/docs/actions-run-context) — the full `ctx` field table
+- [**Other Surfaces**](/docs/actions-other-surfaces) — native chat UI, CLI, A2A, MCP, and standard actions
+- [**Database**](/docs/server-database) — `getDb()`/`schema` used inside `run()`
+- [**Data & Sync**](/docs/client-data) — calling this action from the UI

@@ -1,3 +1,4 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { Outlet, redirect, type LoaderFunctionArgs } from "react-router";
 
 export default function TemplatesLayout() {
@@ -7,5 +8,7 @@ export default function TemplatesLayout() {
 export function loader({ request }: LoaderFunctionArgs) {
   const url = new URL(request.url);
   url.pathname = url.pathname.replace(/\/templates(?=\/|$)/, "/apps");
-  throw redirect(`${url.pathname}${url.search}`, 301);
+  throw withSsrHtmlContentType(redirect(`${url.pathname}${url.search}`, 301), {
+    varyByQuery: true,
+  });
 }

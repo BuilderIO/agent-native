@@ -50,6 +50,7 @@ describe("ConnectBuilderCard", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
       configured: true,
+      codeChangeConfigured: false,
       builderEnabled: false,
       orgName: "Builder space",
       envManaged: false,
@@ -69,6 +70,7 @@ describe("ConnectBuilderCard", () => {
       configurable: true,
       value: originalLocation,
     });
+    delete (window as unknown as Record<string, unknown>).electronAPI;
     vi.clearAllMocks();
     vi.unstubAllGlobals();
   });
@@ -81,7 +83,7 @@ describe("ConnectBuilderCard", () => {
         <ConnectBuilderCard
           configured
           builderEnabled={false}
-          connectUrl="https://builder.io/cli-auth"
+          connectUrl="/_agent-native/builder/connect?_an_connect=signed"
           prompt="Update the dashboard layout"
         />,
       );
@@ -115,13 +117,76 @@ describe("ConnectBuilderCard", () => {
     expect(container.textContent).toContain("Prompt copied");
   });
 
+  it("offers a scoped local handoff in the Electron shell", async () => {
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: { appConfig: {} },
+    });
+    let receivedPrompt = "";
+    const handleLocalCodeChange = (event: Event) => {
+      receivedPrompt =
+        (event as CustomEvent<{ prompt?: string }>).detail?.prompt ?? "";
+    };
+    window.addEventListener(
+      "agent-native:desktop-local-code-change",
+      handleLocalCodeChange,
+    );
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled
+          connectUrl=""
+          prompt="Add keyboard shortcuts to Mail"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Do locally");
+    const button = container.querySelector("[data-desktop-local-code-change]");
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+      await Promise.resolve();
+    });
+
+    expect(receivedPrompt).toBe("Add keyboard shortcuts to Mail");
+    expect(container.textContent).toContain("Preparing locally");
+    window.removeEventListener(
+      "agent-native:desktop-local-code-change",
+      handleLocalCodeChange,
+    );
+  });
+
+  it("does not expose local mode for a non-code-change card", () => {
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: { appConfig: {} },
+    });
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard configured builderEnabled connectUrl="" />,
+      );
+    });
+
+    expect(container.textContent).not.toContain("Do locally");
+    expect(
+      container.querySelector("[data-desktop-local-code-change]"),
+    ).toBeNull();
+  });
+
   it("shows a code-change fallback when Builder Cloud Agents are unavailable", () => {
     act(() => {
       root.render(
         <ConnectBuilderCard
           configured
           builderEnabled={false}
-          connectUrl="https://builder.io/cli-auth"
+          connectUrl="/_agent-native/builder/connect?_an_connect=signed"
           prompt="Update the dashboard layout"
         />,
       );
@@ -165,6 +230,65 @@ describe("ConnectBuilderCard", () => {
     expect(container.textContent).toContain("Send to Builder");
   });
 
+  it("does not enable cloud code-change send for an OAuth-only connection", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      codeChangeConfigured: false,
+      builderEnabled: true,
+      orgName: "Builder OAuth",
+      envManaged: false,
+      connecting: false,
+      error: null,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled
+          connectUrl=""
+          prompt="Update the dashboard layout"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Builder.io connected");
+    expect(container.textContent).not.toContain("Send to Builder");
+    expect(container.textContent).toContain("This requires a code change");
+  });
+
+  it("keeps cloud code-change send when OAuth and legacy keys both exist", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      codeChangeConfigured: true,
+      builderEnabled: true,
+      orgName: "Builder space",
+      envManaged: false,
+      connecting: false,
+      error: null,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled
+          connectUrl=""
+          prompt="Update the dashboard layout"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Send this to Builder");
+    expect(container.textContent).toContain("Send to Builder");
+  });
+
   it("sends the background-coding use case when joining the waitlist", async () => {
     setLocation("https://agent-native.test/");
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> =
@@ -185,7 +309,7 @@ describe("ConnectBuilderCard", () => {
         <ConnectBuilderCard
           configured
           builderEnabled={false}
-          connectUrl="https://builder.io/cli-auth"
+          connectUrl="/_agent-native/builder/connect?_an_connect=signed"
           orgName="Builder space"
           prompt="Update the dashboard layout"
         />,

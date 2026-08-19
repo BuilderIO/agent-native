@@ -87,7 +87,7 @@ interface ReservationRow {
   status: IntegrationReservationStatus;
 }
 
-async function ensureTables(): Promise<void> {
+export async function ensureTables(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const db = getDbExec();

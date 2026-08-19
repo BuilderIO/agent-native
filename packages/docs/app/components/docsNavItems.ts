@@ -39,18 +39,6 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         id: "getting-started",
         labelKey: "gettingStarted",
         slug: "getting-started",
-        children: [
-          {
-            id: "getting-started-actions",
-            labelKey: "gettingStartedActions",
-            slug: "getting-started-actions",
-          },
-          {
-            id: "getting-started-pages",
-            labelKey: "gettingStartedPages",
-            slug: "getting-started-pages",
-          },
-        ],
       },
       {
         id: "what-is-agent-native",
@@ -158,6 +146,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
             id: "template-content-sync",
             labelKey: "contentSync",
             slug: "template-content-sync",
+          },
+          {
+            id: "template-content-local-files",
+            labelKey: "localFileMode",
+            slug: "template-content-local-files",
           },
           {
             id: "template-content-developers",
@@ -559,48 +552,57 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
           },
         ],
       },
-      { id: "actions", labelKey: "actions", slug: "actions" },
       {
-        id: "human-approval",
-        labelKey: "humanApproval",
-        slug: "human-approval",
+        id: "actions-section",
+        labelKey: "actions",
+        children: [
+          {
+            id: "actions-overview",
+            labelKey: "actionsOverview",
+            slug: "actions-overview",
+          },
+          {
+            id: "actions-defining",
+            labelKey: "actionsDefining",
+            slug: "actions-defining",
+          },
+          {
+            id: "actions-access-control",
+            labelKey: "actionsAccessControl",
+            slug: "actions-access-control",
+          },
+          {
+            id: "actions-run-context",
+            labelKey: "actionsRunContext",
+            slug: "actions-run-context",
+          },
+          {
+            id: "actions-other-surfaces",
+            labelKey: "actionsOtherSurfaces",
+            slug: "actions-other-surfaces",
+          },
+          {
+            id: "actions-advanced",
+            labelKey: "actionsAdvanced",
+            slug: "actions-advanced",
+          },
+          {
+            id: "actions-agent-tools",
+            labelKey: "actionsAgentTools",
+            slug: "actions-agent-tools",
+          },
+        ],
       },
-      {
-        id: "agent-web-surfaces",
-        labelKey: "publicAgentWeb",
-        slug: "agent-web-surfaces",
-      },
-      { id: "database", labelKey: "database", slug: "database" },
       {
         id: "internationalization",
         labelKey: "internationalization",
         slug: "internationalization",
       },
-      {
-        id: "local-file-mode",
-        labelKey: "localFileMode",
-        slug: "local-file-mode",
-      },
       { id: "file-uploads", labelKey: "fileUploads", slug: "file-uploads" },
-      { id: "deployment", labelKey: "deployment", slug: "deployment" },
       {
         id: "environment-variables",
         labelKey: "environmentVariables",
         slug: "environment-variables",
-      },
-      { id: "progress", labelKey: "progress", slug: "progress" },
-      {
-        id: "agents-group",
-        labelKey: "agents",
-        draft: true,
-        children: [
-          {
-            id: "agents-overview",
-            labelKey: "agentsOverview",
-            slug: "agents",
-            draft: true,
-          },
-        ],
       },
     ],
   },
@@ -749,6 +751,7 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         slug: "messaging-internals",
       },
       { id: "dispatch", labelKey: "dispatch", slug: "dispatch" },
+      { id: "portal", labelKey: "portal", slug: "portal" },
       { id: "a2a-protocol", labelKey: "a2aProtocol", slug: "a2a-protocol" },
       { id: "mcp-clients", labelKey: "mcpClients", slug: "mcp-clients" },
       { id: "http-api", labelKey: "httpApi", slug: "http-api" },
@@ -767,9 +770,15 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "externalAgentsCatalog",
         slug: "external-agents-catalog",
       },
+      {
+        id: "agent-web-surfaces",
+        labelKey: "publicAgentWeb",
+        slug: "agent-web-surfaces",
+      },
       { id: "mcp-apps", labelKey: "mcpApps", slug: "mcp-apps" },
       { id: "cross-app-sso", labelKey: "crossAppSso", slug: "cross-app-sso" },
       { id: "notifications", labelKey: "notifications", slug: "notifications" },
+      { id: "progress", labelKey: "progress", slug: "progress" },
       {
         id: "automation-connectors",
         labelKey: "automationConnectors",
@@ -803,6 +812,58 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
       },
       { id: "embedding-sdk", labelKey: "embeddingSdk", slug: "embedding-sdk" },
       { id: "frames", labelKey: "frames", slug: "frames" },
+      {
+        id: "deployment-section",
+        labelKey: "deployment",
+        children: [
+          {
+            id: "deployment",
+            labelKey: "deploymentOverview",
+            slug: "deployment",
+          },
+          {
+            id: "workspace-deployment",
+            labelKey: "workspaceDeployment",
+            slug: "workspace-deployment",
+          },
+          {
+            id: "node-docker",
+            labelKey: "deploymentNodeDocker",
+            slug: "node-docker",
+          },
+          {
+            id: "vercel",
+            labelKey: "deploymentVercel",
+            slug: "vercel",
+          },
+          {
+            id: "netlify",
+            labelKey: "deploymentNetlify",
+            slug: "netlify",
+          },
+          {
+            id: "cloudflare",
+            labelKey: "deploymentCloudflare",
+            slug: "cloudflare",
+          },
+          {
+            id: "other-platforms",
+            labelKey: "deploymentOtherPlatforms",
+            slug: "other-platforms",
+          },
+          { id: "ssr-caching", labelKey: "ssrCaching", slug: "ssr-caching" },
+          {
+            id: "deployment-environment-variables",
+            labelKey: "deploymentEnvironmentVariables",
+            slug: "deployment-environment-variables",
+          },
+          {
+            id: "updating-ui-in-production",
+            labelKey: "updatingUiInProduction",
+            slug: "updating-ui-in-production",
+          },
+        ],
+      },
     ],
   },
   {

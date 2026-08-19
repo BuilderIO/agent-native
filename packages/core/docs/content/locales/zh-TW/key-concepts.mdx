@@ -170,7 +170,7 @@ Skills 和 actions 協同運作。一項 skill 教導代理如何做
 
 ## SQL 中的資料 {#data-in-sql}
 
-所有應用程式狀態都透過 Drizzle ORM 存放在 SQL 資料庫中。結構描述與提供者無關；支援的資料庫、`DATABASE_URL` 設定，以及可移植性規則，都記載於 [Database](/docs/database)。
+所有應用程式狀態都透過 Drizzle ORM 存放在 SQL 資料庫中。結構描述與提供者無關；支援的資料庫、`DATABASE_URL` 設定，以及可移植性規則，都記載於 [Database](/docs/server-database)。
 
 Core 的 SQL 儲存區會自動建立，並在每個範本中都可使用：
 
@@ -284,7 +284,7 @@ pnpm action db-query --sql "SELECT * FROM forms"
 
 正式環境代理聊天外掛預設將原始 SQL 工具設為唯讀（`frameworkTools: { database: "read" }`），因此代理使用 `db-schema` / `db-query` 檢查應用程式擁有的資料，並透過型別化應用程式 actions 執行寫入。只有在刻意的維護介面也需要公開具範圍限制的 `db-exec` / `db-patch` 時，才設定 `database: "write"`（或 `true`）；設定 `database: "off"` / `false` 可要求所有資料存取都透過型別化應用程式 actions。
 
-`frameworkTools` 以同樣的方式管理框架自帶的其餘工具：分享、審閱留言、版本歷史、feature flags、本地化、稽核、Context X-Ray、個人資料、自動化、docs、resources、web、跨應用委派、聊天與郵件。完整清單、`"minimal"` 預設，以及為什麼關閉分組仍保留其 HTTP 路由，請參見 [Production Agent Tools](/docs/deployment#production-agent-tools)。
+`frameworkTools` 以同樣的方式管理框架自帶的其餘工具：分享、審閱留言、版本歷史、feature flags、本地化、稽核、Context X-Ray、個人資料、自動化、docs、resources、web、跨應用委派、聊天與郵件。完整清單、`"minimal"` 預設，以及為什麼關閉分組仍保留其 HTTP 路由，請參見 [Production Agent Tools](/docs/actions-agent-tools#production-agent-tools)。
 
 </Callout>
 
@@ -351,7 +351,7 @@ graph LR
 - **CLI：** `pnpm action fetch-data --source=signups`，用於腳本撰寫和代理開發迴圈。
 - **MCP 工具 / A2A 工具：** 當啟用 MCP 伺服器或 A2A 時，同一個 action 也會出現在那裡。
 
-每個消費者都呼叫相同的底層函式，因此只需要撰寫和維護一份實作。完整參考資料請見 [Actions](/docs/actions)。
+每個消費者都呼叫相同的底層函式，因此只需要撰寫和維護一份實作。完整參考資料請見 [Actions](/docs/actions-overview)。
 
 ## 即時同步 {#polling-sync}
 
@@ -468,7 +468,7 @@ frame 被刻意授予工作區和寫入工具時，它才能編輯元件、路�
 
 兩項架構規則讓應用程式能夠跨資料庫和主機移植：
 
-- **與資料庫無關。** 使用 `@agent-native/core/db/schema` 撰寫結構描述，並使用 Drizzle 的可移植查詢 DSL 進行讀寫，讓相同的程式碼可以在任何支援的提供者上執行。只在附加性遷移或一次性維護時使用原始 SQL，並保持參數化且與方言無關。請參閱 [Database](/docs/database)。
+- **與資料庫無關。** 使用 `@agent-native/core/db/schema` 撰寫結構描述，並使用 Drizzle 的可移植查詢 DSL 進行讀寫，讓相同的程式碼可以在任何支援的提供者上執行。只在附加性遷移或一次性維護時使用原始 SQL，並保持參數化且與方言無關。請參閱 [Database](/docs/server-database)。
 - **與主機無關。** 伺服器執行於 Nitro 之上，並可編譯為任何部署目標。切勿在伺服器路由或外掛程式中使用 Node 特有的 API（`fs`、`child_process`、`path`），也切勿假設有一個持續存在的伺服器行程。無伺服器和邊緣環境都是無狀態的，因此請將所有狀態保留在 SQL 中。請參閱 [Deployment](/docs/deployment)。
 
 ## 代理資源 {#workspace}

@@ -3,7 +3,7 @@ import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 
 let _initPromise: Promise<void> | undefined;
 
-async function ensureCheckpointTable(): Promise<void> {
+export async function ensureCheckpointTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

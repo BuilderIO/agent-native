@@ -4,10 +4,12 @@ import os from "node:os";
 import { resultStatus, summarizeGuardRun } from "./lib/guard-run-summary";
 
 const guards = [
+  "guard:hooks-registered",
   "guard:no-drizzle-push",
   "guard:no-pnpm-patches",
   "guard:chat-first-shared-ui",
   "guard:no-empty-migrations",
+  "guard:release-schema-complete",
   "guard:no-unscoped-queries",
   "guard:no-env-credentials",
   "guard:env-documentation",
@@ -47,6 +49,8 @@ const guards = [
   "guard:one-sign-in",
   "guard:no-secret-literals",
   "guard:additive-migrations",
+  "guard:config-docs",
+  "guard:no-legacy-config",
   "guard:no-silent-coercion",
   "guard:no-raw-colors",
   "guard:persistent-compositing",
@@ -56,7 +60,6 @@ const guards = [
   "guard:no-heavy-dashboard-list-reads",
   "guard:dead-settings-keys",
   "guard:serverless-function-payload",
-  "guard:hooks-registered",
 ] as const;
 
 type GuardName = (typeof guards)[number];

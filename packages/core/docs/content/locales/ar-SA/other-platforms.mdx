@@ -1,0 +1,27 @@
+---
+title: "منصات أخرى"
+description: "انشر تطبيق agent-native على AWS Lambda أو Deno Deploy باستخدام إعداد Nitro المسبق المطابق."
+---
+
+# منصات أخرى
+
+## AWS Lambda {#aws-lambda}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
+});
+```
+
+## Deno Deploy {#deno-deploy}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
+});
+```
+
+## ما هي الخطوة التالية
+
+- [**النشر**](/docs/deployment) — اختر قاعدة بيانات دائمة وإعدادًا مسبقًا قبل أول عملية نشر إنتاجي
+- [**Node.js & Docker**](/docs/node-docker)، و[**Vercel**](/docs/vercel)، و[**Netlify**](/docs/netlify)، و[**Cloudflare**](/docs/cloudflare) — إعدادات Nitro المسبقة الأخرى

@@ -10,6 +10,16 @@
 export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   "core-philosophy": "key-concepts",
   "database-adapters": "deployment",
+  // database.mdx was a near-duplicate of the Server section's own database
+  // page; the Server version is the complete one (adds scoping + sync).
+  database: "server-database",
+  // human-approval.mdx folded into the needsApproval section it was already
+  // a deep-dive companion to.
+  "human-approval": "actions-access-control",
+  // local-file-mode.mdx was entirely about the Content template's local-folder
+  // feature, not general framework architecture. Moved next to the other
+  // template-content-* docs.
+  "local-file-mode": "template-content-local-files",
   resources: "agent-resources",
   secrets: "security",
   workspace: "agent-resources",
@@ -30,6 +40,9 @@ export const DOCS_SLUG_REDIRECTS: Record<string, string> = {
   client: "client-overview",
   // routing.mdx superseded by the Client section's own routing page.
   routing: "client-routing",
+  // actions.mdx split into the Actions section (actions-overview, -defining,
+  // -access-control, -run-context, -other-surfaces, -advanced).
+  actions: "actions-overview",
 };
 
 /** True for a docs URL whose loader answers with a redirect, not a document. */

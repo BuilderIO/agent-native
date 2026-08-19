@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   buildDatabaseConfig,
   configureLocalSqlite,
+  desktopMagicLinkLandingUrl,
   ensureGoogleAuthIdentityWithAdapter,
   getAuthSecret,
   type BetterAuthInternalAdapter,
@@ -19,6 +20,52 @@ describe("configureLocalSqlite", () => {
       ["busy_timeout = 10000"],
       ["journal_mode = WAL"],
     ]);
+  });
+});
+
+describe("desktopMagicLinkLandingUrl", () => {
+  it("moves only desktop verification links behind a non-consuming landing page", () => {
+    const verificationURL = new URL(
+      "https://dispatch.agent-native.com/_agent-native/auth/ba/magic-link/verify",
+    );
+    verificationURL.searchParams.set("token", "magic-token");
+    verificationURL.searchParams.set(
+      "callbackURL",
+      "/_agent-native/auth/magic-link/desktop-callback?flow_id=flow-1&verifier=verifier-1",
+    );
+    verificationURL.searchParams.set(
+      "newUserCallbackURL",
+      "/_agent-native/auth/magic-link/new-user?return=%2F",
+    );
+
+    const landingURL = desktopMagicLinkLandingUrl(verificationURL.toString());
+    expect(landingURL).toBeTruthy();
+    const parsedLandingURL = new URL(landingURL!);
+    expect(parsedLandingURL.pathname).toBe(
+      "/_agent-native/auth/magic-link/desktop-landing",
+    );
+    expect(parsedLandingURL.searchParams.get("token")).toBe("magic-token");
+    expect(parsedLandingURL.searchParams.get("callbackURL")).toContain(
+      "desktop-callback?flow_id=flow-1&verifier=verifier-1",
+    );
+    expect(parsedLandingURL.searchParams.get("newUserCallbackURL")).toContain(
+      "magic-link/new-user",
+    );
+  });
+
+  it("leaves ordinary web links and cross-origin callbacks unchanged", () => {
+    const ordinaryURL =
+      "https://dispatch.agent-native.com/_agent-native/auth/ba/magic-link/verify?token=magic-token&callbackURL=%2F";
+    expect(desktopMagicLinkLandingUrl(ordinaryURL)).toBeUndefined();
+
+    const externalCallbackURL = new URL(ordinaryURL);
+    externalCallbackURL.searchParams.set(
+      "callbackURL",
+      "https://evil.example/_agent-native/auth/magic-link/desktop-callback?flow_id=flow-1&verifier=verifier-1",
+    );
+    expect(
+      desktopMagicLinkLandingUrl(externalCallbackURL.toString()),
+    ).toBeUndefined();
   });
 });
 
@@ -80,6 +127,16 @@ describe("resolveAuthSecret", () => {
       deriveServerSecret("workspace-root-secret", "better-auth"),
     );
     expect(getAuthSecret()).not.toBe("workspace-root-secret");
+  });
+
+  it("derives a production workspace auth secret for boolean workspace flags", () => {
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "true";
+    process.env.A2A_SECRET = "workspace-root-secret";
+
+    expect(getAuthSecret()).toBe(
+      deriveServerSecret("workspace-root-secret", "better-auth"),
+    );
   });
 
   it("includes a sample value and openssl command in the prod error", () => {

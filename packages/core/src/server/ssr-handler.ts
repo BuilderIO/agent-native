@@ -23,6 +23,7 @@ import {
   DEFAULT_SPECULATION_RULES_PATH,
   resolveSsrCacheHeaders,
   resolveSsrCacheKeyHeaders,
+  SSR_QUERY_CACHE_KEY_HEADER,
 } from "../shared/cache-control.js";
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_ALT,
@@ -36,6 +37,7 @@ import {
   getAppBasePathFromViteEnv,
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
+import { getAppOriginClientConfigScript } from "./app-origin-config.js";
 import { captureError } from "./capture-error.js";
 import { getPostHogClientConfigScript } from "./posthog-config.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -273,6 +275,9 @@ function applyDefaultSsrCacheHeader(
   status: number,
   pathname: string,
 ) {
+  const varyByQuery =
+    headers.get(SSR_QUERY_CACHE_KEY_HEADER)?.trim().toLowerCase() === "query";
+  headers.delete(SSR_QUERY_CACHE_KEY_HEADER);
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
   // A public shell must never set a viewer cookie or vary by credentials.
@@ -304,9 +309,14 @@ function applyDefaultSsrCacheHeader(
   for (const [name, value] of Object.entries(resolveSsrCacheHeaders())) {
     headers.set(name, value);
   }
-  for (const [name, value] of Object.entries(resolveSsrCacheKeyHeaders())) {
-    headers.set(name, value);
-  }
+  const cacheKeyHeaders = resolveSsrCacheKeyHeaders();
+  const netlifyVary = varyByQuery
+    ? cacheKeyHeaders["netlify-vary"]
+      ? "query"
+      : undefined
+    : cacheKeyHeaders["netlify-vary"];
+  if (netlifyVary) headers.set("netlify-vary", netlifyVary);
+  else headers.delete("netlify-vary");
 }
 
 function applyDefaultSpeculationRulesHeader(
@@ -397,6 +407,7 @@ async function rewriteMountedResponse(
       getSentryClientConfigScript(),
       getPostHogClientConfigScript(),
       getRealtimeClientConfigScript(),
+      getAppOriginClientConfigScript(),
     ]
       .filter(Boolean)
       .join("") || null;

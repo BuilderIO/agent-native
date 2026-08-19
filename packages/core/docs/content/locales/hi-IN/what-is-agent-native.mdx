@@ -371,7 +371,7 @@ Agent-native apps एक दूसरे से बात कर सकते �
     {
       lines: "9-12",
       label: "One implementation",
-      note: "`run` body single source of truth है। UI button और agent tool दोनों exactly यही execute करते हैं। `getDb()` और `schema` आपके app के `server/db/index.ts` से आते हैं — [Database](/docs/database) देखें।",
+      note: "`run` body single source of truth है। UI button और agent tool दोनों exactly यही execute करते हैं। `getDb()` और `schema` आपके app के `server/db/index.ts` से आते हैं — [Database](/docs/server-database) देखें।",
     },
   ]}
 />
@@ -391,7 +391,7 @@ import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 <AgentSidebar />;
 ```
 
-एक action, कई surfaces: agent इसे tool के रूप में call करता है, UI इसे typesafe mutation के रूप में call करता है, [native chat](/docs/native-chat-ui) explicit widget results render कर सकता है, external agents [A2A](/docs/a2a-protocol) के माध्यम से इसे reach करते हैं, और MCP hosts app के [MCP server](/docs/mcp-protocol) के माध्यम से इसे call करते हैं, वैकल्पिक रूप से framework द्वारा handled MCP Apps UI resources और standard remote MCP OAuth के साथ। पूर्ण reference के लिए [Actions](/docs/actions) देखें।
+एक action, कई surfaces: agent इसे tool के रूप में call करता है, UI इसे typesafe mutation के रूप में call करता है, [native chat](/docs/native-chat-ui) explicit widget results render कर सकता है, external agents [A2A](/docs/a2a-protocol) के माध्यम से इसे reach करते हैं, और MCP hosts app के [MCP server](/docs/mcp-protocol) के माध्यम से इसे call करते हैं, वैकल्पिक रूप से framework द्वारा handled MCP Apps UI resources और standard remote MCP OAuth के साथ। पूर्ण reference के लिए [Actions](/docs/actions-overview) देखें।
 
 ## आगे क्या है {#whats-next}
 

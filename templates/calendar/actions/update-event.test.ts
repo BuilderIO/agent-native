@@ -512,7 +512,7 @@ describe("update-event working locations", () => {
     expect(updateEventMock).not.toHaveBeenCalled();
   });
 
-  it("rejects multi-day all-day updates for working-location events before patching Google", async () => {
+  it("allows multi-day all-day updates for working-location events", async () => {
     getEventMock.mockResolvedValue({
       id: "google-working-location-1",
       title: "Home",
@@ -532,14 +532,23 @@ describe("update-event working locations", () => {
       updatedAt: "2026-07-06T00:00:00.000Z",
     });
 
-    await expect(
-      runWithRequestContext({ userEmail: "owner@example.com" }, () =>
-        action.run({
-          id: "google-working-location-1",
-          end: "2026-07-11",
-        }),
-      ),
-    ).rejects.toThrow("All-day working location events must be a single day.");
-    expect(updateEventMock).not.toHaveBeenCalled();
+    await runWithRequestContext({ userEmail: "owner@example.com" }, () =>
+      action.run({
+        id: "google-working-location-1",
+        end: "2026-07-11",
+      }),
+    );
+
+    expect(updateEventMock).toHaveBeenCalledWith(
+      "working-location-1",
+      expect.objectContaining({
+        allDay: true,
+        end: "2026-07-11",
+        eventType: "workingLocation",
+        transparency: "transparent",
+        visibility: "public",
+      }),
+      expect.any(Object),
+    );
   });
 });

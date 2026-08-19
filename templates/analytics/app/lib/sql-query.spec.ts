@@ -72,6 +72,23 @@ describe("executeSqlQuery", () => {
     expect(mocks.addBytesProcessed).toHaveBeenCalledWith(128);
   });
 
+  it("surfaces an unsupported-backend panel instead of an empty row set", async () => {
+    mocks.callAction.mockResolvedValue({
+      error: "unsupported_by_backend",
+      backend: "bigquery",
+      construct: "date_trunc('month', ...)",
+      message:
+        "This panel can't run on your current data backend (BigQuery) because its SQL uses date_trunc('month', ...). Edit the panel's SQL, or switch the backend back to PostgreSQL.",
+    });
+
+    await expect(
+      executeSqlQuery(
+        "SELECT date_trunc('month', event_date) AS d FROM analytics_events",
+        "first-party",
+      ),
+    ).rejects.toThrow(/date_trunc\('month', \.\.\.\)/);
+  });
+
   it("gives report panel actions their own timeout above the query timeout", async () => {
     const controller = new AbortController();
     mocks.callAction.mockResolvedValue({ rows: [] });

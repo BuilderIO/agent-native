@@ -1293,3 +1293,92 @@ export function parseInlineStyleAttribute(
   }
   return result;
 }
+
+/**
+ * Resolve the selected element against the projection the Layers panel is
+ * actually rendering.
+ *
+ * A running-app screen (fusion / localhost) has TWO projections: the source one
+ * built from `design_files.content` — which for these screens is the route URL,
+ * not markup — and the runtime one built from the live DOM snapshot. The panel
+ * renders the runtime tree (see `shouldUseRuntimeLayerProjection`), and the two
+ * trees mint different node ids, so resolving selection against source returns
+ * an id no rendered row carries: the selected layer never highlights and has to
+ * be found by hand.
+ *
+ * Runtime first, then source, so an inline screen — and a live screen before
+ * its first snapshot arrives — resolves exactly as it did before.
+ */
+export function resolveSelectedCodeLayerNode(args: {
+  selectedElement: ElementInfo | null | undefined;
+  sourceProjection: CodeLayerProjection;
+  runtimeProjection?: CodeLayerProjection | null;
+}): CodeLayerNode | null {
+  if (!args.selectedElement) return null;
+  if (args.runtimeProjection) {
+    const runtimeNode = resolveCodeLayerNodeFromElementInfo(
+      args.runtimeProjection,
+      args.selectedElement,
+    );
+    if (runtimeNode) return runtimeNode;
+  }
+  return resolveCodeLayerNodeFromElementInfo(
+    args.sourceProjection,
+    args.selectedElement,
+  );
+}
+
+/**
+ * The document a keyboard nudge should resolve its intent against.
+ *
+ * Returns "" when a running-app screen has no live snapshot yet, which makes
+ * `resolveElementNudgeIntent` fall back to a plain translate rather than
+ * projecting a route URL as if it were markup.
+ */
+export function nudgeBaseContentForScreen(args: {
+  isRunningApp: boolean;
+  runtimeSnapshotHtml?: string | null;
+  liveSnapshotHtml?: string | null;
+  sourceContent: string;
+}): string {
+  if (!args.isRunningApp) return args.sourceContent;
+  return args.runtimeSnapshotHtml ?? args.liveSnapshotHtml ?? "";
+}
+
+export interface LiveNudgeReorderHandoff {
+  /** Selector the pending-edit pipeline anchors the move against. */
+  anchorSelector: string;
+  placement: "before" | "after";
+  /** Bridge-assigned id for the anchor, when it carries one. */
+  anchorSourceId?: string;
+}
+
+/**
+ * Translate a nudge reorder intent into the arguments a LIVE structure edit
+ * needs, or null when it cannot be expressed as one.
+ *
+ * `resolveElementNudgeIntent` reports the anchor as a PROJECTION node id, but
+ * `recordPendingLiveStructureEdit` addresses the running document by SELECTOR
+ * — the projection ids never reached the live DOM. Returning null (rather than
+ * guessing) makes the caller drop the keypress instead of queueing an edit
+ * that would anchor against nothing.
+ */
+export function liveNudgeReorderHandoff(args: {
+  content: string;
+  anchorNodeId: string;
+  placement: "before" | "after";
+}): LiveNudgeReorderHandoff | null {
+  const projection = buildCodeLayerProjection(args.content);
+  const anchorNode = projection.nodes.find(
+    (node) => node.id === args.anchorNodeId,
+  );
+  const anchorSelector = codeLayerSelectorAliases(anchorNode)[0];
+  if (!anchorSelector) return null;
+  const anchorSourceId =
+    anchorNode?.dataAttributes["data-agent-native-node-id"]?.trim();
+  return {
+    anchorSelector,
+    placement: args.placement,
+    ...(anchorSourceId ? { anchorSourceId } : {}),
+  };
+}

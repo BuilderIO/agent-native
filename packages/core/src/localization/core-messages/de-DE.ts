@@ -107,6 +107,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "Wiederherstellung fehlgeschlagen ({{status}}).",
   "message.restoreQuestion": "Bis hierher wiederherstellen?",
   "message.restoreRequestFailed": "Wiederherstellungsanfrage fehlgeschlagen.",
+  "message.threadNotFound":
+    "Dieser Chat-Thread ist nicht mehr verfügbar. Starte einen neuen Chat oder versuche es erneut, falls das unerwartet war.",
   "message.restoring": "Wird wiederhergestellt...",
   "message.revertHere": "Bis hierher zurücksetzen",
   "message.sentAt": "Gesendet {{time}}",
@@ -453,6 +455,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "Der Anbieter hinter diesem Modell hat die Anfrage abgelehnt. Wähle ein anderes Modell und versuche es erneut.",
   "errorMessages.errorPrefix": "Fehler: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "Das Modell-Gateway hat einen internen Fehler ausgelöst, bevor der Agent antworten konnte. Versuchen Sie es in einem Moment erneut und geben Sie die untenstehende Fehler-ID an, wenn es weiterhin auftritt.",
   "errorMessages.gatewayNoDetails":
     "Das Modell-Gateway hat keine Fehlerdetails zurückgegeben und der Chat konnte nicht fortgesetzt werden. Warte einen Moment und versuche es erneut. Falls das Problem bestehen bleibt, starte einen neuen Chat.",
   "errorMessages.inactivityTimeout":
@@ -476,10 +480,14 @@ const messages: AgentChatTranslation = {
   "errorMessages.startNewChat": "Neuen Chat starten",
   "errorMessages.upgradeAtBuilder": "Bei Builder.io upgraden",
   "feedback.inaccurate": "Ungenau",
+  "feedback.keyboardHint": "{{shortcut}} Enter zum Senden",
   "feedback.notHelpful": "Nicht hilfreich",
+  "feedback.placeholder": "Sag uns, was schiefgelaufen ist...",
+  "feedback.submit": "Senden",
   "feedback.thumbsDown": "Daumen runter",
   "feedback.thumbsUp": "Daumen hoch",
   "feedback.tooSlow": "Zu langsam",
+  "feedback.whatWentWrong": "Was ist schiefgelaufen?",
   "feedback.wrongTool": "Falsches Tool",
   "contextMeter.ariaLabel":
     "Kontext {{percent}} %, {{totalTokens}}{{breakdown}}. Kontextanalyse öffnen.",
@@ -553,6 +561,13 @@ const messages: AgentChatTranslation = {
     "Lege fest, wie der Organisationszugriff in der Suche angezeigt wird.",
   "share.copied": "Kopiert",
   "share.copy": "Kopieren",
+  "share.shareWithAgents": "Mit Agenten teilen",
+  "share.agentContext": "Agenten-Kontextlink",
+  "share.agentContextDescription":
+    "Schreibgeschützter Kontext für einen externen Agenten.",
+  "share.preparingAgentLink": "Agentenlink wird vorbereitet...",
+  "share.agentLinkUnavailable": "Der Agentenlink konnte nicht erstellt werden.",
+  "share.retryAgentLink": "Erneut versuchen",
   "share.editor": "Editor",
   "share.editorDescription": "Kann bearbeiten",
   "share.generalAccess": "Allgemeiner Zugriff",
@@ -591,6 +606,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "Unbekannte Person",
   "share.viewer": "Betrachter",
   "share.viewerDescription": "Kann ansehen",
+  "share.userGroup": "Benutzergruppe",
 };
 
 export default messages;

@@ -4,11 +4,13 @@ import {
   addEyesReaction as writeEyesReaction,
   getThread as readThread,
   getTeamInfo as readTeamInfo,
+  getUserInfo as readUserInfo,
   postThreadReply as writeThreadReply,
   type ChannelHistoryResult,
   type SlackPostMessageResult,
   type SlackReactionResult,
   type SlackTeamInfo,
+  type SlackUserInfo,
   type SlackTokenResolver,
   type ThreadRepliesResult,
   type Workspace,
@@ -56,6 +58,9 @@ export function createSlackReader(identity: SlackReaderIdentity) {
     },
     getTeamInfo(workspace: Workspace): Promise<SlackTeamInfo> {
       return readTeamInfo(workspace, tokenResolver);
+    },
+    getUserInfo(workspace: Workspace, userId: string): Promise<SlackUserInfo> {
+      return readUserInfo(workspace, userId, tokenResolver);
     },
     getThread(
       workspace: Workspace,
