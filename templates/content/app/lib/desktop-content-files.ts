@@ -82,7 +82,7 @@ export interface DesktopContentFilesApi {
     path: string;
     content: string;
     /** The revision observed by the editor; a mismatch must not overwrite. */
-    expectedRevision?: string | null;
+    expectedRevision: string | null;
   }): Promise<DesktopContentFilesResult>;
   deleteFile?(request: {
     folderId?: string;

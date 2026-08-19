@@ -9702,6 +9702,15 @@ async function deleteContentSourceFile(
       claimedRevision,
     );
   }
+  const competingRevision = await contentSourceFileRevision(target);
+  if (competingRevision !== undefined) {
+    await fs.promises.rm(claimed);
+    throw new ContentFilesRevisionConflict(
+      normalized,
+      expectedRevision,
+      competingRevision,
+    );
+  }
   await fs.promises.rm(claimed);
   return normalized;
 }
@@ -9905,20 +9914,23 @@ function normalizeContentFileWriteRequest(
 ): {
   path: string;
   content: string;
-  expectedRevision?: string | null;
+  expectedRevision: string | null;
 } | null {
-  if (!isObject(request) || typeof request.content !== "string") return null;
+  if (
+    !isObject(request) ||
+    typeof request.content !== "string" ||
+    !Object.prototype.hasOwnProperty.call(request, "expectedRevision")
+  ) {
+    return null;
+  }
   const filePath = normalizeContentSourcePath(
     firstStringValue(request.path) ?? "",
   );
   if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
   assertContentSourceTextSize(filePath, request.content);
   const expectedRevision = request.expectedRevision;
-  if (
-    expectedRevision !== undefined &&
-    expectedRevision !== null &&
-    !/^[a-f0-9]{64}$/i.test(expectedRevision)
-  ) {
+  if (expectedRevision === undefined) return null;
+  if (expectedRevision !== null && !/^[a-f0-9]{64}$/i.test(expectedRevision)) {
     return null;
   }
   return { path: filePath, content: request.content, expectedRevision };

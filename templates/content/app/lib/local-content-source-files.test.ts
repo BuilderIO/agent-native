@@ -95,6 +95,7 @@ Old body`;
                 "content/getting-started.mdx":
                   '---\ntags: "keep-me"\n---\n\nOriginal',
               },
+              revisions: { "content/getting-started.mdx": "a".repeat(64) },
             }),
             revealFile: vi.fn(),
             clearFolder: vi.fn(),
@@ -114,6 +115,7 @@ Old body`;
       folderId: "folder-repo",
       path: "content/getting-started.mdx",
       content: expect.stringContaining("Hello from the editor."),
+      expectedRevision: "a".repeat(64),
     });
     expect(writeFile.mock.calls[0]?.[0].content).toContain(
       'title: "Getting Started"',
@@ -153,6 +155,7 @@ Old body`;
               ok: true,
               folder: selectedFolder,
               sources: { "notes/roundtrip.md": "Original" },
+              revisions: { "notes/roundtrip.md": "b".repeat(64) },
             }),
             revealFile: vi.fn(),
             clearFolder: vi.fn(),

@@ -482,11 +482,19 @@ export async function writeDocumentToLinkedLocalSource(
       };
     }
     const content = sourceFileContent(document, existingSource);
+    const expectedRevision =
+      options.expectedRevision ?? current.revisions?.[desktopSource.path];
+    if (!expectedRevision) {
+      return {
+        ok: false,
+        error: `Local file "${filePath}" has no observed revision.`,
+      };
+    }
     const result = await desktopSource.api.writeFile({
       folderId: desktopSource.folder.id,
       path: desktopSource.path,
       content,
-      expectedRevision: options.expectedRevision,
+      expectedRevision,
     });
     if (!result.ok) {
       return {

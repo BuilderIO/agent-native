@@ -1725,6 +1725,7 @@ function DocumentEditorBody({
       content: next.content,
       updatedAt: next.updatedAt ?? null,
     };
+    setLocalFileSyncRevision((revision) => revision + 1);
     setLocalSourceConflict(null);
   }, [localSourceConflict]);
 
