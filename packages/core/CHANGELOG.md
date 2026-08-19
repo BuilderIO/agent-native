@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.164.15
+
+### Patch Changes
+
+- 3f1cf50: Send signed-out users directly to the shared sign-in journey after logout so private app data queries cannot flash before the session gate redirects.
+
 ## 0.164.14
 
 ### Patch Changes
