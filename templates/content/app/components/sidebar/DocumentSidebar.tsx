@@ -134,7 +134,6 @@ import {
   getDesktopContentFiles,
   type DesktopContentFilesFolder,
 } from "@/lib/desktop-content-files";
-import { contentLiveLocalFoldersEnabled } from "@/lib/local-folder-feature";
 import {
   consumeLiveLocalFolderActivation,
   liveLocalFolderSourceId,
@@ -457,7 +456,6 @@ function WorkspaceSidebarItem({
     string | null
   >(null);
   useEffect(() => {
-    if (!contentLiveLocalFoldersEnabled) return;
     const desktop = getDesktopContentFiles();
     if (!desktop) return;
     let active = true;

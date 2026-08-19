@@ -77,7 +77,6 @@ import {
   groupContentCommandSearchResults,
   type CommandSearchDocumentsResponse,
 } from "./lib/content-command-search";
-import { contentLiveLocalFoldersEnabled } from "./lib/local-folder-feature";
 
 import stylesheet from "./global.css?url";
 import katexStylesheet from "katex/dist/katex.min.css?url";
@@ -238,7 +237,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppSetup() {
   useDbSync();
   useNavigationState();
-  return contentLiveLocalFoldersEnabled ? <LocalFolderLiveSync /> : null;
+  return <LocalFolderLiveSync />;
 }
 
 function ThemeToggleItem() {
