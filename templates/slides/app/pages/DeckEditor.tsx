@@ -104,6 +104,7 @@ import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
+  slideBeingFilledInPlace,
 } from "@/lib/generation-state";
 import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 import {
@@ -314,6 +315,14 @@ export default function DeckEditor() {
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const [inlineEditActive, setInlineEditActive] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
+  // The blank placeholder the agent was asked to fill in place. The rail must
+  // light THAT row up as AI-active instead of appending a synthetic generating
+  // row, which reads as a second, duplicate slide.
+  const [addSlideTargetId, setAddSlideTargetId] = useState<string | null>(null);
+  const endAddSlideGeneration = useCallback(() => {
+    setAddSlideGenerating(false);
+    setAddSlideTargetId(null);
+  }, []);
   const [generatingSlideSelected, setGeneratingSlideSelected] = useState(false);
   const { hasUnsavedChanges: hasUnsavedSave } = useSaveState();
   const hasPendingDeckEdits =
@@ -357,9 +366,9 @@ export default function DeckEditor() {
     }
     if (addSlideGenerating && sawAddSlideAgentGeneratingRef.current) {
       sawAddSlideAgentGeneratingRef.current = false;
-      setAddSlideGenerating(false);
+      endAddSlideGeneration();
     }
-  }, [addSlideGenerating, addSlideAgentGenerating]);
+  }, [addSlideGenerating, addSlideAgentGenerating, endAddSlideGeneration]);
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
@@ -506,10 +515,17 @@ export default function DeckEditor() {
   });
 
   const showQuestionFlow = Boolean(questionFlowQuestions?.length);
+  const fillingPlaceholderSlideId = slideBeingFilledInPlace({
+    addSlideGenerating,
+    addSlideTargetId,
+    slideIds: deck?.slides.map((slide) => slide.id) ?? [],
+  });
   const generatingSlideVisible =
     canEdit &&
     !showQuestionFlow &&
-    (isNewDeckGenerating || addSlideGenerating || showNewDeckGeneratingOverlay);
+    (isNewDeckGenerating ||
+      (addSlideGenerating && !fillingPlaceholderSlideId) ||
+      showNewDeckGeneratingOverlay);
   const showCurrentSlideEditor =
     !generatingSlideSelected &&
     !showNewDeckGeneratingOverlay &&
@@ -522,8 +538,8 @@ export default function DeckEditor() {
   // The add-slide request is finished once the agent stops generating, so the
   // rail's placeholder must not outlive it.
   useEffect(() => {
-    if (!generating) setAddSlideGenerating(false);
-  }, [generating]);
+    if (!generating) endAddSlideGeneration();
+  }, [generating, endAddSlideGeneration]);
 
   // Below `md` the rail is a drawer behind a full-viewport dimming scrim; at
   // `md` and up it's docked with no scrim. `sidebarOpen` is seeded from the
@@ -1629,7 +1645,11 @@ export default function DeckEditor() {
                   onAwaitAddSlidePersisted={() => flushDeckSave(id)}
                   onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
                   addSlideAgentSubmit={addSlideAgentSubmit}
-                  onAddSlideGeneratingChange={setAddSlideGenerating}
+                  onAddSlideGeneratingChange={(generating, targetSlideId) => {
+                    setAddSlideGenerating(generating);
+                    setAddSlideTargetId(generating ? targetSlideId : null);
+                  }}
+                  aiGeneratingSlideId={fillingPlaceholderSlideId}
                   onSelectSlide={(slideId) => {
                     setGeneratingSlideSelected(false);
                     setActiveSlideId(slideId);

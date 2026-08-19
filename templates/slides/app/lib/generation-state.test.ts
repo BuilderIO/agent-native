@@ -4,6 +4,7 @@ import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
   shouldShowNewDeckGeneratingProgress,
+  slideBeingFilledInPlace,
 } from "./generation-state";
 
 describe("new deck generation state", () => {
@@ -68,6 +69,42 @@ describe("new deck generation state", () => {
         generationStarted: true,
       }),
     ).toBe(false);
+  });
+
+  it("names the placeholder the agent fills instead of adding a generating row", () => {
+    expect(
+      slideBeingFilledInPlace({
+        addSlideGenerating: true,
+        addSlideTargetId: "slide-2",
+        slideIds: ["slide-1", "slide-2", "slide-3"],
+      }),
+    ).toBe("slide-2");
+
+    expect(
+      slideBeingFilledInPlace({
+        addSlideGenerating: false,
+        addSlideTargetId: "slide-2",
+        slideIds: ["slide-1", "slide-2"],
+      }),
+    ).toBeNull();
+
+    // Agent appends a net-new slide: no placeholder to light up.
+    expect(
+      slideBeingFilledInPlace({
+        addSlideGenerating: true,
+        addSlideTargetId: null,
+        slideIds: ["slide-1"],
+      }),
+    ).toBeNull();
+
+    // Placeholder deleted mid-run.
+    expect(
+      slideBeingFilledInPlace({
+        addSlideGenerating: true,
+        addSlideTargetId: "slide-2",
+        slideIds: ["slide-1", "slide-3"],
+      }),
+    ).toBeNull();
   });
 
   it("clears new-deck generating state only when observed work finishes", () => {

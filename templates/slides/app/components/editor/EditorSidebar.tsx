@@ -63,7 +63,8 @@ interface EditorSidebarProps {
   aspectRatio?: AspectRatio;
   /** Active deck design system used by slide content tokens. */
   designSystem?: DesignSystemData;
-  /** The next slide while the agent is preparing its HTML. */
+  /** The next slide while the agent is preparing its HTML. Omitted when the
+   *  agent is filling a placeholder that already has a row in this rail. */
   generatingSlide?: { index: number };
   generatingSlideSelected?: boolean;
   onSelectGeneratingSlide?: () => void;
@@ -75,8 +76,15 @@ interface EditorSidebarProps {
   /** Clears `describeSlideId` in the parent when the popover closes. */
   onCloseDescribe: () => void;
   /** Reports add-slide generation state up so the toolbar's New Slide button
-   *  can disable itself while a request is in flight. */
-  onAddSlideGeneratingChange?: (generating: boolean) => void;
+   *  can disable itself while a request is in flight. `targetSlideId` is the
+   *  placeholder the agent was asked to fill, so the parent can mark that row
+   *  as the AI-active one instead of appending a second generating row. */
+  onAddSlideGeneratingChange?: (
+    generating: boolean,
+    targetSlideId: string | null,
+  ) => void;
+  /** Slide the agent is filling in place, marked as AI-active in the rail. */
+  aiGeneratingSlideId?: string | null;
   /** Resolves once a just-inserted blank slide has actually reached the
    *  server, so the agent's update-slide request can't race the add-slide
    *  persistence. */
@@ -454,6 +462,7 @@ export default function EditorSidebar({
   describeSlideId,
   onCloseDescribe,
   onAddSlideGeneratingChange,
+  aiGeneratingSlideId,
   onAwaitAddSlidePersisted,
   onRemoveFailedSlide,
   addSlideAgentSubmit,
@@ -661,7 +670,10 @@ export default function EditorSidebar({
                 presenceUsers={slidePresence?.get(slide.id) ?? []}
                 aspectRatio={aspectRatio}
                 designSystem={designSystem}
-                aiEditing={aiEditedSlideIds.has(slide.id)}
+                aiEditing={
+                  aiEditedSlideIds.has(slide.id) ||
+                  slide.id === aiGeneratingSlideId
+                }
                 canDelete={slides.length > 1}
                 hasSlideClipboard={hasSlideClipboard}
                 onCutSlide={onCutSlide}
@@ -706,12 +718,12 @@ export default function EditorSidebar({
           slideCount={slides.length}
           targetSlideId={describeSlideId}
           agentSubmit={async (message, context) => {
-            onAddSlideGeneratingChange?.(true);
+            onAddSlideGeneratingChange?.(true, describeSlideId);
             try {
               await onAwaitAddSlidePersisted?.();
             } catch (error) {
               console.error("Failed to persist new slide:", error);
-              onAddSlideGeneratingChange?.(false);
+              onAddSlideGeneratingChange?.(false, null);
               // The popover already closed (AddSlidePopover doesn't wait on
               // this async callback), so the typed prompt is gone either
               // way. Only remove the placeholder if it's still untouched —
