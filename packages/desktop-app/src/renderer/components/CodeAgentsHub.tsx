@@ -866,6 +866,7 @@ export default function CodeAgentsHub({
   const returnToChatFirstChats = useCallback(() => {
     setChatFirstAllAppsOpen(false);
     setScheduledTasksOpen(false);
+    setScheduledChatPromptRequest(undefined);
     setTerminalSessionStarted(false);
     setTerminalPromptRequest(null);
     closeChatFirstSessionWatch();
@@ -933,12 +934,10 @@ export default function CodeAgentsHub({
   const openScheduledChatWithPrompt = useCallback(
     (prompt: string) => {
       returnToChatFirstChats();
-      window.setTimeout(() => {
-        setScheduledChatPromptRequest({
-          prompt,
-          nonce: ++scheduledChatPromptSequence.current,
-        });
-      }, 0);
+      setScheduledChatPromptRequest({
+        prompt,
+        nonce: ++scheduledChatPromptSequence.current,
+      });
     },
     [returnToChatFirstChats],
   );
