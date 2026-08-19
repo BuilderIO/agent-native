@@ -359,8 +359,18 @@ export default function DeckEditor() {
   // tracking correct across a remount.
   const { generating: addSlideAgentGenerating, submit: addSlideAgentSubmit } =
     useAgentGenerating();
+  // Neither hook above is actually scoped to THIS run until its own submit()
+  // call has fired: before that, `activeTabRef` inside useAgentGenerating is
+  // still null, so both hooks report on ANY chat activity system-wide, same
+  // as the broad instance. The target is set (and the popover's persistence
+  // wait starts) well before that submit call, so an unrelated run finishing
+  // during that wait could otherwise satisfy either "seen true" guard below
+  // and clear the freshly-set target before this run ever sent a request.
+  // Both cleanup effects stay inert until this flips true.
+  const addSlideRequestSentRef = useRef(false);
   const sawAddSlideAgentGeneratingRef = useRef(false);
   useEffect(() => {
+    if (!addSlideRequestSentRef.current) return;
     if (addSlideAgentGenerating) {
       sawAddSlideAgentGeneratingRef.current = true;
       return;
@@ -370,12 +380,16 @@ export default function DeckEditor() {
       endAddSlideGeneration();
     }
   }, [addSlideGenerating, addSlideAgentGenerating, endAddSlideGeneration]);
-  // Same "seen true first" guard for the broad `generating` signal below: the
-  // target is set synchronously on submit, before `flushDeckSave` resolves and
-  // before the chat request that would actually flip `generating` true. Without
-  // this guard, a stale `generating === false` from before the request ever
-  // started clears the freshly-set target mid-persistence-wait.
+  // Same guard for the broad `generating` signal below, which is never scoped
+  // to this run at all (by design — it reflects ANY agent chat activity).
   const sawGeneratingRef = useRef(false);
+  const submitAddSlideAgent = useCallback(
+    (message: string, context: string) => {
+      addSlideRequestSentRef.current = true;
+      addSlideAgentSubmit(message, context);
+    },
+    [addSlideAgentSubmit],
+  );
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
@@ -548,6 +562,7 @@ export default function DeckEditor() {
   // guard above so this backstop can't fire while `generating` just hasn't
   // caught up with a run that hasn't started sending yet.
   useEffect(() => {
+    if (!addSlideRequestSentRef.current) return;
     if (generating) {
       sawGeneratingRef.current = true;
       return;
@@ -1661,7 +1676,7 @@ export default function DeckEditor() {
                   onCloseDescribe={() => setDescribeSlideId(null)}
                   onAwaitAddSlidePersisted={() => flushDeckSave(id)}
                   onRemoveFailedSlide={(slideId) => deleteSlide(id, slideId)}
-                  addSlideAgentSubmit={addSlideAgentSubmit}
+                  addSlideAgentSubmit={submitAddSlideAgent}
                   onAddSlideGeneratingChange={(isGenerating, targetSlideId) => {
                     if (isGenerating) {
                       // A new run starts clean: neither guard's "seen true"
@@ -1671,6 +1686,7 @@ export default function DeckEditor() {
                       // stale state before this run even sends its request.
                       sawGeneratingRef.current = false;
                       sawAddSlideAgentGeneratingRef.current = false;
+                      addSlideRequestSentRef.current = false;
                     }
                     setAddSlideGenerating(isGenerating);
                     setAddSlideTargetId(isGenerating ? targetSlideId : null);
