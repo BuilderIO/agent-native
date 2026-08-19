@@ -1132,6 +1132,47 @@ describe("createAgentChatAdapter", () => {
     });
   });
 
+  it("keeps raw provider-key HTTP failures on the missing-credential path", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn()
+        .mockResolvedValue(
+          jsonResponse({ error: "ANTHROPIC_API_KEY is not set" }, 500),
+        ),
+    );
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      tabId: "chat-raw-provider-key",
+    });
+
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "run the prompt" }],
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    expect(results[0]).toMatchObject({
+      content: [],
+      metadata: {
+        custom: {
+          runError: {
+            errorCode: "missing_credentials",
+          },
+        },
+      },
+    });
+  });
+
   it("does not replay a turn after a non-retryable database response", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });

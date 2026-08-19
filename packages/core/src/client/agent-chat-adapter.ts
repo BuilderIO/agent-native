@@ -1819,9 +1819,7 @@ function missingCredentialFailure(message: string): {
     const errorCode =
       typeof parsed.errorCode === "string"
         ? parsed.errorCode
-        : /no llm provider|missing credentials|missing api key|missing_api_key/i.test(
-              raw,
-            )
+        : isMissingCredentialMessage(raw)
           ? "missing_credentials"
           : "authentication_error";
     return {
@@ -1834,12 +1832,9 @@ function missingCredentialFailure(message: string): {
     return {
       runError: {
         message: normalizeChatError(message).message,
-        errorCode:
-          /no llm provider|missing credentials|missing api key|missing_api_key/i.test(
-            message,
-          )
-            ? "missing_credentials"
-            : "authentication_error",
+        errorCode: isMissingCredentialMessage(message)
+          ? "missing_credentials"
+          : "authentication_error",
       },
     };
   }
