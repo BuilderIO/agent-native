@@ -4150,7 +4150,9 @@ function normalizeCodeAgentTranscriptEvent(
   const metadata = isObject(row.metadata)
     ? { ...(row.metadata as Record<string, unknown>) }
     : {};
-  if (fallback.source) metadata.source = fallback.source;
+  if (fallback.source && metadata.source === undefined) {
+    metadata.source = fallback.source;
+  }
   // Prefer the structured signal the executor stamps on credential-gap
   // events; carry it through so the renderer can detect the condition
   // without regex-matching `text` (see isCredentialGapCodeAgentEvent).
