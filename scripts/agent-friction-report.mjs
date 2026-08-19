@@ -84,7 +84,7 @@ if (process.argv.includes("--self-test")) {
       `Feedback regex self-test passed (${FEEDBACK_REGEX_CASES.length} cases).`,
     );
   }
-  process.exit(0);
+  process.exit(failures.length > 0 ? 1 : 0);
 }
 
 const PATTERNS = [
