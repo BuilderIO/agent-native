@@ -93,6 +93,15 @@ jobs:
               return Number.isFinite(value) ? value : null;
             }
 
+            function nextPageUrl(linkHeader) {
+              if (!linkHeader) return null;
+              const links = /(?:^|,)\s*<([^>]+)>\s*;\s*rel="([^"]+)"/g;
+              for (const match of linkHeader.matchAll(links)) {
+                if (match[2].split(/\s+/).includes('next')) return match[1];
+              }
+              return null;
+            }
+
             async function readJson(response, label) {
               const text = await response.text();
               let body = null;
@@ -193,6 +202,21 @@ jobs:
               throw new Error(`[${name}] Netlify did not publish deploy ${deployId} within 5 minutes.`);
             }
 
+            async function listDeploys(name, siteId, label) {
+              const deploys = [];
+              let url = `${API}/sites/${siteId}/deploys?per_page=100`;
+              while (url) {
+                const response = await request(url, { headers });
+                const page = await readJson(response, `[${name}] ${label}`);
+                if (!Array.isArray(page)) {
+                  throw new Error(`[${name}] ${label} returned a non-array response.`);
+                }
+                deploys.push(...page);
+                url = nextPageUrl(response.headers.get('link'));
+              }
+              return deploys;
+            }
+
             async function publishExistingMainDeploy(name, site, sourceSha) {
               const currentSite = await readJson(
                 await request(`${API}/sites/${site.siteId}`, { headers }),
@@ -203,10 +227,7 @@ jobs:
                 return;
               }
 
-              const deploys = await readJson(
-                await request(`${API}/sites/${site.siteId}/deploys?per_page=100`, { headers }),
-                `[${name}] production deploy history`,
-              );
+              const deploys = await listDeploys(name, site.siteId, 'production deploy history');
               const match = deploys
                 .filter((deploy) => deploy.context === 'production' && deploy.state === 'ready' && deploy.commit_ref === sourceSha)
                 .sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')))[0];
@@ -280,10 +301,7 @@ jobs:
                 );
               }
 
-              const deploys = await readJson(
-                await request(`${API}/sites/${site.siteId}/deploys?per_page=100`, { headers }),
-                `[${name}] production deploy history`,
-              );
+              const deploys = await listDeploys(name, site.siteId, 'production deploy history');
               const previous = deploys
                 .map((deploy) => ({
                   deploy,
