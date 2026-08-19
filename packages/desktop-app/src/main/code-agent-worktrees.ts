@@ -49,6 +49,237 @@ function worktreeSlug(runId: string): string {
   return normalized.slice(-72) || "session";
 }
 
+function normalizedWorktreeName(value: string): string {
+  return value
+    .normalize("NFKC")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 56);
+}
+
+export function normalizeCodeAgentWorktreeName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.normalize("NFKC").trim();
+  if (
+    !trimmed ||
+    trimmed.length > 64 ||
+    /[\u0000-\u001f\u007f]/.test(trimmed) ||
+    trimmed === "." ||
+    trimmed === ".."
+  ) {
+    return null;
+  }
+  const slug = normalizedWorktreeName(trimmed);
+  return slug ? trimmed : null;
+}
+
+export function codeAgentWorktreeNameKey(value: unknown): string | null {
+  const normalized = normalizeCodeAgentWorktreeName(value);
+  return normalized
+    ? normalizedWorktreeName(normalized).toLocaleLowerCase()
+    : null;
+}
+
+function repositoryRoot(
+  sourcePath: string,
+  executeGit: RunGit,
+): { sourcePath: string; baseCommit: string } {
+  const sourceCandidate = path.resolve(sourcePath);
+  const repository = executeGit(
+    ["rev-parse", "--show-toplevel"],
+    sourceCandidate,
+  );
+  if (repository.status !== 0 || !repository.stdout?.trim()) {
+    throw gitFailure(
+      repository,
+      "Selected folder is not a Git repository. Choose a Git folder to use a worktree.",
+    );
+  }
+  const resolvedSourcePath = path.resolve(repository.stdout.trim());
+  const head = executeGit(["rev-parse", "HEAD"], resolvedSourcePath);
+  if (head.status !== 0 || !head.stdout?.trim()) {
+    throw gitFailure(
+      head,
+      "Could not determine the Git commit for this worktree.",
+    );
+  }
+  return {
+    sourcePath: resolvedSourcePath,
+    baseCommit: head.stdout.trim(),
+  };
+}
+
+function comparablePath(value: string): string {
+  try {
+    return fs.realpathSync.native(value);
+  } catch {
+    return path.resolve(value);
+  }
+}
+
+export function assertManagedCodeAgentWorktree(input: {
+  sourcePath: string;
+  path: string;
+  branch: string;
+  runGit?: RunGit;
+}): void {
+  const executeGit = input.runGit ?? runGit;
+  const source = repositoryRoot(input.sourcePath, executeGit);
+  const worktreePath = path.resolve(input.path);
+  const worktreeRoot = executeGit(
+    ["rev-parse", "--show-toplevel"],
+    worktreePath,
+  );
+  if (worktreeRoot.status !== 0 || !worktreeRoot.stdout?.trim()) {
+    throw gitFailure(
+      worktreeRoot,
+      "The managed worktree path is not a Git worktree.",
+    );
+  }
+  if (
+    comparablePath(worktreeRoot.stdout.trim()) !== comparablePath(worktreePath)
+  ) {
+    throw new Error("The managed worktree path resolves to another folder.");
+  }
+
+  const worktreeBranch = executeGit(["branch", "--show-current"], worktreePath);
+  if (
+    worktreeBranch.status !== 0 ||
+    worktreeBranch.stdout?.trim() !== input.branch
+  ) {
+    throw new Error("The managed worktree is on an unexpected branch.");
+  }
+
+  const sourceGitDirectory = executeGit(
+    ["rev-parse", "--git-common-dir"],
+    source.sourcePath,
+  );
+  const worktreeGitDirectory = executeGit(
+    ["rev-parse", "--git-common-dir"],
+    worktreePath,
+  );
+  if (
+    sourceGitDirectory.status !== 0 ||
+    worktreeGitDirectory.status !== 0 ||
+    !sourceGitDirectory.stdout?.trim() ||
+    !worktreeGitDirectory.stdout?.trim() ||
+    comparablePath(
+      path.resolve(source.sourcePath, sourceGitDirectory.stdout.trim()),
+    ) !==
+      comparablePath(
+        path.resolve(worktreePath, worktreeGitDirectory.stdout.trim()),
+      )
+  ) {
+    throw new Error("The managed worktree belongs to another repository.");
+  }
+}
+
+export function createNamedCodeAgentWorktree(input: {
+  sourcePath: string;
+  worktreeRoot: string;
+  name: string;
+  runGit?: RunGit;
+}): CodeAgentWorktreeResult & { name: string } {
+  const executeGit = input.runGit ?? runGit;
+  const name = normalizeCodeAgentWorktreeName(input.name);
+  if (!name) {
+    throw new Error(
+      "Worktree names must be 1-64 characters and cannot contain control characters.",
+    );
+  }
+  const repository = repositoryRoot(input.sourcePath, executeGit);
+  const slug = normalizedWorktreeName(name);
+  const worktreePath = path.join(
+    path.resolve(input.worktreeRoot),
+    `named-${slug}`,
+  );
+  const branch = `agent-native/named-${slug}`;
+  fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
+  const created = executeGit(
+    ["worktree", "add", "-b", branch, worktreePath, repository.baseCommit],
+    repository.sourcePath,
+  );
+  if (created.status !== 0) {
+    throw gitFailure(created, "Could not create the named Git worktree.");
+  }
+  return {
+    ...repository,
+    path: worktreePath,
+    branch,
+    name,
+  };
+}
+
+export function restoreCodeAgentWorktree(input: {
+  sourcePath: string;
+  path: string;
+  branch: string;
+  baseCommit: string;
+  runGit?: RunGit;
+}): CodeAgentWorktreeResult {
+  const executeGit = input.runGit ?? runGit;
+  const repository = repositoryRoot(input.sourcePath, executeGit);
+  const worktreePath = path.resolve(input.path);
+  const root = path.resolve(path.dirname(worktreePath));
+  if (worktreePath === repository.sourcePath) {
+    throw new Error("Refusing to restore the source repository as a worktree.");
+  }
+  if (!input.branch.startsWith("agent-native/")) {
+    throw new Error("Refusing to restore an unmanaged Code Agent worktree.");
+  }
+  if (fs.existsSync(worktreePath)) {
+    throw new Error("The worktree path is already occupied.");
+  }
+  fs.mkdirSync(root, { recursive: true });
+  const branchRef = executeGit(
+    ["show-ref", "--verify", "--quiet", `refs/heads/${input.branch}`],
+    repository.sourcePath,
+  );
+  const created =
+    branchRef.status === 0
+      ? executeGit(
+          ["worktree", "add", "--force", worktreePath, input.branch],
+          repository.sourcePath,
+        )
+      : executeGit(
+          [
+            "worktree",
+            "add",
+            "--force",
+            "-b",
+            input.branch,
+            worktreePath,
+            input.baseCommit,
+          ],
+          repository.sourcePath,
+        );
+  if (created.status !== 0) {
+    throw gitFailure(created, "Could not restore the Code Agent worktree.");
+  }
+  return {
+    sourcePath: repository.sourcePath,
+    path: worktreePath,
+    branch: input.branch,
+    baseCommit: input.baseCommit,
+  };
+}
+
+export function codeAgentWorktreeHasChanges(input: {
+  path: string;
+  runGit?: RunGit;
+}): boolean {
+  const executeGit = input.runGit ?? runGit;
+  const result = executeGit(
+    ["status", "--porcelain", "--untracked-files=all"],
+    path.resolve(input.path),
+  );
+  if (result.status !== 0) {
+    throw gitFailure(result, "Could not inspect the Code Agent worktree.");
+  }
+  return Boolean(result.stdout?.trim());
+}
+
 export function createCodeAgentWorktree(input: {
   sourcePath: string;
   worktreeRoot: string;

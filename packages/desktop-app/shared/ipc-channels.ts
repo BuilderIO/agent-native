@@ -102,7 +102,10 @@ export const IPC = {
 
   /** Agent-Native Code hub (renderer ↔ main) */
   CODE_AGENTS_LIST_RUNS: "code-agents:list-runs",
+  CODE_AGENTS_LIST_WORKTREES: "code-agents:list-worktrees",
   CODE_AGENTS_CREATE_RUN: "code-agents:create-run",
+  CODE_AGENTS_FORK_RUN: "code-agents:fork-run",
+  CODE_AGENTS_RESTORE_WORKTREE: "code-agents:restore-worktree",
   CODE_AGENTS_REMOTE_WAITLIST: "code-agents:remote-waitlist",
   CODE_AGENTS_LIST_MODELS: "code-agents:list-models",
   CODE_AGENTS_READ_TRANSCRIPT: "code-agents:read-transcript",
@@ -619,6 +622,7 @@ export interface CodeAgentCreateRunRequest {
   prompt: string;
   cwd?: string;
   executionTarget?: CodeAgentExecutionTarget;
+  worktree?: CodeAgentWorktreeSelection;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
@@ -632,6 +636,67 @@ export interface CodeAgentCreateRunResult {
   run?: CodeAgentRun;
   event?: CodeAgentTranscriptEvent;
   eventFile?: string;
+  message: string;
+  error?: string;
+}
+
+export type CodeAgentWorktreeMode = "new" | "named";
+
+export interface CodeAgentWorktreeSelection {
+  mode: CodeAgentWorktreeMode;
+  name?: string;
+}
+
+export type CodeAgentWorktreeState =
+  | "available"
+  | "attached"
+  | "cleanup-pending"
+  | "recoverable"
+  | "removed"
+  | "error";
+
+export interface CodeAgentWorktreeSummary {
+  id: string;
+  name: string;
+  branch: string;
+  path: string;
+  sourcePath: string;
+  state: CodeAgentWorktreeState;
+  attached: boolean;
+  lastUsedAt: string;
+  lastCleanupError?: string;
+}
+
+export interface CodeAgentWorktreeListResult {
+  status: "ok" | "unavailable";
+  sourcePath: string;
+  worktrees: CodeAgentWorktreeSummary[];
+  error?: string;
+}
+
+export interface CodeAgentForkRunRequest {
+  goalId?: string;
+  sourceRunId: string;
+  executionTarget: "local" | "worktree";
+}
+
+export interface CodeAgentForkRunResult {
+  ok: boolean;
+  sourceRunId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentRestoreWorktreeRequest {
+  worktreeId: string;
+  runId?: string;
+}
+
+export interface CodeAgentRestoreWorktreeResult {
+  ok: boolean;
+  worktreeId: string;
+  run?: CodeAgentRun;
   message: string;
   error?: string;
 }

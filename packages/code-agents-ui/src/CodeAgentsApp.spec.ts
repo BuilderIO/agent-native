@@ -205,6 +205,31 @@ describe("CodeAgentsApp project folder picker", () => {
     );
     expect(css).not.toContain("hsl(var(--foreground, 0 0% 90%) / 0.42)");
   });
+
+  it("keeps reusable worktree choices behind the Worktree chevron", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+    const css = readFileSync("src/styles.css", "utf8");
+
+    expect(source).toContain('aria-label="Worktree options"');
+    expect(source).toContain("New named worktree");
+    expect(source).toContain("Use named worktree");
+    expect(source).toContain('worktreeSelection.mode === "named"');
+    expect(source).toContain("listWorktrees");
+    expect(css).toContain(".code-agents-worktree-options-trigger");
+    expect(css).toContain(".code-agents-worktree-recovery");
+  });
+});
+
+describe("CodeAgentsApp chat forks", () => {
+  it("exposes workspace and new-worktree fork targets through shared chat actions", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+
+    expect(source).toContain("onForkChat={onForkChat}");
+    expect(source).toContain("Fork chat from here");
+    expect(source).toContain("Fork in this workspace");
+    expect(source).toContain("Fork in a new worktree");
+    expect(source).toContain("host.forkRun");
+  });
 });
 
 describe("CodeAgentsApp Portal transfer actions", () => {

@@ -2,11 +2,14 @@ import {
   CodeAgentsApp,
   SessionWatchPanel,
   type CodeAgentComputerSetupAction,
+  type CodeAgentForkRunRequest,
+  type CodeAgentRestoreWorktreeRequest,
   type CodeAgentModelListResult,
   type CodeAgentPermissionMode,
   type CodeAgentTranscriptEvent,
   type CodeAgentTranscriptRequest,
   type CodeAgentRun,
+  type CodeAgentWorktreeListResult,
   type ChatFirstKeyboardNavigation,
   type CodeAgentsHost,
   type CodeAgentsNewSessionExtension,
@@ -1876,6 +1879,18 @@ export default function CodeAgentsHub({
         }
         return api.listRuns(goalId);
       },
+      async listWorktrees(cwd?: string) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.listWorktrees) {
+          return {
+            status: "unavailable",
+            sourcePath: cwd ?? "",
+            worktrees: [],
+            error: "Desktop bridge is not available.",
+          } satisfies CodeAgentWorktreeListResult;
+        }
+        return api.listWorktrees(cwd);
+      },
       async createRun(request) {
         const api = window.electronAPI?.codeAgents;
         if (!api?.createRun) {
@@ -1886,6 +1901,30 @@ export default function CodeAgentsHub({
           };
         }
         return api.createRun(request);
+      },
+      async forkRun(request: CodeAgentForkRunRequest) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.forkRun) {
+          return {
+            ok: false,
+            sourceRunId: request.sourceRunId,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.forkRun(request);
+      },
+      async restoreWorktree(request: CodeAgentRestoreWorktreeRequest) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.restoreWorktree) {
+          return {
+            ok: false,
+            worktreeId: request.worktreeId,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.restoreWorktree(request);
       },
       async submitRemoteWaitlist(request: {
         email: string;

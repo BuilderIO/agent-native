@@ -53,6 +53,7 @@ import {
   type ActiveWebviewTarget,
   type CodeAgentCodePackResult,
   type CodeAgentCreateRunResult,
+  type CodeAgentForkRunResult,
   type CodeAgentFollowUpResult,
   type CodeAgentHostMetadata,
   type CodeAgentModelListResult,
@@ -68,6 +69,7 @@ import {
   type CodeAgentPortalTransferResult,
   type CodeAgentPromptAttachment,
   type CodeAgentRetryRunResult,
+  type CodeAgentRestoreWorktreeResult,
   type CodeAgentRerunResult,
   type CodeAgentRun,
   type CodeAgentRunListResult,
@@ -76,6 +78,7 @@ import {
   type CodeAgentTranscriptEvent,
   type CodeAgentTranscriptEventType,
   type CodeAgentTranscriptResult,
+  type CodeAgentWorktreeListResult,
   type CodeAgentTerminalRequest,
   type CodeAgentTerminalResult,
   type CodeAgentRemoteConnectorControlResult,
@@ -194,6 +197,17 @@ import {
 } from "./code-agent-transcript-ipc.js";
 import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
 import {
+  CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+  cleanupDueCodeAgentWorktrees,
+  createOrAttachCodeAgentWorktree,
+  listNamedCodeAgentWorktrees,
+  releaseCodeAgentWorktree,
+  restoreManagedCodeAgentWorktree,
+  worktreeRegistryPath,
+  type CodeAgentManagedWorktree,
+} from "./code-agent-worktree-registry.js";
+import {
+  codeAgentWorktreeHasChanges,
   cleanupCodeAgentWorktree,
   createCodeAgentWorktree,
 } from "./code-agent-worktrees.js";
@@ -3619,7 +3633,58 @@ function listRawCodeAgentRunRecords(
 
 function isTerminalCodeAgentRun(record: Record<string, unknown>): boolean {
   const status = getRecordString(record, "status");
-  return status === "completed" || status === "errored";
+  return status === "completed" || status === "errored" || status === "paused";
+}
+
+function codeAgentWorktreeRegistryFile(): string {
+  return worktreeRegistryPath(codeAgentStoreRoot());
+}
+
+function codeAgentWorktreeMetadata(
+  worktree: CodeAgentManagedWorktree,
+): Record<string, unknown> {
+  return {
+    id: worktree.id,
+    ...(worktree.name ? { name: worktree.name } : {}),
+    policy: worktree.policy,
+    sourcePath: worktree.sourcePath,
+    path: worktree.path,
+    branch: worktree.branch,
+    baseCommit: worktree.baseCommit,
+    state: worktree.state,
+    ...(worktree.cleanupAfter ? { cleanupAfter: worktree.cleanupAfter } : {}),
+  };
+}
+
+function activeCodeAgentRunUsesWorktree(
+  worktree: CodeAgentManagedWorktree,
+): boolean {
+  return listRawCodeAgentRunRecords().some(({ record }) => {
+    if (!isActiveDesktopCodeAgentRun(record)) return false;
+    const metadata = isObject(record.metadata) ? record.metadata : undefined;
+    const candidate = isObject(metadata?.worktree) ? metadata.worktree : null;
+    if (!candidate) return false;
+    return (
+      firstStringValue(candidate.id) === worktree.id ||
+      (firstStringValue(candidate.path) !== undefined &&
+        path.resolve(firstStringValue(candidate.path)!) ===
+          path.resolve(worktree.path))
+    );
+  });
+}
+
+function cleanupDueManagedCodeAgentWorktrees(): void {
+  try {
+    cleanupDueCodeAgentWorktrees({
+      registryPath: codeAgentWorktreeRegistryFile(),
+      canRemove: (worktree) => !activeCodeAgentRunUsesWorktree(worktree),
+    });
+  } catch (error) {
+    console.warn(
+      "[code-agents] Could not sweep expired worktrees:",
+      error instanceof Error ? error.message : error,
+    );
+  }
 }
 
 function reclaimTerminalCodeAgentWorktree(
@@ -3639,7 +3704,91 @@ function reclaimTerminalCodeAgentWorktree(
   const branch = firstStringValue(worktree.branch);
   if (!sourcePath || !worktreePath || !branch) return;
 
+  const runId = getRecordString(record, "id");
+  const managedId = firstStringValue(worktree.id);
+  if (managedId && runId) {
+    try {
+      const released = releaseCodeAgentWorktree({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId: managedId,
+        runId,
+        cleanupAfter:
+          firstStringValue(worktree.policy) === "named"
+            ? undefined
+            : new Date(Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS),
+      });
+      if (released) {
+        touchCodeAgentRunRecord(runId, {
+          metadata: {
+            worktree: codeAgentWorktreeMetadata(released),
+          },
+        });
+      }
+    } catch (error) {
+      console.warn(
+        `[code-agents] Could not release worktree for run ${runId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+    return;
+  }
+
+  // Older runs predate the registry. Keep their worktrees recoverable for the
+  // same retention window and only remove them after checking for dirty files.
+  if (!runId) return;
+  const cleanupAfter = firstStringValue(worktree.cleanupAfter);
+  if (!cleanupAfter) {
+    touchCodeAgentRunRecord(runId, {
+      metadata: {
+        worktree: {
+          ...worktree,
+          policy: "ephemeral",
+          state: "cleanup-pending",
+          cleanupAfter: new Date(
+            Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+          ).toISOString(),
+        },
+      },
+    });
+    return;
+  }
+  if (new Date(cleanupAfter).getTime() > Date.now()) return;
+  if (
+    listRawCodeAgentRunRecords().some(({ record: candidate }) => {
+      if (candidate === record || !isActiveDesktopCodeAgentRun(candidate))
+        return false;
+      const metadata = isObject(candidate.metadata)
+        ? candidate.metadata
+        : undefined;
+      const candidateWorktree = isObject(metadata?.worktree)
+        ? metadata.worktree
+        : undefined;
+      return (
+        path.resolve(firstStringValue(candidateWorktree?.path) ?? "") ===
+        path.resolve(worktreePath)
+      );
+    })
+  ) {
+    return;
+  }
+
   try {
+    if (
+      fs.existsSync(worktreePath) &&
+      codeAgentWorktreeHasChanges({ path: worktreePath })
+    ) {
+      touchCodeAgentRunRecord(runId, {
+        metadata: {
+          worktree: {
+            ...worktree,
+            state: "recoverable",
+            lastCleanupError:
+              "Worktree has uncommitted changes; it was kept for recovery.",
+          },
+        },
+      });
+      return;
+    }
     const result = cleanupCodeAgentWorktree({
       sourcePath,
       path: worktreePath,
@@ -3649,6 +3798,15 @@ function reclaimTerminalCodeAgentWorktree(
       console.warn(
         `[code-agents] Could not fully reclaim worktree for run ${getRecordString(record, "id") ?? "unknown"}.`,
       );
+    } else {
+      touchCodeAgentRunRecord(runId, {
+        metadata: {
+          worktree: {
+            ...worktree,
+            state: "removed",
+          },
+        },
+      });
     }
   } catch (error) {
     console.warn(
@@ -3662,6 +3820,7 @@ function reclaimTerminalCodeAgentWorktrees(goalId?: string): void {
   for (const { record } of listRawCodeAgentRunRecords(goalId)) {
     reclaimTerminalCodeAgentWorktree(record);
   }
+  cleanupDueManagedCodeAgentWorktrees();
 }
 
 function reconcileInterruptedCodeAgentRuns(
@@ -3816,6 +3975,14 @@ function backgroundRunToDesktopRun(record: BackgroundAgentRun): CodeAgentRun {
     artifactRoot: record.artifactRoot,
     cwd: record.cwd,
   };
+  const worktree = isObject(metadata.worktree) ? metadata.worktree : undefined;
+  const worktreePath = firstStringValue(worktree?.path);
+  if (worktree && worktreePath && !fs.existsSync(worktreePath)) {
+    metadata.worktree = {
+      ...worktree,
+      state: "recoverable",
+    };
+  }
   if (record.permissionMode) metadata.permissionMode = record.permissionMode;
   const activeProcess = activeCodeAgentProcesses.get(record.id);
   if (activeProcess) {
@@ -5401,6 +5568,24 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
 
   reconcileInterruptedCodeAgentRun(input.runId, "follow-up", runRecord);
   const currentRunRecord = readCodeAgentRunRecord(input.runId) ?? runRecord;
+  const currentMetadata = isObject(currentRunRecord.metadata)
+    ? currentRunRecord.metadata
+    : {};
+  const currentCwd =
+    getRecordString(currentRunRecord, "cwd") ??
+    firstStringValue(currentMetadata.cwd);
+  const currentWorktree = isObject(currentMetadata.worktree)
+    ? currentMetadata.worktree
+    : undefined;
+  if (currentCwd && currentWorktree && !fs.existsSync(currentCwd)) {
+    return {
+      ok: false,
+      runId: input.runId,
+      run: desktopCodeBackgroundAgentController.get(input.runId),
+      message: "Restore the worktree to continue.",
+      error: `The worktree is unavailable at ${currentCwd}.`,
+    };
+  }
   const runIsActive =
     activeCodeAgentProcesses.has(input.runId) ||
     isActiveDesktopCodeAgentRun(currentRunRecord);
@@ -5832,6 +6017,33 @@ async function createCodeAgentRun(
     };
   }
   const executionTarget = requestedExecutionTarget ?? "local";
+  const requestedWorktree = isObject(payload.worktree)
+    ? payload.worktree
+    : undefined;
+  const worktreeMode = firstStringValue(requestedWorktree?.mode) ?? "new";
+  const worktreeName = firstStringValue(requestedWorktree?.name);
+  if (
+    executionTarget === "worktree" &&
+    worktreeMode !== "new" &&
+    worktreeMode !== "named"
+  ) {
+    return {
+      ok: false,
+      message: "Choose a new or named worktree before starting the chat.",
+      error: `Unsupported worktree mode: ${worktreeMode}`,
+    };
+  }
+  if (
+    executionTarget === "worktree" &&
+    worktreeMode === "named" &&
+    !worktreeName
+  ) {
+    return {
+      ok: false,
+      message: "Choose a name for the reusable worktree.",
+      error: "Named worktrees require a name.",
+    };
+  }
   const provider = ensureCodeAgentLlmProvider();
   if (!provider.ok && !isDesktopAppCreation) {
     if (!isDesktopLocalCodeChange && executionTarget !== "portal") {
@@ -5877,9 +6089,7 @@ async function createCodeAgentRun(
     });
   }
   let cwd = sourceCwd;
-  let worktreeMetadata:
-    | { sourcePath: string; path: string; branch: string; baseCommit: string }
-    | undefined;
+  let worktreeMetadata: CodeAgentManagedWorktree | undefined;
   if (executionTarget === "worktree") {
     if (!engine || !CODE_AGENT_WORKTREE_ENGINES.has(engine)) {
       return {
@@ -5890,10 +6100,14 @@ async function createCodeAgentRun(
       };
     }
     try {
-      const worktree = createCodeAgentWorktree({
+      cleanupDueManagedCodeAgentWorktrees();
+      const worktree = createOrAttachCodeAgentWorktree({
+        registryPath: codeAgentWorktreeRegistryFile(),
         sourcePath: sourceCwd,
         worktreeRoot: path.join(codeAgentStoreRoot(), "worktrees"),
         runId,
+        policy: worktreeMode === "named" ? "named" : "ephemeral",
+        name: worktreeName,
       });
       cwd = worktree.path;
       worktreeMetadata = worktree;
@@ -5942,7 +6156,12 @@ async function createCodeAgentRun(
       { label: "Working directory", value: cwd },
       {
         label: "Workspace",
-        value: executionTarget === "worktree" ? "Worktree" : "Local",
+        value:
+          executionTarget === "worktree"
+            ? worktreeMetadata?.name
+              ? `Worktree - ${worktreeMetadata.name}`
+              : "Worktree"
+            : "Local",
       },
       ...(worktreeMetadata
         ? [{ label: "Branch", value: worktreeMetadata.branch }]
@@ -5958,7 +6177,9 @@ async function createCodeAgentRun(
       ...userMetadata,
       cwd,
       executionTarget,
-      ...(worktreeMetadata ? { worktree: worktreeMetadata } : {}),
+      ...(worktreeMetadata
+        ? { worktree: codeAgentWorktreeMetadata(worktreeMetadata) }
+        : {}),
       permissionMode,
       engine,
       model,
@@ -5990,6 +6211,23 @@ async function createCodeAgentRun(
   };
   const runFile = codeAgentRunFilePath(runId);
   if (!runFile) {
+    if (worktreeMetadata) {
+      try {
+        releaseCodeAgentWorktree({
+          registryPath: codeAgentWorktreeRegistryFile(),
+          worktreeId: worktreeMetadata.id,
+          runId,
+          cleanupAfter: new Date(
+            Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+          ),
+        });
+      } catch (cleanupError) {
+        console.warn(
+          "[code-agents] failed to release an invalid worktree during run cleanup:",
+          cleanupError,
+        );
+      }
+    }
     return {
       ok: false,
       message: "Could not create a session id.",
@@ -6009,7 +6247,9 @@ async function createCodeAgentRun(
       steering,
       attachments,
       executionTarget,
-      ...(worktreeMetadata ? { worktree: worktreeMetadata } : {}),
+      ...(worktreeMetadata
+        ? { worktree: codeAgentWorktreeMetadata(worktreeMetadata) }
+        : {}),
       retryOf,
       rerunOf,
     });
@@ -6026,10 +6266,306 @@ async function createCodeAgentRun(
       message: "Coding session recorded.",
     };
   } catch (err) {
+    if (worktreeMetadata) {
+      try {
+        releaseCodeAgentWorktree({
+          registryPath: codeAgentWorktreeRegistryFile(),
+          worktreeId: worktreeMetadata.id,
+          runId,
+          cleanupAfter: new Date(
+            Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+          ),
+        });
+      } catch {
+        // Preserve the original recording error; the scheduled sweep can recover it.
+      }
+    }
     return {
       ok: false,
       message: "Could not record the coding session.",
       error: err instanceof Error ? err.message : String(err),
+    };
+  }
+}
+
+function listCodeAgentWorktrees(input?: unknown): CodeAgentWorktreeListResult {
+  const cwd = typeof input === "string" ? input : undefined;
+  const sourcePath = resolveCodeAgentsTerminalCwd({ cwd });
+  cleanupDueManagedCodeAgentWorktrees();
+  return listNamedCodeAgentWorktrees({
+    registryPath: codeAgentWorktreeRegistryFile(),
+    sourcePath,
+  });
+}
+
+function restoreCodeAgentWorktree(
+  input: unknown,
+): Promise<CodeAgentRestoreWorktreeResult> {
+  const payload = isObject(input) ? input : {};
+  const worktreeId = firstStringValue(payload.worktreeId);
+  const runId = normalizeCodeAgentRunId(payload.runId);
+  if (!worktreeId) {
+    return Promise.resolve({
+      ok: false,
+      worktreeId: "",
+      message: "Select a worktree to restore.",
+      error: "Missing worktree id.",
+    });
+  }
+  try {
+    const managed = restoreManagedCodeAgentWorktree({
+      registryPath: codeAgentWorktreeRegistryFile(),
+      worktreeId,
+      runId: runId ?? undefined,
+    });
+    if (runId) {
+      touchCodeAgentRunRecord(runId, {
+        cwd: managed.path,
+        metadata: {
+          cwd: managed.path,
+          worktree: codeAgentWorktreeMetadata(managed),
+        },
+      });
+    }
+    return Promise.resolve({
+      ok: true,
+      worktreeId,
+      run: runId ? (readDesktopCodeAgentRun(runId) ?? undefined) : undefined,
+      message: "Worktree restored.",
+    });
+  } catch (error) {
+    return Promise.resolve({
+      ok: false,
+      worktreeId,
+      message: "Could not restore the worktree.",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+}
+
+async function forkCodeAgentRun(
+  input: unknown,
+): Promise<CodeAgentForkRunResult> {
+  const payload = isObject(input) ? input : {};
+  const sourceRunId = normalizeCodeAgentRunId(payload.sourceRunId);
+  const executionTarget = firstStringValue(payload.executionTarget);
+  if (!sourceRunId) {
+    return {
+      ok: false,
+      sourceRunId: "",
+      message: "Select a chat to fork.",
+      error: "Missing or invalid source run id.",
+    };
+  }
+  if (executionTarget !== "local" && executionTarget !== "worktree") {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "Choose a workspace or a new worktree.",
+      error: "Unsupported fork target.",
+    };
+  }
+
+  const sourceRecord = readCodeAgentRunRecord(sourceRunId);
+  if (!sourceRecord) {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "This chat is no longer available.",
+      error: `No run record exists for ${sourceRunId}.`,
+    };
+  }
+  const goal =
+    getCodeAgentGoal(firstStringValue(payload.goalId)) ??
+    getCodeAgentGoal(getRecordString(sourceRecord, "goalId")) ??
+    CODE_AGENT_GOALS[0];
+  if (goal.surfaceKind !== "native") {
+    return {
+      ok: false,
+      sourceRunId,
+      message: `${goal.surfaceLabel} chats cannot be forked here.`,
+      error: "Only native coding chats support local forks.",
+    };
+  }
+
+  const sourceMetadata = isObject(sourceRecord.metadata)
+    ? sourceRecord.metadata
+    : {};
+  const sourceWorktree = isObject(sourceMetadata.worktree)
+    ? sourceMetadata.worktree
+    : undefined;
+  const sourceCwd =
+    getRecordString(sourceRecord, "cwd") ??
+    firstStringValue(sourceMetadata.cwd) ??
+    resolveCodeAgentsTerminalCwd({});
+  if (executionTarget === "local" && !fs.existsSync(sourceCwd)) {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "Restore the worktree to continue.",
+      error: `The chat's working directory is missing: ${sourceCwd}`,
+    };
+  }
+
+  const sourceForNewWorktree = fs.existsSync(sourceCwd)
+    ? sourceCwd
+    : firstStringValue(sourceWorktree?.sourcePath);
+  if (executionTarget === "worktree" && !sourceForNewWorktree) {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "Restore the worktree to continue.",
+      error: "The source repository is no longer available.",
+    };
+  }
+
+  const engine = firstStringValue(sourceMetadata.engine, sourceRecord.engine);
+  if (
+    executionTarget === "worktree" &&
+    (!engine || !CODE_AGENT_WORKTREE_ENGINES.has(engine))
+  ) {
+    return {
+      ok: false,
+      sourceRunId,
+      message: "New worktree forks are available for local coding agents.",
+      error: "The source chat does not use a supported local coding agent.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const runId = `${goal.id}-${timestampSlug(now)}-${randomUUID().slice(0, 8)}`;
+  const permissionMode =
+    readCodeAgentPermissionMode(sourceRecord) ??
+    DEFAULT_CODE_AGENT_PERMISSION_MODE;
+  const model = firstStringValue(sourceMetadata.model, sourceRecord.model);
+  const effort = firstStringValue(
+    sourceMetadata.effort,
+    sourceMetadata.reasoningEffort,
+    sourceRecord.effort,
+  );
+  let cwd = sourceCwd;
+  let worktreeMetadata: CodeAgentManagedWorktree | undefined;
+  try {
+    if (executionTarget === "worktree") {
+      cleanupDueManagedCodeAgentWorktrees();
+      worktreeMetadata = createOrAttachCodeAgentWorktree({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        sourcePath: sourceForNewWorktree!,
+        worktreeRoot: path.join(codeAgentStoreRoot(), "worktrees"),
+        runId,
+        policy: "ephemeral",
+      });
+      cwd = worktreeMetadata.path;
+    }
+
+    const transcript = readAllCodeAgentTranscript({ runId: sourceRunId });
+    const initialPrompt =
+      firstStringValue(sourceMetadata.initialPrompt) ??
+      readLatestCodeAgentUserPrompt(sourceRunId) ??
+      "Continue this coding chat.";
+    const metadata: Record<string, unknown> = {
+      ...sourceMetadata,
+      cwd,
+      executionTarget,
+      ...(worktreeMetadata
+        ? { worktree: codeAgentWorktreeMetadata(worktreeMetadata) }
+        : {}),
+      forkedFrom: sourceRunId,
+      forkedAt: now,
+      initialPrompt,
+      source: "desktop",
+      queued: false,
+    };
+    const run: CodeAgentRun = {
+      id: runId,
+      goalId: goal.id,
+      title: `Fork of ${getRecordString(sourceRecord, "title") ?? "coding chat"}`,
+      subtitle: "Forked from Desktop",
+      status: "paused",
+      phase: "forked",
+      progress: {
+        label: "Ready to continue",
+        completed: 0,
+        total: 1,
+        percent: 0,
+      },
+      details: [
+        { label: "Goal", value: goal.slashCommand },
+        { label: "Working directory", value: cwd },
+        {
+          label: "Workspace",
+          value: executionTarget === "worktree" ? "New worktree" : "Workspace",
+        },
+        ...(worktreeMetadata
+          ? [{ label: "Branch", value: worktreeMetadata.branch }]
+          : []),
+        { label: "Mode", value: permissionMode },
+      ],
+      createdAt: now,
+      updatedAt: now,
+      metadata,
+    };
+    const record = {
+      schemaVersion: 1,
+      ...run,
+      cwd,
+      permissionMode,
+      engine,
+      model,
+      effort,
+      metadata,
+    };
+    const runFile = codeAgentRunFilePath(runId);
+    if (!runFile) throw new Error("Invalid generated run id.");
+    withFileLockSync(runFile, () => {
+      if (fs.existsSync(runFile)) {
+        throw new Error(`A Code Agent run already exists: ${runId}`);
+      }
+      writeJsonFileAtomically(runFile, record);
+    });
+    for (const [index, event] of transcript.events.entries()) {
+      appendCodeAgentTranscriptEvent({
+        ...event,
+        id: `fork-${runId}-${index}-${randomUUID().slice(0, 6)}`,
+        runId,
+        metadata: {
+          ...(event.metadata ?? {}),
+          forkedFrom: sourceRunId,
+        },
+      });
+    }
+    return {
+      ok: true,
+      sourceRunId,
+      run,
+      message:
+        executionTarget === "worktree"
+          ? "Forked into a new worktree."
+          : "Forked in this workspace.",
+    };
+  } catch (error) {
+    if (worktreeMetadata) {
+      try {
+        releaseCodeAgentWorktree({
+          registryPath: codeAgentWorktreeRegistryFile(),
+          worktreeId: worktreeMetadata.id,
+          runId,
+          cleanupAfter: new Date(
+            Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+          ),
+        });
+      } catch (cleanupError) {
+        console.warn(
+          "[code-agents] failed to release a fork worktree after an error:",
+          cleanupError,
+        );
+      }
+    }
+    return {
+      ok: false,
+      sourceRunId,
+      message: "Could not fork the chat.",
+      error: error instanceof Error ? error.message : String(error),
     };
   }
 }
@@ -10259,7 +10795,10 @@ registerCodeAgentsIpc({
   timestampSlug,
   normalizeCodeAgentRunId,
   listDesktopCodeAgentRuns,
+  listCodeAgentWorktrees,
   createCodeAgentRun,
+  forkCodeAgentRun,
+  restoreCodeAgentWorktree,
   submitCodeAgentRemoteWaitlist,
   getCodeAgentModelList,
   readCodeAgentTranscript,
@@ -10292,6 +10831,13 @@ registerCodeAgentsIpc({
   setRemoteConnectorEnabled,
   pairRemoteCodeAgentConnector,
 });
+
+cleanupDueManagedCodeAgentWorktrees();
+const codeAgentWorktreeSweepTimer = setInterval(
+  cleanupDueManagedCodeAgentWorktrees,
+  60 * 60 * 1000,
+);
+codeAgentWorktreeSweepTimer.unref?.();
 
 registerQuickPromptIpc({
   createCodeAgentRun,

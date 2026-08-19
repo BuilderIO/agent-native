@@ -8,6 +8,7 @@ import {
   type CodeAgentCodePackResult,
   type CodeAgentControlResult,
   type CodeAgentCreateRunResult,
+  type CodeAgentForkRunResult,
   type CodeAgentFollowUpResult,
   type CodeAgentHostMetadata,
   type CodeAgentModelListResult,
@@ -26,9 +27,11 @@ import {
   type CodeAgentRetryRunResult,
   type CodeAgentRun,
   type CodeAgentRunListResult,
+  type CodeAgentRestoreWorktreeResult,
   type CodeAgentTerminalResult,
   type CodeAgentTranscriptResult,
   type CodeAgentUpdateRunResult,
+  type CodeAgentWorktreeListResult,
 } from "@shared/ipc-channels";
 import {
   app,
@@ -62,7 +65,12 @@ export interface CodeAgentsIpcDeps {
   timestampSlug: (value: string) => string;
   normalizeCodeAgentRunId: (value: unknown) => string | null;
   listDesktopCodeAgentRuns: (goalId?: string) => CodeAgentRun[];
+  listCodeAgentWorktrees: (input?: unknown) => CodeAgentWorktreeListResult;
   createCodeAgentRun: (input: unknown) => Promise<CodeAgentCreateRunResult>;
+  forkCodeAgentRun: (input: unknown) => Promise<CodeAgentForkRunResult>;
+  restoreCodeAgentWorktree: (
+    input: unknown,
+  ) => Promise<CodeAgentRestoreWorktreeResult>;
   submitCodeAgentRemoteWaitlist: (
     input: unknown,
   ) => Promise<CodeAgentRemoteWaitlistResult>;
@@ -137,7 +145,10 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
     timestampSlug,
     normalizeCodeAgentRunId,
     listDesktopCodeAgentRuns,
+    listCodeAgentWorktrees,
     createCodeAgentRun,
+    forkCodeAgentRun,
+    restoreCodeAgentWorktree,
     submitCodeAgentRemoteWaitlist,
     getCodeAgentModelList,
     readCodeAgentTranscript,
@@ -211,6 +222,29 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
       _event: IpcMainInvokeEvent,
       input: unknown,
     ): Promise<CodeAgentCreateRunResult> => createCodeAgentRun(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_LIST_WORKTREES,
+    (_event: IpcMainInvokeEvent, cwd?: unknown): CodeAgentWorktreeListResult =>
+      listCodeAgentWorktrees(cwd),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_FORK_RUN,
+    (
+      _event: IpcMainInvokeEvent,
+      input: unknown,
+    ): Promise<CodeAgentForkRunResult> => forkCodeAgentRun(input),
+  );
+
+  ipcMain.handle(
+    IPC.CODE_AGENTS_RESTORE_WORKTREE,
+    (
+      _event: IpcMainInvokeEvent,
+      input: unknown,
+    ): Promise<CodeAgentRestoreWorktreeResult> =>
+      restoreCodeAgentWorktree(input),
   );
 
   ipcMain.handle(
