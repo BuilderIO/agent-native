@@ -63,18 +63,26 @@ jobs:
               const startedAt = Date.now();
               const deadline = startedAt + probeAttemptTimeoutMs;
               try {
-                const response = await fetch(`https://${host}/`, {
+                const documentUrl = `https://${host}/`;
+                const response = await fetch(documentUrl, {
                   headers: { "user-agent": "agent-native-site-monitor" },
                   redirect: "follow",
                   signal: AbortSignal.timeout(
                     Math.min(timeoutMs, Math.max(1, deadline - Date.now())),
                   ),
                 });
+                const finalDocumentUrl = response.url || documentUrl;
+                if (new URL(finalDocumentUrl).origin !== new URL(documentUrl).origin) {
+                  await response.body?.cancel();
+                  throw new Error(
+                    `document redirected off origin to ${new URL(finalDocumentUrl).origin}`,
+                  );
+                }
                 const ms = Date.now() - startedAt;
                 const ok = response.status >= 200 && response.status < 400;
                 if (ok) {
                   const html = await response.text();
-                  const baseUrl = response.url || `https://${host}/`;
+                  const baseUrl = finalDocumentUrl;
                   const assets = new Set();
                   for (const match of html.matchAll(/<(link|script)\b[^>]*>/gi)) {
                     const tag = match[0];
