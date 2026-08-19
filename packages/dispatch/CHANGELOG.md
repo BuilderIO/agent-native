@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.30.3
+
+### Patch Changes
+
+- c58cd6e: Preserve verified mutation receipts and exact member identity across Dispatch and A2A delegation.
+
 ## 0.30.2
 
 ### Patch Changes
