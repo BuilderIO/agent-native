@@ -234,6 +234,8 @@ const messages = {
     historyRestored:
       "バージョンを復元しました。新しい現在のバージョンを作成しました。",
     historyRestoreFailed: "この Factory バージョンを復元できませんでした。",
+    historyRefreshFailed:
+      "バージョンは復元されましたが、Factory ビューを更新できませんでした。",
     automationsTitle: "自動化",
     automationsDescription:
       "Factory のプロンプトをスケジュールして実行します。",

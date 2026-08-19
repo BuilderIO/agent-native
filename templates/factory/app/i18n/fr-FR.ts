@@ -244,6 +244,8 @@ const messages = {
     historyRestored:
       "Version restaurée. Une nouvelle version actuelle a été créée.",
     historyRestoreFailed: "Impossible de restaurer cette version de Factory.",
+    historyRefreshFailed:
+      "La version a été restaurée, mais la vue Factory n’a pas pu être actualisée.",
     automationsTitle: "Automatisations",
     automationsDescription: "Planifiez et exécutez les prompts de la factory.",
     automationsLoading: "Chargement des automatisations...",

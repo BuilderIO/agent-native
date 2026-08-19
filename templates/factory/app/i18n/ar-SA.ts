@@ -224,6 +224,7 @@ const messages = {
     historyRestoreConfirm: "استعادة الإصدار",
     historyRestored: "تمت استعادة الإصدار. تم إنشاء إصدار حالي جديد.",
     historyRestoreFailed: "تعذر استعادة إصدار Factory هذا.",
+    historyRefreshFailed: "تمت استعادة الإصدار، ولكن تعذر تحديث عرض Factory.",
     automationsTitle: "الأتمتة",
     automationsDescription: "جدولة مطالبات المصنع وتشغيلها.",
     automationsLoading: "جارٍ تحميل الأتمتة...",

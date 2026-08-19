@@ -219,6 +219,7 @@ const messages = {
     historyRestoreConfirm: "恢复版本",
     historyRestored: "版本已恢复。新的当前版本已创建。",
     historyRestoreFailed: "无法恢复此 Factory 版本。",
+    historyRefreshFailed: "版本已恢复，但无法刷新 Factory 视图。",
     automationsTitle: "自动化",
     automationsDescription: "安排并运行工厂提示词。",
     automationsLoading: "正在加载自动化...",

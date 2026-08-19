@@ -231,6 +231,8 @@ const messages = {
     historyRestoreConfirm: "버전 복원",
     historyRestored: "버전이 복원되었습니다. 새로운 현재 버전을 만들었습니다.",
     historyRestoreFailed: "이 Factory 버전을 복원하지 못했습니다.",
+    historyRefreshFailed:
+      "버전은 복원되었지만 Factory 화면을 새로 고칠 수 없습니다.",
     automationsTitle: "자동화",
     automationsDescription: "Factory 프롬프트를 예약하고 실행합니다.",
     automationsLoading: "자동화를 불러오는 중...",

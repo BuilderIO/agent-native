@@ -130,8 +130,9 @@ describe("Factory graph history actions", () => {
       orgId: "org-1",
     };
     const insertValues = vi.fn().mockResolvedValue(undefined);
+    const returning = vi.fn().mockResolvedValue([{ id: definition.id }]);
     const updateValues = vi.fn().mockReturnValue({
-      where: vi.fn().mockResolvedValue(undefined),
+      where: vi.fn().mockReturnValue({ returning }),
     });
     const tx = {
       select: vi.fn(() => ({
@@ -191,5 +192,72 @@ describe("Factory graph history actions", () => {
         graphJson: expect.stringContaining('"version":4'),
       }),
     );
+  });
+
+  it("rejects a restore when another writer advances the current version", async () => {
+    const definition = {
+      id: "product-feedback",
+      name: "Current graph",
+      description: "Current description",
+      prompt: "Keep the current prompt.",
+      graphVersion: 3,
+      graphJson: JSON.stringify({ ...graph, version: 3 }),
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    };
+    const version = {
+      id: "version-2",
+      factoryId: "product-feedback",
+      version: 2,
+      graphJson: JSON.stringify(graph),
+      source: "manual",
+      changeSummary: "Updated the graph.",
+      createdAt: "2026-08-19T10:00:00.000Z",
+      createdBy: "owner@example.com",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    };
+    const insertValues = vi.fn();
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn((table) => {
+          if (table === factoryDefinitions) {
+            return {
+              where: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([definition]),
+              })),
+            };
+          }
+          return {
+            where: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([version]),
+            })),
+          };
+        }),
+      })),
+      insert: vi.fn(() => ({ values: insertValues })),
+      update: vi.fn(() => ({
+        set: vi.fn(() => ({
+          where: vi.fn(() => ({
+            returning: vi.fn().mockResolvedValue([]),
+          })),
+        })),
+      })),
+    };
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(async (callback: (value: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    });
+
+    const { default: action } =
+      await import("./restore-factory-graph-version.js");
+    await expect(
+      action.run(
+        { factoryId: "product-feedback", versionId: "version-2" },
+        { userEmail: "owner@example.com", orgId: "org-1" },
+      ),
+    ).rejects.toThrow("Factory changed while restoring");
+    expect(insertValues).not.toHaveBeenCalled();
   });
 });

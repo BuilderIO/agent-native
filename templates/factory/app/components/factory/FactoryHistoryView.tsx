@@ -79,6 +79,9 @@ export function FactoryHistoryView({
     null,
   );
   const [restoreError, setRestoreError] = useState<string | null>(null);
+  const [restoreRefreshError, setRestoreRefreshError] = useState<string | null>(
+    null,
+  );
   const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
 
   const versions = historyQuery.data?.versions ?? [];
@@ -93,6 +96,7 @@ export function FactoryHistoryView({
 
   function requestRestore(version: FactoryGraphVersion) {
     setRestoreError(null);
+    setRestoreRefreshError(null);
     setRestoreStatus(null);
     setPendingRestore(version);
   }
@@ -103,24 +107,37 @@ export function FactoryHistoryView({
     if (!version || restoringVersionId) return;
 
     setRestoreError(null);
+    setRestoreRefreshError(null);
     setRestoringVersionId(version.id);
+    let committed = false;
     try {
       const rawResult = await restoreMutation.mutateAsync({
         factoryId,
         versionId: version.id,
       });
+      committed = true;
       const result = readRestoreResult(rawResult);
-      await onRestored(result);
-      await historyQuery.refetch();
-      setSelectedVersionId(result.versionId);
       setPendingRestore(null);
+      setSelectedVersionId(result.versionId);
       setRestoreStatus(t("factoryRoute.historyRestored"));
+      try {
+        await onRestored(result);
+        await historyQuery.refetch();
+      } catch {
+        setRestoreRefreshError(t("factoryRoute.historyRefreshFailed"));
+      }
     } catch (error) {
-      setRestoreError(
-        error instanceof Error
-          ? error.message
-          : t("factoryRoute.historyRestoreFailed"),
-      );
+      if (committed) {
+        setPendingRestore(null);
+        setRestoreStatus(t("factoryRoute.historyRestored"));
+        setRestoreRefreshError(t("factoryRoute.historyRefreshFailed"));
+      } else {
+        setRestoreError(
+          error instanceof Error
+            ? error.message
+            : t("factoryRoute.historyRestoreFailed"),
+        );
+      }
     } finally {
       setRestoringVersionId(null);
     }
@@ -334,6 +351,15 @@ export function FactoryHistoryView({
                   {restoreStatus}
                 </p>
               ) : null}
+              {restoreRefreshError ? (
+                <p
+                  className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300"
+                  role="status"
+                >
+                  <IconAlertCircle className="size-4 shrink-0" />
+                  {restoreRefreshError}
+                </p>
+              ) : null}
             </CardContent>
           </Card>
         ) : null}
@@ -345,6 +371,7 @@ export function FactoryHistoryView({
           if (!open && !restoringVersionId) {
             setPendingRestore(null);
             setRestoreError(null);
+            setRestoreRefreshError(null);
           }
         }}
       >

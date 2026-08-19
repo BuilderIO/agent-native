@@ -12,10 +12,7 @@ import {
   factoryGraphSchema,
   normalizeFactoryGraph,
 } from "../server/factory-graph/contracts.js";
-import {
-  DEFAULT_FACTORY_ID,
-  readFactoryDefinition,
-} from "../server/factory-graph/store.js";
+import { DEFAULT_FACTORY_ID } from "../server/factory-graph/store.js";
 import {
   requireWorkspaceMember,
   workspaceMemberIdentityFromContext,
@@ -56,74 +53,95 @@ export default defineAction({
       workspaceMemberIdentityFromContext(context),
     );
     const db = getDb();
-    const existing = await readFactoryDefinition(orgId, factoryId);
-    const nextVersion = (existing?.graphVersion ?? 0) + 1;
-    const normalizedGraph = normalizeFactoryGraph({
-      ...graph,
-      version: nextVersion,
-      name,
-      description,
-    });
-    const now = new Date().toISOString();
-    const versionId = stableId(
-      "factory-graph",
-      orgId,
-      factoryId,
-      String(nextVersion),
-    );
 
-    await db.insert(factoryGraphVersions).values({
-      id: versionId,
-      factoryId,
-      version: nextVersion,
-      graphJson: JSON.stringify(normalizedGraph),
-      source,
-      changeSummary,
-      createdAt: now,
-      createdBy: userEmail,
-      ownerEmail: userEmail,
-      orgId,
-    });
+    return db.transaction(async (tx) => {
+      const existing = (
+        await tx
+          .select()
+          .from(factoryDefinitions)
+          .where(
+            and(
+              eq(factoryDefinitions.id, factoryId),
+              eq(factoryDefinitions.orgId, orgId),
+            ),
+          )
+          .limit(1)
+      )[0];
+      const nextVersion = (existing?.graphVersion ?? 0) + 1;
+      const normalizedGraph = normalizeFactoryGraph({
+        ...graph,
+        version: nextVersion,
+        name,
+        description,
+      });
+      const now = new Date().toISOString();
+      const versionId = stableId(
+        "factory-graph",
+        orgId,
+        factoryId,
+        String(nextVersion),
+      );
 
-    if (existing) {
-      await db
-        .update(factoryDefinitions)
-        .set({
+      if (existing) {
+        const updated = await tx
+          .update(factoryDefinitions)
+          .set({
+            name,
+            description,
+            prompt,
+            graphVersion: nextVersion,
+            graphJson: JSON.stringify(normalizedGraph),
+            updatedAt: now,
+            ownerEmail: userEmail,
+          })
+          .where(
+            and(
+              eq(factoryDefinitions.id, factoryId),
+              eq(factoryDefinitions.orgId, orgId),
+              eq(factoryDefinitions.graphVersion, existing.graphVersion),
+            ),
+          )
+          .returning({ id: factoryDefinitions.id });
+        if (updated.length === 0) {
+          throw new Error(
+            "Factory changed while saving. Refresh the Factory and try again.",
+          );
+        }
+      } else {
+        await tx.insert(factoryDefinitions).values({
+          id: factoryId,
           name,
           description,
           prompt,
           graphVersion: nextVersion,
           graphJson: JSON.stringify(normalizedGraph),
+          createdAt: now,
           updatedAt: now,
           ownerEmail: userEmail,
-        })
-        .where(
-          and(
-            eq(factoryDefinitions.id, factoryId),
-            eq(factoryDefinitions.orgId, orgId),
-          ),
-        );
-    } else {
-      await db.insert(factoryDefinitions).values({
-        id: factoryId,
-        name,
-        description,
-        prompt,
-        graphVersion: nextVersion,
+          orgId,
+        });
+      }
+
+      await tx.insert(factoryGraphVersions).values({
+        id: versionId,
+        factoryId,
+        version: nextVersion,
         graphJson: JSON.stringify(normalizedGraph),
+        source,
+        changeSummary,
         createdAt: now,
-        updatedAt: now,
+        createdBy: userEmail,
         ownerEmail: userEmail,
         orgId,
       });
-    }
 
-    return {
-      ok: true,
-      factoryId,
-      name,
-      graphVersion: nextVersion,
-      source,
-    };
+      return {
+        ok: true,
+        factoryId,
+        name,
+        graphVersion: nextVersion,
+        source,
+      };
+    });
   },
 });

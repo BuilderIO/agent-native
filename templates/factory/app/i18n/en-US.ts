@@ -233,6 +233,8 @@ const messages = {
     historyRestoreConfirm: "Restore version",
     historyRestored: "Version restored. A new current version was created.",
     historyRestoreFailed: "Could not restore this Factory version.",
+    historyRefreshFailed:
+      "The version was restored, but the Factory view could not refresh.",
     automationsTitle: "Automations",
     automationsDescription: "Schedule and run Factory prompts.",
     automationsLoading: "Loading automations...",

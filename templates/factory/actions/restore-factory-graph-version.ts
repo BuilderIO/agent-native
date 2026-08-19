@@ -107,20 +107,7 @@ export default defineAction({
       );
       const changeSummary = `Restored version ${version.version}.`;
 
-      await tx.insert(factoryGraphVersions).values({
-        id: nextVersionId,
-        factoryId,
-        version: nextVersion,
-        graphJson: JSON.stringify(restoredGraph),
-        source: "restore",
-        changeSummary,
-        createdAt: now,
-        createdBy: userEmail,
-        ownerEmail: userEmail,
-        orgId,
-      });
-
-      await tx
+      const updated = await tx
         .update(factoryDefinitions)
         .set({
           name: restoredGraph.name,
@@ -134,8 +121,28 @@ export default defineAction({
           and(
             eq(factoryDefinitions.id, factoryId),
             eq(factoryDefinitions.orgId, orgId),
+            eq(factoryDefinitions.graphVersion, definition.graphVersion),
           ),
+        )
+        .returning({ id: factoryDefinitions.id });
+      if (updated.length === 0) {
+        throw new Error(
+          "Factory changed while restoring. Refresh history and try again.",
         );
+      }
+
+      await tx.insert(factoryGraphVersions).values({
+        id: nextVersionId,
+        factoryId,
+        version: nextVersion,
+        graphJson: JSON.stringify(restoredGraph),
+        source: "restore",
+        changeSummary,
+        createdAt: now,
+        createdBy: userEmail,
+        ownerEmail: userEmail,
+        orgId,
+      });
 
       return {
         ok: true,

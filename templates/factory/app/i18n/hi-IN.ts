@@ -227,6 +227,8 @@ const messages = {
     historyRestoreConfirm: "संस्करण पुनर्स्थापित करें",
     historyRestored: "संस्करण पुनर्स्थापित हो गया। नया वर्तमान संस्करण बनाया गया।",
     historyRestoreFailed: "यह Factory संस्करण पुनर्स्थापित नहीं हो सका।",
+    historyRefreshFailed:
+      "संस्करण पुनर्स्थापित हो गया, लेकिन Factory दृश्य रीफ़्रेश नहीं हो सका।",
     automationsTitle: "ऑटोमेशन",
     automationsDescription: "Factory प्रॉम्प्ट शेड्यूल और रन करें।",
     automationsLoading: "ऑटोमेशन लोड हो रहे हैं...",

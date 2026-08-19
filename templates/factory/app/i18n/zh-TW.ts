@@ -219,6 +219,7 @@ const messages = {
     historyRestoreConfirm: "還原版本",
     historyRestored: "版本已還原。新的目前版本已建立。",
     historyRestoreFailed: "無法還原此 Factory 版本。",
+    historyRefreshFailed: "版本已還原，但無法重新整理 Factory 檢視畫面。",
     automationsTitle: "自動化",
     automationsDescription: "排程並執行工廠提示詞。",
     automationsLoading: "正在載入自動化...",

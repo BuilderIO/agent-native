@@ -238,6 +238,8 @@ const messages = {
       "Version wiederhergestellt. Eine neue aktuelle Version wurde erstellt.",
     historyRestoreFailed:
       "Diese Factory-Version konnte nicht wiederhergestellt werden.",
+    historyRefreshFailed:
+      "Die Version wurde wiederhergestellt, aber die Factory-Ansicht konnte nicht aktualisiert werden.",
     automationsTitle: "Automatisierungen",
     automationsDescription: "Factory-Prompts planen und ausführen.",
     automationsLoading: "Automatisierungen werden geladen...",

@@ -238,6 +238,8 @@ const messages = {
     historyRestoreConfirm: "Restaurar versão",
     historyRestored: "Versão restaurada. Uma nova versão atual foi criada.",
     historyRestoreFailed: "Não foi possível restaurar esta versão do Factory.",
+    historyRefreshFailed:
+      "A versão foi restaurada, mas não foi possível atualizar a visualização do Factory.",
     automationsTitle: "Automações",
     automationsDescription: "Agende e execute prompts da fábrica.",
     automationsLoading: "Carregando automações...",
