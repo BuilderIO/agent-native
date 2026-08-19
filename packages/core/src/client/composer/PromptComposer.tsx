@@ -508,6 +508,9 @@ function PromptComposerInner({
     resolvedModelStatusChecksEnabled,
   );
   const missingApiKey = agentEngineConfigured.missing;
+  const isProviderStatusChecking =
+    resolvedModelStatusChecksEnabled &&
+    agentEngineConfigured.state === "unknown";
   const [missingKeyBouncePulse, setMissingKeyBouncePulse] = useState(0);
   const bounceMissingKeySetup = useCallback(() => {
     setMissingKeyBouncePulse((pulse) => pulse + 1);
@@ -531,8 +534,8 @@ function PromptComposerInner({
               timeoutMs: SUBMIT_ENGINE_STATUS_TIMEOUT_MS,
             },
           );
-    if (state !== "missing") return true;
-    bounceMissingKeySetup();
+    if (state === "configured") return true;
+    if (state === "missing") bounceMissingKeySetup();
     return false;
   }, [
     agentEngineConfigured.state,
@@ -623,9 +626,13 @@ function PromptComposerInner({
         <PromptAttachmentStrip />
         <TiptapComposer
           focusRef={handleRef}
-          disabled={disabled || missingApiKey}
+          disabled={disabled || missingApiKey || isProviderStatusChecking}
           placeholder={
-            missingApiKey ? "Connect AI above to continue..." : placeholder
+            missingApiKey
+              ? "Connect AI above to continue..."
+              : isProviderStatusChecking
+                ? "Checking AI connection..."
+                : placeholder
           }
           initialText={initialText}
           initialTextKey={initialTextKey}

@@ -166,6 +166,18 @@ function isConnectionRecoveryRunError(info: RunErrorInfo): boolean {
   );
 }
 
+function isMissingLlmProviderRunError(info: RunErrorInfo): boolean {
+  const code = (info.errorCode ?? "").toLowerCase();
+  const text = [info.message, info.details].filter(Boolean).join("\n");
+  return (
+    code === "missing_credentials" ||
+    code === "missing_api_key" ||
+    /no llm provider(?: key)? (?:is connected|was found)|missing credentials/i.test(
+      text,
+    )
+  );
+}
+
 // ─── BuilderConnectCta ────────────────────────────────────────────────────────
 // Renders a single row with left-aligned copy and a right-aligned action.
 // Click opens the Builder CLI-auth popup via the shared
@@ -493,7 +505,7 @@ export function BuilderSetupCard({
     <div
       ref={cardRef}
       className={cn(
-        "agent-builder-setup-card",
+        "agent-builder-setup-card @container/agent-builder-setup",
         sidebarLayout && "agent-builder-setup-card--sidebar",
         fullWidth
           ? "w-full px-3 pb-2"
@@ -535,11 +547,13 @@ export function RunErrorRecoveryCard({
   );
   const [forking, setForking] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
+  const [providerConnected, setProviderConnected] = useState(false);
   const builderReconnect = useBuilderConnectFlow({
     trackingSource: "assistant_chat_reconnect_error",
   });
   const canRecover = info.recoverable === true;
   const shouldShowBuilderReconnect = isBuilderReconnectRunError(info);
+  const shouldShowMissingProviderSetup = isMissingLlmProviderRunError(info);
   const builderReconnectResolved =
     shouldShowBuilderReconnect &&
     builderReconnect.hasFetchedStatus &&
@@ -593,6 +607,29 @@ export function RunErrorRecoveryCard({
       onDismiss();
     }
   }, [builderReconnectResolved, onDismiss]);
+
+  if (shouldShowMissingProviderSetup) {
+    return (
+      <div className="w-full">
+        <BuilderSetupCard
+          fullWidth
+          onConnected={() => setProviderConnected(true)}
+        />
+        {providerConnected ? (
+          <div className="flex justify-center px-3 pt-1">
+            <button
+              type="button"
+              onClick={onRetry}
+              className="inline-flex h-8 items-center gap-1.5 rounded-md bg-foreground px-3 text-xs font-medium text-background hover:opacity-90"
+            >
+              <IconRefresh size={13} />
+              Retry
+            </button>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-lg border border-amber-500/25 bg-amber-500/[0.06] p-3 text-sm">

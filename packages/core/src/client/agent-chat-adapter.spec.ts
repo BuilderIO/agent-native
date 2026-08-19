@@ -808,7 +808,7 @@ describe("createAgentChatAdapter", () => {
       expect.objectContaining({ type: "agent-chat:run-error" }),
     );
     expect(results[0]).toEqual({
-      content: [{ type: "text", text: "Error: No LLM provider is connected" }],
+      content: [],
       status: { type: "incomplete", reason: "error" },
       metadata: {
         custom: {
@@ -5481,10 +5481,21 @@ describe("createAgentChatAdapter", () => {
       expect(last.metadata?.custom?.runError?.errorCode).toBe(
         expectedErrorCode,
       );
-      expect(last.content.at(-1).text).toContain(expectedMessage);
-      expect(last.content.at(-1).text).not.toContain(
-        "An earlier chunk timed out",
-      );
+      if (dispatchesMissingKey) {
+        expect(last.content).not.toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              type: "text",
+              text: expect.stringContaining(expectedMessage),
+            }),
+          ]),
+        );
+      } else {
+        expect(last.content.at(-1).text).toContain(expectedMessage);
+        expect(last.content.at(-1).text).not.toContain(
+          "An earlier chunk timed out",
+        );
+      }
     },
   );
 

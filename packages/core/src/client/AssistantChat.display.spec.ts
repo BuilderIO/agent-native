@@ -1071,6 +1071,9 @@ describe("missing agent engine setup", () => {
     expect(css).toMatch(
       /\.agent-composer-missing-key-trigger:focus-visible\s*\{[^}]*box-shadow:\s*inset 0 0 0 2px hsl\(var\(--ring\)\);/s,
     );
+    expect(css).toMatch(
+      /\.agent-builder-setup-content\s*\{[^}]*container-type:\s*inline-size;[^}]*container-name:\s*agent-builder-setup;/s,
+    );
   });
 });
 
@@ -1330,15 +1333,15 @@ describe("chat submit and stop hardening", () => {
     );
   });
 
-  it("does not block chat composer submit on the async readiness hook", () => {
+  it("gates chat composer and programmatic submits on readiness", () => {
     const source = readFileSync("src/client/AssistantChat.tsx", {
       encoding: "utf8",
     });
 
-    expect(source).not.toContain(
+    expect(source).toContain(
       "onBeforeSubmit={ensureAgentEngineReadyForSubmit}",
     );
-    expect(source).not.toContain("await ensureAgentEngineReadyForSubmit()");
+    expect(source).toContain("if (!(await ensureAgentEngineReadyForSubmit()))");
   });
 
   it("clears queued follow-ups and settles stopped tool calls by default", () => {

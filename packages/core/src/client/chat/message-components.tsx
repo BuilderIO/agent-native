@@ -804,6 +804,54 @@ function assistantMessageHasRenderableContent(message: {
   });
 }
 
+export function isMissingCredentialAssistantMessage(message: {
+  content?: unknown;
+  metadata?: unknown;
+}): boolean {
+  const metadata = message.metadata as
+    | {
+        custom?: {
+          runError?: { errorCode?: unknown; message?: unknown };
+        };
+        runError?: { errorCode?: unknown; message?: unknown };
+      }
+    | undefined;
+  const runError = metadata?.custom?.runError ?? metadata?.runError;
+  const errorCode =
+    typeof runError?.errorCode === "string"
+      ? runError.errorCode.toLowerCase()
+      : "";
+  const errorMessage =
+    typeof runError?.message === "string" ? runError.message : "";
+  if (
+    errorCode === "missing_credentials" ||
+    errorCode === "missing_api_key" ||
+    /no llm provider(?: key)? (?:is connected|was found)|missing credentials/i.test(
+      errorMessage,
+    )
+  ) {
+    return true;
+  }
+
+  const text = Array.isArray(message.content)
+    ? message.content
+        .filter(
+          (part): part is { type: "text"; text: string } =>
+            Boolean(part) &&
+            typeof part === "object" &&
+            (part as { type?: unknown }).type === "text" &&
+            typeof (part as { text?: unknown }).text === "string",
+        )
+        .map((part) => part.text)
+        .join("\n")
+    : typeof message.content === "string"
+      ? message.content
+      : "";
+  return /^Error:\s*(?:No LLM provider(?: key)? (?:is connected|was found))/i.test(
+    text.trim(),
+  );
+}
+
 function assistantMessageStatusIsTerminal(message: {
   status?: { type?: unknown };
 }): boolean {
@@ -885,6 +933,7 @@ export function AssistantMessage() {
   const thread = useThread();
   const chatRunning = React.useContext(ChatRunningContext);
   const msg = messageRuntime.getState();
+  const isMissingCredential = isMissingCredentialAssistantMessage(msg);
   const timestamp = formatMessageTimestamp(msg.createdAt);
   const isLast =
     thread.messages.length > 0 &&
@@ -1007,7 +1056,7 @@ export function AssistantMessage() {
         (p.type === "tool-call" && p.activity !== true),
     );
 
-  if (!hasRenderableContent) return null;
+  if (!hasRenderableContent || isMissingCredential) return null;
 
   return (
     <div

@@ -698,6 +698,18 @@ function isMissingCredentialText(message: string, errorCode?: string): boolean {
   );
 }
 
+function isMissingProviderErrorText(
+  message: string,
+  errorCode?: string,
+): boolean {
+  const code = String(errorCode ?? "").toLowerCase();
+  return (
+    code === "missing_api_key" ||
+    code === "missing_credentials" ||
+    /no llm provider(?: key)? (?:is connected|was found)/i.test(message)
+  );
+}
+
 function dispatchActivityClear(tabId: string | undefined) {
   if (typeof window === "undefined") return;
   window.dispatchEvent(
@@ -1322,10 +1334,6 @@ export function processEvent(
       );
     }
     settleInterruptedToolCalls(content, undefined, { includeActivity: true });
-    content.push({
-      type: "text",
-      text: formatChatErrorText(errMsg, undefined, errorCode),
-    });
     return {
       action: "missing_api_key",
       result: {
@@ -1413,6 +1421,10 @@ export function processEvent(
       };
     }
     const normalized = normalizeChatError(errMsg, ev.errorCode);
+    const missingProviderError = isMissingProviderErrorText(
+      errMsg,
+      ev.errorCode,
+    );
     if (isMissingCredentialText(errMsg, ev.errorCode)) {
       dispatchMissingApiKey(tabId);
     }
@@ -1432,10 +1444,12 @@ export function processEvent(
       );
     }
     settleInterruptedToolCalls(content, undefined, { includeActivity: true });
-    content.push({
-      type: "text",
-      text: formatChatErrorText(errMsg, ev.upgradeUrl, ev.errorCode),
-    });
+    if (!missingProviderError) {
+      content.push({
+        type: "text",
+        text: formatChatErrorText(errMsg, ev.upgradeUrl, ev.errorCode),
+      });
+    }
     return {
       action: "error",
       result: {

@@ -3747,6 +3747,8 @@ const AssistantChatInner = forwardRef<
         let removedForAppend = false;
         let appended = false;
         try {
+          if (!(await ensureAgentEngineReadyForSubmit())) return;
+
           // In serverless/cross-isolate deployments the client can receive the
           // terminal SSE event a beat before SQL has marked the previous run
           // complete. Starting the queued turn during that window can reconnect
@@ -3832,6 +3834,7 @@ const AssistantChatInner = forwardRef<
     apiUrl,
     appendThreadMessage,
     applyLocalQueuedMessages,
+    ensureAgentEngineReadyForSubmit,
     isRestoring,
     isRunning,
     queuedMessages,
@@ -4115,8 +4118,7 @@ const AssistantChatInner = forwardRef<
       submitMessageId?: string,
     ) => {
       if (isAgentChatSubmitCancelled(submitMessageId)) return;
-      if (agentEngineConfigured.state === "missing") {
-        void ensureAgentEngineReadyForSubmit();
+      if (!(await ensureAgentEngineReadyForSubmit())) {
         reportAgentChatSubmitResult(submitMessageId, false, "missing-engine");
         return;
       }
@@ -5223,6 +5225,7 @@ const AssistantChatInner = forwardRef<
                                     )
                                 : undefined
                             }
+                            onBeforeSubmit={ensureAgentEngineReadyForSubmit}
                             onSlashCommand={onSlashCommand}
                             execMode={execMode}
                             onExecModeChange={onExecModeChange}

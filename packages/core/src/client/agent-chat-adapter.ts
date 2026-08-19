@@ -1283,14 +1283,12 @@ function isMissingCredentialMessage(message: string): boolean {
 }
 
 function missingCredentialFailure(message: string): {
-  text: string;
   runError: { message: string; errorCode: string };
 } {
   try {
     const parsed = JSON.parse(message) as {
       error?: unknown;
       message?: unknown;
-      upgradeUrl?: unknown;
       errorCode?: unknown;
     };
     const raw =
@@ -1304,11 +1302,6 @@ function missingCredentialFailure(message: string): {
         ? parsed.errorCode
         : "missing_credentials";
     return {
-      text: formatChatErrorText(
-        raw,
-        typeof parsed.upgradeUrl === "string" ? parsed.upgradeUrl : undefined,
-        errorCode,
-      ),
       runError: {
         message: normalizeChatError(raw).message,
         errorCode,
@@ -1316,7 +1309,6 @@ function missingCredentialFailure(message: string): {
     };
   } catch {
     return {
-      text: formatChatErrorText(message, undefined, "missing_credentials"),
       runError: {
         message: normalizeChatError(message).message,
         errorCode: "missing_credentials",
@@ -2179,10 +2171,19 @@ export function createAgentChatAdapter(
           settleInterruptedToolCalls(content, undefined, {
             includeActivity: true,
           });
-          content.push({
-            type: "text",
-            text: formatChatErrorText(args.message, undefined, args.errorCode),
-          });
+          if (
+            args.errorCode !== LLM_MISSING_CREDENTIALS_ERROR_CODE &&
+            args.errorCode !== "missing_api_key"
+          ) {
+            content.push({
+              type: "text",
+              text: formatChatErrorText(
+                args.message,
+                undefined,
+                args.errorCode,
+              ),
+            });
+          }
           yield {
             content: [...content],
             status: { type: "incomplete" as const, reason: "error" as const },
@@ -3068,7 +3069,6 @@ export function createAgentChatAdapter(
                       }),
                     );
                   }
-                  content.push({ type: "text", text: failure.text });
                   yield {
                     content: [...content],
                     status: {
@@ -3295,7 +3295,6 @@ export function createAgentChatAdapter(
                   }),
                 );
               }
-              content.push({ type: "text", text: failure.text });
               yield {
                 content: [...content],
                 status: {
