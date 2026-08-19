@@ -735,6 +735,37 @@ function firstRecordString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+export function getCodeAgentWorktreeRecoveryState(
+  worktree: Record<string, unknown> | undefined,
+): {
+  wasPreserved: boolean;
+  needsRecovery: boolean;
+  needsNotice: boolean;
+} {
+  const worktreePath = firstRecordString(worktree?.path);
+  const worktreeState = firstRecordString(worktree?.state);
+  const cleanupError = firstRecordString(worktree?.lastCleanupError);
+  // Older run records do not have pathAvailable. Preserve their existing
+  // behavior while making current records explicit when cleanup removed the
+  // checkout but kept its branch for recovery.
+  const pathAvailable = worktree?.pathAvailable !== false;
+  const wasPreserved =
+    worktreeState === "recoverable" && Boolean(cleanupError) && pathAvailable;
+  const needsRecovery = Boolean(
+    worktree &&
+    worktreePath &&
+    (worktreeState === "recoverable" ||
+      worktreeState === "removed" ||
+      worktreeState === "error") &&
+    !wasPreserved,
+  );
+  return {
+    wasPreserved,
+    needsRecovery,
+    needsNotice: needsRecovery || wasPreserved,
+  };
+}
+
 export default function CodeAgentsApp({
   apps,
   host,
@@ -5301,20 +5332,12 @@ function RunDetailCard({
   const runWorktree = isObjectRecord(run.metadata?.worktree)
     ? run.metadata.worktree
     : undefined;
-  const runWorktreePath = firstRecordString(runWorktree?.path);
-  const runWorktreeState = firstRecordString(runWorktree?.state);
   const worktreeCleanupError = firstRecordString(runWorktree?.lastCleanupError);
-  const worktreeWasPreserved =
-    runWorktreeState === "recoverable" && Boolean(worktreeCleanupError);
-  const worktreeNeedsRecovery = Boolean(
-    runWorktree &&
-    runWorktreePath &&
-    (runWorktreeState === "recoverable" ||
-      runWorktreeState === "removed" ||
-      runWorktreeState === "error") &&
-    !worktreeWasPreserved,
-  );
-  const worktreeNeedsNotice = worktreeNeedsRecovery || worktreeWasPreserved;
+  const {
+    wasPreserved: worktreeWasPreserved,
+    needsRecovery: worktreeNeedsRecovery,
+    needsNotice: worktreeNeedsNotice,
+  } = getCodeAgentWorktreeRecoveryState(runWorktree);
   const worktreeId = firstRecordString(runWorktree?.id);
 
   return (

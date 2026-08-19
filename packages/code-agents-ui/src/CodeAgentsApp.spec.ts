@@ -6,6 +6,7 @@ import {
   findRunsThatBecameUnread,
   getCodeAgentPickerOptions,
   getCodeAgentSelection,
+  getCodeAgentWorktreeRecoveryState,
   groupCodeAgentModelOptions,
   normalizeModelSelection,
   resolveNewSessionExtensionComposerState,
@@ -45,6 +46,38 @@ describe("CodeAgentsApp new-session extension seam", () => {
       active: false,
       useDefaultModeControl: true,
       showModelSelector: true,
+    });
+  });
+});
+
+describe("CodeAgentsApp worktree recovery", () => {
+  it("offers restore when cleanup removed a recoverable checkout", () => {
+    expect(
+      getCodeAgentWorktreeRecoveryState({
+        path: "/tmp/missing-worktree",
+        pathAvailable: false,
+        state: "recoverable",
+        lastCleanupError: "Worktree contains commits after its base.",
+      }),
+    ).toEqual({
+      wasPreserved: false,
+      needsRecovery: true,
+      needsNotice: true,
+    });
+  });
+
+  it("keeps an available dirty checkout in the preserved state", () => {
+    expect(
+      getCodeAgentWorktreeRecoveryState({
+        path: "/tmp/available-worktree",
+        pathAvailable: true,
+        state: "recoverable",
+        lastCleanupError: "Worktree has uncommitted changes.",
+      }),
+    ).toEqual({
+      wasPreserved: true,
+      needsRecovery: false,
+      needsNotice: true,
     });
   });
 });

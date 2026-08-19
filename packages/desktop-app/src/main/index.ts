@@ -3674,6 +3674,7 @@ function codeAgentWorktreeMetadata(
     policy: worktree.policy,
     sourcePath: worktree.sourcePath,
     path: worktree.path,
+    pathAvailable: fs.existsSync(worktree.path),
     branch: worktree.branch,
     baseCommit: worktree.baseCommit,
     state: worktree.state,
