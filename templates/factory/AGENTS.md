@@ -24,18 +24,22 @@ decisions, feedback, agent runs, and provider audit records.
 - Use the generic Slack adapter: clear-bug automations add 👀 and tag
   `@builder.io`, ask Builder to run `/address-feedback`, and group repeated
   reports into one Builder thread; GitHub/Sentry clear bugs use the Builder run
-  API. Clips, Design, and Content stay owner-managed outside autonomous
-  dispatch and PR governance.
+  API. Follow `review-latest-feedback` for full-thread evidence, existing
+  reaction and owner checks, answered-clarification priority, one-question
+  clarification limits, durable rechecks, and the required `@agent-native`
+  disposition after every actionable 👀. Clips, Design, and Content stay
+  owner-managed for feedback dispatch.
 - PR governance follows `review-prs`: verify current BuilderIO membership and
-  the complete diff/review/check evidence, never approve external or
-  unverified authors, and keep ultra-scary security, auth, tenant-isolation,
-  secrets, data-loss, execution, payment, and deployment risks manual. The
-  verified internal-author evidence does not waive ordinary failed or
-  unresolved checks or feedback; those gates remain required and their exact
-  states must stay visible. It never waives membership or the ultra-scary
-  gate.
-  Product/UX ownership still needs the verified owner, with the documented Sid
-  exception. Auto-merge also requires a verified Factory Builder run.
+  the complete diff/review/check evidence, skip drafts and current
+  non-dismissed approvals, never approve external or unverified authors, and
+  keep ultra-scary security, auth, tenant-isolation, secrets, data-loss,
+  execution, payment, and deployment risks manual. For verified internal
+  members, ordinary failed/pending/unknown checks and unresolved ordinary
+  feedback do not by themselves block approval; record their exact states and
+  never call them clean. Apply the current Alice/Content, Nick/Slides,
+  Enzo/Factory-specific, Sid/Design, and docs-only owner exceptions only after
+  membership and the ultra-scary gate. Approval is a trust decision; Factory
+  never auto-merges.
 - Graph edits create immutable blueprint versions. AI proposes with `source=ai`;
   a person reviews and publishes through the same action surface.
 - Provider credentials belong to Dispatch/shared workspace integrations, never

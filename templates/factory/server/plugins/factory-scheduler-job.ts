@@ -326,21 +326,23 @@ clear bug fix or has product or UX implications. Avoid duplicate review noise
 when no commit, review, comment, or check result changed. Call
 govern-agent-native-pull-request with the item id, repository, pull request
 number, clearBug, productUxImplications, and a short reason. The action fetches
-fresh CI and review evidence before approving or merging. For a verified
-current BuilderIO member, the internal-author exception means ordinary failed,
-pending, skipped, or unknown checks and unresolved ordinary feedback do not by
-themselves block approval; record their exact states and never call them clean.
-The exception does not waive membership, ownership, or the ultra-scary gate.
+fresh CI and review evidence before approving. For a verified current BuilderIO
+member, the internal-author exception means ordinary failed, pending, skipped,
+or unknown checks and unresolved ordinary feedback do not by themselves block
+approval; record their exact states and never call them clean. Apply the
+verified Alice/Content, Nick/Slides, Enzo/Factory-specific, Sid/Design, and
+docs-only owner exceptions from review-prs only after membership and an
+explicit ultra-scary assessment. Those exceptions do not waive membership,
+external-author, or ultra-scary gates.
 
-Only auto-merge when the PR proves its Factory origin by retaining the Factory
-item id or source link in the PR description, or by using the Factory branch
-name. A normal open PR must never be treated as a Builder-triggered run.
+Never auto-merge. Approval is the only GitHub write this workflow may request;
+a normal open PR must never be treated as a Builder-triggered run.
 
-Never auto-approve or auto-merge Clips, Design, or Content PRs. Those apps are
-fully owned by their product owners. Auto-merge is limited to PRs with a
-verified Factory Builder run; all other PRs can at most pass the approval
-policy. Do not call GitHub write actions directly or claim a merge unless the
-governance action confirms it.
+Never auto-dispatch Clips, Design, or Content feedback. Those apps remain
+fully owned by their product owners for feedback work, while the verified
+PR-owner exceptions still apply to their own scoped PRs. Do not call GitHub
+write actions directly or claim an approval unless the governance action
+confirms it.
 `,
   },
   {
