@@ -866,7 +866,6 @@ export default function CodeAgentsHub({
   const returnToChatFirstChats = useCallback(() => {
     setChatFirstAllAppsOpen(false);
     setScheduledTasksOpen(false);
-    setScheduledChatPromptRequest(undefined);
     setTerminalSessionStarted(false);
     setTerminalPromptRequest(null);
     closeChatFirstSessionWatch();

@@ -182,19 +182,29 @@ export class DesktopCodeAgentScheduler {
         error: "Missing scheduleId.",
       };
     }
-    const schedule = getCodeAgentSchedule(scheduleId);
-    if (!schedule || !deleteCodeAgentSchedule(scheduleId)) {
+    try {
+      const schedule = getCodeAgentSchedule(scheduleId);
+      if (!schedule || !deleteCodeAgentSchedule(scheduleId)) {
+        return {
+          ok: false,
+          message: "Schedule was not found.",
+          error: `No schedule exists for ${scheduleId}.`,
+        };
+      }
+      return {
+        ok: true,
+        schedule: toShared(schedule),
+        message: "Schedule deleted.",
+      };
+    } catch (error) {
+      // Unreadable storage must reach the renderer as a result, not as a
+      // rejected IPC call the schedules panel cannot show.
       return {
         ok: false,
-        message: "Schedule was not found.",
-        error: `No schedule exists for ${scheduleId}.`,
+        message: "Could not delete schedule.",
+        error: errorMessage(error),
       };
     }
-    return {
-      ok: true,
-      schedule: toShared(schedule),
-      message: "Schedule deleted.",
-    };
   }
 
   async runNow(input: unknown): Promise<CodeAgentScheduleResult> {
@@ -206,15 +216,15 @@ export class DesktopCodeAgentScheduler {
         error: "Missing scheduleId.",
       };
     }
-    const schedule = getCodeAgentSchedule(scheduleId);
-    if (!schedule) {
-      return {
-        ok: false,
-        message: "Schedule was not found.",
-        error: `No schedule exists for ${scheduleId}.`,
-      };
-    }
     try {
+      const schedule = getCodeAgentSchedule(scheduleId);
+      if (!schedule) {
+        return {
+          ok: false,
+          message: "Schedule was not found.",
+          error: `No schedule exists for ${scheduleId}.`,
+        };
+      }
       const triggered = await this.dispatchSchedule(schedule, new Date(), true);
       return {
         ok: true,
