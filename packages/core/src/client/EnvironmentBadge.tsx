@@ -4,7 +4,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@agent-native/toolkit/ui/popover";
-import { IconExternalLink, IconGitBranch } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef } from "react";
 
 import type {
@@ -181,14 +180,11 @@ function EnvironmentLink({ label, href }: { label: string; href: string }) {
   return (
     <Button
       asChild
-      className="w-full justify-start px-2"
+      className="w-full justify-center"
       size="sm"
-      variant="ghost"
+      variant="outline"
     >
-      <a href={href}>
-        <IconExternalLink aria-hidden="true" />
-        {label}
-      </a>
+      <a href={href}>{label}</a>
     </Button>
   );
 }
@@ -224,7 +220,6 @@ export function EnvironmentBadge() {
       return;
     }
 
-    didAutoRedirect.current = true;
     if (readBetaOptOutUntil() !== null) return;
     if (consumeBetaOptOutQueryParam(window.location.href)) return;
 
@@ -234,6 +229,7 @@ export function EnvironmentBadge() {
     );
     if (!betaHref || typeof window.location.replace !== "function") return;
 
+    didAutoRedirect.current = true;
     trackEvent("environment switched", {
       from_environment: "production",
       to_environment: "beta",
@@ -261,35 +257,38 @@ export function EnvironmentBadge() {
 
   const label = environment === "beta" ? "beta" : "prod";
   const title =
-    environment === "beta" ? "Beta environment" : "Production environment";
+    environment === "beta"
+      ? "You're on Agent Native Beta"
+      : "You're on Agent Native Production";
 
   return (
     <Popover>
       <PopoverTrigger asChild>
         <Button
           aria-label={`Open ${title.toLowerCase()} switcher`}
-          className="fixed bottom-3 right-3 z-[100] h-7 rounded-full border-border/80 bg-background/95 px-2.5 text-[11px] font-semibold uppercase tracking-[0.12em] shadow-sm backdrop-blur-sm"
+          className="fixed bottom-3 right-3 z-[100] h-6 min-w-0 rounded-xl border-border/80 bg-background/95 px-2 text-[11px] font-semibold uppercase tracking-[0.5px] shadow-sm backdrop-blur-sm"
           size="sm"
-          variant={environment === "beta" ? "secondary" : "outline"}
+          variant={environment === "beta" ? "default" : "outline"}
         >
-          <span
-            aria-hidden="true"
-            className={`size-1.5 rounded-full ${environment === "beta" ? "bg-primary" : "bg-muted-foreground"}`}
-          />
           {label}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64 p-3" side="top">
-        <div className="mb-2 flex items-center gap-2 text-sm font-medium">
-          <IconGitBranch
-            aria-hidden="true"
-            className="size-4 text-muted-foreground"
-          />
-          {title}
+      <PopoverContent
+        align="center"
+        className="w-[280px] p-5"
+        side="top"
+        sideOffset={8}
+      >
+        <div className="mb-1 text-sm font-semibold leading-5">{title}</div>
+        <div className="mb-4 text-sm text-muted-foreground">
+          Choose where you want to continue.
         </div>
-        <div className="grid gap-1">
+        <div className="grid gap-2">
           {environment === "beta" ? (
-            <EnvironmentLink href={productionHref} label="Go to production" />
+            <EnvironmentLink
+              href={productionHref}
+              label="Switch to production"
+            />
           ) : (
             <EnvironmentLink href={betaHref} label="Go to beta" />
           )}

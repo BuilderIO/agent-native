@@ -2,8 +2,9 @@
 name: review-prs
 description: >-
   Review recent BuilderIO/agent-native pull requests, approve safe internal
-  fixes under the internal-author exception, and recap every disposition.
-  Use for scheduled or manual PR review sweeps.
+  fixes under the internal-author and owner exceptions, skip drafts and
+  already-approved PRs, and recap every disposition. Use for scheduled or
+  manual PR review sweeps.
 user-invocable: true
 scope: dev
 metadata:
@@ -24,6 +25,19 @@ Agent-Native work first. Include recent PRs from internal team members even if
 their branch name does not contain a product name. Re-review a PR when it has a
 new commit, review, comment, or check result; otherwise do not create duplicate
 review noise.
+
+Before selecting a PR for review, read only enough metadata to determine its
+draft state and current review summary:
+
+ - Ignore draft PRs completely. Do not inspect their diff, checks, reviews,
+   membership, or source links; do not take any review action; and do not add
+   them to the end-of-run recap.
+ - Ignore PRs that already have a current, non-dismissed `APPROVED` review,
+   including bot approvals. This exclusion applies even when the PR has newer
+   commits, comments, reviews, or check results; do not re-review it or add it
+   to the recap.
+
+Only the remaining non-draft, unapproved PRs enter the evidence sweep below.
 
 For every PR you inspect, read:
 
@@ -61,18 +75,37 @@ this skill:
    resolved. The recap must distinguish approval under the internal exception
    from a clean merge state.
 
-The verified Design owner is:
+## Owner exceptions
+
+The verified owner exceptions are:
 
  - Sid (`sidmohanty11`) - Design
+ - Enzo (`enzoames`) - Factory, only when the PR is specific to the Factory
+   app
 
-For a verified PR authored by `sidmohanty11`, auto-approve by default,
-including Design UX changes, refactors, failed or pending checks, and ordinary
-unresolved human or bot feedback. Sid's owner exception overrides the normal
-UX-owner, narrow-refactor, check, and review-resolution gates. The ultra-scary
-safety gate, repository membership check, and external-author prohibition
-still apply. A PR involving preview execution, credential routing, tenant
-isolation, or another potentially severe security boundary needs an explicit
-ultra-scary assessment before approval.
+Treat a PR as Factory-specific only when the changed behavior is limited to
+Factory app paths and Factory-owned actions, instructions, locales, or tests.
+Shared framework changes that materially affect other apps, Slack ingestion,
+core runtime, or deployment remain on the standard gate.
+
+For a verified PR authored by Sid, or by Enzo when the PR is Factory-specific,
+auto-approve by default, including that owner's UX changes, refactors, failed
+or pending checks, and ordinary unresolved human or bot feedback. The owner
+exception overrides the normal UX-owner, narrow-refactor, check, and
+review-resolution gates.
+
+For a verified PR authored by `kapunahelewong` or Wes (`bwreid`), auto-approve
+by default when the PR is docs-only. Docs-only means documentation content,
+localizations, docs navigation or redirects, and docs-specific tests, with no
+runtime app behavior, actions, database, credentials, workflows, deployment,
+or other production-code change. This docs exception also overrides the
+normal UX-owner, narrow-refactor, check, and review-resolution gates.
+
+All owner and docs exceptions still require current BuilderIO membership and
+do not waive the ultra-scary safety gate or the external-author prohibition.
+A PR involving preview execution, credential routing, tenant isolation,
+destructive data behavior, or another potentially severe security boundary
+needs an explicit ultra-scary assessment before approval.
 
 ## Standard approval gate
 
@@ -107,6 +140,7 @@ The current app-owner map is:
  - Alice - Content
  - Milos - Clips
  - Nicholas - Slides and Analytics
+ - Enzo (`enzoames`) - Factory
  - Sid (`sidmohanty11`) - Design
 
 Verify the author's GitHub identity and the affected app. A cross-app,
@@ -139,11 +173,12 @@ explicit authorization.
 
 ## End-of-run recap
 
-Every run ends with a succinct row for every PR inspected, including approved,
-flagged, external, duplicate, already handled, and unavailable cases. Include
-the PR link, author and membership result, decision, the relevant issue or
-source link, checks or review links, and the reason. Do not omit a PR because
-no action was taken.
+Every run ends with a succinct row for every PR that entered the evidence
+sweep, including approved, flagged, external, duplicate, already handled, and
+unavailable cases. Include the PR link, author and membership result, decision,
+the relevant issue or source link, checks or review links, and the reason. Do
+not add rows for drafts or PRs excluded because they already had an approval;
+those are ignored completely.
 
 Use this shape:
 
