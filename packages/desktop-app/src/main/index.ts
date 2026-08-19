@@ -156,6 +156,7 @@ import {
   createPortalTransferContext,
   portalTransferContinuationPrompt,
 } from "../../../core/src/cli/portal-transfer.js";
+import { listCodeAgentSchedules } from "../../../core/src/cli/code-agent-schedules.js";
 import {
   createPortalHandoff,
   type PortalHandoff,
@@ -3583,7 +3584,23 @@ function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
   const runs = desktopCodeBackgroundAgentController.list({
     goalId,
   }) as BackgroundAgentRun[];
-  return runs.map(backgroundRunToDesktopRun);
+  const scheduledRunIds = new Set(
+    listCodeAgentSchedules()
+      .map((schedule) => schedule.targetRunId)
+      .filter((runId): runId is string => Boolean(runId)),
+  );
+  return runs.map((run) => {
+    const desktopRun = backgroundRunToDesktopRun(run);
+    return scheduledRunIds.has(desktopRun.id)
+      ? {
+          ...desktopRun,
+          metadata: {
+            ...(desktopRun.metadata ?? {}),
+            hasSchedule: true,
+          },
+        }
+      : desktopRun;
+  });
 }
 
 function readDesktopCodeAgentRun(runId: string): CodeAgentRun | null {

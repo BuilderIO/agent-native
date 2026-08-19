@@ -967,10 +967,13 @@ export default function CodeAgentsApp({
       const pinned = isRunPinned(run);
       const active = isRunActive(run);
       const unread = !active && unreadRunIds.has(run.id);
+      const scheduled = run.metadata?.hasSchedule === true;
       const timestampKey = active
         ? "active"
         : unread
           ? "unread"
+          : scheduled
+            ? "scheduled"
           : formatRelativeTime(run.updatedAt);
       const previous = railItemCacheRef.current.get(run.id);
       if (
@@ -1000,6 +1003,14 @@ export default function CodeAgentsApp({
             aria-label="Unread chat"
             title="Unread"
           />
+        ) : scheduled ? (
+          <span
+            className="code-agents-run-status-scheduled"
+            aria-label="Scheduled chat"
+            title="Scheduled chat"
+          >
+            <IconClock size={14} strokeWidth={1.8} />
+          </span>
         ) : (
           timestampKey
         ),

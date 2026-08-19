@@ -918,6 +918,14 @@ export default function CodeAgentsHub({
     chatFirstSurfaceTabsStore.closeAll();
     setChatFirstSurfacePanelOpen(false);
   }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
+  const openScheduledTasks = useCallback(() => {
+    setScheduledTasksOpen(true);
+    setChatFirstAllAppsOpen(false);
+    closeChatFirstSessionWatch();
+    setChatFirstBrowserSelection(null);
+    chatFirstSurfaceTabsStore.closeAll();
+    setChatFirstSurfacePanelOpen(false);
+  }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
   const chatFirstNavigation = useMemo(
     () => ({
       activeTab: activeChatFirstPrimaryTab,
@@ -925,12 +933,13 @@ export default function CodeAgentsHub({
       onOpenChats: returnToChatFirstChats,
       onOpenAllApps: openChatFirstAllApps,
       onOpenIntegrations: () => openChatFirstApp("dispatch", "/integrations"),
-      onOpenScheduled: () => openChatFirstApp("dispatch", "/automations"),
+      onOpenScheduled: openScheduledTasks,
     }),
     [
       activeChatFirstPrimaryTab,
       openChatFirstApp,
       openChatFirstAllApps,
+      openScheduledTasks,
       returnToChatFirstChats,
     ],
   );
@@ -2462,10 +2471,14 @@ export default function CodeAgentsHub({
           activeChatFirstSurfaceKind={activeChatFirstSurfaceTab?.kind}
           railCollapsed={chatFirstRailCollapsed}
           chatFirstMainKind={
-            chatFirstAllAppsOpen || chatFirstAppTakesMain ? "agent" : "code"
+            scheduledTasksOpen || chatFirstAllAppsOpen || chatFirstAppTakesMain
+              ? "agent"
+              : "code"
           }
           renderChatFirstMainSurface={
-            chatFirstAllAppsOpen ? (
+            scheduledTasksOpen ? (
+              <CodeAgentSchedulesPanel host={host} />
+            ) : chatFirstAllAppsOpen ? (
               <DesktopAppsGrid
                 apps={listApps}
                 layout={chatFirstAppLayout}
