@@ -676,6 +676,7 @@ export default function ShareRoute() {
   // an anonymous viewer sees the same controls but triggers the sign-in
   // prompt instead (see `requireSignIn` below).
   const viewerCanComment = Boolean(session) && viewerRole != null;
+  const viewerCanUseFullscreenInteractions = !session || viewerCanComment;
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
   const canReshareLink =
     (viewerRole === "viewer" || viewerRole === "commenter") &&
@@ -1249,66 +1250,85 @@ export default function ShareRoute() {
               cta={firstCta}
               onCtaClick={() => tracking.reportCtaClick()}
               onTimeUpdate={(ms) => setCurrentMs(ms)}
-              onCommentClick={() => setPanel("comments")}
+              onCommentClick={
+                viewerCanUseFullscreenInteractions
+                  ? () => setPanel("comments")
+                  : undefined
+              }
               onFullscreenChange={setIsPlayerFullscreen}
-              enableComments={recording.enableComments}
-              onAddComment={() => {
-                if (!session) {
-                  requireSignIn("comment");
-                  return;
-                }
-                const liveCt = isLoomEmbedBacked
-                  ? null
-                  : playerRef.current?.video?.currentTime;
-                const liveMs =
-                  typeof liveCt === "number" &&
-                  Number.isFinite(liveCt) &&
-                  liveCt >= 0 &&
-                  liveCt < 1e7
-                    ? Math.floor(liveCt * 1000)
-                    : currentMs;
-                setCommentAtMs(liveMs);
-                setCommentOpen(true);
-              }}
-              enableReactions={recording.enableReactions}
-              onReact={(emoji) => {
-                if (!session) {
-                  requireSignIn("react");
-                  return false;
-                }
-                tracking.reportReaction(emoji);
-                const liveCt = isLoomEmbedBacked
-                  ? null
-                  : playerRef.current?.video?.currentTime;
-                const liveMs =
-                  typeof liveCt === "number" &&
-                  Number.isFinite(liveCt) &&
-                  liveCt >= 0 &&
-                  liveCt < 1e7
-                    ? Math.floor(liveCt * 1000)
-                    : currentMs;
-                return fetch(
-                  agentNativePath("/_agent-native/actions/react-to-recording"),
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      recordingId: recording.id,
-                      emoji,
-                      videoTimestampMs: liveMs,
-                    }),
-                  },
-                )
-                  .then((res) => {
-                    if (!res.ok) throw new Error(`react failed: ${res.status}`);
-                    return dataQ.refetch();
-                  })
-                  .then(() => true)
-                  .catch((err) => {
-                    console.warn("[clips] react failed", err);
-                    return false;
-                  });
-              }}
+              enableComments={
+                recording.enableComments && viewerCanUseFullscreenInteractions
+              }
+              onAddComment={
+                viewerCanUseFullscreenInteractions
+                  ? () => {
+                      if (!session) {
+                        requireSignIn("comment");
+                        return;
+                      }
+                      const liveCt = isLoomEmbedBacked
+                        ? null
+                        : playerRef.current?.video?.currentTime;
+                      const liveMs =
+                        typeof liveCt === "number" &&
+                        Number.isFinite(liveCt) &&
+                        liveCt >= 0 &&
+                        liveCt < 1e7
+                          ? Math.floor(liveCt * 1000)
+                          : currentMs;
+                      setCommentAtMs(liveMs);
+                      setCommentOpen(true);
+                    }
+                  : undefined
+              }
+              enableReactions={
+                recording.enableReactions && viewerCanUseFullscreenInteractions
+              }
+              onReact={
+                viewerCanUseFullscreenInteractions
+                  ? (emoji) => {
+                      if (!session) {
+                        requireSignIn("react");
+                        return false;
+                      }
+                      tracking.reportReaction(emoji);
+                      const liveCt = isLoomEmbedBacked
+                        ? null
+                        : playerRef.current?.video?.currentTime;
+                      const liveMs =
+                        typeof liveCt === "number" &&
+                        Number.isFinite(liveCt) &&
+                        liveCt >= 0 &&
+                        liveCt < 1e7
+                          ? Math.floor(liveCt * 1000)
+                          : currentMs;
+                      return fetch(
+                        agentNativePath(
+                          "/_agent-native/actions/react-to-recording",
+                        ),
+                        {
+                          method: "POST",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({
+                            recordingId: recording.id,
+                            emoji,
+                            videoTimestampMs: liveMs,
+                          }),
+                        },
+                      )
+                        .then((res) => {
+                          if (!res.ok)
+                            throw new Error(`react failed: ${res.status}`);
+                          return dataQ.refetch();
+                        })
+                        .then(() => true)
+                        .catch((err) => {
+                          console.warn("[clips] react failed", err);
+                          return false;
+                        });
+                    }
+                  : undefined
+              }
               className="h-full w-full rounded-none sm:rounded-xl"
             />
             {commentOpen && viewerCanComment
