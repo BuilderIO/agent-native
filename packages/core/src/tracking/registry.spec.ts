@@ -63,7 +63,7 @@ describe("tracking registry", () => {
       sessionId: "session-1",
       properties: {
         template: "blank",
-        deployment_environment: "test",
+        deployment_environment: "local",
         client_platform: "electron",
       },
     });
