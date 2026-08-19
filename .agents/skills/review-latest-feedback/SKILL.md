@@ -37,13 +37,13 @@ repository that is currently `#product-agent-native-feedback` (`C0ATH3CCZT4`);
 if the invocation names another channel, use that channel instead.
 
 Scan the channel newest to oldest and choose the most recent parent message
-without a final disposition reply from Steve, `agent-native`, or another person
-clearly investigating or owning the report. An `👀` reaction is only an
-investigation marker and never suppresses the scan. A thread with only that
-reaction, including a fix waiting for internal verification, remains the next
-work item until it receives a final **Fixed** reply or an open
-**Clarification needed** question. Do not treat a generic acknowledgement, bot
-reply, or vague status update as a terminal ownership marker.
+without a verified `@agent-native` bot-authored final disposition - either a
+**Fixed** reply or an open **Clarification needed** question - from the same
+token contract. An `👀` reaction is only an investigation marker and never
+suppresses the scan. A thread with only that reaction, including a fix waiting
+for internal verification, remains the next work item until it receives the
+verified bot disposition. Do not treat a Steve or another person's reply,
+generic bot acknowledgement or forward, or vague status update as terminal.
 
 That message is the start cursor. Classify it, record it if it is not
 actionable, then continue toward older messages, processing each actionable
@@ -110,10 +110,9 @@ post a new **Fixed** reply when the fix is verified. Ask another question only
 for the one remaining missing detail. An answered clarification is never a
 reason to skip the thread or continue scanning newer messages.
 
-Our own question is what makes a thread look owned to the cursor rule above,
-which is why this pass runs first. Without it every thread we asked about
-becomes permanently invisible on later runs and the reporter's answer is never
-read.
+Our own question is what makes a thread eligible for the first work item,
+which is why this pass runs first. Without it every thread we asked about can
+become invisible on later runs and the reporter's answer is never read.
 
 ## Required reading and tools
 
