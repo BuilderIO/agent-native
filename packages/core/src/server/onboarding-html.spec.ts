@@ -561,6 +561,15 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "forms"');
   });
 
+  it("keeps built-in marketing on beta template subdomains", () => {
+    const html = getOnboardingHtml({
+      requestHost: "beta.clips.agent-native.com",
+    });
+
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "clips"');
+    expect(html).toContain("你的 AI 代理会转录、总结并搜索你记录的所有内容。");
+  });
+
   it("keeps custom Clips auth marketing copy out of built-in localization", () => {
     const html = getOnboardingHtml({
       requestHost: "clips.agent-native.com",

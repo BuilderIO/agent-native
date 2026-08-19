@@ -69,17 +69,25 @@ function googleOAuthErrorPayload(
     error?.name === "OAuthAccountOwnedByOtherUserError"
   ) {
     const account = error.accountId || "This Google account";
+    const message = `${account} is connected to another login. Sign out, then sign in with ${account}.`;
     return {
-      message: `${account} is already connected to another login. Sign out, then sign in with the login that originally connected it.`,
+      message,
       code: "account_owner_mismatch",
       accountId: error.accountId,
     };
   }
 
   const msg = error?.message || "Unknown error";
+  const statusCode = Number(error?.statusCode || error?.status || 0);
   const isPermission =
+    error?.oauthErrorCode === "access_denied" ||
+    error?.oauthErrorCode === "forbidden" ||
+    error?.oauthErrorCode === "insufficient_scope" ||
     msg.includes("Insufficient Permission") ||
-    msg.includes("insufficient_scope");
+    msg.includes("insufficient_scope") ||
+    /insufficient authentication scopes/i.test(msg) ||
+    (statusCode === 403 &&
+      /\b(?:scope|permission|forbidden|access denied)\b/i.test(msg));
   return {
     message: isPermission
       ? "This account wasn't granted the required permissions. Make sure you check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
@@ -212,16 +220,11 @@ export const handleGoogleCallback = defineEventHandler(
       if (googleError) {
         const errorDesc =
           (query.error_description as string | undefined) || googleError;
-        const isPermission =
-          googleError === "access_denied" ||
-          errorDesc.includes("Insufficient Permission");
-        const userMessage = isPermission
-          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
-          : `Connection failed: ${errorDesc}`;
-        return googleOAuthErrorResponse(event, new Error(userMessage), {
-          desktop,
-          flowId,
-        });
+        return googleOAuthErrorResponse(
+          event,
+          Object.assign(new Error(errorDesc), { oauthErrorCode: googleError }),
+          { desktop, flowId },
+        );
       }
 
       const code = query.code as string;
@@ -442,16 +445,11 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       if (googleError) {
         const errorDesc =
           (query.error_description as string | undefined) || googleError;
-        const isPermission =
-          googleError === "access_denied" ||
-          errorDesc.includes("Insufficient Permission");
-        const userMessage = isPermission
-          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
-          : `Connection failed: ${errorDesc}`;
-        return googleOAuthErrorResponse(event, new Error(userMessage), {
-          desktop,
-          flowId,
-        });
+        return googleOAuthErrorResponse(
+          event,
+          Object.assign(new Error(errorDesc), { oauthErrorCode: googleError }),
+          { desktop, flowId },
+        );
       }
 
       const { redirectUri, owner: stateOwner } = state;
