@@ -107,6 +107,8 @@ describe("AssistantChat thread restore and composer recovery", () => {
     expect(source).toContain("retryThreadRestore");
     expect(source).toContain('t("agentChat.common.retry")');
     expect(source).toContain("desktopIdentityUnauthenticated");
+    expect(source).toContain("desktopIdentityAuthenticated");
+    expect(source).toContain("retryThreadRestore();");
   });
 
   it("clears a stale restore error when a saved tab becomes a fresh chat", () => {

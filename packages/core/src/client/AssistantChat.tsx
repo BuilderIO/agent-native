@@ -1933,6 +1933,8 @@ export interface AssistantChatProps {
   agentChatSurface?: AgentChatSurfaceKind;
   /** Whether the desktop host is currently showing its unauthenticated identity gate. */
   desktopIdentityUnauthenticated?: boolean;
+  /** Whether the desktop host has just established its authenticated identity session. */
+  desktopIdentityAuthenticated?: boolean;
   /** Route completed first-party open_app calls through the host app pane. */
   suppressInlineOpenApp?: boolean;
   /** Placeholder text for empty state */
@@ -2451,6 +2453,7 @@ const AssistantChatInner = forwardRef<
     externalStreaming = false,
     agentChatSurface = "app",
     desktopIdentityUnauthenticated = false,
+    desktopIdentityAuthenticated = false,
     suppressInlineOpenApp = false,
   },
   ref,
@@ -3028,6 +3031,31 @@ const AssistantChatInner = forwardRef<
       current === "not-found" ? null : current,
     );
   }, [desktopIdentityUnauthenticated]);
+
+  const desktopIdentityAuthenticatedRef = useRef(desktopIdentityAuthenticated);
+  useEffect(() => {
+    const becameAuthenticated =
+      desktopIdentityAuthenticated && !desktopIdentityAuthenticatedRef.current;
+    desktopIdentityAuthenticatedRef.current = desktopIdentityAuthenticated;
+    if (
+      !becameAuthenticated ||
+      agentChatSurface !== "desktop" ||
+      !threadId ||
+      isNewThread
+    ) {
+      return;
+    }
+    // A saved-thread request can race the identity handoff and be masked as a
+    // 404/401/403. Retry once the host confirms the authenticated session so
+    // the thread is restored without requiring a remount or manual retry.
+    retryThreadRestore();
+  }, [
+    agentChatSurface,
+    desktopIdentityAuthenticated,
+    isNewThread,
+    retryThreadRestore,
+    threadId,
+  ]);
   const onSaveThreadRef = useRef(onSaveThread);
   onSaveThreadRef.current = onSaveThread;
   const onGenerateTitleRef = useRef(onGenerateTitle);

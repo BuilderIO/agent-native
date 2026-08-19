@@ -112,6 +112,7 @@ import {
 } from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
 import AppWebview, {
+  isDesktopIdentityAuthenticated,
   isDesktopIdentityGateUnauthenticated,
   resolveAppWebviewUrl,
 } from "./AppWebview.js";
@@ -538,6 +539,14 @@ function DesktopAppsGrid({
   );
 }
 
+export function updateDesktopIdentityStatusByTab(
+  current: Readonly<Record<string, DesktopIdentityStatus | "checking">>,
+  tabId: string,
+  status: DesktopIdentityStatus | "checking",
+): Record<string, DesktopIdentityStatus | "checking"> {
+  return current[tabId] === status ? current : { ...current, [tabId]: status };
+}
+
 interface CodeAgentsHubProps {
   apps: AppConfig[];
   workspaceAppList?: DesktopWorkspaceAppListResult;
@@ -613,13 +622,13 @@ export default function CodeAgentsHub({
     [apps, workspaceAppListEnabled, workspaceApps],
   );
   const surfaceApps = listApps;
-  const [desktopIdentityStatusByApp, setDesktopIdentityStatusByApp] = useState<
+  const [desktopIdentityStatusByTab, setDesktopIdentityStatusByTab] = useState<
     Record<string, DesktopIdentityStatus | "checking">
   >({});
   const handleDesktopIdentityStatusChange = useCallback(
-    (appId: string, status: DesktopIdentityStatus | "checking") => {
-      setDesktopIdentityStatusByApp((current) =>
-        current[appId] === status ? current : { ...current, [appId]: status },
+    (tabId: string, status: DesktopIdentityStatus | "checking") => {
+      setDesktopIdentityStatusByTab((current) =>
+        updateDesktopIdentityStatusByTab(current, tabId, status),
       );
     },
     [],
@@ -2322,7 +2331,10 @@ export default function CodeAgentsHub({
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
                 desktopIdentityUnauthenticated={isDesktopIdentityGateUnauthenticated(
-                  desktopIdentityStatusByApp[surfaceApp.id],
+                  desktopIdentityStatusByTab[tab.id],
+                )}
+                desktopIdentityAuthenticated={isDesktopIdentityAuthenticated(
+                  desktopIdentityStatusByTab[tab.id],
                 )}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
@@ -2338,7 +2350,7 @@ export default function CodeAgentsHub({
                       : { embedded: "1", chatFirst: "1" }
                   }
                   onDesktopIdentityStatusChange={(status) =>
-                    handleDesktopIdentityStatusChange(surfaceApp.id, status)
+                    handleDesktopIdentityStatusChange(tab.id, status)
                   }
                 />
               </DesktopAppChatShell>
@@ -2369,6 +2381,8 @@ export default function CodeAgentsHub({
       chatFirstWatchedRun,
       chatFirstWatchedSourceRunId,
       closeChatFirstSurfaceTab,
+      desktopIdentityStatusByTab,
+      handleDesktopIdentityStatusChange,
       host,
       isActive,
       onLocalCodeChangeStarted,

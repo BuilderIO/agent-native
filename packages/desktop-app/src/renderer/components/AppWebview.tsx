@@ -148,6 +148,12 @@ export function isDesktopIdentityGateUnauthenticated(
   return status === "sign-in-required" || status === "failed";
 }
 
+export function isDesktopIdentityAuthenticated(
+  status: DesktopIdentityStatus | "checking" | undefined,
+): boolean {
+  return status === "signed-in";
+}
+
 export function resolveDesktopIdentityLazySyncStatus(
   status: DesktopIdentityStatus,
   synchronized: boolean,

@@ -20,6 +20,7 @@ import {
   resolveAppWebviewPartition,
   resolveAppWebviewAuthState,
   resolveAppWebviewUrl,
+  isDesktopIdentityAuthenticated,
   isDesktopIdentityGateEligible,
   isDesktopIdentityGateUnauthenticated,
   shouldSuppressDesktopSignInPrompt,
@@ -456,6 +457,9 @@ describe("AppWebview auth state", () => {
     expect(isDesktopIdentityGateUnauthenticated("checking")).toBe(false);
     expect(isDesktopIdentityGateUnauthenticated("signed-in")).toBe(false);
     expect(isDesktopIdentityGateUnauthenticated("idle")).toBe(false);
+    expect(isDesktopIdentityAuthenticated("signed-in")).toBe(true);
+    expect(isDesktopIdentityAuthenticated("sign-in-required")).toBe(false);
+    expect(isDesktopIdentityAuthenticated("checking")).toBe(false);
   });
 });
 
