@@ -1240,6 +1240,7 @@ const deDE = {
     loadError:
       "Die neueste Desktop-Version konnte nicht geladen werden. Die Releases-Seite enthält alle Installer.",
     checkingRelease: "Neueste Desktop-Version wird geprüft...",
+    nightlyBuilds: "Suchst du die Nightly-Version?",
     runFromSource: "Oder aus dem Quellcode starten",
     runFromSourceBody:
       "Noch kein Installer für Ihre Plattform, oder lieber die CLI? Erstellen Sie mit npm eine neue App und führen Sie sie lokal aus; funktioniert auf macOS, Windows und Linux.",
