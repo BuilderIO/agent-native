@@ -76,10 +76,13 @@ public URL; never send the Slack bearer token to an external service.
   identity tuple `{ team_id, user_id, bot_id }` for all read-back checks.
 - Use that same bearer token for channel history, thread replies, reactions,
   and Slack metadata. Use Slack cursors until the requested history or thread
-  is complete. A bot-message read-back must match the `team_id` and `bot_id`;
-  if Slack also includes a `user` author, it must match `user_id`, but a missing
-  `user` field is valid for bot messages. A reaction read-back must include the
-  same `user_id` in its users list.
+  is complete. The authenticated `team_id` scopes the request; do not require
+  individual message objects to repeat it. A message read-back must match the
+  target channel, timestamp, and thread parent, compare `team` or `team_id`
+  when Slack returns either field, and match the `bot_id`; if Slack also
+  includes a `user` author, it must match `user_id`, but a missing `user` field
+  is valid for bot messages. A reaction read-back must target the same message
+  and include the same `user_id` in its users list.
 - After every reaction or reply, re-read through the same token and verify the
   reaction or reply exists and matches that identity tuple.
 - If the token is absent, invalid, or resolves to any identity other than
