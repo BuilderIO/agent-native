@@ -5269,13 +5269,18 @@ function RunDetailCard({
     : undefined;
   const runWorktreePath = firstRecordString(runWorktree?.path);
   const runWorktreeState = firstRecordString(runWorktree?.state);
+  const worktreeCleanupError = firstRecordString(runWorktree?.lastCleanupError);
+  const worktreeWasPreserved =
+    runWorktreeState === "recoverable" && Boolean(worktreeCleanupError);
   const worktreeNeedsRecovery = Boolean(
     runWorktree &&
     runWorktreePath &&
     (runWorktreeState === "recoverable" ||
       runWorktreeState === "removed" ||
-      runWorktreeState === "error"),
+      runWorktreeState === "error") &&
+    !worktreeWasPreserved,
   );
+  const worktreeNeedsNotice = worktreeNeedsRecovery || worktreeWasPreserved;
   const worktreeId = firstRecordString(runWorktree?.id);
 
   return (
@@ -5339,16 +5344,24 @@ function RunDetailCard({
         </div>
       )}
 
-      {worktreeNeedsRecovery && (
+      {worktreeNeedsNotice && (
         <div className="code-agents-worktree-recovery" role="status">
           <div className="code-agents-worktree-recovery__copy">
             <IconAlertCircle size={16} strokeWidth={1.8} />
             <span>
-              <strong>Worktree cleaned up</strong>
-              <small>This chat’s files were removed to save disk space.</small>
+              <strong>
+                {worktreeWasPreserved
+                  ? "Worktree kept for recovery"
+                  : "Worktree cleaned up"}
+              </strong>
+              <small>
+                {worktreeWasPreserved
+                  ? worktreeCleanupError
+                  : "This chat’s files were removed to save disk space."}
+              </small>
             </span>
           </div>
-          {worktreeId && onRestoreWorktree ? (
+          {worktreeNeedsRecovery && worktreeId && onRestoreWorktree ? (
             <button
               type="button"
               className="code-agents-button"

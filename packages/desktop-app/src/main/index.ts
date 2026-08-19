@@ -198,6 +198,7 @@ import {
 import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window.js";
 import {
   CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
+  attachCodeAgentWorktree,
   cleanupDueCodeAgentWorktrees,
   createOrAttachCodeAgentWorktree,
   listNamedCodeAgentWorktrees,
@@ -208,6 +209,7 @@ import {
 } from "./code-agent-worktree-registry.js";
 import {
   codeAgentWorktreeHasChanges,
+  codeAgentWorktreeHasCommitsAfterBase,
   cleanupCodeAgentWorktree,
   createCodeAgentWorktree,
 } from "./code-agent-worktrees.js";
@@ -3653,6 +3655,9 @@ function codeAgentWorktreeMetadata(
     baseCommit: worktree.baseCommit,
     state: worktree.state,
     ...(worktree.cleanupAfter ? { cleanupAfter: worktree.cleanupAfter } : {}),
+    ...(worktree.lastCleanupError
+      ? { lastCleanupError: worktree.lastCleanupError }
+      : {}),
   };
 }
 
@@ -3671,6 +3676,134 @@ function activeCodeAgentRunUsesWorktree(
           path.resolve(worktree.path))
     );
   });
+}
+
+const startingCodeAgentWorktreeRuns = new Set<string>();
+
+function codeAgentWorktreeIdFromRunRecord(
+  record: Record<string, unknown> | null,
+): string | undefined {
+  const metadata = isObject(record?.metadata) ? record.metadata : undefined;
+  const worktree = isObject(metadata?.worktree) ? metadata.worktree : undefined;
+  return firstStringValue(worktree?.id);
+}
+
+function codeAgentRunHoldsWorktreeLease(
+  runId: string,
+  record: Record<string, unknown>,
+): boolean {
+  if (
+    activeCodeAgentProcesses.has(runId) ||
+    startingCodeAgentRuns.has(runId) ||
+    startingCodeAgentWorktreeRuns.has(
+      codeAgentWorktreeIdFromRunRecord(record) ?? "",
+    )
+  ) {
+    return true;
+  }
+  const status = getRecordString(record, "status");
+  const phase = getRecordString(record, "phase");
+  return Boolean(
+    status === "running" ||
+    status === "needs-approval" ||
+    phase === "executing" ||
+    phase === "approval-running",
+  );
+}
+
+function hasActiveCodeAgentWorktreeRun(
+  worktreeId: string,
+  exceptRunId?: string,
+): boolean {
+  return listRawCodeAgentRunRecords().some(({ runId, record }) => {
+    if (
+      runId === exceptRunId ||
+      codeAgentWorktreeIdFromRunRecord(record) !== worktreeId
+    ) {
+      return false;
+    }
+    return codeAgentRunHoldsWorktreeLease(runId, record);
+  });
+}
+
+async function startNextQueuedCodeAgentWorktreeRun(
+  worktreeId: string,
+): Promise<void> {
+  if (
+    startingCodeAgentWorktreeRuns.has(worktreeId) ||
+    hasActiveCodeAgentWorktreeRun(worktreeId)
+  ) {
+    return;
+  }
+  const candidate = listRawCodeAgentRunRecords()
+    .filter(({ record }) => {
+      if (codeAgentWorktreeIdFromRunRecord(record) !== worktreeId) {
+        return false;
+      }
+      const metadata = isObject(record.metadata) ? record.metadata : undefined;
+      const worktree = isObject(metadata?.worktree)
+        ? metadata.worktree
+        : undefined;
+      return (
+        firstStringValue(worktree?.queueState) === "waiting" &&
+        (getRecordString(record, "status") === "queued" ||
+          getRecordString(record, "phase") === "queued")
+      );
+    })
+    .sort((left, right) =>
+      (getRecordString(left.record, "createdAt") ?? "").localeCompare(
+        getRecordString(right.record, "createdAt") ?? "",
+      ),
+    )[0];
+  if (!candidate) return;
+
+  const recordMetadata = isObject(candidate.record.metadata)
+    ? candidate.record.metadata
+    : {};
+  const worktree = isObject(recordMetadata.worktree)
+    ? recordMetadata.worktree
+    : undefined;
+  const cwd =
+    getRecordString(candidate.record, "cwd") ??
+    firstStringValue(worktree?.path);
+  if (!cwd || !fs.existsSync(cwd)) {
+    touchCodeAgentRunRecord(candidate.runId, {
+      status: "paused",
+      phase: "worktree-unavailable",
+      metadata: {
+        worktree: {
+          ...(worktree ?? {}),
+          state: "recoverable",
+          queueState: undefined,
+        },
+      },
+    });
+    return;
+  }
+
+  startingCodeAgentWorktreeRuns.add(worktreeId);
+  touchCodeAgentRunRecord(candidate.runId, {
+    metadata: {
+      worktree: {
+        ...(worktree ?? {}),
+        queueState: "starting",
+      },
+    },
+  });
+  try {
+    await spawnCodeAgentRunner(
+      candidate.runId,
+      cwd,
+      readCodeAgentPermissionMode(candidate.record),
+    );
+  } finally {
+    startingCodeAgentWorktreeRuns.delete(worktreeId);
+    const current = readCodeAgentRunRecord(candidate.runId);
+    if (current && isTerminalCodeAgentRun(current)) {
+      reclaimTerminalCodeAgentWorktree(current);
+    }
+    void startNextQueuedCodeAgentWorktreeRun(worktreeId);
+  }
 }
 
 function cleanupDueManagedCodeAgentWorktrees(): void {
@@ -3702,6 +3835,7 @@ function reclaimTerminalCodeAgentWorktree(
   const sourcePath = firstStringValue(worktree.sourcePath);
   const worktreePath = firstStringValue(worktree.path);
   const branch = firstStringValue(worktree.branch);
+  const baseCommit = firstStringValue(worktree.baseCommit);
   if (!sourcePath || !worktreePath || !branch) return;
 
   const runId = getRecordString(record, "id");
@@ -3723,6 +3857,7 @@ function reclaimTerminalCodeAgentWorktree(
             worktree: codeAgentWorktreeMetadata(released),
           },
         });
+        void startNextQueuedCodeAgentWorktreeRun(released.id);
       }
     } catch (error) {
       console.warn(
@@ -3773,17 +3908,27 @@ function reclaimTerminalCodeAgentWorktree(
   }
 
   try {
-    if (
+    const hasUncommittedChanges =
       fs.existsSync(worktreePath) &&
-      codeAgentWorktreeHasChanges({ path: worktreePath })
-    ) {
+      codeAgentWorktreeHasChanges({ path: worktreePath });
+    const hasCommittedChanges = baseCommit
+      ? codeAgentWorktreeHasCommitsAfterBase({
+          sourcePath,
+          branch,
+          baseCommit,
+        })
+      : true;
+    if (hasUncommittedChanges || hasCommittedChanges) {
       touchCodeAgentRunRecord(runId, {
         metadata: {
           worktree: {
             ...worktree,
             state: "recoverable",
-            lastCleanupError:
-              "Worktree has uncommitted changes; it was kept for recovery.",
+            lastCleanupError: !baseCommit
+              ? "The worktree base could not be verified; it was kept for recovery."
+              : hasCommittedChanges
+                ? "Worktree contains commits after its base; it was kept for recovery."
+                : "Worktree has uncommitted changes; it was kept for recovery.",
           },
         },
       });
@@ -5154,6 +5299,7 @@ async function spawnCodeAgentRunner(
       },
     });
     startingCodeAgentRuns.delete(runId);
+    reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
     return;
   }
   const repoRoot = resolveRepositoryRoot(cwd);
@@ -5586,9 +5732,38 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
       error: `The worktree is unavailable at ${currentCwd}.`,
     };
   }
+  let attachedWorktree: CodeAgentManagedWorktree | undefined;
+  if (firstStringValue(currentWorktree?.id)) {
+    try {
+      attachedWorktree = restoreManagedCodeAgentWorktree({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId: firstStringValue(currentWorktree?.id)!,
+        runId: input.runId,
+      });
+      touchCodeAgentRunRecord(input.runId, {
+        cwd: attachedWorktree.path,
+        metadata: {
+          cwd: attachedWorktree.path,
+          worktree: codeAgentWorktreeMetadata(attachedWorktree),
+        },
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        runId: input.runId,
+        run: desktopCodeBackgroundAgentController.get(input.runId),
+        message: "Restore the worktree to continue.",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   const runIsActive =
     activeCodeAgentProcesses.has(input.runId) ||
     isActiveDesktopCodeAgentRun(currentRunRecord);
+  const worktreeBusy = Boolean(
+    attachedWorktree?.policy === "named" &&
+    hasActiveCodeAgentWorktreeRun(attachedWorktree.id, input.runId),
+  );
   const mode = input.mode ?? "immediate";
   const event = createDesktopUserTranscriptEvent(
     input.runId,
@@ -5638,6 +5813,26 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
       run: desktopCodeBackgroundAgentController.get(input.runId),
       queued: true,
       message: "Follow-up queued for the active Agent-Native Code run.",
+    };
+  }
+
+  if (worktreeBusy) {
+    touchCodeAgentRunRecord(input.runId, {
+      status: "queued",
+      phase: "queued",
+      metadata: {
+        worktree: {
+          ...codeAgentWorktreeMetadata(attachedWorktree!),
+          queueState: "waiting",
+        },
+      },
+    });
+    return {
+      ok: true,
+      runId: input.runId,
+      run: desktopCodeBackgroundAgentController.get(input.runId),
+      queued: true,
+      message: "Follow-up queued behind another chat using this worktree.",
     };
   }
 
@@ -6090,6 +6285,7 @@ async function createCodeAgentRun(
   }
   let cwd = sourceCwd;
   let worktreeMetadata: CodeAgentManagedWorktree | undefined;
+  let worktreeRunQueued = false;
   if (executionTarget === "worktree") {
     if (!engine || !CODE_AGENT_WORKTREE_ENGINES.has(engine)) {
       return {
@@ -6111,6 +6307,9 @@ async function createCodeAgentRun(
       });
       cwd = worktree.path;
       worktreeMetadata = worktree;
+      worktreeRunQueued =
+        worktree.policy === "named" &&
+        hasActiveCodeAgentWorktreeRun(worktree.id, runId);
     } catch (error) {
       return {
         ok: false,
@@ -6178,7 +6377,12 @@ async function createCodeAgentRun(
       cwd,
       executionTarget,
       ...(worktreeMetadata
-        ? { worktree: codeAgentWorktreeMetadata(worktreeMetadata) }
+        ? {
+            worktree: {
+              ...codeAgentWorktreeMetadata(worktreeMetadata),
+              ...(worktreeRunQueued ? { queueState: "waiting" } : {}),
+            },
+          }
         : {}),
       permissionMode,
       engine,
@@ -6248,13 +6452,18 @@ async function createCodeAgentRun(
       attachments,
       executionTarget,
       ...(worktreeMetadata
-        ? { worktree: codeAgentWorktreeMetadata(worktreeMetadata) }
+        ? {
+            worktree: {
+              ...codeAgentWorktreeMetadata(worktreeMetadata),
+              ...(worktreeRunQueued ? { queueState: "waiting" } : {}),
+            },
+          }
         : {}),
       retryOf,
       rerunOf,
     });
     const eventFile = appendCodeAgentTranscriptEvent(event);
-    if (goal.surfaceKind === "native") {
+    if (goal.surfaceKind === "native" && !worktreeRunQueued) {
       spawnCodeAgentRunner(runId, cwd, permissionMode);
     }
     const generatedTitle = await generateAndPatchRunTitle(runId, prompt);
@@ -6276,8 +6485,11 @@ async function createCodeAgentRun(
             Date.now() + CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
           ),
         });
-      } catch {
-        // Preserve the original recording error; the scheduled sweep can recover it.
+      } catch (cleanupError) {
+        console.warn(
+          "[code-agents] failed to release a worktree after recording failed:",
+          cleanupError,
+        );
       }
     }
     return {
@@ -6313,10 +6525,15 @@ function restoreCodeAgentWorktree(
     });
   }
   try {
+    const runRecord = runId ? readCodeAgentRunRecord(runId) : null;
+    const attachRunId =
+      runId && runRecord && isActiveDesktopCodeAgentRun(runRecord)
+        ? runId
+        : undefined;
     const managed = restoreManagedCodeAgentWorktree({
       registryPath: codeAgentWorktreeRegistryFile(),
       worktreeId,
-      runId: runId ?? undefined,
+      runId: attachRunId,
     });
     if (runId) {
       touchCodeAgentRunRecord(runId, {
@@ -6407,10 +6624,9 @@ async function forkCodeAgentRun(
     };
   }
 
-  const sourceForNewWorktree = fs.existsSync(sourceCwd)
-    ? sourceCwd
-    : firstStringValue(sourceWorktree?.sourcePath);
-  if (executionTarget === "worktree" && !sourceForNewWorktree) {
+  const sourceForNewWorktree =
+    firstStringValue(sourceWorktree?.sourcePath) ?? sourceCwd;
+  if (executionTarget === "worktree" && !fs.existsSync(sourceForNewWorktree)) {
     return {
       ok: false,
       sourceRunId,
@@ -6454,6 +6670,13 @@ async function forkCodeAgentRun(
         worktreeRoot: path.join(codeAgentStoreRoot(), "worktrees"),
         runId,
         policy: "ephemeral",
+      });
+      cwd = worktreeMetadata.path;
+    } else if (firstStringValue(sourceWorktree?.id)) {
+      worktreeMetadata = restoreManagedCodeAgentWorktree({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId: firstStringValue(sourceWorktree?.id)!,
+        runId,
       });
       cwd = worktreeMetadata.path;
     }

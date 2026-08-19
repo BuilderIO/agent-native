@@ -9,12 +9,14 @@ import {
 import {
   cleanupCodeAgentWorktree,
   codeAgentWorktreeHasChanges,
+  codeAgentWorktreeHasCommitsAfterBase,
   createCodeAgentWorktree,
   createNamedCodeAgentWorktree,
   codeAgentWorktreeNameKey,
   normalizeCodeAgentWorktreeName,
   assertManagedCodeAgentWorktree,
   restoreCodeAgentWorktree,
+  resolveCodeAgentRepositoryRoot,
   type CodeAgentWorktreeCleanupResult,
   type CodeAgentWorktreeResult,
   type RunGit,
@@ -321,13 +323,17 @@ export function listNamedCodeAgentWorktrees(input: {
   registryPath: string;
   sourcePath: string;
   now?: Date;
+  runGit?: RunGit;
 }): CodeAgentWorktreeListResult {
   const now = nowIso(input.now);
   try {
+    const sourcePath = resolveCodeAgentRepositoryRoot({
+      sourcePath: input.sourcePath,
+      runGit: input.runGit,
+    });
     return withMutableRegistry(input.registryPath, (registry) => {
       for (const worktree of registry.worktrees)
         updateRuntimeState(worktree, now);
-      const sourcePath = path.resolve(input.sourcePath);
       return {
         status: "ok",
         sourcePath,
@@ -363,7 +369,10 @@ export function createOrAttachCodeAgentWorktree(input: {
   runGit?: RunGit;
 }): CodeAgentManagedWorktree {
   const now = nowIso(input.now);
-  const sourcePath = path.resolve(input.sourcePath);
+  const sourcePath = resolveCodeAgentRepositoryRoot({
+    sourcePath: input.sourcePath,
+    runGit: input.runGit,
+  });
   const name =
     input.policy === "named"
       ? normalizeCodeAgentWorktreeName(input.name)
@@ -480,16 +489,23 @@ export function cleanupDueCodeAgentWorktrees(input: {
       }
       if (input.canRemove && !input.canRemove(worktree)) continue;
       try {
-        if (
+        const hasUncommittedChanges =
           fs.existsSync(worktree.path) &&
           codeAgentWorktreeHasChanges({
             path: worktree.path,
             runGit: input.runGit,
-          })
-        ) {
+          });
+        const hasCommittedChanges = codeAgentWorktreeHasCommitsAfterBase({
+          sourcePath: worktree.sourcePath,
+          branch: worktree.branch,
+          baseCommit: worktree.baseCommit,
+          runGit: input.runGit,
+        });
+        if (hasUncommittedChanges || hasCommittedChanges) {
           worktree.state = "recoverable";
-          worktree.lastCleanupError =
-            "Worktree has uncommitted changes; it was kept for recovery.";
+          worktree.lastCleanupError = hasCommittedChanges
+            ? "Worktree contains commits after its base; it was kept for recovery."
+            : "Worktree has uncommitted changes; it was kept for recovery.";
           worktree.cleanupAttempts += 1;
           worktree.updatedAt = now;
           continue;

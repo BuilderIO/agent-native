@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -110,12 +111,26 @@ function repositoryRoot(
   };
 }
 
+export function resolveCodeAgentRepositoryRoot(input: {
+  sourcePath: string;
+  runGit?: RunGit;
+}): string {
+  return repositoryRoot(input.sourcePath, input.runGit ?? runGit).sourcePath;
+}
+
 function comparablePath(value: string): string {
   try {
     return fs.realpathSync.native(value);
   } catch {
     return path.resolve(value);
   }
+}
+
+function repositoryNamespace(sourcePath: string): string {
+  return createHash("sha256")
+    .update(comparablePath(sourcePath))
+    .digest("hex")
+    .slice(0, 12);
 }
 
 export function assertManagedCodeAgentWorktree(input: {
@@ -190,11 +205,12 @@ export function createNamedCodeAgentWorktree(input: {
   }
   const repository = repositoryRoot(input.sourcePath, executeGit);
   const slug = normalizedWorktreeName(name);
+  const namespace = repositoryNamespace(repository.sourcePath);
   const worktreePath = path.join(
     path.resolve(input.worktreeRoot),
-    `named-${slug}`,
+    `named-${namespace}-${slug}`,
   );
-  const branch = `agent-native/named-${slug}`;
+  const branch = `agent-native/named-${namespace}-${slug}`;
   fs.mkdirSync(path.dirname(worktreePath), { recursive: true });
   const created = executeGit(
     ["worktree", "add", "-b", branch, worktreePath, repository.baseCommit],
@@ -278,6 +294,32 @@ export function codeAgentWorktreeHasChanges(input: {
     throw gitFailure(result, "Could not inspect the Code Agent worktree.");
   }
   return Boolean(result.stdout?.trim());
+}
+
+export function codeAgentWorktreeHasCommitsAfterBase(input: {
+  sourcePath: string;
+  branch: string;
+  baseCommit: string;
+  runGit?: RunGit;
+}): boolean {
+  const executeGit = input.runGit ?? runGit;
+  const result = executeGit(
+    ["rev-list", "--count", `${input.baseCommit}..${input.branch}`],
+    path.resolve(input.sourcePath),
+  );
+  if (result.status !== 0) {
+    throw gitFailure(
+      result,
+      "Could not inspect commits in the Code Agent worktree.",
+    );
+  }
+  const count = Number(result.stdout?.trim());
+  if (!Number.isInteger(count) || count < 0) {
+    throw new Error(
+      "Git returned an invalid Code Agent worktree commit count.",
+    );
+  }
+  return count > 0;
 }
 
 export function createCodeAgentWorktree(input: {

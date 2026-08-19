@@ -20,9 +20,11 @@ describe("code-agent-worktree-registry", () => {
     withRepository((root) => {
       const registryPath = worktreeRegistryPath(root);
       const worktreeRoot = path.join(root, "managed-worktrees");
+      const selectedFolder = path.join(root, "src");
+      fs.mkdirSync(selectedFolder);
       const first = createOrAttachCodeAgentWorktree({
         registryPath,
-        sourcePath: root,
+        sourcePath: selectedFolder,
         worktreeRoot,
         runId: "run-one",
         policy: "named",
@@ -66,6 +68,34 @@ describe("code-agent-worktree-registry", () => {
       });
       expect(released?.state).toBe("available");
       expect(fs.existsSync(first.path)).toBe(true);
+    });
+  });
+
+  it("namespaces the same named worktree independently per repository", () => {
+    withRepository((firstRoot) => {
+      withRepository((secondRoot) => {
+        const first = createOrAttachCodeAgentWorktree({
+          registryPath: worktreeRegistryPath(firstRoot),
+          sourcePath: firstRoot,
+          worktreeRoot: path.join(firstRoot, "managed-worktrees"),
+          runId: "first-run",
+          policy: "named",
+          name: "Review branch",
+        });
+        const second = createOrAttachCodeAgentWorktree({
+          registryPath: worktreeRegistryPath(secondRoot),
+          sourcePath: secondRoot,
+          worktreeRoot: path.join(secondRoot, "managed-worktrees"),
+          runId: "second-run",
+          policy: "named",
+          name: "Review branch",
+        });
+
+        expect(second.branch).not.toBe(first.branch);
+        expect(second.path).not.toBe(first.path);
+        expect(fs.existsSync(first.path)).toBe(true);
+        expect(fs.existsSync(second.path)).toBe(true);
+      });
     });
   });
 
@@ -144,6 +174,40 @@ describe("code-agent-worktree-registry", () => {
       expect(restored.state).toBe("attached");
       expect(restored.attachedRunIds).toContain("restored-run");
       expect(fs.existsSync(restored.path)).toBe(true);
+    });
+  });
+
+  it("keeps ephemeral worktrees that contain committed work", () => {
+    withRepository((root) => {
+      const registryPath = worktreeRegistryPath(root);
+      const worktree = createOrAttachCodeAgentWorktree({
+        registryPath,
+        sourcePath: root,
+        worktreeRoot: path.join(root, "managed-worktrees"),
+        runId: "committed-run",
+        policy: "ephemeral",
+      });
+      fs.writeFileSync(path.join(worktree.path, "committed.txt"), "keep me\n");
+      runGit(["add", "committed.txt"], worktree.path);
+      runGit(["commit", "-m", "keep committed work"], worktree.path);
+      releaseCodeAgentWorktree({
+        registryPath,
+        worktreeId: worktree.id,
+        runId: "committed-run",
+        cleanupAfter: new Date("2026-08-01T00:00:00.000Z"),
+      });
+
+      cleanupDueCodeAgentWorktrees({
+        registryPath,
+        now: new Date("2026-08-22T00:00:00.000Z"),
+      });
+      expect(
+        getManagedCodeAgentWorktree(registryPath, worktree.id),
+      ).toMatchObject({
+        state: "recoverable",
+        lastCleanupError: expect.stringContaining("commits after its base"),
+      });
+      expect(fs.existsSync(worktree.path)).toBe(true);
     });
   });
 });

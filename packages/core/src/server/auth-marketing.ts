@@ -282,7 +282,10 @@ export function resolveBuiltInAuthMarketing(
 export function resolveBuiltInAuthMarketingSlug(
   opts: ResolveBuiltInAuthMarketingOptions = {},
 ): string | undefined {
-  return candidateSlugs(opts)[0];
+  for (const slug of candidateSlugs(opts)) {
+    if (BUILT_IN_AUTH_MARKETING[slug]) return slug;
+  }
+  return undefined;
 }
 
 export function resolveBuiltInAuthMarketingByName(
