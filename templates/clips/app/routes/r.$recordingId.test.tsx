@@ -9,6 +9,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import {
   BackToLibraryButton,
+  handleReactionWrite,
   mergeRecordingReactions,
   removePendingReaction,
 } from "./r.$recordingId";
@@ -59,6 +60,7 @@ describe("BackToLibraryButton", () => {
     act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.clearAllMocks();
   });
 
@@ -152,7 +154,7 @@ describe("mergeRecordingReactions", () => {
 });
 
 describe("removePendingReaction", () => {
-  it("removes the client-only entry after the server refetch succeeds", () => {
+  it("removes the client-only entry after the server write succeeds", () => {
     expect(
       removePendingReaction(
         [
@@ -179,5 +181,30 @@ describe("removePendingReaction", () => {
         recordingId: "recording-1",
       },
     ]);
+  });
+});
+
+describe("handleReactionWrite", () => {
+  it("keeps a successful write successful when the refresh fails", async () => {
+    const refresh = vi.fn().mockRejectedValue(new Error("temporary read"));
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    expect(handleReactionWrite({ ok: true, status: 200 }, refresh)).toBe(true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      "[clips] reaction refresh failed",
+      expect.any(Error),
+    );
+  });
+
+  it("rejects a failed write before refreshing", () => {
+    const refresh = vi.fn();
+
+    expect(() =>
+      handleReactionWrite({ ok: false, status: 500 }, refresh),
+    ).toThrow("react failed: 500");
+    expect(refresh).not.toHaveBeenCalled();
   });
 });

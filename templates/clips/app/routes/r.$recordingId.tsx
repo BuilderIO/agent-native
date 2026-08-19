@@ -153,6 +153,21 @@ export function removePendingReaction(
   return pendingReactions.filter((reaction) => reaction.id !== pendingId);
 }
 
+export function handleReactionWrite(
+  response: { ok: boolean; status: number },
+  refresh: () => Promise<unknown>,
+) {
+  if (!response.ok) throw new Error(`react failed: ${response.status}`);
+  // The write is authoritative. A transient read failure must not tell the
+  // player that the reaction failed.
+  void Promise.resolve()
+    .then(refresh)
+    .catch((refreshError) => {
+      console.warn("[clips] reaction refresh failed", refreshError);
+    });
+  return true;
+}
+
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
@@ -1689,11 +1704,10 @@ export default function RecordingPage() {
                       },
                     )
                       .then((res) => {
-                        if (!res.ok)
-                          throw new Error(`react failed: ${res.status}`);
-                        return playerDataQ.refetch();
+                        return handleReactionWrite(res, () =>
+                          playerDataQ.refetch(),
+                        );
                       })
-                      .then(() => true)
                       .catch((err) => {
                         console.warn("[clips] react failed", err);
                         return false;
@@ -1816,24 +1830,26 @@ export default function RecordingPage() {
                             },
                           )
                             .then((res) => {
-                              if (!res.ok)
-                                throw new Error(`react failed: ${res.status}`);
-                              void queryClient.invalidateQueries({
-                                queryKey: [
-                                  "action",
-                                  "get-recording-player-data",
-                                ],
-                              });
-                              return playerDataQ.refetch();
-                            })
-                            .then(() => {
+                              const writeSucceeded = handleReactionWrite(
+                                res,
+                                () =>
+                                  Promise.all([
+                                    queryClient.invalidateQueries({
+                                      queryKey: [
+                                        "action",
+                                        "get-recording-player-data",
+                                      ],
+                                    }),
+                                    playerDataQ.refetch(),
+                                  ]),
+                              );
                               setPendingReactions((current) =>
                                 removePendingReaction(
                                   current,
                                   pendingReaction.id,
                                 ),
                               );
-                              return true;
+                              return writeSucceeded;
                             })
                             .catch((err) => {
                               setPendingReactions((current) =>
