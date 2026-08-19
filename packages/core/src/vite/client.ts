@@ -3674,6 +3674,13 @@ function createAgentNativeConfig(
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
+      ...(resolvedAppConfig.deployment?.environment
+        ? {
+            "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(
+              resolvedAppConfig.deployment.environment,
+            ),
+          }
+        : {}),
       __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: JSON.stringify(
         process.env.GTM_CONTAINER_ID?.trim() || "",
       ),

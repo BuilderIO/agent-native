@@ -52,11 +52,15 @@ export function resolvePublicSentryDsn(): string | undefined {
 
 export function getSentryClientConfigScript(): string | null {
   const dsn = resolvePublicSentryDsn();
-  if (!dsn) return null;
-
+  const deploymentEnvironment = resolveDeployEnvironment();
   const config = {
-    sentryDsn: dsn,
-    sentryEnvironment: resolveSentryEnvironment(),
+    ...(dsn
+      ? {
+          sentryDsn: dsn,
+          sentryEnvironment: resolveSentryEnvironment(),
+        }
+      : {}),
+    deploymentEnvironment,
   };
 
   return [

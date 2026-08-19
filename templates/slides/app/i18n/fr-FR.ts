@@ -582,7 +582,19 @@ const messages = {
       "Este enlace apunta a una presentación de equipo. Únete al equipo indicado arriba y el deck se abrirá aquí automáticamente.",
     deckUnavailableDescription:
       "Este deck puede haberse eliminado o tu cuenta no tiene acceso.",
-    backToDecks: "Volver a decks",
+    privateDeckTitle: "Ce deck est privé",
+    privateDeckDescription:
+      "Demandez l’accès au propriétaire pour ouvrir ce deck. Il sera averti lorsque vous enverrez la demande.",
+    signedInAs: "Vous êtes connecté en tant que",
+    accessRequestSentDescription:
+      "Le propriétaire a été averti. Vous pourrez ouvrir ce deck lorsque l’accès sera accordé.",
+    accessRequestRecordedDescription:
+      "Votre demande a été enregistrée. Vous pourrez ouvrir ce deck lorsque l’accès sera accordé.",
+    requestAccessPending: "Envoi de la demande…",
+    accessRequestSent: "Demande envoyée",
+    requestAccess: "Demander l’accès",
+    signInToRequestAccess: "Connectez-vous pour demander l’accès",
+    backToDecks: "Retour aux decks",
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:

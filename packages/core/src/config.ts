@@ -659,15 +659,29 @@ export function inferAgentNativeDeploymentEnvironment(
   env: Record<string, string | undefined>,
   mode?: string,
 ): AgentNativeDeploymentEnvironment | undefined {
+  const explicit =
+    env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim().toLowerCase();
+  if (explicit && !isAgentNativeDeploymentEnvironment(explicit)) {
+    throw new Error(
+      'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+    );
+  }
+  if (isAgentNativeDeploymentEnvironment(explicit)) return explicit;
+
   const context = env.CONTEXT?.trim().toLowerCase();
   const branch = env.BRANCH?.trim().toLowerCase();
+  const vercelEnv = env.VERCEL_ENV?.trim().toLowerCase();
 
-  if (branch === "production" || context === "production") {
+  if (
+    branch === "production" ||
+    (context === "production" && branch !== "beta")
+  ) {
     return "production";
   }
   if (branch === "beta" || (context === "branch-deploy" && branch === "main")) {
     return "beta";
   }
+  if (vercelEnv === "preview") return "preview";
   if (
     context === "deploy-preview" ||
     context === "branch-deploy" ||

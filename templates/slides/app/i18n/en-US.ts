@@ -565,6 +565,18 @@ const messages = {
       "This link points to a team presentation. Join the team shown above and the deck will open here automatically.",
     deckUnavailableDescription:
       "This deck may have been removed, or your account does not have access to it.",
+    privateDeckTitle: "This deck is private",
+    privateDeckDescription:
+      "Ask the owner for access to open this deck. They’ll be notified when you send a request.",
+    signedInAs: "You're signed in as",
+    accessRequestSentDescription:
+      "The owner has been notified. You can open this deck once access is granted.",
+    accessRequestRecordedDescription:
+      "Your request has been recorded. You can open this deck once access is granted.",
+    requestAccessPending: "Sending request...",
+    accessRequestSent: "Request sent",
+    requestAccess: "Request access",
+    signInToRequestAccess: "Sign in to request access",
     backToDecks: "Back to Decks",
     tryAgain: "Try again",
     imageUploadFailed: "Image upload failed",
