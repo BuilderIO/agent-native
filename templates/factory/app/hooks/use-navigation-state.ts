@@ -25,27 +25,27 @@ export function useNavigationState() {
         view: viewForPath(pathname),
         path: appPath(pathname),
         ...(threadId ? { threadId } : {}),
-        ...(pathname.startsWith("/factory") && searchParams.get("factoryId")
+        ...(pathname === "/factory" && searchParams.get("factoryId")
           ? { factoryId: searchParams.get("factoryId") ?? undefined }
           : {}),
-        ...(pathname.startsWith("/factory") && searchParams.get("tab")
+        ...(pathname === "/factory" && searchParams.get("tab")
           ? { factoryTab: searchParams.get("tab") ?? undefined }
           : {}),
-        ...(pathname.startsWith("/factory") && searchParams.get("automationId")
+        ...(pathname === "/factory" && searchParams.get("automationId")
           ? {
               factoryAutomationId:
                 searchParams.get("automationId") ?? undefined,
             }
           : {}),
-        ...(pathname.startsWith("/factory") && searchParams.get("auditRunId")
+        ...(pathname === "/factory" && searchParams.get("auditRunId")
           ? {
               factoryAuditRunId: searchParams.get("auditRunId") ?? undefined,
             }
           : {}),
-        ...(pathname.startsWith("/factory") && searchParams.get("node")
+        ...(pathname === "/factory" && searchParams.get("node")
           ? { factoryNodeId: searchParams.get("node") ?? undefined }
           : {}),
-        ...(pathname.startsWith("/factory") && searchParams.get("edge")
+        ...(pathname === "/factory" && searchParams.get("edge")
           ? { factoryEdgeId: searchParams.get("edge") ?? undefined }
           : {}),
       };
@@ -73,7 +73,8 @@ function viewForPath(pathname: string): string {
   if (pathname.startsWith("/extensions")) return "extensions";
   if (pathname.startsWith("/observability")) return "observability";
   if (pathname.startsWith("/agents")) return "agents";
-  if (pathname.startsWith("/factory")) return "factory";
+  if (pathname === "/factory-settings") return "factory-settings";
+  if (pathname === "/factory") return "factory";
   if (pathname.startsWith("/settings/agent") || pathname.startsWith("/agent")) {
     return "agent";
   }
@@ -96,6 +97,8 @@ function pathForView(view?: string): string {
       return "/observability";
     case "factory":
       return "/factory";
+    case "factory-settings":
+      return "/factory-settings";
     case "agents":
       return "/agents";
     case "agent":

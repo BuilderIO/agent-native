@@ -238,7 +238,6 @@ body {
   --sidebar-accent: 0 0% 95%;
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
-  --desktop-chat-composer-background: 0 0% 98%;
   --agent-native-lower-surface: hsl(var(--sidebar-background));
   position: relative;
   display: grid;
@@ -249,14 +248,14 @@ body {
   background: var(--shell-bg);
 }
 
-/* The light desktop chat shell needs more contrast between the composer and
-   its surrounding surface; leave the shared card treatment unchanged. */
+/* Keep the chat composer aligned with the desktop rail, not the darker app
+   sidebar surface that contains it. */
 .light
   .desktop-chat-first-hub
   [data-chat-first-app-pane]
   .agent-sidebar-panel
   .agent-composer-root {
-  background: hsl(var(--desktop-chat-composer-background));
+  background: hsl(var(--sidebar-background));
 }
 
 @supports (background: color-mix(in srgb, white, black)) {

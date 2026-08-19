@@ -17,6 +17,11 @@ import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
 import {
+  repairSlackFeedbackPrompt,
+  SLACK_HANDOFF_INSTRUCTION,
+  SLACK_MENTION_GUARD,
+} from "../lib/slack-feedback-prompt.js";
+import {
   syncManagedReviewSkillAlignment,
   type FactoryAutomationName,
 } from "../triage/review-skill-alignment.js";
@@ -223,13 +228,9 @@ The action adds 👀 to every grouped Slack thread but posts one Builder reply i
 the representative thread. Do not start one Builder thread per duplicate.
 Separate reports only when their failure modes, surfaces, or owners differ.
 
-The Builder reply must tag @builder.io with the dot and tell it to run
-/address-feedback. It must point Builder to the relevant repository skills,
-the representative source, every related source, and the need to fix the
-underlying boundary across the whole cluster. Never add the reaction or tag
-Builder for owner-managed Clips, Design, or Content work, or for a non-bug
-report.
-After classifying each processed item, call start-builder-for-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.
+${SLACK_HANDOFF_INSTRUCTION}
+${SKIP_RECORD_GUARD}
+${SLACK_MENTION_GUARD}
 
 Keep each run bounded. Preserve action errors and do not claim a Builder reply,
 PR, merge, or fix unless an action returned that state.
@@ -548,6 +549,9 @@ async function ensureOrganizationAutomations(
         repaired,
         seed.name as FactoryAutomationName,
       );
+      if (seed.name === "factory-slack-feedback") {
+        repaired = repairSlackFeedbackPrompt(repaired);
+      }
       if (repaired === existing.content) return;
 
       const updated = await resourcePutIfCurrent({
@@ -592,6 +596,7 @@ async function ensureDefaultTriageConfig(
     slackWorkspace: "primary",
     slackChannelId: DEFAULT_SLACK_CHANNEL_ID,
     slackChannelName: DEFAULT_SLACK_CHANNEL_NAME,
+    builderSlackUserId: null,
     pollingEnabled: 1,
     githubPollingEnabled: defaultGithubPollingEnabled(),
     sentryPollingEnabled: 0,

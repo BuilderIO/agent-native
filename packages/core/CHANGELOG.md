@@ -1,5 +1,17 @@
 # @agent-native/core
 
+## 0.164.17
+
+### Patch Changes
+
+- d492462: Support TipTap mark rule helpers in generated SSR stubs.
+
+## 0.164.16
+
+### Patch Changes
+
+- 7d72340: Keep desktop Google exchanges alive through longer passkey ceremonies while retaining one-time verifier binding.
+
 ## 0.164.15
 
 ### Patch Changes

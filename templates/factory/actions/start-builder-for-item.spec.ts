@@ -39,10 +39,11 @@ import {
   recordAutomaticBuilderDecision,
   relatedDispatchConflictReason,
   replyTextForItem,
+  requireBuilderSlackUserId,
 } from "./start-builder-for-item.js";
 
 describe("start-builder-for-item Slack handoff", () => {
-  it("uses the Builder.io tag, asks for /address-feedback, and carries repeat links", () => {
+  it("uses a Slack user-id mention, asks for /address-feedback, and carries repeat links", () => {
     const text = replyTextForItem(
       { id: "item-primary", sourceUrl: "https://slack.example/primary" },
       [
@@ -52,13 +53,24 @@ describe("start-builder-for-item Slack handoff", () => {
           sourceUrl: "https://slack.example/repeat",
         },
       ],
+      "U096KN3EL2Y",
     );
 
-    expect(text).toContain("@builder.io");
+    expect(text).toContain("<@U096KN3EL2Y>");
     expect(text).toContain("/address-feedback");
     expect(text).toContain("item-repeat");
     expect(text).toContain("https://slack.example/repeat");
+    expect(text).not.toContain("@builder.io");
     expect(text).not.toContain("@builderio please");
+  });
+
+  it("requires a Slack member id from Factory settings", () => {
+    expect(requireBuilderSlackUserId("U096KN3EL2Y")).toBe("U096KN3EL2Y");
+    expect(requireBuilderSlackUserId("u096kn3el2y")).toBe("U096KN3EL2Y");
+    expect(() => requireBuilderSlackUserId("")).toThrow(/Factory settings/);
+    expect(() => requireBuilderSlackUserId("@builder.io")).toThrow(
+      /Factory settings/,
+    );
   });
 
   it("blocks related items that are already clustered or started", () => {

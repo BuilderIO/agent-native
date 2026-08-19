@@ -13,11 +13,19 @@ const workspaceSchema = z.enum(["primary", "secondary"]);
 
 export default defineAction({
   description:
-    "Save Factory automation alert settings. Provider credentials live in shared workspace integrations; legacy source routing metadata is preserved for the default observer adapters.",
+    "Save Factory observation and automation alert settings. Provider credentials live in shared workspace integrations; source routing metadata including the Builder Slack member id is stored on Factory config.",
   schema: z.object({
     slackWorkspace: workspaceSchema.optional(),
-    slackChannelId: z.string().trim().min(1).max(128).optional(),
+    slackChannelId: z.string().trim().max(128).optional(),
     slackChannelName: z.string().trim().max(200).optional(),
+    builderSlackUserId: z
+      .string()
+      .trim()
+      .max(32)
+      .refine((value) => value === "" || /^[UW][A-Z0-9]+$/i.test(value), {
+        message: "Builder Slack member id must look like U01234567.",
+      })
+      .optional(),
     pollingEnabled: z.boolean().optional(),
     githubPollingEnabled: z.boolean().optional(),
     sentryPollingEnabled: z.boolean().optional(),
@@ -26,7 +34,9 @@ export default defineAction({
     sentryEnvironment: z.string().trim().max(200).optional(),
     repository: z.string().trim().max(256).optional(),
     automationFailureAlertsEnabled: z.boolean().optional(),
-    automationFailureAlertEmail: z.string().trim().email().optional(),
+    automationFailureAlertEmail: z
+      .union([z.string().trim().email(), z.literal("")])
+      .optional(),
   }),
   http: { method: "POST" },
   run: async (
@@ -34,6 +44,7 @@ export default defineAction({
       slackWorkspace,
       slackChannelId,
       slackChannelName,
+      builderSlackUserId,
       pollingEnabled,
       githubPollingEnabled,
       sentryPollingEnabled,
@@ -72,6 +83,12 @@ export default defineAction({
       slackChannelName,
       existing?.slackChannelName,
     );
+    const persistedBuilderSlackUserId = persistText(
+      builderSlackUserId === undefined
+        ? undefined
+        : builderSlackUserId.toUpperCase(),
+      existing?.builderSlackUserId,
+    );
     const persistedRepository = persistText(repository, existing?.repository);
     const persistedSentryOrgSlug = persistText(
       sentryOrgSlug,
@@ -109,10 +126,10 @@ export default defineAction({
         : automationFailureAlertsEnabled
           ? 1
           : 0;
-    const persistedAutomationFailureAlertEmail =
-      automationFailureAlertEmail ??
-      existing?.automationFailureAlertEmail ??
-      null;
+    const persistedAutomationFailureAlertEmail = persistText(
+      automationFailureAlertEmail,
+      existing?.automationFailureAlertEmail,
+    );
     await db
       .insert(triageConfig)
       .values({
@@ -120,6 +137,7 @@ export default defineAction({
         slackWorkspace: persistedSlackWorkspace,
         slackChannelId: persistedSlackChannelId,
         slackChannelName: persistedSlackChannelName,
+        builderSlackUserId: persistedBuilderSlackUserId,
         pollingEnabled: persistedPollingEnabled,
         githubPollingEnabled: persistedGithubPollingEnabled,
         sentryPollingEnabled: persistedSentryPollingEnabled,
@@ -140,6 +158,7 @@ export default defineAction({
           slackWorkspace: persistedSlackWorkspace,
           slackChannelId: persistedSlackChannelId,
           slackChannelName: persistedSlackChannelName,
+          builderSlackUserId: persistedBuilderSlackUserId,
           pollingEnabled: persistedPollingEnabled,
           githubPollingEnabled: persistedGithubPollingEnabled,
           sentryPollingEnabled: persistedSentryPollingEnabled,
@@ -160,6 +179,7 @@ export default defineAction({
       githubPollingEnabled: persistedGithubPollingEnabled === 1,
       sentryPollingEnabled: persistedSentryPollingEnabled === 1,
       slackChannelId: persistedSlackChannelId,
+      builderSlackUserId: persistedBuilderSlackUserId,
       automationFailureAlertsEnabled:
         persistedAutomationFailureAlertsEnabled === 1,
       automationFailureAlertEmail: persistedAutomationFailureAlertEmail,
