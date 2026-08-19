@@ -1,5 +1,5 @@
 import type { CalendarEvent } from "@shared/api";
-import { isCalendarTimezone } from "@shared/timezone";
+import { addDaysToDateKey, isCalendarTimezone } from "@shared/timezone";
 import {
   addDays,
   endOfMonth,
@@ -43,14 +43,8 @@ export function getBrowserTimezone(): string {
   }
 }
 
-export function isValidTimezone(timezone: string): boolean {
-  return isCalendarTimezone(timezone);
-}
-
 export function normalizeTimezone(timezone?: string): string {
-  return timezone && isValidTimezone(timezone)
-    ? timezone
-    : getBrowserTimezone();
+  return isCalendarTimezone(timezone) ? timezone : getBrowserTimezone();
 }
 
 /** Date carriers are kept at local noon so browser DST never changes their date. */
@@ -63,11 +57,7 @@ export function dateToCalendarDateKey(date: Date): string {
   return format(date, "yyyy-MM-dd");
 }
 
-export function addCalendarDays(date: string, amount: number): string {
-  const [year, month, day] = date.split("-").map(Number);
-  const next = new Date(Date.UTC(year, month - 1, day + amount));
-  return next.toISOString().slice(0, 10);
-}
+export const addCalendarDays = addDaysToDateKey;
 
 function dateTimeParts(value: Date | string, timezone: string) {
   const parsed = value instanceof Date ? value : new Date(value);

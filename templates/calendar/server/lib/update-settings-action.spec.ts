@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { z } from "zod";
 
 const getRequestTimezoneMock = vi.hoisted(() => vi.fn());
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
@@ -20,7 +21,6 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 import action from "../../actions/update-settings";
-import { isCalendarTimezone } from "../../shared/timezone";
 
 describe("update-settings timezone validation", () => {
   beforeEach(() => {
@@ -32,8 +32,14 @@ describe("update-settings timezone validation", () => {
     putUserSettingMock.mockResolvedValue(undefined);
   });
 
-  it("rejects invalid IANA timezones", () => {
-    expect(isCalendarTimezone("not-a-timezone")).toBe(false);
+  it("rejects an invalid IANA timezone at the action boundary", () => {
+    // The framework validates against `schema` before `run`; the mocked
+    // defineAction hands the definition back as-is, so reach it directly.
+    const { schema } = action as unknown as { schema: z.ZodTypeAny };
+    expect(schema.safeParse({ timezone: "not-a-timezone" }).success).toBe(
+      false,
+    );
+    expect(schema.safeParse({ timezone: "Europe/Warsaw" }).success).toBe(true);
   });
 
   it("saves a valid timezone", async () => {

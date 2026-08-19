@@ -38,25 +38,6 @@ describe("buildEventTitleUpdate", () => {
   });
 });
 
-describe("dateTimeInTimezoneToIso", () => {
-  it("uses the first valid instant when a timezone skips local midnight", () => {
-    expect(
-      dateTimeInTimezoneToIso("2026-09-06", "00:00", "America/Santiago"),
-    ).toBe("2026-09-06T04:00:00.000Z");
-  });
-
-  it("keeps an event's elapsed duration when its end lands in a spring-forward gap", () => {
-    const timezone = "America/New_York";
-    const start = dateTimeInTimezoneToIso("2026-03-08", "01:30", timezone);
-    const end = dateTimeInTimezoneToIso("2026-03-08", "02:30", timezone);
-
-    expect(start).toBe("2026-03-08T06:30:00.000Z");
-    expect(new Date(end).getTime() - new Date(start).getTime()).toBe(
-      60 * 60_000,
-    );
-  });
-});
-
 describe("resolveEventTimezone", () => {
   it("uses the browser timezone when a new event has no explicit zone", () => {
     expect(resolveEventTimezone()).toBe(getLocalTimezone());

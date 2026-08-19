@@ -25,7 +25,6 @@
     "@resvg/resvg-js": "^2.6.2",
     "@tabler/icons-react": "catalog:",
     "chrono-node": "2.9.1",
-    "date-fns-tz": "3.2.0",
     "dotenv": "^17.2.1",
     "drizzle-orm": "^0.45.2",
     "h3": "catalog:",

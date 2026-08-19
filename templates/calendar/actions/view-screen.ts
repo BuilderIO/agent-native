@@ -2,8 +2,6 @@ import { defineAction } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
-import { addDays, parseISO, startOfWeek } from "date-fns";
-import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -14,6 +12,11 @@ import {
   CALENDAR_VIEW_PREFERENCES_KEY,
   normalizeCalendarViewPreferences,
 } from "../shared/calendar-view-preferences.js";
+import {
+  addDaysToDateKey,
+  dateKeyInTimezone,
+  dateTimeInTimezoneToIso,
+} from "../shared/timezone.js";
 import { extractVideoLink } from "./event-action-helpers.js";
 import { listCalendarEvents } from "./list-events.js";
 
@@ -52,6 +55,11 @@ async function fetchEventsForRange(
   }
 }
 
+function dateKeyFromParts(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
 export default defineAction({
   description:
     "See what the user is currently looking at on screen. Returns the current view, date range, and visible events. Always call this first before taking any action.",
@@ -73,15 +81,19 @@ export default defineAction({
       const email = getRequestUserEmail();
       if (!email) throw new Error("no authenticated user");
       const timezone = await getCalendarTimezone(email);
-      const viewDate = nav?.date
-        ? parseISO(nav.date)
-        : toZonedTime(new Date(), timezone);
-      const from = startOfWeek(viewDate);
-      const to = addDays(from, 7);
+      // Work in calendar days, then resolve the two edges to instants once.
+      const viewDay = nav?.date ?? dateKeyInTimezone(new Date(), timezone);
+      // Noon UTC so the weekday can never be shifted by an offset.
+      const weekday = new Date(`${viewDay}T12:00:00Z`).getUTCDay();
+      const weekStart = addDaysToDateKey(viewDay, -weekday);
 
       const eventResult = await fetchEventsForRange(
-        fromZonedTime(from, timezone).toISOString(),
-        fromZonedTime(to, timezone).toISOString(),
+        dateTimeInTimezoneToIso(weekStart, "00:00", timezone),
+        dateTimeInTimezoneToIso(
+          addDaysToDateKey(weekStart, 7),
+          "00:00",
+          timezone,
+        ),
       );
       const { events } = eventResult;
 

@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { CommandMenu } from "@agent-native/core/client/navigation";
 import type { CalendarEvent } from "@shared/api";
+import { timezoneFormatter } from "@shared/timezone";
 import {
   IconCalendar,
   IconClock,
@@ -13,7 +14,6 @@ import {
 } from "@tabler/icons-react";
 import * as chrono from "chrono-node";
 import { format, parseISO, parse, isValid } from "date-fns";
-import { toZonedTime } from "date-fns-tz";
 
 import { cn } from "@/lib/utils";
 
@@ -195,12 +195,10 @@ export function CommandPalette({
                 />
                 <span className="flex-1 truncate">{event.title}</span>
                 <span className="ml-2 text-xs text-muted-foreground">
-                  {format(
-                    event.allDay || !timezone
-                      ? parseISO(event.start)
-                      : toZonedTime(event.start, timezone),
-                    "MMM d",
-                  )}
+                  {timezoneFormatter(event.allDay ? "UTC" : timezone, {
+                    month: "short",
+                    day: "numeric",
+                  }).format(new Date(event.start))}
                 </span>
               </CommandMenu.Item>
             ))}

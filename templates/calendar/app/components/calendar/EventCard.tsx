@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import type { CalendarEvent } from "@shared/api";
+import { timezoneFormatter } from "@shared/timezone";
 import { IconAlertTriangleFilled, IconCalendarOff } from "@tabler/icons-react";
-import { formatInTimeZone } from "date-fns-tz";
 
 import {
   getEventDisplayColor,
@@ -167,12 +167,10 @@ export function EventCard({
       )}
       {!event.allDay && (
         <span className="text-foreground/70">
-          {timezone
-            ? formatInTimeZone(event.start, timezone, "h:mm a")
-            : new Date(event.start).toLocaleTimeString([], {
-                hour: "numeric",
-                minute: "2-digit",
-              })}
+          {timezoneFormatter(timezone, {
+            hour: "numeric",
+            minute: "2-digit",
+          }).format(new Date(event.start))}
         </span>
       )}
       {event.ownerColor && (

@@ -2846,9 +2846,6 @@ importers:
       chrono-node:
         specifier: 2.9.1
         version: 2.9.1
-      date-fns-tz:
-        specifier: 3.2.0
-        version: 3.2.0(date-fns@4.4.0)
       dotenv:
         specifier: ^17.2.1
         version: 17.4.2
@@ -16022,11 +16019,6 @@ packages:
 
   date-fns-jalali@4.1.0-0:
     resolution: {integrity: sha512-hTIP/z+t+qKwBDcmmsnmjWTduxCg+5KfdqWQvb2X/8C9+knYY6epN/pfxdDuyVlSVeFz0sM5eEfwIUQ70U4ckg==}
-
-  date-fns-tz@3.2.0:
-    resolution: {integrity: sha512-sg8HqoTEulcbbbVXeg84u5UnlsQa8GS5QXMqjjYIhS4abEVVKIUwe0/l/UhrZdKaL/W5eWZNlbTeEIiOXTcsBQ==}
-    peerDependencies:
-      date-fns: ^3.0.0 || ^4.0.0
 
   date-fns@4.4.0:
     resolution: {integrity: sha512-+1UMbeh68lH1SegH83CGWwpb6OHHbpSgr3+s5Eww5M4CAgswBpoWS0AjTOfEJ33HiYKz1hdj/KTFprzXHmq/6w==}
@@ -32516,10 +32508,6 @@ snapshots:
       - '@noble/hashes'
 
   date-fns-jalali@4.1.0-0: {}
-
-  date-fns-tz@3.2.0(date-fns@4.4.0):
-    dependencies:
-      date-fns: 4.4.0
 
   date-fns@4.4.0: {}
 

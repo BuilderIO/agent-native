@@ -39,17 +39,16 @@ export async function saveCalendarSettings(
   email: string,
   patch: unknown,
 ): Promise<Settings> {
-  const settings = normalizeCalendarSettings(
-    {
-      ...(await readCalendarSettings(email)),
-      ...(patch && typeof patch === "object" ? patch : {}),
-    },
-    { timezone: callerTimezone() },
-  );
+  const settings = normalizeCalendarSettings({
+    ...(await readCalendarSettings(email)),
+    ...(patch && typeof patch === "object" ? patch : {}),
+  });
   const record = settings as unknown as Record<string, unknown>;
-  await putUserSetting(email, SETTINGS_KEY, record);
-  // Also write the global key so the public booking page can read it.
-  await putSetting(SETTINGS_KEY, record);
+  await Promise.all([
+    putUserSetting(email, SETTINGS_KEY, record),
+    // Also write the global key so the public booking page can read it.
+    putSetting(SETTINGS_KEY, record),
+  ]);
   return settings;
 }
 

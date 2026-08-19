@@ -1,4 +1,7 @@
 import type { CalendarEvent, UpdateEventScope } from "@shared/api";
+import { dateTimeInTimezoneToIso } from "@shared/timezone";
+
+export { dateTimeInTimezoneToIso };
 
 export type ReminderMethod = "popup" | "email";
 export type ReminderMode = "default" | "none" | "custom";
@@ -233,68 +236,6 @@ export function getLocalTimezone() {
 /** New event drafts follow the viewer's browser zone unless they name one. */
 export function resolveEventTimezone(timezone?: string | null) {
   return timezone?.trim() || getLocalTimezone();
-}
-
-function getTimezoneOffsetMs(date: Date, timezone: string) {
-  const parts = new Intl.DateTimeFormat("en-US", {
-    timeZone: timezone,
-    hourCycle: "h23",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  }).formatToParts(date);
-  const values = new Map(parts.map((part) => [part.type, part.value]));
-  const asUtc = Date.UTC(
-    Number(values.get("year")),
-    Number(values.get("month")) - 1,
-    Number(values.get("day")),
-    Number(values.get("hour")),
-    Number(values.get("minute")),
-    Number(values.get("second")),
-  );
-  return asUtc - date.getTime();
-}
-
-export function dateTimeInTimezoneToIso(
-  date: string,
-  time: string,
-  timezone: string,
-) {
-  const [year, month, day] = date.split("-").map(Number);
-  const [hour, minute] = time.split(":").map(Number);
-  const wallClockUtc = Date.UTC(year, month - 1, day, hour, minute, 0);
-  const offsets = new Set<number>();
-  for (let hours = -36; hours <= 36; hours += 6) {
-    offsets.add(
-      getTimezoneOffsetMs(
-        new Date(wallClockUtc + hours * 60 * 60 * 1000),
-        timezone,
-      ),
-    );
-  }
-
-  const candidates = [...offsets]
-    .map((offset) => new Date(wallClockUtc - offset))
-    .map((candidate) => ({
-      candidate,
-      localWallClock:
-        candidate.getTime() + getTimezoneOffsetMs(candidate, timezone),
-    }))
-    .sort((a, b) => {
-      const aDelta = a.localWallClock - wallClockUtc;
-      const bDelta = b.localWallClock - wallClockUtc;
-      if (aDelta === 0 && bDelta === 0) {
-        return a.candidate.getTime() - b.candidate.getTime();
-      }
-      if (aDelta >= 0 && bDelta < 0) return -1;
-      if (aDelta < 0 && bDelta >= 0) return 1;
-      return Math.abs(aDelta) - Math.abs(bDelta);
-    });
-
-  return candidates[0].candidate.toISOString();
 }
 
 export function formatTimezoneLabel(timezone: string) {
