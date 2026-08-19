@@ -405,7 +405,7 @@ describe("request-deck-access", () => {
     await vi.waitFor(() => expect(notifyWithDelivery).toHaveBeenCalledOnce());
     const firstClaim = JSON.parse(state.previousRequests[0].payload as string);
 
-    await vi.advanceTimersByTimeAsync(120_000);
+    await vi.advanceTimersByTimeAsync(6 * 60_000);
 
     const renewedClaim = JSON.parse(
       state.previousRequests[0].payload as string,
@@ -432,6 +432,11 @@ describe("request-deck-access", () => {
       notifiedOwner: true,
       requestId,
     });
+    const completedPayload = JSON.parse(
+      state.previousRequests[0].payload as string,
+    );
+    expect(completedPayload.notificationClaimedAt).toBeUndefined();
+    expect(completedPayload.notificationClaimToken).toBeUndefined();
   });
 
   it("reports a durable request when delivery status cannot be persisted", async () => {
