@@ -29,17 +29,14 @@ decisions, feedback, agent runs, and provider audit records.
   clarification limits, durable rechecks, and the required `@agent-native`
   disposition after every actionable 👀. Clips, Design, and Content stay
   owner-managed for feedback dispatch.
-- PR governance follows `review-prs`: verify current BuilderIO membership and
-  the complete diff/review/check evidence, skip drafts and current
-  non-dismissed approvals, never approve external or unverified authors, and
-  keep ultra-scary security, auth, tenant-isolation, secrets, data-loss,
-  execution, payment, and deployment risks manual. For verified internal
-  members, ordinary failed/pending/unknown checks and unresolved ordinary
-  feedback do not by themselves block approval; record their exact states and
-  never call them clean. Apply the current Alice/Content, Nick/Slides,
-  Enzo/Factory-specific, Sid/Design, and docs-only owner exceptions only after
-  membership and the ultra-scary gate. Approval is a trust decision; Factory
-  never auto-merges.
+- PR governance follows `review-prs`: verify BuilderIO membership and complete
+  diff/review/check evidence; skip drafts/current approvals and never approve
+  external authors. Keep ultra-scary security, auth, tenant-isolation,
+  secrets, data-loss, execution, payment, and deployment risks manual.
+  Verified members may pass ordinary uncertain checks or review feedback, but
+  record exact states and never call them clean. Apply the Alice/Content,
+  Nick/Slides, Enzo/Factory, Sid/Design, and docs-only exceptions only after
+  membership and the ultra-scary gate. Never auto-merge.
 - Graph edits create immutable blueprint versions. AI proposes with `source=ai`;
   a person reviews and publishes through the same action surface.
 - Provider credentials belong to Dispatch/shared workspace integrations, never
@@ -84,17 +81,11 @@ decisions, feedback, agent runs, and provider audit records.
 | `import-agent` / `import-agent-pack` / `list-agent-pack` | Import profiles or agent packs. |
 | `start-workspace-app-creation` | Promote an agent and its pack into an app handoff. |
 
-Rules start in shadow mode; hard guards always apply. Organization automations
-execute stored prompts, and every external mutation needs a durable run,
-idempotency key, and provider confirmation. The legacy observer ends once org
-automations are seeded. Use the visual editor for graph changes and agent chat
+Rules start in shadow mode; hard guards apply. Organization automations use
+stored prompts; external mutations require durable, idempotent runs and
+provider confirmation. Use the visual editor for graph changes and agent chat
 for proposals; persist complete graphs with `save-factory-graph`. Change rules
-through triage rule actions, never graph JSON.
-
-The Slack, GitHub, and Sentry pollers are bounded ingestion adapters for the
-legacy default triage queue. They do not define the complete tool surface.
-Interactive and scheduled agents may discover additional connected provider or
-MCP tools through the shared workspace context.
+through triage actions, never graph JSON.
 
 ## Source Changes
 

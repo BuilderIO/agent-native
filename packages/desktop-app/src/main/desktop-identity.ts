@@ -135,6 +135,7 @@ export function shouldStartDesktopIdentitySignIn(
 export interface DesktopIdentityApp {
   id: string;
   origin: string;
+  alternateOrigins?: string[];
   session: Session;
   cookieNames: string[];
   cookieNamesToClear: string[];
@@ -461,6 +462,8 @@ export class DesktopIdentityBroker {
     Promise<boolean>
   >();
   private readonly completedModernAppSessions = new Set<string>();
+  private readonly reloadedModernAppSessions = new Set<string>();
+  private readonly synchronizedAlternateSessionCookies = new Set<string>();
   private readonly unsupportedAppIds = new Set<string>();
   private readonly activeSessionCopies = new Set<Promise<void>>();
   private queue: Promise<void> = Promise.resolve();
@@ -497,6 +500,8 @@ export class DesktopIdentityBroker {
   setStatusForSetting(status: DesktopIdentityStatus): void {
     this.ceremonyGeneration += 1;
     this.completedModernAppSessions.clear();
+    this.reloadedModernAppSessions.clear();
+    this.synchronizedAlternateSessionCookies.clear();
     this.setStatus(status);
   }
 
@@ -536,8 +541,37 @@ export class DesktopIdentityBroker {
 
     const observedStatus = this.status;
     const observedGeneration = this.ceremonyGeneration;
+    if (observedStatus === "signing-in") {
+      if (!authorityApp) return;
+      let verifiedEmail: string | null = null;
+      try {
+        verifiedEmail = await this.verifyIdentitySession(authorityApp);
+      } catch (error) {
+        console.warn("[desktop identity] stale sign-in reconciliation failed", {
+          reason: error instanceof Error ? error.message : "unknown error",
+        });
+      }
+      if (
+        this.status === observedStatus &&
+        this.ceremonyGeneration === observedGeneration &&
+        !this.signOutOperation &&
+        verifiedEmail
+      ) {
+        // The hosted login may finish in the identity window or system
+        // browser before its original ceremony callback is observed by the
+        // shell. A verified parent session is enough to recover the broker;
+        // advancing the generation also cancels the stale poll without
+        // replacing a deliberate account switch with an unverified cookie.
+        this.ceremonyGeneration += 1;
+        this.completedModernAppSessions.clear();
+        this.reloadedModernAppSessions.clear();
+        this.synchronizedAlternateSessionCookies.clear();
+        this.availability = "available";
+        this.setStatus("signed-in");
+      }
+      return;
+    }
     if (
-      observedStatus === "signing-in" ||
       this.signInOperation ||
       this.sessionAdoptionOperation ||
       this.signOutOperation
@@ -641,7 +675,10 @@ export class DesktopIdentityBroker {
           : options.verifyExistingSession
             ? await this.hasMatchingIdentitySession(app)
             : hasExistingSession;
-        if (alreadySynchronized) return true;
+        if (alreadySynchronized) {
+          await this.syncAlternateSessionCookies(app);
+          return true;
+        }
         if (hasExistingSession) await this.clearAppSessionCookies(app);
       }
       return this.runCeremony(appId, generation, options);
@@ -742,13 +779,31 @@ export class DesktopIdentityBroker {
    * before any other app session is changed. This keeps parent-owned login
    * compatible with custom workspace apps without moving account data.
    */
-  adoptAppSession(appId: string): Promise<boolean> {
+  async adoptAppSession(
+    appId: string,
+    options: { fromCookieChange?: boolean } = {},
+  ): Promise<boolean> {
     if (this.signOutOperation) {
-      return Promise.resolve(false);
+      return false;
     }
     if (this.signInOperation) return this.signInOperation;
     const app = this.options.resolveApp(appId);
-    if (!app) return Promise.resolve(false);
+    if (!app) return false;
+
+    // Broker-owned cookie copies also emit Session cookie-change events. Once
+    // the parent identity is verified, do not treat a matching child cookie
+    // as a new user login or start adoption again; that feedback loop resets
+    // the broker status and reloads the child on every cookie rotation.
+    if (options.fromCookieChange && this.status === "signed-in") {
+      try {
+        if (await this.hasMatchingIdentitySession(app)) return true;
+      } catch (error) {
+        console.debug("[desktop identity] matching session check skipped", {
+          appId,
+          reason: error instanceof Error ? error.message : "unknown error",
+        });
+      }
+    }
     if (this.sessionAdoptionOperation) return this.sessionAdoptionOperation;
 
     const generation = this.ceremonyGeneration;
@@ -1396,6 +1451,9 @@ export class DesktopIdentityBroker {
             reason: error instanceof Error ? error.message : "unknown error",
           });
         }
+        if (succeeded && this.isCeremonyCurrent(generation)) {
+          this.completedModernAppSessions.add(`${generation}:${app.id}`);
+        }
         if (app.id === appId && !requestedResultSettled) {
           requestedResultSettled = true;
           resolveRequested(succeeded && this.isCeremonyCurrent(generation));
@@ -1461,7 +1519,8 @@ export class DesktopIdentityBroker {
         await this.clearAppSessionCookies(authority);
         return false;
       }
-      this.reloadAppSafely(authority);
+      await this.syncAlternateSessionCookies(authority);
+      this.reloadModernAppOnce(authority, generation);
       return true;
     } catch (error) {
       console.warn("[desktop identity] authority session copy failed", {
@@ -1487,15 +1546,17 @@ export class DesktopIdentityBroker {
     // matching session in place instead of minting another one-time ticket
     // and reloading the same WebView forever.
     if (await this.hasMatchingIdentitySession(app)) {
+      await this.syncAlternateSessionCookies(app);
       // The OAuth callback can install the child cookie before its WebView is
       // mounted. Reload once when the broker first adopts that session so the
       // WebView cannot remain on the pre-auth document.
-      this.reloadAppSafely(app);
+      this.reloadModernAppOnce(app, generation);
       return true;
     }
     if (await this.hasAppSession(app)) {
       await this.clearAppSessionCookies(app);
     }
+    this.reloadedModernAppSessions.delete(`${generation}:${app.id}`);
 
     if (app.identityAuthority === true || app.id === authority.id) {
       return this.ensureAuthoritySessionFromIdentity(
@@ -1525,7 +1586,8 @@ export class DesktopIdentityBroker {
         await this.clearAppSessionCookies(app);
         return false;
       }
-      this.reloadAppSafely(app);
+      await this.syncAlternateSessionCookies(app);
+      this.reloadModernAppOnce(app, generation);
       return true;
     } catch (error) {
       console.warn("[desktop identity] workspace app session mint failed", {
@@ -2111,20 +2173,21 @@ export class DesktopIdentityBroker {
         getSessionCookieHeader(authority, identitySession),
         timeout,
       ]);
+      const sessionUrl = new URL(
+        "/_agent-native/auth/session",
+        authority.origin,
+      ).toString();
       const response = await Promise.race([
-        identitySession.fetch(
-          new URL("/_agent-native/auth/session", authority.origin).toString(),
-          {
-            method: "GET",
-            redirect: "manual",
-            credentials: "include",
-            signal: controller.signal,
-            headers: {
-              Accept: "application/json",
-              ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-            },
+        identitySession.fetch(sessionUrl, {
+          method: "GET",
+          redirect: "manual",
+          credentials: "include",
+          signal: controller.signal,
+          headers: {
+            Accept: "application/json",
+            ...(cookieHeader ? { Cookie: cookieHeader } : {}),
           },
-        ),
+        }),
         timeout,
       ]);
       if (!response.ok) {
@@ -2153,6 +2216,48 @@ export class DesktopIdentityBroker {
           throw error;
         }
         throw new Error("Desktop identity session response was invalid.");
+      }
+      if (
+        (!body || typeof body.email !== "string" || !body.email.trim()) &&
+        cookieHeader
+      ) {
+        try {
+          // Electron's isolated Session transport can return a successful
+          // unauthenticated body even when the exact cookie succeeds through
+          // the main-process fetch path.
+          const fallbackResponse = await Promise.race([
+            fetch(sessionUrl, {
+              method: "GET",
+              redirect: "manual",
+              headers: {
+                Accept: "application/json",
+                Cookie: cookieHeader,
+              },
+              signal: controller.signal,
+            }),
+            timeout,
+          ]);
+          const fallbackBody = (await Promise.race([
+            fallbackResponse.json(),
+            timeout,
+          ])) as { email?: unknown } | null;
+          if (
+            fallbackResponse.ok &&
+            typeof fallbackBody?.email === "string" &&
+            fallbackBody.email.trim()
+          ) {
+            body = fallbackBody;
+          }
+        } catch (error) {
+          // The primary session request remains authoritative when the
+          // fallback transport is unavailable.
+          console.debug(
+            "[desktop identity] session transport fallback unavailable",
+            {
+              reason: error instanceof Error ? error.message : "unknown error",
+            },
+          );
+        }
       }
       return typeof body?.email === "string" && body.email.trim().length > 0
         ? body.email.trim()
@@ -2225,6 +2330,8 @@ export class DesktopIdentityBroker {
     this.pendingByApp.clear();
     this.pendingModernAppSessions.clear();
     this.completedModernAppSessions.clear();
+    this.reloadedModernAppSessions.clear();
+    this.synchronizedAlternateSessionCookies.clear();
     this.unsupportedAppIds.clear();
     this.closeActiveWindow();
     this.updateSignOutIntent(options);
@@ -2465,11 +2572,84 @@ export class DesktopIdentityBroker {
   }
 
   private async clearAppSessionCookies(app: DesktopIdentityApp): Promise<void> {
+    this.synchronizedAlternateSessionCookies.delete(
+      this.alternateCookieSyncKey(app),
+    );
+    const origins = [app.origin, ...(app.alternateOrigins ?? [])];
     await Promise.all(
-      app.cookieNamesToClear.map((cookieName) =>
-        app.session.cookies.remove(app.origin, cookieName),
+      origins.flatMap((origin) =>
+        app.cookieNamesToClear.map((cookieName) =>
+          app.session.cookies.remove(origin, cookieName),
+        ),
       ),
     );
+  }
+
+  private async syncAlternateSessionCookies(
+    app: DesktopIdentityApp,
+  ): Promise<void> {
+    const alternateOrigins = app.alternateOrigins ?? [];
+    if (alternateOrigins.length === 0) return;
+
+    const allowed = new Set(app.cookieNames);
+    const cookies = await app.session.cookies.get({});
+    const sourceCookies = cookies.filter(
+      (cookie) =>
+        cookieMatchesOrigin(cookie, app.origin) && allowed.has(cookie.name),
+    );
+    const syncKey = this.alternateCookieSyncKey(app);
+    if (sourceCookies.length === 0) {
+      this.synchronizedAlternateSessionCookies.delete(syncKey);
+      return;
+    }
+
+    // The alternate lane is a compatibility copy, not the source of truth.
+    // Copy it once per identity generation. Re-reading or comparing the
+    // alternate jar on every child-session check can itself create a reload
+    // loop while the hosted session rotates its cookie value.
+    if (this.synchronizedAlternateSessionCookies.has(syncKey)) return;
+
+    // Claim the key before the first async cookie operation. Multiple child
+    // session checks can arrive in the same turn, and claiming after the
+    // writes lets every caller pass the guard and reload the alternate lane.
+    this.synchronizedAlternateSessionCookies.add(syncKey);
+
+    try {
+      for (const alternateOrigin of alternateOrigins) {
+        for (const cookieName of app.cookieNamesToClear) {
+          await app.session.cookies.remove(alternateOrigin, cookieName);
+        }
+        for (const cookie of sourceCookies) {
+          await app.session.cookies.set({
+            url: alternateOrigin,
+            name: cookie.name,
+            value: cookie.value,
+            path: cookie.path || "/",
+            httpOnly: cookie.httpOnly,
+            secure: cookie.secure,
+            sameSite: cookie.sameSite,
+            ...(cookie.expirationDate
+              ? { expirationDate: cookie.expirationDate }
+              : {}),
+          });
+        }
+      }
+    } catch (error) {
+      this.synchronizedAlternateSessionCookies.delete(syncKey);
+      throw error;
+    }
+
+    if (sourceCookies.length > 0) {
+      console.info("[desktop identity] synchronized environment lane cookies", {
+        appId: app.id,
+        origins: alternateOrigins,
+        cookieNames: sourceCookies.map((cookie) => cookie.name),
+      });
+    }
+  }
+
+  private alternateCookieSyncKey(app: DesktopIdentityApp): string {
+    return `${app.id}\u0000${(app.alternateOrigins ?? []).join("\u0000")}`;
   }
 
   private async hasMatchingAppSession(
@@ -3011,6 +3191,8 @@ export class DesktopIdentityBroker {
         }
       }
       this.assertCeremonyActive(generation, signal);
+      await this.syncAlternateSessionCookies(app);
+      this.assertCeremonyActive(generation, signal);
     } catch (error) {
       if (!this.isCeremonyCurrent(generation) || signal?.aborted) {
         await Promise.all(
@@ -3123,6 +3305,16 @@ export class DesktopIdentityBroker {
     }
   }
 
+  private reloadModernAppOnce(
+    app: DesktopIdentityApp,
+    generation: number,
+  ): void {
+    const key = `${generation}:${app.id}`;
+    if (this.reloadedModernAppSessions.has(key)) return;
+    this.reloadedModernAppSessions.add(key);
+    this.reloadAppSafely(app);
+  }
+
   private closeActiveWindow(): void {
     const active = this.activeWindow;
     this.activeWindow = null;
@@ -3185,6 +3377,8 @@ export class DesktopIdentityBroker {
       status === "failed"
     ) {
       this.completedModernAppSessions.clear();
+      this.reloadedModernAppSessions.clear();
+      this.synchronizedAlternateSessionCookies.clear();
     }
     this.status = status;
     this.statusVerifiedAt = status === "signed-in" ? Date.now() : 0;

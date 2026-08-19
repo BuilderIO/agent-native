@@ -20,6 +20,7 @@ import {
   resolveAppWebviewPartition,
   resolveAppWebviewAuthState,
   resolveAppWebviewUrl,
+  withDesktopEnvironmentOptOut,
   isDesktopIdentityAuthenticated,
   isDesktopIdentityGateEligible,
   isDesktopIdentityGateUnauthenticated,
@@ -245,6 +246,69 @@ describe("Desktop identity activation", () => {
 
     expect(webviewSlot?.style.display).toBe("flex");
     expect(identityStatuses.at(-1)).toBe("signed-in");
+  });
+
+  it("reconciles a completed sign-in when the status event was missed", async () => {
+    const getStatus = vi
+      .fn()
+      .mockResolvedValueOnce("signing-in")
+      .mockResolvedValue("signed-in");
+    const ensureAppSession = vi.fn(async () => true);
+    Object.defineProperty(window, "electronAPI", {
+      configurable: true,
+      value: {
+        identity: {
+          getSettings: vi.fn(async () => ({ ssoEnabled: true })),
+          getStatus,
+          ensureAppSession,
+          onStatusChange: vi.fn(() => () => {}),
+          signIn: vi.fn(async () => true),
+          authenticate: vi.fn(async () => ({ ok: true })),
+          requestMagicLink: vi.fn(async () => ({ ok: true })),
+        },
+      },
+    });
+    root = createRoot(container);
+
+    const app = {
+      id: "mail",
+      name: "Mail",
+      icon: "mail",
+      description: "",
+      devPort: 3000,
+    };
+    const appConfig = {
+      ...app,
+      url: "https://mail.agent-native.com",
+      isBuiltIn: true,
+      enabled: true,
+      mode: "prod" as const,
+    };
+
+    act(() => {
+      root.render(
+        React.createElement(AppWebview, {
+          app,
+          appConfig,
+          isActive: true,
+          theme: "dark",
+        }),
+      );
+    });
+
+    await vi.waitFor(
+      () => {
+        expect(ensureAppSession).toHaveBeenCalledWith("mail");
+        const webviewSlot = [
+          ...container.querySelectorAll(".webview-slot > div"),
+        ].find((element) => element.querySelector("webview")) as
+          | HTMLElement
+          | undefined;
+        expect(webviewSlot?.style.display).toBe("flex");
+        expect(container.textContent).not.toContain("Sign in with Google");
+      },
+      { timeout: 3_000 },
+    );
   });
 
   it("invalidates a remembered session when lazy sync is rejected", async () => {
@@ -583,6 +647,25 @@ describe("AppWebview URL resolution", () => {
         mode: "dev",
       }),
     ).toBe("http://localhost:3003");
+  });
+
+  it("keeps first-party production webviews out of the employee beta redirect", () => {
+    const url = withDesktopEnvironmentOptOut(
+      "https://mail.agent-native.com/inbox?label=important",
+    );
+    const parsed = new URL(url);
+    expect(parsed.origin).toBe("https://mail.agent-native.com");
+    expect(parsed.searchParams.get("label")).toBe("important");
+    expect(parsed.searchParams.has("agentNativeBetaOptOut")).toBe(true);
+  });
+
+  it("does not rewrite custom or explicitly beta webviews", () => {
+    expect(
+      withDesktopEnvironmentOptOut("https://workspace.example/reports"),
+    ).toBe("https://workspace.example/reports");
+    expect(
+      withDesktopEnvironmentOptOut("https://beta.mail.agent-native.com/inbox"),
+    ).toBe("https://beta.mail.agent-native.com/inbox");
   });
 });
 

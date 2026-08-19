@@ -37,6 +37,16 @@ const IS_DEV = window.location.protocol !== "file:";
 export const APP_WEBVIEW_PREFERENCES =
   "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=true";
 
+// The hosted environment switcher redirects authenticated Builder employees
+// from production to beta in a normal browser. Electron child sessions are
+// minted against the configured production origin, so keep first-party
+// production webviews on that same origin unless a beta URL was explicitly
+// supplied. The query is consumed by the hosted app and removed from history.
+const DESKTOP_BETA_OPT_OUT_QUERY_PARAM = "agentNativeBetaOptOut";
+const DESKTOP_BETA_OPT_OUT_DURATION_MS = 24 * 60 * 60 * 1000;
+const DESKTOP_BETA_OPT_OUT_UNTIL =
+  Date.now() + DESKTOP_BETA_OPT_OUT_DURATION_MS;
+
 type WebviewTitleUpdatedEvent = Event & { title?: string };
 type WebviewLoadFailedEvent = Event & {
   errorCode?: number;
@@ -180,6 +190,8 @@ export function resolveDesktopIdentityLazySyncStatus(
 }
 
 const DESKTOP_IDENTITY_STATUS_CACHE_TTL_MS = 5 * 60 * 1000;
+const DESKTOP_IDENTITY_STATUS_POLL_INTERVAL_MS = 750;
+const DESKTOP_IDENTITY_STATUS_POLL_ATTEMPTS = 40;
 let rememberedDesktopIdentityStatus: DesktopIdentityStatus | null = null;
 let rememberedDesktopIdentityStatusAt = 0;
 
@@ -292,6 +304,41 @@ export function resolveAppWebviewUrl(
   // Keep incomplete custom entries on a stable blank document instead of
   // silently routing them through the retired local dev frame.
   return "about:blank";
+}
+
+function isFirstPartyProductionOrigin(rawUrl: string): boolean {
+  try {
+    const parsed = new URL(rawUrl);
+    if (parsed.protocol !== "https:") return false;
+    if (parsed.hostname.toLowerCase().startsWith("beta.")) return false;
+    return DESKTOP_DEFAULT_APPS.some((candidate) => {
+      try {
+        return (
+          new URL(resolveAppWebviewUrl(candidate)).origin === parsed.origin
+        );
+      } catch {
+        // coercion-ok: an invalid configured app URL is not a trusted first-party origin.
+        return false;
+      }
+    });
+  } catch {
+    // coercion-ok: an invalid requested URL cannot be a trusted first-party origin.
+    return false;
+  }
+}
+
+export function withDesktopEnvironmentOptOut(rawUrl: string): string {
+  if (!isFirstPartyProductionOrigin(rawUrl)) return rawUrl;
+  try {
+    const target = new URL(rawUrl);
+    target.searchParams.set(
+      DESKTOP_BETA_OPT_OUT_QUERY_PARAM,
+      String(DESKTOP_BETA_OPT_OUT_UNTIL),
+    );
+    return target.toString();
+  } catch {
+    return rawUrl;
+  }
 }
 
 function withUrlParams(
@@ -432,17 +479,19 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     const [slowLoad, setSlowLoad] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const loadFailureRef = useRef(false);
-    const url = sourceUrl?.trim()
-      ? withUrlParams(sourceUrl.trim(), urlParams)
-      : withUrlParams(
-          withUrlPath(resolveAppWebviewUrl(app, appConfig), urlPath),
-          {
-            ...(appConfig?.mode === "dev" && appConfig.localPath
-              ? { _agentNativeDesktopCode: "1" }
-              : {}),
-            ...urlParams,
-          },
-        );
+    const url = withDesktopEnvironmentOptOut(
+      sourceUrl?.trim()
+        ? withUrlParams(sourceUrl.trim(), urlParams)
+        : withUrlParams(
+            withUrlPath(resolveAppWebviewUrl(app, appConfig), urlPath),
+            {
+              ...(appConfig?.mode === "dev" && appConfig.localPath
+                ? { _agentNativeDesktopCode: "1" }
+                : {}),
+              ...urlParams,
+            },
+          ),
+    );
     const isDevMode = !sourceUrl && appConfig?.mode === "dev";
     const desktopIdentityGateEligible = isDesktopIdentityGateEligible(
       app,
@@ -457,6 +506,25 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     >(() => (desktopIdentityGateEligible ? null : false));
     const [desktopIdentitySessionReady, setDesktopIdentitySessionReady] =
       useState(() => !desktopIdentityGateEligible);
+    const completeDesktopIdentitySignIn = useCallback(async () => {
+      const identity = window.electronAPI?.identity;
+      if (!identity) return false;
+      try {
+        if (!(await identity.signIn())) return false;
+        if (!(await identity.ensureAppSession(app.id))) return false;
+        rememberDesktopIdentityStatus("signed-in");
+        setDesktopIdentityEnabled(true);
+        setDesktopIdentitySessionReady(true);
+        setDesktopIdentityStatus("signed-in");
+        return true;
+      } catch (error) {
+        console.warn("[desktop-identity] inline sign-in failed", {
+          appId: app.id,
+          reason: error instanceof Error ? error.message : "unknown error",
+        });
+        return false;
+      }
+    }, [app.id]);
     const desktopIdentityGateActive = shouldUseDesktopIdentityGate({
       eligible: desktopIdentityGateEligible,
       active: isActive,
@@ -653,6 +721,65 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
         unsubscribe();
       };
     }, [app.id, desktopIdentityGateEligible, isActive]);
+
+    useEffect(() => {
+      const identity = window.electronAPI?.identity;
+      if (
+        !identity ||
+        !desktopIdentityGateEligible ||
+        !isActive ||
+        desktopIdentityStatus !== "signing-in"
+      ) {
+        return;
+      }
+
+      let active = true;
+      let attempts = 0;
+      let pending = false;
+      const reconcile = async () => {
+        if (!active || pending) return;
+        pending = true;
+        attempts += 1;
+        try {
+          const status = await identity.getStatus();
+          if (!active) return;
+          if (status === "signed-in") {
+            const synchronized = await identity.ensureAppSession(app.id);
+            if (active && synchronized) {
+              rememberDesktopIdentityStatus("signed-in");
+              setDesktopIdentityEnabled(true);
+              setDesktopIdentitySessionReady(true);
+              setDesktopIdentityStatus("signed-in");
+              return;
+            }
+          } else if (status !== "signing-in") {
+            setDesktopIdentitySessionReady(status !== "signing-in");
+            setDesktopIdentityStatus(status);
+            return;
+          }
+
+          if (attempts >= DESKTOP_IDENTITY_STATUS_POLL_ATTEMPTS) {
+            setDesktopIdentityStatus("failed");
+          }
+        } catch {
+          if (attempts >= DESKTOP_IDENTITY_STATUS_POLL_ATTEMPTS) {
+            setDesktopIdentityStatus("failed");
+          }
+        } finally {
+          pending = false;
+        }
+      };
+
+      void reconcile();
+      const timer = window.setInterval(
+        () => void reconcile(),
+        DESKTOP_IDENTITY_STATUS_POLL_INTERVAL_MS,
+      );
+      return () => {
+        active = false;
+        window.clearInterval(timer);
+      };
+    }, [app.id, desktopIdentityGateEligible, desktopIdentityStatus, isActive]);
 
     useImperativeHandle(
       ref,
@@ -1207,9 +1334,7 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
           <DesktopIdentityGate
             appName={app.name}
             status={desktopIdentityStatus}
-            onSignIn={() =>
-              window.electronAPI?.identity?.signIn() ?? Promise.resolve(false)
-            }
+            onSignIn={completeDesktopIdentitySignIn}
             onAuthenticate={(request) =>
               window.electronAPI?.identity?.authenticate(request) ??
               Promise.resolve({

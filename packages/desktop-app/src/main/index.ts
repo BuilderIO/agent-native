@@ -256,7 +256,10 @@ import {
   runDesktopStartupStep,
 } from "./desktop-startup.js";
 import { HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT } from "./embedded-auth-ui";
-import { isAllowedEnvironmentNavigation } from "./environment-navigation";
+import {
+  isAllowedEnvironmentNavigation,
+  resolveEnvironmentLaneOrigins,
+} from "./environment-navigation";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
@@ -807,6 +810,7 @@ function resolveDesktopIdentityApp(
   return {
     id: appId,
     origin,
+    alternateOrigins: resolveEnvironmentLaneOrigins(origin),
     session: session.fromPartition(`persist:app-${appId}`),
     cookieNames,
     cookieNamesToClear: [
@@ -11539,10 +11543,11 @@ registerAppsIpc({
       cacheDesktopWorkspaceApps(result, generation);
       return Promise.resolve(result);
     }
-    const dispatchApp = resolveDesktopIdentityApp("dispatch");
     return loadDesktopWorkspaceApps({
-      identitySession:
-        dispatchApp?.session ?? session.fromPartition("persist:app-dispatch"),
+      // Workspace inventory is authorized by the parent identity session.
+      // The child Dispatch partition is populated only after its webview is
+      // opened, so using it here makes a fresh signed-in shell look logged out.
+      identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
       dispatchOrigin,
     }).then((result) => {
       cacheDesktopWorkspaceApps(result, generation);
@@ -12822,7 +12827,9 @@ app.whenReady().then(async () => {
         if (!identityApp || !identityApp.cookieNames.includes(cookie.name)) {
           return;
         }
-        void desktopIdentityBroker?.adoptAppSession(identityApp.id);
+        void desktopIdentityBroker?.adoptAppSession(identityApp.id, {
+          fromCookieChange: true,
+        });
       });
     }
 
@@ -13002,14 +13009,25 @@ app.whenReady().then(async () => {
       const apps = loadAppsForAuthContext();
       if (appId) {
         const configured = apps.find((candidate) => candidate.id === appId);
-        if (configured && getAppOrigin(configured) === parsed.origin) {
+        if (
+          configured &&
+          (getAppOrigin(configured) === parsed.origin ||
+            resolveEnvironmentLaneOrigins(getAppOrigin(configured)).includes(
+              parsed.origin,
+            ))
+        ) {
           return configured.id;
         }
         return null;
       }
       return (
-        apps.find((candidate) => getAppOrigin(candidate) === parsed.origin)
-          ?.id ?? null
+        apps.find(
+          (candidate) =>
+            getAppOrigin(candidate) === parsed.origin ||
+            resolveEnvironmentLaneOrigins(getAppOrigin(candidate)).includes(
+              parsed.origin,
+            ),
+        )?.id ?? null
       );
     } catch {
       // coercion-ok: malformed webview URLs have no associated app identity.
@@ -13025,6 +13043,7 @@ app.whenReady().then(async () => {
     let id = resolveDesktopWebviewAppId(wc);
     configureWebviewSession(wc.session, id);
     if (id) desktopWebviewAppIds.set(wc, id);
+    let identitySyncAttemptedForApp: string | null = null;
 
     const syncLoadedApp = () => {
       id = resolveDesktopWebviewAppId(wc);
@@ -13042,7 +13061,12 @@ app.whenReady().then(async () => {
       // cookie transition so a persisted stale app session cannot switch the
       // workspace account merely by being opened.
       const broker = desktopIdentityBroker;
-      if (broker) {
+      if (
+        broker &&
+        broker.getStatus() === "signed-in" &&
+        identitySyncAttemptedForApp !== appId
+      ) {
+        identitySyncAttemptedForApp = appId;
         void broker.ensureAppSession(appId).catch(() => undefined);
       }
     };

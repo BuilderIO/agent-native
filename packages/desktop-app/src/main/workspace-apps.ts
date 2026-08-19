@@ -29,17 +29,53 @@ async function getJson(
   path: string,
 ): Promise<unknown> {
   const cookieHeader = await getCookieHeader(session, origin);
-  const response = await session.fetch(`${origin}${path}`, {
+  const url = `${origin}${path}`;
+  const headers = {
+    accept: "application/json",
+    ...(cookieHeader ? { Cookie: cookieHeader } : {}),
+  };
+  let response = await session.fetch(url, {
     method: "GET",
     credentials: "include",
-    headers: {
-      accept: "application/json",
-      ...(cookieHeader ? { Cookie: cookieHeader } : {}),
-    },
+    headers,
   });
+  let payload = await response.json();
+  if (
+    cookieHeader &&
+    (response.status === 401 || isUnauthenticatedPayload(payload))
+  ) {
+    try {
+      // Electron's isolated Session transport can return an unauthenticated
+      // response for a cookie that succeeds through the main-process fetch.
+      const fallbackResponse = await fetch(url, {
+        method: "GET",
+        headers,
+      });
+      const fallbackPayload = await fallbackResponse.json();
+      response = fallbackResponse;
+      payload = fallbackPayload;
+    } catch (error) {
+      // Preserve the primary response as the authoritative failure when the
+      // fallback transport is unavailable.
+      console.debug(
+        "[desktop workspace apps] main-process fallback unavailable",
+        {
+          reason: error instanceof Error ? error.message : "unknown error",
+        },
+      );
+    }
+  }
   if (!response.ok)
     throw new Error(`Workspace app request failed: ${response.status}`);
-  return response.json();
+  return payload;
+}
+
+function isUnauthenticatedPayload(value: unknown): boolean {
+  return (
+    Boolean(value) &&
+    typeof value === "object" &&
+    (value as Record<string, unknown>).error === "Not authenticated"
+  );
 }
 
 async function getCookieHeader(
