@@ -45,7 +45,7 @@ export const meta = () =>
 const template = templates.find((t) => t.slug === "clips")!;
 const CLIPS_PROMPT_URL = "https://clips.agent-native.com/share/B0AgxdvzuZ7H";
 const CLIPS_PROMPT_INSTRUCTION =
-  "Find the single most impactful way I can use agent-native clips this week. Be brief and specific.";
+  "Find the single most impactful way I can use agent-native clips this week. Be brief and as specific to me as possible.";
 const AI_PROMPT = `Watch ${CLIPS_PROMPT_URL}. ${CLIPS_PROMPT_INSTRUCTION}`;
 
 const CLIP_PREVIEWS = [
