@@ -517,6 +517,31 @@ describe("request-deck-access", () => {
     expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
+  it("does not consume anonymous quota for an existing request", async () => {
+    state.requesterEmail = null;
+    state.previousRequests = [
+      {
+        id: "access-request-existing",
+        payload: JSON.stringify({
+          requesterEmail: "guest@example.com",
+          notifiedOwner: true,
+        }),
+      },
+    ];
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        accessRequestToken: "request-token",
+        requesterEmail: "guest@example.com",
+      }),
+    ).resolves.toMatchObject({
+      alreadyRequested: true,
+      requestId: "access-request-existing",
+    });
+    expect(state.rateLimitCount).toBe(0);
+  });
+
   it("does not notify twice when concurrent requests collide", async () => {
     state.insertConflict = true;
 

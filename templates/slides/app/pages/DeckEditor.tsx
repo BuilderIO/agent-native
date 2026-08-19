@@ -506,19 +506,15 @@ export default function DeckEditor() {
       setRequestAccessDialogError(null);
       const accessRequestCapability = normalizedGuestEmail
         ? await getFreshAccessRequestCapability()
-        : deckAccessStatus?.accessRequestToken
-          ? {
-              available: true as const,
-              token: deckAccessStatus.accessRequestToken,
-            }
-          : { available: false as const };
+        : { available: false as const };
       if (normalizedGuestEmail && !accessRequestCapability.available) {
         setRequestAccessDialogError(t("deckEditor.accessRequestFailed"));
         return;
       }
-      const accessRequestToken = accessRequestCapability.available
-        ? accessRequestCapability.token
-        : undefined;
+      const accessRequestToken =
+        normalizedGuestEmail && accessRequestCapability.available
+          ? accessRequestCapability.token
+          : undefined;
       requestDeckAccessMutation.mutate(
         {
           deckId: id,
@@ -553,7 +549,6 @@ export default function DeckEditor() {
       );
     },
     [
-      deckAccessStatus?.accessRequestToken,
       getFreshAccessRequestCapability,
       id,
       reloadDecks,

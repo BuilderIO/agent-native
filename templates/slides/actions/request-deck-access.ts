@@ -512,10 +512,6 @@ export default defineAction({
       };
     }
 
-    if (!sessionEmail) {
-      await claimAnonymousAccessRequestSlot(db, deckId);
-    }
-
     const requesterName =
       getRequestUserName()?.trim() || displayNameForEmail(requesterEmail);
     const ownerEmail = deck.ownerEmail?.trim() || null;
@@ -631,6 +627,10 @@ export default defineAction({
           ? "Access request sent to the deck owner."
           : "Your access request is already with the deck owner.",
       };
+    }
+
+    if (!sessionEmail) {
+      await claimAnonymousAccessRequestSlot(db, deckId);
     }
 
     const requestId = accessRequestEventId(deckId, requesterEmail);
