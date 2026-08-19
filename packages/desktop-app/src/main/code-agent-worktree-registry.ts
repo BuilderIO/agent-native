@@ -25,6 +25,7 @@ import {
 export const CODE_AGENT_WORKTREE_REGISTRY_SCHEMA_VERSION = 1;
 export const CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS =
   2 * 24 * 60 * 60 * 1000;
+export const CODE_AGENT_WORKTREE_LEASE_GRACE_MS = 5 * 60 * 1000;
 
 export type CodeAgentWorktreePolicy = "ephemeral" | "named";
 export type CodeAgentWorktreeState =
@@ -34,6 +35,13 @@ export type CodeAgentWorktreeState =
   | "recoverable"
   | "removed"
   | "error";
+
+export type CodeAgentWorktreeRunState = "active" | "queued" | "terminal";
+
+interface CodeAgentWorktreeLease {
+  runId: string;
+  acquiredAt: string;
+}
 
 export interface CodeAgentManagedWorktree {
   schemaVersion: typeof CODE_AGENT_WORKTREE_REGISTRY_SCHEMA_VERSION;
@@ -52,6 +60,7 @@ export interface CodeAgentManagedWorktree {
   cleanupAfter?: string;
   cleanupAttempts: number;
   lastCleanupError?: string;
+  activeLease?: CodeAgentWorktreeLease;
 }
 
 interface CodeAgentWorktreeRegistryFile {
@@ -136,7 +145,16 @@ function isManagedWorktree(value: unknown): value is CodeAgentManagedWorktree {
       typeof record.cleanupAfter === "string") &&
     typeof record.cleanupAttempts === "number" &&
     (record.lastCleanupError === undefined ||
-      typeof record.lastCleanupError === "string")
+      typeof record.lastCleanupError === "string") &&
+    (record.activeLease === undefined || isWorktreeLease(record.activeLease))
+  );
+}
+
+function isWorktreeLease(value: unknown): value is CodeAgentWorktreeLease {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const record = value as Record<string, unknown>;
+  return (
+    typeof record.runId === "string" && typeof record.acquiredAt === "string"
   );
 }
 
@@ -233,6 +251,7 @@ function updateRuntimeState(
     worktree.state = "recoverable";
     return;
   }
+  if (worktree.state === "recoverable" || worktree.state === "error") return;
   if (worktree.attachedRunIds.length > 0) {
     worktree.state = "attached";
   } else if (worktree.policy === "ephemeral" && worktree.cleanupAfter) {
@@ -442,6 +461,37 @@ export function attachCodeAgentWorktree(input: {
   });
 }
 
+/**
+ * Claims the single writer slot for a managed worktree. The registry lock makes
+ * this decision atomic across separate Desktop processes.
+ */
+export function claimCodeAgentWorktreeRun(input: {
+  registryPath: string;
+  worktreeId: string;
+  runId: string;
+  now?: Date;
+}): boolean {
+  const now = nowIso(input.now);
+  return withMutableRegistry(input.registryPath, (registry) => {
+    const worktree = registry.worktrees.find(
+      (candidate) => candidate.id === input.worktreeId,
+    );
+    if (!worktree || worktree.state === "removed") {
+      throw new Error("The selected worktree is no longer available.");
+    }
+    if (worktree.activeLease && worktree.activeLease.runId !== input.runId) {
+      return false;
+    }
+    addRunId(worktree, input.runId);
+    worktree.activeLease = { runId: input.runId, acquiredAt: now };
+    worktree.state = "attached";
+    worktree.updatedAt = now;
+    worktree.lastUsedAt = now;
+    worktree.lastCleanupError = undefined;
+    return true;
+  });
+}
+
 export function releaseCodeAgentWorktree(input: {
   registryPath: string;
   worktreeId: string;
@@ -456,6 +506,9 @@ export function releaseCodeAgentWorktree(input: {
     );
     if (!worktree) return null;
     removeRunId(worktree, input.runId);
+    if (worktree.activeLease?.runId === input.runId) {
+      worktree.activeLease = undefined;
+    }
     worktree.updatedAt = now;
     worktree.lastUsedAt = now;
     if (
@@ -485,7 +538,10 @@ export function cleanupDueCodeAgentWorktrees(input: {
       if (
         worktree.policy !== "ephemeral" ||
         worktree.state === "removed" ||
+        worktree.state === "recoverable" ||
+        worktree.state === "error" ||
         worktree.attachedRunIds.length > 0 ||
+        worktree.activeLease !== undefined ||
         !worktree.cleanupAfter ||
         new Date(worktree.cleanupAfter).getTime() > nowDate.getTime()
       ) {
@@ -542,6 +598,46 @@ export function cleanupDueCodeAgentWorktrees(input: {
   });
 }
 
+export function reconcileCodeAgentWorktreeLeases(input: {
+  registryPath: string;
+  runStates: ReadonlyMap<string, CodeAgentWorktreeRunState>;
+  now?: Date;
+}): void {
+  const nowDate = input.now ?? new Date();
+  const now = nowDate.toISOString();
+  withMutableRegistry(input.registryPath, (registry) => {
+    for (const worktree of registry.worktrees) {
+      if (worktree.state === "removed") continue;
+      const age = nowDate.getTime() - new Date(worktree.updatedAt).getTime();
+      const hasFreshUnknownAttachment =
+        age < CODE_AGENT_WORKTREE_LEASE_GRACE_MS;
+      worktree.attachedRunIds = worktree.attachedRunIds.filter((runId) => {
+        const state = input.runStates.get(runId);
+        return (
+          state === "active" ||
+          state === "queued" ||
+          (state === undefined && hasFreshUnknownAttachment)
+        );
+      });
+      const leaseRunId = worktree.activeLease?.runId;
+      if (!leaseRunId) continue;
+      const leaseState = input.runStates.get(leaseRunId);
+      if (
+        leaseState === "active" ||
+        leaseState === "queued" ||
+        (leaseState === undefined && hasFreshUnknownAttachment)
+      ) {
+        continue;
+      }
+      worktree.activeLease = undefined;
+      worktree.updatedAt = now;
+      if (worktree.attachedRunIds.length === 0) {
+        updateRuntimeState(worktree, now);
+      }
+    }
+  });
+}
+
 export function restoreManagedCodeAgentWorktree(input: {
   registryPath: string;
   worktreeId: string;
@@ -563,9 +659,11 @@ export function restoreManagedCodeAgentWorktree(input: {
         runGit: input.runGit,
       });
       if (input.runId) addRunId(worktree, input.runId);
-      updateRuntimeState(worktree, now);
       worktree.cleanupAfter = undefined;
       worktree.lastCleanupError = undefined;
+      worktree.state =
+        worktree.attachedRunIds.length > 0 ? "attached" : "available";
+      updateRuntimeState(worktree, now);
       return worktree;
     }
     const result = restoreCodeAgentWorktree({

@@ -203,13 +203,16 @@ import { boundedCodeAgentTranscriptEvents } from "./code-agent-transcript-window
 import {
   CODE_AGENT_EPHEMERAL_WORKTREE_RETENTION_MS,
   attachCodeAgentWorktree,
+  claimCodeAgentWorktreeRun,
   cleanupDueCodeAgentWorktrees,
   createOrAttachCodeAgentWorktree,
   listNamedCodeAgentWorktrees,
+  reconcileCodeAgentWorktreeLeases,
   releaseCodeAgentWorktree,
   restoreManagedCodeAgentWorktree,
   worktreeRegistryPath,
   type CodeAgentManagedWorktree,
+  type CodeAgentWorktreeRunState,
 } from "./code-agent-worktree-registry.js";
 import {
   codeAgentWorktreeHasChanges,
@@ -3746,6 +3749,44 @@ function hasActiveCodeAgentWorktreeRun(
   });
 }
 
+function isQueuedCodeAgentWorktreeRun(
+  record: Record<string, unknown>,
+): boolean {
+  const metadata = isObject(record.metadata) ? record.metadata : undefined;
+  const worktree = isObject(metadata?.worktree) ? metadata.worktree : undefined;
+  const queueState = firstStringValue(worktree?.queueState);
+  return Boolean(
+    firstStringValue(worktree?.id) &&
+    (queueState === "waiting" || queueState === "starting") &&
+    (getRecordString(record, "status") === "queued" ||
+      getRecordString(record, "phase") === "queued"),
+  );
+}
+
+function reconcileManagedCodeAgentWorktreeLeases(): void {
+  const runStates = new Map<string, CodeAgentWorktreeRunState>();
+  for (const { runId, record } of listRawCodeAgentRunRecords()) {
+    if (codeAgentRunHoldsWorktreeLease(runId, record)) {
+      runStates.set(runId, "active");
+    } else if (isQueuedCodeAgentWorktreeRun(record)) {
+      runStates.set(runId, "queued");
+    } else {
+      runStates.set(runId, "terminal");
+    }
+  }
+  try {
+    reconcileCodeAgentWorktreeLeases({
+      registryPath: codeAgentWorktreeRegistryFile(),
+      runStates,
+    });
+  } catch (error) {
+    console.warn(
+      "[code-agents] Could not reconcile worktree leases:",
+      error instanceof Error ? error.message : error,
+    );
+  }
+}
+
 async function startNextQueuedCodeAgentWorktreeRun(
   worktreeId: string,
 ): Promise<void> {
@@ -3765,7 +3806,8 @@ async function startNextQueuedCodeAgentWorktreeRun(
         ? metadata.worktree
         : undefined;
       return (
-        firstStringValue(worktree?.queueState) === "waiting" &&
+        (firstStringValue(worktree?.queueState) === "waiting" ||
+          firstStringValue(worktree?.queueState) === "starting") &&
         (getRecordString(record, "status") === "queued" ||
           getRecordString(record, "phase") === "queued")
       );
@@ -3801,6 +3843,33 @@ async function startNextQueuedCodeAgentWorktreeRun(
     return;
   }
 
+  try {
+    if (
+      !claimCodeAgentWorktreeRun({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId,
+        runId: candidate.runId,
+      })
+    ) {
+      return;
+    }
+  } catch (error) {
+    touchCodeAgentRunRecord(candidate.runId, {
+      status: "paused",
+      phase: "worktree-unavailable",
+      metadata: {
+        worktree: {
+          ...(worktree ?? {}),
+          state: "recoverable",
+          queueState: undefined,
+          lastCleanupError:
+            error instanceof Error ? error.message : String(error),
+        },
+      },
+    });
+    return;
+  }
+
   startingCodeAgentWorktreeRuns.add(worktreeId);
   touchCodeAgentRunRecord(candidate.runId, {
     metadata: {
@@ -3828,6 +3897,7 @@ async function startNextQueuedCodeAgentWorktreeRun(
 
 function cleanupDueManagedCodeAgentWorktrees(): void {
   try {
+    reconcileManagedCodeAgentWorktreeLeases();
     cleanupDueCodeAgentWorktrees({
       registryPath: codeAgentWorktreeRegistryFile(),
       canRemove: (worktree) => !activeCodeAgentRunUsesWorktree(worktree),
@@ -3988,6 +4058,18 @@ function reclaimTerminalCodeAgentWorktrees(goalId?: string): void {
   cleanupDueManagedCodeAgentWorktrees();
 }
 
+function resumeQueuedCodeAgentWorktreeRuns(): void {
+  const worktreeIds = new Set<string>();
+  for (const { record } of listRawCodeAgentRunRecords()) {
+    if (!isQueuedCodeAgentWorktreeRun(record)) continue;
+    const worktreeId = codeAgentWorktreeIdFromRunRecord(record);
+    if (worktreeId) worktreeIds.add(worktreeId);
+  }
+  for (const worktreeId of worktreeIds) {
+    void startNextQueuedCodeAgentWorktreeRun(worktreeId);
+  }
+}
+
 function reconcileInterruptedCodeAgentRuns(
   reason: "startup" | "list" | "read" | "follow-up" | "shutdown",
   goalId?: string,
@@ -4017,6 +4099,8 @@ function reconcileInterruptedCodeAgentRun(
   if (!isDesktopCodeAgentRunInterruptible(currentRecord)) return;
   if (reason !== "shutdown" && hasLivePersistedCodeAgentRunner(currentRecord))
     return;
+
+  if (isQueuedCodeAgentWorktreeRun(currentRecord)) return;
 
   currentRecord = readCodeAgentRunRecord(runId) ?? currentRecord;
   if (
@@ -5308,6 +5392,45 @@ async function spawnCodeAgentRunner(
   if (activeCodeAgentProcesses.has(runId) || startingCodeAgentRuns.has(runId)) {
     return;
   }
+  const runRecord = readCodeAgentRunRecord(runId);
+  const worktreeId = codeAgentWorktreeIdFromRunRecord(runRecord);
+  if (worktreeId) {
+    try {
+      const claimed = claimCodeAgentWorktreeRun({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId,
+        runId,
+      });
+      if (!claimed) {
+        touchCodeAgentRunRecord(runId, {
+          status: "queued",
+          phase: "queued",
+          metadata: {
+            worktree: {
+              ...(isObject(runRecord?.metadata) &&
+              isObject(runRecord.metadata.worktree)
+                ? runRecord.metadata.worktree
+                : {}),
+              queueState: "waiting",
+            },
+          },
+        });
+        void startNextQueuedCodeAgentWorktreeRun(worktreeId);
+        return;
+      }
+    } catch (error) {
+      touchCodeAgentRunRecord(runId, {
+        status: "paused",
+        phase: "worktree-unavailable",
+        metadata: {
+          runnerState: "failed",
+          runnerError: error instanceof Error ? error.message : String(error),
+        },
+      });
+      reclaimTerminalCodeAgentWorktree(readCodeAgentRunRecord(runId));
+      return;
+    }
+  }
   startingCodeAgentRuns.add(runId);
   const provider = ensureCodeAgentLlmProvider();
   if (!provider.ok) {
@@ -5332,7 +5455,6 @@ async function spawnCodeAgentRunner(
     return;
   }
   const repoRoot = resolveRepositoryRoot(cwd);
-  const runRecord = readCodeAgentRunRecord(runId);
   const normalizedPermissionMode =
     permissionMode ??
     readCodeAgentPermissionMode(runRecord) ??
@@ -5405,6 +5527,15 @@ async function spawnCodeAgentRunner(
         runnerCommand,
         runnerCwd: invocation.cwd,
         runnerStartedAt,
+        ...(isObject(runRecord?.metadata) &&
+        isObject(runRecord.metadata.worktree)
+          ? {
+              worktree: {
+                ...runRecord.metadata.worktree,
+                queueState: "running",
+              },
+            }
+          : {}),
       },
     });
     child.stdout?.on("data", (chunk) => {
@@ -5789,9 +5920,28 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
   const runIsActive =
     activeCodeAgentProcesses.has(input.runId) ||
     isActiveDesktopCodeAgentRun(currentRunRecord);
+  let worktreeLeaseAcquired = true;
+  if (attachedWorktree && !runIsActive) {
+    try {
+      worktreeLeaseAcquired = claimCodeAgentWorktreeRun({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId: attachedWorktree.id,
+        runId: input.runId,
+      });
+    } catch (error) {
+      return {
+        ok: false,
+        runId: input.runId,
+        run: desktopCodeBackgroundAgentController.get(input.runId),
+        message: "Restore the worktree to continue.",
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
   const worktreeBusy = Boolean(
     attachedWorktree &&
-    hasActiveCodeAgentWorktreeRun(attachedWorktree.id, input.runId),
+    (hasActiveCodeAgentWorktreeRun(attachedWorktree.id, input.runId) ||
+      !worktreeLeaseAcquired),
   );
   const mode = input.mode ?? "immediate";
   const event = createDesktopUserTranscriptEvent(
@@ -6336,7 +6486,11 @@ async function createCodeAgentRun(
       });
       cwd = worktree.path;
       worktreeMetadata = worktree;
-      worktreeRunQueued = hasActiveCodeAgentWorktreeRun(worktree.id, runId);
+      worktreeRunQueued = !claimCodeAgentWorktreeRun({
+        registryPath: codeAgentWorktreeRegistryFile(),
+        worktreeId: worktree.id,
+        runId,
+      });
     } catch (error) {
       return {
         ok: false,
@@ -6407,7 +6561,7 @@ async function createCodeAgentRun(
         ? {
             worktree: {
               ...codeAgentWorktreeMetadata(worktreeMetadata),
-              ...(worktreeRunQueued ? { queueState: "waiting" } : {}),
+              queueState: worktreeRunQueued ? "waiting" : "starting",
             },
           }
         : {}),
@@ -6482,7 +6636,7 @@ async function createCodeAgentRun(
         ? {
             worktree: {
               ...codeAgentWorktreeMetadata(worktreeMetadata),
-              ...(worktreeRunQueued ? { queueState: "waiting" } : {}),
+              queueState: worktreeRunQueued ? "waiting" : "starting",
             },
           }
         : {}),
@@ -11091,7 +11245,6 @@ registerCodeAgentsIpc({
   pairRemoteCodeAgentConnector,
 });
 
-cleanupDueManagedCodeAgentWorktrees();
 const codeAgentWorktreeSweepTimer = setInterval(
   cleanupDueManagedCodeAgentWorktrees,
   60 * 60 * 1000,
@@ -12869,6 +13022,16 @@ app.whenReady().then(async () => {
   registerDesktopShortcutBindings();
 
   const win = createWindow();
+  for (const { record } of listRawCodeAgentRunRecords()) {
+    reclaimTerminalCodeAgentWorktree(record);
+  }
+  reconcileManagedCodeAgentWorktreeLeases();
+  resumeQueuedCodeAgentWorktreeRuns();
+  const initialWorktreeCleanup = setTimeout(
+    cleanupDueManagedCodeAgentWorktrees,
+    0,
+  );
+  initialWorktreeCleanup.unref?.();
   registerQuickPromptShortcut();
   // Pairing details persist, but background access is opt-in per launch.
   // A read-only status check must never spawn a process or unlock Keychain.

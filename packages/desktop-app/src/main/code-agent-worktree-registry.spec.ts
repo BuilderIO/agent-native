@@ -7,9 +7,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   cleanupDueCodeAgentWorktrees,
+  claimCodeAgentWorktreeRun,
   createOrAttachCodeAgentWorktree,
   getManagedCodeAgentWorktree,
   listNamedCodeAgentWorktrees,
+  reconcileCodeAgentWorktreeLeases,
   releaseCodeAgentWorktree,
   restoreManagedCodeAgentWorktree,
   worktreeRegistryPath,
@@ -68,6 +70,48 @@ describe("code-agent-worktree-registry", () => {
       });
       expect(released?.state).toBe("available");
       expect(fs.existsSync(first.path)).toBe(true);
+    });
+  });
+
+  it("atomically gives one run the worktree writer lease", () => {
+    withRepository((root) => {
+      const registryPath = worktreeRegistryPath(root);
+      const worktree = createOrAttachCodeAgentWorktree({
+        registryPath,
+        sourcePath: root,
+        worktreeRoot: path.join(root, "managed-worktrees"),
+        runId: "writer-one",
+        policy: "named",
+        name: "shared-writer",
+      });
+
+      expect(
+        claimCodeAgentWorktreeRun({
+          registryPath,
+          worktreeId: worktree.id,
+          runId: "writer-one",
+        }),
+      ).toBe(true);
+      expect(
+        claimCodeAgentWorktreeRun({
+          registryPath,
+          worktreeId: worktree.id,
+          runId: "writer-two",
+        }),
+      ).toBe(false);
+
+      releaseCodeAgentWorktree({
+        registryPath,
+        worktreeId: worktree.id,
+        runId: "writer-one",
+      });
+      expect(
+        claimCodeAgentWorktreeRun({
+          registryPath,
+          worktreeId: worktree.id,
+          runId: "writer-two",
+        }),
+      ).toBe(true);
     });
   });
 
@@ -219,6 +263,10 @@ describe("code-agent-worktree-registry", () => {
         registryPath,
         now: new Date("2026-08-22T00:00:00.000Z"),
       });
+      cleanupDueCodeAgentWorktrees({
+        registryPath,
+        now: new Date("2026-08-23T00:00:00.000Z"),
+      });
       expect(
         getManagedCodeAgentWorktree(registryPath, worktree.id)?.state,
       ).toBe("recoverable");
@@ -267,6 +315,37 @@ describe("code-agent-worktree-registry", () => {
         lastCleanupError: expect.stringContaining("commits after its base"),
       });
       expect(fs.existsSync(worktree.path)).toBe(true);
+    });
+  });
+
+  it("reconciles stale registry attachments after a crashed run", () => {
+    withRepository((root) => {
+      const registryPath = worktreeRegistryPath(root);
+      const worktree = createOrAttachCodeAgentWorktree({
+        registryPath,
+        sourcePath: root,
+        worktreeRoot: path.join(root, "managed-worktrees"),
+        runId: "crashed-run",
+        policy: "ephemeral",
+      });
+      claimCodeAgentWorktreeRun({
+        registryPath,
+        worktreeId: worktree.id,
+        runId: "crashed-run",
+      });
+
+      reconcileCodeAgentWorktreeLeases({
+        registryPath,
+        runStates: new Map(),
+        now: new Date(Date.now() + 10 * 60 * 1000),
+      });
+
+      expect(
+        getManagedCodeAgentWorktree(registryPath, worktree.id),
+      ).toMatchObject({
+        attachedRunIds: [],
+        state: "available",
+      });
     });
   });
 });
