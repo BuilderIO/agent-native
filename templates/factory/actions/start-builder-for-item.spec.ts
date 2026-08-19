@@ -39,6 +39,7 @@ import {
   recordAutomaticBuilderDecision,
   relatedDispatchConflictReason,
   replyTextForItem,
+  requireBuilderSlackUserId,
 } from "./start-builder-for-item.js";
 
 describe("start-builder-for-item Slack handoff", () => {
@@ -52,6 +53,7 @@ describe("start-builder-for-item Slack handoff", () => {
           sourceUrl: "https://slack.example/repeat",
         },
       ],
+      "U096KN3EL2Y",
     );
 
     expect(text).toContain("<@U096KN3EL2Y>");
@@ -60,6 +62,15 @@ describe("start-builder-for-item Slack handoff", () => {
     expect(text).toContain("https://slack.example/repeat");
     expect(text).not.toContain("@builder.io");
     expect(text).not.toContain("@builderio please");
+  });
+
+  it("requires a Slack member id from Factory settings", () => {
+    expect(requireBuilderSlackUserId("U096KN3EL2Y")).toBe("U096KN3EL2Y");
+    expect(requireBuilderSlackUserId("u096kn3el2y")).toBe("U096KN3EL2Y");
+    expect(() => requireBuilderSlackUserId("")).toThrow(/Factory settings/);
+    expect(() => requireBuilderSlackUserId("@builder.io")).toThrow(
+      /Factory settings/,
+    );
   });
 
   it("blocks related items that are already clustered or started", () => {

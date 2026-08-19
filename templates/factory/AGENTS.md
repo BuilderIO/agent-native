@@ -46,10 +46,10 @@ decisions, feedback, agent runs, and provider audit records.
 
 ## Application state
 
-- `navigation.view` is `factory` or `agents`; `factoryId`, `factoryTab`,
-  `factoryAuditRunId`, `factoryNodeId`, and `factoryEdgeId` hold the selected
-  Factory context. Read `view-screen` before explaining a route, changing the
-  selected Factory, or answering about the `/agents` inventory.
+- `navigation.view` is `factory`, `agents`, or `factory-settings`.
+  Observation settings are workspace-scoped at `/factory-settings`.
+  `factoryId`, `factoryTab`, `factoryAuditRunId`, `factoryNodeId`, and
+  `factoryEdgeId` hold Factory context. Read `view-screen` first.
 
 ## Action contract
 

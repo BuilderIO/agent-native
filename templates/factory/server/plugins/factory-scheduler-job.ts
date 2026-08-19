@@ -602,6 +602,7 @@ async function ensureDefaultTriageConfig(
     slackWorkspace: "primary",
     slackChannelId: DEFAULT_SLACK_CHANNEL_ID,
     slackChannelName: DEFAULT_SLACK_CHANNEL_NAME,
+    builderSlackUserId: null,
     pollingEnabled: 1,
     githubPollingEnabled: defaultGithubPollingEnabled(),
     sentryPollingEnabled: 0,

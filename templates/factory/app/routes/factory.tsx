@@ -1,5 +1,4 @@
 import {
-  AgentToggleButton,
   requestAgentChatThreadOpen,
   useChatModels,
 } from "@agent-native/core/client/agent-chat";
@@ -8,8 +7,6 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { buildSettingsRoute } from "@agent-native/core/client/navigation";
-import { SettingsGroup, SettingsRow } from "@agent-native/core/client/settings";
 import {
   IconAlertCircle,
   IconArrowLeft,
@@ -20,7 +17,7 @@ import {
   IconRefresh,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { Link, Navigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
@@ -33,13 +30,13 @@ import {
 } from "@/components/factory/FactoryCanvas";
 import { FactoryHistoryView } from "@/components/factory/FactoryHistoryView";
 import { FactoryInspector } from "@/components/factory/FactoryInspector";
+import { FactoryWorkspaceActions } from "@/components/factory/FactoryWorkspaceActions";
 import { TriageStatusPill } from "@/components/triage/triage-status-pill";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
 type FactoryGraphResponse = {
@@ -104,25 +101,6 @@ type TriageRule = {
   promptVersion: number;
 };
 
-type TriageConfig = {
-  slackWorkspace?: "primary" | "secondary";
-  slackChannelId?: string | null;
-  slackChannelName?: string | null;
-  pollingEnabled?: boolean;
-  githubPollingEnabled?: boolean;
-  sentryPollingEnabled?: boolean;
-  sentryOrgSlug?: string | null;
-  sentryProjectSlug?: string | null;
-  sentryEnvironment?: string | null;
-  repository?: string | null;
-  automationFailureAlertsEnabled?: boolean;
-  automationFailureAlertEmail?: string | null;
-  emailReadiness?: {
-    status: "ready" | "not-configured" | "misconfigured" | "unavailable";
-    provider: string;
-  };
-};
-
 type Verdict = "correct" | "incorrect" | "uncertain";
 type WorkspaceTab =
   | "overview"
@@ -132,8 +110,7 @@ type WorkspaceTab =
   | "automations"
   | "agents"
   | "audit"
-  | "history"
-  | "settings";
+  | "history";
 
 type FactoryAutomationRun = {
   id?: string;
@@ -143,14 +120,6 @@ type FactoryAutomationRun = {
   error?: string | null;
   runId?: string | null;
   threadId?: string | null;
-};
-
-type FactoryAutomationHealth = {
-  status: "healthy" | "stale" | "error" | "no-data";
-  lastCheckedAt?: number | null;
-  lastDispatchedAt?: number | null;
-  lastError?: string | null;
-  runtime?: string | null;
 };
 
 type FactoryAutomation = {
@@ -229,6 +198,7 @@ export default function FactoryRoute() {
         next.delete("itemId");
         next.delete("automationId");
         next.delete("auditRunId");
+        next.delete("new");
         if (options?.tab) {
           if (options.tab === "overview") next.delete("tab");
           else next.set("tab", options.tab);
@@ -250,6 +220,7 @@ export default function FactoryRoute() {
         next.delete("itemId");
         next.delete("automationId");
         next.delete("auditRunId");
+        next.delete("new");
         return next;
       },
       { replace: true },
@@ -408,6 +379,11 @@ export default function FactoryRoute() {
     setSelectedEdgeId(null);
   }
 
+  useEffect(() => {
+    if (searchParams.get("new") !== "1") return;
+    startNewFactory();
+  }, [searchParams]);
+
   async function saveGraph() {
     if (!graph || !selectedFactoryId) return;
     const submittedDraftRevision = draftRevisionRef.current;
@@ -493,22 +469,28 @@ export default function FactoryRoute() {
     }
   }
 
+  if (searchParams.get("tab") === "settings") {
+    return <Navigate to="/factory-settings" replace />;
+  }
+  if (selectedFactoryId && searchParams.get("tab") === "agents") {
+    return <Navigate to="/factory?tab=agents" replace />;
+  }
+
   if (!selectedFactoryId && activeTab === "agents") {
     return (
       <div className="flex h-full min-h-0 flex-col overflow-y-auto bg-background">
         <div className="flex items-center gap-3 px-4 py-4 lg:px-6">
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            aria-label={t("factoryRoute.backToFactories")}
-            onClick={() => setActiveTab("overview")}
-          >
-            <IconArrowLeft className="size-4" />
+          <Button asChild type="button" variant="ghost" size="icon">
+            <Link to="/factory" aria-label={t("factoryRoute.backToFactories")}>
+              <IconArrowLeft className="size-4" />
+            </Link>
           </Button>
           <h1 className="text-sm font-medium sm:text-base">
             {t("factoryRoute.agentsTitle")}
           </h1>
+          <div className="ms-auto">
+            <FactoryWorkspaceActions onNewFactory={startNewFactory} />
+          </div>
         </div>
         <FactoryAgentsView />
       </div>
@@ -521,21 +503,7 @@ export default function FactoryRoute() {
         <section className="mx-auto flex w-full max-w-6xl flex-1 flex-col gap-6 p-4 lg:p-6">
           <div className="flex flex-wrap items-end justify-between gap-4">
             <h1 className="text-2xl font-semibold tracking-tight">Factories</h1>
-            <div className="flex items-center gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => setActiveTab("agents")}
-              >
-                {t("factoryRoute.agentsTab")}
-              </Button>
-              <Button type="button" size="sm" onClick={startNewFactory}>
-                <IconPlus className="size-4" />
-                {t("factoryRoute.newFactory")}
-              </Button>
-              <AgentToggleButton />
-            </div>
+            <FactoryWorkspaceActions onNewFactory={startNewFactory} />
           </div>
 
           {factoryListQuery.isError ? (
@@ -631,10 +599,7 @@ export default function FactoryRoute() {
               </Button>
               <div className="h-5 w-48 animate-pulse rounded bg-muted" />
             </div>
-            <div className="flex items-center gap-2">
-              <div className="h-9 w-28 animate-pulse rounded bg-muted" />
-              <AgentToggleButton />
-            </div>
+            <FactoryWorkspaceActions onNewFactory={startNewFactory} />
           </div>
         </header>
         <main className="flex flex-1 items-center justify-center p-6">
@@ -681,16 +646,7 @@ export default function FactoryRoute() {
             </span>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              onClick={startNewFactory}
-            >
-              <IconPlus className="size-4" />
-              {t("factoryRoute.newFactory")}
-            </Button>
-            <AgentToggleButton />
+            <FactoryWorkspaceActions onNewFactory={startNewFactory} />
           </div>
         </div>
         <div className="flex items-center gap-2 overflow-x-auto px-2 py-2 sm:px-4 lg:px-6">
@@ -729,12 +685,6 @@ export default function FactoryRoute() {
               {t("factoryRoute.automationsTab")}
             </TabButton>
             <TabButton
-              active={activeTab === "agents"}
-              onClick={() => setActiveTab("agents")}
-            >
-              {t("factoryRoute.agentsTab")}
-            </TabButton>
-            <TabButton
               active={activeTab === "audit"}
               onClick={() => setActiveTab("audit")}
             >
@@ -745,12 +695,6 @@ export default function FactoryRoute() {
               onClick={() => setActiveTab("history")}
             >
               {t("factoryRoute.historyTab")}
-            </TabButton>
-            <TabButton
-              active={activeTab === "settings"}
-              onClick={() => setActiveTab("settings")}
-            >
-              Settings
             </TabButton>
           </nav>
           {activeTab === "audit" && (
@@ -779,7 +723,6 @@ export default function FactoryRoute() {
             onOpenReview={() => setActiveTab("inbox")}
             onOpenAutomations={() => setActiveTab("automations")}
             onOpenActivity={() => setActiveTab("audit")}
-            onOpenSettings={() => setActiveTab("settings")}
             onOpenFlow={() => setActiveTab("map")}
           />
         ) : activeTab === "map" ? (
@@ -832,8 +775,6 @@ export default function FactoryRoute() {
           <RulesView t={t} />
         ) : activeTab === "automations" ? (
           <AutomationsView factoryId={factoryId} t={t} />
-        ) : activeTab === "agents" ? (
-          <FactoryAgentsView />
         ) : activeTab === "audit" ? (
           <FactoryAuditView
             factoryId={factoryId}
@@ -846,9 +787,7 @@ export default function FactoryRoute() {
             hasUnsavedChanges={dirty}
             onRestored={handleFactoryRestored}
           />
-        ) : (
-          <SettingsView t={t} />
-        )}
+        ) : null}
       </main>
     </div>
   );
@@ -882,8 +821,7 @@ function parseWorkspaceTab(value: string | null): WorkspaceTab {
     value === "automations" ||
     value === "agents" ||
     value === "audit" ||
-    value === "history" ||
-    value === "settings"
+    value === "history"
     ? value
     : "overview";
 }
@@ -896,7 +834,6 @@ function OverviewView({
   onOpenReview,
   onOpenAutomations,
   onOpenActivity,
-  onOpenSettings,
   onOpenFlow,
 }: {
   graph: FactoryCanvasGraph;
@@ -906,7 +843,6 @@ function OverviewView({
   onOpenReview: () => void;
   onOpenAutomations: () => void;
   onOpenActivity: () => void;
-  onOpenSettings: () => void;
   onOpenFlow: () => void;
 }) {
   return (
@@ -984,8 +920,10 @@ function OverviewView({
             <Button type="button" variant="outline" onClick={onOpenActivity}>
               Activity
             </Button>
-            <Button type="button" variant="outline" onClick={onOpenSettings}>
-              Settings
+            <Button asChild type="button" variant="outline">
+              <Link to="/factory-settings">
+                {t("factoryRoute.factorySettings")}
+              </Link>
             </Button>
             <Button type="button" onClick={onOpenFlow}>
               {t("factoryRoute.editFlow")}
@@ -1907,234 +1845,6 @@ function RulesView({ t }: { t: ReturnType<typeof useT> }) {
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function SettingsView({ t }: { t: ReturnType<typeof useT> }) {
-  const [automationFailureAlertsEnabled, setAutomationFailureAlertsEnabled] =
-    useState(true);
-  const [automationFailureAlertEmail, setAutomationFailureAlertEmail] =
-    useState("");
-  const query = useActionQuery("get-triage-config", {});
-  const schedulerHealthQuery = useActionQuery<FactoryAutomationHealth>(
-    "get-factory-automation-health",
-    {},
-    { refetchInterval: 60_000 },
-  );
-  const mutation = useActionMutation("save-triage-config");
-
-  useEffect(() => {
-    const data = query.data as TriageConfig | undefined;
-    if (!data) return;
-    setAutomationFailureAlertsEnabled(
-      data.automationFailureAlertsEnabled ?? true,
-    );
-    setAutomationFailureAlertEmail(data.automationFailureAlertEmail ?? "");
-  }, [query.data]);
-
-  const saveSettings = () => {
-    mutation.mutate({
-      automationFailureAlertsEnabled,
-      ...(automationFailureAlertEmail.trim()
-        ? { automationFailureAlertEmail: automationFailureAlertEmail.trim() }
-        : {}),
-    });
-  };
-
-  if (query.isLoading) {
-    return (
-      <div className="mx-auto w-full max-w-3xl space-y-6 p-4 lg:p-6">
-        <FactorySettingsSkeleton t={t} />
-      </div>
-    );
-  }
-
-  return (
-    <div className="mx-auto w-full max-w-3xl space-y-6 p-4 lg:p-6">
-      <SettingsGroup variant="soft">
-        <SettingsRow
-          label={t("factoryRoute.workspaceIntegrations")}
-          description={t("settings.workspaceDescription")}
-          control={
-            <Button asChild type="button" variant="outline">
-              <Link to={buildSettingsRoute("integrations")}>Manage</Link>
-            </Button>
-          }
-        />
-        <SettingsRow
-          label={t("factoryRoute.agentAccess")}
-          description={t("settings.agentDescription")}
-          control={
-            <Button asChild type="button" variant="outline">
-              <Link to={buildSettingsRoute("agent")}>Manage</Link>
-            </Button>
-          }
-        />
-      </SettingsGroup>
-
-      <SettingsGroup variant="soft">
-        <SettingsRow
-          label={t("factoryRoute.automationFailureAlertsTitle")}
-          description={t("factoryRoute.automationFailureAlertsDescription")}
-          control={
-            <Switch
-              aria-label={t("factoryRoute.automationFailureAlertsEnabled")}
-              checked={automationFailureAlertsEnabled}
-              onCheckedChange={(checked) =>
-                setAutomationFailureAlertsEnabled(checked === true)
-              }
-            />
-          }
-        />
-        <SettingsRow
-          label={t("factoryRoute.automationFailureAlertEmail")}
-          description={t("factoryRoute.automationFailureAlertEmailPlaceholder")}
-          control={
-            <Input
-              aria-label={t("factoryRoute.automationFailureAlertEmail")}
-              type="email"
-              value={automationFailureAlertEmail}
-              onChange={(event) =>
-                setAutomationFailureAlertEmail(event.target.value)
-              }
-              placeholder={t(
-                "factoryRoute.automationFailureAlertEmailPlaceholder",
-              )}
-              className="h-9 w-full sm:w-64"
-            />
-          }
-        />
-        <SettingsRow
-          label={t("factoryRoute.automationFailureEmailReadiness")}
-          description={t("factoryRoute.automationEmailReadinessHint")}
-          control={
-            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium text-muted-foreground">
-              {(query.data as TriageConfig | undefined)?.emailReadiness
-                ?.status ?? "unknown"}
-            </span>
-          }
-        />
-        {query.isError && (
-          <div className="px-5 py-3 text-xs text-destructive sm:px-6">
-            {t("factoryRoute.automationDiagnosticsLoadError")}{" "}
-            {query.error instanceof Error
-              ? query.error.message
-              : String(query.error)}
-          </div>
-        )}
-      </SettingsGroup>
-
-      <div className="flex flex-wrap items-center justify-end gap-3">
-        {mutation.isError && (
-          <p className="text-sm text-destructive" role="alert">
-            {t("triage.settingsError")}
-          </p>
-        )}
-        {mutation.isSuccess && (
-          <p className="text-sm text-muted-foreground" role="status">
-            {t("triage.settingsSaved")}
-          </p>
-        )}
-        <Button onClick={saveSettings} disabled={mutation.isPending}>
-          {mutation.isPending && <IconLoader2 className="animate-spin" />}
-          {t("triage.saveSettings")}
-        </Button>
-      </div>
-
-      <SchedulerHealthStatus
-        health={schedulerHealthQuery.data}
-        isError={schedulerHealthQuery.isError}
-        error={schedulerHealthQuery.error}
-        t={t}
-      />
-    </div>
-  );
-}
-
-function FactorySettingsSkeleton({ t }: { t: ReturnType<typeof useT> }) {
-  return (
-    <div className="space-y-6" aria-label={t("triage.loading")}>
-      {Array.from({ length: 2 }).map((_, index) => (
-        <div key={index} className="grid gap-2">
-          <div className="grid gap-2">
-            {Array.from({ length: index === 0 ? 5 : 3 }).map((_, rowIndex) => (
-              <div
-                key={rowIndex}
-                className="flex min-h-20 items-center justify-between gap-4 rounded-xl bg-card px-5 py-4 shadow-sm sm:px-6"
-              >
-                <div className="h-3.5 w-36 animate-pulse rounded bg-muted" />
-                <div className="h-9 w-24 animate-pulse rounded bg-muted" />
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-function SchedulerHealthStatus({
-  health,
-  isError,
-  error,
-  t,
-}: {
-  health?: FactoryAutomationHealth;
-  isError: boolean;
-  error: unknown;
-  t: ReturnType<typeof useT>;
-}) {
-  const healthLabel = isError
-    ? t("factoryRoute.automationHealthError")
-    : health
-      ? {
-          healthy: t("factoryRoute.automationHealthHealthy"),
-          stale: t("factoryRoute.automationHealthStale"),
-          error: t("factoryRoute.automationHealthError"),
-          "no-data": t("factoryRoute.automationHealthNoData"),
-        }[health.status]
-      : t("factoryRoute.automationHealthNoData");
-  const hasNoHeartbeat =
-    !isError &&
-    (!health || health.status === "no-data") &&
-    !health?.lastCheckedAt;
-  const healthDescription = isError
-    ? `${t("factoryRoute.automationDiagnosticsLoadError")} ${error instanceof Error ? error.message : String(error)}`
-    : health?.lastError
-      ? `${t("factoryRoute.automationHealthErrorDetail")}: ${health.lastError}`
-      : health?.status === "stale"
-        ? t("factoryRoute.automationHealthStaleHint")
-        : hasNoHeartbeat
-          ? t("factoryRoute.automationHealthNoDataHint")
-          : undefined;
-
-  return (
-    <SettingsGroup variant="soft">
-      <SettingsRow
-        label={t("factoryRoute.automationHealthTitle")}
-        description={
-          healthDescription ?? t("factoryRoute.automationHealthDescription")
-        }
-        control={
-          <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1">
-            <span className="rounded-full bg-muted px-2.5 py-1 text-xs font-medium">
-              {healthLabel}
-            </span>
-            {health?.lastCheckedAt && (
-              <span className="text-xs text-muted-foreground">
-                {t("factoryRoute.automationLastCheck")}:{" "}
-                {formatAutomationDate(health.lastCheckedAt)}
-              </span>
-            )}
-            {health?.lastDispatchedAt && (
-              <span className="text-xs text-muted-foreground">
-                {t("factoryRoute.automationLastDispatch")}:{" "}
-                {formatAutomationDate(health.lastDispatchedAt)}
-              </span>
-            )}
-          </div>
-        }
-      />
-    </SettingsGroup>
   );
 }
 
