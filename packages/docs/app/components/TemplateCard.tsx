@@ -146,17 +146,17 @@ export type Template = (typeof templates)[number];
 
 export const featuredTemplates = [
   "clips",
-  "plan",
   "design",
   "slides",
   "analytics",
+  "calendar",
+  "mail",
   "assets",
   "content",
   "chat",
   "dispatch",
-  "calendar",
-  "mail",
   "forms",
+  "plan",
 ].map((slug) => templates.find((template) => template.slug === slug)!);
 
 function CliPopoverContent({ template }: { template: Template }) {
