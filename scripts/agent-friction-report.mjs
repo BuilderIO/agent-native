@@ -89,9 +89,10 @@ const PATTERNS = [
   },
   {
     key: "feedback-reply-tone",
-    label: "Asked for duplicate feedback clarification or skipped thanks",
+    label:
+      "Reported duplicate feedback clarification or missing thank-first reply",
     fixedBy: ".agents/skills/address-feedback* (2026-08-19 clarification gate)",
-    re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone)\b|\b(?:thank|thanks)\b[^.!?]{0,80}\b(?:feedback|reporter)\b/i,
+    re: /\b(?:ask(?:ed|ing)?|request(?:ed|ing)?)\b[^.!?]{0,100}\bclarif(?:ication|y)\b|\bclarif(?:ication|y)\b[^.!?]{0,120}\b(?:already|thread|reply|fixed|fixing|solved|found|agent-native|someone|details?|not|unfriendly|robotic|tone|warm|harsh)\b|\bthank(?:s|ed|ing)?\b[^.!?]{0,80}\b(?:first|before|them|reporter)\b|\b(?:didn'?t|doesn'?t|without|skipped|forgot(?:ten)?)\b[^.!?]{0,80}\bthank(?:s|ed|ing)?\b/i,
   },
   {
     key: "cross-thread-interference",

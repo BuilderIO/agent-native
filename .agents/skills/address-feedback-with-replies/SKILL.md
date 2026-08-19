@@ -24,10 +24,13 @@ status.
 Every actionable Slack parent that receives `👀` is in scope for the reply
 ledger. The reaction is only the first external action - it never counts as a
 reply, ownership marker, or completion. Before finishing, re-read every
-eye-marked parent and confirm that the `@agent-native` bot posted either
-**Fixed** or **Clarification needed** in that thread. A generic bot forward or
-acknowledgement, another person's reply, or the `👀` reaction alone does not
-satisfy the ledger.
+eye-marked parent and confirm that the `@agent-native` bot posted **Fixed**,
+**In progress**, or **Clarification needed** in that thread. **In progress** is
+valid only when the thread already contains a substantive ownership or
+active-fix signal from `@agent-native` or another participant; it is an open
+state, not a terminal resolution, and the next run must return to it for
+**Fixed** or **Clarification needed**. A generic bot forward, another person's
+reply, or the `👀` reaction alone does not satisfy the ledger.
 
 ## Prerequisites
 
@@ -126,15 +129,22 @@ missing. Internal test, deployment, or tooling gaps are not reporter questions;
 keep working on them and do not claim the sweep is complete while the ledger is
 unresolved.
 
-Every actionable thread must end in exactly one external state: **Fixed** or
+Every actionable thread must receive one external disposition for the current
+run: **Fixed**, **In progress**, or **Clarification needed**. **Fixed** closes
+the current issue. **In progress** is an open ownership state for a thread
+where `@agent-native` or another participant already found the cause, linked a
+fix, or said the work is being fixed; use it to acknowledge the existing work,
+never to replace verification or to create a vague status update. The next run
+must revisit **In progress** and resolve it to **Fixed** or
 **Clarification needed**. `Blocked`, `not fixed yet`, `still needs a fix`, and
 similar phrases are internal notes, never a complete Slack reply. If a reply
-does not say the fix is complete and when it should be live, or ask what is
-needed to fix it, do not post it. These are ledger states, not mandatory
-headings: keep the reporter-facing wording natural instead of opening with the
-robotic phrase “Clarification needed”. A substantive diagnosis, fix, or
-in-progress ownership statement from someone in the thread is not a reason to
-ask for clarification; verify it or continue the existing handoff first.
+does not say the fix is complete, acknowledge concrete existing ownership, or
+ask what is needed to fix it, do not post it. These are ledger states, not
+mandatory headings: keep the reporter-facing wording natural instead of
+opening with the robotic phrase “Clarification needed”. A substantive
+diagnosis, fix, or in-progress ownership statement from someone in the thread
+is not a reason to ask for clarification; verify it or continue the existing
+handoff first.
 
 **Clarification needed** is an open state, not a completed product fix. Asking
 the question creates a standing obligation to come back for the answer. It is
@@ -142,6 +152,12 @@ the bot's terminal disposition for the current cursor, but the next
 `review-latest-feedback` run must re-read every thread it previously asked in
 before scanning newer messages; when this workflow runs on its own, do the same
 and act on the replies first.
+
+**In progress** is also an open state. It records that the thread already has
+real ownership or an active fix, so the bot must not ask the reporter to repeat
+the issue. Re-read it on the next run, verify the work, and replace the open
+state with **Fixed** when complete or **Clarification needed** only if a
+specific reporter or product input is still missing.
 
 Treat a clarification reply as new evidence, not as a fresh blank report.
 Re-read the whole thread after the reply, update the ledger, and try the fix
@@ -182,6 +198,10 @@ missing value. A `Clarification needed` reply is invalid when the requested
    and every Slack parent marked `👀` - not only the newest report or the item
    whose code changed:
    - **Fixed** - say only that it is fixed and when it should be live.
+   - **In progress** - only when the thread already contains a substantive
+     ownership or active-fix signal; thank the reporter, acknowledge that the
+     team is already working on it, and do not ask a duplicate question. This
+     is an open handoff, not a terminal fix.
    - **Clarification needed** - ask one concrete, plain-language question that
      unblocks the next investigation, only when reporter or product input is
      missing, or a needed linked artifact is inaccessible, after checking the
@@ -196,10 +216,11 @@ missing value. A `Clarification needed` reply is invalid when the requested
      issue, do not ask the reporter for clarification; verify the existing
      resolution or keep the item in its current ownership state instead.
    Apply a reply gate before every external post: a reply must either say the
-   fix is complete and give its expected live timing, or ask the one essential
-   missing question. Never post a blocked/unresolved status without a question
-   that tells the reporter exactly what is needed. Never post a bare “not fixed
-   yet,” “still needs a fix,” or equivalent status-only reply. If the
+   fix is complete and give its expected live timing, acknowledge existing work
+   is already in progress without requesting duplicate evidence, or ask the one
+   essential missing question. Never post a blocked/unresolved status without a
+   question that tells the reporter exactly what is needed. Never post a bare
+   “not fixed yet,” “still needs a fix,” or equivalent status-only reply. If the
    investigation cannot yet produce a fix or concrete question, keep
    investigating instead of posting a vague update. “I confirmed the bug” is
    not a fix; either implement the change or ask for the exact information that
@@ -212,15 +233,17 @@ missing value. A `Clarification needed` reply is invalid when the requested
    investigation, not in the reporter's thread. If the fix is complete but
    internal verification is unavailable, do not claim **Fixed** and do not ask
    the reporter to solve an internal tooling or deployment gap; keep working
-   until the check is available. The run is incomplete while that parent has
+   until the check is available. Use **In progress** only when the thread also
+   contains a real ownership or active-fix signal - never as a label for an
+   internal tooling gap alone. The run is incomplete while that parent has
    only `👀`.
 6. When the user explicitly asks to reply, call Slack Web API
    `chat.postMessage` directly in each requested thread with `thread_ts` and
    the same `SLACK_BOT_TOKEN`. Do not silently turn an authorized write into a
    draft. Re-read each thread afterward to confirm the reply landed. Before
    ending the run, mechanically audit the reply ledger: for every `👀` parent,
-   record the `@agent-native` reply timestamp and whether it is **Fixed** or
-   **Clarification needed**. If any parent has only `👀`, a generic bot
+   record the `@agent-native` reply timestamp and whether it is **Fixed**,
+   **In progress**, or **Clarification needed**. If any parent has only `👀`, a generic bot
    forward, or another person's reply, keep working and post the missing reply
    before finishing.
    If a reporter replies after the post, re-read the entire thread again before
@@ -246,6 +269,9 @@ to a user-authored Slack identity:
 - Every feedback reply starts by thanking the reporter. Use the natural short
   form `ty for the feedback -` (or `thanks for the feedback -`) before the
   status. Do not open with `agreed`, `valid request`, `ah`, or a diagnosis.
+- An **In progress** reply must still start with that thank-you and then say
+  that the team is already looking into or fixing the issue. Do not use that
+  state to ask for clarification that the thread already answered.
 - Use lowercase and a short conversational paragraph. Natural phrases such as
   `ah`, `yeah`, and `good find` can follow the thank-you when they fit; do not
   force them into every reply. Prefer ` - ` over em dashes.
@@ -299,6 +325,8 @@ A useful reply shape is:
 ty for the feedback - [short plain-language status].
 
   [if fixed: this should be live after the final ship later today.]
+  [if in progress: we're already looking into this and will follow up once the
+  fix is verified.]
   [if clarification is needed: if you can share the one missing detail, that
   would help us investigate, such as a deck URL and/or request ID.]
 ```

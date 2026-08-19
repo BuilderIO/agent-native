@@ -221,22 +221,26 @@ If a requested change is implemented but not yet verified, use
 instead of **Fixed** until verification is complete.
 
 When this skill is used by `address-feedback-with-replies`, that skill's Slack
-reply states take precedence: a completed Slack thread must end as **Fixed** or
-**Clarification needed**. Do not post **Not fixed yet**, **Needs clarification**,
-or a bare **Verification pending** status in Slack. Ask one concrete,
-plain-language clarification question only when reporter or product input is
-still missing after the complete-thread and resolution-signal checks. If
+reply states take precedence: a Slack thread must receive **Fixed**, **In
+progress**, or **Clarification needed** for the current run. **In progress** is
+valid only when `@agent-native` or another participant already owns the issue
+or is actively fixing it; it is an open handoff that the next run must resolve
+to **Fixed** or **Clarification needed**. Do not post **Not fixed yet**, **Needs
+clarification**, or a bare **Verification pending** status in Slack. Ask one
+concrete, plain-language clarification question only when reporter or product
+input is still missing after the complete-thread and resolution-signal checks. If
 `@agent-native` or another participant already found, fixed, or is fixing the
 issue, do not ask the reporter to restate it - verify the claim or continue the
-existing ownership instead. Start any remaining clarification reply with a
-thank-you, then ask the question; **Clarification needed** remains an internal
-ledger state and must not appear as the reporter-facing opening. **Clarification
-needed** is the one timing exception: do not give a live estimate until the
-question is answered and the fix is complete. If only internal test,
-deployment, or tooling verification is unavailable, keep that blocker internal,
-do not post an external Slack status yet, and resume the thread after
-verification is available. Do not turn it into a reporter question. Keep the
-no-technical-details rule in all cases.
+existing ownership instead. Start any **In progress** or clarification reply
+with a thank-you. For clarification, ask the question second;
+**Clarification needed** remains an internal ledger state and must not appear as
+the reporter-facing opening. **Clarification needed** is the one timing
+exception: do not give a live estimate until the question is answered and the
+fix is complete. If only internal test, deployment, or tooling verification is
+unavailable, keep that blocker internal, do not post an external Slack status
+solely for that reason, and resume the thread after verification is available.
+Do not turn it into a reporter question. Keep the no-technical-details rule in
+all cases.
 
 Use this format:
 
