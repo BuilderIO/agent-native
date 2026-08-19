@@ -10,7 +10,7 @@ import {
   IconLoader2,
   IconRestore,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import {
   AlertDialog,
@@ -31,7 +31,6 @@ type FactoryGraphVersion = {
   id: string;
   factoryId: string;
   version: number;
-  graph: FactoryCanvasGraph;
   source: string;
   changeSummary: string;
   createdAt: string;
@@ -39,9 +38,15 @@ type FactoryGraphVersion = {
   isCurrent: boolean;
 };
 
+type FactoryGraphVersionSnapshot = FactoryGraphVersion & {
+  graph: FactoryCanvasGraph;
+};
+
 type FactoryGraphHistoryResponse = {
   factoryId: string;
   currentVersion: number | null;
+  hasMore: boolean;
+  nextBeforeVersion: number | null;
   versions: FactoryGraphVersion[];
 };
 
@@ -49,14 +54,17 @@ type RestoreResult = {
   versionId: string;
   graphVersion: number;
   name: string;
+  graph: FactoryCanvasGraph;
 };
 
 interface FactoryHistoryViewProps {
   factoryId: string;
   currentVersion: number;
   hasUnsavedChanges: boolean;
-  onRestored: (result: RestoreResult) => Promise<void>;
+  onRestored: (result?: RestoreResult) => Promise<void>;
 }
+
+const HISTORY_PAGE_SIZE = 25;
 
 export function FactoryHistoryView({
   factoryId,
@@ -65,9 +73,19 @@ export function FactoryHistoryView({
   onRestored,
 }: FactoryHistoryViewProps) {
   const t = useT();
+  const [beforeVersion, setBeforeVersion] = useState<number | undefined>();
   const historyQuery = useActionQuery<FactoryGraphHistoryResponse>(
     "list-factory-graph-versions",
-    { factoryId },
+    {
+      factoryId,
+      limit: HISTORY_PAGE_SIZE,
+      beforeVersion,
+    },
+  );
+  const [versions, setVersions] = useState<FactoryGraphVersion[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextBeforeVersion, setNextBeforeVersion] = useState<number | null>(
+    null,
   );
   const restoreMutation = useActionMutation("restore-factory-graph-version");
   const [selectedVersionId, setSelectedVersionId] = useState<string | null>(
@@ -84,11 +102,40 @@ export function FactoryHistoryView({
   );
   const [restoreStatus, setRestoreStatus] = useState<string | null>(null);
 
-  const versions = historyQuery.data?.versions ?? [];
+  useEffect(() => {
+    const page = historyQuery.data;
+    if (!page) return;
+    setVersions((current) => {
+      if (beforeVersion === undefined) return page.versions;
+      const existingIds = new Set(current.map((version) => version.id));
+      return [
+        ...current,
+        ...page.versions.filter((version) => !existingIds.has(version.id)),
+      ];
+    });
+    setHasMore(page.hasMore);
+    setNextBeforeVersion(page.nextBeforeVersion);
+  }, [beforeVersion, historyQuery.data]);
+
   const selectedVersion =
     versions.find((version) => version.id === selectedVersionId) ??
     versions[0] ??
     null;
+  const selectedSnapshotQuery = useActionQuery<FactoryGraphVersionSnapshot>(
+    "get-factory-graph-version",
+    selectedVersion
+      ? { factoryId, versionId: selectedVersion.id }
+      : { factoryId, versionId: "" },
+    { enabled: Boolean(selectedVersion) },
+  );
+
+  function resetHistory() {
+    setBeforeVersion(undefined);
+    setVersions([]);
+    setHasMore(false);
+    setNextBeforeVersion(null);
+    setSelectedVersionId(null);
+  }
 
   function isCurrent(version: FactoryGraphVersion) {
     return version.isCurrent || version.version === currentVersion;
@@ -101,6 +148,11 @@ export function FactoryHistoryView({
     setPendingRestore(version);
   }
 
+  function loadOlderVersions() {
+    if (historyQuery.isFetching || nextBeforeVersion === null) return;
+    setBeforeVersion(nextBeforeVersion);
+  }
+
   async function confirmRestore(event: React.MouseEvent<HTMLButtonElement>) {
     event.preventDefault();
     const version = pendingRestore;
@@ -109,28 +161,33 @@ export function FactoryHistoryView({
     setRestoreError(null);
     setRestoreRefreshError(null);
     setRestoringVersionId(version.id);
-    let committed = false;
+    let mutationResolved = false;
     try {
       const rawResult = await restoreMutation.mutateAsync({
         factoryId,
         versionId: version.id,
       });
-      committed = true;
+      mutationResolved = true;
       const result = readRestoreResult(rawResult);
       setPendingRestore(null);
-      setSelectedVersionId(result.versionId);
       setRestoreStatus(t("factoryRoute.historyRestored"));
       try {
         await onRestored(result);
-        await historyQuery.refetch();
       } catch {
         setRestoreRefreshError(t("factoryRoute.historyRefreshFailed"));
       }
+      resetHistory();
     } catch (error) {
-      if (committed) {
+      if (mutationResolved) {
         setPendingRestore(null);
-        setRestoreStatus(t("factoryRoute.historyRestored"));
-        setRestoreRefreshError(t("factoryRoute.historyRefreshFailed"));
+        setRestoreStatus(null);
+        setRestoreError(t("factoryRoute.historyRestoreUnverified"));
+        try {
+          await onRestored();
+        } catch {
+          setRestoreRefreshError(t("factoryRoute.historyRefreshFailed"));
+        }
+        resetHistory();
       } else {
         setRestoreError(
           error instanceof Error
@@ -143,7 +200,10 @@ export function FactoryHistoryView({
     }
   }
 
-  if (historyQuery.isLoading) {
+  if (
+    historyQuery.isLoading ||
+    (versions.length === 0 && historyQuery.isFetching)
+  ) {
     return (
       <div
         className="grid gap-4 p-4 lg:grid-cols-[minmax(250px,.34fr)_minmax(0,1fr)] lg:p-6"
@@ -155,7 +215,7 @@ export function FactoryHistoryView({
     );
   }
 
-  if (historyQuery.isError) {
+  if (historyQuery.isError && versions.length === 0) {
     return (
       <div className="p-4 lg:p-6">
         <Card>
@@ -225,6 +285,8 @@ export function FactoryHistoryView({
                   className={`flex w-full items-start gap-3 rounded-lg border-s-2 px-3 py-3 text-start transition-colors ${selected ? "border-s-primary bg-muted/70" : "border-transparent hover:bg-muted/50"}`}
                   onClick={() => {
                     setSelectedVersionId(version.id);
+                    setRestoreError(null);
+                    setRestoreRefreshError(null);
                     setRestoreStatus(null);
                   }}
                 >
@@ -257,6 +319,39 @@ export function FactoryHistoryView({
                 </button>
               );
             })}
+            {historyQuery.isError ? (
+              <div
+                className="flex items-center gap-2 px-3 py-2 text-xs text-destructive"
+                role="alert"
+              >
+                <IconAlertCircle className="size-3.5 shrink-0" />
+                <span>{t("factoryRoute.historyLoadError")}</span>
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-destructive"
+                  onClick={() => void historyQuery.refetch()}
+                >
+                  {t("triage.refresh")}
+                </Button>
+              </div>
+            ) : null}
+            {hasMore ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="mt-1 w-full"
+                disabled={historyQuery.isFetching || nextBeforeVersion === null}
+                onClick={loadOlderVersions}
+              >
+                {historyQuery.isFetching ? (
+                  <IconLoader2 className="size-3.5 animate-spin" />
+                ) : null}
+                {t("factoryRoute.historyLoadOlder")}
+              </Button>
+            ) : null}
           </CardContent>
         </Card>
 
@@ -278,69 +373,98 @@ export function FactoryHistoryView({
               ) : null}
             </CardHeader>
             <CardContent className="space-y-4 px-3 pb-4 pt-0 sm:px-4">
-              <div className="overflow-hidden rounded-lg border bg-muted/10 p-2">
-                <FactoryCanvas graph={selectedVersion.graph} preview />
-              </div>
-
-              <dl className="grid gap-3 rounded-lg bg-muted/25 p-3 text-sm sm:grid-cols-3">
-                <div>
-                  <dt className="text-xs text-muted-foreground">
-                    {t("factoryRoute.historySource")}
-                  </dt>
-                  <dd className="mt-1 font-medium">
-                    {sourceLabel(selectedVersion.source, t)}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">
-                    {t("factoryRoute.historyNodes")}
-                  </dt>
-                  <dd className="mt-1 font-medium tabular-nums">
-                    {selectedVersion.graph.nodes.length}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-xs text-muted-foreground">
-                    {t("factoryRoute.historyConnections")}
-                  </dt>
-                  <dd className="mt-1 font-medium tabular-nums">
-                    {selectedVersion.graph.edges.length}
-                  </dd>
-                </div>
-              </dl>
-
-              <div className="space-y-1">
-                <p className="text-xs font-medium text-muted-foreground">
-                  {t("factoryRoute.historyChangeSummary")}
-                </p>
-                <p className="text-sm leading-6">
-                  {selectedVersion.changeSummary ||
-                    t("factoryRoute.historyNoSummary")}
-                </p>
-              </div>
-
-              {isCurrent(selectedVersion) ? (
-                <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm text-primary">
-                  <IconCheck className="size-4 shrink-0" />
-                  <span>{t("factoryRoute.historyCurrentHint")}</span>
-                </div>
-              ) : (
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full sm:w-auto"
-                  data-testid="factory-history-restore"
-                  onClick={() => requestRestore(selectedVersion)}
-                  disabled={restoreMutation.isPending}
+              {selectedSnapshotQuery.isLoading ? (
+                <div
+                  className="h-[360px] animate-pulse rounded-lg bg-muted/40"
+                  aria-label={t("factoryRoute.historyLoading")}
+                />
+              ) : selectedSnapshotQuery.isError ? (
+                <div
+                  className="flex items-center gap-2 rounded-lg border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive"
+                  role="alert"
                 >
-                  {restoreMutation.isPending ? (
-                    <IconLoader2 className="size-4 animate-spin" />
+                  <IconAlertCircle className="size-4 shrink-0" />
+                  <span>{t("factoryRoute.historySnapshotLoadError")}</span>
+                  <Button
+                    type="button"
+                    variant="link"
+                    size="sm"
+                    className="h-auto p-0 text-destructive"
+                    onClick={() => void selectedSnapshotQuery.refetch()}
+                  >
+                    {t("triage.refresh")}
+                  </Button>
+                </div>
+              ) : selectedSnapshotQuery.data ? (
+                <>
+                  <div className="overflow-hidden rounded-lg border bg-muted/10 p-2">
+                    <FactoryCanvas
+                      graph={selectedSnapshotQuery.data.graph}
+                      preview
+                    />
+                  </div>
+
+                  <dl className="grid gap-3 rounded-lg bg-muted/25 p-3 text-sm sm:grid-cols-3">
+                    <div>
+                      <dt className="text-xs text-muted-foreground">
+                        {t("factoryRoute.historySource")}
+                      </dt>
+                      <dd className="mt-1 font-medium">
+                        {sourceLabel(selectedVersion.source, t)}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">
+                        {t("factoryRoute.historyNodes")}
+                      </dt>
+                      <dd className="mt-1 font-medium tabular-nums">
+                        {selectedSnapshotQuery.data.graph.nodes.length}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-xs text-muted-foreground">
+                        {t("factoryRoute.historyConnections")}
+                      </dt>
+                      <dd className="mt-1 font-medium tabular-nums">
+                        {selectedSnapshotQuery.data.graph.edges.length}
+                      </dd>
+                    </div>
+                  </dl>
+
+                  <div className="space-y-1">
+                    <p className="text-xs font-medium text-muted-foreground">
+                      {t("factoryRoute.historyChangeSummary")}
+                    </p>
+                    <p className="text-sm leading-6">
+                      {selectedVersion.changeSummary ||
+                        t("factoryRoute.historyNoSummary")}
+                    </p>
+                  </div>
+
+                  {isCurrent(selectedVersion) ? (
+                    <div className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2.5 text-sm text-primary">
+                      <IconCheck className="size-4 shrink-0" />
+                      <span>{t("factoryRoute.historyCurrentHint")}</span>
+                    </div>
                   ) : (
-                    <IconRestore className="size-4" />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full sm:w-auto"
+                      data-testid="factory-history-restore"
+                      onClick={() => requestRestore(selectedVersion)}
+                      disabled={restoreMutation.isPending}
+                    >
+                      {restoreMutation.isPending ? (
+                        <IconLoader2 className="size-4 animate-spin" />
+                      ) : (
+                        <IconRestore className="size-4" />
+                      )}
+                      {t("factoryRoute.historyRestore")}
+                    </Button>
                   )}
-                  {t("factoryRoute.historyRestore")}
-                </Button>
-              )}
+                </>
+              ) : null}
 
               {restoreStatus ? (
                 <p
@@ -358,6 +482,15 @@ export function FactoryHistoryView({
                 >
                   <IconAlertCircle className="size-4 shrink-0" />
                   {restoreRefreshError}
+                </p>
+              ) : null}
+              {restoreError && !pendingRestore ? (
+                <p
+                  className="flex items-center gap-2 text-sm text-destructive"
+                  role="alert"
+                >
+                  <IconAlertCircle className="size-4 shrink-0" />
+                  {restoreError}
                 </p>
               ) : null}
             </CardContent>
@@ -451,7 +584,8 @@ function readRestoreResult(value: unknown): RestoreResult {
   if (
     typeof result.versionId !== "string" ||
     typeof result.graphVersion !== "number" ||
-    typeof result.name !== "string"
+    typeof result.name !== "string" ||
+    !isFactoryCanvasGraph(result.graph)
   ) {
     throw new Error("Restore did not return a usable version.");
   }
@@ -459,5 +593,17 @@ function readRestoreResult(value: unknown): RestoreResult {
     versionId: result.versionId,
     graphVersion: result.graphVersion,
     name: result.name,
+    graph: result.graph,
   };
+}
+
+function isFactoryCanvasGraph(value: unknown): value is FactoryCanvasGraph {
+  if (!value || typeof value !== "object") return false;
+  const graph = value as Record<string, unknown>;
+  return (
+    typeof graph.version === "number" &&
+    typeof graph.name === "string" &&
+    Array.isArray(graph.nodes) &&
+    Array.isArray(graph.edges)
+  );
 }

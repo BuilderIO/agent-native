@@ -233,6 +233,12 @@ const messages = {
     historyRestoreFailed: "이 Factory 버전을 복원하지 못했습니다.",
     historyRefreshFailed:
       "버전은 복원되었지만 Factory 화면을 새로 고칠 수 없습니다.",
+    historyLoadOlder: "이전 버전 불러오기",
+    historySnapshotLoadError: "이 버전의 미리 보기를 불러오지 못했습니다.",
+    historyRestoreUnverified:
+      "복원이 완료되었지만 결과를 확인할 수 없습니다. 다시 시도하기 전에 기록을 새로 고치세요.",
+    saveConflictFallback:
+      "저장하는 동안 Factory가 변경되었습니다. Factory를 새로 고친 후 다시 시도하세요.",
     automationsTitle: "자동화",
     automationsDescription: "Factory 프롬프트를 예약하고 실행합니다.",
     automationsLoading: "자동화를 불러오는 중...",

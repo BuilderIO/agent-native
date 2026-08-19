@@ -240,6 +240,13 @@ const messages = {
     historyRestoreFailed: "Não foi possível restaurar esta versão do Factory.",
     historyRefreshFailed:
       "A versão foi restaurada, mas não foi possível atualizar a visualização do Factory.",
+    historyLoadOlder: "Carregar versões anteriores",
+    historySnapshotLoadError:
+      "Não foi possível carregar a prévia desta versão.",
+    historyRestoreUnverified:
+      "A restauração foi concluída, mas não foi possível verificar o resultado. Atualize o histórico antes de tentar novamente.",
+    saveConflictFallback:
+      "O Factory mudou durante o salvamento. Atualize o Factory e tente novamente.",
     automationsTitle: "Automações",
     automationsDescription: "Agende e execute prompts da fábrica.",
     automationsLoading: "Carregando automações...",

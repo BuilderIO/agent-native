@@ -240,6 +240,13 @@ const messages = {
       "Diese Factory-Version konnte nicht wiederhergestellt werden.",
     historyRefreshFailed:
       "Die Version wurde wiederhergestellt, aber die Factory-Ansicht konnte nicht aktualisiert werden.",
+    historyLoadOlder: "Ältere Versionen laden",
+    historySnapshotLoadError:
+      "Die Vorschau dieser Version konnte nicht geladen werden.",
+    historyRestoreUnverified:
+      "Die Wiederherstellung wurde abgeschlossen, aber das Ergebnis konnte nicht überprüft werden. Aktualisiere den Verlauf, bevor du es erneut versuchst.",
+    saveConflictFallback:
+      "Factory wurde während des Speicherns geändert. Aktualisiere Factory und versuche es erneut.",
     automationsTitle: "Automatisierungen",
     automationsDescription: "Factory-Prompts planen und ausführen.",
     automationsLoading: "Automatisierungen werden geladen...",

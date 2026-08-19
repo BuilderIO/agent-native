@@ -225,6 +225,12 @@ const messages = {
     historyRestored: "تمت استعادة الإصدار. تم إنشاء إصدار حالي جديد.",
     historyRestoreFailed: "تعذر استعادة إصدار Factory هذا.",
     historyRefreshFailed: "تمت استعادة الإصدار، ولكن تعذر تحديث عرض Factory.",
+    historyLoadOlder: "تحميل الإصدارات الأقدم",
+    historySnapshotLoadError: "تعذر تحميل معاينة هذا الإصدار.",
+    historyRestoreUnverified:
+      "اكتملت الاستعادة، ولكن تعذر التحقق من النتيجة. حدّث السجل قبل المحاولة مرة أخرى.",
+    saveConflictFallback:
+      "تغيّر Factory أثناء الحفظ. حدّث Factory وحاول مرة أخرى.",
     automationsTitle: "الأتمتة",
     automationsDescription: "جدولة مطالبات المصنع وتشغيلها.",
     automationsLoading: "جارٍ تحميل الأتمتة...",

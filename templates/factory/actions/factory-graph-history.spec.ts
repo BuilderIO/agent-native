@@ -47,7 +47,7 @@ beforeEach(() => {
 });
 
 describe("Factory graph history actions", () => {
-  it("lists validated graph snapshots within the active organization", async () => {
+  it("lists bounded version metadata within the active organization", async () => {
     const definition = {
       id: "product-feedback",
       graphVersion: 2,
@@ -77,7 +77,9 @@ describe("Factory graph history actions", () => {
           }
           return {
             where: vi.fn(() => ({
-              orderBy: vi.fn().mockResolvedValue([version]),
+              orderBy: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([version]),
+              })),
             })),
           };
         }),
@@ -94,15 +96,66 @@ describe("Factory graph history actions", () => {
     expect(result).toMatchObject({
       factoryId: "product-feedback",
       currentVersion: 2,
+      hasMore: false,
       versions: [
         {
           id: "version-2",
           version: 2,
           source: "manual",
           isCurrent: true,
-          graph: { version: 2, name: "Version two" },
         },
       ],
+    });
+  });
+
+  it("loads one validated graph snapshot within the active organization", async () => {
+    const definition = {
+      id: "product-feedback",
+      graphVersion: 2,
+      orgId: "org-1",
+    };
+    const version = {
+      id: "version-2",
+      factoryId: "product-feedback",
+      version: 2,
+      graphJson: JSON.stringify(graph),
+      source: "manual",
+      changeSummary: "Updated the graph.",
+      createdAt: "2026-08-19T10:00:00.000Z",
+      createdBy: "owner@example.com",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+    };
+    getDbMock.mockReturnValue({
+      select: vi.fn(() => ({
+        from: vi.fn((table) => {
+          if (table === factoryDefinitions) {
+            return {
+              where: vi.fn(() => ({
+                limit: vi.fn().mockResolvedValue([definition]),
+              })),
+            };
+          }
+          return {
+            where: vi.fn(() => ({
+              limit: vi.fn().mockResolvedValue([version]),
+            })),
+          };
+        }),
+      })),
+    });
+
+    const { default: action } = await import("./get-factory-graph-version.js");
+    const result = await action.run(
+      { factoryId: "product-feedback", versionId: "version-2" },
+      { userEmail: "owner@example.com", orgId: "org-1" },
+    );
+
+    expect(result).toMatchObject({
+      id: "version-2",
+      version: 2,
+      isCurrent: true,
+      graph: { version: 2, name: "Version two" },
     });
   });
 

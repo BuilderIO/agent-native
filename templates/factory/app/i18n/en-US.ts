@@ -235,6 +235,12 @@ const messages = {
     historyRestoreFailed: "Could not restore this Factory version.",
     historyRefreshFailed:
       "The version was restored, but the Factory view could not refresh.",
+    historyLoadOlder: "Load older versions",
+    historySnapshotLoadError: "Could not load this version preview.",
+    historyRestoreUnverified:
+      "Restore completed, but the result could not be verified. Refresh history before trying again.",
+    saveConflictFallback:
+      "Factory changed while saving. Refresh Factory and try again.",
     automationsTitle: "Automations",
     automationsDescription: "Schedule and run Factory prompts.",
     automationsLoading: "Loading automations...",

@@ -236,6 +236,13 @@ const messages = {
     historyRestoreFailed: "この Factory バージョンを復元できませんでした。",
     historyRefreshFailed:
       "バージョンは復元されましたが、Factory ビューを更新できませんでした。",
+    historyLoadOlder: "以前のバージョンを読み込む",
+    historySnapshotLoadError:
+      "このバージョンのプレビューを読み込めませんでした。",
+    historyRestoreUnverified:
+      "復元は完了しましたが、結果を確認できませんでした。もう一度試す前に履歴を更新してください。",
+    saveConflictFallback:
+      "保存中に Factory が変更されました。Factory を更新してもう一度お試しください。",
     automationsTitle: "自動化",
     automationsDescription:
       "Factory のプロンプトをスケジュールして実行します。",

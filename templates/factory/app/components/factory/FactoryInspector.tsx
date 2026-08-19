@@ -1,6 +1,12 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconArrowRight, IconPlus, IconTrash } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconArrowRight,
+  IconLoader2,
+  IconPlus,
+  IconTrash,
+} from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { useSearchParams } from "react-router";
 
@@ -22,8 +28,11 @@ interface FactoryInspectorProps {
   factoryId?: string;
   dirty: boolean;
   saving: boolean;
+  saveError: string | null;
+  refreshing: boolean;
   onGraphChange: (graph: FactoryCanvasGraph) => void;
   onSave: () => void;
+  onRefresh: () => void;
   onAddNode: () => void;
   onDeleteNode: (nodeId: string) => void;
   onConnect: (sourceId: string, targetId: string) => void;
@@ -54,8 +63,11 @@ export function FactoryInspector({
   factoryId,
   dirty,
   saving,
+  saveError,
+  refreshing,
   onGraphChange,
   onSave,
+  onRefresh,
   onAddNode,
   onDeleteNode,
   onConnect,
@@ -383,12 +395,37 @@ export function FactoryInspector({
         </section>
       </div>
 
+      {saveError ? (
+        <div
+          className="flex items-start gap-2 border-t border-border/60 bg-destructive/5 p-4 text-sm text-destructive"
+          role="alert"
+        >
+          <IconAlertCircle className="mt-0.5 size-4 shrink-0" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <p>{saveError}</p>
+            <Button
+              type="button"
+              variant="link"
+              size="sm"
+              className="h-auto p-0 text-destructive"
+              disabled={refreshing}
+              onClick={onRefresh}
+            >
+              {refreshing ? (
+                <IconLoader2 className="size-3.5 animate-spin" />
+              ) : null}
+              {t("triage.refresh")}
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
       {(dirty || saving) && (
         <div className="bg-muted/15 p-4">
           <Button
             type="button"
             className="w-full"
-            disabled={saving}
+            disabled={saving || refreshing}
             onClick={onSave}
           >
             {saving

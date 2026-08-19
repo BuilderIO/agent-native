@@ -220,6 +220,11 @@ const messages = {
     historyRestored: "版本已還原。新的目前版本已建立。",
     historyRestoreFailed: "無法還原此 Factory 版本。",
     historyRefreshFailed: "版本已還原，但無法重新整理 Factory 檢視畫面。",
+    historyLoadOlder: "載入較早的版本",
+    historySnapshotLoadError: "無法載入此版本的預覽。",
+    historyRestoreUnverified:
+      "還原已完成，但無法驗證結果。請重新整理歷史記錄後再試。",
+    saveConflictFallback: "儲存時 Factory 已變更。請重新整理 Factory 後再試。",
     automationsTitle: "自動化",
     automationsDescription: "排程並執行工廠提示詞。",
     automationsLoading: "正在載入自動化...",

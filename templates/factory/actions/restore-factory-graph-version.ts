@@ -80,6 +80,8 @@ export default defineAction({
         throw new Error("Factory graph version not found.");
       }
 
+      const selectedGraph = parseFactoryGraph(version.graphJson);
+
       if (version.version === definition.graphVersion) {
         return {
           ok: true,
@@ -89,13 +91,14 @@ export default defineAction({
           restoredFromVersion: version.version,
           graphVersion: definition.graphVersion,
           name: definition.name,
+          graph: selectedGraph,
           source: "restore" as const,
         };
       }
 
       const nextVersion = definition.graphVersion + 1;
       const restoredGraph = normalizeFactoryGraph({
-        ...parseFactoryGraph(version.graphJson),
+        ...selectedGraph,
         version: nextVersion,
       });
       const now = new Date().toISOString();
@@ -152,6 +155,7 @@ export default defineAction({
         restoredFromVersion: version.version,
         graphVersion: nextVersion,
         name: restoredGraph.name,
+        graph: restoredGraph,
         source: "restore" as const,
       };
     });

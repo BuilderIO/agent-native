@@ -220,6 +220,11 @@ const messages = {
     historyRestored: "版本已恢复。新的当前版本已创建。",
     historyRestoreFailed: "无法恢复此 Factory 版本。",
     historyRefreshFailed: "版本已恢复，但无法刷新 Factory 视图。",
+    historyLoadOlder: "加载更早的版本",
+    historySnapshotLoadError: "无法加载此版本的预览。",
+    historyRestoreUnverified:
+      "恢复已完成，但无法验证结果。请刷新历史记录后再试。",
+    saveConflictFallback: "保存时 Factory 已发生变化。请刷新 Factory 后重试。",
     automationsTitle: "自动化",
     automationsDescription: "安排并运行工厂提示词。",
     automationsLoading: "正在加载自动化...",

@@ -180,6 +180,8 @@ export default function FactoryRoute() {
   const [creating, setCreating] = useState(false);
   const [draftGraph, setDraftGraph] = useState<FactoryCanvasGraph | null>(null);
   const [dirty, setDirty] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [refreshingFactory, setRefreshingFactory] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [auditRefreshToken, setAuditRefreshToken] = useState(0);
@@ -255,7 +257,7 @@ export default function FactoryRoute() {
   const graphData =
     rawGraphData?.factory.id === factoryId ? rawGraphData : undefined;
   const graph = draftGraph ?? graphData?.graph ?? null;
-  const graphVersion = graphData?.factory.graphVersion ?? graph?.version ?? 1;
+  const graphVersion = graph?.version ?? graphData?.factory.graphVersion ?? 1;
   const saveGraphMutation = useActionMutation("save-factory-graph");
   const factoryList = (factoryListQuery.data ?? []) as FactorySummary[];
 
@@ -313,6 +315,7 @@ export default function FactoryRoute() {
   }
 
   function updateGraph(next: FactoryCanvasGraph) {
+    setSaveError(null);
     setDraftGraph(next);
     setDirty(
       !graphData?.graph ||
@@ -396,29 +399,64 @@ export default function FactoryRoute() {
 
   async function saveGraph() {
     if (!graph || !selectedFactoryId) return;
-    await saveGraphMutation.mutateAsync({
-      factoryId: selectedFactoryId,
-      name: graph.name,
-      description: graph.description,
-      prompt: creating ? "" : (graphData?.factory.prompt ?? ""),
-      source: "manual",
-      changeSummary: creating
-        ? "Created from the Factory visual editor."
-        : "Updated in the Factory visual editor.",
-      graph,
-    });
-    setCreating(false);
-    setDirty(false);
-    await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
+    setSaveError(null);
+    try {
+      await saveGraphMutation.mutateAsync({
+        factoryId: selectedFactoryId,
+        name: graph.name,
+        description: graph.description,
+        prompt: creating ? "" : (graphData?.factory.prompt ?? ""),
+        source: "manual",
+        changeSummary: creating
+          ? "Created from the Factory visual editor."
+          : "Updated in the Factory visual editor.",
+        graph,
+      });
+      setCreating(false);
+      setDirty(false);
+      await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
+    } catch (error) {
+      setSaveError(
+        error instanceof Error
+          ? error.message
+          : t("factoryRoute.saveConflictFallback"),
+      );
+    }
   }
 
-  async function handleFactoryRestored() {
+  async function refreshFactoryAfterSaveConflict() {
+    setRefreshingFactory(true);
+    try {
+      const results = await Promise.all([
+        graphQuery.refetch(),
+        factoryListQuery.refetch(),
+      ]);
+      if (results.some((result) => result.isError)) {
+        throw new Error("Factory refresh failed.");
+      }
+      setSaveError(null);
+    } catch {
+      setSaveError(t("factoryRoute.saveConflictFallback"));
+    } finally {
+      setRefreshingFactory(false);
+    }
+  }
+
+  async function handleFactoryRestored(result?: { graph: FactoryCanvasGraph }) {
     setCreating(false);
-    setDraftGraph(null);
+    if (result?.graph) setDraftGraph(result.graph);
+    else setDraftGraph(null);
     setDirty(false);
+    setSaveError(null);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
-    await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
+    const results = await Promise.all([
+      graphQuery.refetch(),
+      factoryListQuery.refetch(),
+    ]);
+    if (results.some((result) => result.isError)) {
+      throw new Error("Factory view refresh failed.");
+    }
   }
 
   if (!selectedFactoryId && activeTab === "agents") {
@@ -742,8 +780,11 @@ export default function FactoryRoute() {
               factoryId={factoryId}
               dirty={dirty}
               saving={saveGraphMutation.isPending}
+              saveError={saveError}
+              refreshing={refreshingFactory}
               onGraphChange={updateGraph}
               onSave={() => void saveGraph()}
+              onRefresh={refreshFactoryAfterSaveConflict}
               onAddNode={addNode}
               onDeleteNode={deleteNode}
               onConnect={connectNodes}

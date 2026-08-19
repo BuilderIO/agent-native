@@ -229,6 +229,12 @@ const messages = {
     historyRestoreFailed: "यह Factory संस्करण पुनर्स्थापित नहीं हो सका।",
     historyRefreshFailed:
       "संस्करण पुनर्स्थापित हो गया, लेकिन Factory दृश्य रीफ़्रेश नहीं हो सका।",
+    historyLoadOlder: "पुराने संस्करण लोड करें",
+    historySnapshotLoadError: "इस संस्करण का पूर्वावलोकन लोड नहीं हो सका।",
+    historyRestoreUnverified:
+      "पुनर्स्थापना पूरी हो गई, लेकिन परिणाम सत्यापित नहीं किया जा सका। फिर से प्रयास करने से पहले इतिहास रीफ़्रेश करें।",
+    saveConflictFallback:
+      "सहेजते समय Factory बदल गया। Factory रीफ़्रेश करके फिर प्रयास करें।",
     automationsTitle: "ऑटोमेशन",
     automationsDescription: "Factory प्रॉम्प्ट शेड्यूल और रन करें।",
     automationsLoading: "ऑटोमेशन लोड हो रहे हैं...",
