@@ -1,4 +1,5 @@
 import type { CalendarEvent } from "@shared/api";
+import { isCalendarTimezone } from "@shared/timezone";
 import {
   addDays,
   endOfMonth,
@@ -43,13 +44,7 @@ export function getBrowserTimezone(): string {
 }
 
 export function isValidTimezone(timezone: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: timezone }).format();
-    return true;
-  } catch (error) {
-    if (error instanceof RangeError) return false;
-    throw error;
-  }
+  return isCalendarTimezone(timezone);
 }
 
 export function normalizeTimezone(timezone?: string): string {

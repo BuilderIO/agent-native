@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const getRequestTimezoneMock = vi.hoisted(() => vi.fn());
 const getRequestUserEmailMock = vi.hoisted(() => vi.fn());
 const getUserSettingMock = vi.hoisted(() => vi.fn());
 const putSettingMock = vi.hoisted(() => vi.fn());
@@ -9,6 +10,7 @@ vi.mock("@agent-native/core", () => ({
   defineAction: <T>(action: T) => action,
 }));
 vi.mock("@agent-native/core/server", () => ({
+  getRequestTimezone: getRequestTimezoneMock,
   getRequestUserEmail: getRequestUserEmailMock,
 }));
 vi.mock("@agent-native/core/settings", () => ({
@@ -18,11 +20,12 @@ vi.mock("@agent-native/core/settings", () => ({
 }));
 
 import action from "../../actions/update-settings";
-import { isCalendarTimezone } from "./calendar-settings";
+import { isCalendarTimezone } from "../../shared/timezone";
 
 describe("update-settings timezone validation", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    getRequestTimezoneMock.mockReturnValue("America/New_York");
     getRequestUserEmailMock.mockReturnValue("owner@example.com");
     getUserSettingMock.mockResolvedValue(null);
     putSettingMock.mockResolvedValue(undefined);

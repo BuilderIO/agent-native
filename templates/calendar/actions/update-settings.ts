@@ -1,14 +1,9 @@
 import { defineAction } from "@agent-native/core";
 import { getRequestUserEmail } from "@agent-native/core/server";
-import {
-  getUserSetting,
-  putUserSetting,
-  putSetting,
-} from "@agent-native/core/settings";
 import { z } from "zod";
 
-import { isCalendarTimezone } from "../server/lib/calendar-settings.js";
-import { normalizeCalendarSettings } from "../shared/settings.js";
+import { saveCalendarSettings } from "../server/lib/calendar-settings.js";
+import { isCalendarTimezone } from "../shared/timezone.js";
 
 export default defineAction({
   description: "Update calendar settings",
@@ -40,14 +35,6 @@ export default defineAction({
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");
-    const currentSettings = await getUserSetting(email, "calendar-settings");
-    const settings = normalizeCalendarSettings({
-      ...normalizeCalendarSettings(currentSettings),
-      ...args,
-    });
-    const settingsRecord = settings as unknown as Record<string, unknown>;
-    await putUserSetting(email, "calendar-settings", settingsRecord);
-    await putSetting("calendar-settings", settingsRecord);
-    return settings;
+    return saveCalendarSettings(email, args);
   },
 });
