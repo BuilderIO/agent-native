@@ -550,12 +550,9 @@ const messages = {
   },
   deckEditor: {
     lookingForDeck: "यह डेक खोजा जा रहा है",
-    teamAccessCheckFailed: "टीम एक्सेस जांच नहीं हो सकी",
     joinTeamToOpen: "यह डेक खोलने के लिए अपनी टीम से जुड़ें",
     deckUnavailable: "डेक उपलब्ध नहीं",
     checkingSharedAccess: "जांच रहे हैं कि यह प्रस्तुति आपके खाते से साझा है या नहीं।",
-    verifySharedAccessFailed:
-      "हम सत्यापित नहीं कर सके कि यह प्रस्तुति आपके खाते से साझा है या नहीं। टीम एक्सेस और डेक फिर से लोड करने के लिए पुनः प्रयास करें।",
     joinTeamDescription:
       "यह लिंक टीम प्रस्तुति की ओर इशारा करता है। ऊपर दिखाई गई टीम से जुड़ें और डेक यहां अपने-आप खुल जाएगा।",
     deckUnavailableDescription:
@@ -572,6 +569,33 @@ const messages = {
     accessRequestSent: "अनुरोध भेज दिया गया",
     requestAccess: "एक्सेस का अनुरोध करें",
     signInToRequestAccess: "एक्सेस का अनुरोध करने के लिए साइन इन करें",
+    requestAccessDialogTitle: "एक्सेस का अनुरोध करें",
+    requestAccessDialogDescription:
+      "साइन इन करें या वह ईमेल पता दर्ज करें जिसे मालिक इस डेक के साथ साझा करे।",
+    requestAccessSignIn: "साइन इन या साइन अप करें",
+    requestAccessOr: "या",
+    requestAccessEmailLabel: "ईमेल पता",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "एक्सेस मिलने के बाद डेक देखने के लिए इसी ईमेल से साइन इन करें।",
+    requestAccessWithEmail: "ईमेल से अनुरोध करें",
+    requestAccessEmailRequired: "मान्य ईमेल पता दर्ज करें।",
+    requestingAccess: "एक्सेस का अनुरोध किया जा रहा है…",
+    accessRequestSentWithEmail:
+      "मालिक से {{email}} के साथ यह डेक साझा करने का अनुरोध किया गया है।",
+    accessRequestFailed: "एक्सेस का अनुरोध नहीं किया जा सका। फिर से कोशिश करें।",
+    accessApprovalTitle: "एक्सेस दे दी गई",
+    accessApprovalAlreadyTitle: "एक्सेस पहले से दी गई है",
+    accessApprovalMessage: "{{email}} अब यह डेक खोल सकते हैं।",
+    accessApprovalAlreadyMessage: "{{email}} के पास इस डेक की एक्सेस पहले से है।",
+    accessApprovalErrorTitle: "एक्सेस नहीं दी जा सकी",
+    accessApprovalInvalid: "यह एक्सेस अनुरोध अमान्य या समाप्त हो चुका है।",
+    accessApprovalSignInTitle: "एक्सेस देने के लिए साइन इन करें",
+    accessApprovalSignInMessage:
+      "इस अनुरोध को मंजूर करने के लिए डेक मालिक या एडमिन के रूप में साइन इन करें।",
+    accessApprovalOpenDeck: "डेक खोलें",
+    accessApprovalSignIn: "साइन इन करें",
+    accessApprovalLoading: "एक्सेस दी जा रही है...",
     backToDecks: "डेक पर वापस जाएं",
     tryAgain: "फिर कोशिश करें",
     imageUploadFailed: "चित्र अपलोड विफल",

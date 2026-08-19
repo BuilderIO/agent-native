@@ -2,7 +2,14 @@ import { createHash, randomUUID } from "node:crypto";
 
 import { defineAction } from "@agent-native/core";
 import { notifyWithDelivery } from "@agent-native/core/notifications";
-import { isEmailConfigured } from "@agent-native/core/server";
+import {
+  emailStrong,
+  isEmailConfigured,
+  renderEmail,
+  sendEmail,
+  signScopedAgentAccessToken,
+  verifyScopedAgentAccessToken,
+} from "@agent-native/core/server";
 import {
   getRequestUserEmail,
   getRequestUserName,
@@ -12,7 +19,53 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { getDeckUrl } from "./_app-url.js";
+import {
+  SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
+  deckAccessApprovalPath,
+  SLIDES_ACCESS_APPROVAL_TOKEN_PREFIX,
+  SLIDES_ACCESS_APPROVAL_TOKEN_TTL_SECONDS,
+} from "../shared/deck-access.js";
+import { getDeckUrl, getSlidesAppUrl } from "./_app-url.js";
+
+export const SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID = "slides.deck-access-request";
+
+const ANONYMOUS_ACCESS_REQUEST_WINDOW_MS = 10 * 60 * 1000;
+const ANONYMOUS_ACCESS_REQUEST_MAX = 5;
+const ANONYMOUS_ACCESS_REQUEST_MAX_BUCKETS = 5000;
+const anonymousAccessRequestBuckets = new Map<
+  string,
+  { count: number; resetAt: number }
+>();
+
+export function __resetAnonymousAccessRequestRateLimitForTests(): void {
+  anonymousAccessRequestBuckets.clear();
+}
+
+function allowAnonymousAccessRequest(deckId: string): boolean {
+  const now = Date.now();
+  for (const [key, bucket] of anonymousAccessRequestBuckets) {
+    if (bucket.resetAt <= now) anonymousAccessRequestBuckets.delete(key);
+  }
+
+  let bucket = anonymousAccessRequestBuckets.get(deckId);
+  if (!bucket) {
+    if (
+      anonymousAccessRequestBuckets.size >= ANONYMOUS_ACCESS_REQUEST_MAX_BUCKETS
+    ) {
+      const oldestKey = anonymousAccessRequestBuckets.keys().next().value;
+      if (oldestKey) anonymousAccessRequestBuckets.delete(oldestKey);
+    }
+    bucket = {
+      count: 0,
+      resetAt: now + ANONYMOUS_ACCESS_REQUEST_WINDOW_MS,
+    };
+    anonymousAccessRequestBuckets.set(deckId, bucket);
+  }
+
+  if (bucket.count >= ANONYMOUS_ACCESS_REQUEST_MAX) return false;
+  bucket.count += 1;
+  return true;
+}
 
 function httpError(message: string, statusCode: number): Error {
   return Object.assign(new Error(message), { statusCode });
@@ -37,6 +90,42 @@ function normalizeEmail(email: string): string {
 
 function cleanSubjectPart(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim();
+}
+
+function absoluteDeckAccessApprovalUrl(
+  deckId: string,
+  approvalToken: string,
+): string {
+  return `${getSlidesAppUrl().replace(/\/+$/, "")}${deckAccessApprovalPath(deckId, approvalToken)}`;
+}
+
+export function renderDeckAccessRequestEmail(input: {
+  requesterName: string;
+  requesterEmail: string;
+  deckTitle: string;
+  url: string;
+  allowAccessUrl: string;
+}) {
+  const subject = `Access request for "${cleanSubjectPart(input.deckTitle)}"`;
+  return {
+    subject,
+    ...renderEmail({
+      brandName: "Slides",
+      preheader: subject,
+      heading: "Access requested",
+      paragraphs: [
+        `${emailStrong(input.requesterName)} (${emailStrong(input.requesterEmail)}) requested access to ${emailStrong(input.deckTitle)}.`,
+        "Select Allow access to add them to this deck's sharing list. You can also open the deck to review sharing first.",
+      ],
+      cta: { label: "Allow access", url: input.allowAccessUrl },
+      secondaryCta: { label: "Open deck", url: input.url },
+      closingParagraphs: [
+        "This approval link expires in 7 days and requires you to be signed in as a deck owner or admin.",
+      ],
+      footer:
+        "You received this because you own this deck. If you do not recognize the requester, you can ignore this email.",
+    }),
+  };
 }
 
 function accessRequestEventId(deckId: string, requesterEmail: string): string {
@@ -145,63 +234,134 @@ async function notifyAccessRequestOwner(input: {
   const ownerEmail = input.ownerEmail;
   if (!ownerEmail || !input.state.ownerCanNotify) return input.state;
 
-  const emailConfigured = await isEmailConfigured();
-  const state = {
-    ...input.state,
-    emailRequired: input.state.ownerCanNotify && emailConfigured,
-  };
-  const channels: string[] = [];
-  if (!state.inAppNotified) channels.push("inbox");
-  if (state.emailRequired && !state.emailNotified) channels.push("email");
-  if (channels.length === 0) return state;
+  let state = input.state;
 
-  try {
-    const delivery = await notifyWithDelivery(
-      {
-        severity: "info",
-        title: "Deck access requested",
-        body: `${input.requesterName} requested access to “${input.deckTitle}”.`,
-        channels,
-        metadata: {
-          deckId: input.deckId,
-          requesterEmail: input.requesterEmail,
-          link: getDeckUrl(input.deckId),
-          ...(channels.includes("email")
-            ? {
-                emailRecipients: [ownerEmail],
-                emailSubject: `${cleanSubjectPart(input.requesterName)} requested access to "${cleanSubjectPart(input.deckTitle)}"`,
-              }
-            : {}),
+  if (!state.inAppNotified) {
+    try {
+      const delivery = await notifyWithDelivery(
+        {
+          severity: "info",
+          title: "Deck access requested",
+          body: `${input.requesterName} requested access to “${input.deckTitle}”.`,
+          channels: ["inbox"],
+          metadata: {
+            deckId: input.deckId,
+            requesterEmail: input.requesterEmail,
+            link: getDeckUrl(input.deckId),
+          },
         },
-      },
-      { owner: ownerEmail },
-    );
-    return {
-      ...state,
-      inAppNotified:
-        state.inAppNotified || delivery.deliveredChannels.includes("inbox"),
-      emailNotified:
-        state.emailNotified || delivery.deliveredChannels.includes("email"),
-    };
-  } catch (error) {
-    console.warn("[deck-access] access request notification failed:", error);
-    return state;
+        { owner: ownerEmail },
+      );
+      state = {
+        ...state,
+        inAppNotified:
+          state.inAppNotified || delivery.deliveredChannels.includes("inbox"),
+      };
+    } catch (error) {
+      console.warn(
+        "[deck-access] in-app access request notification failed:",
+        error,
+      );
+    }
   }
+
+  if (state.emailRequired && !state.emailNotified) {
+    try {
+      const approvalToken = signScopedAgentAccessToken({
+        resourceKind: SLIDES_ACCESS_APPROVAL_TOKEN_PREFIX,
+        resourceId: input.deckId,
+        viewerEmail: input.requesterEmail,
+        ttlSeconds: SLIDES_ACCESS_APPROVAL_TOKEN_TTL_SECONDS,
+      });
+      await sendEmail({
+        ...renderDeckAccessRequestEmail({
+          requesterName: input.requesterName,
+          requesterEmail: input.requesterEmail,
+          deckTitle: input.deckTitle,
+          url: getDeckUrl(input.deckId),
+          allowAccessUrl: absoluteDeckAccessApprovalUrl(
+            input.deckId,
+            approvalToken,
+          ),
+        }),
+        to: ownerEmail,
+        replyTo: input.requesterEmail,
+        templateId: SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID,
+      });
+      state = { ...state, emailNotified: true };
+    } catch (error) {
+      console.warn("[deck-access] access request email failed:", error);
+    }
+  }
+
+  return state;
 }
 
 export default defineAction({
   description:
-    "Request access to a private Agent-Native Slides deck. Records an access-request event and notifies the owner when email is configured.",
+    "Request access to a private Agent-Native Slides deck. Signed-in viewers use their account email; anonymous viewers may provide an email address. Records an access-request event and notifies the owner in-app and by email when configured.",
   schema: z.object({
     deckId: z.string().min(1).describe("Deck ID to request access to."),
+    accessRequestToken: z
+      .string()
+      .trim()
+      .min(1)
+      .optional()
+      .describe("Short-lived capability from the private deck page."),
+    requesterEmail: z
+      .string()
+      .trim()
+      .email()
+      .optional()
+      .describe(
+        "Email address to request access for when the viewer is not signed in.",
+      ),
   }),
+  requiresAuth: false,
   agentTool: false,
-  run: async ({ deckId }) => {
-    const rawRequesterEmail = getRequestUserEmail();
-    if (!rawRequesterEmail) {
-      throw httpError("Sign in to request access to this deck.", 401);
+  run: async ({
+    deckId,
+    accessRequestToken,
+    requesterEmail: requesterEmailInput,
+  }) => {
+    const sessionEmail = getRequestUserEmail();
+    const requestToken = accessRequestToken
+      ? verifyScopedAgentAccessToken(accessRequestToken, {
+          resourceKind: SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
+          resourceId: deckId,
+        })
+      : { ok: false as const, reason: "missing" };
+    if (accessRequestToken && !requestToken.ok) {
+      throw httpError(`Deck ${deckId} not found`, 404);
     }
-    const requesterEmail = normalizeEmail(rawRequesterEmail);
+    const normalizedRequesterEmail = sessionEmail
+      ? normalizeEmail(sessionEmail)
+      : requesterEmailInput
+        ? normalizeEmail(requesterEmailInput)
+        : null;
+    if (!normalizedRequesterEmail) {
+      throw httpError(
+        "Sign in or provide an email address to request access to this deck.",
+        401,
+      );
+    }
+    const tokenViewerEmail =
+      requestToken.ok && requestToken.viewerEmail
+        ? normalizeEmail(requestToken.viewerEmail)
+        : null;
+    if (tokenViewerEmail && tokenViewerEmail !== normalizedRequesterEmail) {
+      throw httpError(
+        "This request is tied to a different email. Sign in with the email that opened the link.",
+        403,
+      );
+    }
+    if (!sessionEmail && !allowAnonymousAccessRequest(deckId)) {
+      throw httpError(
+        "Too many anonymous access requests for this deck. Try again later.",
+        429,
+      );
+    }
+    const requesterEmail = normalizedRequesterEmail;
 
     const db = getDb();
     const claimNotification = async (

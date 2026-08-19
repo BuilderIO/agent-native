@@ -549,12 +549,9 @@ const messages = {
   },
   deckEditor: {
     lookingForDeck: "正在查找此幻灯片",
-    teamAccessCheckFailed: "无法检查团队访问权限",
     joinTeamToOpen: "加入团队以打开此幻灯片",
     deckUnavailable: "幻灯片不可用",
     checkingSharedAccess: "正在检查此演示文稿是否与你的账户共享。",
-    verifySharedAccessFailed:
-      "无法验证此演示文稿是否与你的账户共享。请重试以重新加载团队访问权限和幻灯片。",
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
     deckUnavailableDescription: "此幻灯片可能已被移除，或你的账户无权访问。",
@@ -570,6 +567,34 @@ const messages = {
     accessRequestSent: "요청을 보냈습니다",
     requestAccess: "액세스 요청",
     signInToRequestAccess: "로그인하여 액세스 요청",
+    requestAccessDialogTitle: "액세스 요청",
+    requestAccessDialogDescription:
+      "로그인하거나 소유자가 이 덱을 공유할 이메일 주소를 입력하세요.",
+    requestAccessSignIn: "로그인 또는 회원가입",
+    requestAccessOr: "또는",
+    requestAccessEmailLabel: "이메일 주소",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "액세스가 허용되면 이 이메일로 로그인하여 덱을 확인하세요.",
+    requestAccessWithEmail: "이메일로 요청",
+    requestAccessEmailRequired: "유효한 이메일 주소를 입력하세요.",
+    requestingAccess: "액세스 요청 중…",
+    accessRequestSentWithEmail:
+      "소유자에게 {{email}} 님과 이 덱을 공유해 달라고 요청했습니다.",
+    accessRequestFailed: "액세스를 요청하지 못했습니다. 다시 시도하세요.",
+    accessApprovalTitle: "액세스 권한이 부여되었습니다",
+    accessApprovalAlreadyTitle: "이미 액세스 권한이 있습니다",
+    accessApprovalMessage: "이제 {{email}} 님이 이 덱을 열 수 있습니다.",
+    accessApprovalAlreadyMessage:
+      "{{email}} 님은 이미 이 덱에 액세스할 수 있습니다.",
+    accessApprovalErrorTitle: "액세스 권한을 부여하지 못했습니다",
+    accessApprovalInvalid: "이 액세스 요청은 유효하지 않거나 만료되었습니다.",
+    accessApprovalSignInTitle: "액세스 권한을 부여하려면 로그인하세요",
+    accessApprovalSignInMessage:
+      "이 요청을 승인하려면 덱 소유자 또는 관리자로 로그인하세요.",
+    accessApprovalOpenDeck: "덱 열기",
+    accessApprovalSignIn: "로그인",
+    accessApprovalLoading: "액세스 권한을 부여하는 중...",
     backToDecks: "덱으로 돌아가기",
     tryAgain: "重试",
     imageUploadFailed: "图片上传失败",

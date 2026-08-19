@@ -108,6 +108,17 @@ const notifyWithDelivery = vi.hoisted(() =>
     };
   }),
 );
+const sendEmail = vi.hoisted(() =>
+  vi.fn(async () => {
+    if (!state.emailNotification) throw new Error("email failed");
+  }),
+);
+const signScopedAgentAccessToken = vi.hoisted(() =>
+  vi.fn(() => "approval-token"),
+);
+const verifyScopedAgentAccessToken = vi.hoisted(() =>
+  vi.fn(() => ({ ok: true as const, viewerEmail: undefined })),
+);
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => db,
@@ -132,6 +143,13 @@ vi.mock("../server/db/index.js", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   isEmailConfigured: () => Promise.resolve(state.emailConfigured),
+  emailStrong: (value: string) => `<strong>${value}</strong>`,
+  renderEmail: () => ({ html: "<html />", text: "email" }),
+  sendEmail: (...args: unknown[]) => sendEmail(...args),
+  signScopedAgentAccessToken: (...args: unknown[]) =>
+    signScopedAgentAccessToken(...args),
+  verifyScopedAgentAccessToken: (...args: unknown[]) =>
+    verifyScopedAgentAccessToken(...args),
 }));
 
 vi.mock("@agent-native/core/notifications", () => ({ notifyWithDelivery }));
@@ -157,12 +175,16 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("./_app-url.js", () => ({
   getDeckUrl: (deckId: string) => `https://slides.example/deck/${deckId}`,
+  getSlidesAppUrl: () => "https://slides.example",
 }));
 
-import action from "./request-deck-access";
+import action, {
+  __resetAnonymousAccessRequestRateLimitForTests,
+} from "./request-deck-access";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  __resetAnonymousAccessRequestRateLimitForTests();
   state.requesterEmail = "requester@example.com";
   state.requesterName = "Requester";
   state.deck = {
@@ -219,13 +241,19 @@ describe("request-deck-access", () => {
     expect(notifyWithDelivery).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Deck access requested",
-        channels: ["inbox", "email"],
+        channels: ["inbox"],
         metadata: expect.objectContaining({
           deckId: "deck-1",
-          emailRecipients: ["owner@example.com"],
         }),
       }),
       { owner: "owner@example.com" },
+    );
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "owner@example.com",
+        replyTo: "requester@example.com",
+        templateId: "slides.deck-access-request",
+      }),
     );
   });
 
@@ -244,11 +272,12 @@ describe("request-deck-access", () => {
     });
     expect(notifyWithDelivery).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({
-          emailRecipients: ["Owner@Example.com"],
-        }),
+        metadata: expect.objectContaining({ deckId: "deck-1" }),
       }),
       { owner: "Owner@Example.com" },
+    );
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "Owner@Example.com" }),
     );
   });
 
@@ -269,6 +298,7 @@ describe("request-deck-access", () => {
       emailNotified: false,
       notifiedOwner: true,
     });
+    expect(sendEmail).toHaveBeenCalledOnce();
   });
 
   it("does not record access requests for non-private decks", async () => {
@@ -310,11 +340,8 @@ describe("request-deck-access", () => {
       notifiedOwner: true,
       requestId,
     });
-    expect(notifyWithDelivery).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ channels: ["email"] }),
-      { owner: "owner@example.com" },
-    );
+    expect(notifyWithDelivery).toHaveBeenCalledOnce();
+    expect(sendEmail).toHaveBeenCalledTimes(2);
   });
 
   it("retries owner notification after a previous attempt failed", async () => {
@@ -500,7 +527,28 @@ describe("request-deck-access", () => {
     expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
-  it("requires a signed-in requester", async () => {
+  it("records an anonymous request for the supplied email", async () => {
+    state.requesterEmail = null;
+
+    const result = await action.run({
+      deckId: "deck-1",
+      requesterEmail: "guest@example.com",
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+      notifiedOwner: true,
+    });
+    expect(JSON.parse(state.insertedRows[0].payload as string)).toMatchObject({
+      requesterEmail: "guest@example.com",
+    });
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ replyTo: "guest@example.com" }),
+    );
+  });
+
+  it("requires an email for an anonymous requester", async () => {
     state.requesterEmail = null;
 
     await expect(action.run({ deckId: "deck-1" })).rejects.toMatchObject({
