@@ -282,7 +282,7 @@ export function resolveBuiltInAuthMarketing(
 export function resolveBuiltInAuthMarketingSlug(
   opts: ResolveBuiltInAuthMarketingOptions = {},
 ): string | undefined {
-  return candidateSlugs(opts)[0];
+  return candidateSlugs(opts).find((slug) => !!BUILT_IN_AUTH_MARKETING[slug]);
 }
 
 export function resolveBuiltInAuthMarketingByName(

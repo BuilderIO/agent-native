@@ -11788,6 +11788,7 @@ app.whenReady().then(async () => {
     abort: closeDesktopComputerMcpBridge,
   });
   if (!shouldContinueStartup) return;
+  desktopCodeAgentScheduler.start();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
     handleDeepLink(pendingDeepLink);
@@ -12187,6 +12188,7 @@ app.on("before-quit", (event) => {
   if (multiFrontierQuitGuard(event)) return;
   if (!appIsQuitting) {
     appIsQuitting = true;
+    desktopCodeAgentScheduler.stop();
     for (const appId of managedDesktopAppProcesses.keys()) {
       stopManagedDesktopApp(appId);
     }

@@ -338,11 +338,12 @@ export class DesktopCodeAgentScheduler {
       const pendingFollowUps = Array.isArray(metadata.pendingFollowUps)
         ? metadata.pendingFollowUps.length
         : 0;
+      const canWake = run.status === "queued" || run.status === "paused";
       const shouldStart =
-        metadata.startRequested === true ||
-        metadata.createdByAgent === true ||
-        metadata.source === "scheduled-task" ||
-        pendingFollowUps > 0;
+        canWake &&
+        (metadata.startRequested === true ||
+          (metadata.createdByAgent === true && run.status === "queued") ||
+          pendingFollowUps > 0);
       if (!shouldStart) continue;
       this.deps.startRun(run.id, run.cwd, run.permissionMode);
       updateCodeAgentRunRecord(run.id, { metadata: { startRequested: false } });
