@@ -1020,22 +1020,26 @@ function resolveBuiltInMarketingSlug(
 ): string | undefined {
   if (!marketing) return undefined;
 
+  const matchesBuiltInMarketing = (builtIn: AuthMarketingContent) =>
+    marketing.appName === builtIn.appName &&
+    marketing.tagline === builtIn.tagline &&
+    marketing.description === builtIn.description &&
+    JSON.stringify(marketing.features ?? []) ===
+      JSON.stringify(builtIn.features ?? []) &&
+    JSON.stringify(marketing.signupLocalModeNote ?? null) ===
+      JSON.stringify(builtIn.signupLocalModeNote ?? null);
+
   const requestSlug = resolveBuiltInAuthMarketingSlug(opts);
-  if (requestSlug) return requestSlug;
+  if (requestSlug) {
+    const builtIn = BUILT_IN_AUTH_MARKETING[requestSlug];
+    if (builtIn && matchesBuiltInMarketing(builtIn)) return requestSlug;
+  }
 
   for (const [slug, builtIn] of Object.entries(BUILT_IN_AUTH_MARKETING)) {
     // Caller-supplied marketing can reuse a built-in app name. Only an exact
     // content match may claim a slug, or localized copy would overwrite the
     // custom description/features.
-    if (
-      marketing.appName === builtIn.appName &&
-      marketing.tagline === builtIn.tagline &&
-      marketing.description === builtIn.description &&
-      JSON.stringify(marketing.features ?? []) ===
-        JSON.stringify(builtIn.features ?? []) &&
-      JSON.stringify(marketing.signupLocalModeNote ?? null) ===
-        JSON.stringify(builtIn.signupLocalModeNote ?? null)
-    ) {
+    if (matchesBuiltInMarketing(builtIn)) {
       return slug;
     }
   }

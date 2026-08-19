@@ -770,6 +770,20 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     expect(html).toContain("var __AN_AUTH_MARKETING_LOCALES = {};");
   });
 
+  it("does not localize custom marketing from a built-in request host", () => {
+    const html = getOnboardingHtml({
+      requestHost: "dispatch.agent-native.com",
+      marketing: {
+        appName: "Custom Dispatch",
+        tagline: "Route your own work with a custom dispatch flow.",
+      },
+    });
+
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "";');
+    expect(html).toContain("Route your own work with a custom dispatch flow.");
+    expect(html).toContain("var __AN_AUTH_MARKETING_LOCALES = {};");
+  });
+
   it("embeds the public OAuth origin for Builder desktop redirects", () => {
     vi.stubEnv("APP_URL", "https://agent-workspace.builder.io");
     vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
