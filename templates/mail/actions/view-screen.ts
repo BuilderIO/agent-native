@@ -70,7 +70,7 @@ async function fetchEmailList(
 
       const gmailQuery = buildGmailEmailSearchQuery({ view, q: search });
       const effectiveQuery =
-        view === "all" && !search ? "" : gmailQuery || "in:inbox -in:sent";
+        view === "all" && !search ? "" : gmailQuery || "in:inbox";
       const { messages } = await listGmailMessages(
         effectiveQuery,
         50,
