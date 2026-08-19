@@ -2912,10 +2912,8 @@ ${identitySsoScript}
       if (__anIsBuilderPreview()) return __anIsInFrame() ? 'popup' : 'redirect';
       // Per-session override for ad-hoc testing outside Builder: append
       // ?authMode=popup or ?authMode=redirect to the sign-in URL.
-      try {
-        var qp = new URLSearchParams(window.location.search).get('authMode');
-        if (qp === 'popup' || qp === 'redirect') return qp;
-      } catch(e) {}
+      var qp = new URLSearchParams(window.location.search).get('authMode');
+      if (qp === 'popup' || qp === 'redirect') return qp;
       var mode = __AN_GOOGLE_AUTH_MODE || 'auto';
       if (mode === 'popup') return 'popup';
       if (mode === 'redirect') return 'redirect';
@@ -3109,7 +3107,12 @@ ${identitySsoScript}
           'X-Agent-Native-Desktop-Verifier': verifier
         }
       });
-      var data = await res.json().catch(function() { return {}; });
+      var data;
+      try {
+        data = await res.json();
+      } catch(e) {
+        throw new Error(__anT('failedToConnect'));
+      }
       if (!res.ok || !data || typeof data.url !== 'string' || !data.url) {
         throw new Error(__anAuthErrorText(data, __anT('failedToConnect')));
       }

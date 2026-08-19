@@ -738,7 +738,9 @@ describe("server/auth", () => {
             path: "/_agent-native/auth/desktop-exchange",
             query: {
               flow_id: flowResponse.flowId,
-              verifier: flowResponse.verifier,
+            },
+            headers: {
+              "x-agent-native-desktop-verifier": flowResponse.verifier,
             },
           }),
         ),
@@ -783,9 +785,9 @@ describe("server/auth", () => {
       );
       const exchangeErrorEvent = createMockEvent({
         path: "/_agent-native/auth/desktop-exchange",
-        query: {
-          flow_id: errorFlowResponse.flowId,
-          verifier: errorFlowResponse.verifier,
+        query: { flow_id: errorFlowResponse.flowId },
+        headers: {
+          "x-agent-native-desktop-verifier": errorFlowResponse.verifier,
         },
       });
       await expect(exchangeHandler(exchangeErrorEvent)).resolves.toMatchObject({
@@ -814,9 +816,10 @@ describe("server/auth", () => {
         exchangeHandler(
           createMockEvent({
             path: "/_agent-native/auth/desktop-exchange",
-            query: {
-              flow_id: invalidTokenFlowResponse.flowId,
-              verifier: invalidTokenFlowResponse.verifier,
+            query: { flow_id: invalidTokenFlowResponse.flowId },
+            headers: {
+              "x-agent-native-desktop-verifier":
+                invalidTokenFlowResponse.verifier,
             },
           }),
         ),
@@ -3328,9 +3331,21 @@ describe("server/auth", () => {
       )?.[1];
       expect(exchangeHandler).toBeTypeOf("function");
 
+      await expect(
+        exchangeHandler(
+          createMockEvent({
+            path: "/_agent-native/auth/desktop-exchange",
+            query: { flow_id: "flow-1", verifier },
+          }),
+        ),
+      ).resolves.toEqual({
+        error: "Desktop exchange verifier must use a request header.",
+      });
+
       const event = createMockEvent({
         path: "/_agent-native/auth/desktop-exchange",
-        query: { flow_id: "flow-1", verifier },
+        query: { flow_id: "flow-1" },
+        headers: { "x-agent-native-desktop-verifier": verifier },
       });
       const result = await exchangeHandler(event);
 

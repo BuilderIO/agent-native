@@ -963,11 +963,16 @@ export class DesktopIdentityBroker {
           },
         },
       );
-      const payload = (await response.json().catch(() => ({}))) as {
+      let payload: {
         url?: unknown;
         error?: unknown;
         message?: unknown;
       };
+      try {
+        payload = (await response.json()) as typeof payload;
+      } catch {
+        throw new Error("Could not start Google sign-in.");
+      }
       if (!response.ok || typeof payload.url !== "string") {
         throw new Error(
           typeof payload.message === "string"

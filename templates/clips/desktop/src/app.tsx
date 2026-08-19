@@ -2186,7 +2186,16 @@ export function App() {
           },
         },
       );
-      const authPayload = await authResponse.json().catch(() => ({}));
+      let authPayload: {
+        url?: unknown;
+        error?: unknown;
+        message?: unknown;
+      };
+      try {
+        authPayload = (await authResponse.json()) as typeof authPayload;
+      } catch {
+        throw new Error("Could not start Google sign-in.");
+      }
       if (!authResponse.ok || typeof authPayload?.url !== "string") {
         throw new Error(
           authPayload?.message ||

@@ -4255,7 +4255,9 @@ async function mountBetterAuthRoutes(
       }
       if (query.verifier !== undefined) {
         setResponseStatus(event, 400);
-        return { error: "Desktop exchange verifier must use a request header." };
+        return {
+          error: "Desktop exchange verifier must use a request header.",
+        };
       }
       const verifier = normalizeDesktopFlowVerifier(
         getHeader(event, "x-agent-native-desktop-verifier"),

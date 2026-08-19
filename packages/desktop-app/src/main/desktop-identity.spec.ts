@@ -1507,9 +1507,14 @@ describe("DesktopIdentityBroker", () => {
     await expect(signIn).resolves.toBe(true);
     expect(identityFetch).toHaveBeenCalledWith(
       expect.stringContaining(
-        "/_agent-native/auth/desktop-exchange?flow_id=desktop-flow&verifier=magic-link-verifier",
+        "/_agent-native/auth/desktop-exchange?flow_id=desktop-flow",
       ),
-      expect.objectContaining({ credentials: "include" }),
+      expect.objectContaining({
+        credentials: "include",
+        headers: expect.objectContaining({
+          "X-Agent-Native-Desktop-Verifier": "magic-link-verifier",
+        }),
+      }),
     );
     expect(identityFetch).toHaveBeenCalledTimes(2);
     expect(identityCookies.set).toHaveBeenCalledWith(
@@ -2147,9 +2152,14 @@ describe("DesktopIdentityBroker", () => {
     );
     expect(identityFetch).toHaveBeenCalledWith(
       expect.stringContaining(
-        "/_agent-native/auth/desktop-exchange?flow_id=desktop-flow&verifier=magic-link-verifier",
+        "/_agent-native/auth/desktop-exchange?flow_id=desktop-flow",
       ),
-      expect.objectContaining({ credentials: "include" }),
+      expect.objectContaining({
+        credentials: "include",
+        headers: expect.objectContaining({
+          "X-Agent-Native-Desktop-Verifier": "magic-link-verifier",
+        }),
+      }),
     );
   });
 

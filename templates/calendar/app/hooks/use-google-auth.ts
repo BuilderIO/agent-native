@@ -56,7 +56,10 @@ function newDesktopOAuthVerifier(): string | null {
     cryptoApi.getRandomValues(bytes);
     let binary = "";
     for (const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
   }
   return null;
 }

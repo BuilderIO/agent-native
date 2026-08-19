@@ -87,7 +87,10 @@ function newDesktopOAuthVerifier(): string | null {
     cryptoApi.getRandomValues(bytes);
     let binary = "";
     for (const byte of bytes) binary += String.fromCharCode(byte);
-    return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    return btoa(binary)
+      .replace(/\+/g, "-")
+      .replace(/\//g, "_")
+      .replace(/=+$/, "");
   }
   return null;
 }
@@ -165,7 +168,7 @@ export function GoogleConnectBanner({
     if (!popup) {
       setDesktopAuthIssue({
         code: "popup_blocked",
-        message: "Allow popups for this site and try again.",
+        message: t("mail.error.failedToConnect"),
       });
       return;
     }
@@ -175,11 +178,24 @@ export function GoogleConnectBanner({
       headers: { "X-Agent-Native-Desktop-Verifier": verifier },
     })
       .then(async (response) => {
-        const data = await response.json().catch(() => ({}));
+        let data: {
+          url?: unknown;
+          message?: unknown;
+          error?: unknown;
+        };
+        try {
+          data = (await response.json()) as typeof data;
+        } catch {
+          throw new Error(t("mail.googleConnect.connectionFailed"));
+        }
         if (!response.ok || typeof data?.url !== "string") {
-          throw new Error(
-            data?.message || data?.error || "Could not start Google sign-in.",
-          );
+          const message =
+            typeof data.message === "string"
+              ? data.message
+              : typeof data.error === "string"
+                ? data.error
+                : t("mail.googleConnect.connectionFailed");
+          throw new Error(message);
         }
         popup.location.href = data.url;
       })
@@ -190,7 +206,7 @@ export function GoogleConnectBanner({
           message:
             error instanceof Error
               ? error.message
-              : "Could not start Google sign-in.",
+              : t("mail.googleConnect.connectionFailed"),
         });
       });
     const start = Date.now();
