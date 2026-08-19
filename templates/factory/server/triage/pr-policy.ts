@@ -294,5 +294,5 @@ function isChangeset(file: string): boolean {
 }
 
 function normalizePath(file: string): string {
-  return file.trim().replaceAll("\\", "/").toLowerCase();
+  return file.trim().split("\\").join("/").toLowerCase();
 }
