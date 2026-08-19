@@ -29,6 +29,7 @@ import {
   getSession,
   getSessionMaxAge,
   hasLegacySessionForEmail,
+  safeReturnPath,
   setFrameworkSessionCookie,
 } from "./auth.js";
 import {
@@ -897,7 +898,7 @@ export function oauthCallbackResponse(
       headers.append("set-cookie", cookie);
     }
     return new Response(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to Clips…</p><script>window.close();setTimeout(function(){window.location.replace(${JSON.stringify(returnPath)})},50)</script></body></html>`,
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Connected</title></head><body style="background:#111;color:#aaa;font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;margin:0"><p>Connected! Returning to Clips…</p><script>setTimeout(function(){window.location.replace(${JSON.stringify(returnPath)})},50)</script></body></html>`,
       { status: 200, headers },
     );
   }
