@@ -895,6 +895,104 @@ describe("runAgentLoopDirectWithSoftTimeout", () => {
     ]);
   });
 
+  // The gateway answers 200 and then emits its 500 envelope as an in-stream
+  // frame, so nothing structured reaches this catch — only the sentence. Falling
+  // straight to `internal_error` is what made one upstream failure arrive under
+  // three different codes depending on which layer caught it, and only one of
+  // the three is on the client's recoverable list. Production showed the same
+  // envelope persisted as `internal_error` in calendar and clips while analytics
+  // recorded it as `builder_gateway_internal_error`.
+  it("names the Builder gateway 500 envelope when the thrown error carries no code", async () => {
+    const outcomes: AgentLoopOutcome[] = [];
+    const message =
+      "Sorry, we ran into an issue processing your request. " +
+      "ERROR ID: 4dbb6f30593c44d093090a37a99012a2";
+    mockRunAgentLoop.mockImplementation(async () => {
+      throw new Error(message);
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "Hey" }] }],
+          new AbortController().signal,
+          undefined,
+          undefined,
+          outcomes,
+        ),
+        60_000,
+      ),
+    ).rejects.toThrow(message);
+
+    expect(outcomes).toEqual([
+      {
+        state: "failed",
+        code: "builder_gateway_internal_error",
+        retryable: false,
+        message,
+      },
+    ]);
+  });
+
+  // `timeoutMs <= 0` takes a separate direct-loop branch with its OWN catch, so
+  // the loop-path test above does not exercise it. Both catches had the same
+  // blind fallback, so both need the same proof.
+  it("names the gateway 500 envelope on the direct path too (timeoutMs <= 0)", async () => {
+    const outcomes: AgentLoopOutcome[] = [];
+    const message =
+      "Sorry, we ran into an issue processing your request. " +
+      "ERROR ID: 39a8c319984746da9c7f351f3067913d";
+    mockRunAgentLoop.mockImplementation(async () => {
+      throw new Error(message);
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "Hey" }] }],
+          new AbortController().signal,
+          undefined,
+          undefined,
+          outcomes,
+        ),
+        0,
+      ),
+    ).rejects.toThrow(message);
+
+    expect(outcomes).toEqual([
+      {
+        state: "failed",
+        code: "builder_gateway_internal_error",
+        retryable: false,
+        message,
+      },
+    ]);
+  });
+
+  // `internal_error` must stay meaningful: it is the code for a message nothing
+  // recognises, not the code for every uncoded failure.
+  it("still falls back to internal_error for an unrecognisable message", async () => {
+    const outcomes: AgentLoopOutcome[] = [];
+    mockRunAgentLoop.mockImplementation(async () => {
+      throw new Error("something nobody has classified");
+    });
+
+    await expect(
+      runAgentLoopDirectWithSoftTimeout(
+        makeOpts(
+          [{ role: "user", content: [{ type: "text", text: "go" }] }],
+          new AbortController().signal,
+          undefined,
+          undefined,
+          outcomes,
+        ),
+        60_000,
+      ),
+    ).rejects.toThrow("something nobody has classified");
+
+    expect(outcomes[0]).toMatchObject({ code: "internal_error" });
+  });
+
   it("bails out after MAX_RUN_LOOP_CONTINUATIONS to prevent infinite loops", async () => {
     let attempts = 0;
     mockRunAgentLoop.mockImplementation(async () => {

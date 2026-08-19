@@ -826,6 +826,21 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     // (each turn cleared+regenerated visible content) for users hitting a
     // misbehaving Builder route. Surface the error instead.
     code === "builder_gateway_error" ||
+    // The gateway's unhandled-500 envelope ("Sorry, we ran into an issue
+    // processing your request. ERROR ID: <hex>"), for the same reason as
+    // `builder_gateway_error` directly above: the production-agent already
+    // retries it synchronously up to MAX_RETRIES before it can reach here, so a
+    // fresh run only resends the identical request. Measured across the
+    // analytics/clips/calendar production databases, 7 turns reached this code
+    // and 0 of 7 ever reached `done` — 97 runs, one of them 28 runs over 16
+    // minutes on a single "Hey", with overlapping concurrent runs on the same
+    // turn. The envelope is emitted for deterministic upstream rejections (a
+    // malformed nested tool-schema `type` reproduces it 6/6), which is why
+    // retrying cannot help: the same payload fails the same way every time.
+    // It stays `providerRetryable` for the ENGINE's in-request retry, which is
+    // cheap and does catch the genuinely transient case; this list governs
+    // whole-run re-dispatch, which does not.
+    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     // The hosted run exhausted its in-invocation continuation budget without
     // finishing (run-loop-with-resume.ts). It's flagged `recoverable: true` so
     // the recovery banner reads "stopped before finishing", but it must NOT
@@ -854,9 +869,6 @@ function isAutoRecoverableError(ev: SSEEvent, errMsg: string): boolean {
     code === "http_408" ||
     code === "http_429" ||
     code === "http_500" ||
-    // The gateway's unhandled-500 envelope delivered in-stream instead of as a
-    // status. Recoverable for the same reason `http_500` is.
-    code === BUILDER_GATEWAY_INTERNAL_ERROR_CODE ||
     code === "http_502" ||
     code === "http_503" ||
     code === "http_504" ||

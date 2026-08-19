@@ -21,6 +21,10 @@
  * uniform "continue" instruction regardless of which recovery fired.
  */
 
+import {
+  classifyTerminalErrorCode,
+  describeErrorWithCauses,
+} from "./engine/error-detail.js";
 import type { EngineMessage } from "./engine/types.js";
 import {
   runAgentLoop,
@@ -318,6 +322,37 @@ export const RUN_BUDGET_EXHAUSTED_MESSAGE =
   "Check any completed tool cards above before retrying, ideally as one smaller follow-up.";
 
 /**
+ * The code a failed attempt is persisted and reported under.
+ *
+ * A thrown error that carries no `errorCode` is not automatically anonymous:
+ * its message is frequently one the shared classifier can name, and the Builder
+ * gateway's own 500 envelope is the case that matters most in production. The
+ * gateway answers 200 and then emits the envelope as an in-stream frame, so
+ * there is no HTTP status to read and no structured code attached — falling
+ * straight to a generic code here is what made one upstream failure arrive as
+ * three different codes depending on which layer caught it
+ * (`builder_gateway_internal_error` when the engine classified it,
+ * `internal_error` here, `unknown` at persistence). Only one of those three is
+ * on the client's recoverable list, so identical gateway failures ended some
+ * chats instantly and sent others into a re-dispatch chain.
+ *
+ * Classify the message before giving up on it, so every path through this
+ * function reports the same code for the same upstream failure. `internal_error`
+ * stays the last resort for a message nothing recognises — it must remain
+ * distinguishable from a named failure rather than becoming the name for all of
+ * them.
+ */
+function resolveAttemptErrorCode(err: unknown): string {
+  const candidate = err as { errorCode?: unknown } | null;
+  if (typeof candidate?.errorCode === "string" && candidate.errorCode) {
+    return candidate.errorCode;
+  }
+  return (
+    classifyTerminalErrorCode(describeErrorWithCauses(err)) ?? "internal_error"
+  );
+}
+
+/**
  * Internal entry point used by the agent-chat plugin's run handler. Wraps
  * `runAgentLoop` with soft-timeout + resumable-error continuation recovery.
  *
@@ -389,10 +424,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
           ? { state: "canceled", message: "Agent run was aborted." }
           : {
               state: "failed",
-              code:
-                typeof candidate?.errorCode === "string" && candidate.errorCode
-                  ? candidate.errorCode
-                  : "internal_error",
+              code: resolveAttemptErrorCode(err),
               retryable: isResumableEngineError(err),
               message:
                 typeof candidate?.message === "string"
@@ -649,10 +681,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
       const candidate = err as { errorCode?: unknown; message?: unknown };
       reportFinalOutcome({
         state: "failed",
-        code:
-          typeof candidate?.errorCode === "string" && candidate.errorCode
-            ? candidate.errorCode
-            : "internal_error",
+        code: resolveAttemptErrorCode(err),
         retryable: false,
         message:
           typeof candidate?.message === "string"

@@ -1277,6 +1277,160 @@ const PROVIDER_REJECTED_KEYWORDS = [
   "not",
 ] as const;
 
+/**
+ * Why a value that JSON cannot carry must fail here rather than later.
+ *
+ * A tool schema is only ever delivered as JSON, so a value JSON cannot represent
+ * describes a contract no caller can satisfy. There is no safe way to smuggle it
+ * through, and the two failure modes it produces are both worse than an error at
+ * definition time:
+ *
+ * - `bigint` makes `JSON.stringify` THROW, so the turn dies while building the
+ *   request, before any provider sees it.
+ * - `undefined`, `NaN`, and `±Infinity` serialize to `null`. The advertised
+ *   schema then says `null` is the accepted value while the Zod validator still
+ *   demands the original, so the model is told to send something that can never
+ *   validate — the silent-divergence case this repo treats as a bug, not a guard.
+ *
+ * Checked on the FINAL schema from either converter, because Zod's own converter
+ * reaches this too: it emits `const: NaN` for `z.literal(NaN)` without
+ * complaint, and only the fallback path is reached for bigint literals (Zod
+ * throws "BigInt literals cannot be represented in JSON Schema", which is what
+ * sends us to the fallback in the first place).
+ */
+function describeJsonUnsafeValue(value: unknown): string | null {
+  if (typeof value === "bigint") return "a BigInt";
+  if (typeof value === "symbol") return "a symbol";
+  if (typeof value === "function") return "a function";
+  if (value === undefined) return "undefined";
+  if (typeof value === "number" && !Number.isFinite(value)) {
+    return Number.isNaN(value) ? "NaN" : "Infinity";
+  }
+  return null;
+}
+
+function collectJsonUnsafeSchemaValues(
+  node: unknown,
+  path: string,
+  found: string[],
+  seen: Set<object>,
+): void {
+  const unsafe = describeJsonUnsafeValue(node);
+  if (unsafe) {
+    found.push(`${path || "schema"} is ${unsafe}`);
+    return;
+  }
+  if (!node || typeof node !== "object") return;
+  if (seen.has(node)) return;
+  seen.add(node);
+  if (Array.isArray(node)) {
+    node.forEach((item, index) =>
+      collectJsonUnsafeSchemaValues(item, `${path}[${index}]`, found, seen),
+    );
+    return;
+  }
+  for (const [key, value] of Object.entries(node as Record<string, unknown>)) {
+    collectJsonUnsafeSchemaValues(
+      value,
+      path ? `${path}.${key}` : key,
+      found,
+      seen,
+    );
+  }
+}
+
+/**
+ * The same check one layer earlier, against the Zod def rather than the emitted
+ * schema, because a converter can launder the problem before this file sees it:
+ * Zod's own converter turns `z.literal(NaN)` into `const: null` without
+ * complaint, which reads as a legitimate "null is the accepted value" and is
+ * indistinguishable from an author writing `z.literal(null)`. The validator still
+ * demands NaN, so the advertised contract and the enforced one disagree — with
+ * nothing left in the output to detect it from.
+ *
+ * Deliberately tolerant of shape: an unrecognised def is skipped rather than
+ * treated as a problem, so this can only ever reject a literal it positively
+ * identified.
+ */
+const LITERAL_DEF_CHILD_KEYS = [
+  "element",
+  "innerType",
+  "in",
+  "out",
+  "valueType",
+  "keyType",
+] as const;
+
+function collectJsonUnsafeLiteralDefs(
+  node: any,
+  path: string,
+  found: string[],
+  seen: Set<object>,
+): void {
+  const def = node?._zod?.def ?? node;
+  if (!def || typeof def !== "object") return;
+  if (seen.has(def)) return;
+  seen.add(def);
+
+  if (def.type === "literal") {
+    for (const [index, value] of literalValuesOfDef(def).entries()) {
+      const unsafe = describeJsonUnsafeValue(value);
+      if (unsafe) {
+        found.push(`${path || "schema"} is a literal of ${unsafe}`);
+      }
+      void index;
+    }
+    return;
+  }
+
+  if (def.shape && typeof def.shape === "object") {
+    for (const [key, child] of Object.entries(def.shape)) {
+      collectJsonUnsafeLiteralDefs(
+        child,
+        path ? `${path}.${key}` : key,
+        found,
+        seen,
+      );
+    }
+  }
+  if (Array.isArray(def.options)) {
+    def.options.forEach((child: unknown, index: number) =>
+      collectJsonUnsafeLiteralDefs(child, `${path}|${index}`, found, seen),
+    );
+  }
+  for (const key of LITERAL_DEF_CHILD_KEYS) {
+    if (def[key]) collectJsonUnsafeLiteralDefs(def[key], path, found, seen);
+  }
+}
+
+function assertJsonSafeLiteralDefs(schema: unknown): void {
+  const found: string[] = [];
+  collectJsonUnsafeLiteralDefs(schema, "", found, new Set());
+  if (found.length > 0) throw jsonUnrepresentableSchemaError(found);
+}
+
+function jsonUnrepresentableSchemaError(
+  problems: string[],
+): ActionContractError {
+  return new ActionContractError(
+    `Action schema cannot be represented as a JSON tool schema: ${problems.join("; ")}. ` +
+      "Tool schemas are sent as JSON, so use a JSON-representable literal " +
+      "(string, finite number, boolean, or null) instead.",
+    {
+      errorCode: "SCHEMA_NOT_JSON_REPRESENTABLE",
+      details: { problems },
+      statusCode: 500,
+    },
+  );
+}
+
+function assertJsonSafeToolSchema<T>(schema: T): T {
+  const found: string[] = [];
+  collectJsonUnsafeSchemaValues(schema, "", found, new Set());
+  if (found.length > 0) throw jsonUnrepresentableSchemaError(found);
+  return schema;
+}
+
 export function stripUnsupportedSchemaKeywords<T>(node: T): T {
   if (!node || typeof node !== "object" || Array.isArray(node)) return node;
   const obj = node as Record<string, unknown>;
@@ -1339,6 +1493,10 @@ function schemaToJsonSchema(
 ): ActionTool["parameters"] {
   const s = schema as any;
 
+  // Before either converter runs, so a value one of them would launder into a
+  // plausible-looking `null` is still identifiable.
+  assertJsonSafeLiteralDefs(s);
+
   // Prefer Zod's own JSON Schema output — it handles descriptions,
   // enums, coerce, and all type wrappers correctly.
   if (s["~standard"]?.jsonSchema?.input) {
@@ -1351,19 +1509,85 @@ function schemaToJsonSchema(
       if (result && typeof result === "object") {
         delete result.$schema;
       }
-      return stripUnsupportedSchemaKeywords(result) as ActionTool["parameters"];
-    } catch {
+      return assertJsonSafeToolSchema(
+        stripUnsupportedSchemaKeywords(result),
+      ) as ActionTool["parameters"];
+    } catch (err) {
+      // A schema this converter produced but JSON cannot carry is a real contract
+      // error, not a "try the other converter" signal — the fallback would emit
+      // the same unusable value. Only a conversion failure falls through.
+      if (isActionContractError(err)) throw err;
       // Fall through to manual converter
     }
   }
 
   // Fallback: manual conversion from Zod v4 internal defs
   if (s._zod?.def) {
-    return stripUnsupportedSchemaKeywords(zodDefToJsonSchema(s._zod.def));
+    return assertJsonSafeToolSchema(
+      stripUnsupportedSchemaKeywords(zodDefToJsonSchema(s._zod.def)),
+    );
   }
 
   // Last resort: empty object schema
   return { type: "object" as const, properties: {} };
+}
+
+/**
+ * JSON Schema recognises exactly seven type names, and JavaScript's `typeof` is
+ * not one of the ways to spell them: `typeof null` is `"object"`, and `bigint`,
+ * `undefined`, `symbol`, and `function` have no JSON Schema equivalent at all.
+ * Emitting one of those as a `type` produces a schema the Builder gateway's
+ * request validator accepts — it only checks a tool's TOP-LEVEL
+ * `input_schema.type` — and the upstream provider then rejects, which comes back
+ * as the gateway's opaque "ERROR ID" 500 envelope rather than a typed 400. A
+ * nested field is therefore able to take down a whole turn with an error that
+ * names nothing, on every retry, because the malformed schema is resent verbatim.
+ *
+ * Return no `type` at all rather than an invented one: `enum` alone still pins
+ * the value, and an absent keyword is valid where a bogus one is not.
+ */
+/**
+ * Zod v4 stores a literal's value in `def.values` (an array — `z.literal` accepts
+ * a set of values), NOT in `def.value`. Reading the singular key returns
+ * `undefined` for every literal, which is how `typeof def.value` came to emit
+ * `{"type":"undefined"}`: a type keyword no JSON Schema dialect defines. A
+ * literal is most often a discriminated union's discriminator, so this was
+ * reached by ordinary action schemas, not an exotic corner.
+ *
+ * Keep reading the singular key as a fallback so a schema from a different
+ * standard-schema implementation still resolves.
+ *
+ * Returns `[]` when neither key is PRESENT, which is different from a literal
+ * whose value happens to be `undefined`: an unrecognised def shape must degrade
+ * to a permissive schema, while a real `undefined` literal is a contract error
+ * `assertJsonSafeToolSchema` is entitled to reject.
+ */
+function literalValuesOfDef(def: any): unknown[] {
+  if (Array.isArray(def?.values)) return def.values;
+  if (def && "values" in def) return [def.values];
+  if (def && "value" in def) return [def.value];
+  return [];
+}
+
+function jsonSchemaTypeOfLiteral(value: unknown): { type?: string } {
+  if (value === null) return { type: "null" };
+  switch (typeof value) {
+    case "string":
+      return { type: "string" };
+    case "number":
+      // NaN and ±Infinity have no JSON form; `assertJsonSafeToolSchema` rejects
+      // them, so do not hand back a `number` that implies they are usable.
+      return Number.isFinite(value)
+        ? { type: Number.isInteger(value) ? "integer" : "number" }
+        : {};
+    case "boolean":
+      return { type: "boolean" };
+    // `bigint` is deliberately absent: JSON has no bigint, so there is no honest
+    // type to claim. Mapping it to `integer` would have advertised a value that
+    // makes `JSON.stringify` throw while building the request.
+    default:
+      return {};
+  }
 }
 
 /**
@@ -1434,7 +1658,22 @@ function zodDefToJsonSchema(def: any): any {
   }
 
   if (type === "literal") {
-    return { type: typeof def.value, enum: [def.value] };
+    const values = literalValuesOfDef(def);
+    // An unrecognised literal def shape yields no values at all. Emit a
+    // permissive schema rather than an `enum: []`, which would advertise a field
+    // that accepts nothing.
+    if (values.length === 0) return {};
+    const jsonTypes = [
+      ...new Set(
+        values.map((value: unknown) => jsonSchemaTypeOfLiteral(value).type),
+      ),
+    ];
+    return {
+      ...(jsonTypes.length === 1 && jsonTypes[0] !== undefined
+        ? { type: jsonTypes[0] }
+        : {}),
+      enum: values,
+    };
   }
 
   if (type === "array") {
@@ -1479,13 +1718,11 @@ function zodDefToJsonSchema(def: any): any {
         (o: any) => o?._zod?.def?.type === "literal",
       );
       if (allLiterals) {
-        const values = def.options.map((o: any) => o._zod.def.value);
+        const values = def.options.flatMap((o: any) =>
+          literalValuesOfDef(o._zod.def),
+        );
         const jsonTypeOf = (v: any) =>
-          typeof v === "number"
-            ? "number"
-            : typeof v === "boolean"
-              ? "boolean"
-              : "string";
+          jsonSchemaTypeOfLiteral(v).type ?? "string";
         const uniqueTypes = [...new Set(values.map(jsonTypeOf))];
         if (uniqueTypes.length === 1) {
           // Homogeneous literal union (e.g. all numbers) — derive the JSON
