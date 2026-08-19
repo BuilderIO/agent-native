@@ -111,6 +111,7 @@ import {
 } from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
 import AppWebview, { resolveAppWebviewUrl } from "./AppWebview.js";
+import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
@@ -665,9 +666,11 @@ export default function CodeAgentsHub({
     activeChatFirstSurfaceTab?.kind === "app" &&
     activeChatFirstSurfaceTab.placement === "main";
   const chatFirstAppSelected = activeChatFirstSurfaceTab?.kind === "app";
+  const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
   const activeChatFirstPrimaryTab = useMemo<
     ChatFirstPrimaryTab | undefined
   >(() => {
+    if (scheduledTasksOpen) return "scheduled";
     if (
       !chatFirstAppSelected ||
       activeChatFirstSurfaceTab?.kind !== "app" ||
@@ -688,7 +691,7 @@ export default function CodeAgentsHub({
       return "scheduled";
     }
     return undefined;
-  }, [activeChatFirstSurfaceTab, chatFirstAppSelected]);
+  }, [activeChatFirstSurfaceTab, chatFirstAppSelected, scheduledTasksOpen]);
   const [chatFirstBrowserSelection, setChatFirstBrowserSelection] = useState<{
     url: string;
     title?: string;
@@ -762,6 +765,7 @@ export default function CodeAgentsHub({
       }
       setChatFirstRailCollapsed(true);
       setChatFirstAllAppsOpen(false);
+      setScheduledTasksOpen(false);
       window.electronAPI?.setActiveApp?.(app.id);
       setChatFirstNotice(null);
       setChatFirstBrowserSelection(null);
@@ -777,7 +781,12 @@ export default function CodeAgentsHub({
       );
       setChatFirstSurfacePanelOpen(true);
     },
-    [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen, surfaceApps],
+    [
+      chatFirstSurfaceTabsStore,
+      setChatFirstSurfacePanelOpen,
+      setScheduledTasksOpen,
+      surfaceApps,
+    ],
   );
 
   useEffect(() => {
@@ -852,6 +861,7 @@ export default function CodeAgentsHub({
   }, []);
   const returnToChatFirstChats = useCallback(() => {
     setChatFirstAllAppsOpen(false);
+    setScheduledTasksOpen(false);
     setTerminalSessionStarted(false);
     setTerminalPromptRequest(null);
     closeChatFirstSessionWatch();
@@ -902,6 +912,7 @@ export default function CodeAgentsHub({
   );
   const openChatFirstAllApps = useCallback(() => {
     setChatFirstAllAppsOpen(true);
+    setScheduledTasksOpen(false);
     closeChatFirstSessionWatch();
     setChatFirstBrowserSelection(null);
     chatFirstSurfaceTabsStore.closeAll();
