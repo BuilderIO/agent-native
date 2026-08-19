@@ -703,7 +703,7 @@ export default function ClipsTemplate() {
       {/* CTA */}
       <section
         id="start-now"
-        className="scroll-mt-24 border-t border-[var(--docs-border)]"
+        className="scroll-mt-24 border-t border-[var(--docs-border)] lg:bg-[linear-gradient(to_right,var(--docs-border)_1px,transparent_1px),linear-gradient(to_bottom,var(--docs-border)_1px,transparent_1px)] lg:bg-[size:32px_32px]"
       >
         <div className="flex flex-col gap-6 border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:flex-row sm:items-end sm:justify-between sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
           <div>
@@ -760,7 +760,7 @@ export default function ClipsTemplate() {
           <ClipPreviewSlider ref={sliderHandleRef} />
         </div>
 
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[var(--docs-border)] px-6 py-10 sm:flex-row sm:items-center sm:gap-[120px] sm:px-8">
+        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[var(--docs-border)] bg-[var(--bg)] px-6 py-10 sm:flex-row sm:items-center sm:gap-[120px] sm:px-8">
           <a
             href={template.demoUrl}
             target="_blank"
