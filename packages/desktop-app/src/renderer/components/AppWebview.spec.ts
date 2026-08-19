@@ -21,6 +21,7 @@ import {
   resolveAppWebviewAuthState,
   resolveAppWebviewUrl,
   isDesktopIdentityGateEligible,
+  isDesktopIdentityGateUnauthenticated,
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
   resolveDesktopIdentityLazySyncStatus,
@@ -447,6 +448,14 @@ describe("AppWebview auth state", () => {
       resolveAppWebviewAuthState("https://mail.agent-native.com/inbox"),
     ).toBe("authenticated");
     expect(resolveAppWebviewAuthState("about:blank")).toBe("unknown");
+  });
+
+  it("reports only native sign-in gate states as unauthenticated", () => {
+    expect(isDesktopIdentityGateUnauthenticated("sign-in-required")).toBe(true);
+    expect(isDesktopIdentityGateUnauthenticated("failed")).toBe(true);
+    expect(isDesktopIdentityGateUnauthenticated("checking")).toBe(false);
+    expect(isDesktopIdentityGateUnauthenticated("signed-in")).toBe(false);
+    expect(isDesktopIdentityGateUnauthenticated("idle")).toBe(false);
   });
 });
 

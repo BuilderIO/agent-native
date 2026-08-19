@@ -95,6 +95,7 @@ import {
 
 import type {
   DesktopCreateAppResult,
+  DesktopIdentityStatus,
   DesktopPrepareLocalCodeChangeResult,
   DesktopWorkspaceAppListResult,
 } from "../../../shared/ipc-channels.js";
@@ -110,7 +111,10 @@ import {
   useDesktopTerminalPreferences,
 } from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
-import AppWebview, { resolveAppWebviewUrl } from "./AppWebview.js";
+import AppWebview, {
+  isDesktopIdentityGateUnauthenticated,
+  resolveAppWebviewUrl,
+} from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
 import DesktopAppChatShell from "./DesktopAppChatShell.js";
@@ -609,6 +613,17 @@ export default function CodeAgentsHub({
     [apps, workspaceAppListEnabled, workspaceApps],
   );
   const surfaceApps = listApps;
+  const [desktopIdentityStatusByApp, setDesktopIdentityStatusByApp] = useState<
+    Record<string, DesktopIdentityStatus | "checking">
+  >({});
+  const handleDesktopIdentityStatusChange = useCallback(
+    (appId: string, status: DesktopIdentityStatus | "checking") => {
+      setDesktopIdentityStatusByApp((current) =>
+        current[appId] === status ? current : { ...current, [appId]: status },
+      );
+    },
+    [],
+  );
   const localAppIds = useMemo(() => new Set(apps.map((app) => app.id)), [apps]);
   const workspaceAppIds = useMemo(
     () =>
@@ -2306,6 +2321,9 @@ export default function CodeAgentsHub({
               <DesktopAppChatShell
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
+                desktopIdentityUnauthenticated={isDesktopIdentityGateUnauthenticated(
+                  desktopIdentityStatusByApp[surfaceApp.id],
+                )}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <AppWebview
@@ -2318,6 +2336,9 @@ export default function CodeAgentsHub({
                     dispatchControlPlane
                       ? dispatchControlPlaneUrlParams(tab.path)
                       : { embedded: "1", chatFirst: "1" }
+                  }
+                  onDesktopIdentityStatusChange={(status) =>
+                    handleDesktopIdentityStatusChange(surfaceApp.id, status)
                   }
                 />
               </DesktopAppChatShell>

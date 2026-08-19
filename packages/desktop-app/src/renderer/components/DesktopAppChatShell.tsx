@@ -72,6 +72,7 @@ export interface DesktopAppChatShellProps {
   appId: string;
   appName: string;
   children: ReactNode;
+  desktopIdentityUnauthenticated?: boolean;
   onLocalCodeChangeStarted?: (
     result: DesktopPrepareLocalCodeChangeResult,
   ) => void;
@@ -87,6 +88,7 @@ export default function DesktopAppChatShell({
   appId,
   appName,
   children,
+  desktopIdentityUnauthenticated = false,
   onLocalCodeChangeStarted,
 }: DesktopAppChatShellProps) {
   const shellRootRef = useRef<HTMLDivElement>(null);
@@ -434,6 +436,7 @@ export default function DesktopAppChatShell({
                 }}
                 apiUrl={apiUrl}
                 agentChatSurface="desktop"
+                desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
                 showTabBar
                 suppressInlineOpenApp
                 dynamicSuggestions={false}

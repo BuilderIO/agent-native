@@ -3083,6 +3083,8 @@ export interface AgentSidebarProps {
   apiUrl?: string;
   /** Runtime surface identity used for server-side chat capabilities. */
   agentChatSurface?: AgentChatSurfaceKind;
+  /** Whether the desktop host is currently showing its unauthenticated identity gate. */
+  desktopIdentityUnauthenticated?: AssistantChatProps["desktopIdentityUnauthenticated"];
   /** Show the chat thread tab row. Default: true. */
   showTabBar?: MultiTabAssistantChatProps["showTabBar"];
   /** Keep inline app-opening results inside the current app chat. */
@@ -3146,6 +3148,7 @@ export function AgentSidebar({
   openStorageKey,
   apiUrl,
   agentChatSurface,
+  desktopIdentityUnauthenticated,
   showTabBar = true,
   suppressInlineOpenApp,
   composerPlaceholder,
@@ -3952,6 +3955,7 @@ export function AgentSidebar({
             threadFooterSlot={threadFooterSlot}
             apiUrl={apiUrl}
             agentChatSurface={agentChatSurface}
+            desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
             showTabBar={effectiveShowTabBar}
             suppressInlineOpenApp={suppressInlineOpenApp}
             composerPlaceholder={composerPlaceholder}
