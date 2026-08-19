@@ -54,6 +54,28 @@ reply, or a generic acknowledgement does not satisfy the ledger.
 - Re-read dirty files before changing them. Preserve the shared checkout and
   never move branches, reset, stash, or overwrite peer work.
 
+## Slack bot identity
+
+Every Slack interaction in this workflow - reads, reactions, replies, thread
+re-reads, and linked-file lookups - must use the Slack Web API with the local,
+untracked `.env` value `SLACK_BOT_TOKEN`. That value must authenticate the
+`@agent-native` Slack bot. Do not use the connected Slack MCP user's OAuth
+identity, a Steve/ChatGPT identity, or a different bot token for any Slack
+operation in this workflow.
+
+- Load the value from `.env` without printing it, then call Slack `auth.test`
+  before the first request. Keep the returned bot identity for read-back
+  checks; do not infer it from a display name in a message.
+- Use that same bearer token for channel history, thread replies, reactions,
+  user/file metadata, and `chat.postMessage` replies with `thread_ts`. Use
+  Slack cursors until the requested history or thread is complete.
+- After every reaction or reply, re-read through the same token and verify the
+  reaction or reply exists and was authored by the `auth.test` bot identity.
+- If the token is absent, invalid, or resolves to any identity other than
+  `@agent-native`, do not fall back to a user connector for Slack writes.
+  Record Slack as unavailable, preserve the exact gap, and continue only with
+  non-Slack evidence.
+
 ## Decision Gate
 
 Apply the shared `address-feedback` **Choose the fix altitude** gate before

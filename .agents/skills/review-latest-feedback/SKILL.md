@@ -130,6 +130,12 @@ Use the configured Slack, GitHub, and Sentry connectors when available:
  - Sentry: newest unresolved errors for the repository's projects, stack
    traces, route or component, frequency, affected release, and event links.
 
+For every Slack read or write, follow the `## Slack bot identity` contract in
+`address-feedback-with-replies`: load the local untracked `.env`'s
+`SLACK_BOT_TOKEN`, verify it with `auth.test` as `@agent-native`, and use that
+same bot identity for history, reactions, replies, and read-backs. Never fall
+back to a user/OAuth Slack connector or another bot token for this sweep.
+
 If a connector or permission is missing, continue with the other sources and
 name the exact gap in the final recap. Treat that as unavailable evidence, not
 as “nothing matched.” If the unavailable source is required to identify or

@@ -38,6 +38,9 @@ the right abstraction, not the most general one.
 - If no link or feedback text is provided, ask for it.
 - Read the repo `AGENTS.md` before touching code.
 - Use the relevant connector/plugin/skill for the source when available, instead of scraping authenticated pages.
+- For Slack, use the `SLACK_BOT_TOKEN` / `@agent-native` identity contract in
+  `address-feedback-with-replies`; never mix user OAuth reads or writes into a
+  bot-authenticated feedback workflow.
 - Before starting work, search available task history and local Git/PR metadata for the exact feedback link or issue identifiers. Reuse existing work instead of creating a duplicate fix.
 
 ## Steps
