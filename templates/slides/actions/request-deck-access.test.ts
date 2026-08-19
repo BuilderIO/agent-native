@@ -21,10 +21,12 @@ const state = vi.hoisted(() => ({
   inAppNotification: true,
   emailNotification: true,
   insertConflict: false,
+  insertError: null as Error | null,
   updateConflict: false,
   previousRequests: [] as { id: string; payload: string | null }[],
   insertedRows: [] as Record<string, unknown>[],
   updatedPayload: null as string | null,
+  rateLimitCount: 0,
 }));
 
 const limitSelect = vi.hoisted(() =>
@@ -32,6 +34,18 @@ const limitSelect = vi.hoisted(() =>
 );
 const insertValues = vi.hoisted(() =>
   vi.fn((row: Record<string, unknown>) => {
+    if ("requestCount" in row) {
+      return {
+        onConflictDoUpdate: () => ({
+          returning: async () => {
+            if (state.rateLimitCount >= 5) return [];
+            state.rateLimitCount += 1;
+            return [{ requestCount: state.rateLimitCount }];
+          },
+        }),
+      };
+    }
+    if (state.insertError) throw state.insertError;
     state.insertedRows.push(row);
     return {
       onConflictDoNothing: () => ({
@@ -43,6 +57,17 @@ const insertValues = vi.hoisted(() =>
 );
 const updateSet = vi.hoisted(() =>
   vi.fn((values: Record<string, unknown>) => {
+    if ("requestCount" in values) {
+      return {
+        where: vi.fn(() => ({
+          returning: async () => {
+            if (state.rateLimitCount === 0) return [];
+            state.rateLimitCount -= 1;
+            return [{ deckId: "deck-1" }];
+          },
+        })),
+      };
+    }
     return {
       where: vi.fn((conditions: unknown) => ({
         returning: async () => {
@@ -108,6 +133,18 @@ const notifyWithDelivery = vi.hoisted(() =>
     };
   }),
 );
+const sendEmail = vi.hoisted(() =>
+  vi.fn(async () => {
+    if (!state.emailNotification) throw new Error("email failed");
+  }),
+);
+const signScopedAgentAccessToken = vi.hoisted(() =>
+  vi.fn(() => "approval-token"),
+);
+const verifyScopedAgentAccessToken = vi.hoisted(() =>
+  vi.fn(() => ({ ok: true as const, viewerEmail: undefined })),
+);
+const resolveAccess = vi.hoisted(() => vi.fn(async () => state.access));
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => db,
@@ -127,11 +164,23 @@ vi.mock("../server/db/index.js", () => ({
       createdBy: "deck_events.created_by",
       createdAt: "deck_events.created_at",
     },
+    deckAccessRequestLimits: {
+      deckId: "deck_access_request_limits.deck_id",
+      windowStartedAt: "deck_access_request_limits.window_started_at",
+      requestCount: "deck_access_request_limits.request_count",
+    },
   },
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   isEmailConfigured: () => Promise.resolve(state.emailConfigured),
+  emailStrong: (value: string) => `<strong>${value}</strong>`,
+  renderEmail: () => ({ html: "<html />", text: "email" }),
+  sendEmail: (...args: unknown[]) => sendEmail(...args),
+  signScopedAgentAccessToken: (...args: unknown[]) =>
+    signScopedAgentAccessToken(...args),
+  verifyScopedAgentAccessToken: (...args: unknown[]) =>
+    verifyScopedAgentAccessToken(...args),
 }));
 
 vi.mock("@agent-native/core/notifications", () => ({ notifyWithDelivery }));
@@ -143,7 +192,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   currentAccess: () => ({ userEmail: state.requesterEmail }),
-  resolveAccess: vi.fn(async () => state.access),
+  resolveAccess: (...args: unknown[]) => resolveAccess(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -157,6 +206,7 @@ vi.mock("drizzle-orm", () => ({
 
 vi.mock("./_app-url.js", () => ({
   getDeckUrl: (deckId: string) => `https://slides.example/deck/${deckId}`,
+  getSlidesAppUrl: () => "https://slides.example",
 }));
 
 import action from "./request-deck-access";
@@ -176,10 +226,12 @@ beforeEach(() => {
   state.inAppNotification = true;
   state.emailNotification = true;
   state.insertConflict = false;
+  state.insertError = null;
   state.updateConflict = false;
   state.previousRequests = [];
   state.insertedRows = [];
   state.updatedPayload = null;
+  state.rateLimitCount = 0;
 });
 
 afterEach(() => {
@@ -215,17 +267,24 @@ describe("request-deck-access", () => {
       notifiedOwner: true,
       inAppNotified: true,
       emailNotified: true,
+      approvalTokenHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     });
     expect(notifyWithDelivery).toHaveBeenCalledWith(
       expect.objectContaining({
         title: "Deck access requested",
-        channels: ["inbox", "email"],
+        channels: ["inbox"],
         metadata: expect.objectContaining({
           deckId: "deck-1",
-          emailRecipients: ["owner@example.com"],
         }),
       }),
       { owner: "owner@example.com" },
+    );
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "owner@example.com",
+        replyTo: "requester@example.com",
+        templateId: "slides.deck-access-request",
+      }),
     );
   });
 
@@ -244,11 +303,12 @@ describe("request-deck-access", () => {
     });
     expect(notifyWithDelivery).toHaveBeenCalledWith(
       expect.objectContaining({
-        metadata: expect.objectContaining({
-          emailRecipients: ["Owner@Example.com"],
-        }),
+        metadata: expect.objectContaining({ deckId: "deck-1" }),
       }),
       { owner: "Owner@Example.com" },
+    );
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "Owner@Example.com" }),
     );
   });
 
@@ -269,6 +329,7 @@ describe("request-deck-access", () => {
       emailNotified: false,
       notifiedOwner: true,
     });
+    expect(sendEmail).toHaveBeenCalledOnce();
   });
 
   it("does not record access requests for non-private decks", async () => {
@@ -310,11 +371,8 @@ describe("request-deck-access", () => {
       notifiedOwner: true,
       requestId,
     });
-    expect(notifyWithDelivery).toHaveBeenNthCalledWith(
-      2,
-      expect.objectContaining({ channels: ["email"] }),
-      { owner: "owner@example.com" },
-    );
+    expect(notifyWithDelivery).toHaveBeenCalledOnce();
+    expect(sendEmail).toHaveBeenCalledTimes(2);
   });
 
   it("retries owner notification after a previous attempt failed", async () => {
@@ -474,6 +532,31 @@ describe("request-deck-access", () => {
     expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
+  it("does not consume anonymous quota for an existing request", async () => {
+    state.requesterEmail = null;
+    state.previousRequests = [
+      {
+        id: "access-request-existing",
+        payload: JSON.stringify({
+          requesterEmail: "guest@example.com",
+          notifiedOwner: true,
+        }),
+      },
+    ];
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        accessRequestToken: "request-token",
+        requesterEmail: "guest@example.com",
+      }),
+    ).resolves.toMatchObject({
+      alreadyRequested: true,
+      requestId: "access-request-existing",
+    });
+    expect(state.rateLimitCount).toBe(0);
+  });
+
   it("does not notify twice when concurrent requests collide", async () => {
     state.insertConflict = true;
 
@@ -485,6 +568,37 @@ describe("request-deck-access", () => {
       message: "Your access request is already with the deck owner.",
     });
     expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("refunds anonymous quota when a concurrent request loses the insert race", async () => {
+    state.requesterEmail = null;
+    state.insertConflict = true;
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        accessRequestToken: "request-token",
+        requesterEmail: "guest@example.com",
+      }),
+    ).resolves.toMatchObject({
+      alreadyRequested: true,
+      notifiedOwner: false,
+    });
+    expect(state.rateLimitCount).toBe(0);
+  });
+
+  it("refunds anonymous quota when event creation fails", async () => {
+    state.requesterEmail = null;
+    state.insertError = new Error("event insert failed");
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        accessRequestToken: "request-token",
+        requesterEmail: "guest@example.com",
+      }),
+    ).rejects.toThrow("event insert failed");
+    expect(state.rateLimitCount).toBe(0);
   });
 
   it("does not create a request for a viewer who already has access", async () => {
@@ -500,12 +614,88 @@ describe("request-deck-access", () => {
     expect(notifyWithDelivery).not.toHaveBeenCalled();
   });
 
-  it("requires a signed-in requester", async () => {
+  it("records an anonymous request for the supplied email", async () => {
     state.requesterEmail = null;
 
-    await expect(action.run({ deckId: "deck-1" })).rejects.toMatchObject({
-      statusCode: 401,
+    const result = await action.run({
+      deckId: "deck-1",
+      accessRequestToken: "request-token",
+      requesterEmail: "guest@example.com",
     });
+
+    expect(result).toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+      notifiedOwner: true,
+    });
+    expect(JSON.parse(state.insertedRows[0].payload as string)).toMatchObject({
+      requesterEmail: "guest@example.com",
+    });
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ replyTo: "guest@example.com" }),
+    );
+  });
+
+  it("uses the fallback capability when the access probe was unavailable", async () => {
+    state.requesterEmail = null;
+    verifyScopedAgentAccessToken.mockImplementation((_, scope) =>
+      scope.resourceKind === "slides-access-request"
+        ? { ok: false as const, reason: "wrong_resource" }
+        : { ok: true as const, viewerEmail: undefined },
+    );
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        accessRequestToken: "fallback-request-token",
+        requesterEmail: "guest@example.com",
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+      notifiedOwner: true,
+    });
+    expect(resolveAccess).not.toHaveBeenCalled();
+  });
+
+  it("requires an email for an anonymous requester", async () => {
+    state.requesterEmail = null;
+
+    await expect(
+      action.run({ deckId: "deck-1", accessRequestToken: "request-token" }),
+    ).rejects.toMatchObject({ statusCode: 401 });
     expect(state.insertedRows).toHaveLength(0);
+  });
+
+  it("requires the signed capability for anonymous requests", async () => {
+    state.requesterEmail = null;
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        requesterEmail: "guest@example.com",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(state.insertedRows).toHaveLength(0);
+  });
+
+  it("limits anonymous requests with the durable per-deck bucket", async () => {
+    state.requesterEmail = null;
+
+    for (let index = 0; index < 5; index += 1) {
+      await action.run({
+        deckId: "deck-1",
+        accessRequestToken: "request-token",
+        requesterEmail: `guest-${index}@example.com`,
+      });
+    }
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        accessRequestToken: "request-token",
+        requesterEmail: "guest-5@example.com",
+      }),
+    ).rejects.toMatchObject({ statusCode: 429 });
   });
 });

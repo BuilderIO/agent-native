@@ -20,18 +20,14 @@ import {
   useSensors,
   DragEndEvent,
 } from "@dnd-kit/core";
-import {
-  IconAt,
-  IconArrowLeft,
-  IconLock,
-  IconLoader2,
-  IconLogin2,
-  IconRefresh,
-  IconUserPlus,
-  IconUsersGroup,
-} from "@tabler/icons-react";
 import { nanoid } from "nanoid";
-import { useState, useCallback, useRef, useEffect } from "react";
+import {
+  useState,
+  useCallback,
+  useRef,
+  useEffect,
+  type FormEvent,
+} from "react";
 import {
   useBlocker,
   useNavigate,
@@ -51,6 +47,7 @@ import { canExportPptxFromServer } from "@/components/editor/ExportMenu";
 import GeneratingSlidePreview from "@/components/editor/GeneratingSlidePreview";
 import HistoryPanel from "@/components/editor/HistoryPanel";
 import ImageGenPanel from "@/components/editor/ImageGenPanel";
+import { MissingDeckAccessPane } from "@/components/editor/MissingDeckAccessPane";
 import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
@@ -78,7 +75,6 @@ import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import {
   useDeckAccessStatus,
   useRequestDeckAccess,
-  type DeckAccessStatusResponse,
 } from "@/hooks/use-deck-access";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
@@ -121,147 +117,9 @@ import { shortcutLabel } from "@/lib/utils";
 
 type EditorSidePanel = "comments" | null;
 
-function MissingDeckAccessPane({
-  accessStatus,
-  accessStatusError,
-  accessStatusLoading,
-  hasTeamJoinOption,
-  orgLoading,
-  orgError,
-  requestAccessPending,
-  accessRequestSent,
-  accessRequestNotified,
-  signedIn,
-  viewerEmail,
-  refreshing,
-  onRequestAccess,
-  onSignIn,
-  onRetry,
-  onBack,
-}: {
-  accessStatus: DeckAccessStatusResponse | null;
-  accessStatusError: boolean;
-  accessStatusLoading: boolean;
-  hasTeamJoinOption: boolean;
-  orgLoading: boolean;
-  orgError: boolean;
-  requestAccessPending: boolean;
-  accessRequestSent: boolean;
-  accessRequestNotified: boolean;
-  signedIn: boolean;
-  viewerEmail: string | null;
-  refreshing: boolean;
-  onRequestAccess: () => void;
-  onSignIn: () => void;
-  onRetry: () => void;
-  onBack: () => void;
-}) {
-  const t = useT();
-  const privateDeck = Boolean(
-    accessStatus?.exists &&
-    !accessStatus.hasAccess &&
-    accessStatus.visibility === "private",
-  );
-  const checkingAccess = !privateDeck && (accessStatusLoading || orgLoading);
-  const accessCheckFailed = accessStatusError || orgError;
-  const Icon =
-    privateDeck || (!hasTeamJoinOption && !checkingAccess && !accessCheckFailed)
-      ? IconLock
-      : IconUsersGroup;
-  const title = checkingAccess
-    ? t("deckEditor.lookingForDeck")
-    : privateDeck
-      ? t("deckEditor.privateDeckTitle")
-      : accessCheckFailed
-        ? t("deckEditor.teamAccessCheckFailed")
-        : hasTeamJoinOption
-          ? t("deckEditor.joinTeamToOpen")
-          : t("deckEditor.deckUnavailable");
-  const description = checkingAccess
-    ? t("deckEditor.checkingSharedAccess")
-    : privateDeck
-      ? t("deckEditor.privateDeckDescription")
-      : accessCheckFailed
-        ? t("deckEditor.verifySharedAccessFailed")
-        : hasTeamJoinOption
-          ? t("deckEditor.joinTeamDescription")
-          : t("deckEditor.deckUnavailableDescription");
-
-  return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
-      <div className="w-full max-w-md rounded-lg border border-border bg-card p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-3">
-          <div className="flex size-10 items-center justify-center rounded-md border border-border bg-background text-muted-foreground">
-            <Icon className="size-5" />
-          </div>
-          <div className="min-w-0">
-            <h1 className="text-base font-semibold text-foreground">{title}</h1>
-          </div>
-        </div>
-        <p className="text-sm leading-6 text-muted-foreground">{description}</p>
-        {privateDeck && viewerEmail ? (
-          <div className="mt-4 flex items-center gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-sm">
-            <IconAt className="size-4 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 truncate text-muted-foreground">
-              {t("deckEditor.signedInAs")}{" "}
-              <span className="font-medium text-foreground">{viewerEmail}</span>
-            </span>
-          </div>
-        ) : null}
-        {privateDeck && accessRequestSent ? (
-          <div className="mt-3 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
-            {t(
-              accessRequestNotified
-                ? "deckEditor.accessRequestSentDescription"
-                : "deckEditor.accessRequestRecordedDescription",
-            )}
-          </div>
-        ) : null}
-        <div className="mt-5 flex flex-col gap-2">
-          {privateDeck ? (
-            <Button
-              type="button"
-              onClick={signedIn ? onRequestAccess : onSignIn}
-              disabled={requestAccessPending || accessRequestSent}
-            >
-              {requestAccessPending ? (
-                <IconLoader2 className="size-4 animate-spin" />
-              ) : signedIn ? (
-                <IconUserPlus className="size-4" />
-              ) : (
-                <IconLogin2 className="size-4" />
-              )}
-              {requestAccessPending
-                ? t("deckEditor.requestAccessPending")
-                : accessRequestSent
-                  ? t("deckEditor.accessRequestSent")
-                  : signedIn
-                    ? t("deckEditor.requestAccess")
-                    : t("deckEditor.signInToRequestAccess")}
-            </Button>
-          ) : null}
-          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button type="button" variant="outline" onClick={onBack}>
-              <IconArrowLeft className="size-4" />
-              {t("deckEditor.backToDecks")}
-            </Button>
-            <Button
-              type="button"
-              variant={privateDeck ? "ghost" : "default"}
-              onClick={onRetry}
-              disabled={refreshing || checkingAccess}
-            >
-              <IconRefresh
-                className={refreshing ? "size-4 animate-spin" : "size-4"}
-              />
-              {t("deckEditor.tryAgain")}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+type AccessRequestCapability =
+  | { available: true; token: string }
+  | { available: false };
 
 // The Cmd/Ctrl+C-then-V slide-duplicate shortcut can only tell "this key
 // event targets the slide rail/canvas" apart from "focus fell back to
@@ -390,6 +248,13 @@ export default function DeckEditor() {
     string | null
   >(null);
   const [accessRequestNotified, setAccessRequestNotified] = useState(false);
+  const [requestAccessDialogOpen, setRequestAccessDialogOpen] = useState(false);
+  const [requesterEmail, setRequesterEmail] = useState("");
+  const [requestAccessDialogError, setRequestAccessDialogError] = useState<
+    string | null
+  >(null);
+  const [accessRequestRefreshPending, setAccessRequestRefreshPending] =
+    useState(false);
   const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
     string | null
   >(null);
@@ -609,23 +474,122 @@ export default function DeckEditor() {
   }, [refetchOrg, reloadDecks]);
 
   const openSignIn = useCallback(() => {
-    window.location.href = buildSignInReturnHref();
-  }, []);
+    window.location.href = buildSignInReturnHref({
+      returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/",
+    });
+  }, [id]);
+
+  const getFreshAccessRequestCapability =
+    useCallback(async (): Promise<AccessRequestCapability> => {
+      setAccessRequestRefreshPending(true);
+      try {
+        const result = await deckAccessStatusQuery.refetch();
+        const token = result.isSuccess
+          ? result.data?.accessRequestToken
+          : undefined;
+        return token ? { available: true, token } : { available: false };
+      } catch (error) {
+        console.warn(
+          "[slides] deck access request capability refresh failed:",
+          error,
+        );
+        return { available: false };
+      } finally {
+        setAccessRequestRefreshPending(false);
+      }
+    }, [deckAccessStatusQuery]);
+
+  const submitDeckAccessRequest = useCallback(
+    async (guestEmail?: string) => {
+      if (!id) return;
+      const normalizedGuestEmail = guestEmail?.trim() || undefined;
+      setRequestAccessDialogError(null);
+      const accessRequestCapability = normalizedGuestEmail
+        ? await getFreshAccessRequestCapability()
+        : { available: false as const };
+      if (normalizedGuestEmail && !accessRequestCapability.available) {
+        setRequestAccessDialogError(t("deckEditor.accessRequestFailed"));
+        return;
+      }
+      const accessRequestToken =
+        normalizedGuestEmail && accessRequestCapability.available
+          ? accessRequestCapability.token
+          : undefined;
+      requestDeckAccessMutation.mutate(
+        {
+          deckId: id,
+          ...(accessRequestToken ? { accessRequestToken } : {}),
+          ...(normalizedGuestEmail
+            ? { requesterEmail: normalizedGuestEmail }
+            : {}),
+        },
+        {
+          onSuccess: (result) => {
+            setAccessRequestSentDeckId(id);
+            setAccessRequestNotified(result.notifiedOwner);
+            if (normalizedGuestEmail) setRequestAccessDialogOpen(false);
+            toast.success(
+              normalizedGuestEmail
+                ? t("deckEditor.accessRequestSentWithEmail", {
+                    email: normalizedGuestEmail,
+                  })
+                : result.message,
+            );
+            if (result.alreadyHasAccess) void reloadDecks();
+          },
+          onError: (error: unknown) => {
+            if (!normalizedGuestEmail) return;
+            setRequestAccessDialogError(
+              error instanceof Error && error.message
+                ? error.message.replace(/^Action [\w-]+ failed:\s*/, "")
+                : t("deckEditor.accessRequestFailed"),
+            );
+          },
+        },
+      );
+    },
+    [
+      getFreshAccessRequestCapability,
+      id,
+      reloadDecks,
+      requestDeckAccessMutation,
+      t,
+    ],
+  );
 
   const requestDeckAccess = useCallback(() => {
-    if (!id) return;
-    requestDeckAccessMutation.mutate(
-      { deckId: id },
-      {
-        onSuccess: (result) => {
-          setAccessRequestSentDeckId(id);
-          setAccessRequestNotified(result.notifiedOwner);
-          toast.success(result.message);
-          if (result.alreadyHasAccess) void reloadDecks();
-        },
-      },
-    );
-  }, [id, reloadDecks, requestDeckAccessMutation]);
+    void submitDeckAccessRequest();
+  }, [submitDeckAccessRequest]);
+
+  const submitGuestAccessRequest = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      event.preventDefault();
+      const email = requesterEmail.trim();
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+        setRequestAccessDialogError(t("deckEditor.requestAccessEmailRequired"));
+        return;
+      }
+      void submitDeckAccessRequest(email);
+    },
+    [requesterEmail, submitDeckAccessRequest, t],
+  );
+
+  const requestAccessDialogOpenChange = useCallback(
+    (open: boolean) => {
+      setRequestAccessDialogOpen(open);
+      if (!open) {
+        setRequestAccessDialogError(null);
+        return;
+      }
+      setRequestAccessDialogError(null);
+      void getFreshAccessRequestCapability().then((capability) => {
+        if (!capability.available) {
+          setRequestAccessDialogError(t("deckEditor.accessRequestFailed"));
+        }
+      });
+    },
+    [getFreshAccessRequestCapability, t],
+  );
 
   useEffect(() => {
     if (accessRequestSentDeckId && accessRequestSentDeckId !== id) {
@@ -1412,13 +1376,27 @@ export default function DeckEditor() {
         hasTeamJoinOption={hasTeamJoinOption}
         orgLoading={orgLoading}
         orgError={orgError || loadError}
-        requestAccessPending={requestDeckAccessMutation.isPending}
+        requestAccessPending={
+          requestDeckAccessMutation.isPending || accessRequestRefreshPending
+        }
         accessRequestSent={accessRequestSentDeckId === id}
         accessRequestNotified={accessRequestNotified}
+        requestAccessDialogOpen={requestAccessDialogOpen}
+        requesterEmail={requesterEmail}
+        requestAccessDialogError={requestAccessDialogError}
         signedIn={Boolean(session) && !sessionLoading}
+        signInHref={buildSignInReturnHref({
+          returnTo: id ? `/deck/${encodeURIComponent(id)}` : "/",
+        })}
         viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
         refreshing={retryingMissingDeck}
         onRequestAccess={requestDeckAccess}
+        onRequestAccessDialogOpenChange={requestAccessDialogOpenChange}
+        onRequesterEmailChange={(email) => {
+          setRequesterEmail(email);
+          setRequestAccessDialogError(null);
+        }}
+        onSubmitGuestAccessRequest={submitGuestAccessRequest}
         onSignIn={openSignIn}
         onRetry={() => void retryOpenDeck()}
         onBack={() => navigate("/")}

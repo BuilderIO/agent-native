@@ -298,15 +298,49 @@ export default defineAction({
     }
 
     const id = nanoid();
-    await db.insert(reg.sharesTable).values({
-      id,
-      resourceId: args.resourceId,
-      principalType: args.principalType,
-      principalId,
-      role: args.role,
-      createdBy: actor,
-      createdAt: new Date().toISOString(),
-    });
+    const [inserted] = await db
+      .insert(reg.sharesTable)
+      .values({
+        id,
+        resourceId: args.resourceId,
+        principalType: args.principalType,
+        principalId,
+        role: args.role,
+        createdBy: actor,
+        createdAt: new Date().toISOString(),
+      })
+      .onConflictDoNothing()
+      .returning({ id: reg.sharesTable.id });
+    if (!inserted) {
+      const [existingAfterConflict] = await db
+        .select()
+        .from(reg.sharesTable)
+        .where(
+          and(
+            eq(reg.sharesTable.resourceId, args.resourceId),
+            eq(reg.sharesTable.principalType, args.principalType),
+            principalIdMatches(
+              reg.sharesTable,
+              args.principalType,
+              principalId,
+            ),
+          ),
+        );
+      if (!existingAfterConflict) {
+        throw new Error("Share conflict could not be resolved.");
+      }
+      await db
+        .update(reg.sharesTable)
+        .set({ role: args.role })
+        .where(eq(reg.sharesTable.id, existingAfterConflict.id));
+      invalidateCollabAccessCache(args.resourceType, args.resourceId);
+      await notifyExtensionShareChanged(
+        args.resourceType,
+        args.resourceId,
+        beforeExtensionTargets,
+      );
+      return { id: existingAfterConflict.id, updated: true };
+    }
     invalidateCollabAccessCache(args.resourceType, args.resourceId);
     await notifyExtensionShareChanged(
       args.resourceType,

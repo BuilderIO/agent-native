@@ -563,13 +563,10 @@ const messages = {
   },
   deckEditor: {
     lookingForDeck: "Buscando este deck",
-    teamAccessCheckFailed: "No se pudo comprobar el acceso del equipo",
     joinTeamToOpen: "Únete a tu equipo para abrir este deck",
     deckUnavailable: "Deck no disponible",
     checkingSharedAccess:
       "Comprobando si esta presentación está compartida con tu cuenta.",
-    verifySharedAccessFailed:
-      "No pudimos verificar si esta presentación está compartida con tu cuenta. Inténtalo de nuevo para recargar el acceso del equipo y el deck.",
     joinTeamDescription:
       "Este enlace apunta a una presentación de equipo. Únete al equipo indicado arriba y el deck se abrirá aquí automáticamente.",
     deckUnavailableDescription:
@@ -586,6 +583,36 @@ const messages = {
     accessRequestSent: "Anfrage gesendet",
     requestAccess: "Zugriff anfordern",
     signInToRequestAccess: "Anmelden, um Zugriff anzufordern",
+    requestAccessDialogTitle: "Zugriff anfordern",
+    requestAccessDialogDescription:
+      "Melde dich an oder gib die E-Mail-Adresse ein, mit der der Eigentümer dieses Deck teilen soll.",
+    requestAccessSignIn: "Anmelden oder registrieren",
+    requestAccessOr: "oder",
+    requestAccessEmailLabel: "E-Mail-Adresse",
+    requestAccessEmailPlaceholder: "you@example.com",
+    requestAccessEmailHint:
+      "Melde dich nach der Freigabe mit dieser E-Mail-Adresse an, um das Deck anzuzeigen.",
+    requestAccessWithEmail: "Mit E-Mail anfordern",
+    requestAccessEmailRequired: "Gib eine gültige E-Mail-Adresse ein.",
+    requestingAccess: "Zugriff wird angefordert…",
+    accessRequestSentWithEmail:
+      "Der Eigentümer wurde gebeten, dieses Deck für {{email}} freizugeben.",
+    accessRequestFailed:
+      "Zugriff konnte nicht angefordert werden. Versuche es erneut.",
+    accessApprovalTitle: "Zugriff gewährt",
+    accessApprovalAlreadyTitle: "Zugriff bereits gewährt",
+    accessApprovalMessage: "{{email}} kann dieses Deck jetzt öffnen.",
+    accessApprovalAlreadyMessage:
+      "{{email}} hat bereits Zugriff auf dieses Deck.",
+    accessApprovalErrorTitle: "Zugriff konnte nicht gewährt werden",
+    accessApprovalInvalid:
+      "Diese Zugriffsanfrage ist ungültig oder abgelaufen.",
+    accessApprovalSignInTitle: "Anmelden, um Zugriff zu gewähren",
+    accessApprovalSignInMessage:
+      "Melde dich als Deck-Eigentümer oder Admin an, um diese Anfrage zu genehmigen.",
+    accessApprovalOpenDeck: "Deck öffnen",
+    accessApprovalSignIn: "Anmelden",
+    accessApprovalLoading: "Zugriff wird gewährt...",
     backToDecks: "Zurück zu den Decks",
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
