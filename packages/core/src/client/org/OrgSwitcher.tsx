@@ -370,15 +370,24 @@ export function OrgSwitcher({
     if (signingOut) return;
     setSigningOut(true);
     try {
-      await fetch(agentNativePath("/_agent-native/auth/logout"), {
-        method: "POST",
-        credentials: "include",
-      });
+      const response = await fetch(
+        agentNativePath("/_agent-native/auth/logout"),
+        {
+          method: "POST",
+          credentials: "include",
+        },
+      );
+      if (!response.ok) {
+        console.warn(
+          "Logout request returned an error before sign-in",
+          response.status,
+        );
+      }
     } catch (error) {
       console.warn("Unable to complete logout request before sign-in", error);
     }
     notifySessionInvalidated();
-    window.location.href = buildSignInReturnHref();
+    window.location.replace(buildSignInReturnHref());
   };
 
   if (!org) {
