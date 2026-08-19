@@ -267,8 +267,10 @@ jobs:
             try {
               const targets = parseTargets(process.env.SITES);
               core.info(`Selected ${targets.length} production site(s): ${targets.map(([name]) => name).join(', ')}`);
+              const sourceSha = operation === 'deploy-main' ? await latestMainSha() : null;
+              if (sourceSha) core.info(`Deploying the latest main commit ${sourceSha}.`);
               const failures = operation === 'deploy-main'
-                ? await runWithLimit(targets, async (name, site) => deployMain(name, site, await latestMainSha()))
+                ? await runWithLimit(targets, async (name, site) => deployMain(name, site, sourceSha))
                 : operation === 'rollback'
                   ? await runWithLimit(targets, rollback)
                   : [`Unknown operation: ${operation}`];
