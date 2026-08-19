@@ -1,9 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({
+  fetchOrgApps: vi.fn(),
+  getOrgDomain: vi.fn(),
+  isFeatureFlagEnabled: vi.fn(),
+  signA2AToken: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/a2a", () => ({
+  signA2AToken: mocks.signA2AToken,
+}));
+vi.mock("@agent-native/core/feature-flags", () => ({
+  isFeatureFlagEnabled: mocks.isFeatureFlagEnabled,
+}));
+vi.mock("@agent-native/core/mcp", () => ({
+  fetchOrgApps: mocks.fetchOrgApps,
+}));
+vi.mock("@agent-native/core/org", () => ({
+  getOrgDomain: mocks.getOrgDomain,
+}));
 
 import {
   classifyWorkspaceFeatureFlagTargetFailure,
   classifyWorkspaceFeatureFlagList,
+  setWorkspaceFeatureFlag,
   validateWorkspaceFeatureFlagMutation,
+  WorkspaceFeatureFlagFailure,
   workspaceFeatureFlagTargetInput,
 } from "./workspace-feature-flags.js";
 const app = {
@@ -12,6 +34,291 @@ const app = {
   url: "https://mail.example.com",
   a2aUrl: "https://mail.example.com",
 };
+const admin = {
+  userEmail: "admin@example.test",
+  orgId: "org-1",
+  role: "admin" as const,
+};
+
+function response(status: number, body: unknown) {
+  return {
+    status,
+    json: vi.fn().mockResolvedValue(body),
+  } as unknown as Response;
+}
+
+function mutationBody(rules: Record<string, unknown>) {
+  return {
+    contractVersion: 2,
+    status: "ready",
+    key: "new-editor",
+    rules,
+    scope: { orgId: "content-org", orgDomain: "example.test" },
+  };
+}
+
+describe("verified fleet feature flag transaction", () => {
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    mocks.fetchOrgApps.mockResolvedValue([app]);
+    mocks.getOrgDomain.mockResolvedValue("example.test");
+    mocks.isFeatureFlagEnabled.mockResolvedValue(true);
+    mocks.signA2AToken.mockResolvedValue("example-delegated-token");
+  });
+
+  it("independently reads back Alice-targeted enablement", async () => {
+    const mutationRules = {
+      mode: "rules",
+      emails: ["admin@example.test"],
+      orgIds: [],
+      percentage: 0,
+      updatedAt: 1,
+      updatedBy: "writer@example.test",
+    };
+    const readBackRules = {
+      ...mutationRules,
+      updatedAt: 2,
+      updatedBy: "admin@example.test",
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(200, mutationBody(mutationRules)))
+      .mockResolvedValueOnce(
+        response(200, {
+          contractVersion: 1,
+          status: "ready",
+          flags: [
+            {
+              key: "new-editor",
+              rules: readBackRules,
+              enabledForCurrentUser: true,
+            },
+          ],
+          canManage: true,
+        }),
+      );
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "enable-for-current-user",
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({
+        contractVersion: 3,
+        status: "verified",
+        rules: readBackRules,
+        enabledForCurrentUser: true,
+      }),
+    );
+    expect(mocks.signA2AToken).toHaveBeenCalledTimes(2);
+  });
+
+  it("independently reads back rollback as off", async () => {
+    const rules = {
+      mode: "off",
+      emails: [],
+      orgIds: [],
+      percentage: 0,
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(200, mutationBody(rules)))
+      .mockResolvedValueOnce(
+        response(200, {
+          contractVersion: 1,
+          status: "ready",
+          flags: [{ key: "new-editor", rules, enabledForCurrentUser: false }],
+          canManage: true,
+        }),
+      );
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+      }),
+    ).resolves.toEqual(
+      expect.objectContaining({ enabledForCurrentUser: false }),
+    );
+  });
+
+  it("accepts replacement rules independently read back for another audience", async () => {
+    const rules = {
+      mode: "rules",
+      emails: ["someone-else@example.test"],
+      orgIds: [],
+      percentage: 0,
+    };
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(200, mutationBody(rules)))
+      .mockResolvedValueOnce(
+        response(200, {
+          contractVersion: 1,
+          status: "ready",
+          flags: [{ key: "new-editor", rules, enabledForCurrentUser: false }],
+          canManage: true,
+        }),
+      );
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "replace-rules",
+        rules,
+      }),
+    ).resolves.toMatchObject({ enabledForCurrentUser: false });
+  });
+
+  it.each([
+    [
+      "directory",
+      async () => mocks.fetchOrgApps.mockRejectedValue(new Error("private")),
+    ],
+    [
+      "token-generation",
+      async () => mocks.getOrgDomain.mockResolvedValue(null),
+    ],
+  ] as const)("preserves the %s failure boundary", async (phase, arrange) => {
+    await arrange();
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+      }),
+    ).rejects.toMatchObject({ phase });
+  });
+
+  it.each([
+    [401, "authorization"],
+    [404, "unsupported-target"],
+    [500, "target-action"],
+  ] as const)("classifies target status %s as %s", async (status, phase) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(response(status, null));
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+      }),
+    ).rejects.toMatchObject({ phase });
+  });
+
+  it.each([
+    [
+      Object.assign(new Error("private timeout"), { name: "TimeoutError" }),
+      "timeout",
+    ],
+    [new Error("private network detail"), "network"],
+  ] as const)("preserves transport failure as %s", async (error, phase) => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(error);
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+      }),
+    ).rejects.toMatchObject({ phase });
+  });
+
+  it("keeps persistence distinct from independent verification", async () => {
+    vi.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(response(200, { unexpected: true }))
+      .mockResolvedValueOnce(
+        response(
+          200,
+          mutationBody({
+            mode: "off",
+            emails: [],
+            orgIds: [],
+            percentage: 0,
+          }),
+        ),
+      )
+      .mockResolvedValueOnce(
+        response(200, {
+          contractVersion: 1,
+          status: "ready",
+          flags: [],
+          canManage: true,
+        }),
+      );
+    const input = {
+      appId: "mail",
+      key: "new-editor",
+      operation: "off" as const,
+    };
+    await expect(setWorkspaceFeatureFlag(admin, input)).rejects.toMatchObject({
+      phase: "persistence",
+    });
+    await expect(setWorkspaceFeatureFlag(admin, input)).rejects.toMatchObject({
+      phase: "verification",
+    });
+  });
+
+  it.each([
+    [403, null, "authorization"],
+    [404, null, "unsupported-target"],
+    [
+      200,
+      {
+        contractVersion: 1,
+        status: "forbidden",
+        flags: [],
+        canManage: false,
+      },
+      "authorization",
+    ],
+  ] as const)(
+    "preserves read-back status %s as %s",
+    async (status, body, phase) => {
+      const rules = {
+        mode: "off",
+        emails: [],
+        orgIds: [],
+        percentage: 0,
+      };
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(response(200, mutationBody(rules)))
+        .mockResolvedValueOnce(response(status, body));
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "off",
+        }),
+      ).rejects.toMatchObject({ phase });
+    },
+  );
+
+  it("keeps the legacy response while the rollout gate is off", async () => {
+    mocks.isFeatureFlagEnabled.mockResolvedValue(false);
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      response(
+        200,
+        mutationBody({ mode: "rules", emails: ["admin@example.test"] }),
+      ),
+    );
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "mail",
+        key: "new-editor",
+        operation: "enable-for-current-user",
+      }),
+    ).resolves.toMatchObject({ contractVersion: 2, status: "ready" });
+    expect(globalThis.fetch).toHaveBeenCalledOnce();
+  });
+
+  it("uses safe phase messages without reflecting target details", () => {
+    expect(new WorkspaceFeatureFlagFailure("network").message).toBe(
+      "[network] Analytics could not reach the target app.",
+    );
+  });
+});
+
 describe("fleet feature flag contracts", () => {
   it("does not mistake no-definitions for forbidden", () =>
     expect(

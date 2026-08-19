@@ -8,14 +8,24 @@ import {
   type SocialMetaDescriptor,
 } from "@agent-native/core/shared";
 
+import { buildAgentApiUrls } from "./agent-context";
+
 export const CLIPS_DEFAULT_TITLE = "Untitled recording";
 
 export type ClipsShareMetaRecording = {
+  id?: string | null;
   title?: string | null;
   description?: string | null;
   thumbnailUrl?: string | null;
   animatedThumbnailUrl?: string | null;
+  visibility?: string | null;
+  status?: string | null;
+  hasPassword?: boolean;
+  archivedAt?: string | null;
+  trashedAt?: string | null;
 };
+
+const SOCIAL_FRAME_AT_MS = 350;
 
 export type PreferredThumbnailVariant = "still" | "animated";
 
@@ -81,16 +91,70 @@ function absoluteUrl(value: string, origin: string | null): string {
   }
 }
 
+function appPath(path: string, basePath: string): string {
+  const normalizedBasePath = basePath.trim().replace(/\/+$/, "");
+  return normalizedBasePath ? `${normalizedBasePath}${path}` : path;
+}
+
+function canUseGeneratedSocialFrame(
+  recording: ClipsShareMetaRecording | null,
+): recording is ClipsShareMetaRecording & {
+  id: string;
+  visibility: "public";
+  status: "ready";
+} {
+  return Boolean(
+    recording?.id &&
+    recording.visibility === "public" &&
+    recording.status === "ready" &&
+    !recording.hasPassword &&
+    !recording.archivedAt &&
+    !recording.trashedAt,
+  );
+}
+
+export function resolveClipsSocialImageUrl(options: {
+  recording: ClipsShareMetaRecording | null;
+  origin?: string | null;
+  basePath?: string;
+}): string | undefined {
+  const { recording, origin = null, basePath = "" } = options;
+  if (recording?.hasPassword) return undefined;
+
+  const storedImage = preferredSocialImage(recording);
+
+  if (storedImage) {
+    if (recording?.id && recording.visibility === "public") {
+      return absoluteUrl(
+        appPath(`/api/thumbnail/${encodeURIComponent(recording.id)}`, basePath),
+        origin,
+      );
+    }
+    return absoluteUrl(storedImage, origin);
+  }
+
+  if (!origin || !canUseGeneratedSocialFrame(recording)) return undefined;
+
+  return buildAgentApiUrls(recording.id, {
+    origin,
+    basePath,
+  }).frameUrl(SOCIAL_FRAME_AT_MS);
+}
+
 export function buildClipsShareMeta(options: {
   recording: ClipsShareMetaRecording | null;
   origin?: string | null;
+  basePath?: string;
   shareUrl?: string | null;
 }): SocialMetaDescriptor[] {
-  const { recording, origin = null, shareUrl = null } = options;
+  const { recording, origin = null, basePath = "", shareUrl = null } = options;
   const title = clipsSharePageTitle(recording?.title);
   const description = clipsShareDescription(recording);
-  const image = preferredSocialImage(recording);
-  const absoluteImage = image ? absoluteUrl(image, origin) : undefined;
+  const absoluteImage = resolveClipsSocialImageUrl({
+    recording,
+    origin,
+    basePath,
+  });
   const alt = hasGeneratedTitle(recording?.title)
     ? recording!.title!.trim()
     : AGENT_NATIVE_SOCIAL_IMAGE_ALT;
