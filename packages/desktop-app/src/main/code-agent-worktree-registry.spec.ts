@@ -127,6 +127,38 @@ describe("code-agent-worktree-registry", () => {
     });
   });
 
+  it("releases a queued startup lease left by a crashed process", () => {
+    withRepository((root) => {
+      const registryPath = worktreeRegistryPath(root);
+      const worktree = createOrAttachCodeAgentWorktree({
+        registryPath,
+        sourcePath: root,
+        worktreeRoot: path.join(root, "managed-worktrees"),
+        runId: "startup-run",
+        policy: "named",
+        name: "startup-recovery",
+      });
+      claimCodeAgentWorktreeRun({
+        registryPath,
+        worktreeId: worktree.id,
+        runId: "startup-run",
+        ownerId: "desktop-one",
+      });
+
+      reconcileCodeAgentWorktreeLeases({
+        registryPath,
+        runStates: new Map([["startup-run", "starting"]]),
+      });
+
+      const reconciled = getManagedCodeAgentWorktree(registryPath, worktree.id);
+      expect(reconciled?.activeLease).toBeUndefined();
+      expect(reconciled).toMatchObject({
+        attachedRunIds: [],
+        state: "available",
+      });
+    });
+  });
+
   it("namespaces the same named worktree independently per repository", () => {
     withRepository((firstRoot) => {
       withRepository((secondRoot) => {
@@ -293,6 +325,29 @@ describe("code-agent-worktree-registry", () => {
       expect(restored.state).toBe("attached");
       expect(restored.attachedRunIds).toContain("restored-run");
       expect(fs.existsSync(restored.path)).toBe(true);
+    });
+  });
+
+  it("refuses to restore a branch occupied by another worktree", () => {
+    withRepository((root) => {
+      const registryPath = worktreeRegistryPath(root);
+      const worktree = createOrAttachCodeAgentWorktree({
+        registryPath,
+        sourcePath: root,
+        worktreeRoot: path.join(root, "managed-worktrees"),
+        runId: "occupied-run",
+        policy: "ephemeral",
+      });
+      runGit(["worktree", "remove", "--force", "--", worktree.path], root);
+      const occupiedPath = path.join(root, "occupied-worktree");
+      runGit(["worktree", "add", occupiedPath, worktree.branch], root);
+
+      expect(() =>
+        restoreManagedCodeAgentWorktree({
+          registryPath,
+          worktreeId: worktree.id,
+        }),
+      ).toThrow("already checked out elsewhere");
     });
   });
 

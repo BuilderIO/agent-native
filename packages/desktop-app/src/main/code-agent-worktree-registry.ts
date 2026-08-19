@@ -36,7 +36,11 @@ export type CodeAgentWorktreeState =
   | "removed"
   | "error";
 
-export type CodeAgentWorktreeRunState = "active" | "queued" | "terminal";
+export type CodeAgentWorktreeRunState =
+  | "active"
+  | "queued"
+  | "starting"
+  | "terminal";
 
 interface CodeAgentWorktreeLease {
   runId: string;

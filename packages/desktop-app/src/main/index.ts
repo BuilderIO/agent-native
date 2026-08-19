@@ -3770,7 +3770,16 @@ function reconcileManagedCodeAgentWorktreeLeases(): void {
     if (codeAgentRunHoldsWorktreeLease(runId, record)) {
       runStates.set(runId, "active");
     } else if (isQueuedCodeAgentWorktreeRun(record)) {
-      runStates.set(runId, "queued");
+      const metadata = isObject(record.metadata) ? record.metadata : undefined;
+      const worktree = isObject(metadata?.worktree)
+        ? metadata.worktree
+        : undefined;
+      runStates.set(
+        runId,
+        firstStringValue(worktree?.queueState) === "starting"
+          ? "starting"
+          : "queued",
+      );
     } else {
       runStates.set(runId, "terminal");
     }

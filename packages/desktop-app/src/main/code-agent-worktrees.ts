@@ -43,6 +43,32 @@ function gitFailure(result: GitResult, fallback: string): Error {
   return new Error(detail ? `${fallback} ${detail}` : fallback);
 }
 
+function checkedOutWorktreePath(
+  repositoryPath: string,
+  branch: string,
+  executeGit: RunGit,
+): string | undefined {
+  const listed = executeGit(
+    ["worktree", "list", "--porcelain"],
+    repositoryPath,
+  );
+  if (listed.status !== 0) {
+    throw gitFailure(listed, "Could not inspect Git worktree occupancy.");
+  }
+  let currentPath: string | undefined;
+  const branchRef = `refs/heads/${branch}`;
+  for (const line of (listed.stdout ?? "").split("\n")) {
+    if (line.startsWith("worktree ")) {
+      currentPath = line.slice("worktree ".length).trim();
+    } else if (line === `branch ${branchRef}` && currentPath) {
+      return currentPath;
+    } else if (!line.trim()) {
+      currentPath = undefined;
+    }
+  }
+  return undefined;
+}
+
 function worktreeSlug(runId: string): string {
   const normalized = runId
     .replace(/[^a-zA-Z0-9._-]+/g, "-")
@@ -136,10 +162,18 @@ export function resolveCodeAgentRepositoryRoot(input: {
 }
 
 function comparablePath(value: string): string {
+  const absolute = path.resolve(value);
   try {
-    return fs.realpathSync.native(value);
+    return fs.realpathSync.native(absolute);
   } catch {
-    return path.resolve(value);
+    try {
+      return path.join(
+        fs.realpathSync.native(path.dirname(absolute)),
+        path.basename(absolute),
+      );
+    } catch {
+      return absolute;
+    }
   }
 }
 
@@ -265,6 +299,32 @@ export function restoreCodeAgentWorktree(input: {
     throw new Error("The worktree path is already occupied.");
   }
   fs.mkdirSync(root, { recursive: true });
+  const occupiedPath = checkedOutWorktreePath(
+    repository.sourcePath,
+    input.branch,
+    executeGit,
+  );
+  if (occupiedPath) {
+    if (
+      comparablePath(occupiedPath) !== comparablePath(worktreePath) ||
+      fs.existsSync(worktreePath)
+    ) {
+      throw new Error(
+        "The managed worktree branch is already checked out elsewhere.",
+      );
+    }
+    const pruned = executeGit(["worktree", "prune"], repository.sourcePath);
+    if (pruned.status !== 0) {
+      throw gitFailure(pruned, "Could not reconcile the missing Git worktree.");
+    }
+    if (
+      checkedOutWorktreePath(repository.sourcePath, input.branch, executeGit)
+    ) {
+      throw new Error(
+        "The managed worktree branch is already checked out elsewhere.",
+      );
+    }
+  }
   const branchRef = executeGit(
     ["show-ref", "--verify", "--quiet", `refs/heads/${input.branch}`],
     repository.sourcePath,
@@ -272,14 +332,13 @@ export function restoreCodeAgentWorktree(input: {
   const created =
     branchRef.status === 0
       ? executeGit(
-          ["worktree", "add", "--force", worktreePath, input.branch],
+          ["worktree", "add", worktreePath, input.branch],
           repository.sourcePath,
         )
       : executeGit(
           [
             "worktree",
             "add",
-            "--force",
             "-b",
             input.branch,
             worktreePath,
