@@ -37,6 +37,13 @@ jobs:
           set -o pipefail
           node <<'NODE' | tee /tmp/agent-native-site-availability.log
           const fs = require("node:fs");
+          const dns = require("node:dns");
+
+          // Netlify publishes an IPv6 edge address, but some runners and
+          // corporate networks black-hole IPv6 instead of falling back. Keep
+          // this alert path on IPv4 so a client-network quirk does not page us
+          // for healthy sites.
+          dns.setDefaultResultOrder("ipv4first");
 
           const manifest = JSON.parse(
             fs.readFileSync("scripts/netlify-site-hosts.json", "utf8"),
@@ -47,35 +54,46 @@ jobs:
             ...manifest.workspace.map((host) => ({ environment: "workspace", host })),
           ];
           const timeoutMs = 15_000;
+          const maxAttempts = 3;
 
           async function probe({ environment, host }) {
-            const startedAt = Date.now();
-            try {
-              const response = await fetch(`https://${host}/`, {
-                headers: { "user-agent": "agent-native-site-monitor" },
-                redirect: "manual",
-                signal: AbortSignal.timeout(timeoutMs),
-              });
-              await response.body?.cancel();
-              const ms = Date.now() - startedAt;
-              const ok = response.status >= 200 && response.status < 400;
-              return {
-                environment,
-                host,
-                ok,
-                detail: `HTTP ${response.status} in ${ms}ms`,
-              };
-            } catch (error) {
-              return {
-                environment,
-                host,
-                ok: false,
-                detail:
+            let lastFailure = "unknown error";
+            for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+              const startedAt = Date.now();
+              try {
+                const response = await fetch(`https://${host}/`, {
+                  headers: { "user-agent": "agent-native-site-monitor" },
+                  redirect: "manual",
+                  signal: AbortSignal.timeout(timeoutMs),
+                });
+                await response.body?.cancel();
+                const ms = Date.now() - startedAt;
+                const ok = response.status >= 200 && response.status < 400;
+                if (ok) {
+                  return {
+                    environment,
+                    host,
+                    ok: true,
+                    detail: `HTTP ${response.status} in ${ms}ms (attempt ${attempt})`,
+                  };
+                }
+                lastFailure = `HTTP ${response.status}`;
+              } catch (error) {
+                lastFailure =
                   error?.name === "TimeoutError"
                     ? `timeout after ${timeoutMs}ms`
-                    : String(error?.message ?? error),
-              };
+                    : String(error?.message ?? error);
+              }
+              if (attempt < maxAttempts) {
+                await new Promise((resolve) => setTimeout(resolve, attempt * 1_000));
+              }
             }
+            return {
+              environment,
+              host,
+              ok: false,
+              detail: `${lastFailure} after ${maxAttempts} attempts`,
+            };
           }
 
           (async () => {
