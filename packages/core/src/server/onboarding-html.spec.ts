@@ -548,7 +548,7 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "forms"');
   });
 
-  it("localizes custom Clips auth marketing copy and keeps System tied to the browser", () => {
+  it("keeps custom Clips auth marketing copy out of built-in localization", () => {
     const html = getOnboardingHtml({
       requestHost: "clips.agent-native.com",
       marketing: {
@@ -564,9 +564,11 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
       },
     });
 
-    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "clips"');
-    expect(html).toContain("你的 AI 代理会转录、总结并搜索你记录的所有内容。");
-    expect(html).toContain("一键录屏（Loom 风格），自动生成标题、摘要和章节");
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "";');
+    expect(html).toContain(
+      "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
+    );
+    expect(html).toContain('var __AN_AUTH_MARKETING_LOCALES = {};');
     expect(html).toContain("function __anResolveAuthSystemLocale()");
     expect(html).not.toContain("var rootLocale =");
   });
