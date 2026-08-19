@@ -2423,6 +2423,7 @@ export default function CodeAgentsHub({
                 desktopIdentityAuthenticated={isDesktopIdentityAuthenticated(
                   desktopIdentityStatusByTab[tab.id],
                 )}
+                isActive={isTabActive}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
                 <AppWebview

@@ -131,6 +131,14 @@ export function isDesktopIdentityGateEligible(
   return canonical !== undefined;
 }
 
+export function shouldUseDesktopIdentityGate(input: {
+  eligible: boolean;
+  active: boolean;
+  enabled: boolean | null;
+}): boolean {
+  return input.eligible && input.active && input.enabled !== false;
+}
+
 export function shouldSuppressDesktopSignInPrompt(
   app: Pick<AppDefinition, "id">,
   appConfig: Pick<
@@ -446,13 +454,14 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     >("idle");
     const [desktopIdentityEnabled, setDesktopIdentityEnabled] = useState<
       boolean | null
-    >(() => (desktopIdentityGateEligible && isActive ? null : false));
+    >(() => (desktopIdentityGateEligible ? null : false));
     const [desktopIdentitySessionReady, setDesktopIdentitySessionReady] =
-      useState(() => !desktopIdentityGateEligible || !isActive);
-    const desktopIdentityGateActive =
-      desktopIdentityGateEligible &&
-      isActive &&
-      desktopIdentityEnabled === true;
+      useState(() => !desktopIdentityGateEligible);
+    const desktopIdentityGateActive = shouldUseDesktopIdentityGate({
+      eligible: desktopIdentityGateEligible,
+      active: isActive,
+      enabled: desktopIdentityEnabled,
+    });
     const optimizeDepRecoveryRef = useRef(false);
     const prevUrlRef = useRef(url);
     const prevUrlOpenNonceRef = useRef(urlOpenNonce);
@@ -516,15 +525,21 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
 
     useEffect(() => {
       const identity = window.electronAPI?.identity;
-      if (!identity || !desktopIdentityGateEligible || !isActive) {
+      if (!identity || !desktopIdentityGateEligible) {
+        setDesktopIdentityEnabled(false);
+        setDesktopIdentityStatus("idle");
+        setDesktopIdentitySessionReady(true);
+        return;
+      }
+      if (!isActive) {
         const rememberedSignedIn = shouldReuseRememberedDesktopIdentitySession(
           rememberedDesktopIdentityStatus,
           undefined,
           rememberedDesktopIdentityStatusAt,
         );
-        setDesktopIdentityEnabled(false);
+        setDesktopIdentityEnabled(null);
         setDesktopIdentityStatus(rememberedSignedIn ? "signed-in" : "idle");
-        setDesktopIdentitySessionReady(true);
+        setDesktopIdentitySessionReady(false);
         return;
       }
       let active = true;

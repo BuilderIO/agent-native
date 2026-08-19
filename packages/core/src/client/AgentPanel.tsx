@@ -591,14 +591,13 @@ function useBuilderConnectUrl() {
     let lastConfigured = false;
     const refresh = () => {
       fetchBuilderStatus<{
-        cliAuthUrl?: string;
         connectUrl?: string;
         configured?: boolean;
       }>()
         .then((result) => (result.state === "available" ? result.value : null))
         .then((data) => {
           if (cancelled || !data) return;
-          const nextConnectUrl = data.cliAuthUrl || data.connectUrl;
+          const nextConnectUrl = data.connectUrl;
           if (nextConnectUrl) setConnectUrl(nextConnectUrl);
           const nextConfigured = !!data.configured;
           setConfigured(nextConfigured);

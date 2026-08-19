@@ -23,6 +23,7 @@ import {
   isDesktopIdentityAuthenticated,
   isDesktopIdentityGateEligible,
   isDesktopIdentityGateUnauthenticated,
+  shouldUseDesktopIdentityGate,
   shouldSuppressDesktopSignInPrompt,
   resolveGuestChatCommand,
   resolveDesktopIdentityLazySyncStatus,
@@ -67,6 +68,30 @@ describe("Desktop identity lazy child synchronization", () => {
     expect(resolveDesktopIdentityStatusForChat("sign-in-required", false)).toBe(
       "sign-in-required",
     );
+  });
+
+  it("keeps the Electron gate active while its setting is unresolved", () => {
+    expect(
+      shouldUseDesktopIdentityGate({
+        eligible: true,
+        active: true,
+        enabled: null,
+      }),
+    ).toBe(true);
+    expect(
+      shouldUseDesktopIdentityGate({
+        eligible: true,
+        active: true,
+        enabled: false,
+      }),
+    ).toBe(false);
+    expect(
+      shouldUseDesktopIdentityGate({
+        eligible: true,
+        active: false,
+        enabled: null,
+      }),
+    ).toBe(false);
   });
 
   it("does not demote a verified workspace session when child sync fails", () => {

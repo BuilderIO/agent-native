@@ -168,6 +168,40 @@ describe("MCP OAuth client", () => {
     });
   });
 
+  it("sends the advertised RFC 8707 resource identifier without a trailing slash", async () => {
+    const provider = new McpOAuthClientProvider({
+      serverUrl: "https://api.builder.io",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+    });
+
+    const resource = await provider.validateResourceURL(
+      new URL("https://api.builder.io/"),
+      "https://api.builder.io",
+    );
+
+    expect(resource?.href).toBe("https://api.builder.io");
+    expect(String(resource)).toBe("https://api.builder.io");
+    expect(new URL("https://api.builder.io").href).toBe(
+      "https://api.builder.io/",
+    );
+  });
+
+  it("rejects an advertised resource that is not the same origin as the server", async () => {
+    const provider = new McpOAuthClientProvider({
+      serverUrl: "https://api.builder.io",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+    });
+
+    await expect(
+      provider.validateResourceURL(
+        new URL("https://api.builder.io/"),
+        "https://evil.example.com",
+      ),
+    ).rejects.toThrow(/does not match expected/);
+  });
+
   it("derives native application_type for loopback callbacks", () => {
     const provider = new McpOAuthClientProvider({
       serverUrl: "https://mcp.example.com/mcp",
@@ -489,6 +523,40 @@ describe("MCP OAuth client", () => {
     expect((saveOAuthTokensMock.mock.calls[0]?.[2] as any).tokens.issuer).toBe(
       "https://auth.example.com",
     );
+  });
+
+  it("refreshes with the advertised resource identifier, not the WHATWG href", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      serverUrl: "https://api.builder.io/",
+      tokenExpiresAt: Date.now() - 1,
+      discoveryState: {
+        ...credentials.discoveryState,
+        resourceMetadata: {
+          resource: "https://api.builder.io",
+          authorization_servers: ["https://auth.example.com"],
+        },
+      },
+    });
+    refreshAuthorizationMock.mockResolvedValueOnce({
+      access_token: "<NEW_ACCESS_TOKEN>",
+      token_type: "bearer",
+      expires_in: 3600,
+    });
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://api.builder.io",
+      }),
+    ).resolves.toBe("<NEW_ACCESS_TOKEN>");
+
+    const resource = refreshAuthorizationMock.mock.calls[0]?.[1]?.resource as
+      | URL
+      | undefined;
+    expect(resource?.href).toBe("https://api.builder.io");
   });
 
   it("requires reauthorization for expiring legacy credentials without issuer binding", async () => {
