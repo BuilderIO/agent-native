@@ -85,11 +85,13 @@ interface SessionReplayState {
   /** Callers awaiting the coalesced flush tail. */
   pendingFlushWaiters: Array<() => void>;
   /**
-   * An upload that timed out before the transport could be canceled. Its
-   * batch is fenced until the original request settles so a late success
-   * cannot race a retry with the same replay sequence.
+   * An upload whose timeout makes its server outcome uncertain. Its batch is
+   * fenced until the original request settles so recovery cannot reuse its
+   * replay identity or sequence.
    */
   pendingReplayUpload: PendingReplayUpload | null;
+  /** A caller-requested restart that arrived while the old upload was fenced. */
+  pendingReplayStart: PendingReplayStart | null;
   /** Drop incremental events until a new FullSnapshot can re-anchor the DOM. */
   awaitingFullSnapshot: boolean;
   stopRecorder: ReplayStopFn | null;
@@ -480,6 +482,7 @@ function getState(): SessionReplayState {
       pendingFlushReason: null,
       pendingFlushWaiters: [],
       pendingReplayUpload: null,
+      pendingReplayStart: null,
       awaitingFullSnapshot: false,
       stopRecorder: null,
       restoreUrlMonitor: null,
@@ -502,6 +505,7 @@ function getState(): SessionReplayState {
   state.pendingFlushReason ??= null;
   state.pendingFlushWaiters ??= [];
   state.pendingReplayUpload ??= null;
+  state.pendingReplayStart ??= null;
   state.awaitingFullSnapshot ??= false;
   state.startGeneration ??= 0;
   state.replayLinkBaseUrl ??= null;
@@ -1405,6 +1409,11 @@ interface PendingReplayUpload {
   payload: ReplayUploadPayload;
 }
 
+interface PendingReplayStart {
+  options: NormalizedSessionReplayOptions;
+  sessionId: string;
+}
+
 function buildReplayBody(
   state: SessionReplayState,
   reason: string,
@@ -1864,8 +1873,6 @@ function resumeAfterPendingReplayUpload(
   pending: PendingReplayUpload,
 ): void {
   if (state.pendingReplayUpload !== pending) return;
-  state.pendingReplayUpload = null;
-  state.pendingFlushReason = null;
   const waiters = state.pendingFlushWaiters.splice(0);
   void recoverAfterPendingReplayUpload(state, pending).then(
     () => {
@@ -1881,7 +1888,18 @@ async function recoverAfterPendingReplayUpload(
   state: SessionReplayState,
   pending: PendingReplayUpload,
 ): Promise<void> {
-  if (state.replayId !== pending.payload.replayId) return;
+  if (state.replayId !== pending.payload.replayId) {
+    state.pendingReplayUpload = null;
+    state.pendingReplayStart = null;
+    return;
+  }
+
+  const wasActive = state.active;
+  const restartRequest =
+    state.pendingReplayStart ??
+    (wasActive && state.options
+      ? { options: state.options, sessionId: pending.payload.sessionId }
+      : null);
 
   // Never reuse the replay identity after a timeout. The server may have
   // accepted the old request even when this client observed an abort, so a
@@ -1893,12 +1911,24 @@ async function recoverAfterPendingReplayUpload(
   state.awaitingFullSnapshot = false;
   removeStoredReplaySession(pending.payload.replayId);
 
-  if (!state.active || !state.options) return;
-  const options = state.options;
-  const sessionId = pending.payload.sessionId;
-  await stopSessionReplay("upload-timeout");
-  if (state.active || state.options !== options) return;
-  await restartSessionReplayWithFreshIdentity(state, options, sessionId);
+  if (wasActive) await stopSessionReplay("upload-timeout");
+
+  // Capture restoration during stop can emit one last event. Keep it bounded
+  // and discard it before the fresh recorder emits its own Meta + FullSnapshot.
+  state.queue = [];
+  state.queuedBytes = 0;
+  state.retryBatches = [];
+  state.awaitingFullSnapshot = false;
+  state.pendingFlushReason = null;
+  state.pendingReplayUpload = null;
+  state.pendingReplayStart = null;
+
+  if (!restartRequest || state.active) return;
+  await restartSessionReplayWithFreshIdentity(
+    state,
+    restartRequest.options,
+    restartRequest.sessionId,
+  );
 }
 
 function fenceTimedOutReplayUpload(
@@ -3205,6 +3235,7 @@ export async function startSessionReplay(
 
   const state = getState();
   if (state.pendingReplayUpload) {
+    state.pendingReplayStart = { options: normalized, sessionId };
     // Do not start a new recorder episode while the previous episode's
     // timed-out upload still owns an uncertain server outcome.
     return {
@@ -3341,6 +3372,7 @@ async function startSessionReplayRecorder(
   state.queuedBytes = 0;
   state.retryBatches = [];
   state.pendingReplayUpload = null;
+  state.pendingReplayStart = null;
   state.pendingFlushReason = null;
   for (const resolve of state.pendingFlushWaiters.splice(0)) resolve();
   state.awaitingFullSnapshot = false;

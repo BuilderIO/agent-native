@@ -519,6 +519,18 @@ describe("session replay", () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(1);
 
+      const pendingRestart = await replay.startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/restarted-replay",
+        maxEventsPerBatch: 1,
+        flushIntervalMs: 100_000,
+      });
+      expect(pendingRestart).toMatchObject({
+        started: false,
+        reason: "already-active",
+      });
+      await replay.stopSessionReplay("manual");
+
       // Once the original request settles, the old replay identity is retired.
       // The restarted recorder supplies a fresh Meta + FullSnapshot stream; it
       // must never send the uncertain batch a second time.
@@ -537,6 +549,9 @@ describe("session replay", () => {
       );
       expect(bodies[1].replayId).not.toBe(bodies[0].replayId);
       expect(bodies[1].sequence).toBe(0);
+      expect(fetchMock.mock.calls[1]?.[0]).toBe(
+        "https://analytics.example.test/restarted-replay",
+      );
       expect(bodies[1].events).toHaveLength(1);
       expect(bodies[1].events[0].type).toBe(2);
 
