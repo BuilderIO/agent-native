@@ -43,7 +43,7 @@ export function TemplateHero({
           </div>
 
           <h1
-            className={`m-0 font-medium leading-[1.05] tracking-tight lg:col-span-2 lg:col-start-1 lg:row-start-2 ${titleClassName || "text-[2rem] sm:text-4xl lg:text-[2.875rem]"}`}
+            className={`m-0 font-medium leading-[1.05] tracking-tight lg:col-span-2 lg:col-start-1 lg:row-start-2 ${titleClassName || "text-[1.75rem] sm:text-[2.25rem] lg:text-[2.5rem]"}`}
           >
             {title}
           </h1>

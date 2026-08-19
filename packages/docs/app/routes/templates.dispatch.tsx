@@ -114,6 +114,23 @@ export default function DispatchTemplate() {
         description={
           <p className="m-0">{t("templateLanding.dispatch.s008")}</p>
         }
+        headingAction={
+          <a
+            href="https://dispatch.agent-native.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={primaryLinkClassName}
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: "dispatch",
+                location: "landing_page_hero",
+              });
+            }}
+          >
+            {t("templateLanding.dispatch.s009")}
+          </a>
+        }
         media={
           <img
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6a85a31f4d424fba9192aa86485183c4?format=webp&width=800&height=1200"

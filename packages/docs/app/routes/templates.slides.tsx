@@ -3,6 +3,7 @@ import { IconCheck } from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { sitePathForLocale } from "../components/docs-locale";
+import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import { SlidesTryNow } from "../components/SlidesTryNow";
 import { TemplateDocsLink } from "../components/template-docs";
@@ -18,7 +19,7 @@ import {
   TemplateStatOrStepsGrid,
   TemplateStatOrStepsGridItem,
 } from "../components/template-landing";
-import { templates } from "../components/TemplateCard";
+import { templates, trackEvent } from "../components/TemplateCard";
 import { withTemplateSocialImage } from "../seo";
 
 export const meta = () =>
@@ -146,6 +147,23 @@ export default function SlidesTemplate() {
         }
         title={t("templateLanding.slides.s006")}
         description={<p className="m-0">{t("templateLanding.slides.s007")}</p>}
+        headingAction={
+          <a
+            href="https://slides.agent-native.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="primary-button"
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("generate deck", {
+                template: "slides",
+                location: "landing_page_hero",
+              });
+            }}
+          >
+            {t("templateLanding.slides.tryNow.submit")}
+          </a>
+        }
         media={
           <img
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb03fd93e270145e2a4e09a54ac0a549f?format=webp&width=2200"

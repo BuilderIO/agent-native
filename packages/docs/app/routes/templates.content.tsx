@@ -113,6 +113,23 @@ export default function ContentTemplate() {
         }
         title={t("templateLanding.content.s003")}
         description={<p className="m-0">{t("templateLanding.content.s004")}</p>}
+        headingAction={
+          <a
+            href="https://content.agent-native.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="primary-button"
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: "content",
+                location: "landing_page_hero",
+              });
+            }}
+          >
+            {t("templateLanding.content.s005")}
+          </a>
+        }
         media={
           <img
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F84aeddce626e47feb6fd4b2d201db07c?format=webp&width=800&height=1200"

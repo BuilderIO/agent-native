@@ -123,6 +123,23 @@ export default function MailTemplate() {
             fees, no vendor lock-in.
           </p>
         }
+        headingAction={
+          <a
+            href="https://mail.agent-native.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={primaryLinkClassName}
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: "mail",
+                location: "landing_page_hero",
+              });
+            }}
+          >
+            {t("templateLanding.mail.s008")}
+          </a>
+        }
         media={
           <img
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F25c8a1e634324e1c8193d797d21276cf?format=webp&width=800&height=1200"

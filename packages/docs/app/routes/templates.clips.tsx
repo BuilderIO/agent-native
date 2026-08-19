@@ -219,7 +219,6 @@ export default function ClipsTemplate() {
             </span>
           </>
         }
-        titleClassName="text-[1.75rem] sm:text-[2.25rem] lg:text-[2.5rem]"
         headingAction={
           <a
             href="https://clips.agent-native.com"

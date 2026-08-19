@@ -13,7 +13,11 @@ import {
   TemplateLandingFaq,
   TemplateLandingShell,
 } from "../components/template-landing";
-import { templates, type Template } from "../components/TemplateCard";
+import {
+  templates,
+  trackEvent,
+  type Template,
+} from "../components/TemplateCard";
 import enUS from "../i18n/en-US";
 import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
@@ -147,6 +151,25 @@ export default function GenericTemplatePage() {
         }
         title={t("templateDetail.title", { name: template.name })}
         description={<p className="m-0">{description}</p>}
+        headingAction={
+          hasDemoUrl ? (
+            <a
+              href={template.demoUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="primary-button"
+              onClick={(event) => {
+                applyFirstTouchAttributionToLink(event.currentTarget);
+                trackEvent("try live demo", {
+                  template: template.slug,
+                  location: "generic_template_page_hero",
+                });
+              }}
+            >
+              {t("common.tryIt")}
+            </a>
+          ) : undefined
+        }
         media={<TemplateFallbackArt template={template} />}
       />
 

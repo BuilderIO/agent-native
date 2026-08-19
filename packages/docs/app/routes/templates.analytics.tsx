@@ -148,6 +148,23 @@ export default function AnalyticsTemplate() {
         description={
           <p className="m-0">{t("templateLanding.analytics.s008")}</p>
         }
+        headingAction={
+          <a
+            href="https://analytics.agent-native.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={primaryLinkClassName}
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: "analytics",
+                location: "landing_page_hero",
+              });
+            }}
+          >
+            Talk to Your Data
+          </a>
+        }
         media={
           <img
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff1e7ffee62d64d26b0411c1f6a50e1e1?format=webp&width=800&height=1200"

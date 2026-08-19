@@ -106,6 +106,23 @@ export default function FormsTemplate() {
         }
         title={t("templateLanding.forms.s006")}
         description={<p className="m-0">{t("templateLanding.forms.s007")}</p>}
+        headingAction={
+          <a
+            href="https://forms.agent-native.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="primary-button"
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: "forms",
+                location: "landing_page_hero",
+              });
+            }}
+          >
+            {t("templateLanding.forms.s008")}
+          </a>
+        }
         media={
           <img
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F19d52f7d09ff4fbdb17b3b7610f94044?format=webp&width=800&height=1200"

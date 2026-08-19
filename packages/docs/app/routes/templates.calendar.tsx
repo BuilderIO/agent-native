@@ -114,6 +114,23 @@ export default function CalendarTemplate() {
         description={
           <p className="m-0">{t("templateLanding.calendar.s007")}</p>
         }
+        headingAction={
+          <a
+            href="https://calendar.agent-native.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className={primaryLinkClassName}
+            onClick={(event) => {
+              applyFirstTouchAttributionToLink(event.currentTarget);
+              trackEvent("try live demo", {
+                template: "calendar",
+                location: "landing_page_hero",
+              });
+            }}
+          >
+            {t("templateLanding.calendar.s008")}
+          </a>
+        }
         media={
           <img
             src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F466159be1617484798637cc88bc282c0?format=webp&width=800&height=1200"
