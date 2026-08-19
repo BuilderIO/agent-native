@@ -77,6 +77,67 @@ export interface CodeAgentScheduleResult {
   error?: string;
 }
 
+export type CodeAgentWorktreeMode = "new" | "named";
+
+export interface CodeAgentWorktreeSelection {
+  mode: CodeAgentWorktreeMode;
+  name?: string;
+}
+
+export type CodeAgentWorktreeState =
+  | "available"
+  | "attached"
+  | "cleanup-pending"
+  | "recoverable"
+  | "removed"
+  | "error";
+
+export interface CodeAgentWorktreeSummary {
+  id: string;
+  name: string;
+  branch: string;
+  path: string;
+  sourcePath: string;
+  state: CodeAgentWorktreeState;
+  attached: boolean;
+  lastUsedAt: string;
+  lastCleanupError?: string;
+}
+
+export interface CodeAgentWorktreeListResult {
+  status: "ok" | "unavailable";
+  sourcePath: string;
+  worktrees: CodeAgentWorktreeSummary[];
+  error?: string;
+}
+
+export interface CodeAgentForkRunRequest {
+  goalId?: string;
+  sourceRunId: string;
+  executionTarget: "local" | "worktree";
+}
+
+export interface CodeAgentForkRunResult {
+  ok: boolean;
+  sourceRunId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
+export interface CodeAgentRestoreWorktreeRequest {
+  worktreeId: string;
+  runId?: string;
+}
+
+export interface CodeAgentRestoreWorktreeResult {
+  ok: boolean;
+  worktreeId: string;
+  run?: CodeAgentRun;
+  message: string;
+  error?: string;
+}
+
 export interface CodeAgentRemoteWaitlistRequest {
   email: string;
   pageUrl?: string;
@@ -259,6 +320,7 @@ export interface CodeAgentCreateRunRequest {
   prompt: string;
   cwd?: string;
   executionTarget?: CodeAgentExecutionTarget;
+  worktree?: CodeAgentWorktreeSelection;
   permissionMode?: CodeAgentPermissionMode;
   engine?: string;
   model?: string;
