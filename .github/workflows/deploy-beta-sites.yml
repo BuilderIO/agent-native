@@ -149,18 +149,14 @@ jobs:
               (candidate) =>
                 candidate.branch === "beta" &&
                 candidate.commit_ref === betaSha &&
-                (candidate.state === "ready" || isNoContentChange(candidate.error_message)),
+                candidate.state === "ready",
             );
           }
 
           async function reuseMatchingDeploy(site, betaSha) {
             const matchingDeploy = await findMatchingDeploy(site, betaSha);
             if (!matchingDeploy) return false;
-            if (matchingDeploy.state === "ready") {
-              console.log(`[${site.id}] sibling deploy ready at ${matchingDeploy.commit_ref}.`);
-            } else {
-              console.log(`[${site.id}] sibling deploy had no content change; reusing the existing beta deploy.`);
-            }
+            console.log(`[${site.id}] sibling deploy ready at ${matchingDeploy.commit_ref}.`);
             return true;
           }
 
