@@ -162,19 +162,26 @@ specific reporter or product input is still missing.
 Treat a clarification reply as new evidence, not as a fresh blank report.
 Re-read the whole thread after the reply, update the ledger, and try the fix
 before posting another question. If the reply answers the earlier question,
-do not repeat it. If it only answers part of it, ask only for the one remaining
-missing value. A `Clarification needed` reply is invalid when the requested
- information is already present anywhere in the thread or accessible linked
- evidence. If the information is only known to be inside an inaccessible
- artifact, request access or a fresh/replacement link when that artifact is
- the blocker instead of asking for the information again.
+do not repeat it. Treat an answer or explicit resolution from any participant
+as sufficient when it supplies the exact requested detail. A partial or
+unrelated reply does not clear the earlier request - keep it as the sole
+pending handoff and do not ask a second question. Ask a new question only
+after that request is answered or resolved and one specific, non-repeating
+detail still blocks the fix. A `Clarification needed` reply is invalid when the
+requested information is already present anywhere in the thread or accessible
+linked evidence. If the information is only known to be inside an inaccessible
+artifact, request access or a fresh/replacement link when that artifact is the
+blocker instead of asking for the information again.
 
 There may be only one unanswered clarification request per thread. Before
-posting, check the complete thread for an earlier question from this workflow
-or `@agent-native`. If the reporter has not replied after it, keep that request
-as the sole pending handoff and do not post another question. Once the reporter
-replies, attempt the fix from the new evidence first; ask at most one new,
-non-repeating question only if one specific required detail still blocks it.
+posting, re-read the complete thread for an earlier question from this workflow
+or `@agent-native` and check whether its exact requested detail has been
+semantically answered or explicitly resolved anywhere in the thread. If it is
+still unresolved, including after a partial or unrelated reply, keep that
+request as the sole pending handoff and do not post another question. Once it
+is answered or resolved, attempt the fix from the new evidence first; ask at
+most one new, non-repeating question only if one specific required detail still
+blocks it.
 
 ## Workflow
 
@@ -253,13 +260,14 @@ non-repeating question only if one specific required detail still blocks it.
    **In progress**, or **Clarification needed**. If any parent has only `👀`, a generic bot
    forward, or another person's reply, keep working and post the missing reply
    before finishing.
-   If a reporter replies after the post, re-read the entire thread again before
-   deciding whether to fix, close, or ask anything else.
-7. If a reporter answers a clarification question, re-read the full thread and
-   use that new evidence in the same follow-up pass. Attempt the fix now; do
-   not repeat the question unless one specific required detail is still
-   missing. Replace an open clarification with a **Fixed** reply once the fix
-   is verified.
+   If any participant replies after the post, re-read the entire thread again
+   before deciding whether to fix, close, or ask anything else.
+7. If any participant supplies the requested detail or an explicit resolution,
+   re-read the full thread and use that new evidence in the same follow-up pass.
+   Attempt the fix now; do not repeat the question. If the reply is partial or
+   unrelated, keep the existing clarification pending instead of asking a
+   second question. Replace an open clarification with a **Fixed** reply once
+   the fix is verified.
 8. If the user says earlier replies were too technical, harsh, or incomplete,
    search for every reply authored in this sweep and edit the bad replies in
    place. Do not fix only the newest example or leave the other addressed

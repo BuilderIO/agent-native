@@ -96,8 +96,9 @@ ask again for contents already known to be in the inaccessible artifact. If the
 available evidence is enough without it, continue and record the limitation as
 unavailable/unverified in the ship ledger.
 
-Before carrying an item forward as awaiting clarification, check the complete
-source thread and handoff for a resolution or ownership signal. If
+Before carrying an item forward as awaiting clarification, always re-read the
+complete source thread and current handoff for a resolution or ownership signal.
+If
 `@agent-native` or another participant already supplied the needed details,
 identified the cause, linked a fix, or said the issue is fixed, landed, or being
 fixed, do not reopen it as a clarification request or ask for duplicate
@@ -109,11 +110,14 @@ must thank the person first and ask the question second; `Clarification needed`
 is an internal state, not an opening line.
 
 There may be only one unanswered clarification request per feedback thread. If
-the existing handoff already contains a question from this workflow or
-`@agent-native` with no reporter reply after it, carry that timestamp forward
-as the sole pending request and do not add another question. After a reporter
-reply, re-read the thread and try the fix first; ask one new question only for
-one specific remaining detail, without repeating the earlier request.
+the existing handoff or complete source thread contains a question from this
+workflow or `@agent-native`, re-read both and determine whether the exact
+requested detail has been semantically answered or explicitly resolved anywhere
+in the thread. A partial or unrelated reply does not clear the request. If it
+remains unresolved, carry its timestamp forward as the sole pending request and
+do not add another question. Once it is answered or resolved, re-read the
+thread and try the fix first; ask one new question only for one specific,
+non-repeating detail that still blocks the fix.
 
 Do not ship a feedback fix that is only a wording-specific rule or that lacks
 the evidence needed to identify its owner. Re-run or refresh the feedback sweep
