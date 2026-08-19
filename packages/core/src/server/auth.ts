@@ -2115,6 +2115,7 @@ function applyCorsHeaders(
           "X-Request-Source",
           "X-Agent-Native-CSRF",
           "X-User-Timezone",
+          "X-Agent-Native-Desktop-Verifier",
           EMBED_TARGET_HEADER,
         ].join(","),
   );
@@ -3896,7 +3897,8 @@ async function mountBetterAuthRoutes(
       "/_agent-native/google/auth-url",
       defineEventHandler(async (event) => {
         if (!areGenericGoogleOAuthRoutesEnabled(app)) return undefined;
-        if (getMethod(event) !== "GET") {
+        const method = getMethod(event);
+        if (method !== "GET" && method !== "POST") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
@@ -3918,12 +3920,22 @@ async function mountBetterAuthRoutes(
           desktop && typeof q.flow_id === "string"
             ? normalizeDesktopFlowId(q.flow_id)
             : undefined;
+        if (method === "POST" && (!desktop || !flowId)) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
         const requestedVerifier = desktop
           ? getHeader(event, "x-agent-native-desktop-verifier")
           : undefined;
         let desktopVerifierHash: string | undefined;
         if (desktop && (q.flow_id !== undefined || q.verifier !== undefined)) {
-          if (!flowId || !requestedVerifier || q.verifier !== undefined) {
+          if (
+            method !== "POST" ||
+            !flowId ||
+            !requestedVerifier ||
+            q.verifier !== undefined ||
+            q.redirect !== undefined
+          ) {
             setResponseStatus(event, 400);
             return { error: "Invalid desktop exchange challenge." };
           }

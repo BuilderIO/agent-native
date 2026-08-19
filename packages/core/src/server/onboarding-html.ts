@@ -3099,8 +3099,12 @@ ${identitySsoScript}
       params.set('desktop', '1');
       params.set('flow_id', flowId);
       var res = await fetch(__anGoogleAuthUrlPath() + '?' + params.toString(), {
+        method: 'POST',
         credentials: 'include',
-        headers: { 'X-Agent-Native-Desktop-Verifier': verifier }
+        headers: {
+          'Accept': 'application/json',
+          'X-Agent-Native-Desktop-Verifier': verifier
+        }
       });
       var data = await res.json().catch(function() { return {}; });
       if (!res.ok || !data || typeof data.url !== 'string' || !data.url) {

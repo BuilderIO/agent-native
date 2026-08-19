@@ -10,6 +10,7 @@ import {
 import {
   defineEventHandler,
   getHeader,
+  getMethod,
   getQuery,
   setResponseStatus,
   type H3Event,
@@ -56,10 +57,18 @@ export default defineEventHandler(async (event: H3Event) => {
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const flowId =
       desktop && typeof q.flow_id === "string" ? q.flow_id : undefined;
+    if (getMethod(event) === "POST" && (!desktop || !flowId)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid desktop exchange challenge." };
+    }
     const calendarConnect =
       q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
     let desktopVerifierHash: string | undefined;
     if (flowId && !calendarConnect) {
+      if (getMethod(event) !== "POST" || q.redirect !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
       const verifier = getHeader(event, "x-agent-native-desktop-verifier");
       if (!verifier || q.verifier !== undefined) {
         setResponseStatus(event, 400);

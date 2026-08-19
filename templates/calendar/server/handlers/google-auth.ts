@@ -25,6 +25,7 @@ import {
 import {
   defineEventHandler,
   getHeader,
+  getMethod,
   getQuery,
   setResponseStatus,
   type H3Event,
@@ -229,6 +230,7 @@ function missingCredentialsResponse(
 export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
   try {
     const q = getQuery(event);
+    const method = getMethod(event);
     const redirectUri = resolveOAuthRedirectUri(event);
     if (!redirectUri) {
       setResponseStatus(event, 400);
@@ -244,6 +246,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const mobile = q.mobile === "1" || q.mobile === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+    if (method === "POST" && (!desktop || !flowId)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid desktop exchange challenge." };
+    }
     const calendarConnect = isCalendarConnectRequest(q, owner);
     const credentials = calendarConnect
       ? await resolveCalendarOAuthCredentials(event)
@@ -269,6 +275,10 @@ export const getGoogleAuthUrl = defineEventHandler(async (event: H3Event) => {
 
     let desktopVerifierHash: string | undefined;
     if (flowId) {
+      if (method !== "POST" || q.redirect !== undefined) {
+        setResponseStatus(event, 400);
+        return { error: "Invalid desktop exchange challenge." };
+      }
       const verifier = getHeader(event, "x-agent-native-desktop-verifier");
       if (!verifier || q.verifier !== undefined) {
         setResponseStatus(event, 400);
@@ -471,10 +481,15 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       return { error: "Must be logged in to add an account" };
     }
     const q = getQuery(event);
+    const method = getMethod(event);
     const desktop =
       isElectron(event) || q.desktop === "1" || q.desktop === "true";
     const mobile = q.mobile === "1" || q.mobile === "true";
     const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+    if (method === "POST" && (!desktop || !flowId)) {
+      setResponseStatus(event, 400);
+      return { error: "Invalid desktop exchange challenge." };
+    }
     if (!(await resolveCalendarOAuthCredentials(event))) {
       return missingCredentialsResponse(
         event,
@@ -493,6 +508,10 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       }
       let desktopVerifierHash: string | undefined;
       if (flowId) {
+        if (method !== "POST" || q.redirect !== undefined) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
         const verifier = getHeader(event, "x-agent-native-desktop-verifier");
         if (!verifier || q.verifier !== undefined) {
           setResponseStatus(event, 400);
