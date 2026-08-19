@@ -1011,128 +1011,24 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
 
 const defaultAuthCopy = AUTH_LOCALE_COPY[DEFAULT_LOCALE];
 
-type AuthMarketingLocalization = Pick<
-  AuthMarketingContent,
-  "tagline" | "description" | "features"
->;
-
-const AUTH_MARKETING_LOCALE_COPY: Partial<
-  Record<LocaleCode, Record<string, Partial<AuthMarketingLocalization>>>
-> = {
-  "zh-CN": {
-    forms: {
-      tagline: "你的 AI 代理与你一起构建、发布和分析表单。",
-      features: [
-        "用一句话创建完整表单",
-        "即时发布，生成可分享链接和验证码",
-        "按需获取回复摘要、导出和趋势分析",
-      ],
-    },
-  },
-  "zh-TW": {
-    forms: {
-      tagline: "你的 AI 代理會和你一起建立、發布與分析表單。",
-      features: [
-        "用一句話建立完整表單",
-        "立即發布，產生可分享連結與驗證碼",
-        "依需求取得回覆摘要、匯出與趨勢分析",
-      ],
-    },
-  },
-  "es-ES": {
-    forms: {
-      tagline: "Tu agente de IA crea, publica y analiza formularios contigo.",
-      features: [
-        "Crea formularios completos con una sola frase",
-        "Publicación instantánea con enlaces compartibles y captcha",
-        "Resúmenes de respuestas, exportaciones y análisis de tendencias al instante",
-      ],
-    },
-  },
-  "fr-FR": {
-    forms: {
-      tagline:
-        "Votre agent IA crée, publie et analyse des formulaires avec vous.",
-      features: [
-        "Créez des formulaires complets à partir d'une seule phrase",
-        "Publication instantanée avec liens partageables et captcha",
-        "Résumés de réponses, exports et analyse des tendances à la demande",
-      ],
-    },
-  },
-  "de-DE": {
-    forms: {
-      tagline:
-        "Dein KI-Agent erstellt, veröffentlicht und analysiert Formulare mit dir.",
-      features: [
-        "Erstelle vollständige Formulare aus einem einzigen Satz",
-        "Sofortige Veröffentlichung mit teilbaren Links und Captcha",
-        "Antwortzusammenfassungen, Exporte und Trendanalysen auf Abruf",
-      ],
-    },
-  },
-  "ja-JP": {
-    forms: {
-      tagline: "AI エージェントがフォームの作成、公開、分析を一緒に進めます。",
-      features: [
-        "一文から完全なフォームを作成",
-        "共有リンクと CAPTCHA 付きで即時公開",
-        "回答の要約、エクスポート、トレンド分析を必要なときに実行",
-      ],
-    },
-  },
-  "ko-KR": {
-    forms: {
-      tagline: "AI 에이전트가 양식 생성, 게시, 분석을 함께 도와줍니다.",
-      features: [
-        "한 문장으로 완성된 양식 만들기",
-        "공유 링크와 captcha로 즉시 게시",
-        "응답 요약, 내보내기, 추세 분석을 필요할 때 실행",
-      ],
-    },
-  },
-  "pt-BR": {
-    forms: {
-      tagline:
-        "Seu agente de IA cria, publica e analisa formulários junto com você.",
-      features: [
-        "Crie formulários completos a partir de uma única frase",
-        "Publicação instantânea com links compartilháveis e captcha",
-        "Resumos de respostas, exportações e análise de tendências sob demanda",
-      ],
-    },
-  },
-  "hi-IN": {
-    forms: {
-      tagline:
-        "आपका AI एजेंट आपके साथ फ़ॉर्म बनाता, प्रकाशित करता और उनका विश्लेषण करता है।",
-      features: [
-        "एक वाक्य से पूरे फ़ॉर्म बनाएं",
-        "शेयर करने योग्य लिंक और captcha के साथ तुरंत प्रकाशित करें",
-        "ज़रूरत पड़ने पर प्रतिक्रिया सारांश, exports और trend analysis पाएं",
-      ],
-    },
-  },
-  "ar-SA": {
-    forms: {
-      tagline: "يساعدك وكيل الذكاء الاصطناعي على إنشاء النماذج ونشرها وتحليلها.",
-      features: [
-        "أنشئ نماذج كاملة من جملة واحدة",
-        "نشر فوري مع روابط قابلة للمشاركة وcaptcha",
-        "ملخصات للإجابات وتصدير وتحليل اتجاهات عند الطلب",
-      ],
-    },
-  },
-};
-
 function resolveBuiltInMarketingSlug(
   marketing: AuthMarketingContent | undefined,
+  opts: { requestHost?: string; requestPath?: string } = {},
 ): string | undefined {
   if (!marketing) return undefined;
+
+  const requestSlug = resolveBuiltInAuthMarketingSlug(opts);
+  if (requestSlug) return requestSlug;
+
+  const normalizedAppName = marketing.appName
+    .trim()
+    .toLowerCase()
+    .replace(/^agent-native\s+/, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
   for (const [slug, builtIn] of Object.entries(BUILT_IN_AUTH_MARKETING)) {
     if (
-      marketing.appName === builtIn.appName &&
-      marketing.tagline === builtIn.tagline
+      marketing.tagline === builtIn.tagline || normalizedAppName === slug
     ) {
       return slug;
     }
