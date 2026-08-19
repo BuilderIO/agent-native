@@ -7,7 +7,7 @@ import { Link, NavLink, useLocation, useNavigate } from "react-router";
 import { DEFAULT_DOCS_LOCALE, sitePathForLocale } from "./docs-locale";
 import DocsLanguagePicker from "./DocsLanguagePicker";
 import DocsLanguageSuggestion from "./DocsLanguageSuggestion";
-import { useDocsTheme } from "./ThemeToggle";
+import ThemeToggle, { useDocsTheme } from "./ThemeToggle";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -333,6 +333,9 @@ export default function Header() {
             <div className="hidden shrink-0 items-center lg:flex">
               <DocsLanguagePicker />
               <DocsLanguageSuggestion />
+            </div>
+            <div className="hidden lg:block">
+              <ThemeToggle />
             </div>
             <button
               onClick={() =>
