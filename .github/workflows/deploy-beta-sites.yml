@@ -130,6 +130,29 @@ jobs:
             return { ...site, buildId: build.id, deployId: build.deploy_id };
           }
 
+          function isNoContentChange(value) {
+            return (
+              typeof value === "string" &&
+              value.includes("Canceled build due to no content change")
+            );
+          }
+
+          async function findMatchingDeploy(site, betaSha) {
+            const deploys = await readJson(
+              await request(`${api}/sites/${site.siteId}/deploys?per_page=20`, { headers }),
+              `[${site.id}] recent deploys`,
+            );
+            if (!Array.isArray(deploys)) {
+              throw new Error(`[${site.id}] Netlify returned an invalid deploy list.`);
+            }
+            return deploys.find(
+              (candidate) =>
+                candidate.branch === "beta" &&
+                candidate.commit_ref === betaSha &&
+                (candidate.state === "ready" || isNoContentChange(candidate.error_message)),
+            );
+          }
+
           async function waitForReady(site, betaSha) {
             const deadline = Date.now() + 30 * 60 * 1000;
             while (Date.now() < deadline) {
@@ -137,14 +160,26 @@ jobs:
                 readJson(await request(`${api}/builds/${site.buildId}`, { headers }), `[${site.id}] build status`),
                 readJson(await request(`${api}/deploys/${site.deployId}`, { headers }), `[${site.id}] deploy status`),
               ]);
-              const noContentChange = [build.error, deploy.error_message].some(
-                (value) =>
-                  typeof value === "string" &&
-                  value.includes("Canceled build due to no content change"),
-              );
+              const noContentChange = [build.error, deploy.error_message].some(isNoContentChange);
               if (noContentChange) {
                 console.log(`[${site.id}] no content change; reusing the existing beta deploy.`);
                 return;
+              }
+              const skipped = [build.error, deploy.error_message].some(
+                (value) => value === "Skipped",
+              );
+              if (skipped) {
+                const matchingDeploy = await findMatchingDeploy(site, betaSha);
+                if (matchingDeploy) {
+                  if (matchingDeploy.state === "ready") {
+                    console.log(`[${site.id}] sibling deploy ready at ${matchingDeploy.commit_ref}.`);
+                  } else {
+                    console.log(`[${site.id}] sibling deploy had no content change; reusing the existing beta deploy.`);
+                  }
+                  return;
+                }
+                await new Promise((resolve) => setTimeout(resolve, 15_000));
+                continue;
               }
               if (build.error || deploy.state === "error") {
                 throw new Error(`[${site.id}] deploy failed: ${build.error || deploy.error_message || deploy.state}`);
