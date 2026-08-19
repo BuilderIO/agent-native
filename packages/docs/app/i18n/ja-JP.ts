@@ -1236,6 +1236,7 @@ const jaJP = {
     loadError:
       "最新のデスクトップリリースを読み込めませんでした。releases ページにすべてのインストーラーがあります。",
     checkingRelease: "最新のデスクトップリリースを確認しています...",
+    nightlyBuilds: "Nightly ビルドをお探しですか？",
     runFromSource: "またはソースから実行",
     runFromSourceBody:
       "お使いのプラットフォーム向けインストーラーがまだない場合、または CLI を使いたい場合は、npm で新しいアプリを作成してローカル実行できます。macOS、Windows、Linux で動作します。",

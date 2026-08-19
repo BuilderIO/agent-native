@@ -121,6 +121,7 @@ import {
   type DesktopIdentitySettings,
   type DesktopIdentityMagicLinkRequest,
 } from "@shared/ipc-channels";
+import { DESKTOP_DEEP_LINK_PROTOCOL } from "@shared/release-channel";
 import {
   app,
   BrowserWindow,
@@ -356,10 +357,10 @@ const desktopSsoCanaryMarker = isDesktopSsoCanaryVersion(app.getVersion())
   ? ` AgentNativeDesktopSsoCanary/${app.getVersion()}`
   : "";
 app.userAgentFallback = `${app.userAgentFallback} AgentNativeDesktop/${app.getVersion()}${desktopSsoCanaryMarker}`;
-// ---------- Deep link protocol (agentnative://) ----------
+// ---------- Deep link protocol (agentnative:// or agentnative-nightly://) ----------
 // Register before app is ready so macOS associates the scheme with this app.
 
-const DEEP_LINK_PROTOCOL = "agentnative";
+const DEEP_LINK_PROTOCOL = DESKTOP_DEEP_LINK_PROTOCOL;
 if (IS_DEV) {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL, process.execPath, [
     path.resolve(process.argv[1]),

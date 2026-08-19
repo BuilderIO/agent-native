@@ -95,6 +95,7 @@ import {
 
 import type {
   DesktopCreateAppResult,
+  DesktopIdentityStatus,
   DesktopPrepareLocalCodeChangeResult,
   DesktopWorkspaceAppListResult,
 } from "../../../shared/ipc-channels.js";
@@ -110,7 +111,11 @@ import {
   useDesktopTerminalPreferences,
 } from "../lib/desktop-terminal-preferences.js";
 import { useRendererTheme } from "../lib/theme.js";
-import AppWebview, { resolveAppWebviewUrl } from "./AppWebview.js";
+import AppWebview, {
+  isDesktopIdentityAuthenticated,
+  isDesktopIdentityGateUnauthenticated,
+  resolveAppWebviewUrl,
+} from "./AppWebview.js";
 import CodeAgentsAppIcon from "./CodeAgentsAppIcon.js";
 import CodeAgentSchedulesPanel from "./CodeAgentSchedulesPanel.js";
 import CreateAppPromptPopover from "./CreateAppPromptPopover.js";
@@ -535,6 +540,14 @@ function DesktopAppsGrid({
   );
 }
 
+export function updateDesktopIdentityStatusByTab(
+  current: Readonly<Record<string, DesktopIdentityStatus | "checking">>,
+  tabId: string,
+  status: DesktopIdentityStatus | "checking",
+): Record<string, DesktopIdentityStatus | "checking"> {
+  return current[tabId] === status ? current : { ...current, [tabId]: status };
+}
+
 interface CodeAgentsHubProps {
   apps: AppConfig[];
   workspaceAppList?: DesktopWorkspaceAppListResult;
@@ -610,6 +623,29 @@ export default function CodeAgentsHub({
     [apps, workspaceAppListEnabled, workspaceApps],
   );
   const surfaceApps = listApps;
+  const [desktopIdentityStatusByTab, setDesktopIdentityStatusByTab] = useState<
+    Record<string, DesktopIdentityStatus | "checking">
+  >({});
+  const handleDesktopIdentityStatusChange = useCallback(
+    (tabId: string, status: DesktopIdentityStatus | "checking") => {
+      setDesktopIdentityStatusByTab((current) =>
+        updateDesktopIdentityStatusByTab(current, tabId, status),
+      );
+    },
+    [],
+  );
+  useEffect(() => {
+    const openTabIds = new Set(chatFirstSurfaceTabs.tabs.map((tab) => tab.id));
+    setDesktopIdentityStatusByTab((current) => {
+      const staleTabIds = Object.keys(current).filter(
+        (tabId) => !openTabIds.has(tabId),
+      );
+      if (staleTabIds.length === 0) return current;
+      const next = { ...current };
+      for (const tabId of staleTabIds) delete next[tabId];
+      return next;
+    });
+  }, [chatFirstSurfaceTabs.tabs]);
   const localAppIds = useMemo(() => new Set(apps.map((app) => app.id)), [apps]);
   const workspaceAppIds = useMemo(
     () =>
@@ -2394,6 +2430,12 @@ export default function CodeAgentsHub({
               <DesktopAppChatShell
                 appId={surfaceApp.id}
                 appName={surfaceApp.name}
+                desktopIdentityUnauthenticated={isDesktopIdentityGateUnauthenticated(
+                  desktopIdentityStatusByTab[tab.id],
+                )}
+                desktopIdentityAuthenticated={isDesktopIdentityAuthenticated(
+                  desktopIdentityStatusByTab[tab.id],
+                )}
                 isActive={isTabActive}
                 onLocalCodeChangeStarted={onLocalCodeChangeStarted}
               >
@@ -2407,6 +2449,9 @@ export default function CodeAgentsHub({
                     dispatchControlPlane
                       ? dispatchControlPlaneUrlParams(tab.path)
                       : { embedded: "1", chatFirst: "1" }
+                  }
+                  onDesktopIdentityStatusChange={(status) =>
+                    handleDesktopIdentityStatusChange(tab.id, status)
                   }
                 />
               </DesktopAppChatShell>
@@ -2437,6 +2482,8 @@ export default function CodeAgentsHub({
       chatFirstWatchedRun,
       chatFirstWatchedSourceRunId,
       closeChatFirstSurfaceTab,
+      desktopIdentityStatusByTab,
+      handleDesktopIdentityStatusChange,
       host,
       isActive,
       onLocalCodeChangeStarted,

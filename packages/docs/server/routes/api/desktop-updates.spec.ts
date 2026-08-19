@@ -107,6 +107,60 @@ describe("desktop update asset route", () => {
     });
   });
 
+  it("serves Nightly updater metadata from the Nightly release channel", async () => {
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const url = String(input);
+      if (url.includes("api.github.com")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => [
+            {
+              tag_name: "v0.1.0-nightly.1",
+              name: "Agent Native Nightly v0.1.0-nightly.1",
+              published_at: "2026-01-02T00:00:00Z",
+              draft: false,
+              prerelease: true,
+              assets: [
+                {
+                  name: "Agent-Native-Nightly-arm64.dmg",
+                  browser_download_url: "https://example.com/nightly.dmg",
+                  size: 10,
+                },
+                {
+                  name: "latest-mac.yml",
+                  browser_download_url: "https://example.com/nightly.yml",
+                  size: 20,
+                },
+              ],
+            },
+          ],
+        } as Response;
+      }
+      throw new Error(`unexpected fetch: ${url}`);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const event = createEvent("nightly/latest-mac.yml");
+    await handler(event as any);
+
+    expect(event).toMatchObject({
+      headers: {
+        "cache-control":
+          "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+        "cdn-cache-control":
+          "public, max-age=300, stale-while-revalidate=86400, stale-if-error=86400",
+        "netlify-cdn-cache-control":
+          "public, durable, s-maxage=300, stale-while-revalidate=86400, stale-if-error=86400",
+      },
+    });
+    expect(mockSendRedirect).toHaveBeenCalledWith(
+      event,
+      "https://example.com/nightly.yml",
+      302,
+    );
+  });
+
   it("redirects updater metadata without proxying the release asset", async () => {
     vi.stubGlobal(
       "fetch",
