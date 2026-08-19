@@ -2146,10 +2146,10 @@ html.dark .shiki span {
 }
 
 .secondary-button {
-  height: 40px;
+  min-height: 32px;
   border: 1px solid var(--docs-border);
-  background-color: var(--docs-border);
-  padding: 0 20px;
+  background-color: transparent;
+  padding: 0 12px;
   color: var(--fg-secondary);
   font-family: var(--font-sans);
   font-size: 14px;

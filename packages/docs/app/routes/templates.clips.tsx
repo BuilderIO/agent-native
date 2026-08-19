@@ -776,11 +776,7 @@ export default function ClipsTemplate() {
           >
             Try Clips Now
           </a>
-          <TemplateDocsLink
-            template={template}
-            location="landing_page_cta"
-            className="secondary-button gap-1"
-          >
+          <TemplateDocsLink template={template} location="landing_page_cta">
             {t("templateLanding.clips.s061")}
             <svg
               width="18"
