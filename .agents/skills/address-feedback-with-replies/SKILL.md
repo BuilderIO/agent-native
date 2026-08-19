@@ -174,14 +174,14 @@ artifact, request access or a fresh/replacement link when that artifact is the
 blocker instead of asking for the information again.
 
 There may be only one unanswered clarification request per thread. Before
-posting, re-read the complete thread for an earlier question from this workflow
-or `@agent-native` and check whether its exact requested detail has been
-semantically answered or explicitly resolved anywhere in the thread. If it is
-still unresolved, including after a partial or unrelated reply, keep that
-request as the sole pending handoff and do not post another question. Once it
-is answered or resolved, attempt the fix from the new evidence first; ask at
-most one new, non-repeating question only if one specific required detail still
-blocks it.
+posting, re-read the complete thread for an earlier question from this
+workflow, the companion `review-latest-feedback` workflow, or `@agent-native`,
+and check whether its exact requested detail has been semantically answered or
+explicitly resolved anywhere in the thread. If it is still unresolved,
+including after a partial or unrelated reply, keep that request as the sole
+pending handoff and do not post another question. Once it is answered or
+resolved, attempt the fix from the new evidence first; ask at most one new,
+non-repeating question only if one specific required detail still blocks it.
 
 ## Workflow
 

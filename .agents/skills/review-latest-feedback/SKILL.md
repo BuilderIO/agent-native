@@ -94,10 +94,11 @@ for the artifact's contents again. If the available evidence is enough without
 it, continue and record the limitation instead of creating a reporter blocker.
 
 There may be only one unanswered clarification request per thread. Before
-posting, re-read the complete thread for an earlier question from this workflow
-or the `@agent-native` bot and determine whether its exact requested detail has
-been semantically answered or explicitly resolved anywhere in the thread. A
-partial or unrelated reply does not clear the pending request. If no answer or
+posting, re-read the complete thread for an earlier question from this
+workflow, the companion `address-feedback-with-replies` workflow, or the
+`@agent-native` bot and determine whether its exact requested detail has been
+semantically answered or explicitly resolved anywhere in the thread. A partial
+or unrelated reply does not clear the pending request. If no answer or
 resolution exists, leave that request as the sole pending handoff and record
 its timestamp; do not stack another question in the same thread. After the
 requested detail is answered or resolved, re-read the thread and attempt the
