@@ -1,0 +1,367 @@
+name: Manage Agent Native production sites
+
+# Production is intentionally manual. Use deploy-main to publish the latest
+# main commit, or rollback to restore each selected site's previous live build.
+# The sites input accepts `all` or a comma-separated list such as `clips,design`.
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Production operation
+        required: true
+        type: choice
+        default: deploy-main
+        options:
+          - deploy-main
+          - rollback
+      sites:
+        description: all, or comma-separated site ids (for example clips,design)
+        required: true
+        type: string
+        default: all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manage-agent-native-production-sites
+  cancel-in-progress: false
+
+jobs:
+  manage:
+    name: ${{ inputs.operation }} production sites
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: main
+          fetch-depth: 1
+          sparse-checkout: scripts/netlify-production-sites.json
+          sparse-checkout-cone-mode: false
+
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          NETLIFY_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          GITHUB_TOKEN_VALUE: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
+          SITES: ${{ inputs.sites }}
+          REPOSITORY: ${{ github.repository }}
+        with:
+          script: |
+            const fs = require('node:fs');
+
+            const sites = JSON.parse(
+              fs.readFileSync('scripts/netlify-production-sites.json', 'utf8'),
+            );
+            const token = process.env.NETLIFY_TOKEN;
+            if (!token) {
+              core.setFailed('NETLIFY_AUTH_TOKEN secret is required.');
+              return;
+            }
+
+            const API = 'https://api.netlify.com/api/v1';
+            const headers = {
+              Authorization: `Bearer ${token}`,
+              'User-Agent': 'agent-native-production-site-manager',
+            };
+            const githubHeaders = {
+              Accept: 'application/vnd.github+json',
+              Authorization: `Bearer ${process.env.GITHUB_TOKEN_VALUE}`,
+              'X-GitHub-Api-Version': '2022-11-28',
+            };
+            const requestTimeoutMs = 30_000;
+            const pollIntervalMs = 10_000;
+            const operation = process.env.OPERATION;
+
+            function request(url, options = {}) {
+              return fetch(url, {
+                ...options,
+                signal: AbortSignal.timeout(requestTimeoutMs),
+              });
+            }
+
+            function sleep(ms) {
+              return new Promise((resolve) => setTimeout(resolve, ms));
+            }
+
+            function publishedAtTimestamp(deploy) {
+              const value =
+                typeof deploy?.published_at === 'string'
+                  ? Date.parse(deploy.published_at)
+                  : Number.NaN;
+              return Number.isFinite(value) ? value : null;
+            }
+
+            function nextPageUrl(linkHeader) {
+              if (!linkHeader) return null;
+              const links = /(?:^|,)\s*<([^>]+)>\s*;\s*rel="([^"]+)"/g;
+              for (const match of linkHeader.matchAll(links)) {
+                if (match[2].split(/\s+/).includes('next')) return match[1];
+              }
+              return null;
+            }
+
+            async function readJson(response, label) {
+              const text = await response.text();
+              let body = null;
+              try {
+                body = text ? JSON.parse(text) : null;
+              } catch {
+                body = text;
+              }
+              if (!response.ok) {
+                throw new Error(
+                  `${label} failed with HTTP ${response.status}: ${typeof body === 'string' ? body : JSON.stringify(body)}`,
+                );
+              }
+              return body;
+            }
+
+            function parseTargets(raw) {
+              const requested = raw.trim().toLowerCase();
+              if (!requested || requested === 'all') return Object.entries(sites);
+
+              const aliases = new Map([
+                ['www', 'fw'],
+                ['chat', 'starter'],
+              ]);
+              const names = [...new Set(
+                requested
+                  .split(',')
+                  .map((name) => aliases.get(name.trim()) || name.trim())
+                  .filter(Boolean),
+              )];
+              const unknown = names.filter((name) => !sites[name]);
+              if (unknown.length) {
+                throw new Error(`Unknown production site(s): ${unknown.join(', ')}`);
+              }
+              return names.map((name) => [name, sites[name]]);
+            }
+
+            async function latestMainSha() {
+              const [owner, repo] = process.env.REPOSITORY.split('/');
+              const response = await request(
+                `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/main`,
+                { headers: githubHeaders },
+              );
+              const ref = await readJson(response, 'main ref lookup');
+              if (!ref?.object?.sha) throw new Error('GitHub main ref had no SHA.');
+              return ref.object.sha;
+            }
+
+            async function waitForBuild(name, buildId) {
+              const deadline = Date.now() + 60 * 60 * 1000;
+              while (Date.now() < deadline) {
+                const build = await readJson(
+                  await request(`${API}/builds/${buildId}`, { headers }),
+                  `[${name}] build status`,
+                );
+                if (!build.done) {
+                  await sleep(pollIntervalMs);
+                  continue;
+                }
+                const error = String(build.error || '');
+                if (/no content change|skipped/i.test(error)) {
+                  core.info(`[${name}] no content change; current production remains live.`);
+                  return null;
+                }
+                if (build.error) throw new Error(`[${name}] build failed: ${build.error}`);
+                if (!build.deploy_id) throw new Error(`[${name}] build finished without a deploy id.`);
+                return build;
+              }
+              throw new Error(`[${name}] build ${buildId} did not finish within 60 minutes.`);
+            }
+
+            async function waitForReadyDeploy(name, deployId) {
+              const deadline = Date.now() + 60 * 60 * 1000;
+              while (Date.now() < deadline) {
+                const deploy = await readJson(
+                  await request(`${API}/deploys/${deployId}`, { headers }),
+                  `[${name}] deploy status`,
+                );
+                if (deploy.state === 'ready') return deploy;
+                if (deploy.state === 'error') {
+                  throw new Error(`[${name}] deploy failed: ${deploy.error_message || 'unknown error'}`);
+                }
+                await sleep(pollIntervalMs);
+              }
+              throw new Error(`[${name}] deploy ${deployId} did not become ready within 60 minutes.`);
+            }
+
+            async function waitForPublished(name, siteId, deployId) {
+              const deadline = Date.now() + 5 * 60 * 1000;
+              while (Date.now() < deadline) {
+                const site = await readJson(
+                  await request(`${API}/sites/${siteId}`, { headers }),
+                  `[${name}] published deploy lookup`,
+                );
+                if (site.published_deploy?.id === deployId) return;
+                await sleep(pollIntervalMs);
+              }
+              throw new Error(`[${name}] Netlify did not publish deploy ${deployId} within 5 minutes.`);
+            }
+
+            async function listDeploys(name, siteId, label) {
+              const deploys = [];
+              let url = `${API}/sites/${siteId}/deploys?per_page=100`;
+              while (url) {
+                const response = await request(url, { headers });
+                const page = await readJson(response, `[${name}] ${label}`);
+                if (!Array.isArray(page)) {
+                  throw new Error(`[${name}] ${label} returned a non-array response.`);
+                }
+                deploys.push(...page);
+                url = nextPageUrl(response.headers.get('link'));
+              }
+              return deploys;
+            }
+
+            async function publishExistingMainDeploy(name, site, sourceSha) {
+              const currentSite = await readJson(
+                await request(`${API}/sites/${site.siteId}`, { headers }),
+                `[${name}] published deploy lookup`,
+              );
+              if (currentSite.published_deploy?.commit_ref === sourceSha) {
+                core.info(`[${name}] production already serves main ${sourceSha}.`);
+                return;
+              }
+
+              const deploys = await listDeploys(name, site.siteId, 'production deploy history');
+              const match = deploys
+                .filter((deploy) => deploy.context === 'production' && deploy.state === 'ready' && deploy.commit_ref === sourceSha)
+                .sort((left, right) => String(right.created_at || '').localeCompare(String(left.created_at || '')))[0];
+              if (!match) {
+                throw new Error(
+                  `[${name}] build reported no content change, but production serves ${currentSite.published_deploy?.commit_ref || 'an unknown commit'} and no ready production deploy for main ${sourceSha} exists to publish.`,
+                );
+              }
+
+              await readJson(
+                await request(`${API}/sites/${site.siteId}/deploys/${match.id}/restore`, {
+                  method: 'POST',
+                  headers,
+                }),
+                `[${name}] publish existing deploy ${match.id}`,
+              );
+              await waitForPublished(name, site.siteId, match.id);
+              core.info(`[${name}] production now serves ${match.id} (${sourceSha}).`);
+            }
+
+            async function deployMain(name, site, sourceSha) {
+              const query = new URLSearchParams({ branch: 'main' });
+              const build = await readJson(
+                await request(`${API}/sites/${site.siteId}/builds?${query}`, {
+                  method: 'POST',
+                  headers,
+                }),
+                `[${name}] build trigger`,
+              );
+              if (!build?.id) throw new Error(`[${name}] Netlify did not return a build id.`);
+              core.info(`[${name}] queued build ${build.id} for main ${sourceSha}.`);
+
+              const completed = await waitForBuild(name, build.id);
+              if (!completed) {
+                await publishExistingMainDeploy(name, site, sourceSha);
+                return;
+              }
+              const deploy = await waitForReadyDeploy(name, completed.deploy_id);
+              if (deploy.commit_ref && deploy.commit_ref !== sourceSha) {
+                throw new Error(
+                  `[${name}] ready deploy ${deploy.id} points at ${deploy.commit_ref}, expected main ${sourceSha}.`,
+                );
+              }
+              await readJson(
+                await request(`${API}/sites/${site.siteId}/deploys/${deploy.id}/restore`, {
+                  method: 'POST',
+                  headers,
+                }),
+                `[${name}] publish deploy ${deploy.id}`,
+              );
+              await waitForPublished(name, site.siteId, deploy.id);
+              core.info(`[${name}] production now serves ${deploy.id} (${sourceSha}).`);
+            }
+
+            async function rollback(name, site) {
+              const currentSite = await readJson(
+                await request(`${API}/sites/${site.siteId}`, { headers }),
+                `[${name}] current production lookup`,
+              );
+              const currentId = currentSite.published_deploy?.id;
+              if (!currentId) throw new Error(`[${name}] has no published production deploy.`);
+
+              const currentDeploy = await readJson(
+                await request(`${API}/sites/${site.siteId}/deploys/${currentId}`, { headers }),
+                `[${name}] published deploy history anchor`,
+              );
+              const currentPublishedAt = publishedAtTimestamp(currentDeploy);
+              if (currentPublishedAt === null) {
+                throw new Error(
+                  `[${name}] current production deploy ${currentId} has no valid published_at timestamp.`,
+                );
+              }
+
+              const deploys = await listDeploys(name, site.siteId, 'production deploy history');
+              const previous = deploys
+                .map((deploy) => ({
+                  deploy,
+                  publishedAt: publishedAtTimestamp(deploy),
+                }))
+                .filter(
+                  ({ deploy, publishedAt }) =>
+                    deploy.context === 'production' &&
+                    deploy.state === 'ready' &&
+                    deploy.id !== currentId &&
+                    publishedAt !== null &&
+                    publishedAt < currentPublishedAt,
+                )
+                .sort((left, right) => right.publishedAt - left.publishedAt)[0]?.deploy;
+              if (!previous) throw new Error(`[${name}] has no prior ready production deploy to restore.`);
+
+              await readJson(
+                await request(`${API}/sites/${site.siteId}/deploys/${previous.id}/restore`, {
+                  method: 'POST',
+                  headers,
+                }),
+                `[${name}] rollback to ${previous.id}`,
+              );
+              await waitForPublished(name, site.siteId, previous.id);
+              core.info(`[${name}] rolled back ${currentId} -> ${previous.id} (${previous.commit_ref || 'no commit ref'}).`);
+            }
+
+            async function runWithLimit(entries, worker, limit = 3) {
+              let cursor = 0;
+              const failures = [];
+              async function runWorker() {
+                while (cursor < entries.length) {
+                  const entry = entries[cursor++];
+                  const [name, site] = entry;
+                  try {
+                    await worker(name, site);
+                  } catch (error) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    failures.push(`[${name}] ${message}`);
+                    core.error(`[${name}] ${message}`);
+                  }
+                }
+              }
+              await Promise.all(Array.from({ length: Math.min(limit, entries.length) }, runWorker));
+              return failures;
+            }
+
+            try {
+              const targets = parseTargets(process.env.SITES);
+              core.info(`Selected ${targets.length} production site(s): ${targets.map(([name]) => name).join(', ')}`);
+              const sourceSha = operation === 'deploy-main' ? await latestMainSha() : null;
+              if (sourceSha) core.info(`Deploying the latest main commit ${sourceSha}.`);
+              const failures = operation === 'deploy-main'
+                ? await runWithLimit(targets, async (name, site) => deployMain(name, site, sourceSha))
+                : operation === 'rollback'
+                  ? await runWithLimit(targets, rollback)
+                  : [`Unknown operation: ${operation}`];
+              if (failures.length) {
+                core.setFailed(`Production operation failed for ${failures.length} site(s):\n${failures.join('\n')}`);
+              }
+            } catch (error) {
+              core.setFailed(error instanceof Error ? error.message : String(error));
+            }

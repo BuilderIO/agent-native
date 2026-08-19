@@ -28,6 +28,7 @@ export function Scrubber(props: ScrubberProps) {
   const [tooltip, setTooltip] = useState<
     | { kind: "comment"; content: string; ms: number }
     | { kind: "chapter"; title: string; ms: number }
+    | { kind: "reaction"; content: string; ms: number }
     | null
   >(null);
 
@@ -109,6 +110,17 @@ export function Scrubber(props: ScrubberProps) {
     return map;
   }, [comments]);
 
+  const reactionsByMs = useMemo(() => {
+    const map = new Map<number, { id: string; emoji: string }[]>();
+    recentReactions.forEach((reaction) => {
+      const key = Math.round(reaction.videoTimestampMs / 500) * 500;
+      const list = map.get(key) ?? [];
+      list.push({ id: reaction.id, emoji: reaction.emoji });
+      map.set(key, list);
+    });
+    return map;
+  }, [recentReactions]);
+
   return (
     <div
       className="relative h-10 flex items-center touch-none cursor-pointer"
@@ -142,7 +154,9 @@ export function Scrubber(props: ScrubberProps) {
           className="absolute -top-10 -translate-x-1/2 max-w-[240px] rounded bg-primary px-2 py-1 text-[11px] text-primary-foreground"
           style={{ left: (tooltip.ms / Math.max(1, durationMs)) * 100 + "%" }}
         >
-          {tooltip.kind === "comment" ? tooltip.content : tooltip.title}
+          {tooltip.kind === "comment" || tooltip.kind === "reaction"
+            ? tooltip.content
+            : tooltip.title}
         </div>
       ) : null}
 
@@ -208,17 +222,36 @@ export function Scrubber(props: ScrubberProps) {
           </button>
         ))}
 
-        {/* Reaction dots */}
-        {recentReactions.map((r) => (
-          <div
-            key={r.id}
-            className="absolute -bottom-4 -translate-x-1/2 text-[11px] pointer-events-none"
-            style={{
-              left: (r.videoTimestampMs / Math.max(1, durationMs)) * 100 + "%",
+        {/* Reaction markers */}
+        {Array.from(reactionsByMs.entries()).map(([ms, list]) => (
+          <button
+            key={`reaction-${ms}`}
+            type="button"
+            data-player-reaction-marker
+            onPointerDown={(event) => event.stopPropagation()}
+            onMouseEnter={() =>
+              setTooltip({
+                kind: "reaction",
+                content: `${list.map((reaction) => reaction.emoji).join(" ")} · ${list.length} reaction${list.length === 1 ? "" : "s"}`,
+                ms,
+              })
+            }
+            onMouseLeave={() => setTooltip(null)}
+            onClick={(event) => {
+              event.stopPropagation();
+              onSeek(ms);
             }}
+            className="absolute -bottom-5 flex h-5 min-w-5 -translate-x-1/2 items-center justify-center rounded-full bg-background/95 px-1 text-sm shadow-md ring-1 ring-primary/40 transition-transform hover:scale-125"
+            style={{ left: (ms / Math.max(1, durationMs)) * 100 + "%" }}
+            aria-label={`${list.length} reaction${list.length === 1 ? "" : "s"} at ${msToClock(ms)}`}
           >
-            {r.emoji}
-          </div>
+            {list[0].emoji}
+            {list.length > 1 ? (
+              <span className="absolute -right-1.5 -top-1.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-primary px-0.5 text-[8px] font-bold leading-none text-primary-foreground ring-1 ring-background">
+                {list.length}
+              </span>
+            ) : null}
+          </button>
         ))}
 
         {/* Thumb */}

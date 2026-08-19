@@ -1,8 +1,9 @@
 // @vitest-environment happy-dom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   navigateToWorkspaceApp,
+  shouldOpenWorkspaceAppInTopWindow,
   workspaceAppDirectHref,
   workspaceAppEmbedTarget,
 } from "./workspace-apps";
@@ -66,7 +67,12 @@ describe("workspaceAppDirectHref", () => {
 });
 
 describe("navigateToWorkspaceApp", () => {
+  beforeEach(() => {
+    window.history.replaceState({}, "", "/");
+  });
+
   afterEach(() => {
+    window.history.replaceState({}, "", "/");
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: window,
@@ -77,8 +83,18 @@ describe("navigateToWorkspaceApp", () => {
     });
   });
 
-  it("uses the top window when Dispatch is embedded", () => {
+  it("keeps a normal iframe inline", () => {
+    Object.defineProperty(window, "parent", {
+      configurable: true,
+      value: {},
+    });
+
+    expect(shouldOpenWorkspaceAppInTopWindow()).toBe(false);
+  });
+
+  it("uses the top window when Dispatch is inside a Builder webview", () => {
     const topWindow = { location: { href: "" } } as unknown as Window;
+    window.history.replaceState({}, "", "/?builder.preview=interact");
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: {},
@@ -88,6 +104,7 @@ describe("navigateToWorkspaceApp", () => {
       value: topWindow,
     });
 
+    expect(shouldOpenWorkspaceAppInTopWindow()).toBe(true);
     navigateToWorkspaceApp("/mail");
 
     expect(topWindow.location.href).toBe(
@@ -104,6 +121,7 @@ describe("navigateToWorkspaceApp", () => {
       },
     });
     const topWindow = { location } as unknown as Window;
+    window.history.replaceState({}, "", "/?builder.preview=interact");
     Object.defineProperty(window, "parent", {
       configurable: true,
       value: {},
