@@ -108,6 +108,13 @@ is still missing after that check. Any eventual reporter-facing clarification
 must thank the person first and ask the question second; `Clarification needed`
 is an internal state, not an opening line.
 
+There may be only one unanswered clarification request per feedback thread. If
+the existing handoff already contains a question from this workflow or
+`@agent-native` with no reporter reply after it, carry that timestamp forward
+as the sole pending request and do not add another question. After a reporter
+reply, re-read the thread and try the fix first; ask one new question only for
+one specific remaining detail, without repeating the earlier request.
+
 Do not ship a feedback fix that is only a wording-specific rule or that lacks
 the evidence needed to identify its owner. Re-run or refresh the feedback sweep
 when the branch changes after triage or when new comments, Slack replies,

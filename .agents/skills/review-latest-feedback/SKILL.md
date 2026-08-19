@@ -91,6 +91,15 @@ link rather than asking for the artifact's contents again. If the available
 evidence is enough without it, continue and record the limitation instead of
 creating a reporter blocker.
 
+There may be only one unanswered clarification request per thread. Before
+posting, check every reply for an earlier question from this workflow or the
+`@agent-native` bot. If that question has no reporter reply after it, leave it
+as the sole pending request and record its timestamp; do not stack another
+question in the same thread, even when other details are still missing. After
+the reporter replies, re-read the thread and attempt the fix first. Ask a new
+question only when one specific required detail still blocks the fix, and never
+repeat the earlier question.
+
 ## Answered clarifications come first
 
 A clarification question is a pending state, not a disposition. Before scanning
@@ -101,9 +110,9 @@ has not since been fixed or otherwise dispositioned, oldest question first.
   evidence ledger first. That thread is the run's first work item. It re-enters
   triage as a concrete bug carrying the new evidence, ahead of anything newer
   in the channel: someone answered and is waiting on a fix.
-- **No reply yet** - leave it pending and record it in the recap with the date
-  the question was asked, so an unanswered question stays visible instead of
-  ageing out of the cursor.
+- **No reply yet** - leave the existing clarification pending and record its
+  timestamp in the recap. Do not add a second clarification to the same thread;
+  an unanswered question stays visible instead of ageing out of the cursor.
 - **The reply does not supply what was asked** - ask the one remaining question
   only if it is still the blocker; otherwise fix from what is now available.
 
@@ -278,6 +287,9 @@ failure modes, surfaces, or owners.
    also confirm that no participant or `@agent-native` has already identified,
    fixed, or started fixing the issue. If either the field or a resolution
    signal is present, use it and keep investigating instead of asking again.
+   Check for an earlier unanswered clarification from this workflow or
+   `@agent-native`. If one exists, do not post another question; preserve its
+   timestamp and leave the thread pending until the reporter replies.
    If a needed linked artifact is recorded as inaccessible, the access or
    replacement request is valid - do not describe its contents as absent. Do
    not post vague progress, technical internals, or a diagnosis that leaves a

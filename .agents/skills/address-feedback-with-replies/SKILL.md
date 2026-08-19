@@ -169,6 +169,13 @@ missing value. A `Clarification needed` reply is invalid when the requested
  artifact, request access or a fresh/replacement link when that artifact is
  the blocker instead of asking for the information again.
 
+There may be only one unanswered clarification request per thread. Before
+posting, check the complete thread for an earlier question from this workflow
+or `@agent-native`. If the reporter has not replied after it, keep that request
+as the sole pending handoff and do not post another question. Once the reporter
+replies, attempt the fix from the new evidence first; ask at most one new,
+non-repeating question only if one specific required detail still blocks it.
+
 ## Workflow
 
 1. Build a per-thread checklist with the symptom, expected behavior, evidence,
