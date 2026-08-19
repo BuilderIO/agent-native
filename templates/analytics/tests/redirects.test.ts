@@ -3,23 +3,23 @@ import { describe, expect, it } from "vitest";
 import {
   clientLoader as rootClientLoader,
   loader as rootLoader,
-} from "./_index";
+} from "../app/routes/_index";
 import {
   clientLoader as adhocClientLoader,
   loader as adhocLoader,
-} from "./adhoc.$id";
+} from "../app/routes/adhoc.$id";
 import {
   clientLoader as dashboardClientLoader,
   loader as dashboardLoader,
-} from "./dashboard";
+} from "../app/routes/dashboard";
 import {
   clientLoader as overviewClientLoader,
   loader as overviewLoader,
-} from "./overview";
+} from "../app/routes/overview";
 import {
   clientLoader as trafficClientLoader,
   loader as trafficLoader,
-} from "./traffic";
+} from "../app/routes/traffic";
 
 type RouteLoader = (args: never) => unknown;
 

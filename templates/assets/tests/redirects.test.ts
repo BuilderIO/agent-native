@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { loader as brandKitsLoader } from "./brand-kits._index";
-import { loader as librariesLoader } from "./libraries";
-import { loader as pickerLoader } from "./picker";
+import { loader as brandKitsLoader } from "../app/routes/brand-kits._index";
+import { loader as librariesLoader } from "../app/routes/libraries";
+import { loader as pickerLoader } from "../app/routes/picker";
 
 function expectLibraryRedirect(
   routeLoader: (args: never) => Response,
