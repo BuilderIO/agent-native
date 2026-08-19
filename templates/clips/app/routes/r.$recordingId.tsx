@@ -433,7 +433,8 @@ export default function RecordingPage() {
     | undefined;
   const comments = playerDataQ.data?.comments ?? [];
   const reactions = useMemo(
-    () => mergeRecordingReactions(playerDataQ.data?.reactions, pendingReactions),
+    () =>
+      mergeRecordingReactions(playerDataQ.data?.reactions, pendingReactions),
     [pendingReactions, playerDataQ.data?.reactions],
   );
   const chapters = playerDataQ.data?.chapters ?? [];
@@ -1816,7 +1817,8 @@ export default function RecordingPage() {
                             .catch((err) => {
                               setPendingReactions((current) =>
                                 current.filter(
-                                  (reaction) => reaction.id !== pendingReaction.id,
+                                  (reaction) =>
+                                    reaction.id !== pendingReaction.id,
                                 ),
                               );
                               console.warn("[clips] react failed", err);

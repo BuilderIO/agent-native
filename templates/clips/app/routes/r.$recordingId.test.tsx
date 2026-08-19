@@ -7,10 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import {
-  BackToLibraryButton,
-  mergeRecordingReactions,
-} from "./r.$recordingId";
+import { BackToLibraryButton, mergeRecordingReactions } from "./r.$recordingId";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -96,12 +93,8 @@ describe("BackToLibraryButton", () => {
 describe("mergeRecordingReactions", () => {
   it("keeps optimistic reactions visible until the server copy arrives", () => {
     const merged = mergeRecordingReactions(
-      [
-        { id: "reaction-1", emoji: "🔥", videoTimestampMs: 42_000 },
-      ],
-      [
-        { id: "pending-1", emoji: "🔥", videoTimestampMs: 42_000 },
-      ],
+      [{ id: "reaction-1", emoji: "🔥", videoTimestampMs: 42_000 }],
+      [{ id: "pending-1", emoji: "🔥", videoTimestampMs: 42_000 }],
     );
 
     expect(merged).toEqual([
