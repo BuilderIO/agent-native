@@ -1341,7 +1341,7 @@ describe("server/auth", () => {
 
       const initiator = createMockEvent({
         path: "/_agent-native/google/auth-url",
-        query: { desktop: "1", flow_id: "bound-flow", webview: "1" },
+        query: { desktop: "1", flow_id: "bound-flow" },
         headers: {
           "x-agent-native-desktop-verifier": "v".repeat(32),
         },
@@ -1355,7 +1355,6 @@ describe("server/auth", () => {
       );
 
       expect(state.desktopBrowserBindingHash).toMatch(/^[A-Za-z0-9_-]{43}$/);
-      expect(state.desktopWebview).toBe(true);
       const setCookie = initiator.res.headers.get("set-cookie") ?? "";
       const bindingCookie = setCookie.match(
         /(?:^|, )an_desktop_oauth_binding=([^;]+)/,
@@ -5340,6 +5339,22 @@ describe("server/auth", () => {
       });
       const decoded = decodeOAuthState(state, "http://x/cb");
       expect(decoded.mobile).toBe(true);
+    });
+
+    it("encodes and decodes the bound native WebView callback intent", async () => {
+      const { encodeOAuthState, decodeOAuthState } =
+        await import("./google-oauth.js");
+      const state = encodeOAuthState({
+        redirectUri: "http://x/cb",
+        desktop: true,
+        desktopWebview: true,
+        flowId: "bound-flow",
+        returnUrl: "/?desktop_auth=complete",
+      });
+      const decoded = decodeOAuthState(state, "http://x/cb");
+      expect(decoded.desktopWebview).toBe(true);
+      expect(decoded.flowId).toBe("bound-flow");
+      expect(decoded.returnUrl).toBe("/?desktop_auth=complete");
     });
 
     it("encodes and decodes org id through signed state for scoped OAuth credentials", async () => {
