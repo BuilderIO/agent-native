@@ -1,5 +1,14 @@
 # @agent-native/mobile-app
 
+## 0.1.44
+
+### Patch Changes
+
+- Updated dependencies [fc85cb2]
+- Updated dependencies [fc85cb2]
+- Updated dependencies [61ca441]
+  - @agent-native/core@0.164.5
+
 ## 0.1.43
 
 ### Patch Changes
