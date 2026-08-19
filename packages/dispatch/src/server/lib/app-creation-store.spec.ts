@@ -6,6 +6,7 @@ import {
   getAppCreationSettings,
   listAvailableWorkspaceTemplates,
   listWorkspaceApps,
+  scaffoldWorkspaceAppFromTemplate,
   setAppCreationSettings,
   startWorkspaceAppCreation,
   updateWorkspaceAppMetadata,
@@ -23,6 +24,13 @@ const mocks = vi.hoisted(() => {
     settings,
     state,
     getSetting: vi.fn(async (key: string) => settings.get(key) ?? null),
+    mutateSetting: vi.fn(
+      async (key: string, updater: (current: any) => any) => {
+        const next = await updater(settings.get(key) ?? null);
+        settings.set(key, next);
+        return next;
+      },
+    ),
     putSetting: vi.fn(async (key: string, value: unknown) => {
       settings.set(key, value);
     }),
@@ -32,9 +40,19 @@ const mocks = vi.hoisted(() => {
       resource: {},
     })),
     getDbExec: vi.fn(() => ({
-      execute: vi.fn(async () => ({
-        rows: state.orgRole ? [{ role: state.orgRole }] : [],
-      })),
+      execute: vi.fn(async (statement: unknown) => {
+        const sql =
+          typeof statement === "string"
+            ? statement
+            : String((statement as { sql?: unknown })?.sql ?? "");
+        if (sql.includes("SELECT id FROM workspace_apps")) {
+          return { rows: [], rowsAffected: 0 };
+        }
+        return {
+          rows: state.orgRole ? [{ role: state.orgRole }] : [],
+          rowsAffected: 0,
+        };
+      }),
     })),
     resolveBuilderCredentialsDetailed: vi.fn(async () => ({
       privateKey: null as string | null,
@@ -78,6 +96,7 @@ vi.mock("@agent-native/core/db", async (importOriginal) => {
 
 vi.mock("@agent-native/core/settings", () => ({
   getSetting: (...args: any[]) => mocks.getSetting(...args),
+  mutateSetting: (...args: any[]) => mocks.mutateSetting(...args),
   putSetting: (...args: any[]) => mocks.putSetting(...args),
   getOrgSetting: (...args: any[]) => mocks.getOrgSetting(...args),
 }));
@@ -121,12 +140,30 @@ afterEach(() => {
   mocks.settings.clear();
   mocks.getOrgSetting.mockReset();
   mocks.getOrgSetting.mockResolvedValue(null);
+  mocks.mutateSetting.mockReset();
+  mocks.mutateSetting.mockImplementation(
+    async (key: string, updater: (current: any) => any) => {
+      const next = await updater(mocks.settings.get(key) ?? null);
+      mocks.settings.set(key, next);
+      return next;
+    },
+  );
   mocks.state.orgRole = "admin";
   mocks.getDbExec.mockReset();
   mocks.getDbExec.mockImplementation(() => ({
-    execute: vi.fn(async () => ({
-      rows: mocks.state.orgRole ? [{ role: mocks.state.orgRole }] : [],
-    })),
+    execute: vi.fn(async (statement: unknown) => {
+      const sql =
+        typeof statement === "string"
+          ? statement
+          : String((statement as { sql?: unknown })?.sql ?? "");
+      if (sql.includes("SELECT id FROM workspace_apps")) {
+        return { rows: [], rowsAffected: 0 };
+      }
+      return {
+        rows: mocks.state.orgRole ? [{ role: mocks.state.orgRole }] : [],
+        rowsAffected: 0,
+      };
+    }),
   }));
   mocks.resolveAccess.mockReset();
   mocks.resolveAccess.mockResolvedValue({ role: "viewer", resource: {} });
@@ -895,6 +932,121 @@ describe("startWorkspaceAppCreation", () => {
         expect.objectContaining({ createdBy: "creator@example.test" }),
       ],
     });
+  });
+
+  it("rejects a collision from another deployment context", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.settings.set("dispatch-app-creation-settings:org:org-123", {
+      pendingApps: [
+        {
+          id: "onboarding",
+          name: "Onboarding",
+          description: "Already being created",
+          path: "/onboarding",
+          contextId: "branch:other-context",
+          createdBy: "creator@example.test",
+          owner: "creator@example.test",
+          createdAt: "2026-08-19T21:00:00.000Z",
+          updatedAt: "2026-08-19T21:00:00.000Z",
+          expiresAt: "2999-01-01T00:00:00.000Z",
+        },
+      ],
+    });
+
+    await expect(
+      create("onboarding", {
+        userEmail: "other@example.test",
+        orgId: "org-123",
+      }),
+    ).rejects.toThrow("already being created by another member");
+    expect(mocks.runBuilderAgent).not.toHaveBeenCalled();
+  });
+
+  it("atomically reserves an app id before starting Builder", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockImplementation(async () => {
+      expect(
+        mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+      ).toMatchObject({
+        pendingApps: [
+          expect.objectContaining({
+            id: "onboarding",
+            createdBy: "dev@example.test",
+          }),
+        ],
+      });
+      return {
+        branchName: "onboarding1",
+        url: "https://builder.io/app/projects/project-1/branch/onboarding1",
+        status: "processing",
+      };
+    });
+
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "org-123",
+    })) as any;
+
+    expect(result.mode).toBe("builder");
+    expect(mocks.mutateSetting).toHaveBeenCalled();
+  });
+
+  it("releases the reservation when Builder handoff fails", async () => {
+    stubHostedRuntime();
+    stubBuilderProjectConfigured();
+    mocks.resolveBuilderCredentialsDetailed.mockResolvedValue(
+      credentials({
+        privateKey: "priv",
+        publicKey: "pub",
+        userId: "builder-user-42",
+      }),
+    );
+    mocks.runBuilderAgent.mockRejectedValue(new Error("Builder unavailable"));
+
+    const result = (await create("onboarding", {
+      userEmail: "dev@example.test",
+      orgId: "org-123",
+    })) as any;
+
+    expect(result).toMatchObject({ mode: "builder-unavailable" });
+    expect(
+      mocks.settings.get("dispatch-app-creation-settings:org:org-123"),
+    ).toMatchObject({ pendingApps: [] });
+    expect(mocks.settings.get("workspace-app-metadata:org:org-123")).toBe(
+      undefined,
+    );
+  });
+
+  it("rejects a scaffold id already registered in the shared app registry", async () => {
+    mocks.getDbExec.mockReturnValue({
+      execute: vi.fn(async (statement: unknown) => {
+        const sql = String((statement as { sql?: unknown })?.sql ?? "");
+        if (sql.includes("SELECT id FROM workspace_apps")) {
+          return { rows: [{ id: "mail" }], rowsAffected: 0 };
+        }
+        return { rows: [], rowsAffected: 0 };
+      }),
+    });
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "dev@example.test", orgId: "org-123" },
+        () =>
+          scaffoldWorkspaceAppFromTemplate({
+            template: "mail",
+            appId: "mail",
+          }),
+      ),
+    ).rejects.toThrow("already registered");
   });
 
   it("returns builder-not-connected without leaking the project id when no Builder credentials are configured", async () => {
