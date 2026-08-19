@@ -127,12 +127,12 @@ needed to fix it, do not post it. These are ledger states, not mandatory
 headings: keep the reporter-facing wording natural instead of opening with the
 robotic phrase “Clarification needed”.
 
-**Clarification needed** is an open state, not a finished one. Asking the
-question creates a standing obligation to come back for the answer: the thread
-now looks owned to any cursor that scans for unhandled reports, so nothing will
-resurface it on its own. `review-latest-feedback` owns that re-check and runs
-it before it scans for new messages; when this workflow runs on its own, re-read
-every thread it previously asked in and act on the replies first.
+**Clarification needed** is an open state, not a completed product fix. Asking
+the question creates a standing obligation to come back for the answer. It is
+the bot's terminal disposition for the current cursor, but the next
+`review-latest-feedback` run must re-read every thread it previously asked in
+before scanning newer messages; when this workflow runs on its own, do the same
+and act on the replies first.
 
 Treat a clarification reply as new evidence, not as a fresh blank report.
 Re-read the whole thread after the reply, update the ledger, and try the fix
