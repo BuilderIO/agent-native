@@ -133,6 +133,9 @@ jobs:
         if: steps.snapshot.outputs.changed == 'true'
         env:
           AGENT_NATIVE_NPM_DIST_TAG: beta
+          # Match the stable lane's one-time escape hatch for a package that
+          # has not been created on npm yet. Existing packages still use OIDC.
+          AGENT_NATIVE_NPM_BOOTSTRAP_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_CONFIG_PROVENANCE: "true"
         run: node scripts/changeset-publish-sequential.ts
 
