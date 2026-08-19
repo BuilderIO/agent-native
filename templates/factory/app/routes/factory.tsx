@@ -193,6 +193,7 @@ export default function FactoryRoute() {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [auditRefreshToken, setAuditRefreshToken] = useState(0);
+  const draftRevisionRef = useRef(0);
 
   function setActiveTab(tab: WorkspaceTab) {
     setSearchParams(
@@ -323,6 +324,7 @@ export default function FactoryRoute() {
   }
 
   function updateGraph(next: FactoryCanvasGraph) {
+    draftRevisionRef.current += 1;
     setSaveError(null);
     setSaveConflictRemoteGraph(null);
     setDraftGraph(next);
@@ -408,6 +410,7 @@ export default function FactoryRoute() {
 
   async function saveGraph() {
     if (!graph || !selectedFactoryId) return;
+    const submittedDraftRevision = draftRevisionRef.current;
     setSaveError(null);
     try {
       await saveGraphMutation.mutateAsync({
@@ -423,7 +426,7 @@ export default function FactoryRoute() {
         graph,
       });
       setCreating(false);
-      setDirty(false);
+      setDirty(draftRevisionRef.current !== submittedDraftRevision);
       setSaveConflictRemoteGraph(null);
       await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
     } catch (error) {
