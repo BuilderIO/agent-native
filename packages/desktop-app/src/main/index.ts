@@ -71,6 +71,8 @@ import {
   type CodeAgentRerunResult,
   type CodeAgentRun,
   type CodeAgentRunListResult,
+  type CodeAgentScheduleListResult,
+  type CodeAgentScheduleResult,
   type CodeAgentQueueMetadata,
   type CodeAgentSteeringMetadata,
   type CodeAgentTranscriptEvent,
@@ -187,6 +189,7 @@ import {
   isCodeAgentRunnerInFlight,
   resolveCodeAgentRunnerInvocation,
 } from "./code-agent-runner.js";
+import { DesktopCodeAgentScheduler } from "./code-agent-scheduler.js";
 import {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
   CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
@@ -4640,6 +4643,15 @@ const activeCodeAgentProcesses = new Map<
   }
 >();
 const startingCodeAgentRuns = new Set<string>();
+
+const desktopCodeAgentScheduler = new DesktopCodeAgentScheduler({
+  defaultCwd: () => resolveCodeAgentsTerminalCwd({}),
+  isRunActive: (runId) =>
+    activeCodeAgentProcesses.has(runId) || startingCodeAgentRuns.has(runId),
+  startRun: (runId, cwd, permissionMode) => {
+    void spawnCodeAgentRunner(runId, cwd, permissionMode);
+  },
+});
 
 function desktopComputerHelperPath(): string {
   return app.isPackaged
@@ -10259,6 +10271,11 @@ registerCodeAgentsIpc({
   timestampSlug,
   normalizeCodeAgentRunId,
   listDesktopCodeAgentRuns,
+  listCodeAgentSchedules: () => desktopCodeAgentScheduler.list(),
+  createCodeAgentSchedule: (input) => desktopCodeAgentScheduler.create(input),
+  updateCodeAgentSchedule: (input) => desktopCodeAgentScheduler.update(input),
+  deleteCodeAgentSchedule: (input) => desktopCodeAgentScheduler.delete(input),
+  runCodeAgentScheduleNow: (input) => desktopCodeAgentScheduler.runNow(input),
   createCodeAgentRun,
   submitCodeAgentRemoteWaitlist,
   getCodeAgentModelList,
