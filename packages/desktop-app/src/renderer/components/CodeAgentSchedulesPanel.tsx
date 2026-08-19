@@ -137,6 +137,7 @@ export default function CodeAgentSchedulesPanel({
   const selectedSchedule = schedules.find(
     (schedule) => schedule.id === selectedScheduleId,
   );
+  const showScheduleControls = schedules.length > 0;
 
   const openManualSetup = useCallback(() => {
     setCreating(true);
@@ -261,63 +262,69 @@ export default function CodeAgentSchedulesPanel({
     >
       <header className="desktop-code-agent-schedules__header">
         <div>
-          <p className="desktop-code-agent-schedules__eyebrow">
-            <IconClock size={14} strokeWidth={1.8} />
-            Agent workspace
-          </p>
           <h1>Scheduled tasks</h1>
           <p>Wake an existing thread or start a fresh one on an interval.</p>
         </div>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button type="button" size="sm" aria-label="Create scheduled task">
-              Create
-              <IconChevronDown size={14} aria-hidden="true" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            align="end"
-            sideOffset={8}
-            className="desktop-code-agent-schedules__create-menu"
-          >
-            <DropdownMenuItem
-              onSelect={() => onCreateWithAgent?.(SCHEDULED_TASK_SETUP_PROMPT)}
-              disabled={!onCreateWithAgent}
+        {showScheduleControls ? (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                size="sm"
+                aria-label="Create scheduled task"
+              >
+                Create
+                <IconChevronDown size={14} aria-hidden="true" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent
+              align="end"
+              sideOffset={8}
+              className="desktop-code-agent-schedules__create-menu"
             >
-              <IconMessage size={15} strokeWidth={1.8} />
-              <span>Create with agent</span>
-            </DropdownMenuItem>
-            <DropdownMenuItem onSelect={openManualSetup}>
-              <IconEdit size={15} strokeWidth={1.8} />
-              <span>Set up manually</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <DropdownMenuItem
+                onSelect={() =>
+                  onCreateWithAgent?.(SCHEDULED_TASK_SETUP_PROMPT)
+                }
+                disabled={!onCreateWithAgent}
+              >
+                <IconMessage size={15} strokeWidth={1.8} />
+                <span>Create with agent</span>
+              </DropdownMenuItem>
+              <DropdownMenuItem onSelect={openManualSetup}>
+                <IconEdit size={15} strokeWidth={1.8} />
+                <span>Set up manually</span>
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        ) : null}
       </header>
 
-      <div className="desktop-code-agent-schedules__toolbar">
-        <IconSearch size={16} strokeWidth={1.8} aria-hidden="true" />
-        <Input
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="Search scheduled tasks"
-          aria-label="Search scheduled tasks"
-        />
-        <Button
-          type="button"
-          size="icon"
-          variant="ghost"
-          onClick={() => void refresh()}
-          disabled={loading}
-          aria-label="Refresh scheduled tasks"
-          title="Refresh scheduled tasks"
-        >
-          <IconRefresh
-            size={15}
-            className={loading ? "animate-spin" : undefined}
+      {showScheduleControls ? (
+        <div className="desktop-code-agent-schedules__toolbar">
+          <IconSearch size={16} strokeWidth={1.8} aria-hidden="true" />
+          <Input
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search scheduled tasks"
+            aria-label="Search scheduled tasks"
           />
-        </Button>
-      </div>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            onClick={() => void refresh()}
+            disabled={loading}
+            aria-label="Refresh scheduled tasks"
+            title="Refresh scheduled tasks"
+          >
+            <IconRefresh
+              size={15}
+              className={loading ? "animate-spin" : undefined}
+            />
+          </Button>
+        </div>
+      ) : null}
 
       {error ? (
         <div className="desktop-code-agent-schedules__error" role="alert">
@@ -349,7 +356,7 @@ export default function CodeAgentSchedulesPanel({
               <span>
                 {query
                   ? "Try a different search."
-                  : "Create one here or ask an agent to schedule a recurring check."}
+                  : "Ask an agent to schedule a recurring check."}
               </span>
               {!query ? (
                 <Button
