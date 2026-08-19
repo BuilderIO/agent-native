@@ -260,6 +260,7 @@ function ProvidersInner({
   disableThemeTransitions = true,
   i18n,
   documentTitleFallback,
+  showProductionEnvironmentBadge,
   children,
 }: {
   queryClient: QueryClient;
@@ -270,6 +271,7 @@ function ProvidersInner({
   disableThemeTransitions?: boolean;
   i18n?: Omit<AgentNativeI18nProviderProps, "children"> | false;
   documentTitleFallback?: string;
+  showProductionEnvironmentBadge: boolean;
   children: React.ReactNode;
 }) {
   const localizedChildren =
@@ -295,6 +297,7 @@ function ProvidersInner({
           <DocumentTitleGuard fallbackTitle={documentTitleFallback} />
           <RuntimeConfigNotice />
           <RoutedAppEnhancements />
+          <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
           {toaster}
         </TooltipProvider>
       </ThemeProvider>
@@ -329,6 +332,7 @@ export function AppProviders({
         disableThemeTransitions={disableThemeTransitions}
         i18n={i18n}
         documentTitleFallback={documentTitleFallback}
+        showProductionEnvironmentBadge={false}
       >
         {children}
       </ProvidersInner>
@@ -346,6 +350,7 @@ export function AppProviders({
         disableThemeTransitions={disableThemeTransitions}
         i18n={i18n}
         documentTitleFallback={documentTitleFallback}
+        showProductionEnvironmentBadge={!sessionBypass}
       >
         <RequireSession bypass={sessionBypass} fallback={fallback}>
           {sessionBypass ? (
@@ -353,7 +358,6 @@ export function AppProviders({
           ) : (
             <FirstRunOnboardingStartupGate>
               {children}
-              <EnvironmentBadge />
             </FirstRunOnboardingStartupGate>
           )}
         </RequireSession>

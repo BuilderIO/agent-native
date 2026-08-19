@@ -1240,7 +1240,7 @@ export function isExpectedAuthFailure(error: unknown): boolean {
 let _sessionInitPromise: Promise<void> | undefined;
 let sessionMaxAge = DEFAULT_MAX_AGE;
 
-async function ensureSessionTable(): Promise<void> {
+export async function ensureSessionTable(): Promise<void> {
   if (!_sessionInitPromise) {
     _sessionInitPromise = (async () => {
       const client = getDbExec();

@@ -25,6 +25,19 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="upgrade-note"');
   });
 
+  it("includes a beta switcher on the standalone auth page", () => {
+    const html = getOnboardingHtml({
+      requestHost: "beta.analytics.agent-native.com",
+    });
+
+    expect(html).toContain('id="environment-badge"');
+    expect(html).toContain("You're on Agent Native Beta");
+    expect(html).toContain("Switch to production");
+    expect(html).toContain("__anInitEnvironmentBadge");
+    expect(html).toContain("agentNativeBetaOptOut");
+    expect(html).toContain('id="environment-badge" aria-expanded="false"');
+  });
+
   it("redirects signed-in visitors without a cache-buster query loop", () => {
     const html = getOnboardingHtml();
 

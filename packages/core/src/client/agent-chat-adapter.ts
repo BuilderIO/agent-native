@@ -1785,15 +1785,29 @@ function isMissingCredentialMessage(message: string): boolean {
   );
 }
 
+function isMissingProviderErrorMessage(
+  message: string,
+  errorCode?: string,
+): boolean {
+  const text = message.toLowerCase();
+  const code = (errorCode ?? "").toLowerCase();
+  return (
+    text.includes("no llm provider") ||
+    text.includes("missing credentials") ||
+    text.includes("missing api key") ||
+    text.includes("missing_api_key") ||
+    ((code === "missing_credentials" || code === "missing_api_key") &&
+      text.includes("llm provider"))
+  );
+}
+
 function missingCredentialFailure(message: string): {
-  text: string;
   runError: { message: string; errorCode: string };
 } {
   try {
     const parsed = JSON.parse(message) as {
       error?: unknown;
       message?: unknown;
-      upgradeUrl?: unknown;
       errorCode?: unknown;
     };
     const raw =
@@ -1805,13 +1819,10 @@ function missingCredentialFailure(message: string): {
     const errorCode =
       typeof parsed.errorCode === "string"
         ? parsed.errorCode
-        : "missing_credentials";
+        : isMissingCredentialMessage(raw)
+          ? "missing_credentials"
+          : "authentication_error";
     return {
-      text: formatChatErrorText(
-        raw,
-        typeof parsed.upgradeUrl === "string" ? parsed.upgradeUrl : undefined,
-        errorCode,
-      ),
       runError: {
         message: normalizeChatError(raw).message,
         errorCode,
@@ -1819,10 +1830,11 @@ function missingCredentialFailure(message: string): {
     };
   } catch {
     return {
-      text: formatChatErrorText(message, undefined, "missing_credentials"),
       runError: {
         message: normalizeChatError(message).message,
-        errorCode: "missing_credentials",
+        errorCode: isMissingCredentialMessage(message)
+          ? "missing_credentials"
+          : "authentication_error",
       },
     };
   }
@@ -2818,10 +2830,16 @@ export function createAgentChatAdapter(
           settleInterruptedToolCalls(content, undefined, {
             includeActivity: true,
           });
-          content.push({
-            type: "text",
-            text: formatChatErrorText(args.message, undefined, args.errorCode),
-          });
+          if (!isMissingProviderErrorMessage(args.message, args.errorCode)) {
+            content.push({
+              type: "text",
+              text: formatChatErrorText(
+                args.message,
+                undefined,
+                args.errorCode,
+              ),
+            });
+          }
           settleTerminalChatRun();
           yield {
             content: [...content],
@@ -4069,7 +4087,6 @@ export function createAgentChatAdapter(
                       }),
                     );
                   }
-                  content.push({ type: "text", text: failure.text });
                   settleTerminalChatRun();
                   yield {
                     content: [...content],
@@ -4420,7 +4437,6 @@ export function createAgentChatAdapter(
                   }),
                 );
               }
-              content.push({ type: "text", text: failure.text });
               settleTerminalChatRun();
               yield {
                 content: [...content],

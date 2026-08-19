@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   runBetterAuthMigrations: vi.fn(async () => {}),
   runAutomationRunMigrations: vi.fn(async () => {}),
   runAutomationSchedulerHealthMigrations: vi.fn(async () => {}),
+  runFrameworkSchemaEnsures: vi.fn(async () => {}),
+  order: [] as string[],
   identitySsoMigrations: [
     {
       version: 1,
@@ -65,12 +67,43 @@ vi.mock("./identity-sso-migrations.js", () => ({
 vi.mock("./better-auth-migrations.js", () => ({
   runBetterAuthMigrations: mocks.runBetterAuthMigrations,
 }));
+// Mocked as a unit: `release-schema.ts` imports 60 stores, and stubbing each of
+// them here would test vitest's mock resolution rather than the release order.
+// `release-schema-complete` guards its contents; this file guards that it runs.
+vi.mock("./release-schema.js", () => ({
+  runFrameworkSchemaEnsures: mocks.runFrameworkSchemaEnsures,
+}));
 
 import { runFrameworkReleaseMigrations } from "./release-migrations.js";
 
 describe("runFrameworkReleaseMigrations", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mocks.order.length = 0;
+    mocks.runFrameworkSchemaEnsures.mockImplementation(async () => {
+      mocks.order.push("schema-ensures");
+    });
+    mocks.runBetterAuthMigrations.mockImplementation(async () => {
+      mocks.order.push("better-auth");
+    });
+  });
+
+  // Most framework tables have no migration list at all — their only definition
+  // is the owning store's `ensureTable()`, which production serverless never
+  // runs. Without this call the release step creates a fraction of the schema
+  // and reports success.
+  it("creates the stores' own schema, before the versioned migrations", async () => {
+    await runFrameworkReleaseMigrations(null);
+
+    expect(mocks.runFrameworkSchemaEnsures).toHaveBeenCalledTimes(1);
+    expect(mocks.order).toEqual(["schema-ensures", "better-auth"]);
+  });
+
+  it("propagates a schema-ensure failure instead of migrating on regardless", async () => {
+    mocks.runFrameworkSchemaEnsures.mockRejectedValueOnce(new Error("boom"));
+
+    await expect(runFrameworkReleaseMigrations(null)).rejects.toThrow("boom");
+    expect(mocks.runBetterAuthMigrations).not.toHaveBeenCalled();
   });
 
   it("runs the approval schema before request paths can use it", async () => {

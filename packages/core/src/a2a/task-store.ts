@@ -13,7 +13,7 @@ export const MAX_A2A_IDEMPOTENCY_KEY_CHARS = 128;
 const A2A_IDEMPOTENCY_INDEX = "idx_a2a_tasks_owner_scope_idempotency";
 export const A2A_PERSONAL_OWNER_SCOPE = "__personal__";
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();
