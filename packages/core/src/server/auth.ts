@@ -919,6 +919,7 @@ function decodeEmailVerificationTokenEmail(request: Request): string | null {
     ) as { email?: unknown; updateTo?: unknown };
     return normalizeAuthEmail(payload.updateTo ?? payload.email);
   } catch {
+    // coercion-ok: malformed desktop exchange payloads are rejected as absent.
     return null;
   }
 }
@@ -1765,9 +1766,10 @@ function parseDesktopExchangeStoredEntry(
     return {
       token,
       email,
-      ...(verifierHash ? { verifierHash } : {}),
-    };
+    ...(verifierHash ? { verifierHash } : {}),
+  };
   } catch {
+    // coercion-ok: malformed desktop exchange payloads are rejected as absent.
     return null;
   }
 }
@@ -2108,6 +2110,7 @@ async function claimDesktopMagicLinkFlow(
       _desktopExchanges.delete(flowId);
       return true;
     } catch {
+      // coercion-ok: a failed persistence claim must not issue a native session token.
       return false;
     }
   }
@@ -4335,7 +4338,7 @@ async function mountBetterAuthRoutes(
             if (!desktopVerifierHash) {
               throw new Error("Missing desktop exchange challenge.");
             }
-            setDesktopExchange(
+            await setDesktopExchange(
               flowId,
               sessionToken,
               email,

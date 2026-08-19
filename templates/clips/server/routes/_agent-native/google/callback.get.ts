@@ -122,7 +122,7 @@ async function handleGoogleSignInCallback(
       if (!state.desktopVerifierHash) {
         throw new Error("Missing desktop exchange challenge.");
       }
-      setDesktopExchange(
+      await setDesktopExchange(
         flowId,
         sessionToken,
         email,

@@ -419,7 +419,7 @@ export const handleGoogleCallback = defineEventHandler(
           if (!state.desktopVerifierHash) {
             throw new Error("Missing desktop exchange challenge.");
           }
-          setDesktopExchange(
+          await setDesktopExchange(
             flowId,
             sessionToken,
             identity.email,
@@ -471,7 +471,7 @@ export const handleGoogleCallback = defineEventHandler(
         if (!state.desktopVerifierHash) {
           throw new Error("Missing desktop exchange challenge.");
         }
-        setDesktopExchange(
+        await setDesktopExchange(
           flowId,
           sessionToken,
           sessionOwner,
@@ -658,7 +658,7 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
         if (!state.desktopVerifierHash) {
           throw new Error("Missing desktop exchange challenge.");
         }
-        setDesktopExchange(
+        await setDesktopExchange(
           flowId,
           sessionToken,
           ownerEmail,

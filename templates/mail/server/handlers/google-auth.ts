@@ -305,7 +305,12 @@ export const handleGoogleCallback = defineEventHandler(
         if (!desktopVerifierHash) {
           throw new Error("Missing desktop exchange challenge.");
         }
-        setDesktopExchange(flowId, sessionToken, email, desktopVerifierHash);
+        await setDesktopExchange(
+          flowId,
+          sessionToken,
+          email,
+          desktopVerifierHash,
+        );
       }
 
       // 4. Return platform-appropriate response

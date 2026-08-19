@@ -667,10 +667,6 @@ export default function CodeAgentsHub({
     activeChatFirstSurfaceTab.placement === "main";
   const chatFirstAppSelected = activeChatFirstSurfaceTab?.kind === "app";
   const [scheduledTasksOpen, setScheduledTasksOpen] = useState(false);
-  const scheduledChatPromptSequence = useRef(0);
-  const [scheduledChatPromptRequest, setScheduledChatPromptRequest] = useState<
-    { prompt: string; nonce: number } | undefined
-  >();
   const activeChatFirstPrimaryTab = useMemo<
     ChatFirstPrimaryTab | undefined
   >(() => {
@@ -932,14 +928,16 @@ export default function CodeAgentsHub({
   }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
   const openScheduledChatWithPrompt = useCallback(
     (prompt: string) => {
+      returnToChatFirstChats();
       window.setTimeout(() => {
-        setScheduledChatPromptRequest({
-          prompt,
-          nonce: ++scheduledChatPromptSequence.current,
-        });
+        window.dispatchEvent(
+          new CustomEvent("agent-native:scheduled-chat-prompt", {
+            detail: { prompt },
+          }),
+        );
       }, 0);
     },
-    [],
+    [returnToChatFirstChats],
   );
   const chatFirstNavigation = useMemo(
     () => ({
@@ -2475,7 +2473,6 @@ export default function CodeAgentsHub({
           refreshKey={refreshKey}
           brandIconUrl={agentNativeIconUrl}
           onOpenSettings={onOpenSettings}
-          newChatPromptRequest={scheduledChatPromptRequest}
           mainToolbarSlot={
             hasChatFirstActiveChat && !chatFirstAppTakesMain ? (
               <ChatFirstSurfacePanelToggle

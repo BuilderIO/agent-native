@@ -527,7 +527,45 @@ describe("server/auth", () => {
     it("bridges a verified magic-link callback to a native desktop exchange", async () => {
       vi.stubEnv("NODE_ENV", "development");
       vi.stubEnv("RESEND_API_KEY", "resend-example-key");
-      const mockExecute = vi.fn(async () => ({ rows: [] }));
+      const sessions = new Map<
+        string,
+        { email: string | null; createdAt: number }
+      >();
+      const mockExecute = vi.fn(
+        async ({ sql, args }: { sql?: string; args?: unknown[] } = {}) => {
+          const statement = typeof sql === "string" ? sql : "";
+          const token = args?.[0] as string | undefined;
+          const createdAt = Number(args?.[2]);
+          if (
+            statement.includes("INSERT") &&
+            statement.includes("sessions") &&
+            token
+          ) {
+            sessions.set(token, {
+              email: args?.[1] == null ? null : String(args[1]),
+              createdAt: Number.isFinite(createdAt) ? createdAt : Date.now(),
+            });
+            return { rows: [] };
+          }
+          if (statement.includes("SELECT email FROM sessions") && token) {
+            const row = sessions.get(token);
+            const cutoff = Number(args?.[1]);
+            if (!row || row.createdAt <= cutoff) return { rows: [] };
+            return { rows: [{ email: row.email }] };
+          }
+          if (statement.includes("DELETE FROM sessions") && token) {
+            const row = sessions.get(token);
+            const exactPacked = args?.[2];
+            const matches =
+              row &&
+              (exactPacked === undefined || row.email === exactPacked);
+            if (!matches) return { rows: [] };
+            sessions.delete(token);
+            return { rows: [{ email: row.email }] };
+          }
+          return { rows: [] };
+        },
+      );
       const signInMagicLink = vi.fn(async () => ({ status: true }));
       const getSession = vi.fn(async () => ({
         user: { id: "user_1", email: "owner@example.com" },

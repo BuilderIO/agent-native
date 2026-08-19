@@ -878,7 +878,6 @@ export default function CodeAgentsApp({
   const [workbenchOpen, setWorkbenchOpen] = useState(false);
   const [newPrompt, setNewPrompt] = useState("");
   const [newPromptSeed, setNewPromptSeed] = useState(0);
-  const handledNewChatPromptNonceRef = useRef<number | null>(null);
   const [creatingRun, setCreatingRun] = useState(false);
   const seenChatFirstOpenAppEvents = useRef(new Set<string>());
   const registeredChatFirstMcpServerIds = useMemo(
@@ -1492,6 +1491,7 @@ export default function CodeAgentsApp({
   }, [loadRuns, onChatFirstMainKindChange, openRequest, selectRun]);
 
   useEffect(() => {
+    const pendingFrames = new Set<number>();
     const handleScheduledPrompt = (event: Event) => {
       const prompt = (event as CustomEvent<{ prompt?: unknown }>).detail
         ?.prompt;
@@ -1505,25 +1505,32 @@ export default function CodeAgentsApp({
         );
         if (!editor || !editor.isConnected) {
           attempts += 1;
-          if (attempts < 30) frame = window.requestAnimationFrame(insertPrompt);
+          if (attempts < 30) {
+            frame = window.requestAnimationFrame(insertPrompt);
+            pendingFrames.add(frame);
+          }
           return;
         }
 
+        pendingFrames.delete(frame);
         editor.focus();
         document.execCommand("insertText", false, prompt.trim());
       };
 
       frame = window.requestAnimationFrame(insertPrompt);
-      const cleanup = () => window.cancelAnimationFrame(frame);
-      window.addEventListener("beforeunload", cleanup, { once: true });
+      pendingFrames.add(frame);
     };
 
     window.addEventListener(SCHEDULED_CHAT_PROMPT_EVENT, handleScheduledPrompt);
-    return () =>
+    return () => {
       window.removeEventListener(
         SCHEDULED_CHAT_PROMPT_EVENT,
         handleScheduledPrompt,
       );
+      pendingFrames.forEach((pendingFrame) =>
+        window.cancelAnimationFrame(pendingFrame),
+      );
+    };
   }, []);
 
   const hasActiveRuns = useMemo(() => runs.some(isRunActive), [runs]);
