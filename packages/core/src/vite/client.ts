@@ -2599,6 +2599,8 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "init",
     "isChangeOrigin",
     "isNodeEmpty",
+    "markInputRule",
+    "markPasteRule",
     "mergeAttributes",
     "renderToString",
     "applyUpdate",
