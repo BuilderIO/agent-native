@@ -34,7 +34,9 @@ export default defineAction({
     sentryEnvironment: z.string().trim().max(200).optional(),
     repository: z.string().trim().max(256).optional(),
     automationFailureAlertsEnabled: z.boolean().optional(),
-    automationFailureAlertEmail: z.string().trim().email().optional(),
+    automationFailureAlertEmail: z
+      .union([z.string().trim().email(), z.literal("")])
+      .optional(),
   }),
   http: { method: "POST" },
   run: async (
@@ -124,10 +126,10 @@ export default defineAction({
         : automationFailureAlertsEnabled
           ? 1
           : 0;
-    const persistedAutomationFailureAlertEmail =
-      automationFailureAlertEmail ??
-      existing?.automationFailureAlertEmail ??
-      null;
+    const persistedAutomationFailureAlertEmail = persistText(
+      automationFailureAlertEmail,
+      existing?.automationFailureAlertEmail,
+    );
     await db
       .insert(triageConfig)
       .values({

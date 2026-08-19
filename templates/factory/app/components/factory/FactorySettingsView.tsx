@@ -117,9 +117,7 @@ export function FactorySettingsView() {
         sentryProjectSlug,
         sentryEnvironment,
         automationFailureAlertsEnabled,
-        ...(automationFailureAlertEmail.trim()
-          ? { automationFailureAlertEmail: automationFailureAlertEmail.trim() }
-          : {}),
+        automationFailureAlertEmail: automationFailureAlertEmail.trim(),
       });
       toast.success(t("triage.settingsSaved"));
     } catch (error) {

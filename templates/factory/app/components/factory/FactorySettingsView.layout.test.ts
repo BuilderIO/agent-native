@@ -23,5 +23,8 @@ describe("FactorySettingsView load gating", () => {
     expect(source).toMatch(
       /if \(!configLoaded\) \{\s*toast\.error\(t\("triage\.settingsError"\)\);\s*return;/,
     );
+    expect(source).toContain(
+      "automationFailureAlertEmail: automationFailureAlertEmail.trim()",
+    );
   });
 });

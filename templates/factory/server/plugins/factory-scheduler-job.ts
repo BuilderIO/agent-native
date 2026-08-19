@@ -17,6 +17,11 @@ import { and, eq, isNull, lt, ne, or } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { triageConfig } from "../db/schema.js";
 import {
+  repairSlackFeedbackPrompt,
+  SLACK_HANDOFF_INSTRUCTION,
+  SLACK_MENTION_GUARD,
+} from "../lib/slack-feedback-prompt.js";
+import {
   syncManagedReviewSkillAlignment,
   type FactoryAutomationName,
 } from "../triage/review-skill-alignment.js";
@@ -174,8 +179,6 @@ const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
 const SKIP_RECORD_GUARD =
   "After classifying each processed item, call start-builder-for-item with clearBug true or false and a short evidence-grounded reason so the skip or dispatch is recorded.";
-const SLACK_MENTION_GUARD =
-  "Never post Slack messages, reactions, or plaintext @handles yourself. Call start-builder-for-item; that action pings Builder with a Slack user id. Plaintext @builder.io does not notify anyone.";
 
 const AUTOMATION_SEEDS: AutomationSeed[] = [
   {
@@ -225,13 +228,7 @@ The action adds 👀 to every grouped Slack thread but posts one Builder reply i
 the representative thread. Do not start one Builder thread per duplicate.
 Separate reports only when their failure modes, surfaces, or owners differ.
 
-Do not post to Slack, add reactions, or type @handles yourself. Call
-start-builder-for-item; that action adds 👀 and pings Builder with a Slack
-user id so it runs /address-feedback. The posted reply points Builder at the
-relevant repository skills, the representative source, every related source,
-and the need to fix the underlying boundary across the whole cluster. Never
-call that action for owner-managed Clips, Design, or Content work, or for a
-non-bug report.
+${SLACK_HANDOFF_INSTRUCTION}
 ${SKIP_RECORD_GUARD}
 ${SLACK_MENTION_GUARD}
 
@@ -552,11 +549,8 @@ async function ensureOrganizationAutomations(
         repaired,
         seed.name as FactoryAutomationName,
       );
-      if (
-        seed.name === "factory-slack-feedback" &&
-        !repaired.includes(SLACK_MENTION_GUARD)
-      ) {
-        repaired = `${repaired.trimEnd()}\n\n${SLACK_MENTION_GUARD}\n`;
+      if (seed.name === "factory-slack-feedback") {
+        repaired = repairSlackFeedbackPrompt(repaired);
       }
       if (repaired === existing.content) return;
 
