@@ -3,6 +3,11 @@ import { createError } from "h3";
 const RELEASES_URL_BASE =
   "https://api.github.com/repos/BuilderIO/agent-native/releases";
 const PER_PAGE = 100;
+// GitHub rejects release-list requests beyond page 10 at this page size.
+// Channel-specific releases are newest-first, so a current release is found
+// before this fallback boundary; never turn the upstream 422 into a route
+// failure by requesting an unsupported page.
+const MAX_RELEASE_PAGES = 10;
 const CACHE_FRESH_MS = 5 * 60_000;
 
 export const DESKTOP_RELEASE_CACHE_CONTROL =
@@ -184,10 +189,7 @@ async function findLatestDesktopRelease(
   channel: DesktopReleaseChannel,
 ): Promise<GhRelease | null> {
   let best: GhRelease | null = null;
-  // Do not cap the page count. The repository publishes many unrelated
-  // releases, so a valid production desktop release can be older than ten
-  // pages even though the GitHub releases endpoint remains finite.
-  for (let page = 1; ; page++) {
+  for (let page = 1; page <= MAX_RELEASE_PAGES; page++) {
     const batch = await fetchPage(page);
     if (batch.length === 0) break;
     for (const release of batch) {

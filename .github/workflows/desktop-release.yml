@@ -18,7 +18,7 @@ on:
           - production
           - nightly
       version:
-        description: "Version to release (e.g. 0.2.0). Leave empty to use package.json version."
+        description: "Stable version to release (e.g. 0.2.0). Required for production; Nightly may use the package.json version."
         required: false
         type: string
 
@@ -73,18 +73,15 @@ jobs:
               echo "version=$RELEASE_VERSION_INPUT" >> "$GITHUB_OUTPUT"
             fi
           else
-            BASE=$(node -p "require('./packages/desktop-app/package.json').version")
             if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+              BASE=$(node -p "require('./packages/desktop-app/package.json').version")
               # Use a prerelease tag rather than build metadata: npm version
               # silently strips +metadata, which would make release assets
               # collide across automatic runs.
               echo "version=${BASE}-nightly.${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
             else
-              if [[ ! "$BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                echo "::error::The production package version must be an exact stable major.minor.patch version."
-                exit 1
-              fi
-              echo "version=${BASE}" >> "$GITHUB_OUTPUT"
+              echo "::error::Production releases require an explicit stable version input."
+              exit 1
             fi
           fi
 
