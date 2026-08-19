@@ -140,6 +140,7 @@ Hidden legacy organization job.`,
       event: "test.event.fired",
       canUpdate: false,
     });
+    expect(result[1].orgId).toBeUndefined();
   });
 
   it("fails closed for organization automations without an app owner", async () => {

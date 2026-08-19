@@ -13,7 +13,10 @@ import {
   automationStatus,
   automationTarget,
 } from "../lib/automation-display";
-import type { DispatchAutomationItem } from "../lib/automations";
+import {
+  automationRunScope,
+  type DispatchAutomationItem,
+} from "../lib/automations";
 import { ActionQueryError } from "./action-query-error";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -99,14 +102,6 @@ function runAsLabel(value: DispatchAutomationItem["runAs"]): string {
   return "Default identity";
 }
 
-function scopeForRuns(automation: DispatchAutomationItem) {
-  return automation.scope === "organization" ||
-    automation.owner.startsWith("__organization__:") ||
-    automation.owner === "__shared__"
-    ? "organization"
-    : "personal";
-}
-
 export function AutomationDetailsPanel({
   automation,
   isToggling = false,
@@ -116,7 +111,7 @@ export function AutomationDetailsPanel({
     "list-automation-runs",
     {
       name: automation.name,
-      scope: scopeForRuns(automation),
+      scope: automationRunScope(automation),
       appId: automation.appId ?? "dispatch",
     },
     { staleTime: 5_000 },
