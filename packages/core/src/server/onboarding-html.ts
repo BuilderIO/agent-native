@@ -34,12 +34,15 @@ import {
 } from "../shared/social-meta.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
 import {
+  AUTH_MARKETING_LOCALE_COPY,
+  type AuthMarketingLocaleCopy,
+} from "./auth-marketing-locales.js";
+import {
   BUILT_IN_AUTH_MARKETING,
   resolveBuiltInAuthMarketing,
   resolveBuiltInAuthMarketingSlug,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
-import { AUTH_MARKETING_LOCALE_COPY } from "./auth-marketing-locales.js";
 import {
   resolveGoogleAuthMode,
   type GoogleAuthMode,
@@ -1027,9 +1030,7 @@ function resolveBuiltInMarketingSlug(
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
   for (const [slug, builtIn] of Object.entries(BUILT_IN_AUTH_MARKETING)) {
-    if (
-      marketing.tagline === builtIn.tagline || normalizedAppName === slug
-    ) {
+    if (marketing.tagline === builtIn.tagline || normalizedAppName === slug) {
       return slug;
     }
   }
@@ -1151,15 +1152,26 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       requestPath: opts.requestPath,
     });
   const hasMarketing = !!marketing && !simplifiedAuth;
-  const marketingSlug = resolveBuiltInMarketingSlug(marketing);
-  const defaultMarketingCopy: Partial<AuthMarketingLocalization> | undefined =
-    marketing
-      ? {
-          tagline: marketing.tagline,
-          description: marketing.description,
-          features: marketing.features,
-        }
-      : undefined;
+  const marketingSlug = resolveBuiltInMarketingSlug(marketing, {
+    requestHost: opts.requestHost,
+    requestPath: opts.requestPath,
+  });
+  const defaultMarketingCopy: AuthMarketingLocaleCopy | undefined = marketing
+    ? {
+        tagline: marketing.tagline,
+        description: marketing.description,
+        features: marketing.features,
+      }
+    : undefined;
+  const localizedMarketingCopy: Record<string, AuthMarketingLocaleCopy> = {};
+  if (marketingSlug) {
+    for (const [locale, copyBySlug] of Object.entries(
+      AUTH_MARKETING_LOCALE_COPY,
+    )) {
+      const copy = copyBySlug?.[marketingSlug];
+      if (copy) localizedMarketingCopy[locale] = copy;
+    }
+  }
   const signupLocalModeNote =
     isAgentNativeHostedHost(opts.requestHost) &&
     marketing?.signupLocalModeNote?.command.trim()
@@ -1205,14 +1217,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const localeMenuItemsHtml = [
     `    <button type="button" class="locale-menu-item" role="menuitemradio" aria-checked="false" data-locale-value="system">
       <span class="locale-menu-check" aria-hidden="true">✓</span>
-      <span${i18nAttr("systemLanguage")}>${esc(t("systemLanguage"))}</span>
+      <span data-system-language>${esc(t("systemLanguage"))}</span>
     </button>`,
     ...SUPPORTED_LOCALES.map((locale) => {
-      const metadata = LOCALE_METADATA[locale];
-      const label =
-        metadata.nativeName === metadata.englishName
-          ? `${metadata.nativeName} (${metadata.code})`
-          : `${metadata.nativeName} (${metadata.englishName})`;
+      const label = localeDisplayName(locale);
       return `    <button type="button" class="locale-menu-item" role="menuitemradio" aria-checked="false" data-locale-value="${esc(locale)}">
       <span class="locale-menu-check" aria-hidden="true">✓</span>
       <span>${esc(label)}</span>
@@ -2329,7 +2337,7 @@ ${signInJourneyInlineScript()}
     var __AN_AUTH_HAS_MARKETING = ${JSON.stringify(hasMarketing)};
     var __AN_AUTH_MARKETING_SLUG = ${JSON.stringify(marketingSlug ?? "")};
     var __AN_AUTH_MARKETING_DEFAULT = ${JSON.stringify(defaultMarketingCopy ?? {})};
-    var __AN_AUTH_MARKETING_LOCALES = ${JSON.stringify(AUTH_MARKETING_LOCALE_COPY)};
+    var __AN_AUTH_MARKETING_LOCALES = ${JSON.stringify(localizedMarketingCopy)};
     var __anAuthLocale = __AN_AUTH_DEFAULT_LOCALE;
     var __anAuthLocalePreference = 'system';
     var __AN_AUTH_MODE = ${JSON.stringify(authMode)};
@@ -2374,17 +2382,26 @@ ${signInJourneyInlineScript()}
       } catch(e) {}
       return [];
     }
-    function __anResolveAuthLocale(preference) {
-      var normalizedPreference = __anNormalizeAuthLocalePreference(preference) || 'system';
-      if (normalizedPreference !== 'system') return normalizedPreference;
-      var rootLocale = __anNormalizeAuthLocale(document.documentElement.getAttribute('data-locale'));
-      if (rootLocale) return rootLocale;
+    function __anResolveAuthSystemLocale() {
       var locales = __anBrowserAuthLocales();
       for (var i = 0; i < locales.length; i++) {
         var match = __anNormalizeAuthLocale(locales[i]);
         if (match) return match;
       }
       return __AN_AUTH_DEFAULT_LOCALE;
+    }
+    function __anResolveAuthLocale(preference) {
+      var normalizedPreference = __anNormalizeAuthLocalePreference(preference) || 'system';
+      return normalizedPreference === 'system'
+        ? __anResolveAuthSystemLocale()
+        : normalizedPreference;
+    }
+    function __anApplyAuthSystemLanguage() {
+      var systemLanguage = document.querySelector('[data-system-language]');
+      if (!systemLanguage) return;
+      var systemLocale = __anResolveAuthSystemLocale();
+      var localized = __AN_AUTH_LOCALES[systemLocale] || __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
+      systemLanguage.textContent = localized.systemLanguage || 'System';
     }
     function __anT(key) {
       var localized = __AN_AUTH_LOCALES[__anAuthLocale] || __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
@@ -2438,7 +2455,7 @@ ${signInJourneyInlineScript()}
     }
     function __anMarketingCopy() {
       if (!__AN_AUTH_MARKETING_SLUG) return __AN_AUTH_MARKETING_DEFAULT || {};
-      var localeMarketing = (__AN_AUTH_MARKETING_LOCALES[__anAuthLocale] || {})[__AN_AUTH_MARKETING_SLUG] || {};
+      var localeMarketing = __AN_AUTH_MARKETING_LOCALES[__anAuthLocale] || {};
       return {
         tagline: localeMarketing.tagline || __AN_AUTH_MARKETING_DEFAULT.tagline,
         description: localeMarketing.description || __AN_AUTH_MARKETING_DEFAULT.description,
@@ -2487,6 +2504,7 @@ ${signInJourneyInlineScript()}
       document.title = __AN_AUTH_HAS_MARKETING && __AN_AUTH_MARKETING_APP_NAME
         ? __AN_AUTH_MARKETING_APP_NAME + ' — ' + __anT('pageTitleSignIn')
         : __anT('pageTitleWelcome');
+      __anApplyAuthSystemLanguage();
       __anApplyAuthMarketingCopy();
       __anRefreshAuthViewCopy();
     }

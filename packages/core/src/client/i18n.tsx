@@ -916,8 +916,9 @@ export function LanguagePicker({
   const copy =
     LANGUAGE_PICKER_COPY[locale] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
   const systemCopy =
-    LANGUAGE_PICKER_COPY[resolveLocaleFromCandidates(browserLanguageCandidates())] ??
-    LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
+    LANGUAGE_PICKER_COPY[
+      resolveLocaleFromCandidates(browserLanguageCandidates())
+    ] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
   const resolvedLabel = label ?? copy.label;
   const options = [
     ...(includeSystem

@@ -44,7 +44,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     content: {
-      tagline: "面向 MDX 的开源 Obsidian：你的 AI 代理会编辑本地文档、创建自定义区块并与你一起整理内容。",
+      tagline:
+        "面向 MDX 的开源 Obsidian：你的 AI 代理会编辑本地文档、创建自定义区块并与你一起整理内容。",
       features: [
         "直接编辑本地 Markdown/MDX 文件，需要时再使用托管同步",
         "生成丰富的互动自定义 MDX 区块，并可视化编辑其属性",
@@ -60,7 +61,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     design: {
-      tagline: "描述你的想法即可进行设计和原型制作。AI 代理会在几秒内将其变成交互式、自适应的设计。",
+      tagline:
+        "描述你的想法即可进行设计和原型制作。AI 代理会在几秒内将其变成交互式、自适应的设计。",
       features: [
         "只需描述即可创建精致的原型",
         "构建并应用设计系统，让所有内容保持品牌一致",
@@ -108,7 +110,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     chat: {
-      tagline: "从聊天优先的 agent-native 应用开始，随着代理成长添加操作、界面和工作流。",
+      tagline:
+        "从聊天优先的 agent-native 应用开始，随着代理成长添加操作、界面和工作流。",
       features: [
         "支持持久线程和工具调用记录的全页聊天",
         "一次添加操作，即可从聊天、界面、HTTP、MCP、A2A 和 CLI 使用",
@@ -124,7 +127,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     factory: {
-      tagline: "构建代理工厂：一端输入工作，另一端输出已交付的变更，并由你控制关卡。",
+      tagline:
+        "构建代理工厂：一端输入工作，另一端输出已交付的变更，并由你控制关卡。",
       features: [
         "在一个队列中检查 Slack 和拉取请求信号",
         "通过提示和可审核的反馈调整规则",
@@ -132,7 +136,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     tasks: {
-      tagline: "管理个人任务：在收件箱中分流，从列表中完成。让代理替你完成这一切。",
+      tagline:
+        "管理个人任务：在收件箱中分流，从列表中完成。让代理替你完成这一切。",
       features: [
         "收件箱分流：随时记录想法和草稿，准备好后再提升为任务",
         "任务管理：在保持你设定顺序的列表中创建、排序和完成任务",
@@ -143,7 +148,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
   },
   "zh-TW": {
     analytics: {
-      tagline: "你的 AI 代理會查詢資料來源、建立儀表板，並和你一起回答商業問題。",
+      tagline:
+        "你的 AI 代理會查詢資料來源、建立儀表板，並和你一起回答商業問題。",
       features: [
         "向 BigQuery、HubSpot、Jira 等資料來源提問並取得答案",
         "代理建立的儀表板會從所有資料來源擷取即時資料",
@@ -176,7 +182,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     content: {
-      tagline: "面向 MDX 的開源 Obsidian：你的 AI 代理會編輯本機文件、建立自訂區塊並和你一起整理內容。",
+      tagline:
+        "面向 MDX 的開源 Obsidian：你的 AI 代理會編輯本機文件、建立自訂區塊並和你一起整理內容。",
       features: [
         "直接編輯本機 Markdown/MDX 檔案，需要時再使用託管同步",
         "產生豐富的互動式自訂 MDX 區塊，並可視化編輯其屬性",
@@ -192,7 +199,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     design: {
-      tagline: "描述你的想法即可進行設計和原型製作。AI 代理會在幾秒內將其變成交互式、自適應的設計。",
+      tagline:
+        "描述你的想法即可進行設計和原型製作。AI 代理會在幾秒內將其變成交互式、自適應的設計。",
       features: [
         "只要描述即可建立精緻原型",
         "建立並套用設計系統，讓所有內容維持品牌一致",
@@ -240,7 +248,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     chat: {
-      tagline: "從聊天優先的 agent-native 應用程式開始，隨著代理成長新增操作、畫面和工作流程。",
+      tagline:
+        "從聊天優先的 agent-native 應用程式開始，隨著代理成長新增操作、畫面和工作流程。",
       features: [
         "支援持久執行緒和工具呼叫記錄的全頁聊天",
         "一次新增操作，即可從聊天、介面、HTTP、MCP、A2A 和 CLI 使用",
@@ -256,7 +265,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     factory: {
-      tagline: "建立代理工廠：一端輸入工作，另一端輸出已交付的變更，並由你控制關卡。",
+      tagline:
+        "建立代理工廠：一端輸入工作，另一端輸出已交付的變更，並由你控制關卡。",
       features: [
         "在一個佇列中檢查 Slack 和拉取請求訊號",
         "透過提示和可審查的回饋調整規則",
@@ -264,7 +274,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     tasks: {
-      tagline: "管理個人任務：在收件匣中分流，從清單中完成。讓代理替你完成這一切。",
+      tagline:
+        "管理個人任務：在收件匣中分流，從清單中完成。讓代理替你完成這一切。",
       features: [
         "收件匣分流：隨時記錄想法和草稿，準備好後再提升為任務",
         "任務管理：在保持你設定順序的清單中建立、排序和完成任務",
@@ -275,7 +286,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
   },
   "es-ES": {
     analytics: {
-      tagline: "Tu agente de IA consulta tus fuentes de datos, crea paneles y responde preguntas de negocio contigo.",
+      tagline:
+        "Tu agente de IA consulta tus fuentes de datos, crea paneles y responde preguntas de negocio contigo.",
       features: [
         "Haz preguntas y obtén respuestas desde BigQuery, HubSpot, Jira y más",
         "Paneles creados por el agente con datos actualizados de todas tus fuentes",
@@ -283,7 +295,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     brain: {
-      tagline: "Una capa de conocimiento de la empresa donde las conversaciones sin procesar se convierten en conocimiento institucional revisado y consultable.",
+      tagline:
+        "Una capa de conocimiento de la empresa donde las conversaciones sin procesar se convierten en conocimiento institucional revisado y consultable.",
       features: [
         "Importa transcripciones, notas, exportaciones de Slack y resúmenes de Granola",
         "Valida cada hecho con citas exactas de la fuente",
@@ -291,7 +304,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     calendar: {
-      tagline: "Tu agente de IA programa, cambia y gestiona tu calendario para que tú no tengas que hacerlo.",
+      tagline:
+        "Tu agente de IA programa, cambia y gestiona tu calendario para que tú no tengas que hacerlo.",
       features: [
         "Encuentra huecos y reserva reuniones por ti",
         "Gestiona automáticamente la disponibilidad y los enlaces de reserva",
@@ -299,7 +313,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     clips: {
-      tagline: "Tu agente de IA transcribe, resume y busca todo lo que grabas a tu lado.",
+      tagline:
+        "Tu agente de IA transcribe, resume y busca todo lo que grabas a tu lado.",
       features: [
         "Grabación de pantalla con un clic (estilo Loom), títulos, resúmenes y capítulos automáticos",
         "Notas de reuniones sincronizadas con el calendario (estilo Granola), con transcripciones en vivo y acciones de IA",
@@ -308,7 +323,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     content: {
-      tagline: "Obsidian de código abierto para MDX: tu agente de IA edita documentos locales, crea bloques personalizados y organiza todo contigo.",
+      tagline:
+        "Obsidian de código abierto para MDX: tu agente de IA edita documentos locales, crea bloques personalizados y organiza todo contigo.",
       features: [
         "Edita archivos Markdown/MDX locales directamente y usa sincronización alojada cuando la necesites",
         "Genera bloques MDX personalizados e interactivos y edita sus propiedades visualmente",
@@ -316,7 +332,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     plan: {
-      tagline: "Convierte los planes de tu agente de código en HTML visual y anotable antes de cambiar el código.",
+      tagline:
+        "Convierte los planes de tu agente de código en HTML visual y anotable antes de cambiar el código.",
       features: [
         "Crea diagramas, wireframes, maquetas y opciones de prototipo con un solo prompt",
         "Anota planes como una superficie de revisión visual en lugar de leer Markdown interminable",
@@ -324,7 +341,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     design: {
-      tagline: "Diseña y crea prototipos describiendo lo que quieres. El agente de IA convierte tus ideas en diseños interactivos y adaptables en segundos.",
+      tagline:
+        "Diseña y crea prototipos describiendo lo que quieres. El agente de IA convierte tus ideas en diseños interactivos y adaptables en segundos.",
       features: [
         "Crea prototipos pulidos con solo describirlos",
         "Construye y aplica sistemas de diseño para mantener todo alineado con tu marca",
@@ -332,7 +350,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     dispatch: {
-      tagline: "Tu agente de IA gestiona secretos, coordina otros agentes y enruta mensajes por tu workspace.",
+      tagline:
+        "Tu agente de IA gestiona secretos, coordina otros agentes y enruta mensajes por tu workspace.",
       features: [
         "Bóveda centralizada para secretos con permisos detallados por aplicación",
         "Orquestación entre agentes y delegación a aplicaciones especializadas",
@@ -348,7 +367,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     assets: {
-      tagline: "Tu agente de IA crea, perfecciona y organiza activos alineados con tu marca.",
+      tagline:
+        "Tu agente de IA crea, perfecciona y organiza activos alineados con tu marca.",
       features: [
         "Construye bibliotecas reutilizables de logotipos, fotos de producto, vídeos y referencias",
         "Genera imágenes principales, diagramas, arte para diapositivas, visuales de producto y vídeos desde un prompt",
@@ -364,7 +384,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     slides: {
-      tagline: "Tu agente de IA crea, edita y perfecciona presentaciones contigo.",
+      tagline:
+        "Tu agente de IA crea, edita y perfecciona presentaciones contigo.",
       features: [
         "Genera presentaciones completas con un solo prompt",
         "Ediciones precisas de diapositivas mientras presentas o revisas",
@@ -372,7 +393,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     chat: {
-      tagline: "Empieza con una aplicación agent-native centrada en el chat y añade acciones, pantallas y flujos a medida que crece tu agente.",
+      tagline:
+        "Empieza con una aplicación agent-native centrada en el chat y añade acciones, pantallas y flujos a medida que crece tu agente.",
       features: [
         "Chat a pantalla completa con hilos persistentes e historial de llamadas a herramientas",
         "Añade acciones una vez y úsalas desde el chat, la UI, HTTP, MCP, A2A y CLI",
@@ -380,7 +402,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     crm: {
-      tagline: "Un CRM Native SQL completo o un compañero conectado basado en su sistema de origen.",
+      tagline:
+        "Un CRM Native SQL completo o un compañero conectado basado en su sistema de origen.",
       features: [
         "Gestiona cuentas, personas, oportunidades, tareas y cadencias en Native SQL",
         "Conecta registros delimitados de HubSpot o Salesforce sin copiar credenciales",
@@ -388,7 +411,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     factory: {
-      tagline: "Construye fábricas de agentes: trabajo por un lado, cambios entregados por el otro, con controles que tú defines.",
+      tagline:
+        "Construye fábricas de agentes: trabajo por un lado, cambios entregados por el otro, con controles que tú defines.",
       features: [
         "Inspecciona señales de Slack y pull requests en una sola cola",
         "Ajusta reglas con prompts y feedback revisable",
@@ -396,7 +420,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     tasks: {
-      tagline: "Gestiona tus tareas personales: clasifícalas en la bandeja y termínalas desde la lista. Un agente puede hacerlo todo por ti.",
+      tagline:
+        "Gestiona tus tareas personales: clasifícalas en la bandeja y termínalas desde la lista. Un agente puede hacerlo todo por ti.",
       features: [
         "Clasificación de bandeja: captura ideas y borradores y conviértelos en tareas cuando estén listos",
         "Gestión de tareas: crea, reordena y completa tareas en una lista que conserva tu orden",
@@ -407,7 +432,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
   },
   "fr-FR": {
     analytics: {
-      tagline: "Votre agent IA interroge vos sources de données, crée des tableaux de bord et répond à vos questions métier avec vous.",
+      tagline:
+        "Votre agent IA interroge vos sources de données, crée des tableaux de bord et répond à vos questions métier avec vous.",
       features: [
         "Posez vos questions à BigQuery, HubSpot, Jira et bien d’autres sources",
         "Des tableaux de bord construits par l’agent avec les données à jour de toutes vos sources",
@@ -415,7 +441,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     brain: {
-      tagline: "Une couche de connaissance d’entreprise où les conversations brutes deviennent un savoir institutionnel vérifié et consultable.",
+      tagline:
+        "Une couche de connaissance d’entreprise où les conversations brutes deviennent un savoir institutionnel vérifié et consultable.",
       features: [
         "Importez des transcriptions, notes, exports Slack et résumés Granola",
         "Validez chaque fait avec des citations exactes de la source",
@@ -423,7 +450,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     calendar: {
-      tagline: "Votre agent IA planifie, replanifie et gère votre calendrier pour que vous n’ayez plus à le faire.",
+      tagline:
+        "Votre agent IA planifie, replanifie et gère votre calendrier pour que vous n’ayez plus à le faire.",
       features: [
         "Trouvez des créneaux libres et réservez des réunions pour vous",
         "Gérez automatiquement les disponibilités et les liens de réservation",
@@ -431,7 +459,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     clips: {
-      tagline: "Votre agent IA transcrit, résume et recherche tout ce que vous enregistrez à vos côtés.",
+      tagline:
+        "Votre agent IA transcrit, résume et recherche tout ce que vous enregistrez à vos côtés.",
       features: [
         "Enregistrement d’écran en un clic (style Loom), titres, résumés et chapitres automatiques",
         "Notes de réunion synchronisées au calendrier (style Granola), transcriptions en direct et actions IA",
@@ -440,7 +469,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     content: {
-      tagline: "Un Obsidian open source pour MDX : votre agent IA édite les documents locaux, crée des blocs personnalisés et organise tout avec vous.",
+      tagline:
+        "Un Obsidian open source pour MDX : votre agent IA édite les documents locaux, crée des blocs personnalisés et organise tout avec vous.",
       features: [
         "Modifiez directement les fichiers Markdown/MDX locaux et utilisez la synchronisation hébergée quand nécessaire",
         "Générez des blocs MDX personnalisés et interactifs et modifiez leurs propriétés visuellement",
@@ -448,7 +478,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     plan: {
-      tagline: "Transformez les plans de votre agent de code en HTML visuel et annotable avant de modifier le code.",
+      tagline:
+        "Transformez les plans de votre agent de code en HTML visuel et annotable avant de modifier le code.",
       features: [
         "Créez diagrammes, wireframes, maquettes et options de prototype avec un seul prompt",
         "Annotez les plans sur une surface de revue visuelle au lieu de lire un long Markdown",
@@ -456,7 +487,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     design: {
-      tagline: "Concevez et prototypez en décrivant ce que vous voulez. L’agent IA transforme vos idées en designs interactifs et responsives en quelques secondes.",
+      tagline:
+        "Concevez et prototypez en décrivant ce que vous voulez. L’agent IA transforme vos idées en designs interactifs et responsives en quelques secondes.",
       features: [
         "Créez des prototypes soignés en les décrivant simplement",
         "Construisez et appliquez des systèmes de design pour garder une image de marque cohérente",
@@ -464,7 +496,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     dispatch: {
-      tagline: "Votre agent IA gère les secrets, orchestre les autres agents et achemine les messages dans votre workspace.",
+      tagline:
+        "Votre agent IA gère les secrets, orchestre les autres agents et achemine les messages dans votre workspace.",
       features: [
         "Coffre centralisé pour les secrets avec des accès précis par application",
         "Orchestration entre agents et délégation à des applications spécialisées",
@@ -472,7 +505,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     forms: {
-      tagline: "Votre agent IA crée, publie et analyse des formulaires avec vous.",
+      tagline:
+        "Votre agent IA crée, publie et analyse des formulaires avec vous.",
       features: [
         "Créez des formulaires complets à partir d’une seule phrase",
         "Publication instantanée avec liens partageables et captcha",
@@ -480,7 +514,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     assets: {
-      tagline: "Votre agent IA crée, affine et organise des assets cohérents avec votre marque.",
+      tagline:
+        "Votre agent IA crée, affine et organise des assets cohérents avec votre marque.",
       features: [
         "Construisez des bibliothèques réutilisables de logos, photos produit, vidéos et références",
         "Générez héros, diagrammes, visuels de présentation, visuels produit et vidéos depuis un prompt",
@@ -496,7 +531,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     slides: {
-      tagline: "Votre agent IA crée, modifie et affine vos présentations avec vous.",
+      tagline:
+        "Votre agent IA crée, modifie et affine vos présentations avec vous.",
       features: [
         "Générez des présentations entières avec un seul prompt",
         "Modifiez précisément les diapositives pendant la présentation ou la revue",
@@ -504,7 +540,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     chat: {
-      tagline: "Commencez avec une application agent-native centrée sur le chat et ajoutez actions, écrans et workflows au fil de la croissance de votre agent.",
+      tagline:
+        "Commencez avec une application agent-native centrée sur le chat et ajoutez actions, écrans et workflows au fil de la croissance de votre agent.",
       features: [
         "Chat pleine page avec fils persistants et historique des appels d’outils",
         "Ajoutez une action une fois et utilisez-la depuis le chat, l’UI, HTTP, MCP, A2A et la CLI",
@@ -512,7 +549,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     crm: {
-      tagline: "Un CRM Native SQL complet ou un compagnon connecté et ancré dans son système source.",
+      tagline:
+        "Un CRM Native SQL complet ou un compagnon connecté et ancré dans son système source.",
       features: [
         "Gérez comptes, personnes, opportunités, tâches et cadences dans Native SQL",
         "Connectez des enregistrements HubSpot ou Salesforce avec accès limité, sans copier les identifiants",
@@ -520,7 +558,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     factory: {
-      tagline: "Construisez des usines d’agents : le travail entre d’un côté, les changements livrés sortent de l’autre, avec des garde-fous que vous contrôlez.",
+      tagline:
+        "Construisez des usines d’agents : le travail entre d’un côté, les changements livrés sortent de l’autre, avec des garde-fous que vous contrôlez.",
       features: [
         "Inspectez les signaux Slack et les pull requests dans une seule file",
         "Ajustez les règles avec des prompts et des retours révisables",
@@ -528,7 +567,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     tasks: {
-      tagline: "Gérez vos tâches personnelles : triez-les dans la boîte de réception et terminez-les depuis la liste. Un agent peut tout faire pour vous.",
+      tagline:
+        "Gérez vos tâches personnelles : triez-les dans la boîte de réception et terminez-les depuis la liste. Un agent peut tout faire pour vous.",
       features: [
         "Tri de la boîte de réception : capturez idées et brouillons, puis transformez-les en tâches quand ils sont prêts",
         "Gestion des tâches : créez, réorganisez et terminez les tâches dans une liste qui conserve votre ordre",
@@ -539,7 +579,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
   },
   "de-DE": {
     analytics: {
-      tagline: "Dein KI-Agent fragt deine Datenquellen ab, erstellt Dashboards und beantwortet gemeinsam mit dir Geschäftsfragen.",
+      tagline:
+        "Dein KI-Agent fragt deine Datenquellen ab, erstellt Dashboards und beantwortet gemeinsam mit dir Geschäftsfragen.",
       features: [
         "Stelle Fragen und erhalte Antworten aus BigQuery, HubSpot, Jira und mehr",
         "Vom Agenten erstellte Dashboards mit aktuellen Daten aus all deinen Quellen",
@@ -547,7 +588,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     brain: {
-      tagline: "Eine Wissensebene für Unternehmen, die rohe Gespräche in geprüfte und durchsuchbare institutionelle Erkenntnisse verwandelt.",
+      tagline:
+        "Eine Wissensebene für Unternehmen, die rohe Gespräche in geprüfte und durchsuchbare institutionelle Erkenntnisse verwandelt.",
       features: [
         "Importiere Transkripte, Notizen, Slack-Exporte und Granola-Zusammenfassungen",
         "Prüfe jede Tatsache anhand exakter Quellenzitate",
@@ -555,7 +597,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     calendar: {
-      tagline: "Dein KI-Agent plant, verschiebt und verwaltet deinen Kalender, damit du es nicht selbst tun musst.",
+      tagline:
+        "Dein KI-Agent plant, verschiebt und verwaltet deinen Kalender, damit du es nicht selbst tun musst.",
       features: [
         "Finde freie Zeiten und buche Meetings in deinem Namen",
         "Verwalte Verfügbarkeiten und Buchungslinks automatisch",
@@ -563,7 +606,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     clips: {
-      tagline: "Dein KI-Agent transkribiert, fasst zusammen und durchsucht alles, was du nebenbei aufzeichnest.",
+      tagline:
+        "Dein KI-Agent transkribiert, fasst zusammen und durchsucht alles, was du nebenbei aufzeichnest.",
       features: [
         "Bildschirmaufnahme mit einem Klick (Loom-Stil) sowie automatische Titel, Zusammenfassungen und Kapitel",
         "Kalendersynchronisierte Meeting-Notizen (Granola-Stil) mit Live-Transkripten und KI-Aktionspunkten",
@@ -572,7 +616,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     content: {
-      tagline: "Open-Source-Obsidian für MDX: Dein KI-Agent bearbeitet lokale Dokumente, erstellt eigene Blöcke und organisiert alles mit dir.",
+      tagline:
+        "Open-Source-Obsidian für MDX: Dein KI-Agent bearbeitet lokale Dokumente, erstellt eigene Blöcke und organisiert alles mit dir.",
       features: [
         "Bearbeite lokale Markdown/MDX-Dateien direkt und nutze bei Bedarf die gehostete Synchronisierung",
         "Erzeuge interaktive benutzerdefinierte MDX-Blöcke und bearbeite ihre Eigenschaften visuell",
@@ -580,7 +625,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     plan: {
-      tagline: "Verwandle die Pläne deines Coding-Agenten in visuelles, annotierbares HTML, bevor sich der Code ändert.",
+      tagline:
+        "Verwandle die Pläne deines Coding-Agenten in visuelles, annotierbares HTML, bevor sich der Code ändert.",
       features: [
         "Erstelle Diagramme, Wireframes, Mockups und Prototyp-Varianten aus einem Prompt",
         "Kommentiere Pläne auf einer visuellen Review-Fläche statt langes Markdown zu lesen",
@@ -588,7 +634,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     design: {
-      tagline: "Entwirf und prototypisiere, indem du beschreibst, was du möchtest. Der KI-Agent macht daraus in Sekunden interaktive, responsive Designs.",
+      tagline:
+        "Entwirf und prototypisiere, indem du beschreibst, was du möchtest. Der KI-Agent macht daraus in Sekunden interaktive, responsive Designs.",
       features: [
         "Erstelle ausgearbeitete Prototypen, indem du sie einfach beschreibst",
         "Baue Designsysteme und wende sie an, damit alles markenkonform bleibt",
@@ -596,7 +643,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     dispatch: {
-      tagline: "Dein KI-Agent verwaltet Secrets, koordiniert andere Agenten und leitet Nachrichten durch deinen Workspace.",
+      tagline:
+        "Dein KI-Agent verwaltet Secrets, koordiniert andere Agenten und leitet Nachrichten durch deinen Workspace.",
       features: [
         "Zentraler Tresor für Secrets mit granularen Freigaben pro App",
         "Orchestrierung zwischen Agenten und Delegation an spezialisierte Apps",
@@ -604,7 +652,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     forms: {
-      tagline: "Dein KI-Agent erstellt, veröffentlicht und analysiert gemeinsam mit dir Formulare.",
+      tagline:
+        "Dein KI-Agent erstellt, veröffentlicht und analysiert gemeinsam mit dir Formulare.",
       features: [
         "Erstelle vollständige Formulare aus einem einzigen Satz",
         "Sofortige Veröffentlichung mit teilbaren Links und Captcha",
@@ -612,7 +661,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     assets: {
-      tagline: "Dein KI-Agent erstellt, verfeinert und organisiert markengerechte Assets gemeinsam mit dir.",
+      tagline:
+        "Dein KI-Agent erstellt, verfeinert und organisiert markengerechte Assets gemeinsam mit dir.",
       features: [
         "Baue wiederverwendbare Asset-Bibliotheken aus Logos, Produktfotos, Videos und Referenzen",
         "Erzeuge Hero-Bilder, Diagramme, Foliengrafiken, Produktvisuals und Videos aus einem Prompt",
@@ -620,7 +670,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     mail: {
-      tagline: "Dein KI-Agent liest, verfasst und organisiert gemeinsam mit dir E-Mails.",
+      tagline:
+        "Dein KI-Agent liest, verfasst und organisiert gemeinsam mit dir E-Mails.",
       features: [
         "Antworten, die zu deinem Ton und Stil passen",
         "Mehrere Gmail-Konten in einem gemeinsamen Posteingang",
@@ -628,7 +679,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     slides: {
-      tagline: "Dein KI-Agent erstellt, bearbeitet und verfeinert Präsentationen gemeinsam mit dir.",
+      tagline:
+        "Dein KI-Agent erstellt, bearbeitet und verfeinert Präsentationen gemeinsam mit dir.",
       features: [
         "Erzeuge komplette Präsentationen aus einem einzigen Prompt",
         "Präzise Folienbearbeitung während der Präsentation oder des Reviews",
@@ -636,7 +688,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     chat: {
-      tagline: "Starte mit einer chat-zentrierten agent-native App und ergänze Aktionen, Screens und Workflows, während dein Agent wächst.",
+      tagline:
+        "Starte mit einer chat-zentrierten agent-native App und ergänze Aktionen, Screens und Workflows, während dein Agent wächst.",
       features: [
         "Vollseitiger Chat mit dauerhaften Threads und Tool-Aufrufverlauf",
         "Aktionen einmal hinzufügen und aus Chat, UI, HTTP, MCP, A2A und CLI verwenden",
@@ -644,7 +697,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     crm: {
-      tagline: "Ein vollständiges Native-SQL-CRM oder ein angebundener Begleiter, der auf seinem Quellsystem aufbaut.",
+      tagline:
+        "Ein vollständiges Native-SQL-CRM oder ein angebundener Begleiter, der auf seinem Quellsystem aufbaut.",
       features: [
         "Konten, Personen, Chancen, Aufgaben und Taktungen in Native SQL verwalten",
         "Begrenzte HubSpot- oder Salesforce-Datensätze anbinden, ohne Zugangsdaten zu kopieren",
@@ -652,7 +706,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     factory: {
-      tagline: "Baue Agentenfabriken: Arbeit kommt auf der einen Seite hinein, ausgelieferte Änderungen kommen auf der anderen heraus, mit deinen Regeln.",
+      tagline:
+        "Baue Agentenfabriken: Arbeit kommt auf der einen Seite hinein, ausgelieferte Änderungen kommen auf der anderen heraus, mit deinen Regeln.",
       features: [
         "Slack- und Pull-Request-Signale in einer einzigen Warteschlange prüfen",
         "Regeln mit Prompts und überprüfbarem Feedback abstimmen",
@@ -660,7 +715,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     tasks: {
-      tagline: "Verwalte deine persönlichen Aufgaben: im Posteingang sortieren, aus der Liste erledigen. Ein Agent kann das alles für dich übernehmen.",
+      tagline:
+        "Verwalte deine persönlichen Aufgaben: im Posteingang sortieren, aus der Liste erledigen. Ein Agent kann das alles für dich übernehmen.",
       features: [
         "Posteingangssortierung: Ideen und Entwürfe erfassen und bei Bedarf in Aufgaben umwandeln",
         "Aufgabenverwaltung: Aufgaben in einer Liste erstellen, neu ordnen und erledigen, die deine Reihenfolge beibehält",
@@ -671,7 +727,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
   },
   "ja-JP": {
     analytics: {
-      tagline: "AI エージェントがデータソースを検索し、ダッシュボードを作成し、ビジネス上の質問にあなたと一緒に答えます。",
+      tagline:
+        "AI エージェントがデータソースを検索し、ダッシュボードを作成し、ビジネス上の質問にあなたと一緒に答えます。",
       features: [
         "BigQuery、HubSpot、Jira などに質問して回答を取得",
         "すべてのデータソースから最新データを取得するエージェント作成のダッシュボード",
@@ -679,7 +736,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     brain: {
-      tagline: "生の会話をレビュー済みで検索可能な組織知識に変える、会社のナレッジレイヤーです。",
+      tagline:
+        "生の会話をレビュー済みで検索可能な組織知識に変える、会社のナレッジレイヤーです。",
       features: [
         "文字起こし、メモ、Slack エクスポート、Granola の要約をインポート",
         "正確な出典の引用で事実を検証",
@@ -687,7 +745,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     calendar: {
-      tagline: "AI エージェントが予定の作成、変更、管理を行うので、あなたが操作する必要はありません。",
+      tagline:
+        "AI エージェントが予定の作成、変更、管理を行うので、あなたが操作する必要はありません。",
       features: [
         "空き時間を探して、あなたに代わって会議を予約",
         "空き状況と予約リンクを自動管理",
@@ -695,7 +754,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     clips: {
-      tagline: "AI エージェントがあなたの録画をすべて文字起こし、要約、検索します。",
+      tagline:
+        "AI エージェントがあなたの録画をすべて文字起こし、要約、検索します。",
       features: [
         "ワンクリックの画面録画（Loom スタイル）と自動タイトル、要約、チャプター",
         "カレンダー同期の会議メモ（Granola スタイル）とライブ文字起こし、AI アクション項目",
@@ -704,7 +764,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     content: {
-      tagline: "MDX のためのオープンソース Obsidian：AI エージェントがローカル文書を編集し、カスタムブロックを作成して整理します。",
+      tagline:
+        "MDX のためのオープンソース Obsidian：AI エージェントがローカル文書を編集し、カスタムブロックを作成して整理します。",
       features: [
         "ローカルの Markdown/MDX ファイルを直接編集し、必要なときだけホスト同期を利用",
         "リッチなインタラクティブ MDX ブロックを生成し、プロパティを視覚的に編集",
@@ -712,7 +773,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     plan: {
-      tagline: "コードを変更する前に、コーディングエージェントの計画を視覚的で注釈可能な HTML に変換します。",
+      tagline:
+        "コードを変更する前に、コーディングエージェントの計画を視覚的で注釈可能な HTML に変換します。",
       features: [
         "1 つのプロンプトから図、ワイヤーフレーム、モックアップ、プロトタイプ案を作成",
         "長い Markdown を読む代わりに、ビジュアルレビュー画面で計画に注釈を追加",
@@ -720,7 +782,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     design: {
-      tagline: "欲しいものを説明してデザインとプロトタイプを作成。AI エージェントが数秒でインタラクティブでレスポンシブなデザインにします。",
+      tagline:
+        "欲しいものを説明してデザインとプロトタイプを作成。AI エージェントが数秒でインタラクティブでレスポンシブなデザインにします。",
       features: [
         "説明するだけで洗練されたプロトタイプを作成",
         "デザインシステムを構築して適用し、ブランドの一貫性を維持",
@@ -728,7 +791,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     dispatch: {
-      tagline: "AI エージェントがシークレットを管理し、他のエージェントを調整し、ワークスペース内でメッセージを振り分けます。",
+      tagline:
+        "AI エージェントがシークレットを管理し、他のエージェントを調整し、ワークスペース内でメッセージを振り分けます。",
       features: [
         "アプリごとに細かな権限を設定できるシークレットの集中保管庫",
         "エージェント間のオーケストレーションと専門アプリへの委任",
@@ -744,7 +808,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     assets: {
-      tagline: "AI エージェントがブランドに合ったアセットを作成、改善、整理します。",
+      tagline:
+        "AI エージェントがブランドに合ったアセットを作成、改善、整理します。",
       features: [
         "ロゴ、商品写真、動画、参考資料から再利用可能なアセットライブラリを構築",
         "プロンプトからヒーロー画像、図、スライド素材、商品ビジュアル、動画を生成",
@@ -768,7 +833,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     chat: {
-      tagline: "チャット中心の agent-native アプリから始め、エージェントの成長に合わせてアクション、画面、ワークフローを追加します。",
+      tagline:
+        "チャット中心の agent-native アプリから始め、エージェントの成長に合わせてアクション、画面、ワークフローを追加します。",
       features: [
         "永続スレッドとツール呼び出し履歴を備えたフルページチャット",
         "アクションを一度追加すれば、チャット、UI、HTTP、MCP、A2A、CLI から利用可能",
@@ -776,7 +842,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     crm: {
-      tagline: "完全な Native SQL CRM、またはソースシステムを基盤にした接続型コンパニオンです。",
+      tagline:
+        "完全な Native SQL CRM、またはソースシステムを基盤にした接続型コンパニオンです。",
       features: [
         "Native SQL でアカウント、人物、商談、タスク、ケイデンスを管理",
         "認証情報をコピーせず、権限を絞った HubSpot や Salesforce のレコードを接続",
@@ -784,7 +851,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     factory: {
-      tagline: "エージェントファクトリーを構築：一方から仕事を受け取り、管理できるゲートを通して変更を届けます。",
+      tagline:
+        "エージェントファクトリーを構築：一方から仕事を受け取り、管理できるゲートを通して変更を届けます。",
       features: [
         "Slack とプルリクエストのシグナルを 1 つのキューで確認",
         "プロンプトとレビュー可能なフィードバックでルールを調整",
@@ -792,7 +860,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     tasks: {
-      tagline: "個人タスクを管理：受信トレイで振り分け、リストから完了。エージェントにすべて任せられます。",
+      tagline:
+        "個人タスクを管理：受信トレイで振り分け、リストから完了。エージェントにすべて任せられます。",
       features: [
         "受信トレイの振り分け：アイデアや下書きを記録し、準備ができたらタスクに昇格",
         "タスク管理：設定した順序を保つリストでタスクを作成、並べ替え、完了",
@@ -803,7 +872,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
   },
   "ko-KR": {
     analytics: {
-      tagline: "AI 에이전트가 데이터 소스를 조회하고 대시보드를 만들며 비즈니스 질문에 함께 답합니다.",
+      tagline:
+        "AI 에이전트가 데이터 소스를 조회하고 대시보드를 만들며 비즈니스 질문에 함께 답합니다.",
       features: [
         "BigQuery, HubSpot, Jira 등 어디에든 질문하고 답변 받기",
         "모든 소스의 최신 데이터를 가져오는 에이전트 제작 대시보드",
@@ -811,7 +881,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     brain: {
-      tagline: "가공되지 않은 대화를 검토되고 검색 가능한 조직 지식으로 바꾸는 회사 지식 계층입니다.",
+      tagline:
+        "가공되지 않은 대화를 검토되고 검색 가능한 조직 지식으로 바꾸는 회사 지식 계층입니다.",
       features: [
         "트랜스크립트, 메모, Slack 내보내기, Granola 요약 가져오기",
         "정확한 출처 인용으로 모든 사실 검증",
@@ -819,7 +890,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     calendar: {
-      tagline: "AI 에이전트가 캘린더를 예약하고 변경하고 관리하므로 직접 처리할 필요가 없습니다.",
+      tagline:
+        "AI 에이전트가 캘린더를 예약하고 변경하고 관리하므로 직접 처리할 필요가 없습니다.",
       features: [
         "빈 시간을 찾아 대신 회의 예약",
         "가용 시간과 예약 링크 자동 관리",
@@ -836,7 +908,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     content: {
-      tagline: "MDX를 위한 오픈 소스 Obsidian: AI 에이전트가 로컬 문서를 편집하고 사용자 지정 블록을 만들며 함께 정리합니다.",
+      tagline:
+        "MDX를 위한 오픈 소스 Obsidian: AI 에이전트가 로컬 문서를 편집하고 사용자 지정 블록을 만들며 함께 정리합니다.",
       features: [
         "로컬 Markdown/MDX 파일을 직접 편집하고 필요할 때 호스팅 동기화 사용",
         "풍부한 대화형 사용자 지정 MDX 블록을 생성하고 속성을 시각적으로 편집",
@@ -844,7 +917,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     plan: {
-      tagline: "코드를 변경하기 전에 코딩 에이전트의 계획을 시각적이고 주석을 달 수 있는 HTML로 변환합니다.",
+      tagline:
+        "코드를 변경하기 전에 코딩 에이전트의 계획을 시각적이고 주석을 달 수 있는 HTML로 변환합니다.",
       features: [
         "하나의 프롬프트로 다이어그램, 와이어프레임, 목업, 프로토타입 옵션 생성",
         "긴 Markdown을 읽는 대신 시각적 리뷰 화면에서 계획에 주석 달기",
@@ -852,7 +926,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     design: {
-      tagline: "원하는 것을 설명해 디자인과 프로토타입을 만드세요. AI 에이전트가 몇 초 만에 대화형 반응형 디자인으로 바꿉니다.",
+      tagline:
+        "원하는 것을 설명해 디자인과 프로토타입을 만드세요. AI 에이전트가 몇 초 만에 대화형 반응형 디자인으로 바꿉니다.",
       features: [
         "설명만으로 완성도 높은 프로토타입 만들기",
         "디자인 시스템을 만들고 적용해 브랜드 일관성 유지",
@@ -860,7 +935,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     dispatch: {
-      tagline: "AI 에이전트가 시크릿을 관리하고 다른 에이전트를 조율하며 워크스페이스에서 메시지를 라우팅합니다.",
+      tagline:
+        "AI 에이전트가 시크릿을 관리하고 다른 에이전트를 조율하며 워크스페이스에서 메시지를 라우팅합니다.",
       features: [
         "앱별 세밀한 권한을 제공하는 중앙 시크릿 보관함",
         "에이전트 간 오케스트레이션과 전문 앱으로의 위임",
@@ -876,7 +952,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     assets: {
-      tagline: "AI 에이전트가 브랜드에 맞는 에셋을 함께 만들고 다듬고 정리합니다.",
+      tagline:
+        "AI 에이전트가 브랜드에 맞는 에셋을 함께 만들고 다듬고 정리합니다.",
       features: [
         "로고, 제품 사진, 동영상, 레퍼런스로 재사용 가능한 에셋 라이브러리 구축",
         "프롬프트로 히어로 이미지, 다이어그램, 슬라이드 아트, 제품 비주얼, 동영상 생성",
@@ -900,7 +977,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     chat: {
-      tagline: "채팅 중심의 agent-native 앱에서 시작해 에이전트가 성장함에 따라 액션, 화면, 워크플로를 추가하세요.",
+      tagline:
+        "채팅 중심의 agent-native 앱에서 시작해 에이전트가 성장함에 따라 액션, 화면, 워크플로를 추가하세요.",
       features: [
         "영구 스레드와 도구 호출 기록을 지원하는 전체 화면 채팅",
         "액션을 한 번 추가하고 채팅, UI, HTTP, MCP, A2A, CLI에서 사용",
@@ -908,7 +986,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     crm: {
-      tagline: "완전한 Native SQL CRM 또는 소스 시스템을 기반으로 연결된 동반 앱입니다.",
+      tagline:
+        "완전한 Native SQL CRM 또는 소스 시스템을 기반으로 연결된 동반 앱입니다.",
       features: [
         "Native SQL에서 계정, 사람, 영업 기회, 작업, 케이던스 관리",
         "자격 증명을 복사하지 않고 범위가 제한된 HubSpot 또는 Salesforce 레코드 연결",
@@ -916,7 +995,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     factory: {
-      tagline: "에이전트 팩토리를 구축하세요. 한쪽으로 작업이 들어오고 다른 쪽으로 배포된 변경이 나오며 게이트는 직접 제어합니다.",
+      tagline:
+        "에이전트 팩토리를 구축하세요. 한쪽으로 작업이 들어오고 다른 쪽으로 배포된 변경이 나오며 게이트는 직접 제어합니다.",
       features: [
         "하나의 큐에서 Slack과 풀 리퀘스트 신호 확인",
         "프롬프트와 검토 가능한 피드백으로 규칙 조정",
@@ -924,7 +1004,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     tasks: {
-      tagline: "개인 작업을 관리하세요. 받은편지함에서 분류하고 목록에서 완료하며 에이전트가 모두 대신하게 할 수 있습니다.",
+      tagline:
+        "개인 작업을 관리하세요. 받은편지함에서 분류하고 목록에서 완료하며 에이전트가 모두 대신하게 할 수 있습니다.",
       features: [
         "받은편지함 분류: 아이디어와 초안을 기록하고 준비되면 작업으로 전환",
         "작업 관리: 설정한 순서를 유지하는 목록에서 작업 생성, 재정렬, 완료",
@@ -935,7 +1016,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
   },
   "pt-BR": {
     analytics: {
-      tagline: "Seu agente de IA consulta suas fontes de dados, cria painéis e responde perguntas de negócio com você.",
+      tagline:
+        "Seu agente de IA consulta suas fontes de dados, cria painéis e responde perguntas de negócio com você.",
       features: [
         "Faça perguntas e obtenha respostas do BigQuery, HubSpot, Jira e muito mais",
         "Painéis criados pelo agente com dados atualizados de todas as suas fontes",
@@ -943,7 +1025,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     brain: {
-      tagline: "Uma camada de conhecimento da empresa onde conversas brutas se tornam conhecimento institucional revisado e pesquisável.",
+      tagline:
+        "Uma camada de conhecimento da empresa onde conversas brutas se tornam conhecimento institucional revisado e pesquisável.",
       features: [
         "Importe transcrições, notas, exportações do Slack e resumos do Granola",
         "Valide cada fato com citações exatas da fonte",
@@ -951,7 +1034,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     calendar: {
-      tagline: "Seu agente de IA agenda, remarca e gerencia seu calendário para que você não precise fazer isso.",
+      tagline:
+        "Seu agente de IA agenda, remarca e gerencia seu calendário para que você não precise fazer isso.",
       features: [
         "Encontre horários livres e marque reuniões por você",
         "Gerencie disponibilidade e links de reserva automaticamente",
@@ -959,7 +1043,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     clips: {
-      tagline: "Seu agente de IA transcreve, resume e pesquisa tudo o que você grava ao seu lado.",
+      tagline:
+        "Seu agente de IA transcreve, resume e pesquisa tudo o que você grava ao seu lado.",
       features: [
         "Gravação de tela com um clique (estilo Loom), títulos, resumos e capítulos automáticos",
         "Notas de reunião sincronizadas ao calendário (estilo Granola), com transcrições ao vivo e itens de ação de IA",
@@ -968,7 +1053,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     content: {
-      tagline: "Obsidian de código aberto para MDX: seu agente de IA edita documentos locais, cria blocos personalizados e organiza tudo com você.",
+      tagline:
+        "Obsidian de código aberto para MDX: seu agente de IA edita documentos locais, cria blocos personalizados e organiza tudo com você.",
       features: [
         "Edite arquivos Markdown/MDX locais diretamente e use sincronização hospedada quando precisar",
         "Gere blocos MDX personalizados e interativos e edite suas propriedades visualmente",
@@ -976,7 +1062,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     plan: {
-      tagline: "Transforme os planos do seu agente de código em HTML visual e anotável antes de alterar o código.",
+      tagline:
+        "Transforme os planos do seu agente de código em HTML visual e anotável antes de alterar o código.",
       features: [
         "Crie diagramas, wireframes, mockups e opções de protótipo com um único prompt",
         "Anote planos em uma superfície visual de revisão em vez de ler Markdown longo",
@@ -984,7 +1071,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     design: {
-      tagline: "Crie designs e protótipos descrevendo o que deseja. O agente de IA transforma suas ideias em designs interativos e responsivos em segundos.",
+      tagline:
+        "Crie designs e protótipos descrevendo o que deseja. O agente de IA transforma suas ideias em designs interativos e responsivos em segundos.",
       features: [
         "Crie protótipos refinados apenas descrevendo o que quer",
         "Construa e aplique sistemas de design para manter tudo alinhado à marca",
@@ -992,7 +1080,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     dispatch: {
-      tagline: "Seu agente de IA gerencia segredos, coordena outros agentes e encaminha mensagens no seu workspace.",
+      tagline:
+        "Seu agente de IA gerencia segredos, coordena outros agentes e encaminha mensagens no seu workspace.",
       features: [
         "Cofre centralizado para segredos com permissões detalhadas por app",
         "Orquestração entre agentes e delegação para apps especializados",
@@ -1000,7 +1089,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     forms: {
-      tagline: "Seu agente de IA cria, publica e analisa formulários junto com você.",
+      tagline:
+        "Seu agente de IA cria, publica e analisa formulários junto com você.",
       features: [
         "Crie formulários completos a partir de uma única frase",
         "Publicação instantânea com links compartilháveis e captcha",
@@ -1008,7 +1098,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     assets: {
-      tagline: "Seu agente de IA cria, aprimora e organiza ativos alinhados à sua marca junto com você.",
+      tagline:
+        "Seu agente de IA cria, aprimora e organiza ativos alinhados à sua marca junto com você.",
       features: [
         "Crie bibliotecas reutilizáveis de logotipos, fotos de produtos, vídeos e referências",
         "Gere imagens principais, diagramas, arte para slides, visuais de produtos e vídeos a partir de um prompt",
@@ -1016,7 +1107,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     mail: {
-      tagline: "Seu agente de IA lê, redige e organiza seus e-mails junto com você.",
+      tagline:
+        "Seu agente de IA lê, redige e organiza seus e-mails junto com você.",
       features: [
         "Respostas que combinam com seu tom e estilo",
         "Várias contas do Gmail em uma única caixa de entrada",
@@ -1024,7 +1116,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     slides: {
-      tagline: "Seu agente de IA cria, edita e aprimora apresentações junto com você.",
+      tagline:
+        "Seu agente de IA cria, edita e aprimora apresentações junto com você.",
       features: [
         "Gere apresentações completas com um único prompt",
         "Edite slides com precisão enquanto apresenta ou revisa",
@@ -1032,7 +1125,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     chat: {
-      tagline: "Comece com um app agent-native focado em chat e adicione ações, telas e fluxos à medida que seu agente cresce.",
+      tagline:
+        "Comece com um app agent-native focado em chat e adicione ações, telas e fluxos à medida que seu agente cresce.",
       features: [
         "Chat em tela cheia com threads persistentes e histórico de chamadas de ferramentas",
         "Adicione ações uma vez e use-as no chat, na UI, em HTTP, MCP, A2A e CLI",
@@ -1040,7 +1134,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     crm: {
-      tagline: "Um CRM Native SQL completo ou um companheiro conectado baseado no sistema de origem.",
+      tagline:
+        "Um CRM Native SQL completo ou um companheiro conectado baseado no sistema de origem.",
       features: [
         "Gerencie contas, pessoas, oportunidades, tarefas e cadência no Native SQL",
         "Conecte registros delimitados do HubSpot ou Salesforce sem copiar credenciais",
@@ -1048,7 +1143,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     factory: {
-      tagline: "Construa fábricas de agentes: o trabalho entra de um lado, as mudanças entregues saem do outro, com controles definidos por você.",
+      tagline:
+        "Construa fábricas de agentes: o trabalho entra de um lado, as mudanças entregues saem do outro, com controles definidos por você.",
       features: [
         "Inspecione sinais do Slack e pull requests em uma única fila",
         "Ajuste regras com prompts e feedback revisável",
@@ -1056,7 +1152,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     tasks: {
-      tagline: "Gerencie suas tarefas pessoais: faça a triagem na caixa de entrada e conclua pela lista. Um agente pode fazer tudo por você.",
+      tagline:
+        "Gerencie suas tarefas pessoais: faça a triagem na caixa de entrada e conclua pela lista. Um agente pode fazer tudo por você.",
       features: [
         "Triagem da caixa de entrada: capture ideias e rascunhos e transforme-os em tarefas quando estiverem prontos",
         "Gestão de tarefas: crie, reordene e conclua tarefas em uma lista que mantém sua ordem",
@@ -1067,7 +1164,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
   },
   "hi-IN": {
     analytics: {
-      tagline: "आपका AI एजेंट डेटा स्रोतों से जानकारी लेकर डैशबोर्ड बनाता है और आपके साथ व्यावसायिक सवालों के जवाब देता है।",
+      tagline:
+        "आपका AI एजेंट डेटा स्रोतों से जानकारी लेकर डैशबोर्ड बनाता है और आपके साथ व्यावसायिक सवालों के जवाब देता है।",
       features: [
         "BigQuery, HubSpot, Jira और अन्य स्रोतों से सवाल पूछकर जवाब पाएं",
         "आपके सभी स्रोतों से लाइव डेटा लेने वाले एजेंट-निर्मित डैशबोर्ड",
@@ -1075,7 +1173,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     brain: {
-      tagline: "कंपनी की एक नॉलेज लेयर, जहां कच्ची बातचीत समीक्षा की गई और खोजने योग्य संस्थागत जानकारी बन जाती है।",
+      tagline:
+        "कंपनी की एक नॉलेज लेयर, जहां कच्ची बातचीत समीक्षा की गई और खोजने योग्य संस्थागत जानकारी बन जाती है।",
       features: [
         "ट्रांसक्रिप्ट, नोट्स, Slack एक्सपोर्ट और Granola सारांश आयात करें",
         "सटीक स्रोत उद्धरणों से हर तथ्य की पुष्टि करें",
@@ -1083,7 +1182,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     calendar: {
-      tagline: "आपका AI एजेंट आपका कैलेंडर शेड्यूल, रीशेड्यूल और मैनेज करता है, ताकि आपको यह सब न करना पड़े।",
+      tagline:
+        "आपका AI एजेंट आपका कैलेंडर शेड्यूल, रीशेड्यूल और मैनेज करता है, ताकि आपको यह सब न करना पड़े।",
       features: [
         "खाली समय खोजकर आपकी ओर से मीटिंग बुक करें",
         "उपलब्धता और बुकिंग लिंक अपने आप मैनेज करें",
@@ -1091,7 +1191,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     clips: {
-      tagline: "आपका AI एजेंट आपके रिकॉर्ड किए हुए हर कंटेंट को ट्रांसक्राइब, सारांशित और खोजता है।",
+      tagline:
+        "आपका AI एजेंट आपके रिकॉर्ड किए हुए हर कंटेंट को ट्रांसक्राइब, सारांशित और खोजता है।",
       features: [
         "एक-क्लिक स्क्रीन रिकॉर्डिंग (Loom शैली), ऑटो शीर्षक, सारांश और अध्याय",
         "कैलेंडर-सिंक मीटिंग नोट्स (Granola शैली), लाइव ट्रांसक्रिप्ट और AI एक्शन आइटम",
@@ -1100,7 +1201,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     content: {
-      tagline: "MDX के लिए ओपन-सोर्स Obsidian: आपका AI एजेंट स्थानीय दस्तावेज़ संपादित करता है, कस्टम ब्लॉक बनाता है और सब कुछ व्यवस्थित करता है।",
+      tagline:
+        "MDX के लिए ओपन-सोर्स Obsidian: आपका AI एजेंट स्थानीय दस्तावेज़ संपादित करता है, कस्टम ब्लॉक बनाता है और सब कुछ व्यवस्थित करता है।",
       features: [
         "स्थानीय Markdown/MDX फ़ाइलें सीधे संपादित करें और जरूरत पर होस्टेड सिंक इस्तेमाल करें",
         "रिच इंटरैक्टिव कस्टम MDX ब्लॉक बनाएं और उनकी प्रॉपर्टी दृश्य रूप से संपादित करें",
@@ -1108,7 +1210,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     plan: {
-      tagline: "कोड बदलने से पहले अपने कोडिंग एजेंट की योजनाओं को दृश्य और टिप्पणी योग्य HTML में बदलें।",
+      tagline:
+        "कोड बदलने से पहले अपने कोडिंग एजेंट की योजनाओं को दृश्य और टिप्पणी योग्य HTML में बदलें।",
       features: [
         "एक प्रॉम्प्ट से डायग्राम, वायरफ्रेम, मॉकअप और प्रोटोटाइप विकल्प बनाएं",
         "लंबे Markdown को पढ़ने के बजाय दृश्य समीक्षा सतह पर योजनाओं पर टिप्पणी करें",
@@ -1116,7 +1219,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     design: {
-      tagline: "जो चाहिए उसका वर्णन करके डिज़ाइन और प्रोटोटाइप बनाएं। AI एजेंट सेकंडों में आपकी कल्पना को इंटरैक्टिव, रिस्पॉन्सिव डिज़ाइन में बदलता है।",
+      tagline:
+        "जो चाहिए उसका वर्णन करके डिज़ाइन और प्रोटोटाइप बनाएं। AI एजेंट सेकंडों में आपकी कल्पना को इंटरैक्टिव, रिस्पॉन्सिव डिज़ाइन में बदलता है।",
       features: [
         "सिर्फ वर्णन करके शानदार प्रोटोटाइप बनाएं",
         "डिज़ाइन सिस्टम बनाकर लागू करें और ब्रांड की एकरूपता बनाए रखें",
@@ -1124,7 +1228,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     dispatch: {
-      tagline: "आपका AI एजेंट सीक्रेट्स मैनेज करता है, दूसरे एजेंट्स को ऑर्केस्ट्रेट करता है और वर्कस्पेस में संदेश रूट करता है।",
+      tagline:
+        "आपका AI एजेंट सीक्रेट्स मैनेज करता है, दूसरे एजेंट्स को ऑर्केस्ट्रेट करता है और वर्कस्पेस में संदेश रूट करता है।",
       features: [
         "हर ऐप के लिए बारीक अनुमतियों वाला केंद्रीकृत सीक्रेट वॉल्ट",
         "एजेंट्स के बीच ऑर्केस्ट्रेशन और विशेषज्ञ ऐप्स को काम सौंपना",
@@ -1132,7 +1237,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     forms: {
-      tagline: "आपका AI एजेंट आपके साथ फ़ॉर्म बनाता, प्रकाशित करता और उनका विश्लेषण करता है।",
+      tagline:
+        "आपका AI एजेंट आपके साथ फ़ॉर्म बनाता, प्रकाशित करता और उनका विश्लेषण करता है।",
       features: [
         "एक वाक्य से पूरे फ़ॉर्म बनाएं",
         "शेयर करने योग्य लिंक और captcha के साथ तुरंत प्रकाशित करें",
@@ -1140,7 +1246,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     assets: {
-      tagline: "आपका AI एजेंट आपके साथ ब्रांड-अनुकूल एसेट बनाता, सुधारता और व्यवस्थित करता है।",
+      tagline:
+        "आपका AI एजेंट आपके साथ ब्रांड-अनुकूल एसेट बनाता, सुधारता और व्यवस्थित करता है।",
       features: [
         "लोगो, उत्पाद चित्र, वीडियो और संदर्भों से दोबारा इस्तेमाल योग्य एसेट लाइब्रेरी बनाएं",
         "प्रॉम्प्ट से हीरो इमेज, डायग्राम, स्लाइड आर्ट, उत्पाद विज़ुअल और वीडियो बनाएं",
@@ -1164,7 +1271,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     chat: {
-      tagline: "चैट-केंद्रित agent-native ऐप से शुरू करें और एजेंट के बढ़ने के साथ एक्शन, स्क्रीन और वर्कफ़्लो जोड़ें।",
+      tagline:
+        "चैट-केंद्रित agent-native ऐप से शुरू करें और एजेंट के बढ़ने के साथ एक्शन, स्क्रीन और वर्कफ़्लो जोड़ें।",
       features: [
         "स्थायी थ्रेड और टूल कॉल इतिहास वाला फुल-पेज चैट",
         "एक्शन एक बार जोड़ें और चैट, UI, HTTP, MCP, A2A और CLI से इस्तेमाल करें",
@@ -1172,7 +1280,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     crm: {
-      tagline: "एक पूरा Native SQL CRM या अपने स्रोत सिस्टम पर आधारित कनेक्टेड साथी ऐप।",
+      tagline:
+        "एक पूरा Native SQL CRM या अपने स्रोत सिस्टम पर आधारित कनेक्टेड साथी ऐप।",
       features: [
         "Native SQL में अकाउंट, लोग, अवसर, कार्य और कैडेंस चलाएं",
         "क्रेडेंशियल कॉपी किए बिना सीमित HubSpot या Salesforce रिकॉर्ड कनेक्ट करें",
@@ -1180,7 +1289,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     factory: {
-      tagline: "एजेंट फैक्ट्री बनाएं: एक तरफ काम आए, दूसरी तरफ डिलीवर किए गए बदलाव निकलें, और गेट्स आपके नियंत्रण में रहें।",
+      tagline:
+        "एजेंट फैक्ट्री बनाएं: एक तरफ काम आए, दूसरी तरफ डिलीवर किए गए बदलाव निकलें, और गेट्स आपके नियंत्रण में रहें।",
       features: [
         "Slack और पुल रिक्वेस्ट संकेतों को एक कतार में देखें",
         "प्रॉम्प्ट और समीक्षा योग्य फ़ीडबैक से नियमों को बेहतर करें",
@@ -1188,7 +1298,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     tasks: {
-      tagline: "अपने निजी टास्क मैनेज करें: इनबॉक्स में ट्रायेज करें, सूची से पूरा करें। एजेंट यह सब आपके लिए कर सकता है।",
+      tagline:
+        "अपने निजी टास्क मैनेज करें: इनबॉक्स में ट्रायेज करें, सूची से पूरा करें। एजेंट यह सब आपके लिए कर सकता है।",
       features: [
         "इनबॉक्स ट्रायेज: विचार और ड्राफ्ट दर्ज करें और तैयार होने पर उन्हें टास्क में बदलें",
         "टास्क मैनेजमेंट: अपनी तय क्रम वाली सूची में टास्क बनाएं, फिर से क्रम दें और पूरा करें",
@@ -1199,7 +1310,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
   },
   "ar-SA": {
     analytics: {
-      tagline: "يستعلم وكيل الذكاء الاصطناعي عن مصادر بياناتك، وينشئ لوحات معلومات، ويجيب عن أسئلة العمل معك.",
+      tagline:
+        "يستعلم وكيل الذكاء الاصطناعي عن مصادر بياناتك، وينشئ لوحات معلومات، ويجيب عن أسئلة العمل معك.",
       features: [
         "اطرح أي سؤال واحصل على إجابات من BigQuery وHubSpot وJira وغيرها",
         "لوحات معلومات ينشئها الوكيل وتستمد بيانات مباشرة من جميع مصادرك",
@@ -1207,7 +1319,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     brain: {
-      tagline: "طبقة معرفة للشركة تحول المحادثات الخام إلى معرفة مؤسسية مُراجعة وقابلة للبحث.",
+      tagline:
+        "طبقة معرفة للشركة تحول المحادثات الخام إلى معرفة مؤسسية مُراجعة وقابلة للبحث.",
       features: [
         "استورد النصوص المفرغة والملاحظات وتصديرات Slack وملخصات Granola",
         "تحقق من كل حقيقة بالاستناد إلى اقتباسات المصدر الدقيقة",
@@ -1215,7 +1328,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     calendar: {
-      tagline: "يجدول وكيل الذكاء الاصطناعي تقويمك ويعيد جدولتِه ويديره، حتى لا تضطر إلى ذلك.",
+      tagline:
+        "يجدول وكيل الذكاء الاصطناعي تقويمك ويعيد جدولتِه ويديره، حتى لا تضطر إلى ذلك.",
       features: [
         "اعثر على الأوقات المتاحة واحجز الاجتماعات نيابة عنك",
         "أدر التوفر وروابط الحجز تلقائيًا",
@@ -1223,7 +1337,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     clips: {
-      tagline: "ينسخ وكيل الذكاء الاصطناعي كل ما تسجله ويلخصه ويبحث فيه إلى جانبك.",
+      tagline:
+        "ينسخ وكيل الذكاء الاصطناعي كل ما تسجله ويلخصه ويبحث فيه إلى جانبك.",
       features: [
         "تسجيل الشاشة بنقرة واحدة (بأسلوب Loom) مع عناوين وملخصات وفصول تلقائية",
         "ملاحظات اجتماعات متزامنة مع التقويم (بأسلوب Granola) مع نصوص مباشرة وعناصر عمل من الذكاء الاصطناعي",
@@ -1232,7 +1347,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     content: {
-      tagline: "Obsidian مفتوح المصدر لـ MDX: يحرر وكيل الذكاء الاصطناعي مستنداتك المحلية، وينشئ كتلًا مخصصة، وينظم كل شيء معك.",
+      tagline:
+        "Obsidian مفتوح المصدر لـ MDX: يحرر وكيل الذكاء الاصطناعي مستنداتك المحلية، وينشئ كتلًا مخصصة، وينظم كل شيء معك.",
       features: [
         "حرر ملفات Markdown/MDX المحلية مباشرة واستخدم المزامنة المستضافة عند الحاجة",
         "أنشئ كتل MDX مخصصة وتفاعلية وحرر خصائصها بصريًا",
@@ -1240,7 +1356,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     plan: {
-      tagline: "حوّل خطط وكيل البرمجة إلى HTML مرئي وقابل للتعليق قبل تغيير الكود.",
+      tagline:
+        "حوّل خطط وكيل البرمجة إلى HTML مرئي وقابل للتعليق قبل تغيير الكود.",
       features: [
         "أنشئ مخططات وإطارات سلكية ونماذج وخيارات نماذج أولية من مطالبة واحدة",
         "أضف تعليقات إلى الخطط على سطح مراجعة مرئي بدلًا من قراءة Markdown طويل",
@@ -1248,7 +1365,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     design: {
-      tagline: "صمم وأنشئ نماذج أولية بوصف ما تريده. يحول وكيل الذكاء الاصطناعي أفكارك إلى تصميمات تفاعلية ومتجاوبة خلال ثوانٍ.",
+      tagline:
+        "صمم وأنشئ نماذج أولية بوصف ما تريده. يحول وكيل الذكاء الاصطناعي أفكارك إلى تصميمات تفاعلية ومتجاوبة خلال ثوانٍ.",
       features: [
         "أنشئ نماذج أولية متقنة بمجرد وصفها",
         "أنشئ أنظمة تصميم وطبقها للحفاظ على اتساق العلامة التجارية",
@@ -1256,7 +1374,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     dispatch: {
-      tagline: "يدير وكيل الذكاء الاصطناعي الأسرار، وينسق الوكلاء الآخرين، ويوجه الرسائل في مساحة عملك.",
+      tagline:
+        "يدير وكيل الذكاء الاصطناعي الأسرار، وينسق الوكلاء الآخرين، ويوجه الرسائل في مساحة عملك.",
       features: [
         "خزنة مركزية للأسرار مع منح صلاحيات دقيقة لكل تطبيق",
         "تنسيق بين الوكلاء وتفويض إلى تطبيقات متخصصة",
@@ -1272,7 +1391,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     assets: {
-      tagline: "ينشئ وكيل الذكاء الاصطناعي الأصول المتوافقة مع علامتك التجارية ويحسنها وينظمها معك.",
+      tagline:
+        "ينشئ وكيل الذكاء الاصطناعي الأصول المتوافقة مع علامتك التجارية ويحسنها وينظمها معك.",
       features: [
         "أنشئ مكتبات أصول قابلة لإعادة الاستخدام من الشعارات وصور المنتجات والفيديوهات والمراجع",
         "أنشئ صورًا رئيسية ومخططات ورسومات للشرائح ومرئيات للمنتجات وفيديوهات من مطالبة",
@@ -1280,7 +1400,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     mail: {
-      tagline: "يقرأ وكيل الذكاء الاصطناعي بريدك الإلكتروني ويصوغ الرسائل وينظمها معك.",
+      tagline:
+        "يقرأ وكيل الذكاء الاصطناعي بريدك الإلكتروني ويصوغ الرسائل وينظمها معك.",
       features: [
         "ردود تطابق نبرتك وأسلوبك",
         "حسابات Gmail متعددة في صندوق وارد موحد واحد",
@@ -1288,7 +1409,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     slides: {
-      tagline: "ينشئ وكيل الذكاء الاصطناعي العروض التقديمية ويحررها ويحسنها معك.",
+      tagline:
+        "ينشئ وكيل الذكاء الاصطناعي العروض التقديمية ويحررها ويحسنها معك.",
       features: [
         "أنشئ عروضًا كاملة من مطالبة واحدة",
         "حرر الشرائح بدقة أثناء العرض أو المراجعة",
@@ -1296,7 +1418,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     chat: {
-      tagline: "ابدأ بتطبيق agent-native يركز على الدردشة وأضف الإجراءات والشاشات ومسارات العمل مع نمو وكيلك.",
+      tagline:
+        "ابدأ بتطبيق agent-native يركز على الدردشة وأضف الإجراءات والشاشات ومسارات العمل مع نمو وكيلك.",
       features: [
         "دردشة بملء الصفحة مع سلاسل محادثة دائمة وسجل استدعاءات الأدوات",
         "أضف الإجراءات مرة واحدة واستخدمها من الدردشة وواجهة المستخدم وHTTP وMCP وA2A وCLI",
@@ -1304,7 +1427,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     crm: {
-      tagline: "نظام CRM كامل على Native SQL أو تطبيق مرافق متصل يستند إلى نظامه المصدر.",
+      tagline:
+        "نظام CRM كامل على Native SQL أو تطبيق مرافق متصل يستند إلى نظامه المصدر.",
       features: [
         "أدر الحسابات والأشخاص والفرص والمهام والإيقاع على Native SQL",
         "صل سجلات HubSpot أو Salesforce محددة النطاق دون نسخ بيانات الاعتماد",
@@ -1312,7 +1436,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     factory: {
-      tagline: "ابنِ مصانع للوكلاء: يدخل العمل من جهة وتخرج التغييرات المشحونة من الجهة الأخرى، مع بوابات تتحكم بها.",
+      tagline:
+        "ابنِ مصانع للوكلاء: يدخل العمل من جهة وتخرج التغييرات المشحونة من الجهة الأخرى، مع بوابات تتحكم بها.",
       features: [
         "افحص إشارات Slack وطلبات السحب في قائمة انتظار واحدة",
         "اضبط القواعد بالمطالبات والتعليقات القابلة للمراجعة",
@@ -1320,7 +1445,8 @@ export const AUTH_MARKETING_LOCALE_COPY: Partial<
       ],
     },
     tasks: {
-      tagline: "أدر مهامك الشخصية: فرزها في صندوق الوارد وأنجزها من القائمة. يمكن لوكيل أن يفعل كل ذلك نيابة عنك.",
+      tagline:
+        "أدر مهامك الشخصية: فرزها في صندوق الوارد وأنجزها من القائمة. يمكن لوكيل أن يفعل كل ذلك نيابة عنك.",
       features: [
         "فرز صندوق الوارد: التقط الأفكار والمسودات ثم حولها إلى مهام عندما تصبح جاهزة",
         "إدارة المهام: أنشئ المهام وأعد ترتيبها وأنجزها في قائمة تحافظ على ترتيبك",

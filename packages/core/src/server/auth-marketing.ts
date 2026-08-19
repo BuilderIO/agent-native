@@ -57,6 +57,7 @@ export const BUILT_IN_AUTH_MARKETING: Record<string, AuthMarketingContent> = {
     features: [
       "One-click screen recording with automatic titles, summaries, and chapters",
       "Calendar-synced meeting notes with live transcripts and action items",
+      "Push-to-talk voice dictation with clean text from anywhere",
       "One searchable library across recordings, meetings, and dictations",
     ],
   },

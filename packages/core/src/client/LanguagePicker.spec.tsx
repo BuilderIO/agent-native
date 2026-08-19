@@ -160,8 +160,8 @@ describe("LanguagePicker", () => {
 
     expect(document.body.querySelector('[role="menu"]')).not.toBeNull();
     expect(document.body.textContent).toContain("System");
-    expect(document.body.textContent).toContain("Français (fr-FR)");
-    expect(document.body.textContent).toContain("العربية (ar-SA)");
+    expect(document.body.textContent).toContain("Français");
+    expect(document.body.textContent).toContain("العربية");
   });
 
   it("keeps the locale options in product order", async () => {
@@ -177,18 +177,50 @@ describe("LanguagePicker", () => {
 
     expect(optionLabels).toEqual([
       "System",
-      "English (en-US)",
-      "Español (es-ES)",
-      "Français (fr-FR)",
-      "Deutsch (de-DE)",
-      "Português (Brasil) (pt-BR)",
-      "简体中文 (zh-CN)",
-      "繁體中文 (zh-TW)",
-      "日本語 (ja-JP)",
-      "한국어 (ko-KR)",
-      "हिन्दी (hi-IN)",
-      "العربية (ar-SA)",
+      "English",
+      "Español",
+      "Français",
+      "Deutsch",
+      "Português",
+      "简体中文",
+      "繁體中文",
+      "日本語",
+      "한국어",
+      "हिन्दी",
+      "العربية",
     ]);
+  });
+
+  it("labels System using the browser locale instead of the active UI locale", async () => {
+    const languagesDescriptor = Object.getOwnPropertyDescriptor(
+      window.navigator,
+      "languages",
+    );
+    Object.defineProperty(window.navigator, "languages", {
+      configurable: true,
+      value: ["zh-CN"],
+    });
+
+    try {
+      await renderPicker();
+      await click(document.querySelector("[data-language-picker-trigger]")!);
+
+      const optionLabels = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>(
+          '[role="menuitemradio"]',
+        ),
+      ).map((button) => button.textContent?.trim());
+
+      expect(optionLabels[0]).toBe("系统");
+    } finally {
+      if (languagesDescriptor) {
+        Object.defineProperty(
+          window.navigator,
+          "languages",
+          languagesDescriptor,
+        );
+      }
+    }
   });
 
   it("updates the shared locale preference from a popover row", async () => {
@@ -211,7 +243,7 @@ describe("LanguagePicker", () => {
       document
         .querySelector("[data-language-picker-trigger]")
         ?.getAttribute("aria-label"),
-    ).toBe("Interface language: Français (fr-FR)");
+    ).toBe("Interface language: Français");
   });
 
   it("shares locale context across duplicate optimized module instances", async () => {
@@ -266,12 +298,7 @@ describe("LanguagePicker", () => {
       ),
     ).map((button) => button.textContent?.trim());
 
-    expect(optionLabels).toEqual([
-      "System",
-      "English (en-US)",
-      "Español (es-ES)",
-      "Français (fr-FR)",
-    ]);
+    expect(optionLabels).toEqual(["System", "English", "Español", "Français"]);
   });
 
   it("routes the select variant through a registered picker adapter", async () => {

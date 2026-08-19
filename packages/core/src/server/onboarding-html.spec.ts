@@ -524,7 +524,10 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
       `var __AN_AUTH_LOCALE_STORAGE_KEY = "${LOCALE_STORAGE_KEY}"`,
     );
     expect(html).toContain('data-locale-value="es-ES"');
-    expect(html).toContain("Español (Spanish)");
+    expect(html).toContain("Español");
+    expect(html).not.toContain("Español (Spanish)");
+    expect(html).not.toContain("English (en-US)");
+    expect(html).toContain("<span data-system-language>System</span>");
     expect(html).toContain('data-i18n="createAccount"');
     expect(html).toContain("Crear cuenta");
     expect(html).toContain("function __anApplyAuthLocale");
@@ -543,6 +546,29 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     expect(html).toContain("用一句话创建完整表单");
     expect(html).toContain("function __anApplyAuthMarketingCopy");
     expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "forms"');
+  });
+
+  it("localizes custom Clips auth marketing copy and keeps System tied to the browser", () => {
+    const html = getOnboardingHtml({
+      requestHost: "clips.agent-native.com",
+      marketing: {
+        appName: "Clips",
+        tagline:
+          "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
+        features: [
+          "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
+          "Calendar-synced meeting notes (Granola-style) with live transcripts and AI action items",
+          "Push-to-talk voice dictation (Wisprflow-style) — hold Fn anywhere, get clean text back",
+          "One searchable library across recordings, meetings, and dictations",
+        ],
+      },
+    });
+
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "clips"');
+    expect(html).toContain("你的 AI 代理会转录、总结并搜索你记录的所有内容。");
+    expect(html).toContain("一键录屏（Loom 风格），自动生成标题、摘要和章节");
+    expect(html).toContain("function __anResolveAuthSystemLocale()");
+    expect(html).not.toContain("var rootLocale =");
   });
 
   it("shows configured terms and privacy links on custom email signup", () => {
