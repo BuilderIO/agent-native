@@ -136,12 +136,12 @@ export default defineAction({
 
 `approval_required` イベントは、クライアントが操作可能な UI を描画するために必要なものをすべて含んでいます。
 
-| フィールド    | 型     | 備考                                                               |
-| ------------- | -------- | --------------------------------------------------------------------- |
-| `tool`        | `string` | エージェントが呼び出そうとしたアクション名です。                            |
-| `input`       | object   | エージェントが渡した引数です。                                     |
+| フィールド    | 型       | 備考                                                                                 |
+| ------------- | -------- | ------------------------------------------------------------------------------------ |
+| `tool`        | `string` | エージェントが呼び出そうとしたアクション名です。                                     |
+| `input`       | object   | エージェントが渡した引数です。                                                       |
 | `approvalKey` | `string` | クライアントが**この特定の呼び出し**を承認するために送り返す、**安定したキー**です。 |
-| `toolCallId`  | `string` | 利用可能な場合の、モデル側のツール呼び出し ID です。                        |
+| `toolCallId`  | `string` | 利用可能な場合の、モデル側のツール呼び出し ID です。                                 |
 
 `approvalKey` は、ツール名とその入力から決定論的に導出されるため、同じ論理的な呼び出しは常に同じキーを生成します。モデルがこれを見たり設定したりすることは決してありません。これは、フレームワークと人間の「承認」操作との間のハンドシェイクとしてのみ存在します。
 
@@ -176,16 +176,15 @@ export default defineAction({
   <div class="diagram-panel warn" data-rough>
     <strong>ゲートが true、呼び出しはまだ承認されていない</strong
     ><small class="diagram-muted"
-      >ループが tool_start + approval_required { tool, input, approvalKey
-      } を発行</small
-    ><span class="diagram-pill warn"
-      >run() はまだ実行されていない</span
-    >
+      >ループが tool_start + approval_required { tool, input, approvalKey }
+      を発行</small
+    ><span class="diagram-pill warn">run() はまだ実行されていない</span>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-box" data-rough>
     人間がチャットで承認をクリック<br /><small class="diagram-muted"
-      >クライアントが approvedToolCalls: [approvalKey] を伴ってターンを再発行</small
+      >クライアントが approvedToolCalls: [approvalKey]
+      を伴ってターンを再発行</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>

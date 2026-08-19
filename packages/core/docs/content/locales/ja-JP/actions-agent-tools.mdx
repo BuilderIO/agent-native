@@ -40,7 +40,11 @@ export default createCoreRoutesPlugin({
 フレームワークツールは、このオプションとは関係なく、デフォルトでは最初のモデルリクエストに昇格されなくなりました。検索可能なレジストリに留まり、`tool-search` を通じて読み込まれるか、アプリが `initialToolNames` でそれらを指定していれば即座に読み込まれます。
 
 <Callout tone="warning">
-  トップレベルの `databaseTools` と `extensionTools` オプションは非推奨で、`frameworkTools.database` と `frameworkTools.extensions` に置き換わりました。引き続き有効ですが、トップレベルフラグとそれに対応する `frameworkTools` の値が競合していると、誰も選んでいないツールサーフェスのまま起動するのではなく、プラグインの起動時に例外がスローされます。
+  トップレベルの `databaseTools` と `extensionTools`
+  オプションは非推奨で、`frameworkTools.database` と `frameworkTools.extensions`
+  に置き換わりました。引き続き有効ですが、トップレベルフラグとそれに対応する
+  `frameworkTools`
+  の値が競合していると、誰も選んでいないツールサーフェスのまま起動するのではなく、プラグインの起動時に例外がスローされます。
 </Callout>
 
 ## 本番コード実行 {#production-code-execution}

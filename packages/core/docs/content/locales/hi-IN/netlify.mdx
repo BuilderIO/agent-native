@@ -31,11 +31,11 @@ Keep-warm **डिफ़ॉल्ट रूप से disabled** है क्�
 
 Keep-warm schedule और background-function warm मुख्य keep-warm flag enable होने के बाद ही लागू होते हैं:
 
-| Variable                                    | प्रभाव                                                                                                                                                         |
-| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Scheduled server/database warm में opt in करता है। डिफ़ॉल्ट रूप से unset है।                                                                                   |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | एक compatibility kill switch जो सेट होने पर opt-in flag पर भारी पड़ता है।                                                                                       |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Cadence को एक 5-field cron expression से override करता है, जैसे `*/5 * * * *`। Enable होने पर डिफ़ॉल्ट cadence `* * * * *` है। एक unparseable value **build को fail कर देता है**। |
+| Variable                                    | प्रभाव                                                                                                                                                                                                |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Scheduled server/database warm में opt in करता है। डिफ़ॉल्ट रूप से unset है।                                                                                                                          |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | एक compatibility kill switch जो सेट होने पर opt-in flag पर भारी पड़ता है।                                                                                                                             |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Cadence को एक 5-field cron expression से override करता है, जैसे `*/5 * * * *`। Enable होने पर डिफ़ॉल्ट cadence `* * * * *` है। एक unparseable value **build को fail कर देता है**।                     |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | सिर्फ़ background-function warm हटाता है, server को गर्म रखते हुए। `server` को गर्म रखना एक request है। `-background` को गर्म रखना एक ताज़ा container शुरू करता है जो schema को फिर से probe करता है। |
 
 अगर आप free या किसी और तरह quota-limited डेटाबेस tier पर हैं, तो `AGENT_NATIVE_ENABLE_KEEP_WARM` unset छोड़ दें। अगर आप opt in करते हैं, तो धीमी cadence उपयोग करें या ज़्यादा महंगे background warm को हटाने के लिए `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` सेट करें।

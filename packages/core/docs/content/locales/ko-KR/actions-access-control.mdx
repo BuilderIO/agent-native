@@ -84,7 +84,11 @@ export default defineAction({
 이메일 전송, 카드 청구, 계정 삭제처럼 몇몇 action은 에이전트가 스스로 실행하기에는 결과가 너무 큽니다. `defineAction()`에 `needsApproval: true`(또는 술어 `(args, ctx) => boolean | Promise<boolean>`)를 설정하면 `run()` 전에 루프가 일시 정지되어, 사람이 그 특정 호출을 승인해야 합니다. 기본값은 **꺼짐**이며, 거의 모든 action은 이 상태를 유지해야 합니다.
 
 <Callout tone="warning">
-  승인은 드물게 유지하세요. 게이트가 걸린 action은 모두 에이전트 루프에서 완전히 멈추는 지점이 됩니다. 실행을 중단시키고 사람과의 왕복 확인을 요구합니다. `needsApproval`은 진짜로 결과가 크고 되돌리기 어려우며 외부로 향하는 작업에만 사용하세요. 읽기나 일상적인 쓰기에 게이트를 걸고 있다면 잘못 사용하고 있는 것입니다. 기본값은 **꺼짐**이며, 거의 모든 action은 이 상태를 유지해야 합니다.
+  승인은 드물게 유지하세요. 게이트가 걸린 action은 모두 에이전트 루프에서 완전히
+  멈추는 지점이 됩니다. 실행을 중단시키고 사람과의 왕복 확인을 요구합니다.
+  `needsApproval`은 진짜로 결과가 크고 되돌리기 어려우며 외부로 향하는 작업에만
+  사용하세요. 읽기나 일상적인 쓰기에 게이트를 걸고 있다면 잘못 사용하고 있는
+  것입니다. 기본값은 **꺼짐**이며, 거의 모든 action은 이 상태를 유지해야 합니다.
 </Callout>
 
 <AnnotatedCode
@@ -131,12 +135,12 @@ export default defineAction({
 
 `approval_required` 이벤트는 클라이언트가 승인 UI를 렌더링하는 데 필요한 모든 것을 담고 있습니다.
 
-| 필드          | 타입     | 설명                                                                        |
-| ------------- | -------- | --------------------------------------------------------------------------- |
-| `tool`        | `string` | 에이전트가 호출을 시도한 action의 이름입니다.                              |
-| `input`       | object   | 에이전트가 전달한 인자입니다.                                              |
+| 필드          | 타입     | 설명                                                                                 |
+| ------------- | -------- | ------------------------------------------------------------------------------------ |
+| `tool`        | `string` | 에이전트가 호출을 시도한 action의 이름입니다.                                        |
+| `input`       | object   | 에이전트가 전달한 인자입니다.                                                        |
 | `approvalKey` | `string` | 이 정확한 호출을 승인하기 위해 클라이언트가 그대로 돌려보내는 **안정적인 키**입니다. |
-| `toolCallId`  | `string` | 가능한 경우 모델 쪽 tool-call id입니다.                                    |
+| `toolCallId`  | `string` | 가능한 경우 모델 쪽 tool-call id입니다.                                              |
 
 `approvalKey`는 도구 이름과 입력값으로부터 결정적으로 파생되므로, 동일한 논리적 호출은 항상 동일한 키를 만들어냅니다. 모델은 이 키를 보거나 설정하지 않습니다. 이는 오직 프레임워크와 사람의 승인 UI 사이의 핸드셰이크로만 존재합니다.
 
@@ -171,16 +175,15 @@ export default defineAction({
   <div class="diagram-panel warn" data-rough>
     <strong>게이트가 참, 호출은 아직 승인되지 않음</strong
     ><small class="diagram-muted"
-      >루프가 tool_start + approval_required { tool, input, approvalKey
-      }를 발생시킴</small
-    ><span class="diagram-pill warn"
-      >run()이 아직 실행되지 않음</span
-    >
+      >루프가 tool_start + approval_required { tool, input, approvalKey }를
+      발생시킴</small
+    ><span class="diagram-pill warn">run()이 아직 실행되지 않음</span>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-box" data-rough>
     사람이 채팅에서 승인을 클릭<br /><small class="diagram-muted"
-      >클라이언트가 approvedToolCalls: [approvalKey]와 함께 턴을 다시 발행함</small
+      >클라이언트가 approvedToolCalls: [approvalKey]와 함께 턴을 다시
+      발행함</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>

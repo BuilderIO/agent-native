@@ -84,13 +84,13 @@ Verwenden Sie es nur für sichere, schreibgeschützte oder reine Ingest-Actions,
 Eine Handvoll Actions sind zu folgenreich, um den Agenten sie allein ausführen zu lassen, etwa eine E-Mail senden, eine Karte belasten oder ein Konto löschen. Setzen Sie `needsApproval: true` (oder ein Prädikat `(args, ctx) => boolean | Promise<boolean>`) auf `defineAction()`, und die Schleife pausiert vor `run()` und verlangt, dass ein Mensch genau diesen Aufruf genehmigt. Der Standard ist **aus**, und fast jede Action sollte das bleiben.
 
 <Callout tone="warning">
-  Halten Sie Genehmigungen selten. Jede gesperrte Action ist ein harter Stopp
-  in der Agentenschleife. Sie unterbricht den Lauf und verlangt einen
-  menschlichen Hin-und-Rückweg. Verwenden Sie `needsApproval` nur für
-  wirklich folgenreiche, schwer rückgängig zu machende, nach außen gerichtete
-  Operationen. Wenn Sie sich dabei ertappen, Lesevorgänge oder
-  Routine-Schreibvorgänge zu sperren, nutzen Sie es falsch. Der Standard ist
-  **aus**, und fast jede Action sollte das bleiben.
+  Halten Sie Genehmigungen selten. Jede gesperrte Action ist ein harter Stopp in
+  der Agentenschleife. Sie unterbricht den Lauf und verlangt einen menschlichen
+  Hin-und-Rückweg. Verwenden Sie `needsApproval` nur für wirklich folgenreiche,
+  schwer rückgängig zu machende, nach außen gerichtete Operationen. Wenn Sie
+  sich dabei ertappen, Lesevorgänge oder Routine-Schreibvorgänge zu sperren,
+  nutzen Sie es falsch. Der Standard ist **aus**, und fast jede Action sollte
+  das bleiben.
 </Callout>
 
 <AnnotatedCode
@@ -137,12 +137,12 @@ Wenn der Agent eine gesperrte Action aufruft und dieser konkrete Aufruf **noch n
 
 Das `approval_required`-Ereignis trägt alles, was der Client braucht, um ein Bedienelement darzustellen:
 
-| Feld          | Typ      | Hinweise                                                             |
-| ------------- | -------- | --------------------------------------------------------------------- |
-| `tool`        | `string` | Der Name der Action, die der Agent aufzurufen versuchte.            |
-| `input`       | object   | Die Argumente, die der Agent übergeben hat.                         |
+| Feld          | Typ      | Hinweise                                                                                     |
+| ------------- | -------- | -------------------------------------------------------------------------------------------- |
+| `tool`        | `string` | Der Name der Action, die der Agent aufzurufen versuchte.                                     |
+| `input`       | object   | Die Argumente, die der Agent übergeben hat.                                                  |
 | `approvalKey` | `string` | **Stabiler Schlüssel**, den der Client zurücksendet, um _genau diesen Aufruf_ zu genehmigen. |
-| `toolCallId`  | `string` | Die modellseitige Tool-Call-ID, sofern verfügbar.                    |
+| `toolCallId`  | `string` | Die modellseitige Tool-Call-ID, sofern verfügbar.                                            |
 
 Der `approvalKey` wird deterministisch aus dem Tool-Namen und seinem Input abgeleitet, sodass derselbe logische Aufruf immer denselben Schlüssel erzeugt. Das Modell sieht oder setzt ihn nie. Er existiert ausschließlich als Handshake zwischen dem Framework und dem Genehmigen-Bedienelement des Menschen.
 
@@ -179,20 +179,20 @@ Bei `approval_required` rendert die Chat-UI ein **Genehmigen / Ablehnen**-Bedien
     ><small class="diagram-muted"
       >Schleife sendet tool_start + approval_required { tool, input, approvalKey
       }</small
-    ><span class="diagram-pill warn"
-      >run() wurde nicht ausgeführt</span
-    >
+    ><span class="diagram-pill warn">run() wurde nicht ausgeführt</span>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-box" data-rough>
     Mensch klickt im Chat auf Genehmigen<br /><small class="diagram-muted"
-      >Client gibt den Turn erneut aus mit approvedToolCalls: [approvalKey]</small
+      >Client gibt den Turn erneut aus mit approvedToolCalls:
+      [approvalKey]</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-panel ok" data-rough>
     <span class="diagram-pill ok"
-      >Sperre sieht den Schlüssel &rarr; run() wird ausgeführt &rarr; E-Mail wird gesendet</span
+      >Sperre sieht den Schlüssel &rarr; run() wird ausgeführt &rarr; E-Mail
+      wird gesendet</span
     >
   </div>
 </div>

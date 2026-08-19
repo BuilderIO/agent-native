@@ -31,11 +31,11 @@ O keep-warm fica **desabilitado por padrão** porque despertar uma vez por minut
 
 A programação do keep-warm e o aquecimento da função em segundo plano só se aplicam depois que a flag principal do keep-warm é habilitada:
 
-| Variável                                    | Efeito                                                                                                                                                                       |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opta pelo aquecimento agendado do servidor/banco de dados. Não definida por padrão.                                                                                          |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Chave de desativação de compatibilidade que prevalece sobre a flag de opt-in quando definida.                                                                                |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Sobrescreve a cadência com uma expressão cron de 5 campos, por exemplo `*/5 * * * *`. A cadência padrão quando habilitado é `* * * * *`. Um valor não analisável **faz o build falhar**. |
+| Variável                                    | Efeito                                                                                                                                                                                                  |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opta pelo aquecimento agendado do servidor/banco de dados. Não definida por padrão.                                                                                                                     |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Chave de desativação de compatibilidade que prevalece sobre a flag de opt-in quando definida.                                                                                                           |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Sobrescreve a cadência com uma expressão cron de 5 campos, por exemplo `*/5 * * * *`. A cadência padrão quando habilitado é `* * * * *`. Um valor não analisável **faz o build falhar**.                |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Descarta apenas o aquecimento da função em segundo plano, mantendo o servidor aquecido. Aquecer `server` é uma requisição. Aquecer `-background` inicia um container novo que sonda o schema novamente. |
 
 Se você estiver em um nível de banco de dados gratuito ou de outra forma limitado por cota, deixe `AGENT_NATIVE_ENABLE_KEEP_WARM` sem definir. Se optar por habilitá-lo, use uma cadência mais lenta ou defina `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` para descartar o aquecimento em segundo plano, mais caro.

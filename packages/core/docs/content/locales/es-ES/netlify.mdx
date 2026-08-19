@@ -31,11 +31,11 @@ Keep-warm está **deshabilitado de forma predeterminada** porque un despertar ca
 
 El calendario de keep-warm y el calentamiento de la función en segundo plano solo se aplican después de que se habilite el flag principal de keep-warm:
 
-| Variable                                    | Efecto                                                                                                                                                                       |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Activa el calentamiento programado del servidor y la base de datos. No está definido de forma predeterminada.                                                              |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Interruptor de compatibilidad que prevalece sobre el flag de activación cuando está establecido.                                                                            |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Sobrescribe la cadencia con una expresión cron de 5 campos, por ejemplo `*/5 * * * *`. La cadencia predeterminada cuando está habilitado es `* * * * *`. Un valor no analizable **hace fallar la compilación**. |
+| Variable                                    | Efecto                                                                                                                                                                                                                  |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Activa el calentamiento programado del servidor y la base de datos. No está definido de forma predeterminada.                                                                                                           |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Interruptor de compatibilidad que prevalece sobre el flag de activación cuando está establecido.                                                                                                                        |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Sobrescribe la cadencia con una expresión cron de 5 campos, por ejemplo `*/5 * * * *`. La cadencia predeterminada cuando está habilitado es `* * * * *`. Un valor no analizable **hace fallar la compilación**.         |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Descarta solo el calentamiento de la función en segundo plano, manteniendo caliente el servidor. Calentar `server` es una solicitud. Calentar `-background` inicia un contenedor nuevo que vuelve a sondear el esquema. |
 
 Si estás en un nivel de base de datos gratuito o limitado por cuota, deja `AGENT_NATIVE_ENABLE_KEEP_WARM` sin definir. Si lo habilitas, usa una cadencia más lenta o establece `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` para descartar el calentamiento en segundo plano, más costoso.

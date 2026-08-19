@@ -17,11 +17,11 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 اضبط `AGENT_NATIVE_SSR_CACHE` في بيئة النشر لتغيير السياسة لعملية النشر بأكملها:
 
-| القيمة                                               | النتيجة                                                                               |
-| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| غير مضبوطة، `on`، `default`، `true`، `1`                 | السياسة الافتراضية أعلاه، دون تغيير. مُوصى بها للحصول على أفضل أداء.               |
-| `off`، `false`، `0`، `none`، `no-store`، `disabled` | `no-store` على `cache-control` و`cdn-cache-control` و`netlify-cdn-cache-control`. |
-| مدة زمنية: `30`، `30s`، `5m`، `2h`                 | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600` على `cache-control` و`cdn-cache-control`. يستخدم `netlify-cdn-cache-control` نفس المدة مع `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600`. |
+| القيمة                                              | النتيجة                                                                                                                                                                                                                                            |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| غير مضبوطة، `on`، `default`، `true`، `1`            | السياسة الافتراضية أعلاه، دون تغيير. مُوصى بها للحصول على أفضل أداء.                                                                                                                                                                               |
+| `off`، `false`، `0`، `none`، `no-store`، `disabled` | `no-store` على `cache-control` و`cdn-cache-control` و`netlify-cdn-cache-control`.                                                                                                                                                                  |
+| مدة زمنية: `30`، `30s`، `5m`، `2h`                  | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600` على `cache-control` و`cdn-cache-control`. يستخدم `netlify-cdn-cache-control` نفس المدة مع `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600`. |
 
 الأرقام المجردة هي بالثواني. يعكس `stale-while-revalidate` عمدًا `max-age` لمدة زمنية مخصصة: نافذة نضارة قصيرة مقترنة بنافذة التقادم الافتراضية لمدة سبعة أيام ستعيد بالضبط التقادم الذي تخليت عنه. قيمة غير معروفة تسجل تحذيرًا وتعود إلى القيمة الافتراضية، لذا لا يمكن لخطأ إملائي أبدًا تعطيل شبكة توصيل المحتوى بصمت.
 

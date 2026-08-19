@@ -17,11 +17,11 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 デプロイ環境全体のポリシーを変更するには、デプロイ環境で `AGENT_NATIVE_SSR_CACHE` を設定します。
 
-| 値                                                    | 結果                                                                                     |
-| ----------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| 未設定、`on`、`default`、`true`、`1`                  | 上記のデフォルトポリシーのまま変更なし。最高のパフォーマンスのために推奨されます。         |
-| `off`、`false`、`0`、`none`、`no-store`、`disabled`   | `cache-control`、`cdn-cache-control`、`netlify-cdn-cache-control` に `no-store` を設定。   |
-| 期間: `30`、`30s`、`5m`、`2h`                          | `cache-control` と `cdn-cache-control` に `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600` を設定。`netlify-cdn-cache-control` は同じ期間で `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600` を使用。 |
+| 値                                                  | 結果                                                                                                                                                                                                                                                        |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 未設定、`on`、`default`、`true`、`1`                | 上記のデフォルトポリシーのまま変更なし。最高のパフォーマンスのために推奨されます。                                                                                                                                                                          |
+| `off`、`false`、`0`、`none`、`no-store`、`disabled` | `cache-control`、`cdn-cache-control`、`netlify-cdn-cache-control` に `no-store` を設定。                                                                                                                                                                    |
+| 期間: `30`、`30s`、`5m`、`2h`                       | `cache-control` と `cdn-cache-control` に `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600` を設定。`netlify-cdn-cache-control` は同じ期間で `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600` を使用。 |
 
 裸の数値は秒として扱われます。カスタム期間の場合、`stale-while-revalidate` は意図的に `max-age` を反映します。短い鮮度ウィンドウに、デフォルトの 7 日間の stale ウィンドウを組み合わせてしまうと、まさにオプトアウトしたはずの古さがそのまま返ってきてしまうからです。認識できない値は警告をログに出してデフォルトにフォールバックするため、タイプミスが CDN を黙って無効化することはありません。
 

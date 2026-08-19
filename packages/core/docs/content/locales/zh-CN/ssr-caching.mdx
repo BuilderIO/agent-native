@@ -17,10 +17,10 @@ cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-erro
 
 在部署环境中设置 `AGENT_NATIVE_SSR_CACHE`,即可更改整个部署的策略:
 
-| 值                                                    | 结果                                                                                                        |
-| ----------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 未设置、`on`、`default`、`true`、`1`                 | 上面的默认策略,不变。为获得最佳性能,推荐使用。                                                              |
-| `off`、`false`、`0`、`none`、`no-store`、`disabled` | 在 `cache-control`、`cdn-cache-control` 和 `netlify-cdn-cache-control` 上都发送 `no-store`。                |
+| 值                                                  | 结果                                                                                                                                                                                                                                                        |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 未设置、`on`、`default`、`true`、`1`                | 上面的默认策略,不变。为获得最佳性能,推荐使用。                                                                                                                                                                                                              |
+| `off`、`false`、`0`、`none`、`no-store`、`disabled` | 在 `cache-control`、`cdn-cache-control` 和 `netlify-cdn-cache-control` 上都发送 `no-store`。                                                                                                                                                                |
 | 一个时长值:`30`、`30s`、`5m`、`2h`                  | 在 `cache-control` 和 `cdn-cache-control` 上设置 `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`。`netlify-cdn-cache-control` 使用相同的时长,配合 `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600`。 |
 
 裸数字表示秒。`stale-while-revalidate` 有意为一个自定义时长镜像 `max-age`:如果把一个短的新鲜度窗口,和默认的七天陈旧窗口搭配在一起,恰好会返回你本想选择退出的那种陈旧数据。一个无法识别的值会记录一条警告并回退到默认值,因此一个拼写错误永远不会悄悄禁用 CDN。

@@ -136,12 +136,12 @@ export default defineAction({
 
 يحمل حدث `approval_required` كل ما يحتاجه العميل لعرض عنصر تحكم للموافقة:
 
-| الحقل         | النوع    | الملاحظات                                                               |
-| ------------- | -------- | --------------------------------------------------------------------- |
-| `tool`        | `string` | اسم action الذي حاول الوكيل استدعاءه.                                  |
-| `input`       | object   | الوسائط التي مررها الوكيل.                                             |
+| الحقل         | النوع    | الملاحظات                                                                |
+| ------------- | -------- | ------------------------------------------------------------------------ |
+| `tool`        | `string` | اسم action الذي حاول الوكيل استدعاءه.                                    |
+| `input`       | object   | الوسائط التي مررها الوكيل.                                               |
 | `approvalKey` | `string` | **مفتاح ثابت** يعيد العميل إرساله للموافقة على _هذا الاستدعاء بالتحديد_. |
-| `toolCallId`  | `string` | معرّف استدعاء الأداة من جهة النموذج، عند توفره.                        |
+| `toolCallId`  | `string` | معرّف استدعاء الأداة من جهة النموذج، عند توفره.                          |
 
 يُشتق `approvalKey` بشكل حتمي من اسم الأداة مضافًا إليه مدخلاتها، بحيث ينتج الاستدعاء المنطقي نفسه المفتاح نفسه دائمًا. لا يرى النموذج هذا المفتاح أبدًا ولا يضبطه. فهو موجود فقط كمصافحة بين إطار العمل وعنصر تحكم الموافقة الذي يستخدمه الإنسان.
 
@@ -178,9 +178,7 @@ export default defineAction({
     ><small class="diagram-muted"
       >تُصدر الحلقة tool_start + approval_required { tool, input, approvalKey
       }</small
-    ><span class="diagram-pill warn"
-      >لم يُنفَّذ run() بعد</span
-    >
+    ><span class="diagram-pill warn">لم يُنفَّذ run() بعد</span>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-box" data-rough>
@@ -191,7 +189,8 @@ export default defineAction({
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-panel ok" data-rough>
     <span class="diagram-pill ok"
-      >ترى البوابة المفتاح &rarr; يُنفَّذ run() &rarr; يُرسَل البريد الإلكتروني</span
+      >ترى البوابة المفتاح &rarr; يُنفَّذ run() &rarr; يُرسَل البريد
+      الإلكتروني</span
     >
   </div>
 </div>

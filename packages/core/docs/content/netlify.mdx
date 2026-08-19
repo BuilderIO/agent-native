@@ -32,7 +32,7 @@ Keep-warm is **disabled by default** because a once-a-minute wake prevents autos
 The keep-warm schedule and background-function warm only apply after the main keep-warm flag is enabled:
 
 | Variable                                    | Effect                                                                                                                                                                       |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opts into the scheduled server/database warm. Unset by default.                                                                                                              |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Compatibility kill switch that wins over the opt-in flag when set.                                                                                                           |
 | `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Overrides the cadence with a 5-field cron expression, e.g. `*/5 * * * *`. The default cadence when enabled is `* * * * *`. An unparseable value **fails the build**.         |

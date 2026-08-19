@@ -86,10 +86,10 @@ export default defineAction({
 <Callout tone="warning">
   अनुमोदनों को दुर्लभ रखें। हर गेटेड action एजेंट लूप में एक hard stop है। यह
   run को बीच में रोकता है और किसी मानव से round-trip की मांग करता है।
-  `needsApproval` का उपयोग केवल सचमुच उच्च-परिणाम वाले, पूर्ववत करना कठिन,
-  बाहर की ओर जाने वाले ऑपरेशंस के लिए करें। अगर आप खुद को reads या सामान्य
-  writes को गेट करते हुए पाते हैं, तो आप इसे गलत तरीके से इस्तेमाल कर रहे हैं।
-  डिफ़ॉल्ट **off** है, और लगभग हर action को off ही छोड़ना चाहिए।
+  `needsApproval` का उपयोग केवल सचमुच उच्च-परिणाम वाले, पूर्ववत करना कठिन, बाहर
+  की ओर जाने वाले ऑपरेशंस के लिए करें। अगर आप खुद को reads या सामान्य writes को
+  गेट करते हुए पाते हैं, तो आप इसे गलत तरीके से इस्तेमाल कर रहे हैं। डिफ़ॉल्ट
+  **off** है, और लगभग हर action को off ही छोड़ना चाहिए।
 </Callout>
 
 <AnnotatedCode
@@ -136,12 +136,12 @@ export default defineAction({
 
 `approval_required` इवेंट में वह सब कुछ होता है जो client को एक affordance render करने के लिए चाहिए:
 
-| फ़ील्ड        | टाइप     | नोट्स                                                                |
-| ------------- | -------- | --------------------------------------------------------------------- |
-| `tool`        | `string` | वह action नाम जिसे एजेंट ने कॉल करने की कोशिश की।                    |
-| `input`       | object   | वे arguments जो एजेंट ने पास किए।                                    |
+| फ़ील्ड        | टाइप     | नोट्स                                                                                      |
+| ------------- | -------- | ------------------------------------------------------------------------------------------ |
+| `tool`        | `string` | वह action नाम जिसे एजेंट ने कॉल करने की कोशिश की।                                          |
+| `input`       | object   | वे arguments जो एजेंट ने पास किए।                                                          |
 | `approvalKey` | `string` | **स्थिर key** जिसे client _इस बिल्कुल सटीक कॉल_ को अनुमोदित करने के लिए वापस echo करता है। |
-| `toolCallId`  | `string` | मॉडल-साइड tool-call id, जब उपलब्ध हो।                                |
+| `toolCallId`  | `string` | मॉडल-साइड tool-call id, जब उपलब्ध हो।                                                      |
 
 `approvalKey` को tool नाम और उसके input से नियतात्मक रूप से (deterministically) derive किया जाता है, इसलिए वही logical कॉल हमेशा वही key produce करता है। मॉडल इसे कभी नहीं देखता और न ही सेट करता है। यह केवल फ्रेमवर्क और मानव के Approve affordance के बीच एक handshake के रूप में मौजूद है।
 
@@ -176,22 +176,22 @@ export default defineAction({
   <div class="diagram-panel warn" data-rough>
     <strong>गेट truthy है, कॉल अभी अनुमोदित नहीं</strong
     ><small class="diagram-muted"
-      >लूप tool_start + approval_required { tool, input, approvalKey
-      } emit करता है</small
-    ><span class="diagram-pill warn"
-      >run() अभी execute नहीं हुआ</span
-    >
+      >लूप tool_start + approval_required { tool, input, approvalKey } emit करता
+      है</small
+    ><span class="diagram-pill warn">run() अभी execute नहीं हुआ</span>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-box" data-rough>
     मानव chat में Approve पर क्लिक करता है<br /><small class="diagram-muted"
-      >client turn को approvedToolCalls: [approvalKey] के साथ फिर से issue करता है</small
+      >client turn को approvedToolCalls: [approvalKey] के साथ फिर से issue करता
+      है</small
     >
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-panel ok" data-rough>
     <span class="diagram-pill ok"
-      >गेट key देखता है &rarr; run() execute होता है &rarr; email भेजा जाता है</span
+      >गेट key देखता है &rarr; run() execute होता है &rarr; email भेजा जाता
+      है</span
     >
   </div>
 </div>

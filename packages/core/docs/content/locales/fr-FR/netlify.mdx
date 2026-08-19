@@ -31,11 +31,11 @@ Le maintien à chaud est **désactivé par défaut** car un réveil une fois par
 
 Le planning de maintien à chaud et le maintien à chaud de la fonction d'arrière-plan ne s'appliquent qu'après l'activation du drapeau principal de maintien à chaud :
 
-| Variable                                    | Effet                                                                                                                                                                       |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Active le maintien à chaud planifié du serveur/de la base de données. Non défini par défaut.                                                                                  |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Interrupteur de compatibilité qui l'emporte sur le drapeau d'activation quand il est défini.                                                                                  |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Remplace la cadence par une expression cron à 5 champs, par ex. `*/5 * * * *`. La cadence par défaut une fois activée est `* * * * *`. Une valeur non interprétable **fait échouer le build**. |
+| Variable                                    | Effet                                                                                                                                                                                                                           |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Active le maintien à chaud planifié du serveur/de la base de données. Non défini par défaut.                                                                                                                                    |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Interrupteur de compatibilité qui l'emporte sur le drapeau d'activation quand il est défini.                                                                                                                                    |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Remplace la cadence par une expression cron à 5 champs, par ex. `*/5 * * * *`. La cadence par défaut une fois activée est `* * * * *`. Une valeur non interprétable **fait échouer le build**.                                  |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Supprime uniquement le maintien à chaud de la fonction d'arrière-plan, en gardant le serveur au chaud. Réchauffer `server` est une seule requête. Réchauffer `-background` démarre un nouveau conteneur qui re-sonde le schéma. |
 
 Si vous êtes sur un niveau de base de données gratuit ou autrement limité en quota, laissez `AGENT_NATIVE_ENABLE_KEEP_WARM` non défini. Si vous l'activez, utilisez une cadence plus lente ou définissez `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` pour supprimer le réchauffement d'arrière-plan plus coûteux.

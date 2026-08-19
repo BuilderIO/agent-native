@@ -31,11 +31,11 @@ Keep-Warm ist **standardmäßig deaktiviert**, weil ein Aufwecken einmal pro Min
 
 Der Keep-Warm-Zeitplan und das Aufwärmen der Hintergrundfunktion gelten nur, nachdem das Haupt-Keep-Warm-Flag aktiviert wurde:
 
-| Variable                                    | Wirkung                                                                                                                                                                       |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Aktiviert das geplante Warmhalten von Server und Datenbank. Standardmäßig nicht gesetzt.                                                                                     |
-| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Kompatibles Abschalt-Flag, das das Opt-in-Flag überstimmt, wenn es gesetzt ist.                                                                                              |
-| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Überschreibt die Kadenz mit einem 5-Feld-Cron-Ausdruck, z. B. `*/5 * * * *`. Die Standardkadenz bei Aktivierung ist `* * * * *`. Ein nicht parsebarer Wert **lässt den Build fehlschlagen**. |
+| Variable                                    | Wirkung                                                                                                                                                                                                               |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Aktiviert das geplante Warmhalten von Server und Datenbank. Standardmäßig nicht gesetzt.                                                                                                                              |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Kompatibles Abschalt-Flag, das das Opt-in-Flag überstimmt, wenn es gesetzt ist.                                                                                                                                       |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Überschreibt die Kadenz mit einem 5-Feld-Cron-Ausdruck, z. B. `*/5 * * * *`. Die Standardkadenz bei Aktivierung ist `* * * * *`. Ein nicht parsebarer Wert **lässt den Build fehlschlagen**.                          |
 | `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Verwirft nur das Aufwärmen der Hintergrundfunktion und hält den Server warm. Das Aufwärmen von `server` ist eine Anfrage. Das Aufwärmen von `-background` startet einen neuen Container, der das Schema erneut prüft. |
 
 Wenn Sie einen kostenlosen oder anderweitig kontingentierten Datenbank-Tarif nutzen, lassen Sie `AGENT_NATIVE_ENABLE_KEEP_WARM` nicht gesetzt. Wenn Sie es aktivieren, verwenden Sie eine langsamere Kadenz oder legen Sie `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` fest, um das teurere Aufwärmen der Hintergrundfunktion fallen zu lassen.

@@ -84,8 +84,10 @@ export default defineAction({
 少数 action 的后果太过严重,不能让代理自行运行,比如发送邮件、扣款,或删除账户。在 `defineAction()` 上设置 `needsApproval: true`(或者一个谓词 `(args, ctx) => boolean | Promise<boolean>`),代理循环就会在 `run()` 之前暂停,需要人工批准这一次具体的调用。默认值是**关闭**,几乎每一个 action 都应该保持这个默认值。
 
 <Callout tone="warning">
-  批准应当保持罕见。每一个被门控的 action,都是代理循环中的一次硬性中断。它会打断运行,并要求一次人工往返确认。只把
-  `needsApproval` 用在那些后果真正严重、难以撤销、且面向外部的操作上。如果你发现自己在给读取操作或日常写入操作加上门控,那就是用错了地方。默认值是**关闭**,几乎每一个
+  批准应当保持罕见。每一个被门控的
+  action,都是代理循环中的一次硬性中断。它会打断运行,并要求一次人工往返确认。只把
+  `needsApproval`
+  用在那些后果真正严重、难以撤销、且面向外部的操作上。如果你发现自己在给读取操作或日常写入操作加上门控,那就是用错了地方。默认值是**关闭**,几乎每一个
   action 都应该保持这个默认值。
 </Callout>
 
@@ -133,12 +135,12 @@ export default defineAction({
 
 `approval_required` 事件携带了客户端渲染一个操作入口所需的一切信息:
 
-| 字段          | 类型     | 说明                                                                 |
-| ------------- | -------- | -------------------------------------------------------------------- |
-| `tool`        | `string` | 代理尝试调用的 action 名称。                                          |
-| `input`       | object   | 代理传入的参数。                                                      |
-| `approvalKey` | `string` | **稳定的键**,客户端会把它原样传回,以批准_这一次确切的调用_。         |
-| `toolCallId`  | `string` | 模型侧的 tool-call id(如果可用)。                                    |
+| 字段          | 类型     | 说明                                                         |
+| ------------- | -------- | ------------------------------------------------------------ |
+| `tool`        | `string` | 代理尝试调用的 action 名称。                                 |
+| `input`       | object   | 代理传入的参数。                                             |
+| `approvalKey` | `string` | **稳定的键**,客户端会把它原样传回,以批准*这一次确切的调用*。 |
+| `toolCallId`  | `string` | 模型侧的 tool-call id(如果可用)。                            |
 
 `approvalKey` 是根据工具名称加上其输入,以确定性的方式推导出来的,所以同一个逻辑调用总是会产生同一个键。模型永远看不到也不会设置这个键。它的存在,纯粹是为了在框架和人工的批准操作入口之间做一次握手。
 
@@ -175,9 +177,7 @@ export default defineAction({
     ><small class="diagram-muted"
       >循环发出 tool_start + approval_required { tool, input, approvalKey
       }</small
-    ><span class="diagram-pill warn"
-      >run() 尚未执行</span
-    >
+    ><span class="diagram-pill warn">run() 尚未执行</span>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-box" data-rough>

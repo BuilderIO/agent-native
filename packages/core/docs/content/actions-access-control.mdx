@@ -136,7 +136,7 @@ When the agent calls a gated action and this specific call has **not** already b
 The `approval_required` event carries everything the client needs to render an affordance:
 
 | Field         | Type     | Notes                                                               |
-| ------------- | -------- | --------------------------------------------------------------------- |
+| ------------- | -------- | ------------------------------------------------------------------- |
 | `tool`        | `string` | The action name the agent tried to call.                            |
 | `input`       | object   | The arguments the agent passed.                                     |
 | `approvalKey` | `string` | **Stable key** the client echoes back to approve _this exact call_. |
@@ -177,9 +177,7 @@ On `approval_required`, the chat UI renders an **Approve / Deny** affordance on 
     ><small class="diagram-muted"
       >loop emits tool_start + approval_required { tool, input, approvalKey
       }</small
-    ><span class="diagram-pill warn"
-      >run() has not executed</span
-    >
+    ><span class="diagram-pill warn">run() has not executed</span>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-box" data-rough>

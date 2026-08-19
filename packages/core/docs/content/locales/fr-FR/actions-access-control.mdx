@@ -84,13 +84,13 @@ Utilisez-le uniquement pour des actions sûres, en lecture seule, ou d’ingesti
 Une poignée d’actions sont trop conséquentes pour laisser l’agent les exécuter seul, comme envoyer un email, débiter une carte, ou supprimer un compte. Définissez `needsApproval: true` (ou un prédicat `(args, ctx) => boolean | Promise<boolean>`) sur `defineAction()`, et la boucle se met en pause avant `run()`, exigeant qu’un humain approuve cet appel précis. La valeur par défaut est **désactivée**, et presque chaque action devrait le rester.
 
 <Callout tone="warning">
-  Gardez les approbations rares. Chaque action gardée est un arrêt complet
-  dans la boucle de l’agent. Elle interrompt l’exécution et exige un
-  aller-retour humain. Utilisez `needsApproval` seulement pour des opérations
-  réellement conséquentes, difficiles à annuler, et tournées vers l’extérieur.
-  Si vous vous surprenez à garder des lectures ou des écritures courantes,
-  c’est le signe que vous vous en servez mal. La valeur par défaut est
-  **désactivée**, et presque chaque action devrait le rester.
+  Gardez les approbations rares. Chaque action gardée est un arrêt complet dans
+  la boucle de l’agent. Elle interrompt l’exécution et exige un aller-retour
+  humain. Utilisez `needsApproval` seulement pour des opérations réellement
+  conséquentes, difficiles à annuler, et tournées vers l’extérieur. Si vous vous
+  surprenez à garder des lectures ou des écritures courantes, c’est le signe que
+  vous vous en servez mal. La valeur par défaut est **désactivée**, et presque
+  chaque action devrait le rester.
 </Callout>
 
 <AnnotatedCode
@@ -138,7 +138,7 @@ Quand l’agent appelle une action gardée et que cet appel précis n’a **pas*
 L’événement `approval_required` porte tout ce dont le client a besoin pour afficher une affordance :
 
 | Champ         | Type     | Notes                                                                  |
-| ------------- | -------- | ----------------------------------------------------------------------- |
+| ------------- | -------- | ---------------------------------------------------------------------- |
 | `tool`        | `string` | Le nom de l’action que l’agent a essayé d’appeler.                     |
 | `input`       | object   | Les arguments que l’agent a passés.                                    |
 | `approvalKey` | `string` | **Clé stable** que le client renvoie pour approuver _cet appel exact_. |
@@ -179,9 +179,7 @@ Sur `approval_required`, l’UI de chat affiche une affordance **Approuver / Ref
     ><small class="diagram-muted"
       >la boucle émet tool_start + approval_required { tool, input, approvalKey
       }</small
-    ><span class="diagram-pill warn"
-      >run() ne s'est pas exécuté</span
-    >
+    ><span class="diagram-pill warn">run() ne s'est pas exécuté</span>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-box" data-rough>
@@ -192,7 +190,8 @@ Sur `approval_required`, l’UI de chat affiche une affordance **Approuver / Ref
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-panel ok" data-rough>
     <span class="diagram-pill ok"
-      >La garde voit la clé &rarr; run() s'exécute &rarr; l'email est envoyé</span
+      >La garde voit la clé &rarr; run() s'exécute &rarr; l'email est
+      envoyé</span
     >
   </div>
 </div>

@@ -84,8 +84,10 @@ export default defineAction({
 少數 action 的後果太過重大，不能放任代理自行執行，例如傳送電子郵件、刷卡扣款，或刪除帳號。在 `defineAction()` 上設定 `needsApproval: true`（或一個判斷式 `(args, ctx) => boolean | Promise<boolean>`），迴圈就會在 `run()` 之前暫停，要求人工核准那次特定的呼叫。預設值是**關閉**，幾乎所有 action 都應該維持這個狀態。
 
 <Callout tone="warning">
-  核准的使用應該保持稀少。每一個設有關卡的 action，都會是代理迴圈中的一次硬性停止。
-  它會中斷這次執行，並要求人工介入往返。請只將 `needsApproval` 用在真正具有重大後
+  核准的使用應該保持稀少。每一個設有關卡的
+  action，都會是代理迴圈中的一次硬性停止。
+  它會中斷這次執行，並要求人工介入往返。請只將 `needsApproval`
+  用在真正具有重大後
   果、難以復原、且面向外部的操作上。如果您發現自己正在為讀取或例行寫入設下關卡，就
   代表用法不對。預設值是**關閉**，幾乎每個 action 都應該維持關閉。
 </Callout>
@@ -134,12 +136,12 @@ export default defineAction({
 
 `approval_required` 事件會攜帶客戶端呈現操作介面所需的一切資訊：
 
-| 欄位          | 型別     | 說明                                                                  |
-| ------------- | -------- | --------------------------------------------------------------------- |
-| `tool`        | `string` | 代理嘗試呼叫的 action 名稱。                                          |
-| `input`       | object   | 代理傳入的引數。                                                      |
-| `approvalKey` | `string` | **穩定的金鑰**，客戶端會將它原樣回傳，以核准 _這次確切的呼叫_。       |
-| `toolCallId`  | `string` | 模型端的工具呼叫 id，如果有提供的話。                                 |
+| 欄位          | 型別     | 說明                                                            |
+| ------------- | -------- | --------------------------------------------------------------- |
+| `tool`        | `string` | 代理嘗試呼叫的 action 名稱。                                    |
+| `input`       | object   | 代理傳入的引數。                                                |
+| `approvalKey` | `string` | **穩定的金鑰**，客戶端會將它原樣回傳，以核准 _這次確切的呼叫_。 |
+| `toolCallId`  | `string` | 模型端的工具呼叫 id，如果有提供的話。                           |
 
 `approvalKey` 是由工具名稱加上其輸入值以確定性方式推導而成，因此同一個邏輯上的呼叫，永遠會產生相同的金鑰。模型永遠不會看到或設定這個值。它的存在純粹是框架與人工核准操作介面之間的一種握手機制。
 
@@ -176,9 +178,7 @@ export default defineAction({
     ><small class="diagram-muted"
       >迴圈發出 tool_start + approval_required { tool, input, approvalKey
       }</small
-    ><span class="diagram-pill warn"
-      >run() 尚未執行</span
-    >
+    ><span class="diagram-pill warn">run() 尚未執行</span>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-box" data-rough>

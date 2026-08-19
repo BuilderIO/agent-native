@@ -86,11 +86,10 @@ Um punhado de actions é consequencial demais para deixar o agente executar por 
 <Callout tone="warning">
   Mantenha as aprovações raras. Toda action com portão é uma parada total no
   loop do agente. Ela interrompe a execução e exige uma ida e volta com um
-  humano. Use `needsApproval` apenas para operações genuinamente
-  consequenciais, difíceis de desfazer e voltadas para fora. Se você perceber
-  que está colocando portão em leituras ou escritas rotineiras, está usando o
-  recurso de forma errada. O padrão é **desligado**, e quase toda action
-  deveria continuar assim.
+  humano. Use `needsApproval` apenas para operações genuinamente consequenciais,
+  difíceis de desfazer e voltadas para fora. Se você perceber que está colocando
+  portão em leituras ou escritas rotineiras, está usando o recurso de forma
+  errada. O padrão é **desligado**, e quase toda action deveria continuar assim.
 </Callout>
 
 <AnnotatedCode
@@ -137,12 +136,12 @@ Quando o agente chama uma action com portão e esta chamada específica **ainda 
 
 O evento `approval_required` carrega tudo o que o cliente precisa para renderizar um controle:
 
-| Campo         | Tipo     | Notas                                                                     |
+| Campo         | Tipo     | Notas                                                                      |
 | ------------- | -------- | -------------------------------------------------------------------------- |
-| `tool`        | `string` | O nome da action que o agente tentou chamar.                              |
-| `input`       | object   | Os argumentos que o agente passou.                                       |
+| `tool`        | `string` | O nome da action que o agente tentou chamar.                               |
+| `input`       | object   | Os argumentos que o agente passou.                                         |
 | `approvalKey` | `string` | **Chave estável** que o cliente devolve para aprovar _esta chamada exata_. |
-| `toolCallId`  | `string` | O id da chamada de ferramenta do lado do modelo, quando disponível.       |
+| `toolCallId`  | `string` | O id da chamada de ferramenta do lado do modelo, quando disponível.        |
 
 `approvalKey` é derivada de forma determinística a partir do nome da ferramenta mais sua entrada, então a mesma chamada lógica sempre produz a mesma chave. O modelo nunca a vê nem a define. Ela existe apenas como um handshake entre o framework e o controle de Aprovar do humano.
 
@@ -179,9 +178,7 @@ Quando ocorre `approval_required`, a UI de chat renderiza um controle de **Aprov
     ><small class="diagram-muted"
       >o loop emite tool_start + approval_required { tool, input, approvalKey
       }</small
-    ><span class="diagram-pill warn"
-      >run() ainda não foi executado</span
-    >
+    ><span class="diagram-pill warn">run() ainda não foi executado</span>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-box" data-rough>
@@ -192,7 +189,8 @@ Quando ocorre `approval_required`, a UI de chat renderiza um controle de **Aprov
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-panel ok" data-rough>
     <span class="diagram-pill ok"
-      >O portão reconhece a chave &rarr; run() é executado &rarr; o e-mail é enviado</span
+      >O portão reconhece a chave &rarr; run() é executado &rarr; o e-mail é
+      enviado</span
     >
   </div>
 </div>

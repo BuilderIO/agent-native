@@ -87,10 +87,10 @@ Un puñado de acciones son demasiado consecuentes como para dejar que el agente 
   Mantén las aprobaciones como algo poco frecuente. Cada acción con guarda es
   una parada dura en el bucle del agente. Interrumpe la ejecución y exige una
   ida y vuelta con un humano. Usa `needsApproval` solo para operaciones
-  genuinamente de alta consecuencia, difíciles de deshacer y orientadas hacia
-  el exterior. Si te sorprendes exigiendo aprobación para lecturas o escrituras
-  rutinarias, estás usando esta opción de forma incorrecta. El valor por
-  defecto es **desactivado**, y casi todas las acciones deberían dejarlo así.
+  genuinamente de alta consecuencia, difíciles de deshacer y orientadas hacia el
+  exterior. Si te sorprendes exigiendo aprobación para lecturas o escrituras
+  rutinarias, estás usando esta opción de forma incorrecta. El valor por defecto
+  es **desactivado**, y casi todas las acciones deberían dejarlo así.
 </Callout>
 
 <AnnotatedCode
@@ -137,11 +137,11 @@ Cuando el agente llama a una acción con guarda y esta llamada específica **no*
 
 El evento `approval_required` lleva todo lo que el cliente necesita para mostrar un control de interacción:
 
-| Campo         | Tipo     | Notas                                                               |
-| ------------- | -------- | --------------------------------------------------------------------- |
-| `tool`        | `string` | El nombre de la acción que el agente intentó llamar.                 |
-| `input`       | object   | Los argumentos que pasó el agente.                                   |
-| `approvalKey` | `string` | **Clave estable** que el cliente devuelve para aprobar _esta llamada exacta_. |
+| Campo         | Tipo     | Notas                                                                          |
+| ------------- | -------- | ------------------------------------------------------------------------------ |
+| `tool`        | `string` | El nombre de la acción que el agente intentó llamar.                           |
+| `input`       | object   | Los argumentos que pasó el agente.                                             |
+| `approvalKey` | `string` | **Clave estable** que el cliente devuelve para aprobar _esta llamada exacta_.  |
 | `toolCallId`  | `string` | El id de la llamada a herramienta del lado del modelo, cuando está disponible. |
 
 El `approvalKey` se deriva de forma determinista a partir del nombre de la herramienta y su entrada, así que la misma llamada lógica siempre produce la misma clave. El modelo nunca la ve ni la establece. Existe únicamente como una negociación entre el framework y el control de Aprobar del humano.
@@ -179,9 +179,7 @@ Ante `approval_required`, la UI de chat muestra un control de **Aprobar / Denega
     ><small class="diagram-muted"
       >el bucle emite tool_start + approval_required { tool, input, approvalKey
       }</small
-    ><span class="diagram-pill warn"
-      >run() no se ha ejecutado</span
-    >
+    ><span class="diagram-pill warn">run() no se ha ejecutado</span>
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-box" data-rough>
@@ -192,7 +190,8 @@ Ante `approval_required`, la UI de chat muestra un control de **Aprobar / Denega
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
   <div class="diagram-panel ok" data-rough>
     <span class="diagram-pill ok"
-      >La guarda ve la clave &rarr; run() se ejecuta &rarr; el correo se envía</span
+      >La guarda ve la clave &rarr; run() se ejecuta &rarr; el correo se
+      envía</span
     >
   </div>
 </div>

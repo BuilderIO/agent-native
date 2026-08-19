@@ -17,10 +17,10 @@ El mismo valor se refleja en `cdn-cache-control`. `netlify-cdn-cache-control` ll
 
 Establece `AGENT_NATIVE_SSR_CACHE` en el entorno de implementación para cambiar la política de toda la implementación:
 
-| Valor                                               | Resultado                                                                               |
-| --------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| sin configurar, `on`, `default`, `true`, `1`        | La política predeterminada anterior, sin cambios. Recomendado para el mejor rendimiento. |
-| `off`, `false`, `0`, `none`, `no-store`, `disabled` | `no-store` en `cache-control`, `cdn-cache-control` y `netlify-cdn-cache-control`.        |
+| Valor                                               | Resultado                                                                                                                                                                                                                                                |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| sin configurar, `on`, `default`, `true`, `1`        | La política predeterminada anterior, sin cambios. Recomendado para el mejor rendimiento.                                                                                                                                                                 |
+| `off`, `false`, `0`, `none`, `no-store`, `disabled` | `no-store` en `cache-control`, `cdn-cache-control` y `netlify-cdn-cache-control`.                                                                                                                                                                        |
 | Una duración: `30`, `30s`, `5m`, `2h`               | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600` en `cache-control` y `cdn-cache-control`. `netlify-cdn-cache-control` usa la misma duración con `public, durable, s-maxage=<n>, stale-while-revalidate=<n>, stale-if-error=3600`. |
 
 Los números sin unidad son segundos. `stale-while-revalidate` refleja deliberadamente `max-age` para una duración personalizada: una ventana de frescura corta combinada con la ventana obsoleta predeterminada de siete días devolvería exactamente la obsolescencia de la que te habías excluido. Un valor no reconocido registra una advertencia y recurre al valor predeterminado, de modo que un error tipográfico nunca puede desactivar silenciosamente la CDN.
