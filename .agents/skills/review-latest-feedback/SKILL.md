@@ -106,9 +106,13 @@ still blocks the fix.
 
 ## Answered clarifications come first
 
-A clarification question is a pending state, not a disposition. Before scanning
-for new messages, re-read every thread this workflow asked a question in that
-has not since been fixed or otherwise dispositioned, oldest question first.
+A clarification question is a pending state, not a disposition, regardless of
+which in-scope workflow posted it. Before scanning for new messages, re-read
+every thread this workflow, the companion `address-feedback-with-replies`
+workflow, or `@agent-native` asked a question in that has not since been fixed
+or otherwise dispositioned, oldest question first. Treat the complete thread
+as the source of truth for whether the request is answered, not the workflow
+that posted it.
 
 - **The requested detail was answered or resolved** - re-read the complete
   thread and rebuild its evidence ledger first. That thread is the run's first
@@ -120,8 +124,9 @@ has not since been fixed or otherwise dispositioned, oldest question first.
   does not clear it. Do not add a second clarification to the same thread; an
   unanswered request stays visible instead of ageing out of the cursor.
 
-When any participant semantically answers the exact question this workflow
-previously asked or explicitly resolves it, do not just record the answer or
+When any participant semantically answers the exact question previously asked
+by this workflow, the companion `address-feedback-with-replies` workflow, or
+`@agent-native`, or explicitly resolves it, do not just record the answer or
 leave the old clarification as the disposition. Read the entire thread again,
 use the new evidence to attempt the fix in this run, and post a new **Fixed**
 reply when the fix is verified. A partial or unrelated reply does not clear the
@@ -130,9 +135,10 @@ one specific, non-repeating detail that still blocks the fix after the earlier
 request is answered or resolved. An answered clarification is never a reason
 to skip the thread or continue scanning newer messages.
 
-Our own question is what makes a thread eligible for the first work item,
-which is why this pass runs first. Without it every thread we asked about can
-become invisible on later runs and the reporter's answer is never read.
+An in-scope clarification question is what makes a thread eligible for the
+first work item, which is why this pass runs first. Without it every thread
+with a question can become invisible on later runs and the answer is never
+read.
 
 Before choosing a new start cursor, re-read every thread that this workflow
 left in **In progress**, oldest open ownership first. Verify the claimed fix or
