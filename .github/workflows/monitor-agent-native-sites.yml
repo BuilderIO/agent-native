@@ -116,6 +116,13 @@ jobs:
                             Math.min(timeoutMs, Math.max(1, deadline - Date.now())),
                           ),
                         });
+                        if (new URL(assetResponse.url).origin !== new URL(assetUrl).origin) {
+                          assetFailures.push(
+                            `${new URL(assetUrl).pathname} redirected off origin to ${new URL(assetResponse.url).origin}`,
+                          );
+                          await assetResponse.body?.cancel();
+                          return;
+                        }
                         await assetResponse.body?.cancel();
                         if (assetResponse.status < 200 || assetResponse.status >= 300) {
                           assetFailures.push(`${new URL(assetUrl).pathname} HTTP ${assetResponse.status}`);
@@ -139,6 +146,8 @@ jobs:
                       detail: `HTTP ${response.status} with ${assets.size} referenced assets in ${ms}ms (attempt ${attempt})`,
                     };
                   }
+                } else {
+                  await response.body?.cancel();
                 }
                 if (!ok) lastFailure = `HTTP ${response.status}`;
               } catch (error) {
