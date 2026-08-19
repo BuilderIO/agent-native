@@ -30,7 +30,7 @@ export const templates = [
     demoUrl: "https://plan.agent-native.com",
     color: "#2F6FED",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F775bae8e78b34d309bd3b9be5d7137e8?format=webp&width=800&height=1200",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F51abeaabe8244c8a884260e40f0bea98?format=webp&width=800&height=1200",
   },
   {
     name: "Design",
@@ -50,7 +50,7 @@ export const templates = [
     demoUrl: "https://content.agent-native.com",
     color: "#7928ca",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9fb501f3ab2145e78ab4a8b5b80bb793?format=webp&width=800&height=1200",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F68a99b5cc4ee42e0a4898c1c97a9baf4?format=webp&width=800&height=1200",
   },
   {
     name: "Slides",
@@ -60,7 +60,7 @@ export const templates = [
     demoUrl: "https://slides.agent-native.com",
     color: "#f59e0b",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ffccd0f339b764a6cbbf5308d0045112d?format=webp&width=800&height=1200",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0b08b5aa72904a28a82807f754050b8c?format=webp&width=800&height=1200",
   },
   {
     name: "Analytics",
@@ -70,7 +70,7 @@ export const templates = [
     demoUrl: "https://analytics.agent-native.com",
     color: "var(--docs-accent)",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4272c4c3fb924206bae05141ed8f324b?format=webp&width=800&height=1200",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb2eb32a193e54f319ecbce1d24b07753?format=webp&width=800&height=1200",
   },
   {
     name: "Mail",
@@ -80,7 +80,7 @@ export const templates = [
     demoUrl: "https://mail.agent-native.com",
     color: "#0ea5e9",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F996f57a8e1ce4570b9fefd57df56cc4c?format=webp&width=800&height=1200",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15d2ed682eee4a50b13fc624c6b92fa1?format=webp&width=800&height=1200",
   },
   {
     name: "Forms",
@@ -90,7 +90,7 @@ export const templates = [
     demoUrl: "https://forms.agent-native.com",
     color: "#06B6D4",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F46975a73af5246b39a23e6c4c1361516?format=webp&width=800&height=1200",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F449a47d6cce54bb58ca41e544068b295?format=webp&width=800&height=1200",
   },
   {
     name: "Assets",
@@ -110,7 +110,7 @@ export const templates = [
     demoUrl: "https://calendar.agent-native.com",
     color: "#10b981",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7847155fdcf14f559d34752c11f311b9?format=webp&width=800&height=1200",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Ff06f7d010ad84a009b040436f426d56f?format=webp&width=800&height=1200",
   },
   {
     name: "Dispatch",
@@ -120,7 +120,7 @@ export const templates = [
     demoUrl: "https://dispatch.agent-native.com",
     color: "#14B8A6",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdf5c35aec8924134a9b9bbc9d8cec9e8?format=webp&width=800&height=1200",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa6a144d9e4a54d66b9666a0be0e6e934?format=webp&width=800&height=1200",
   },
   {
     name: "Chat",
@@ -130,7 +130,7 @@ export const templates = [
     demoUrl: "https://chat.agent-native.com",
     color: "#18181B",
     screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0341ba536725449587831a33bde6f489?format=webp&width=800&height=1200",
+      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7ec5bf5796414a96b3bd30d2b11c4ee0?format=webp&width=800&height=1200",
   },
   // ── DO NOT add new templates here directly. ──
   // The public-facing template list is the strict allow-list defined in
