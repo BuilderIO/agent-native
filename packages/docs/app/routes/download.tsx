@@ -1,4 +1,5 @@
-import { appBasePath, useT } from "@agent-native/core/client";
+import { appBasePath } from "@agent-native/core/client/api-path";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconAppWindow,
   IconBrandApple,

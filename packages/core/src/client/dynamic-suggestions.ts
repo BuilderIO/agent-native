@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-import { agentNativePath } from "./api-path.js";
+import { readClientAppState } from "./application-state.js";
 import { useChangeVersions } from "./use-change-version.js";
 import type { ChatThreadScope } from "./use-chat-threads.js";
+import { usePollLoop } from "./use-poll-loop.js";
 
 const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
-const DEFAULT_MAX_SUGGESTIONS = 4;
+const DEFAULT_MAX_SUGGESTIONS = 3;
+const DEFAULT_POLL_MS = 30_000;
 
 export interface AgentDynamicSuggestionContext {
   navigation: unknown;
@@ -24,6 +26,8 @@ export interface AgentDynamicSuggestionsConfig {
   includeStatic?: boolean;
   /** Optional app-specific deterministic suggestion builder. */
   getSuggestions?: (context: AgentDynamicSuggestionContext) => string[];
+  /** Safety-net refresh cadence in ms, for updates that don't bump app-state version. Default 30_000. */
+  pollMs?: number;
 }
 
 export type AgentDynamicSuggestionsOption =
@@ -48,6 +52,7 @@ interface NormalizedAgentDynamicSuggestionsConfig {
   max: number;
   includeStatic: boolean;
   getSuggestions?: (context: AgentDynamicSuggestionContext) => string[];
+  pollMs: number;
 }
 
 export function normalizeAgentDynamicSuggestionsConfig(
@@ -58,6 +63,7 @@ export function normalizeAgentDynamicSuggestionsConfig(
       enabled: false,
       max: DEFAULT_MAX_SUGGESTIONS,
       includeStatic: true,
+      pollMs: DEFAULT_POLL_MS,
     };
   }
   if (option === true || option === undefined) {
@@ -65,6 +71,7 @@ export function normalizeAgentDynamicSuggestionsConfig(
       enabled: true,
       max: DEFAULT_MAX_SUGGESTIONS,
       includeStatic: true,
+      pollMs: DEFAULT_POLL_MS,
     };
   }
   return {
@@ -75,6 +82,10 @@ export function normalizeAgentDynamicSuggestionsConfig(
         : DEFAULT_MAX_SUGGESTIONS,
     includeStatic: option.includeStatic !== false,
     ...(option.getSuggestions ? { getSuggestions: option.getSuggestions } : {}),
+    pollMs:
+      typeof option.pollMs === "number" && Number.isFinite(option.pollMs)
+        ? Math.max(0, Math.floor(option.pollMs))
+        : DEFAULT_POLL_MS,
   };
 }
 
@@ -89,17 +100,9 @@ function appStateKeyForBrowserTab(key: string, browserTabId?: string): string {
 }
 
 async function readAppState(key: string): Promise<unknown> {
-  const res = await fetch(
-    agentNativePath(`/_agent-native/application-state/${key}`),
-  );
-  if (!res.ok || res.status === 204) return null;
-  const text = await res.text();
-  if (!text) return null;
-  try {
-    return JSON.parse(text);
-  } catch {
-    return null;
-  }
+  // Reads issued in the same tick coalesce into one batched request, so the
+  // four keys below cost one round trip rather than four.
+  return readClientAppState(key).catch(() => null);
 }
 
 async function readScopedAppState(
@@ -322,7 +325,7 @@ export function mergeAgentSuggestions(options: {
 }): string[] {
   if (options.dynamicSuggestions.length === 0) {
     return options.includeStatic
-      ? dedupeSuggestions(options.staticSuggestions ?? [])
+      ? dedupeSuggestions(options.staticSuggestions ?? []).slice(0, options.max)
       : [];
   }
 
@@ -364,16 +367,14 @@ export function useAgentDynamicSuggestionsResult(
     null,
   );
   const [isLoading, setIsLoading] = useState(false);
+  // Invalidates in-flight loads from a stale scope/browserTabId/enabled
+  // generation — shared between the leading load below and the safety-net
+  // poll so a slow response from an old generation can't clobber a newer one.
+  const loadGenerationRef = useRef(0);
 
-  useEffect(() => {
-    if (!enabled) {
-      setContext(null);
-      setIsLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    const load = async (showLoading: boolean) => {
+  const load = useCallback(
+    async (showLoading: boolean) => {
+      const generation = loadGenerationRef.current;
       if (showLoading) setIsLoading(true);
       try {
         const [navigation, selection, pendingSelection, url] =
@@ -383,16 +384,10 @@ export function useAgentDynamicSuggestionsResult(
             readScopedAppState("pending-selection-context", browserTabId),
             readScopedAppState("__url__", browserTabId),
           ]);
-        if (cancelled) return;
-        setContext({
-          navigation,
-          selection,
-          pendingSelection,
-          url,
-          scope,
-        });
+        if (generation !== loadGenerationRef.current) return;
+        setContext({ navigation, selection, pendingSelection, url, scope });
       } catch {
-        if (cancelled) return;
+        if (generation !== loadGenerationRef.current) return;
         setContext({
           navigation: null,
           selection: null,
@@ -401,30 +396,37 @@ export function useAgentDynamicSuggestionsResult(
           scope,
         });
       } finally {
-        if (!cancelled && showLoading) setIsLoading(false);
+        if (generation === loadGenerationRef.current && showLoading) {
+          setIsLoading(false);
+        }
       }
-    };
+    },
+    [browserTabId, scope],
+  );
 
+  useEffect(() => {
+    loadGenerationRef.current += 1;
+    if (!enabled) {
+      setContext(null);
+      setIsLoading(false);
+      return;
+    }
     void load(true);
-    const interval = setInterval(() => {
-      // The useEffect deps already include appStateVersion, so app-state
-      // changes trigger an immediate event-driven refresh above. This
-      // interval is only a slow safety net for updates that don't bump
-      // that version — skip ticks while the tab isn't visible.
-      if (document.hidden) return;
-      void load(false);
-    }, 30_000);
+  }, [appStateVersion, enabled, load, scopeKey, config]);
 
-    return () => {
-      cancelled = true;
-      clearInterval(interval);
-    };
-  }, [appStateVersion, browserTabId, enabled, scope, scopeKey]);
+  // Slow safety net for app-state updates that don't bump `appStateVersion`
+  // (the effect above already handles the event-driven case). `pollMs <= 0`
+  // disables it.
+  usePollLoop(() => load(false), {
+    intervalMs: config.pollMs,
+    leading: false,
+    enabled: enabled && config.pollMs > 0,
+  });
 
   const suggestions = useMemo(() => {
     if (!enabled) {
       return options.staticSuggestions
-        ? dedupeSuggestions(options.staticSuggestions)
+        ? dedupeSuggestions(options.staticSuggestions).slice(0, config.max)
         : undefined;
     }
     if (context === null) return undefined;

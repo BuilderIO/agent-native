@@ -5,7 +5,7 @@ import { getUserSetting } from "../../settings/user-settings.js";
 import {
   LOCALIZATION_SETTING_KEY,
   normalizeLocalizationPreference,
-  type LocalizationPreference,
+  type ResolvedLocalizationPreference,
 } from "../shared.js";
 
 export default defineAction({
@@ -13,7 +13,7 @@ export default defineAction({
     "Get the current user's interface language preference. Returns { locale }, where locale is 'system' or a supported BCP-47 locale.",
   schema: z.object({}),
   http: { method: "GET" },
-  run: async (_args, ctx): Promise<LocalizationPreference> => {
+  run: async (_args, ctx): Promise<ResolvedLocalizationPreference> => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
     const stored = await getUserSetting(
       ctx.userEmail,

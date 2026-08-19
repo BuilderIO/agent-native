@@ -189,6 +189,18 @@ export async function hasCollabState(docId: string): Promise<boolean> {
   return rows.length > 0;
 }
 
+/** Load all existing document ids in one query for startup reconciliation. */
+export async function listCollabDocIds(): Promise<Set<string>> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute("SELECT doc_id FROM _collab_docs");
+  return new Set(
+    rows.flatMap((row) =>
+      typeof row.doc_id === "string" && row.doc_id ? [row.doc_id] : [],
+    ),
+  );
+}
+
 /** Delete collaborative state for a document. */
 export async function deleteCollabState(docId: string): Promise<void> {
   await ensureTable();

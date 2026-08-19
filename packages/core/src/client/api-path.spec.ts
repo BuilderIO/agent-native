@@ -5,6 +5,7 @@ import {
   appApiPath,
   appBasePath,
   appPath,
+  isWorkspaceAppPath,
 } from "./api-path.js";
 import { oauthRedirectUri } from "./frame.js";
 
@@ -46,6 +47,54 @@ describe("agentNativePath", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
     vi.stubGlobal("window", { location: { pathname: "/diagrams" } });
+
+    expect(appBasePath()).toBe("/diagrams");
+    expect(agentNativePath("/_agent-native/poll")).toBe(
+      "/diagrams/_agent-native/poll",
+    );
+  });
+
+  it("does not mistake an app-local route for a sibling app's workspace mount", () => {
+    // Regression for the Builder connect popup opening
+    // "/settings/_agent-native/builder/connect" instead of
+    // "/dispatch/_agent-native/builder/connect" — the workspace gateway has
+    // no app mounted at "/settings" (it's a page inside the "dispatch" app),
+    // so that URL 404s into the gateway's app-picker page instead of
+    // reaching Builder's real sign-in/authorize screen.
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "dispatch", path: "/dispatch" },
+        { id: "chat", path: "/chat" },
+        { id: "signals", path: "/signals" },
+      ]),
+    );
+    vi.stubGlobal("window", { location: { pathname: "/settings" } });
+
+    expect(appBasePath()).toBe("/dispatch");
+    expect(agentNativePath("/_agent-native/builder/connect")).toBe(
+      "/dispatch/_agent-native/builder/connect",
+    );
+  });
+
+  it("accepts boolean-style workspace flags from the config layer", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "true");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    vi.stubGlobal("window", { location: { pathname: "/diagrams" } });
+
+    expect(appBasePath()).toBe("/diagrams");
+    expect(agentNativePath("/_agent-native/poll")).toBe(
+      "/diagrams/_agent-native/poll",
+    );
+  });
+
+  it("uses projected workspace state when only the server flag is configured", () => {
+    vi.stubGlobal("window", {
+      location: { pathname: "/diagrams" },
+      __AGENT_NATIVE_CONFIG__: { workspaceRuntime: true },
+    });
 
     expect(appBasePath()).toBe("/diagrams");
     expect(agentNativePath("/_agent-native/poll")).toBe(
@@ -123,6 +172,35 @@ describe("oauthRedirectUri", () => {
     );
   });
 
+  it("uses projected workspace state for browser OAuth relay", () => {
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://workspace.example",
+        pathname: "/calendar/_agent-native/google/auth-url",
+      },
+      __AGENT_NATIVE_CONFIG__: { workspaceRuntime: true },
+    });
+
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://workspace.example/_agent-native/google/callback",
+    );
+  });
+
+  it("uses the current origin when projected workspace config has no origin", () => {
+    vi.stubEnv("VITE_WORKSPACE_OAUTH_ORIGIN", "https://stale.example");
+    vi.stubGlobal("window", {
+      location: {
+        origin: "https://current.example",
+        pathname: "/calendar/_agent-native/google/auth-url",
+      },
+      __AGENT_NATIVE_CONFIG__: { workspaceRuntime: true },
+    });
+
+    expect(oauthRedirectUri("/_agent-native/google/callback")).toBe(
+      "https://current.example/_agent-native/google/callback",
+    );
+  });
+
   it("uses the configured workspace OAuth origin in workspace mode", () => {
     vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv(
@@ -194,6 +272,42 @@ describe("appPath", () => {
     });
 
     expect(appPath("api/local-migration")).toBe("api/local-migration");
+  });
+});
+
+describe("isWorkspaceAppPath", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it("recognizes sibling workspace app mounts without treating local routes as external", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv(
+      "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        { id: "market-research", path: "/market-research" },
+        { id: "seo-application", path: "/seo-application" },
+      ]),
+    );
+    vi.stubGlobal("window", {
+      location: { pathname: "/market-research/_agent-native/poll" },
+    });
+
+    expect(isWorkspaceAppPath("/seo-application")).toBe(true);
+    expect(isWorkspaceAppPath("/seo-application/settings")).toBe(true);
+    expect(isWorkspaceAppPath("/settings")).toBe(false);
+    expect(isWorkspaceAppPath("/market-research/settings")).toBe(false);
+  });
+
+  it("fails closed when the workspace app manifest is unreadable", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON", "not-json");
+    vi.stubGlobal("window", {
+      location: { pathname: "/market-research/_agent-native/poll" },
+    });
+
+    expect(isWorkspaceAppPath("/seo-application")).toBe(false);
   });
 });
 

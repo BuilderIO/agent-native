@@ -13,7 +13,7 @@ Agent-Native には完全なサイドバーが同梱されていますが、サ�
 フォーカスされたクライアントのサブパスからブラウザ UI をインポートします:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -177,8 +177,9 @@ function CustomChat({ projectSlug }: { projectSlug: string }) {
 
 ## チャットフィールドとコンポーザー {#composer}
 
-同じチャットを行う必要がある場合は、`@agent-native/core/client/composer` を使用してください
-カスタム UI 内のサイドバーで使用されるフィールド。
+カスタム UI でサイドバーと同じチャット フィールドが必要な場合は、`@agent-native/core/client/composer`
+を使用してください。`@agent-native/toolkit/composer` はポータブルな素の Tiptap と UI 実装を提供します。
+フレームワーク サービスと使うには `ComposerRuntimeAdaptersProvider` でラップしてサービスを渡します。Core は添付、メンション、スキル、音声、モデル選択を接続済みのラッパーです。
 
 | API                               | 次の場合に使用します                                                                                                                                                         |
 | --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -214,7 +215,6 @@ import { PromptComposer } from "@agent-native/core/client/composer";
 | `<AgentConversation>`                           | 正規化されたエージェント メッセージのリストをレンダリングします。            |
 | `<AgentConversationMessageView>`                | 正規化されたメッセージを 1 つレンダリングします。                            |
 | `normalizeCodeAgentTranscriptForConversation()` | コード エージェントのトランスクリプト イベントを会話メッセージに変換します。 |
-| `useNearBottomAutoscroll()`                     | ストリーミング中にカスタム トランスクリプトを下部に固定したままにします。    |
 
 このレイヤーは意図的にデータファーストです。メッセージの送信元はユーザーが所有しており、
 レンダラーは一貫したマークダウン、添付ファイル、通知、アーティファクトを所有し、
@@ -499,6 +499,6 @@ export default defineAction({
 
 - [**Drop-in Agent**](/docs/drop-in-agent) — チュートリアル中心のガイドで `<AgentSidebar>` と `<AgentPanel>` をマウントする
 - [**Native Chat UI**](/docs/native-chat-ui) — データウィジェットとカスタムレンダラーを支えるアクション結果コントラクト
-- [**Actions**](/docs/actions) — `defineAction()`、スキーマ、およびこれらのコンポーネントが呼び出すアクションサーフェス
+- [**Actions**](/docs/actions-overview) — `defineAction()`、スキーマ、およびこれらのコンポーネントが呼び出すアクションサーフェス
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — コラボレーションフックとプレゼンスコンポーネントの詳細
 - [**Sharing**](/docs/sharing) — 所有可能なリソース向けの `<ShareButton>` と `<ShareDialog>` の配線

@@ -7,12 +7,13 @@
  *
  *   - **proxy (default)** — connect an MCP `Client` over
  *     `StreamableHTTPClientTransport` to the *already-running* local app's
- *     `http://127.0.0.1:<port>/_agent-native/mcp`, and run a stdio `Server`
- *     that forwards tools and optional MCP App resources to it. The live app
- *     is the single source of truth: HMR'd actions, the real registry, correct
- *     per-request deep links, and tenant scoping all come for free. If the
- *     app isn't running, we wait briefly for it (the workspace gateway boots
- *     it lazily on first request).
+ *     `http://127.0.0.1:<port>/mcp` (falling back to the legacy
+ *     `/_agent-native/mcp` path), and run a stdio `Server` that forwards tools
+ *     and optional MCP App resources to it. The live app is the single source
+ *     of truth: HMR'd actions, the real registry, correct per-request deep
+ *     links, and tenant scoping all come for free. If the app isn't running,
+ *     we wait briefly for it (the workspace gateway boots it lazily on first
+ *     request).
  *
  *   - **standalone (`--standalone`)** — no running server, no HMR. Build the
  *     MCP server in-process from `autoDiscoverActions(cwd)` +
@@ -23,8 +24,10 @@
  * of the serverless bundle.
  */
 
-import type { ServerCapabilities } from "@modelcontextprotocol/sdk/types.js";
-
+import {
+  MCP_LEGACY_ROUTE_PREFIX,
+  MCP_PUBLIC_ROUTE_PREFIX,
+} from "./route-paths.js";
 import { resolveLocalAppOrigin } from "./workspace-resolve.js";
 
 export interface RunMCPStdioOptions {
@@ -42,7 +45,10 @@ export interface RunMCPStdioOptions {
   waitForAppMs?: number;
 }
 
-const MCP_SUBPATH = "/_agent-native/mcp";
+const MCP_SUBPATHS = [
+  MCP_PUBLIC_ROUTE_PREFIX,
+  MCP_LEGACY_ROUTE_PREFIX,
+] as const;
 
 function log(msg: string): void {
   // stderr only — stdout is the MCP protocol channel and must stay clean.
@@ -74,9 +80,13 @@ function authHeaders(env: NodeJS.ProcessEnv): Record<string, string> {
   return headers;
 }
 
-async function probeOrigin(origin: string, timeoutMs = 800): Promise<boolean> {
+async function probeOrigin(
+  origin: string,
+  subpath: string,
+  timeoutMs = 800,
+): Promise<boolean> {
   try {
-    const res = await fetch(`${origin}${MCP_SUBPATH}`, {
+    const res = await fetch(`${origin}${subpath}`, {
       method: "GET",
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -85,6 +95,13 @@ async function probeOrigin(origin: string, timeoutMs = 800): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+async function resolveMcpSubpath(origin: string): Promise<string | null> {
+  for (const subpath of MCP_SUBPATHS) {
+    if (await probeOrigin(origin, subpath)) return subpath;
+  }
+  return null;
 }
 
 /**
@@ -103,41 +120,31 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
     port: opts.port,
   });
   const env = opts.env ?? process.env;
-  const target = `${origin}${MCP_SUBPATH}`;
-
   // Wait for the app to come up. The workspace gateway lazily boots an app's
   // dev server on first request, so a fresh `mcp serve` may briefly race the
   // boot. Hit the gateway path too so the lazy start is triggered.
   const deadline = Date.now() + (opts.waitForAppMs ?? 60_000);
-  let up = await probeOrigin(origin);
-  if (!up) {
+  let mcpSubpath = await resolveMcpSubpath(origin);
+  if (!mcpSubpath) {
     log(`Waiting for ${appId} at ${origin} …`);
-    while (!up && Date.now() < deadline) {
+    while (!mcpSubpath && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 750));
-      up = await probeOrigin(origin);
+      mcpSubpath = await resolveMcpSubpath(origin);
     }
   }
-  if (!up) {
+  if (!mcpSubpath) {
     throw new Error(
       `Timed out waiting for the local app at ${origin}. Start it with ` +
         `\`agent-native dev\` (or \`agent-native workspace-dev\`), or run ` +
         `\`agent-native mcp serve --standalone\` to build the server from disk.`,
     );
   }
+  const target = `${origin}${mcpSubpath}`;
 
-  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-  const { StreamableHTTPClientTransport } =
-    await import("@modelcontextprotocol/sdk/client/streamableHttp.js");
-  const { Server } = await import("@modelcontextprotocol/sdk/server/index.js");
-  const { StdioServerTransport } =
-    await import("@modelcontextprotocol/sdk/server/stdio.js");
-  const {
-    ListToolsRequestSchema,
-    CallToolRequestSchema,
-    ListResourcesRequestSchema,
-    ReadResourceRequestSchema,
-    ListResourceTemplatesRequestSchema,
-  } = await import("@modelcontextprotocol/sdk/types.js");
+  const { Client, StreamableHTTPClientTransport } =
+    await import("@modelcontextprotocol/client");
+  const { Server } = await import("@modelcontextprotocol/server");
+  const { serveStdio } = await import("@modelcontextprotocol/server/stdio");
 
   // --- Upstream HTTP client -------------------------------------------------
   const clientTransport = new StreamableHTTPClientTransport(new URL(target), {
@@ -145,69 +152,72 @@ async function runProxy(opts: RunMCPStdioOptions): Promise<void> {
   });
   const client = new Client(
     { name: "agent-native-mcp-proxy", version: "1.0.0" },
-    { capabilities: {} },
+    {
+      capabilities: {},
+      versionNegotiation: { mode: "auto" },
+    },
   );
   await client.connect(clientTransport);
   log(`Proxying stdio ⇄ ${target} (app: ${appId})`);
 
   // --- Downstream stdio server ---------------------------------------------
   const upstreamCapabilities = client.getServerCapabilities();
-  const capabilities: ServerCapabilities = { tools: {} };
+  const capabilities: NonNullable<
+    ReturnType<typeof client.getServerCapabilities>
+  > = { tools: {} };
   if (upstreamCapabilities?.resources) capabilities.resources = {};
   if (upstreamCapabilities?.extensions) {
     capabilities.extensions = upstreamCapabilities.extensions;
   }
 
-  const server = new Server(
-    { name: `agent-native-${appId}`, version: "1.0.0" },
-    { capabilities },
+  const stdio = serveStdio(
+    () => {
+      const server = new Server(
+        { name: `agent-native-${appId}`, version: "1.0.0" },
+        { capabilities },
+      );
+
+      server.setRequestHandler("tools/list", async (request: any) => {
+        return client.listTools(request.params);
+      });
+
+      server.setRequestHandler("tools/call", async (request: any) => {
+        // Forward the call verbatim; the upstream appends the deep-link block.
+        return client.callTool(request.params);
+      });
+
+      if (upstreamCapabilities?.resources) {
+        server.setRequestHandler("resources/list", async (request: any) => {
+          return client.listResources(request.params);
+        });
+
+        server.setRequestHandler(
+          "resources/templates/list",
+          async (request: any) => {
+            return client.listResourceTemplates(request.params);
+          },
+        );
+
+        server.setRequestHandler("resources/read", async (request: any) => {
+          return client.readResource(request.params);
+        });
+      }
+      return server;
+    },
+    { legacy: "serve" },
   );
-
-  server.setRequestHandler(ListToolsRequestSchema, async (request: any) => {
-    return client.listTools(request.params);
-  });
-
-  server.setRequestHandler(CallToolRequestSchema, async (request: any) => {
-    // Forward the call verbatim; the upstream appends the deep-link block.
-    return client.callTool(request.params);
-  });
-
-  if (upstreamCapabilities?.resources) {
-    server.setRequestHandler(
-      ListResourcesRequestSchema,
-      async (request: any) => {
-        return client.listResources(request.params);
-      },
-    );
-
-    server.setRequestHandler(
-      ListResourceTemplatesRequestSchema,
-      async (request: any) => {
-        return client.listResourceTemplates(request.params);
-      },
-    );
-
-    server.setRequestHandler(
-      ReadResourceRequestSchema,
-      async (request: any) => {
-        return client.readResource(request.params);
-      },
-    );
-  }
-
-  const stdioTransport = new StdioServerTransport();
-  await server.connect(stdioTransport);
 
   // Keep the proxy alive until the client/transport closes.
   await new Promise<void>((resolve) => {
     const done = () => resolve();
-    stdioTransport.onclose = done;
     clientTransport.onclose = done;
+    process.stdin.once("end", done);
     process.once("SIGINT", done);
     process.once("SIGTERM", done);
   });
 
   try {
+    await stdio.close();
     await client.close();
   } catch {
     // best-effort
@@ -246,44 +256,44 @@ async function runStandalone(opts: RunMCPStdioOptions): Promise<void> {
 
   const { autoDiscoverActions } = await import("../server/action-discovery.js");
   const { createMCPServerForRequest } = await import("./build-server.js");
-  const { StdioServerTransport } =
-    await import("@modelcontextprotocol/sdk/server/stdio.js");
+  const { serveStdio } = await import("@modelcontextprotocol/server/stdio");
 
   const actions = await autoDiscoverActions(cwd);
   log(
     `Standalone: discovered ${Object.keys(actions).length} action(s) in ${cwd}`,
   );
 
-  const server = await createMCPServerForRequest(
-    {
-      name: appId.charAt(0).toUpperCase() + appId.slice(1),
-      appId,
-      description: `Agent-native ${appId} app (standalone MCP)`,
-      actions,
-      // No askAgent in standalone — there is no running engine/runtime here.
-      // builtin cross-app tools stay on so `list_apps` / `open_app` /
-      // `create_workspace_app` / `list_templates` still work from disk.
-    },
-    // No verified identity in standalone (no inbound auth header). Runs with
-    // platform-default scope, same as a tokenless local HTTP mount.
-    undefined,
-    {
-      origin,
-      clientName: "agent-native-mcp-standalone",
-      // Compact by default; opt into the full catalog with the env flag.
-      fullCatalog: process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1",
-    },
+  const stdio = serveStdio(
+    () =>
+      createMCPServerForRequest(
+        {
+          name: appId.charAt(0).toUpperCase() + appId.slice(1),
+          appId,
+          description: `Agent-native ${appId} app (standalone MCP)`,
+          actions,
+          // No askAgent in standalone — there is no running engine/runtime here.
+          // builtin cross-app tools stay on so `list_apps` / `open_app` /
+          // `create_workspace_app` / `list_templates` still work from disk.
+        },
+        // No verified identity in standalone (no inbound auth header). Runs with
+        // platform-default scope, same as a tokenless local HTTP mount.
+        undefined,
+        {
+          origin,
+          clientName: "agent-native-mcp-standalone",
+          // Compact by default; opt into the full catalog with the env flag.
+          fullCatalog: process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1",
+        },
+      ),
+    { legacy: "serve" },
   );
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-
   await new Promise<void>((resolve) => {
-    const done = () => resolve();
-    transport.onclose = done;
-    process.once("SIGINT", done);
-    process.once("SIGTERM", done);
+    process.stdin.once("end", resolve);
+    process.once("SIGINT", resolve);
+    process.once("SIGTERM", resolve);
   });
+  await stdio.close();
 }
 
 /**

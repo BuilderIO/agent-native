@@ -94,8 +94,7 @@ description: "代理跟踪、评估、反馈、A/B 实验和内置仪表板 - �
 
 ```tsx
 // app/routes/observability.tsx
-import { ObservabilityDashboard } from "@agent-native/core/client";
-
+import { ObservabilityDashboard } from "@agent-native/core/client/observability";
 export default function ObservabilityPage() {
   return (
     <div className="min-h-screen bg-background p-6">
@@ -383,5 +382,5 @@ CLI 的硬编码 DSN 是有意为之的 - 发布的二进制文件需要通知�
 ## 下一步是什么
 
 - [**Tracking**](/docs/tracking) - 针对您的应用自身事件的产品分析（PostHog、Mixpanel、Amplitude）
-- [**Actions**](/docs/actions) - 在跟踪中显示为工具调用的操作
+- [**Actions**](/docs/actions-overview) - 在跟踪中显示为工具调用的操作
 - [**Security**](/docs/security) — 数据范围和凭证处理

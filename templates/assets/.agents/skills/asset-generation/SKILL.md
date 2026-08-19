@@ -2,7 +2,8 @@
 name: asset-generation
 description: >-
   Use Assets for brand-safe image or video generation, human picker UI,
-  search/list/export actions, and cross-app asset selection.
+  search/list/export actions, and cross-app asset selection. Use when a visual
+  needs to be generated, refined, found, or handed off to another app.
 metadata:
   visibility: both
 ---
@@ -13,6 +14,24 @@ metadata:
 
 Use the Assets app when a workflow needs reusable brand media, a human picker,
 or generated image/video assets that another app can reference by ID and URL.
+
+## Visual authority and brief
+
+Assets produces media; it does not invent a replacement brand language. Before
+generating, resolve the user's explicit subject, audience, message, format, and
+must-preserve constraints, then the active library, preset, or linked design
+system and its custom instructions, then approved Creative Context references.
+Impeccable-inspired guidance is a quality lens for composition, hierarchy,
+restraint, and finish — never a reason to override those sources.
+
+Compile the request into a short art-direction brief: visual role, subject,
+composition and crop, palette or material treatment, lighting or medium,
+exact visible text if any, semantic constraints, and exclusions. Classify the
+slot as `produce` (new media), `direct` (an existing approved asset), or
+`semantic` (a UI/icon/diagram the caller should build with its own primitives).
+Do not generate a decorative photo where the caller needs a semantic graphic.
+If brand context is missing, make the result clearly exploratory rather than
+claiming a brand match.
 
 ## Choose The Path
 
@@ -27,8 +46,9 @@ or generated image/video assets that another app can reference by ID and URL.
   Pass `mediaType: "image"` by default, or `mediaType: "video"` for video
   libraries.
 - Use unattended actions when the agent already knows what to do:
-  `search-assets`, `list-assets`, `generate-image`, `generate-image-batch`,
-  `generate-video`, `refresh-generation-run`, and `export-asset`.
+  `search-assets`, `list-assets`, `import-style-from-url`, `generate-image`,
+  `generate-image-batch`, `generate-video`, `refresh-generation-run`, and
+  `export-asset`.
 - In chat, consume composer `@` references as structured generation inputs:
   `brand-kit` maps to `libraryId`, `preset` maps to `presetId`, and
   `media-type` chooses image generation versus video generation. If no mention
@@ -53,44 +73,59 @@ or generated image/video assets that another app can reference by ID and URL.
 
 ## Image Workflows
 
-1. For human-in-the-loop generation, call `generate-asset` first and preserve
+1. Read the `creative-context` skill and retrieve visual references separately
+   from factual evidence. Respect `contextMode: "off"`, pinned packs, and the
+   exact reuse ladder before generation: approved native asset unchanged,
+   compose approved pieces, lightly adapt a real example, condition generation
+   on narrow references, then net-new only when the relevant corpus is empty.
+2. For human-in-the-loop generation, call `generate-asset` first and preserve
    the returned picker/candidate metadata. For unattended generation, pick or
    match the library with `list-libraries` or `match-library`.
    If the user wants a default look rather than a brand library, call
    `list-library-presets` and then `create-library-from-preset`; the resulting
    library is editable and reusable like any other library.
-2. For one asset, call `generate-image`; for multiple independent slots, call
+3. For one asset, call `generate-image`; for multiple independent slots, call
    `generate-image-batch` with stable `slotId` values.
-3. Image generation actions are synchronous. After `generate-image` or
+4. Image generation actions are synchronous. After `generate-image` or
    `generate-image-batch` returns, use its returned `images` / asset fields
    directly; do not call `get-generation-run`, `refresh-generation-run`, or
    regenerate just to verify image runs.
-4. For preset-backed work, pass a mentioned or selected `presetId`; for handoff
+5. For preset-backed work, pass a mentioned or selected `presetId`; for handoff
    work, pass `sessionId`.
-5. Let the server choose a small deterministic reference set unless the user
+6. Let the server choose a small deterministic reference set unless the user
    named exact assets. Canonical style anchors come from
    `assetLibraries.settings.canonicalStyleAssetIds` and
-   `assets.metadata.isStyleAnchor`.
-6. Pass `tier: "fast"` for exploration, `tier: "best"` for final/high-value
+   `assets.metadata.isStyleAnchor`; they must remain subordinate to explicit
+   library, preset, and per-run constraints rather than introducing a second
+   visual language.
+7. Pass `tier: "fast"` for exploration, `tier: "best"` for final/high-value
    output, or `tier: "auto"` when there is no clear preference.
    - Model/ratio compatibility: Gemini image models accept any `aspectRatio`, but
      `gpt-image-2` supports only `1:1`, `2:3`, and `3:2`. When the user needs
      another ratio (16:9, 9:16, 4:5, 21:9, …), pick a Gemini model rather than
      `gpt-image-2` — an unsupported pairing is rejected upstream. Source of truth
      is `supportedAspectRatiosForModel` / `MODEL_ASPECT_RATIOS` in `shared/api.ts`.
-7. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
-8. Use `refine-image` for feedback on an existing asset, `edit-image` for
+8. Preserve returned `assetId`, `runId`, `previewUrl`, and `downloadUrl`.
+   Preserve the immutable `contextPackId` and reuse labels on both generation
+   run and output-asset metadata; rendered pixels are not provenance.
+9. Use `refine-image` for feedback on an existing asset, `edit-image` for
    targeted changes, and `restyle-image` with `subjectAssetId` and
    `styleStrength` for subject-preserving brand restyles.
-9. If a designer will take over, call `create-generation-session` or
+10. If a designer will take over, call `create-generation-session` or
    `update-generation-session`, then `prepare-generation-session-continuation`
    when they want a chat preloaded with the session context.
 
 For short vague prompts, enhance conservatively with library style context while
-preserving the user's original prompt in run metadata. Use
-`analyze-collection-style` when a collection needs upgraded vision brand
-analysis before generation. Brand QA scoring and best-of-N selection are
-deferred.
+preserving the user's original prompt in run metadata. If a public website is
+the style source, call `import-style-from-url` first so the library keeps the
+hydrated browser-derived design brief. Use `analyze-collection-style` when a
+collection needs upgraded vision brand analysis from image references before
+generation. Brand QA scoring and best-of-N selection are deferred.
+
+Generation success confirms a run and its provenance, not visual quality or
+brand match. Report the selected library, preset, style anchors, and whether
+the result used an Assets-grounded or fallback path. Claim a quality evaluator
+only when one actually ran.
 
 ## Video Workflows
 

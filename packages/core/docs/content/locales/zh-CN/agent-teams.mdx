@@ -14,7 +14,7 @@ Agent Teams 在核心运行管理器上运行：事件流并持续，中止通�
 ## 心智模型 {#mental-model}
 
 - **主聊天** — 协调器。代表们，请阅读您的请求。繁重的工作本身很少。
-- **子代理** — 使用自己的线程、自己的系统提示符、自己的工具集运行。每个映射到 [workspace](/docs/workspace) 中的“自定义代理”配置文件。
+- **子代理** — 使用自己的线程、自己的系统提示符、自己的工具集运行。每个映射到 [代理资源](/docs/agent-resources) 中的“自定义代理”配置文件。
 - **Chips** — 主聊天中内联显示的丰富预览卡，显示子代理的当前步骤、流输出和最终摘要。默认折叠；点击即可展开完整对话。
 - **双向消息传递** - 主代理可以向正在运行的子代理发送后续消息；当子代理遇到模糊点时可以回复消息。
 
@@ -105,7 +105,7 @@ Agent Teams 在核心运行管理器上运行：事件流并持续，中止通�
 
 用户在聊天编辑器中键入 `@agent-name`。将出现工作区子代理的下拉列表。选择其中一个插入芯片；提交后，主代理将消息委托给该子代理。
 
-自定义代理位于 `agents/<slug>.md` 的工作区中 — 一个带有 YAML frontmatter 的 Markdown 文件。格式请参见[Custom Agents](/docs/workspace#custom-agents)。
+自定义代理位于 `agents/<slug>.md` 的工作区中 — 一个带有 YAML frontmatter 的 Markdown 文件。格式请参见[Custom Agents](/docs/agent-resources#custom-agents)。
 
 ### 2。主代理自动委托 {#auto-delegate}
 
@@ -247,7 +247,7 @@ interface AgentTask {
 
 ## 自定义代理配置文件 {#profiles}
 
-子代理映射到自定义代理配置文件 - 工作区中 `agents/<slug>.md` 处的 Markdown 文件，这些文件显示在 `@mention` 下拉列表中并用作委派目标。 [Workspace — Custom Agents](/docs/workspace#custom-agents) 拥有完整格式（frontmatter、`tools`、`delegate-default`、模型覆盖）。
+子代理映射到自定义代理配置文件 - 工作区中 `agents/<slug>.md` 处的 Markdown 文件，这些文件显示在 `@mention` 下拉列表中并用作委派目标。 [代理资源 — Custom Agents](/docs/agent-resources#custom-agents) 拥有完整格式（frontmatter、`tools`、`delegate-default`、模型覆盖）。
 
 ## 委托深度防护 {#depth-guard}
 
@@ -326,6 +326,6 @@ AGENT_NATIVE_MAX_SUBAGENT_DEPTH=1   # 允许分代理，但不能分代理
 
 ## 下一步是什么
 
-- [**Workspace — Custom Agents**](/docs/workspace#custom-agents) — 配置文件格式
+- [**代理资源 — Custom Agents**](/docs/agent-resources#custom-agents) — 配置文件格式
 - [**A2A Protocol**](/docs/a2a-protocol) - 当“子代理”完全位于不同的应用程序中时
-- [**Actions**](/docs/actions) — 子代理调用的工具
+- [**Actions**](/docs/actions-overview) — 子代理调用的工具

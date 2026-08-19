@@ -4,7 +4,16 @@ import { useCallback } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import {
+  contentSpaceForStoredSelection,
+  contentSpaceIdForCreate,
+  SELECTED_CONTENT_SPACE_STORAGE_KEY,
+} from "@/components/sidebar/select-content-space";
+import { useContentSpaces } from "@/hooks/use-content-spaces";
 import { useCreateDocument } from "@/hooks/use-documents";
+import { useLocalStorage } from "@/hooks/use-local-storage";
+import { documentQueryFilter } from "@/lib/document-query";
+import { markDocumentCreationPending } from "@/lib/optimistic-document";
 
 const LIST_DOCUMENTS_QUERY_KEY = [
   "action",
@@ -27,15 +36,36 @@ export function useCreatePage(opts?: {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const createDocument = useCreateDocument();
+  const contentSpacesQuery = useContentSpaces();
+  const [storedSpaceId] = useLocalStorage<string | null>(
+    SELECTED_CONTENT_SPACE_STORAGE_KEY,
+    null,
+  );
+  const selectedSpace = contentSpaceForStoredSelection({
+    spaces: contentSpacesQuery.data?.spaces ?? [],
+    storedSpaceId,
+  });
   const onAfterNavigate = opts?.onAfterNavigate;
   const shouldNavigate = opts?.navigate ?? true;
   const shouldAwaitPersist = opts?.awaitPersist ?? true;
 
   return useCallback(
     async (parentId?: string) => {
+      let spaceId: string | undefined;
+      try {
+        spaceId = contentSpaceIdForCreate({
+          parentId,
+          selectedSpace,
+        });
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Files are still loading",
+        );
+        throw error;
+      }
       const id = nanoid();
       const now = new Date().toISOString();
-      const tempDoc: Document = {
+      const tempDoc = markDocumentCreationPending({
         id,
         parentId: parentId ?? null,
         title: "",
@@ -47,7 +77,7 @@ export function useCreatePage(opts?: {
         visibility: "private",
         createdAt: now,
         updatedAt: now,
-      };
+      });
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
@@ -62,16 +92,19 @@ export function useCreatePage(opts?: {
       }
 
       const persist = async () => {
-        await createDocument.mutateAsync({
+        const created = await createDocument.mutateAsync({
           id,
           title: "",
           parentId: parentId ?? undefined,
+          spaceId,
         });
+        queryClient.setQueryData(
+          ["action", "get-document", { id: created.id }],
+          created,
+        );
         // Replace optimistic doc with real server doc + clear any 404 error
         // state from the in-flight fetch that ran before create completed.
-        queryClient.invalidateQueries({
-          queryKey: ["action", "get-document", { id }],
-        });
+        queryClient.invalidateQueries(documentQueryFilter(id));
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -81,9 +114,7 @@ export function useCreatePage(opts?: {
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        queryClient.removeQueries({
-          queryKey: ["action", "get-document", { id }],
-        });
+        queryClient.removeQueries(documentQueryFilter(id));
         if (shouldNavigate) navigate("/");
         toast.error("Failed to create page", {
           description:
@@ -109,6 +140,7 @@ export function useCreatePage(opts?: {
       navigate,
       onAfterNavigate,
       queryClient,
+      selectedSpace,
       shouldAwaitPersist,
       shouldNavigate,
     ],

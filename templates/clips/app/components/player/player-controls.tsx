@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   IconPlayerPlay,
   IconPlayerPause,
@@ -6,6 +6,7 @@ import {
   IconVolume,
   IconVolumeOff,
   IconMaximize,
+  IconMessagePlus,
   IconPictureInPicture,
   IconSubtitles,
   IconRectangle,
@@ -33,6 +34,7 @@ import {
 import { PLAYBACK_SPEED_OPTIONS } from "@/lib/playback-speed";
 import { cn } from "@/lib/utils";
 
+import { ReactionsTray } from "./reactions-tray";
 import { Scrubber, msToClock } from "./scrubber";
 
 export const SPEED_OPTIONS = PLAYBACK_SPEED_OPTIONS;
@@ -53,7 +55,6 @@ export interface PlayerControlsProps {
   comments?: { id: string; videoTimestampMs: number; content: string }[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
-  excludedRanges?: { startMs: number; endMs: number }[];
   onPlayPause: () => void;
   onSeek: (ms: number) => void;
   onSeekRelative: (deltaMs: number) => void;
@@ -65,6 +66,16 @@ export interface PlayerControlsProps {
   onToggleFullscreen: () => void;
   onToggleTheater?: () => void;
   menuPortalContainer?: HTMLElement | null;
+  /**
+   * Surfaces the reaction tray and a comment-composer trigger inline in this
+   * bar (Loom-style), for contexts — namely fullscreen — where the caller's
+   * own reaction/comment row would otherwise be hidden.
+   */
+  showReactionsAndComment?: boolean;
+  enableReactions?: boolean;
+  onReact?: (emoji: string) => void;
+  enableComments?: boolean;
+  onAddComment?: () => void;
 }
 
 export function PlayerControls(props: PlayerControlsProps) {
@@ -84,7 +95,6 @@ export function PlayerControls(props: PlayerControlsProps) {
     comments,
     chapters,
     reactions,
-    excludedRanges,
     onPlayPause,
     onSeek,
     onSeekRelative,
@@ -96,6 +106,11 @@ export function PlayerControls(props: PlayerControlsProps) {
     onToggleFullscreen,
     onToggleTheater,
     menuPortalContainer,
+    showReactionsAndComment,
+    enableReactions,
+    onReact,
+    enableComments,
+    onAddComment,
   } = props;
 
   const [volumePopoverOpen, setVolumePopoverOpen] = useState(false);
@@ -116,10 +131,10 @@ export function PlayerControls(props: PlayerControlsProps) {
         comments={comments}
         chapters={chapters}
         reactions={reactions}
-        excludedRanges={excludedRanges}
       />
 
-      <div className="flex min-w-0 items-center gap-1.5 text-white">
+      {/* guard:allow-raw-color -- video controls overlay the dark player scrim itself, not themed app chrome, so text stays white regardless of light/dark mode */}
+      <div className="relative flex min-w-0 items-center gap-1.5 text-white">
         <IconBtn
           onClick={onPlayPause}
           tooltip={isPlaying ? "Pause (K)" : "Play (K)"}
@@ -283,6 +298,30 @@ export function PlayerControls(props: PlayerControlsProps) {
             className={cn("h-5 w-5", isFullscreen && "rotate-180")}
           />
         </IconBtn>
+
+        {showReactionsAndComment ? (
+          <div
+            data-player-ui
+            className="pointer-events-none absolute inset-x-0 top-1/2 flex -translate-y-1/2 items-center justify-center gap-2"
+          >
+            {enableReactions && onReact ? (
+              <div className="pointer-events-auto">
+                <ReactionsTray onReact={onReact} />
+              </div>
+            ) : null}
+
+            {enableComments && onAddComment ? (
+              <div className="pointer-events-auto">
+                <IconBtn
+                  onClick={onAddComment}
+                  tooltip={t("commentsPanel.commentButton")}
+                >
+                  <IconMessagePlus className="h-5 w-5" />
+                </IconBtn>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -323,11 +362,8 @@ function IconBtn({
 
 function SkipIcon({ direction }: { direction: "back" | "forward" }) {
   return (
-    <span className="relative flex h-5 w-5 items-center justify-center">
-      <IconPlayerSkipForward
-        className={cn("h-5 w-5", direction === "back" && "rotate-180")}
-      />
-      <span className="absolute text-[7px] font-bold leading-none">5</span>
-    </span>
+    <IconPlayerSkipForward
+      className={cn("h-5 w-5", direction === "back" && "rotate-180")}
+    />
   );
 }

@@ -16,6 +16,7 @@ import {
 import {
   GOOGLE_AUTH_URL,
   GOOGLE_CALENDAR_SCOPES,
+  resolveGoogleOAuthCredentialCandidates,
 } from "../../../lib/google-calendar-client.js";
 import { CLIPS_GOOGLE_OAUTH_APP_ID } from "../../../lib/google-calendar-oauth.js";
 
@@ -59,12 +60,7 @@ export default defineEventHandler(async (event: H3Event) => {
     const calendarConnect =
       q.calendar === "1" || q.calendar === "true" || q.product === "calendar";
     const credentials = calendarConnect
-      ? process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET
-        ? {
-            clientId: process.env.GOOGLE_CLIENT_ID,
-            clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-          }
-        : null
+      ? ((await resolveGoogleOAuthCredentialCandidates())[0] ?? null)
       : resolveGoogleSignInCredentials();
     if (!credentials) {
       setResponseStatus(event, 422);

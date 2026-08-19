@@ -17,6 +17,7 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { notifyRecordingReaction } from "../server/lib/activity-notifications.js";
 
 const MAX_CAS_ATTEMPTS = 3;
 
@@ -43,6 +44,9 @@ export default defineAction({
       if (!existing) throw new Error(`Comment not found: ${args.commentId}`);
 
       if (attempt === 0) {
+        // Same floor as add-comment/react-to-recording: any signed-in
+        // viewer with access may react (the `viewerEmail` check above
+        // requires an account).
         await assertAccess("recording", existing.recordingId, "viewer");
       }
 
@@ -90,12 +94,24 @@ export default defineAction({
         .returning({ id: schema.recordingComments.id });
 
       if (updated.length > 0) {
+        // Removing a reaction is not an event worth emailing about.
+        const notified = had
+          ? null
+          : await notifyRecordingReaction({
+              recordingId: existing.recordingId,
+              emoji: args.emoji,
+              viewerEmail,
+              videoTimestampMs: existing.videoTimestampMs,
+              extraRecipients: [existing.authorEmail],
+            });
+
         await writeAppState("refresh-signal", { ts: Date.now() });
         return {
           id: args.commentId,
           emoji: args.emoji,
           reacted: !had,
           reactions: next,
+          notified,
         };
       }
     }

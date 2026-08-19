@@ -114,7 +114,19 @@ fn rotate_if_needed(path: &Path) {
 
 fn append_line(path: &Path, line: &str) {
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = writeln!(file, "{} {line}", timestamp());
+        // One append syscall keeps direct diagnostics from interleaving with
+        // the webview/stdout log pump at the character level.
+        let record = format!("{} {line}\n", timestamp());
+        let _ = file.write_all(record.as_bytes());
+    }
+}
+
+/// Write one native diagnostic directly to the persistent log. Unlike
+/// `eprintln!`, this also works in debug-signed Alpha builds where stdout and
+/// stderr intentionally remain attached to the launching terminal.
+pub(crate) fn diagnostic(line: &str) {
+    if let Some(path) = log_path() {
+        append_line(&path, line);
     }
 }
 

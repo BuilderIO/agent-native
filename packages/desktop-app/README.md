@@ -1,24 +1,22 @@
 # Agent Native — Electron Shell
 
-A minimal Electron container that loads agent-native apps as tabbed modules. Each app runs as an independent dev server and is embedded in an Electron `<webview>`, preserving its full state (login sessions, scroll position, in-flight requests) when you switch between tabs.
+A minimal Electron chat-first workbench. Each app runs as an independent dev
+server and is embedded in an Electron `<webview>` when opened from the app
+rail or chat, preserving its full state (login sessions, scroll position,
+in-flight requests) while it remains mounted.
 
 ```
 ┌────────────────────────────────────────────────────┐
 │  ●  ●  ●   Agent Native                            │  ← macOS title bar
 ├──────┬─────────────────────────────────────────────┤
-│      │                                             │
-│  ✉   │                                             │
-│ Mail │         Active app webview                  │
-│      │         (fills entire content area)         │
-│  📅  │                                             │
-│ Cal  │                                             │
-│      │                                             │
-│  📝  │                                             │
-│ Cont │                                             │
-│      │                                             │
-│ ···  │                                             │
-│      │                                             │
-│  ⚙   │                                             │
+│  rail  │        Chat + contextual app pane         │
+│        │                                             │
+│  New   │        Agent conversation                  │
+│ Search │                                             │
+│ Chats  │        App/browser/watch surfaces open     │
+│ Apps   │        here when selected                  │
+│        │                                             │
+│  ⚙     │                                             │
 └──────┴─────────────────────────────────────────────┘
 ```
 
@@ -67,17 +65,19 @@ packages/desktop-app/
     ├── main/index.ts             # Electron main process
     ├── preload/index.ts          # Context bridge (exposes window.electronAPI)
     └── renderer/
-        ├── App.tsx               # Root component — tab state management
+        ├── App.tsx               # Root component — always-on chat-first shell
         ├── shell.css             # Shell chrome styles (no framework)
         ├── global.d.ts           # window.electronAPI + <webview> typings
         └── components/
-            ├── Sidebar.tsx       # Left nav with app tabs
+            ├── CodeAgentsHub.tsx  # Chat-first rail and contextual surfaces
             └── AppWebview.tsx    # Webview slot with loading/error/placeholder states
 ```
 
-### How tab state is preserved
+### How app state is preserved
 
-Each app's `<webview>` is **mounted once and never unmounted**. Switching tabs simply toggles `visibility: hidden` + `pointer-events: none` on the inactive slots. The webview process keeps running in the background, so:
+Each opened app's `<webview>` is **mounted once and never unmounted**. Moving
+between chat, apps, and contextual surfaces simply hides inactive slots. The
+webview process keeps running in the background, so:
 
 - Login sessions survive tab switches
 - Scroll positions are preserved
@@ -108,18 +108,27 @@ window.electronAPI.platform // "darwin" | "win32" | "linux"
 
 ## Adding a new app
 
-Use **+ New** in the sidebar and describe the app you want. Desktop:
+Use **+ New** in the chat-first rail and describe the app you want. Desktop:
 
 1. Creates the app under `~/Agent Native Apps` by default. The path is shown
    below the prompt and can be edited; Desktop remembers the new location.
 2. Starts a full Agent-Native Code session to scaffold and implement the app.
-3. Adds the app to the sidebar immediately.
+3. Adds the app to the app rail immediately.
 4. Starts the managed local dev server whenever the app is opened and reloads
    the tab when it is ready.
 
-Right-click any sidebar app to edit, hide/remove, or move it. The **Add an
+Right-click any app in the rail or app grid to edit, hide/remove, or move it. The **Add an
 existing app** disclosure in the New dialog keeps the local-folder and hosted
 URL flows available for advanced use.
+
+### Make a code change locally from app chat
+
+When a prompt needs a code change, the Electron app offers **Do locally** next
+to the existing Builder cloud handoff. Choosing it creates an editable clone of
+the selected first-party template with the CLI, installs dependencies, and
+applies the request in a managed local workspace. Desktop then switches only
+that app's preview to its local dev server; the app's production URL and hosted
+deployment remain unchanged.
 
 The manual registry workflow below is only needed when adding a new built-in
 app to the Desktop distribution.
@@ -132,7 +141,7 @@ Edit `shared/app-registry.ts` and add a new entry to `APP_REGISTRY`:
 {
   id: "notes",
   name: "Notes",
-  icon: "StickyNote",       // ICON_MAP key wired up in Sidebar.tsx (Tabler icon)
+  icon: "StickyNote",       // APP_ICON_MAP key in CodeAgentsAppIcon.tsx
   description: "Quick notes",
   devPort: 8086,            // pick an unused port
   color: "#06B6D4",
@@ -142,7 +151,8 @@ Edit `shared/app-registry.ts` and add a new entry to `APP_REGISTRY`:
 
 ### Step 2 — Add the icon import
 
-Open `src/renderer/components/Sidebar.tsx` and add the icon to the import and `ICON_MAP`:
+Open `src/renderer/components/CodeAgentsAppIcon.tsx` and add the icon to the
+import and `APP_ICON_MAP`:
 
 ```ts
 import { …, IconNote } from "@tabler/icons-react";
@@ -219,6 +229,42 @@ Shortcuts live in the advanced settings panel under **Customize per app → Keyb
 agentnative://shortcuts/upsert?accelerator=Control%2BAlt%2BV&app=mail&view=inbox
 ```
 
+## Quick Prompt
+
+Quick Prompt is an opt-in global command bar for the native Agent chat. Enable
+it in Desktop Settings, then press Cmd+Space from any app to bring the bar
+above other windows. Submitting creates the same native coding chat as the
+Agent surface and returns focus to that run. The preference is off by default
+and is stored locally with the desktop settings.
+
+## Shared sign-in for workspace apps
+
+Desktop presents the parent sign-in surface inline the first time a hosted app
+needs authentication. After that sign-in completes, eligible built-in and
+custom workspace apps receive short-lived app sessions through Dispatch and
+open without another login screen.
+
+The supported flow is:
+
+1. Open an app while signed out and complete the inline Google-first sign-in
+   surface. Password sign-in stays inline; Google and magic-link verification
+   may complete in the system browser before returning to Desktop.
+2. Desktop stores the parent session in its persistent identity partition and
+   mints a separate target-app session for each eligible workspace app. The
+   parent bearer is never used as proof of a child-app session.
+3. Reopening an app reuses its child session when it is still present. If a
+   child cookie was cleared or expired, Desktop mints it again instead of
+   treating a stale completed sync as success.
+
+Custom workspace apps must be explicitly registered for Desktop SSO through
+`IDENTITY_SSO_APP_REGISTRY_JSON` and must be available to the signed-in
+workspace. App-specific first-use setup, such as choosing a role, still occurs
+inside that app after identity propagation.
+
+To switch accounts, sign out from Desktop first, then complete the next
+account's sign-in. This clears the parent and child sessions together and
+prevents an existing identity from being adopted by a different account.
+
 ## Authenticated Design previews
 
 Desktop can render one focused, URL-backed Design screen as a native
@@ -248,11 +294,11 @@ contract, framed-development relay, tests, and remaining compositor phases.
 
 ## Platform differences
 
-| Feature             | macOS                                    | Windows / Linux                |
-| ------------------- | ---------------------------------------- | ------------------------------ |
-| Window controls     | Native traffic lights (red/yellow/green) | Custom colored dots in sidebar |
-| Title bar drag      | Top of sidebar is draggable              | Top of sidebar is draggable    |
-| Sidebar top padding | 48 px (clears traffic lights)            | 8 px                           |
+| Feature          | macOS                                    | Windows / Linux                  |
+| ---------------- | ---------------------------------------- | -------------------------------- |
+| Window controls  | Native traffic lights (red/yellow/green) | Custom colored dots in chat rail |
+| Title bar drag   | Top of chat rail is draggable            | Top of chat rail is draggable    |
+| Rail top padding | 48 px (clears traffic lights)            | 8 px                             |
 
 ---
 

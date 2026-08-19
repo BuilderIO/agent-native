@@ -209,7 +209,7 @@ function collectDestinationBackgroundSignals(
  * dark-class-hint chain when no live document is available (e.g. the
  * destination screen isn't currently mounted).
  */
-function destinationBackgroundIsLightForNode(
+export function destinationBackgroundIsLightForNode(
   element: Element,
   liveDoc?: Document | null,
 ): boolean {

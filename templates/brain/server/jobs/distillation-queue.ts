@@ -1,4 +1,5 @@
 import { processBrainIngestQueueOnce } from "../../jobs/process-ingest-queue.js";
+import { expireSensitivityQuarantines } from "../lib/brain.js";
 
 const DISTILL_QUEUE_INTERVAL_MS = 60 * 1000;
 let skippingLogged = false;
@@ -30,11 +31,14 @@ export default function registerBrainDistillationQueueJob(): void {
   setInterval(() => {
     if (running) return;
     running = true;
-    processBrainIngestQueueOnce({
-      limit: sweepLimit(),
-      runDistillation: true,
-    })
-      .then((result) => {
+    Promise.all([
+      processBrainIngestQueueOnce({
+        limit: sweepLimit(),
+        runDistillation: true,
+      }),
+      expireSensitivityQuarantines(),
+    ])
+      .then(([result, expired]) => {
         const count =
           result.processed.length +
           result.deferred.length +
@@ -43,6 +47,9 @@ export default function registerBrainDistillationQueueJob(): void {
           console.log(
             `[brain-distillation] processed=${result.processed.length} deferred=${result.deferred.length} failed=${result.failed.length}`,
           );
+        }
+        if (expired) {
+          console.log(`[brain-privacy] expired=${expired}`);
         }
       })
       .catch((err) =>

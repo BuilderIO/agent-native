@@ -22,7 +22,7 @@ MCP هو البروتوكول القياسي لتوصيل أدوات الذكا�
 
 المفاهيم الأساسية:
 
-- **يتم التثبيت تلقائيًا** — يحصل كل تطبيق على `/_agent-native/mcp` مجانًا، دون الحاجة إلى أي إعداد
+- **يتم التثبيت تلقائيًا** — يحصل كل تطبيق على `/mcp` مجانًا، دون الحاجة إلى أي إعداد
 - **HTTP** قابل للبث\*\* — يستخدم نقل MCP الحديث عبر HTTP القياسي (POST + SSE)
 - **نفس actions** — نفس سجل الإجراءات الذي يدعم دردشة الوكيل وA2A
 - **أداة `ask-agent`** — أداة تعريفية تقوم بتفويض حلقة الوكيل الكاملة للمهام المعقدة
@@ -41,7 +41,7 @@ MCP هو البروتوكول القياسي لتوصيل أدوات الذكا�
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel">
-    <span class="diagram-pill accent">POST /_agent-native/mcp</span
+    <span class="diagram-pill accent">POST /mcp</span
     ><small class="diagram-muted">Streamable HTTP</small
     ><small class="diagram-muted"
       >initialize &rarr; tools/list &rarr; tools/call</small
@@ -94,7 +94,7 @@ MCP هو البروتوكول القياسي لتوصيل أدوات الذكا�
 | **الأفضل لـ**     | أدوات خارجية تتصل بتطبيقك                                               | الاتصال من وكيل إلى وكيل                       |
 | **البروتوكول**    | MCP HTTP قابل للبث                                                      | JSON-RPC 2.0                                   |
 | **اكتشاف الأداة** | `tools/list`                                                            | بطاقة الوكيل في `/.well-known/agent-card.json` |
-| **نقطة النهاية**  | `/_agent-native/mcp`                                                    | `/_agent-native/a2a`                           |
+| **نقطة النهاية**  | `/mcp`                                                                  | `/_agent-native/a2a`                           |
 | **بدعم من**       | Claude، ChatGPT، Claude Code، Cursor، Codex، Cowork، ومضيفو MCP الآخرون | تطبيقات أخرى خاصة بالوكيل                      |
 | **التنفيذ**       | استدعاءات الأداة المباشرة (بدون LLM إضافية)                             | حلقة الوكيل الكاملة (استدلال LLM)              |
 
@@ -105,7 +105,7 @@ MCP هو البروتوكول القياسي لتوصيل أدوات الذكا�
 للحصول على الإعداد الموصى به لأمر واحد، استخدم [External Agents](/docs/external-agents). إذا كنت تكتب يدويًا تهيئة MCP لعميل يدعم OAuth، فأضف تطبيقك كخادم MCP بعيد بدون رؤوس ثابتة:
 
 ```bash
-claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
+claude mcp add --transport http mail https://mail.example.com/mcp
 ```
 
 أو اكتب الإدخال يدويًا في `.mcp.json` (نطاق المشروع) أو `~/.claude.json` (نطاق المستخدم):
@@ -116,7 +116,7 @@ claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
   "mcpServers": {
     "mail": {
       "type": "http",
-      "url": "https://mail.example.com/_agent-native/mcp",
+      "url": "https://mail.example.com/mcp",
     },
   },
 }
@@ -135,12 +135,12 @@ Claude Code calls: draft-email(to: "john@example.com", subject: "Q3 Report", bod
 يمكن لأي عميل MCP يدعم النقل HTTP القابل للتدفق الاتصال. نقطة النهاية هي:
 
 ```
-POST https://your-app.example.com/_agent-native/mcp
+POST https://your-app.example.com/mcp
 ```
 
 يدعم الخادم مصافحة MCP القياسية: `initialize` → `initialized` → `tools/list` → `tools/call`.
 
-<Endpoint id="doc-block-17mmuo8" title={"MCP نقطة النهاية"} summary={"نقطة نهاية Streamable HTTP المثبتة تلقائيًا والتي يكشفها كل تطبيق أصلي للوكيل."} method="POST" path="/_agent-native/mcp" summary={"MCP نقطة النهاية HTTP القابلة للبث"} auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
+<Endpoint id="doc-block-17mmuo8" title={"MCP نقطة النهاية"} summary={"نقطة نهاية Streamable HTTP المثبتة تلقائيًا والتي يكشفها كل تطبيق أصلي للوكيل."} method="POST" path="/mcp" summary={"MCP نقطة النهاية HTTP القابلة للبث"} auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
   {
     "name": "Authorization",
     "in": "header",
@@ -204,18 +204,44 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 
 بالإضافة إلى أدوات العمل الفردية، يتضمن كل خادم MCP أداة تعريف `ask-agent`. يؤدي هذا إلى إرسال رسالة باللغة الطبيعية إلى وكيل الذكاء الاصطناعي للتطبيق وإرجاع الرد.
 
+تستخدم طلبات MCP المستضافة انتظارًا مضمّنًا محدودًا حتى لا تُبقي حلقة وكيل طويلة استدعاء `tools/call` واحدًا مفتوحًا حتى انتهاء مهلة العميل أو البوابة. تبدأ الوسيطة الاختيارية `async` المهمة الدائمة وتُرجع فورًا؛ وبدونها، ينتظر الخادم لفترة قصيرة إتمامًا سريعًا ثم يُرجع معرّف مهمة عند تبقّي المزيد من العمل. يبلغ الحد الأقصى للانتظار المستضاف 25 ثانية.
+
 استخدم `ask-agent` للمهام المعقدة التي تستفيد من منطق الوكيل وسياقه:
 
 ```json
 {
   "name": "ask-agent",
   "arguments": {
-    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed"
+    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed",
+    "async": true
   }
 }
 ```
 
-يُدير الوكيل نفس الحلقة مثل الدردشة التفاعلية — يمكنه استدعاء أدوات متعددة، والتفكير في السياق، وتقديم استجابة مدروسة.
+يُدير الوكيل نفس الحلقة مثل الدردشة التفاعلية — يمكنه استدعاء أدوات متعددة، والتفكير في السياق، وتقديم استجابة مدروسة. تُرجع المهمة غير المكتملة JSON يحتوي على `taskId` و`status` و`pollAfterMs`، بالإضافة إلى:
+
+```json
+{
+  "poll": {
+    "tool": "ask_app_status",
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
+  }
+}
+```
+
+استدعِ `ask_app_status` بتلك الوسيطات حتى تصل المهمة إلى حالة نهائية. يستخدم `ask_app` المملوك للتطبيق في Dispatch نفس عقد المهمة الدائمة والحالة، مع التحقق من صلاحية التطبيق المحدد عند كل من الإرسال والاستطلاع.
+
+عند عدم إتاحة قراءة حالة عابرة ومحدودة المدة، يمكن أن تُرجع `ask_app_status` القيم
+`status: "unknown"` و`statusRead: "unavailable"` و`retryable: true`، إلى جانب
+`app` و`taskId` الأصليين و`pollAfterMs` / `poll`. يعني ذلك أن قراءة الحالة غير
+متاحة، وليس أن المهمة الدائمة قد فشلت. أعد محاولة `ask_app_status` باستخدام
+`poll.arguments` المُرجعة نفسها، بما فيها `taskHandle` عند وجودها؛ أما النتائج القديمة
+من دون مقبض فيجب أن تعيد استخدام `app` و`taskId` نفسيهما. لا تعِد إرسال `ask_app` للاسترداد مطلقًا، إذ قد يكرر
+الإرسال العمل. تظل أخطاء المصادقة الدائمة أو عدم العثور أو البروتوكول أخطاءً.
 
 ## المصادقة {#authentication}
 
@@ -233,7 +259,7 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 بالنسبة للمضيفين MCP القادرين على OAuth، قم بتكوين الخادم البعيد URL بدون رؤوس ثابتة:
 
 ```bash
-claude mcp add --transport http agent-native https://dispatch.agent-native.com/_agent-native/mcp
+claude mcp add --transport http agent-native https://dispatch.agent-native.com/mcp
 ```
 
 يتلقى أول طلب MCP غير مصادق عليه:
@@ -249,9 +275,9 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 | ----------------------------------------- | ------------------------------------------- |
 | `/.well-known/oauth-protected-resource`   | البيانات التعريفية للموارد المحمية RFC 9728 |
 | `/.well-known/oauth-authorization-server` | البيانات التعريفية لخادم التخويل OAuth      |
-| `/_agent-native/mcp/oauth/register`       | التسجيل الديناميكي للعميل العام             |
-| `/_agent-native/mcp/oauth/authorize`      | تخويل المتصفح + الموافقة                    |
-| `/_agent-native/mcp/oauth/token`          | منح رمز التفويض ورمز التحديث                |
+| `/mcp/oauth/register`                     | التسجيل الديناميكي للعميل العام             |
+| `/mcp/oauth/authorize`                    | تخويل المتصفح + الموافقة                    |
+| `/mcp/oauth/token`                        | منح رمز التفويض ورمز التحديث                |
 
 <Diagram id="doc-block-7e3ku8" title={"OAuth تدفق الاكتشاف"} summary={"يبدأ 401 عملية الاكتشاف والتسجيل وتفويض PKCE → تبادل الرمز المميز. الرمز المميز لحامله مرتبط بالجمهور ومحدد النطاق."}>
 
@@ -351,7 +377,7 @@ export default defineNitroPlugin(async (nitro) => {
 لديك تطبيق تحليلات منشور على `analytics.example.com`. من كود Claude:
 
 ```bash
-claude mcp add --transport http analytics https://analytics.example.com/_agent-native/mcp
+claude mcp add --transport http analytics https://analytics.example.com/mcp
 ```
 
 أو أضفه يدويًا في `.mcp.json`:
@@ -362,7 +388,7 @@ claude mcp add --transport http analytics https://analytics.example.com/_agent-n
   "mcpServers": {
     "analytics": {
       "type": "http",
-      "url": "https://analytics.example.com/_agent-native/mcp",
+      "url": "https://analytics.example.com/mcp",
     },
   },
 }

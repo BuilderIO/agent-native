@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -35,6 +37,77 @@ describe("extractThreadMeta", () => {
 });
 
 describe("buildAssistantMessage", () => {
+  it("folds a replayed tool_start onto the original card instead of persisting a second one", () => {
+    // Journal / zombie-ledger recovery re-emits tool_start + tool_done for a
+    // call that already ran in an interrupted chunk. The live client coalesces
+    // those onto the original card, so persisting both is how a tool output the
+    // user saw once came back duplicated after a reload.
+    const events: RunEvent[] = [
+      {
+        seq: 0,
+        event: {
+          type: "tool_start",
+          id: "call_a",
+          tool: "query",
+          input: { sql: "select 1" },
+        },
+      },
+      {
+        seq: 1,
+        event: { type: "tool_done", id: "call_a", tool: "query", result: "1" },
+      },
+      {
+        seq: 2,
+        event: {
+          type: "tool_start",
+          id: "call_a",
+          tool: "query",
+          input: { sql: "select 1" },
+        },
+      },
+      {
+        seq: 3,
+        event: {
+          type: "tool_done",
+          id: "call_a",
+          tool: "query",
+          result:
+            "(Already completed in an earlier interrupted attempt - not re-run to avoid a duplicate side effect.)\n\n1",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-replay");
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(1);
+    expect(toolCalls[0]).toMatchObject({ toolName: "query" });
+  });
+
+  it("keeps two cards when one id is reused across different tools", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "tool_start", id: "dup", tool: "query" } },
+      {
+        seq: 1,
+        event: { type: "tool_done", id: "dup", tool: "query", result: "1" },
+      },
+      { seq: 2, event: { type: "tool_start", id: "dup", tool: "write" } },
+      {
+        seq: 3,
+        event: { type: "tool_done", id: "dup", tool: "write", result: "ok" },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-id-reuse");
+    const toolCalls = (message?.content ?? []).filter(
+      (part: { type: string }) => part.type === "tool-call",
+    );
+
+    expect(toolCalls).toHaveLength(2);
+  });
+
   it("clears rejected draft text while preserving completed tool results", () => {
     const events: RunEvent[] = [
       {
@@ -61,6 +134,98 @@ describe("buildAssistantMessage", () => {
       }),
       { type: "text", text: "Corrected answer" },
     ]);
+  });
+
+  // The live client stops clearing at the last completed tool call, so this
+  // narration survives the retry on screen. A rebuild that splices it anyway
+  // makes it vanish on reload — visible loss, and only after the user leaves.
+  it("keeps narration from before the last completed tool call", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Checked the schema." } },
+      {
+        seq: 1,
+        event: {
+          type: "tool_start",
+          tool: "query",
+          input: { sql: "select 1" },
+        },
+      },
+      { seq: 2, event: { type: "tool_done", tool: "query", result: "1" } },
+      { seq: 3, event: { type: "text", text: "Rejected draft" } },
+      { seq: 4, event: { type: "clear" } },
+      { seq: 5, event: { type: "text", text: "Corrected answer" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-clear-scoped");
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "Checked the schema." },
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "query",
+        result: "1",
+      }),
+      { type: "text", text: "Corrected answer" },
+    ]);
+  });
+
+  it("ignores a trailing clear so a rebuild cannot wipe the transcript", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Here is the answer" } },
+      { seq: 1, event: { type: "clear" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-trailing-clear");
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "Here is the answer" },
+    ]);
+  });
+
+  // Each failed engine attempt emits its own `clear`, so three failures in a
+  // row is the ordinary shape. Skipping only the last one still applied the
+  // other two and destroyed the answer the user had already been shown.
+  it("ignores a whole trailing run of clears, not just the last one", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Here is the answer" } },
+      { seq: 1, event: { type: "clear" } },
+      { seq: 2, event: { type: "clear" } },
+      { seq: 3, event: { type: "clear" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-trailing-clear-streak");
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "Here is the answer" },
+    ]);
+  });
+
+  // The second-order effect: with the text spliced out and no tool call to keep
+  // `content` non-empty, the builder returned null and the user's message was
+  // persisted with no assistant reply at all.
+  it("still persists an assistant message after a trailing clear streak", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Partial answer" } },
+      { seq: 1, event: { type: "clear" } },
+      { seq: 2, event: { type: "clear" } },
+    ];
+
+    expect(buildAssistantMessage(events, "run-no-reply")).not.toBeNull();
+  });
+
+  // A clear with real events after it still applies — the successor chunk
+  // re-emits what it wiped, which is the whole point of the event.
+  it("applies a clear that is followed by more content", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Discarded draft" } },
+      { seq: 1, event: { type: "clear" } },
+      { seq: 2, event: { type: "clear" } },
+      { seq: 3, event: { type: "text", text: "Real answer" } },
+    ];
+
+    const message = buildAssistantMessage(events, "run-mid-clear");
+
+    expect(message?.content).toEqual([{ type: "text", text: "Real answer" }]);
   });
 
   it("rebuilds streamed thinking as persisted reasoning parts", () => {
@@ -226,6 +391,63 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("persists the approval affordance after a gated tool pauses", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "tool_start",
+            id: "create-builder-branch-call",
+            tool: "create-builder-branch",
+            input: {
+              projectId: "project-1",
+              branchName: "remove-trash-icon",
+              prompt: "Remove the trash can icon from the request queue",
+            },
+          },
+        },
+        {
+          seq: 1,
+          event: {
+            type: "approval_required",
+            tool: "create-builder-branch",
+            toolCallId: "create-builder-branch-call",
+            approvalKey: "create-builder-branch:approval",
+            input: {
+              projectId: "project-1",
+              branchName: "remove-trash-icon",
+              prompt: "Remove the trash can icon from the request queue",
+            },
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "tool_done",
+            id: "create-builder-branch-call",
+            tool: "create-builder-branch",
+            result:
+              'Awaiting human approval to run "create-builder-branch". ' +
+              "This action did NOT execute.",
+          },
+        },
+      ],
+      "run-create-builder-branch-approval",
+    );
+
+    expect(message?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "create-builder-branch",
+        result:
+          'Awaiting human approval to run "create-builder-branch". ' +
+          "This action did NOT execute.",
+        approval: { approvalKey: "create-builder-branch:approval" },
+      }),
+    ]);
+  });
+
   it("falls back to legacy name matching when a done id has no matching start", () => {
     const message = buildAssistantMessage(
       [
@@ -310,6 +532,157 @@ describe("buildAssistantMessage", () => {
     });
   });
 
+  // A truncated stream is a continuation boundary on every lane. Identity-lane
+  // deployments got that from the message text; a Builder-credits deployment
+  // replaces the message with one visitor line, so the code has to carry it.
+  it("folds a truncated gateway stream by its code, not its sentence", () => {
+    for (const error of [
+      "Builder gateway stream ended without a stop event",
+      "AI features aren't available on this site right now.",
+    ]) {
+      const message = buildAssistantMessage(
+        [
+          { seq: 0, event: { type: "text", text: "partial answer" } },
+          {
+            seq: 1,
+            event: {
+              type: "error",
+              error,
+              errorCode: "builder_gateway_stream_ended",
+            },
+          },
+        ],
+        "run-stream-ended",
+        { suppressInternalContinuation: true, turnId: "turn-stream-ended" },
+      );
+
+      expect(message?.content).toEqual([
+        { type: "text", text: "partial answer" },
+      ]);
+      expect(message?.metadata).toMatchObject({
+        custom: { continued: true },
+      });
+    }
+  });
+
+  // Uncoded, this stored Builder's internal correlation id as the assistant's
+  // visible answer — the exact text 14 Analytics turns ended on.
+  it("folds the gateway internal-error envelope by its code, not its sentence", () => {
+    for (const error of [
+      "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+      "AI features aren't available on this site right now.",
+    ]) {
+      const message = buildAssistantMessage(
+        [
+          { seq: 0, event: { type: "text", text: "partial answer" } },
+          {
+            seq: 1,
+            event: {
+              type: "error",
+              error,
+              errorCode: "builder_gateway_internal_error",
+            },
+          },
+        ],
+        "run-gateway-internal",
+        { suppressInternalContinuation: true, turnId: "turn-gateway-internal" },
+      );
+
+      expect(message?.content).toEqual([
+        { type: "text", text: "partial answer" },
+      ]);
+      expect(message?.metadata).toMatchObject({
+        custom: { continued: true },
+      });
+    }
+  });
+
+  it("keeps a breaker stop that preserved its underlying transient code", () => {
+    // The no-progress breaker ends the turn with the gateway's own code and
+    // reference id so the failure stays diagnosable. Folding it as a
+    // continuation boundary would drop the one error the user is supposed to
+    // see, and record a turn nothing is continuing as continued.
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 0,
+          event: {
+            type: "error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a\n\nThis failed 2 times in a row without making any progress, so I stopped instead of retrying again.",
+            errorCode: "builder_gateway_internal_error",
+            recoverable: false,
+          },
+        },
+      ],
+      "run-no-progress-breaker",
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-no-progress-breaker",
+      },
+    );
+
+    expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(message?.metadata?.custom?.continued).toBeUndefined();
+    expect(message?.metadata?.custom?.runError).toMatchObject({
+      errorCode: "builder_gateway_internal_error",
+      details: expect.stringContaining(
+        "ERROR ID: bebaeb5da13441539790834b63ff955a",
+      ),
+    });
+  });
+
+  // `providerRetryable` is the ENGINE's "another attempt may succeed", which is
+  // not the same claim as "this run stopped at an internal boundary". Reading it
+  // here would drop a provider throttle from the persisted turn and record the
+  // turn as continued when nothing continues it.
+  it("ignores the engine's retry verdict when deciding continuation boundaries", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "partial answer" } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "AI features aren't available on this site right now.",
+            errorCode: "too_many_concurrent_requests",
+            providerRetryable: true,
+          },
+        },
+      ],
+      "run-throttled",
+      { suppressInternalContinuation: true, turnId: "turn-throttled" },
+    );
+
+    // `too_many_concurrent_requests` is in this builder's own code list, so the
+    // fold is expected — what must not happen is the error being dropped
+    // because of `providerRetryable`. Re-run with a code it does not list.
+    expect(message?.metadata).toMatchObject({ custom: { continued: true } });
+
+    const unlisted = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "partial answer" } },
+        {
+          seq: 1,
+          event: {
+            type: "error",
+            error: "AI features aren't available on this site right now.",
+            errorCode: "upstream_unavailable",
+            providerRetryable: true,
+          },
+        },
+      ],
+      "run-unlisted-throttle",
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-unlisted-throttle",
+      },
+    );
+
+    expect(unlisted?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(unlisted?.metadata.custom).not.toHaveProperty("continued");
+  });
+
   it("persists partial output from recoverable gateway errors when suppressed", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "checking..." } },
@@ -357,13 +730,58 @@ describe("buildAssistantMessage", () => {
       suppressInternalContinuation: true,
     });
 
+    // Friendly copy, same as the live client (client/sse-event-processor.ts) —
+    // not the raw gateway dump this used to append verbatim.
     expect(message?.content).toEqual([
       {
         type: "text",
-        text: 'checking...\n\nError: Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+        text:
+          "checking...\n\nError: The model gateway returned no error details and the chat couldn't recover. " +
+          "Wait a moment and retry, or start a new chat if it keeps happening.\n\n" +
+          "[Start new chat](agent-native:new-chat)",
       },
     ]);
     expect(message?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(
+      (message?.metadata.custom as { runError?: { details?: string } })
+        ?.runError?.details,
+    ).toBe(
+      'Gateway error (no detail; raw event: {"type":"stop","reason":"error","requestId":"req_1"})',
+    );
+  });
+
+  it("never persists a raw provider connection dump as user-visible text", () => {
+    // Reproduces the Slack-reported repro: switching to a non-Anthropic model
+    // surfaces a raw SSL handshake failure. classifyProviderError tags this
+    // shape as errorCode "provider_network_error" upstream; the persisted
+    // text must go through the same friendly-copy layer as the live client
+    // instead of appending the raw diagnostic string.
+    const rawSslError =
+      "write EPROTO 140:error:1417C0C7:SSL routines:tls_process_client_certificate:" +
+      "sslv3 alert bad certificate:../ssl/record/rec_layer_s3.c:1584:SSL alert number 42";
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "switching provider..." } },
+      {
+        seq: 1,
+        event: {
+          type: "error",
+          error: rawSslError,
+          errorCode: "provider_network_error",
+        },
+      },
+    ];
+
+    const message = buildAssistantMessage(events, "run-ssl-alert");
+
+    const textPart = message?.content.find((part) => part.type === "text");
+    expect(textPart?.text).toBe(
+      "switching provider...\n\nError: The model provider could not be reached. Check your connection and retry.",
+    );
+    expect(textPart?.text).not.toContain(rawSslError);
+    expect(
+      (message?.metadata.custom as { runError?: { details?: string } })
+        ?.runError?.details,
+    ).toBe(rawSslError);
   });
 
   it("persists recoverable errors by default for non-continuation server paths", () => {
@@ -587,7 +1005,11 @@ describe("buildAssistantMessage", () => {
         { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
       ],
       "run-fold-1",
-      { suppressInternalContinuation: true, turnId: "turn-fold" },
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-fold",
+        runDurationMs: 40_000,
+      },
     );
     const secondChunk = buildAssistantMessage(
       [
@@ -595,7 +1017,11 @@ describe("buildAssistantMessage", () => {
         { seq: 1, event: { type: "done" } },
       ],
       "run-fold-2",
-      { suppressInternalContinuation: true, turnId: "turn-fold" },
+      {
+        suppressInternalContinuation: true,
+        turnId: "turn-fold",
+        runDurationMs: 15_000,
+      },
     );
     expect(firstChunk).not.toBeNull();
     expect(secondChunk).not.toBeNull();
@@ -630,9 +1056,18 @@ describe("buildAssistantMessage", () => {
       custom: {
         turnId: "turn-fold",
         foldedRunIds: ["run-fold-1", "run-fold-2"],
+        agentNativeRunDurationMs: 55_000,
       },
     });
     expect(repo.messages[1].message.metadata.custom.continued).toBeUndefined();
+
+    repo = foldAssistantTurn(repo, secondChunk!, {
+      turnId: "turn-fold",
+      runId: "run-fold-2",
+    });
+    expect(
+      repo.messages[1].message.metadata.custom.agentNativeRunDurationMs,
+    ).toBe(55_000);
   });
 
   it("keeps tool call ids unique when folding continuation chunks", () => {
@@ -691,6 +1126,46 @@ describe("buildAssistantMessage", () => {
 });
 
 describe("mergeThreadDataForClientSave", () => {
+  it("preserves a saved run duration when a later client copy omits it", () => {
+    const existing = {
+      messages: [
+        {
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: {
+              runId: "run-1",
+              custom: { agentNativeRunDurationMs: 12_000 },
+            },
+          },
+          parentId: null,
+        },
+      ],
+    };
+    const incoming = {
+      messages: [
+        {
+          message: {
+            id: "assistant-1",
+            role: "assistant",
+            content: [{ type: "text", text: "Done." }],
+            status: { type: "complete", reason: "stop" },
+            metadata: { runId: "run-1" },
+          },
+          parentId: null,
+        },
+      ],
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, incoming);
+
+    expect(
+      merged.messages[0].message.metadata.custom.agentNativeRunDurationMs,
+    ).toBe(12_000);
+  });
+
   it("preserves server-only assistant messages when a stale client save arrives", () => {
     const existing = {
       queuedMessages: [{ id: "queued", text: "next" }],
@@ -843,6 +1318,34 @@ describe("mergeThreadDataForClientSave", () => {
     });
 
     expect(merged.queuedMessages).toBeUndefined();
+  });
+
+  it("does not restore a queued message after the server claimed it", () => {
+    const existing = {
+      _claimedQueuedMessageIds: ["queued-1"],
+      queuedMessages: [],
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          content: [{ type: "text", text: "run the report" }],
+        },
+      ],
+    };
+    const staleIncoming = {
+      queuedMessages: [
+        { id: "queued-1", text: "run the report" },
+        { id: "queued-2", text: "send the summary" },
+      ],
+      messages: existing.messages,
+    };
+
+    const merged = mergeThreadDataForClientSave(existing, staleIncoming);
+
+    expect(merged._claimedQueuedMessageIds).toEqual(["queued-1"]);
+    expect(merged.queuedMessages).toEqual([
+      { id: "queued-2", text: "send the summary" },
+    ]);
   });
 
   it("dedupes a client-save user message against the server's submittedRunId copy of the same prompt", () => {
@@ -1395,6 +1898,21 @@ describe("buildRepositoryFromCodeAgentTranscript", () => {
 });
 
 describe("upsertUserMessage", () => {
+  it("persists the durable queue identity on a submitted user message", () => {
+    const message = buildUserMessage({
+      text: "Run the report",
+      runId: "run-submit",
+      queuedMessageId: "queued-1",
+    });
+
+    expect(message.metadata).toEqual({
+      custom: {
+        submittedRunId: "run-submit",
+        agentNativeQueuedMessageId: "queued-1",
+      },
+    });
+  });
+
   it("persists submitted text attachments in assistant-ui attachment shape", () => {
     const message = buildUserMessage({
       text: "Summarize this",
@@ -1578,15 +2096,14 @@ describe("upsertUserMessage", () => {
     });
   });
 
-  it("caps base64 image data larger than 2 MB when no URL exists", () => {
-    // Generate a fake base64 string that's clearly over 2 MB of decoded bytes.
-    // 2 MB = 2097152 bytes; base64 is 4/3 of that ≈ 2796203 chars.
+  it("does not persist base64 image data when storage is required", () => {
     const bigB64 = "A".repeat(3_000_000);
     const att = {
       type: "image",
       name: "big.png",
       contentType: "image/png",
       data: `data:image/png;base64,${bigB64}`,
+      storageRequired: true,
     };
 
     const message = buildUserMessage({
@@ -1597,9 +2114,134 @@ describe("upsertUserMessage", () => {
 
     const storedAtt = message.attachments?.[0];
     expect(storedAtt).toBeDefined();
-    const img = storedAtt.content[0].image as string;
-    // The stored value must NOT contain the raw big base64.
-    expect(img).not.toContain("A".repeat(100));
-    expect(img).toContain("[base64 truncated");
+    expect(storedAtt.content[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining("connect object storage"),
+    });
+    expect(JSON.stringify(storedAtt)).not.toContain("A".repeat(100));
+    expect(storedAtt.metadata).toEqual({ storageRequired: true });
+  });
+
+  it("preserves a distinct marker when a configured provider upload fails", () => {
+    const message = buildUserMessage({
+      text: "Keep this failed upload visible",
+      runId: "run-upload-failed",
+      attachments: [
+        {
+          type: "image",
+          name: "failed.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,AAAA",
+          storageRequired: true,
+          storageUploadFailed: true,
+        } as any,
+      ],
+    });
+
+    const storedAtt = message.attachments?.[0];
+    expect(storedAtt?.content[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining("configured object-storage upload failed"),
+    });
+    expect(storedAtt?.metadata).toEqual({
+      storageRequired: true,
+      storageUploadFailed: true,
+    });
+  });
+
+  it("preserves bounded text attachments when storage is required", () => {
+    const message = buildUserMessage({
+      text: "Keep these notes in the thread",
+      runId: "run-text-attachment",
+      attachments: [
+        {
+          type: "file",
+          name: "notes.txt",
+          contentType: "text/plain",
+          text: "Important notes",
+          storageRequired: true,
+        } as any,
+      ],
+    });
+
+    const storedAtt = message.attachments?.[0];
+    expect(storedAtt).toBeDefined();
+    expect(storedAtt.content[0]).toEqual({
+      type: "text",
+      text: expect.stringContaining("Important notes"),
+    });
+    expect(storedAtt.metadata).toBeUndefined();
+  });
+});
+
+/**
+ * The rebuild path re-implements two pieces of the live SSE client because the
+ * dependency cannot go the other way. A comment asking the next author to keep
+ * them in sync is what already failed: the client copy was rescoped and this
+ * one was not, so narration survived live and vanished on reload. These read
+ * both sources and fail on the drift itself.
+ */
+describe("live-client twins", () => {
+  const sourceOf = (relativePath: string): string =>
+    readFileSync(new URL(relativePath, import.meta.url), "utf8");
+
+  const functionBody = (source: string, name: string): string => {
+    const start = source.indexOf(`function ${name}(`);
+    expect(start, `${name} not found`).toBeGreaterThan(-1);
+    const open = source.indexOf("{", start);
+    let depth = 0;
+    for (let i = open; i < source.length; i++) {
+      if (source[i] === "{") depth++;
+      else if (source[i] === "}" && --depth === 0) {
+        return source
+          .slice(open + 1, i)
+          .replace(/\/\/[^\n]*/g, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+    }
+    throw new Error(`unterminated body for ${name}`);
+  };
+
+  const stringConst = (source: string, name: string): string => {
+    const match = new RegExp(`\\b${name}\\s*=\\s*\n?\\s*"([^"]*)"`).exec(
+      source,
+    );
+    expect(match, `${name} not found`).not.toBeNull();
+    return match![1]!;
+  };
+
+  it("keeps clearAssistantDraftContent identical to the live client copy", () => {
+    expect(
+      functionBody(
+        sourceOf("./thread-data-builder.ts"),
+        "clearAssistantDraftContent",
+      ),
+    ).toBe(
+      functionBody(
+        sourceOf("../client/sse-event-processor.ts"),
+        "clearAssistantDraftContent",
+      ),
+    );
+  });
+
+  it("keeps the interrupted-tool-result marker identical across all three copies", () => {
+    const client = stringConst(
+      sourceOf("../client/sse-event-processor.ts"),
+      "INTERRUPTED_TOOL_RESULT",
+    );
+
+    expect(
+      stringConst(
+        sourceOf("./thread-data-builder.ts"),
+        "INTERRUPTED_TOOL_RESULT",
+      ),
+    ).toBe(client);
+    expect(
+      stringConst(
+        sourceOf("./production-agent.ts"),
+        "INTERRUPTED_TOOL_RESULT_MARKER",
+      ),
+    ).toBe(client);
   });
 });

@@ -5,6 +5,7 @@ import {
   clipsShareDescription,
   clipsSharePageTitle,
   displayRecordingTitle,
+  preferredThumbnailVariant,
 } from "./share-meta";
 
 describe("Clips share metadata", () => {
@@ -26,6 +27,13 @@ describe("Clips share metadata", () => {
       "Clip recording · Clips",
     );
     expect(displayRecordingTitle("Untitled recording")).toBe("Untitled Clip");
+  });
+
+  it("does not expose serialized payloads as recording titles", () => {
+    const serializedTitle = '[{"id":"recording-1","status":"ready"}]';
+
+    expect(clipsSharePageTitle(serializedTitle)).toBe("Clip recording · Clips");
+    expect(displayRecordingTitle(serializedTitle)).toBe("Untitled Clip");
   });
 
   it("builds absolute image metadata for crawler previews", () => {
@@ -56,5 +64,37 @@ describe("Clips share metadata", () => {
       name: "twitter:card",
       content: "summary_large_image",
     });
+  });
+
+  it("prefers the stable still thumbnail over an animated preview", () => {
+    expect(
+      preferredThumbnailVariant({
+        thumbnailUrl: "/api/thumbnail/rec-1",
+        animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
+      }),
+    ).toBe("still");
+
+    const meta = buildClipsShareMeta({
+      origin: "https://clips.example.com",
+      recording: {
+        title: "Launch notes",
+        thumbnailUrl: "/api/thumbnail/rec-1",
+        animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
+      },
+    });
+
+    expect(meta).toContainEqual({
+      property: "og:image",
+      content: "https://clips.example.com/api/thumbnail/rec-1",
+    });
+  });
+
+  it("falls back to an animated thumbnail only when no still exists", () => {
+    expect(
+      preferredThumbnailVariant({
+        thumbnailUrl: null,
+        animatedThumbnailUrl: "https://cdn.example.com/preview.gif",
+      }),
+    ).toBe("animated");
   });
 });

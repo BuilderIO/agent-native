@@ -5,12 +5,20 @@ import {
   agentUpdateSelection,
 } from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import {
+  getGenerationCreativeContext,
+  recordGenerationCreativeContext,
+  replaceCreativeContextElementProvenance,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
   readLiveSourceFile,
+  SourceWorkspaceEditConflictError,
   writeInlineSourceFile,
   type SourceWorkspaceFile,
 } from "../server/source-workspace.js";
@@ -46,6 +54,18 @@ const editBlocksSchema = z.preprocess(
     )
     .min(1),
 );
+
+const reuseLabelSchema = z.object({
+  itemId: z.string().min(1).optional(),
+  itemVersionId: z.string().min(1).optional(),
+  kind: z.string().min(1),
+  label: z.string().min(1),
+  dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+  elementId: z.string().min(1).optional(),
+  influence: z
+    .enum(["reused", "adapted", "reference-conditioned", "generated"])
+    .optional(),
+});
 
 function stripStableNodeIdAttributes(value: string): {
   content: string;
@@ -181,6 +201,21 @@ export default defineAction({
         .describe(
           "Complete updated file content. Use only with mode=replace-file for selected variant expansion or broad copy-only changes; preserve all HTML structure, CSS, scripts, and tweaks from get-design-snapshot. For selected variants, keep the replacement complete but compact instead of expanding secondary details into an oversized payload.",
         ),
+      contextPackId: z
+        .string()
+        .optional()
+        .describe("Exact Creative Context pack used for this file edit."),
+      contextModeOverride: z
+        .literal("off")
+        .optional()
+        .describe(
+          "Disable Creative Context for this edit only without changing the saved preference.",
+        ),
+      reuseLabels: z
+        .array(reuseLabelSchema)
+        .optional()
+        .default([])
+        .describe("Exact item versions that influenced this file edit."),
     })
     .superRefine((value, ctx) => {
       const mode =
@@ -223,6 +258,9 @@ export default defineAction({
     edits,
     mode,
     replacementContent,
+    contextPackId,
+    contextModeOverride,
+    reuseLabels,
   }) => {
     await assertAccess("design", designId, "editor");
 
@@ -266,37 +304,143 @@ export default defineAction({
       );
     }
 
-    // Read the LIVE base (collab text when present, else the SQL row) right
-    // before transforming, and carry its versionHash through to the write
-    // below. writeInlineSourceFile re-reads the live text immediately before
-    // its own applyText/DB write and rejects if it no longer matches this
-    // hash — closing the race window where a concurrent editor/agent write
-    // lands between this read and the persist (the same stale-diff-base bug
-    // fixed for insert-design-native-asset.ts and insert-asset.ts: a diff
-    // computed from a stale base, char-diffed into a collab doc that has
-    // since moved on, corrupts or drops the other writer's change).
-    const workspaceFile: SourceWorkspaceFile = {
-      id: file.id,
-      designId: file.designId,
-      filename: file.filename ?? "",
-      fileType: file.fileType ?? "html",
-      content: file.content,
-      createdAt: null,
-      updatedAt: null,
-    };
-    const live = await readLiveSourceFile(workspaceFile);
-    const base = live.content;
-
     const resolvedMode =
       mode ??
       (replacementContent !== undefined ? "replace-file" : "search-replace");
-    const { content: nextContent, applied } =
-      resolvedMode === "replace-file"
-        ? { content: replacementContent ?? "", applied: 0 }
-        : applySearchReplaceEdits(base, edits ?? []);
-    const changed = nextContent !== base;
 
-    if (changed) {
+    // A concurrent human/agent write can land between reading the live file
+    // and persisting this edit (writeInlineSourceFile throws
+    // SourceWorkspaceEditConflictError when that happens — see its own
+    // comment for the CAS/collab details). search-replace edits are anchored
+    // to specific text rather than a stale full snapshot, so on conflict we
+    // can just re-read the fresh content and reapply the SAME edits against
+    // it instead of forcing the agent to make a separate get-design-snapshot
+    // round trip and guess again. replace-file sends a full document computed
+    // from a point-in-time snapshot — retrying that blind could silently
+    // clobber whatever the concurrent writer did, so it still fails closed on
+    // the first conflict.
+    const MAX_EDIT_CONFLICT_RETRIES = 2;
+
+    let live: Awaited<ReturnType<typeof readLiveSourceFile>>;
+    let base = "";
+    let nextContent = "";
+    let applied = 0;
+    let changed = false;
+    let creativeContext:
+      | {
+          contextMode: "off" | "auto" | "pinned";
+          contextPackId: string | null;
+          reuseLabels: CreativeContextReuseLabel[];
+          elementProvenance: Array<{
+            elementId: string;
+            influence:
+              | "reused"
+              | "adapted"
+              | "reference-conditioned"
+              | "generated";
+            itemId?: string;
+            itemVersionId?: string;
+            label?: string;
+          }>;
+        }
+      | undefined;
+
+    for (let attempt = 0; ; attempt += 1) {
+      // Refetch the SQL content on retries — readLiveSourceFile only falls
+      // back to this when no collab doc exists yet, so a conflict caused by
+      // a plain SQL writer (no live collab session) needs a fresh row here
+      // or every retry would recompute the exact same stale versionHash.
+      const currentContent =
+        attempt === 0
+          ? file.content
+          : (
+              await db
+                .select({ content: schema.designFiles.content })
+                .from(schema.designFiles)
+                .where(eq(schema.designFiles.id, file.id))
+                .limit(1)
+            )[0]?.content;
+
+      const workspaceFile: SourceWorkspaceFile = {
+        id: file.id,
+        designId: file.designId,
+        filename: file.filename ?? "",
+        fileType: file.fileType ?? "html",
+        content: currentContent,
+        createdAt: null,
+        updatedAt: null,
+      };
+      live = await readLiveSourceFile(workspaceFile);
+      base = live.content;
+
+      ({ content: nextContent, applied } =
+        resolvedMode === "replace-file"
+          ? { content: replacementContent ?? "", applied: 0 }
+          : applySearchReplaceEdits(base, edits ?? []));
+      changed = nextContent !== base;
+      creativeContext = undefined;
+
+      if (!changed) break;
+
+      const previous =
+        contextModeOverride === "off"
+          ? null
+          : await getGenerationCreativeContext({
+              appId: "design",
+              artifactType: "design",
+              artifactId: designId,
+            });
+      if (
+        contextPackId !== undefined &&
+        previous?.contextPackId &&
+        contextPackId !== previous.contextPackId
+      ) {
+        throw new Error(
+          "The design edit must preserve the design's creative-context pack",
+        );
+      }
+      const requestedLabels: CreativeContextReuseLabel[] = reuseLabels.length
+        ? reuseLabels
+        : [
+            {
+              kind: "design-file",
+              label: "Net-new design edit",
+              dataRole: "untrusted-reference",
+              elementId: file.id,
+              influence: "generated",
+            },
+          ];
+      const validated = await validateGenerationCreativeContext({
+        contextPackId: contextPackId ?? previous?.contextPackId,
+        contextPackSource:
+          contextPackId === undefined ? "inherited" : "explicit",
+        contextModeOverride,
+        reuseLabels: requestedLabels,
+        reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
+      });
+      const elementProvenance = validated.reuseLabels.map((label) => ({
+        elementId: file.id,
+        influence: label.influence ?? ("reference-conditioned" as const),
+        ...(label.itemId ? { itemId: label.itemId } : {}),
+        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+        label: label.label,
+      }));
+      const contextMode =
+        validated.contextMode === "off"
+          ? "off"
+          : (previous?.contextMode ?? validated.contextMode);
+      creativeContext = {
+        contextMode,
+        contextPackId: validated.contextPackId,
+        reuseLabels: validated.reuseLabels,
+        elementProvenance:
+          contextMode === "off"
+            ? elementProvenance
+            : replaceCreativeContextElementProvenance(
+                previous?.elementProvenance ?? [],
+                elementProvenance,
+              ),
+      };
       assertLockedLayersPreserved(base, nextContent);
 
       // Mark agent presence + selection so live viewers can see where the
@@ -324,9 +468,25 @@ export default defineAction({
           content: nextContent,
           expectedVersionHash: live.versionHash,
         });
+      } catch (error) {
+        if (
+          error instanceof SourceWorkspaceEditConflictError &&
+          resolvedMode === "search-replace" &&
+          attempt < MAX_EDIT_CONFLICT_RETRIES
+        ) {
+          continue;
+        }
+        throw error;
       } finally {
         agentLeaveDocument(file.id);
       }
+      await recordGenerationCreativeContext({
+        appId: "design",
+        artifactType: "design",
+        artifactId: designId,
+        ...creativeContext,
+      });
+      break;
     }
 
     return {
@@ -338,6 +498,13 @@ export default defineAction({
       changed,
       bytesBefore: base.length,
       bytesAfter: nextContent.length,
+      ...(creativeContext
+        ? {
+            contextMode: creativeContext.contextMode,
+            contextPackId: creativeContext.contextPackId,
+            reuseLabels: creativeContext.reuseLabels,
+          }
+        : {}),
     };
   },
 });

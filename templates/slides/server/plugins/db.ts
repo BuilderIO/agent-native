@@ -3,6 +3,8 @@ import {
   getDbExec,
   runMigrations,
 } from "@agent-native/core/db";
+import { getH3App } from "@agent-native/core/server";
+import { setResponseHeader, setResponseStatus } from "h3";
 
 // Side-effect import: ensures registerShareableResource runs on server
 // startup so the deck / design-system share actions know where to dispatch.
@@ -31,7 +33,7 @@ const schemaTables = Object.values(schema).filter(isDrizzleTable);
 // packages/core/src/db/migrations.ts for the full rationale). Version numbers
 // alone are not a safe identity across parallel branches that each extend
 // this list independently.
-const runSlidesMigrations = runMigrations(
+export const runSlidesMigrations = runMigrations(
   [
     {
       version: 1,
@@ -208,6 +210,48 @@ const runSlidesMigrations = runMigrations(
   CREATE INDEX IF NOT EXISTS slide_comments_deck_created_idx ON slide_comments (deck_id, created_at);
   CREATE INDEX IF NOT EXISTS slide_comments_deck_slide_created_idx ON slide_comments (deck_id, slide_id, created_at)`,
     },
+    // v20: index of assets uploaded through the file-upload provider chain.
+    // GET /api/assets previously always returned [] (no persisted record of
+    // uploads), so the Asset Library panel could never show or re-select a
+    // file after uploading it. This table only stores the returned URL/
+    // metadata, never the file bytes.
+    {
+      version: 20,
+      name: "slides-uploaded-assets-table",
+      sql: `CREATE TABLE IF NOT EXISTS uploaded_assets (
+    id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL,
+    url TEXT NOT NULL,
+    type TEXT NOT NULL,
+    size INTEGER NOT NULL,
+    provider TEXT,
+    owner_email TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS uploaded_assets_owner_created_idx ON uploaded_assets (owner_email, created_at)`,
+    },
+    {
+      version: 21,
+      name: "slides-share-design-system-snapshot",
+      sql: `ALTER TABLE deck_share_links ADD COLUMN IF NOT EXISTS design_system_data TEXT`,
+    },
+    // v22: durable access-request events for private deck links. The request
+    // action also sends the owner an email when outbound email is configured,
+    // but the event remains the source of truth when it is not.
+    {
+      version: 22,
+      name: "slides-deck-access-requests",
+      sql: `CREATE TABLE IF NOT EXISTS deck_events (
+    id TEXT PRIMARY KEY,
+    deck_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    message TEXT NOT NULL,
+    payload TEXT,
+    created_by TEXT NOT NULL DEFAULT 'human',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS deck_events_deck_created_idx ON deck_events (deck_id, created_at)`,
+    },
   ],
   { table: "slides_migrations" },
 );
@@ -221,25 +265,54 @@ const runSlidesMigrations = runMigrations(
  * adds missing columns — never drops, renames, or retypes anything — and any
  * failure here is logged and swallowed so it can never fail boot.
  */
-export default async (nitroApp: any): Promise<void> => {
-  await runSlidesMigrations(nitroApp);
-  try {
-    const summary = await ensureAdditiveColumns({
-      db: getDbExec(),
-      tables: schemaTables,
-    });
-    if (summary.errors.length > 0) {
+export default (nitroApp: any): void => {
+  const init = (async () => {
+    await runSlidesMigrations(nitroApp);
+    try {
+      const summary = await ensureAdditiveColumns({
+        db: getDbExec(),
+        tables: schemaTables,
+      });
+      if (summary.errors.length > 0) {
+        console.warn(
+          "[db] ensureAdditiveColumns completed with errors:",
+          summary.errors,
+        );
+      }
+    } catch (err) {
+      // Never fail boot over the safety net itself — the authoritative
+      // migrations above already ran.
       console.warn(
-        "[db] ensureAdditiveColumns completed with errors:",
-        summary.errors,
+        "[db] ensureAdditiveColumns failed (non-fatal):",
+        err instanceof Error ? err.message : err,
       );
     }
-  } catch (err) {
-    // Never fail boot over the safety net itself — the authoritative
-    // migrations above already ran.
-    console.warn(
-      "[db] ensureAdditiveColumns failed (non-fatal):",
-      err instanceof Error ? err.message : err,
-    );
+  })();
+
+  // Nitro does not await async plugin returns. Hold the first document/API
+  // requests until migrations finish so a fresh serverless instance cannot
+  // query a schema that is still being created.
+  const ready = init.then(
+    () => null,
+    (err: unknown) => {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error("[db] Slides migrations failed:", message);
+      return message;
+    },
+  );
+  const waitForReady = async (event: any) => {
+    const error = await ready;
+    if (!error) return undefined;
+    setResponseStatus(event, 503);
+    setResponseHeader(event, "retry-after", "5");
+    return { error: "Slides database is temporarily unavailable" };
+  };
+  // The CLI action/agent runner invokes this plugin with a stand-in object to
+  // get migrations only, so there is no h3 app to gate — and no HTTP traffic to
+  // gate either. Registering unconditionally broke every `pnpm action` here.
+  if (!nitroApp?.h3) return;
+  const app = getH3App(nitroApp);
+  for (const path of ["/", "/p", "/share", "/api"]) {
+    app.use(path, waitForReady);
   }
 };

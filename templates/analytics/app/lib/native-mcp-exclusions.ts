@@ -1,0 +1,15 @@
+export const ANALYTICS_NATIVE_MCP_PRESET_EXCLUSIONS = [
+  "amplitude",
+  "apollo",
+  "atlassian",
+  "common-room",
+  "github",
+  "gong",
+  "grafana",
+  "hubspot",
+  "notion",
+  "pylon",
+  "sentry",
+  "slack",
+  "stripe",
+] as const;

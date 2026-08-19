@@ -1,0 +1,122 @@
+---
+id: F8
+title: Chat
+status: partial
+order: 8
+---
+
+# F8 — Chat
+
+## What it is
+
+The **chat** is a first-class surface of the Tasks app — not a side panel bolted onto a traditional UI. Users talk to the **agent** in natural language; the agent performs the same operations the UI can, through the same **actions**. There is no separate agent workflow, permission model, or data path.
+
+**Parity rule:** whatever a user can do in the UI, the agent can do in chat — and vice versa.
+
+## What users can do
+
+<!-- status: done -->
+
+### Work through conversation
+
+- **Capture** ideas ("remind me to call the plumber") — creates an **inbox item** by default; use **create-task** only when the user asks to add directly to the task list.
+- **Manage tasks** — add, edit title, mark complete/incomplete, delete, reorder, bulk complete/delete ([F1](./f1-tasks.mdx)).
+- **Triage inbox** — list, edit, delete, reorder, and **mark ready** ([F4](./f4-inbox.mdx)).
+- **Filter** the task list the same way as the UI (e.g. hide completed tasks).
+- **Ask what's on screen** — the agent can read the user's current view and selection before acting.
+- **Keep the current page open while reviewing tasks** — when the user is elsewhere in the app, the agent can show an interactive task-list widget inline in chat.
+
+<!-- status: todo -->
+
+### Work through conversation (extended)
+
+- **Assign** tasks to a [project](./f3-projects.mdx); open project pages.
+- **Work with custom fields** — set Notes, Due date, Priority, and other fields; define new fields ([F2](./f2-custom-fields.mdx)).
+- **Arrange lists** — filter, sort, group, and switch [saved views](./f5-views.mdx).
+- **Find things** — [search](./f6-search.mdx) by task title or project name and open a result.
+
+### Delegate from the UI
+
+Buttons and shortcuts in the UI may **send a message to the chat** instead of duplicating logic — e.g. "Add with agent", "Triage inbox", "Summarize my open tasks". The user sees and steers the work in the thread; the agent calls the same actions the UI would.
+
+## What the agent can do (parity map)
+
+Every UI capability maps to agent tools (actions). The agent uses these — not ad-hoc scripts or direct database access.
+
+<!-- status: done -->
+
+| Area                                           | Agent can…                                                                                               |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **[F1 Tasks](./f1-tasks.mdx)**                 | Add, edit, delete tasks; mark complete/incomplete; reorder; bulk complete/delete; apply completed filter |
+| **[F4 Inbox](./f4-inbox.mdx)**                 | Add, edit, delete inbox items; reorder; mark ready (promote to task)                                     |
+| **[F2 Custom fields](./f2-custom-fields.mdx)** | Create, rename, configure options; set field values; delete fields                                       |
+| **Navigation**                                 | Open inbox, main task page, or a specific task via `navigate`                                            |
+| **Context**                                    | Read current screen and bulk `selection` via `view-screen`                                               |
+| **Inline task list**                           | Render the task list in chat with `render-task-list-inline` when the user is not on `/tasks`             |
+
+<!-- status: todo -->
+
+| Area                                 | Agent can…                                                            |
+| ------------------------------------ | --------------------------------------------------------------------- |
+| **[F4 Inbox](./f4-inbox.mdx)**       | Bulk mark ready / delete; assign project (hidden until ready)         |
+| **[F1 Tasks](./f1-tasks.mdx)**       | Bulk assign project                                                   |
+| **[F3 Projects](./f3-projects.mdx)** | Create, rename, delete projects; list tasks in a project              |
+| **[F5 Views](./f5-views.mdx)**       | Apply filter, sort, group; create, switch, rename, delete saved views |
+| **[F6 Search](./f6-search.mdx)**     | Search tasks and projects; open a result                              |
+| **Navigation**                       | Open inbox, project pages                                             |
+
+If a capability is added to the UI, it is exposed as an action and documented for the agent in the same change.
+
+## How it behaves
+
+### Same rules as the UI
+
+The agent follows every product rule that has shipped; extended rules apply as features land.
+
+<!-- status: done -->
+
+- New capture creates an **inbox item** by default; **create-task** only when the user asks to add directly to the task list.
+- **Destructive** actions require **confirmation** — in chat, the agent asks before delete (same as UI confirmation dialogs).
+
+<!-- status: todo -->
+
+- **Completion** on inbox items is not allowed until **mark ready**.
+- Inbox items with a project assigned do **not** appear on the project page until **mark ready**.
+- **Bulk** actions require **confirmation**.
+- **Search** matches titles and project names only — not custom field values.
+- **Sort by field** disables manual reorder until sort is **None** again.
+
+### Context-aware
+
+- **`view-screen`** is the first call when the user's visible context matters — which page, selected tasks, active filter, and (when shipped) project, view, or search query.
+- **`navigation`** application state stays in sync with the UI so the agent knows what the user is looking at without guessing.
+- After the agent changes data, the **UI updates automatically** (same real-time sync as UI-initiated writes).
+
+<!-- status: done -->
+
+### Capture
+
+Typical flow:
+
+1. User says something in chat → **inbox item** created (title from the message) unless they ask for the task list directly.
+2. User refines in chat → edit inbox item or mark ready to promote to a task; manage tasks on `/tasks` as usual.
+
+<!-- status: todo -->
+
+### Capture and triage (extended UI)
+
+Full inbox page UI:
+
+1. User captures on the inbox page or triages in chat.
+2. User refines on the inbox or task page → edit title, fields, project, etc.
+3. User says "mark it ready" → inbox item becomes an **incomplete** task.
+
+### No shadow AI
+
+The UI does not call an LLM directly for product work. Generative or interpretive steps go through the **agent chat** so the user can see, correct, and audit what happened.
+
+## Limits (v1)
+
+- One agent per app instance — no multi-user agent handoff.
+- Chat does not add capabilities beyond what the UI has shipped; it is the conversational interface to the same actions.
+- No voice-only or external messaging channels (Slack, email) in v1.

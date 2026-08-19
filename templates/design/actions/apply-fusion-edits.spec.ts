@@ -34,11 +34,14 @@ vi.mock("@agent-native/core/server", () => ({
   sendFusionBranchMessage: (args: unknown) => sendFusionBranchMessage(args),
 }));
 
-// Force the flag on for tests; keep the real data helpers.
-vi.mock("../shared/full-app.js", async (importOriginal) => {
-  const actual = await importOriginal<object>();
-  return { ...actual, FULL_APP_BUILDING_ENABLED: true };
-});
+const isFeatureFlagEnabled = vi.fn().mockResolvedValue(true);
+vi.mock("@agent-native/core/feature-flags", () => ({
+  defineFeatureFlag: (definition: Record<string, unknown>) => ({
+    ...definition,
+    defaultValue: false,
+  }),
+  isFeatureFlagEnabled: (...args: unknown[]) => isFeatureFlagEnabled(...args),
+}));
 
 vi.mock("nanoid", () => ({ nanoid: () => "batch_123" }));
 
@@ -77,11 +80,24 @@ import action from "./apply-fusion-edits.js";
 
 beforeEach(() => {
   sendFusionBranchMessage.mockReset();
+  isFeatureFlagEnabled.mockResolvedValue(true);
   updateCalls.length = 0;
   pendingRows = [];
 });
 
 describe("apply-fusion-edits", () => {
+  it("rejects when full app building is disabled for the action caller", async () => {
+    isFeatureFlagEnabled.mockResolvedValueOnce(false);
+
+    await expect(
+      action.run({ designId: "design_1" } as never, "action-context" as never),
+    ).rejects.toThrow("Full app building is not enabled");
+    expect(isFeatureFlagEnabled).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "full-app-building" }),
+      "action-context",
+    );
+  });
+
   it("returns sentCount 0 when nothing is pending", async () => {
     const result = (await action.run({ designId: "design_1" } as never)) as {
       sentCount: number;

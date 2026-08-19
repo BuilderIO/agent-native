@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/dispatch",
-  "version": "0.14.5",
+  "version": "0.30.0",
   "description": "Dispatch — workspace control plane for agent-native apps. Vault, integrations, destinations, scheduled jobs, and cross-app delegation, shipped as a single drop-in package.",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -17,11 +17,20 @@
     "src"
   ],
   "type": "module",
+  "sideEffects": [
+    "*.css",
+    "dist/server/index.js",
+    "dist/server/lib/usage-metrics-store.js",
+    "dist/server/plugins/core-routes.js"
+  ],
   "exports": {
     ".": "./dist/index.js",
     "./routes": "./dist/routes/index.js",
     "./routes/pages/*": "./dist/routes/pages/*.js",
     "./server": "./dist/server/index.js",
+    "./shared/app-roles": "./dist/shared/app-roles.js",
+    "./shared/feature-flags": "./dist/shared/feature-flags.js",
+    "./shared/workspace-sso": "./dist/shared/workspace-sso.js",
     "./server/lib/thread-link-preview": "./dist/server/lib/thread-link-preview.js",
     "./actions": "./dist/actions/index.js",
     "./db": "./dist/db/index.js",
@@ -43,7 +52,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "@libsql/client": "^0.15.8",
+    "@agent-native/toolkit": "workspace:*",
     "@radix-ui/react-accordion": "^1.2.12",
     "@radix-ui/react-alert-dialog": "^1.1.15",
     "@radix-ui/react-aspect-ratio": "^1.1.8",
@@ -77,7 +86,6 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "embla-carousel-react": "^8.6.0",
-    "h3": "^2.0.1-rc.20",
     "input-otp": "^1.4.2",
     "next-themes": "^0.4.6",
     "react-day-picker": "^9.14.0",

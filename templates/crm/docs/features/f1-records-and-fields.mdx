@@ -1,0 +1,52 @@
+---
+id: F1
+title: Records and fields
+status: done
+order: 1
+---
+
+# F1 — Records and fields
+
+## What it is
+
+A **record** is a customer, company, opportunity, activity, task, or custom
+object that CRM can find and work with. Records are displayed in a spreadsheet-
+style grid and can be opened in a detail page without losing the surrounding
+list context.
+
+## What users can do
+
+<!-- status: done -->
+
+- Add native records for accounts, people, opportunities, activities, tasks,
+  and custom objects.
+- Search, filter, sort by multiple columns, and move through paginated results.
+- Move through cells with the keyboard and copy or paste tab-separated values.
+- Open a record to see its fields, lists, interactions, evidence, and history.
+- Create and manage typed attributes from **Settings → Fields**.
+- Find likely duplicates, inspect the matching reasons, and merge records with
+  an explicit survivor choice.
+
+## Typed fields
+
+Fields can be text, numbers, checkboxes, currency, dates, timestamps, ratings,
+statuses, selects, record or actor references, locations, domains, email
+addresses, and phone numbers. Status and select fields use managed options, so
+an accidental value cannot create an untracked stage.
+
+## History and authority
+
+Each meaningful field change records who changed it and when. A record's stage
+history is therefore part of its value history. Repeating the same value does
+not create another history entry.
+
+In Native SQL mode, CRM owns the record and its local fields. In connected mode,
+the provider owns provider fields while CRM owns local fields and workflow
+data. CRM does not silently overwrite provider data.
+
+## Connected records
+
+Connect HubSpot or Salesforce from shared Settings and grant the connection to
+CRM. Start with a small, recent cohort and an explicit object scope. CRM keeps
+the configured mirror bounded; unknown or sensitive provider fields are not
+automatically copied into CRM.

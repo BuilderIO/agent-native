@@ -8,9 +8,10 @@ import {
   type AgentEngineEntry,
 } from "../../agent/engine/index.js";
 import {
-  normalizeOpenAiBaseUrl,
+  OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
 } from "../../agent/engine/openai-compatible-endpoint.js";
+import { validateProviderBaseUrl } from "../../agent/engine/provider-endpoint-validation.js";
 import type { ActionTool } from "../../agent/types.js";
 import {
   canUseDeployCredentialFallbackForRequest,
@@ -50,11 +51,33 @@ async function resolveAgentEngineSecret(
   try {
     const value = await resolveSecret(key);
     if (value) return value;
-  } catch {
-    // Fall through to deploy env when this request is allowed to use it.
+  } catch (error) {
+    if (!canUseDeployCredentialFallbackForRequest(key)) throw error;
+    console.warn(
+      "[test-agent-engine] Saved provider secret unavailable; using deploy configuration.",
+      { key, error },
+    );
   }
   return canUseDeployCredentialFallbackForRequest(key)
     ? readDeployCredentialEnv(key)
+    : undefined;
+}
+
+async function resolveAgentEngineEndpoint(
+  key: string,
+): Promise<string | undefined> {
+  const value = await resolveSecret(key);
+  if (value) {
+    return validateProviderBaseUrl(value, {
+      allowLocalOllama:
+        key === OLLAMA_BASE_URL_ENV_VAR &&
+        process.env.NODE_ENV === "development",
+    });
+  }
+  if (!canUseDeployCredentialFallbackForRequest(key)) return undefined;
+  const deployValue = readDeployCredentialEnv(key);
+  return deployValue
+    ? validateProviderBaseUrl(deployValue, { allowPrivate: true })
     : undefined;
 }
 
@@ -77,13 +100,20 @@ async function createEngineConfig(
     allowEnvFallback: canUseDeployEnvForEntry(entry),
   };
 
-  if (entry.name === "ai-sdk:openai") {
-    const rawBaseUrl = args.baseUrl?.trim()
-      ? args.baseUrl
-      : await resolveAgentEngineSecret(OPENAI_BASE_URL_ENV_VAR);
-    if (rawBaseUrl) {
-      config.baseUrl = normalizeOpenAiBaseUrl(rawBaseUrl);
-    }
+  if (entry.name === "ai-sdk:openai" || entry.name === "ai-sdk:ollama") {
+    const endpointKey =
+      entry.name === "ai-sdk:ollama"
+        ? OLLAMA_BASE_URL_ENV_VAR
+        : OPENAI_BASE_URL_ENV_VAR;
+    const explicitBaseUrl = args.baseUrl?.trim();
+    const baseUrl = explicitBaseUrl
+      ? await validateProviderBaseUrl(explicitBaseUrl, {
+          allowLocalOllama:
+            entry.name === "ai-sdk:ollama" &&
+            process.env.NODE_ENV === "development",
+        })
+      : await resolveAgentEngineEndpoint(endpointKey);
+    if (baseUrl) config.baseUrl = baseUrl;
   }
 
   return config;

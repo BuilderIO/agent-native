@@ -7,35 +7,11 @@ const INJECTED_CONTEXT_BLOCKS = [
   "available-skills",
   "available-agents",
   "available-jobs",
+  "a2a-caller-hint",
   "plan-mode-note",
+  "non-analytics-retry",
+  "response-guard",
 ];
-
-export const DATA_QUERY_ACTIONS = new Set([
-  "account-deep-dive",
-  "bigquery",
-  "content-calendar",
-  "content-calendar-schema",
-  "gcloud",
-  "gong-calls",
-  "grafana",
-  "hubspot-deals",
-  "hubspot-metrics",
-  "hubspot-pipelines",
-  "hubspot-records",
-  "jira",
-  "jira-search",
-  "provider-api-request",
-  "provider-corpus-job",
-  "query-staged-dataset",
-  "query-agent-native-analytics",
-  "query-inbound-forms",
-  "sentry",
-  "seo-blog-pages",
-  "seo-page-keywords",
-  "seo-top-keywords",
-  "slack-messages",
-  "stripe",
-]);
 
 export const CORPUS_SOURCE_ACTIONS = new Set([
   "provider-api-request",
@@ -44,6 +20,39 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 ]);
 
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
+
+// Inspecting or cloning an existing dashboard/extension template is
+// construction progress, not a metric query. These do not satisfy
+// hasDataQueryAttempt, but they should stop the guard from steering a
+// template-clone turn into "connect a missing source". Deliberately limited
+// to read/inspection actions: update-dashboard/mutate-dashboard/
+// compose-dashboard/create-extension/
+// update-extension can all author brand-new SQL or extension content, so
+// calling one of those alone is not proof the turn actually inspected a
+// template rather than inventing it from scratch. If the tool run also
+// includes one of these read actions, the bypass still applies even when an
+// authoring/save action ran alongside it.
+export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
+  "search-dashboard-references",
+  "get-sql-dashboard",
+  "get-explorer-dashboard",
+  "list-sql-dashboards",
+  "list-extensions",
+  "get-extension",
+]);
+
+// Dashboard authoring/save actions. Unlike the read actions above, running one
+// of these is proof the turn actually edited or built a dashboard/extension —
+// which is a legitimate non-query completion. A saved SQL panel the user runs
+// themselves is not a fabricated metric, so the guard only needs to keep
+// blocking drafts that state invented numbers (draftClaimsAnalyticsMetrics).
+export const DASHBOARD_MUTATION_ACTIONS = new Set([
+  "mutate-dashboard",
+  "update-dashboard",
+  "compose-dashboard",
+  "create-extension",
+  "update-extension",
+]);
 
 const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
 
@@ -81,8 +90,113 @@ function isToolName(name: string, expected: string): boolean {
   return normalizeActionToolName(name) === expected;
 }
 
-function isDataQueryActionName(name: string): boolean {
-  return DATA_QUERY_ACTIONS.has(normalizeActionToolName(name));
+let groundingActionNames: ReadonlySet<string> | null = null;
+
+/**
+ * Read the action names whose definitions declare `grounding: true`.
+ *
+ * Takes the registry as an argument rather than importing
+ * `.generated/actions-registry` because that registry imports every action, and
+ * `save-analysis` imports this module — importing it back here would close an
+ * evaluation cycle. The agent-chat plugin passes it in once at module load.
+ */
+export function deriveGroundingActionNames(
+  registry: Record<string, unknown>,
+): string[] {
+  return Object.entries(registry)
+    .filter(([, module]) => {
+      // Action modules reach the registry either as the module namespace or as
+      // an already-unwrapped definition, the same two shapes
+      // `loadActionsFromStaticRegistry` normalizes.
+      const candidate = module as
+        | { grounding?: boolean; default?: { grounding?: boolean } }
+        | undefined;
+      return (
+        candidate?.grounding === true || candidate?.default?.grounding === true
+      );
+    })
+    .map(([name]) => name);
+}
+
+/** Publish the derived set for the response guard to consult. */
+export function registerGroundingActions(names: Iterable<string>): void {
+  groundingActionNames = new Set(
+    [...names].map((name) => normalizeActionToolName(name)),
+  );
+  // An empty set is never a real deployment: it means the installed core build
+  // predates `grounding` and dropped it from every definition. Registration
+  // runs at plugin module scope, so throwing here would take the whole server
+  // down for a response-guard heuristic; the failure is raised at first use
+  // instead, where it costs one turn.
+  if (groundingActionNames.size === 0) {
+    console.error(
+      "[analytics] no action declares grounding: true; the installed @agent-native/core cannot carry the flag, so the response guard is unusable",
+    );
+  }
+}
+
+function isGroundingActionName(name: string): boolean {
+  if (!groundingActionNames) {
+    throw new Error(
+      "grounding actions were never registered: the analytics response guard cannot tell a grounded turn from an ungrounded one",
+    );
+  }
+  if (groundingActionNames.size === 0) {
+    throw new Error(
+      "no action declares grounding: true; the installed @agent-native/core cannot carry the flag",
+    );
+  }
+  return groundingActionNames.has(normalizeActionToolName(name));
+}
+
+function isDashboardConstructionActionName(name: string): boolean {
+  return DASHBOARD_CONSTRUCTION_ACTIONS.has(normalizeActionToolName(name));
+}
+
+function isDashboardMutationActionName(name: string): boolean {
+  return DASHBOARD_MUTATION_ACTIONS.has(normalizeActionToolName(name));
+}
+
+// "Build/clone/template" language targeting a dashboard/extension/panel is
+// dashboard construction, distinct from an analytics-result question. Turns
+// like this may inspect and clone a template without running a metric query.
+const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
+  /\b(build|create|make|replicate|clone|copy|duplicate|adapt|update|edit|change|modify|rename|adjust|refresh|simplify|switch|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
+
+const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
+  /\b(dashboard|extension|panel|widget)\b/i;
+
+export function looksLikeDashboardConstructionRequest(text: string): boolean {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const lower = requestText.toLowerCase();
+  if (!lower) return false;
+  const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(lower);
+  const targetsDashboard =
+    DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(lower) ||
+    lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase());
+  return wantsBuild && targetsDashboard;
+}
+
+export function hasDashboardConstructionAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    return isDashboardConstructionActionName(String(result.name ?? ""));
+  });
+}
+
+export function hasDashboardMutationAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    return isDashboardMutationActionName(String(result.name ?? ""));
+  });
 }
 
 function isCorpusSourceActionName(name: string): boolean {
@@ -118,7 +232,7 @@ function getRunCodeBridgeToolNames(content: string | undefined): string[] {
 
 function hasRunCodeDataQueryAttempt(content: string | undefined): boolean {
   return getRunCodeBridgeToolNames(content).some(
-    (name) => isDataQueryActionName(name) || isMcpDataSourceTool(name),
+    (name) => isGroundingActionName(name) || isMcpDataSourceTool(name),
   );
 }
 
@@ -136,6 +250,15 @@ export function stripInjectedAnalyticsGuardContext(text: string): string {
       "",
     );
   }
+  // Compatibility with callers deployed before A2A hints were wrapped in the
+  // structured block above. The legacy transport note includes words such as
+  // "full transcripts" and "create ... dashboard"; allowing those framework
+  // words into intent classification falsely triggered corpus and dashboard
+  // guards for ordinary delegated metric questions.
+  requestText = requestText.replace(
+    /\n*\[Note:\s*this request comes from another app via A2A\.[\s\S]*\]\s*$/i,
+    "",
+  );
   return requestText.trim();
 }
 
@@ -163,13 +286,18 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
 }
 
 const ANALYTICS_RESULT_TERMS =
-  /\b(conversion|conversions|funnel|revenue|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|mrr|arr|ctr|cvr|cac|ltv)\b/;
+  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|mrr|arr|ctr|cvr|cac|ltv)\b/;
 
 const ANALYTICS_INTENT_TERMS =
   /\b(analy[sz]e|measure|calculate|query|report|summari[sz]e|break ?down|compare|rank|segment|forecast|trend|count|total|average|median|percent(?:age)?|rate|top|bottom|highest|lowest|how many|how much|what (?:is|are|was|were)|which|why)\b/;
 
 const SOURCE_SEARCH_INTENT_TERMS =
   /\b(find|surface|search|scan|grep|review|inspect|check|look through|go find)\b/;
+
+const SETUP_REQUEST_TERMS =
+  /\b(connect|configure|configuration|settings?|setup|set up|credentials?|authenticate|authorization)\b/;
+const SETUP_REQUEST_FRAMING =
+  /\b(?:how (?:do|can) i|can you|help me|where can i|show me how)\b/;
 
 const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 
@@ -187,6 +315,12 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const lower = requestText.toLowerCase();
   if (!lower) return false;
   if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
+  if (
+    SETUP_REQUEST_TERMS.test(lower) &&
+    (SETUP_REQUEST_FRAMING.test(lower) || /\bsettings?\b/.test(lower))
+  ) {
+    return false;
+  }
   if (looksLikeWorkflowOrAutomationRequest(lower)) return false;
   if (
     /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
@@ -204,7 +338,8 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   }
   if (
     /\b(integration|connect|configure|settings)\b/.test(lower) &&
-    !ANALYTICS_RESULT_TERMS.test(lower)
+    !ANALYTICS_INTENT_TERMS.test(lower) &&
+    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
   ) {
     return false;
   }
@@ -229,14 +364,45 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
 }
 
 const UNSUPPORTED_RESULT_CLAIM =
-  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+
+// Reuse the same broad unsupported-result-claim vocabulary that gates
+// isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
+// bypass the no-query fallback just by avoiding the narrower set of units a
+// dashboard-specific regex would otherwise miss (e.g. "signups", "accounts").
+export function draftClaimsAnalyticsMetrics(text: string): boolean {
+  return UNSUPPORTED_RESULT_CLAIM.test(String(text ?? "").trim());
+}
+
+export const GENERIC_NO_DATA_FALLBACK_MESSAGE =
+  "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.";
+
+// The first sentence of the canned fallback, lowercased, with the trailing
+// period dropped. Matching this prefix (rather than the whole message) still
+// catches a model paraphrase that continues differently after "successfully".
+const GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE =
+  GENERIC_NO_DATA_FALLBACK_MESSAGE.slice(
+    0,
+    GENERIC_NO_DATA_FALLBACK_MESSAGE.indexOf(". ") + 1,
+  ).toLowerCase();
+
+export function isGenericNoDataFallback(text: string): boolean {
+  return text
+    .trim()
+    .toLowerCase()
+    .startsWith(GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE.slice(0, -1));
+}
 
 const SAFE_NO_DATA_RESPONSE =
-  /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|query failed|source query failed|sql failed|error running|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
+  /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|not connected|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|query failed|source query failed|sql failed|error running|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
 
 export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
+  // This is the guard's own last-resort fallback. If a model emits it before
+  // attempting a query, it must go through the retry path instead of being
+  // accepted as an explicit unavailable-source or clarification response.
+  if (isGenericNoDataFallback(trimmed)) return false;
   if (UNSUPPORTED_RESULT_CLAIM.test(trimmed)) return false;
   if (SAFE_NO_DATA_RESPONSE.test(trimmed)) return true;
   return /\?\s*$/.test(trimmed) && !UNSUPPORTED_RESULT_CLAIM.test(trimmed);
@@ -382,10 +548,9 @@ export function hasIncompleteDataEvidence(
     const name = String(result.name ?? "");
     if (
       name &&
-      !isDataQueryActionName(name) &&
+      !isGroundingActionName(name) &&
       !isMcpDataSourceTool(name) &&
-      !isToolName(name, "run-code") &&
-      !isToolName(name, "provider-api-request")
+      !isToolName(name, "run-code")
     ) {
       return false;
     }
@@ -446,7 +611,7 @@ export function hasDataQueryAttempt(
     if (isToolName(name, "run-code")) {
       return hasRunCodeDataQueryAttempt(result.content);
     }
-    return isDataQueryActionName(name) || isMcpDataSourceTool(name);
+    return isGroundingActionName(name) || isMcpDataSourceTool(name);
   });
 }
 
@@ -457,7 +622,7 @@ function isFailedDataQueryAttempt(result: {
 }): boolean {
   const name = String(result.name ?? "");
   const isDataQuery =
-    isDataQueryActionName(name) ||
+    isGroundingActionName(name) ||
     isMcpDataSourceTool(name) ||
     (isToolName(name, "run-code") &&
       hasRunCodeDataQueryAttempt(result.content));
@@ -660,6 +825,9 @@ function actionEvidenceTextForSourceRecords(result: {
       transcriptSearch: record.transcriptSearch,
       transcripts: record.transcripts,
     });
+  }
+  if (normalizedName === "gong-native-insights") {
+    return "";
   }
   if (normalizedName === "run-code") {
     return content;

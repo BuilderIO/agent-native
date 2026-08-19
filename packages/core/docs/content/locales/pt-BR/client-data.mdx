@@ -1,0 +1,434 @@
+---
+title: "Dados e sincronização"
+description: "Os ganchos de action que app/ usa para ler, gravar e permanecer sincronizado em tempo real com as mesmas actions que o agente chama."
+---
+
+# Dados e sincronização
+
+A principal forma de ler e gravar dados do aplicativo a partir do cliente é através dos ganchos de [action](/docs/actions-overview). Ao incorporar solicitações em actions, tanto seu cliente quanto o agente podem interagir com seu aplicativo da mesma maneira.
+
+No exemplo abaixo, um ticket é atribuído ao usuário atual manualmente através de um dropdown, e depois através do agente de chat. Tanto a UI quanto o agente acessam a mesma action.
+
+<Video
+  src="https://cdn.builder.io/o/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa5548a35d1494c1f8a4f960fbe8d9b2c%2Fcompressed?apiKey=YJIGb4i01jvw0SRdL5Bt&token=a5548a35d1494c1f8a4f960fbe8d9b2c&alt=media&optimized=true"
+  alt="Exemplo de uma action de UI e uma action de agente tendo o mesmo resultado."
+  align="full"
+  autoplay={true}
+  loop={true}
+  width={600}
+  caption="Exemplo de uma action de UI e uma action de agente tendo o mesmo resultado."
+/>
+
+## Buscar e mutar dados {#fetching-mutating}
+
+Um aplicativo típico constrói sua própria camada de API e a chama com solicitações `fetch` escritas manualmente. Um aplicativo nativo do agente pula essa camada: `app/` chama as mesmas actions que o agente já tem como ferramentas, através dos ganchos abaixo.
+
+<Diagram id="doc-block-client-data-fm-1" title="Fetch típico vs. um gancho de action" summary="Um componente típico chama uma rota que só ele pode acessar. Um componente nativo do agente chama uma action que o agente também pode chamar.">
+
+```html
+<div class="diagram-fmcmp">
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">Típico</div>
+    <div class="diagram-node">Componente</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">fetch("/api/leads/:id")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>Sua rota de API</strong>
+      <small class="diagram-muted">só o front-end pode chamá-la</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Banco de dados</div>
+  </div>
+  <div class="fmcmp-vs diagram-muted">vs</div>
+  <div class="fmcmp-col">
+    <div class="fmcmp-label diagram-muted">Agent Native</div>
+    <div class="diagram-node">Componente</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-node">useActionQuery("get-lead")</div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">action get-lead</span>
+      <small class="diagram-muted">também uma ferramenta do agente</small>
+    </div>
+    <div class="fmcmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>Banco de dados SQL</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-fmcmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.fmcmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 200px;
+}
+.fmcmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.fmcmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-fmcmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-items: center;
+}
+.fmcmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+### Ganchos de action {#action-hooks}
+
+Existem dois ganchos de action que você provavelmente vai usar: `useActionQuery()` e `useActionMutation()`. Esses dois ganchos dão acesso às actions do seu aplicativo.
+
+#### useActionQuery {#use-action-query}
+
+<Signature
+  id="doc-block-client-data-1"
+  name="useActionQuery"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "O nome registrado da action.",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "A entrada da action, tipada a partir do esquema de `defineAction()`.",
+    },
+    {
+      name: "options",
+      type: "UseQueryOptions",
+      optional: true,
+      description:
+        "Tudo das [opções de useQuery](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery), exceto `queryKey` e `queryFn`, que o gancho define por conta própria.",
+    },
+  ]}
+  returns={{
+    type: "UseQueryResult<TResult>",
+    description:
+      'Armazenado em cache sob `["action", name, params]`. Busca novamente de forma automática sempre que uma action de mutação é concluída, sem necessidade de invalidação manual.',
+  }}
+/>
+
+Este gancho é destinado a actions somente leitura. É um wrapper leve em torno da função [useQuery()](https://tanstack.com/query/latest/docs/framework/react/reference/useQuery).
+
+No exemplo abaixo, a action `list-tickets` é chamada. Isso é semelhante a fazer uma solicitação GET para todos os tickets.
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery("list-tickets", {});
+```
+
+O exemplo a seguir mostra uma solicitação para buscar um único ticket, através da action `get-ticket`. Um `ticketId` é fornecido para restringir a consulta a retornar apenas um ticket específico. A opção adicional `enabled` é fornecida para garantir que a consulta não seja executada automaticamente, e sim apenas quando um `ticketId` estiver presente.
+
+```ts
+import { useActionQuery } from "@agent-native/core/client/hooks";
+
+const { data, isLoading } = useActionQuery(
+  "get-ticket",
+  { ticketId: ticketId ?? "" },
+  { enabled: Boolean(ticketId) },
+);
+```
+
+#### useActionMutation {#use-action-mutation}
+
+<Signature
+  id="doc-block-client-data-2"
+  name="useActionMutation"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "O nome registrado da action.",
+    },
+    {
+      name: "options",
+      type: "UseMutationOptions",
+      optional: true,
+      description:
+        "Tudo das [opções de useMutation](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation), exceto `mutationFn`, que o gancho define por conta própria.",
+      fields: [
+        {
+          name: "method",
+          type: '"POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "Substitui o método de solicitação padrão.",
+        },
+        {
+          name: "skipActionQueryInvalidation",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Desativa a atualização automática do cache em caso de sucesso.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "UseMutationResult",
+    description:
+      'Em caso de sucesso, emite um evento de mudança com `source: "action"`, para que toda `useActionQuery()` que lê dados afetados busque novamente de forma automática. Nenhuma invalidação manual é necessária.',
+  }}
+/>
+
+Este gancho é destinado a actions que alteram dados, como criar, atualizar ou enviar algo. É um wrapper leve em torno da função [useMutation()](https://tanstack.com/query/latest/docs/framework/react/reference/useMutation).
+
+Diferente de `useActionQuery()`, a entrada da action não é passada para o gancho em si. Ela é passada para `mutate()` ou `mutateAsync()` quando você estiver pronto para executar a mutação.
+
+No exemplo abaixo, a action `send-ticket-reply` é chamada para postar uma resposta em um ticket. Chame `mutate()` a partir de um manipulador de evento, como o `onClick` de um botão.
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply");
+
+mutate({ ticketId, body: draft });
+```
+
+O exemplo a seguir mostra a mesma mutação com uma opção `onSuccess`. A invalidação de cache acontece automaticamente após cada mutação, então `onSuccess` só é necessário para efeitos colaterais locais, como limpar o composer de resposta depois que a resposta é enviada.
+
+```ts
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const { mutate, isPending } = useActionMutation("send-ticket-reply", {
+  onSuccess: () => setDraft(""),
+});
+
+mutate({ ticketId, body: draft });
+```
+
+### callAction {#call-action}
+
+<Signature
+  id="doc-block-client-data-3"
+  name="callAction"
+  params={[
+    {
+      name: "actionName",
+      type: "TName",
+      description: "O nome registrado da action.",
+    },
+    {
+      name: "params",
+      type: "ActionParams<TName>",
+      optional: true,
+      description:
+        "A entrada da action, tipada a partir do esquema de `defineAction()`.",
+    },
+    {
+      name: "options",
+      type: "ClientActionCallOptions",
+      optional: true,
+      description: "Tudo abaixo é opcional.",
+      fields: [
+        {
+          name: "method",
+          type: '"GET" | "POST" | "PUT" | "DELETE"',
+          optional: true,
+          default: '"POST"',
+          description: "Substitui o método de solicitação padrão.",
+        },
+        {
+          name: "signal",
+          type: "AbortSignal",
+          optional: true,
+          description: "Cancela a solicitação.",
+        },
+        {
+          name: "timeoutMs",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "Substitui o tempo limite padrão de 60 segundos, para actions que legitimamente demoram mais.",
+        },
+      ],
+    },
+  ]}
+  returns={{
+    type: "Promise<TResult>",
+    description:
+      "Diferente dos ganchos acima, não há cache e nenhuma nova busca automática. Combine com uma invalidação manual se outra UI depender do resultado.",
+  }}
+/>
+
+Esta função é destinada a chamadas de action imperativas e pontuais fora de um fluxo de renderização React, como um manipulador de evento simples, um script, ou qualquer outro caminho de código que não seja React. Ela retorna uma promise diretamente, em vez de um resultado de gancho.
+
+No exemplo abaixo, a action `update-ticket` é chamada a partir de um manipulador de atalho de teclado fora do fluxo de renderização do React, atribuindo o ticket a um representante.
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction("update-ticket", {
+  ticketId,
+  assignedToEmail: "jordan@example.com",
+});
+```
+
+O exemplo a seguir mostra a mesma chamada com uma opção `timeoutMs`, útil para actions que legitimamente demoram mais do que o tempo limite padrão de 60 segundos.
+
+```ts
+import { callAction } from "@agent-native/core/client/hooks";
+
+await callAction(
+  "update-ticket",
+  { ticketId, assignedToEmail: "jordan@example.com" },
+  { timeoutMs: 120_000 },
+);
+```
+
+Toda solicitação `useActionQuery()`, `useActionMutation()` e `callAction()` é limitada por um tempo limite de 60 segundos, e os tempos limite surgem como erros em vez de tentar novamente silenciosamente. `useActionQuery()` também cancela solicitações substituídas automaticamente, usando o abort signal do React Query.
+
+## useDbSync {#usedbsync}
+
+<Signature
+  id="doc-block-client-data-4"
+  name="useDbSync"
+  params={[
+    {
+      name: "options",
+      type: "UseDbSyncOptions",
+      description: "Todo campo é opcional.",
+      fields: [
+        {
+          name: "queryClient",
+          type: "QueryClient",
+          optional: true,
+          description: "Cliente React Query usado para invalidação de cache.",
+        },
+        {
+          name: "pollUrl",
+          type: "string",
+          optional: true,
+          default: '"/_agent-native/poll"',
+          description: "URL do endpoint de pesquisa.",
+        },
+        {
+          name: "sseUrl",
+          type: "string | false",
+          optional: true,
+          default: '"/_agent-native/events"',
+          description:
+            "URL do endpoint SSE. Passe `false` para usar apenas pesquisa (polling).",
+        },
+        {
+          name: "interval",
+          type: "number",
+          optional: true,
+          default: "2000",
+          description: "Intervalo de pesquisa em ms.",
+        },
+        {
+          name: "fallbackInterval",
+          type: "number",
+          optional: true,
+          default: "60000",
+          description:
+            "Intervalo de pesquisa enquanto o SSE está conectado, como backup no caso de um evento ser perdido. Uma aba desconectada faz a pesquisa no ritmo mais rápido `interval` (ou um ritmo fixo ocioso) em vez disso.",
+        },
+        {
+          name: "pauseWhenHidden",
+          type: "boolean",
+          optional: true,
+          default: "false",
+          description:
+            "Pausa a pesquisa quando a aba do navegador está oculta. Abas ocultas mantêm o SSE conectado e pesquisam no máximo a cada 10s enquanto ativas, 60s quando ociosas.",
+        },
+        {
+          name: "ignoreSource",
+          type: "string",
+          optional: true,
+          description:
+            "Origem de solicitação por aba a ser ignorada, para que uma aba não busque novamente a partir de suas próprias gravações.",
+        },
+        {
+          name: "onEvent",
+          type: "(data) => void",
+          optional: true,
+          description:
+            "Callback opcional quando o SSE ou a pesquisa recebe um evento de mudança.",
+        },
+        {
+          name: "actionInvalidatePredicate",
+          type: "(query: Query) => boolean",
+          optional: true,
+          description:
+            "Filtra a invalidação ampla que um evento de action dispara. Raramente necessário. Use para manter uma consulta ativa cara em semântica de atualização explícita enquanto consultas normais versionadas por origem continuam reagindo através de `useChangeVersion`.",
+        },
+        {
+          name: "suppressActionInvalidationFor",
+          type: "string[]",
+          optional: true,
+          description:
+            "Nomes de actions cujos eventos de sincronização não devem invalidar todas as consultas de action. Apenas para actions de alto volume em segundo plano que já realizam sua própria invalidação restrita.",
+        },
+        {
+          name: "queryKeys",
+          type: "string[]",
+          optional: true,
+          description: "Obsoleto e ignorado. Mantido para call sites antigos.",
+        },
+      ],
+    },
+  ]}
+  returns={{ type: "void" }}
+/>
+
+Este gancho é destinado a manter a UI sincronizada com mudanças no banco de dados que ocorrem fora das suas próprias actions, como uma gravação do agente, um webhook, ou uma mudança feita em outra aba do navegador. Ele escuta mudanças por server-sent events, e recorre à pesquisa quando server-sent events não estão disponíveis.
+
+```ts
+import { useDbSync } from "@agent-native/core/client/hooks";
+import { useQueryClient } from "@tanstack/react-query";
+
+function App() {
+  const queryClient = useQueryClient();
+
+  useDbSync({
+    queryClient,
+    pollUrl: "/_agent-native/poll",
+    onEvent: (data) => console.log("Data changed:", data),
+  });
+
+  return <div>...</div>;
+}
+```
+
+Para CRUD normal, prefira `useActionQuery()` e `useActionMutation()`. Actions de mutação emitem `source: "action"`, então esses ganchos buscam novamente imediatamente. Mudanças do agente, de um webhook, ou de outra aba chegam através de `useDbSync()` em vez disso, via SSE ou o fallback de pesquisa. Se uma chamada `useQuery()` bruta precisa sincronizar em uma chave personalizada, veja [Sincronização interna](/docs/client-sync-internals). Se você precisa gravar diretamente em `application_state`, veja [Avançado](/docs/client-advanced).
+
+## O que vem a seguir
+
+- [**Visão geral**](/docs/client-overview) — o layout de diretórios `app/` e `public/` onde os ganchos desta página vivem
+- [**Chat do Agent**](/docs/client-agent-chat) — enviando prompts e preparando contexto para o agente
+- [**Actions**](/docs/actions-overview) — a superfície `defineAction` por trás de cada gancho desta página
+- [**Avançado**](/docs/client-advanced) — acesso direto a `application_state`
+- [**Sincronização interna**](/docs/client-sync-internals) — sincronizando um `useQuery` bruto com `useChangeVersion`
+- [**Sincronização em tempo real**](/docs/key-concepts#polling-sync) — como `useDbSync` mantém a UI atualizada

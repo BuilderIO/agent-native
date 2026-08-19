@@ -1,11 +1,12 @@
 import {
   AgentSidebar,
   focusAgentChat,
+  isAgentChatHomeHandoffActive,
   navigateWithAgentChatViewTransition,
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -44,7 +45,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
     activePath: location.pathname,
     enabled: !isAskRoute,
   });
-  useAgentChatHomeHandoffLinks({ storageKey: "brain", chatPath: "/" });
+  const chatHomeHandoffPending = isAgentChatHomeHandoffActive("brain");
+  useAgentChatHomeHandoffLinks({
+    storageKey: "brain",
+    chatPath: "/",
+    requireActiveHandoff: true,
+  });
 
   useEffect(() => {
     setMobileSidebarOpen(false);
@@ -125,11 +131,13 @@ export function Layout({ children }: { children: React.ReactNode }) {
       <AgentSidebar
         position="right"
         chatViewTransition
+        chatViewTransitionHandoff={chatHomeHandoffPending}
         storageKey="brain"
         browserTabId={TAB_ID}
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openAskAgentFullscreen}
         emptyStateText={t("chat.emptyState")}
+        agentPageHref="/settings/agent"
         suggestions={[
           t("chat.suggestionSecurity"),
           t("chat.suggestionStaleFacts"),

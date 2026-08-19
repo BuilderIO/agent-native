@@ -1,11 +1,11 @@
 ---
 title: "Extensions"
-description: "Mini-applications que vos utilisateurs créent à l'intérieur de votre modèle : une vignette KPI personnalisée dans Analytics, une liste de contrôle de préparation à une réunion dans Calendrier, un widget de contact CRM dans Mail. Aucun déploiement, aucune modification de code, aucune modification de schéma."
+description: "Une capacité facultative du toolkit pour des blocs personnalisés ponctuels et isolés. Le code de l’application reste la voie par défaut pour les comportements durables."
 ---
 
 # Extensions
 
-Les extensions sont des **mini-applications que vos utilisateurs créent dans votre modèle**.
+Les extensions sont une **capacité facultative du toolkit pour des blocs personnalisés isolés**. Elles sont désactivées par défaut et le modèle doit les activer explicitement. Analytics les utilise pour des visualisations ponctuelles demandées explicitement. Pour un comportement durable, modifiez le code de l’application.
 
 Si vous avez utilisé QuickBooks en ligne, vous avez vu le modèle : QBO est livré avec un produit comptable de base et les utilisateurs superposent de petits widgets personnalisés (un rapport personnalisé, un calculateur de paie, un vérificateur de règles fiscales) qui se trouvent dans la même application et utilisent les mêmes données. Les extensions sont la version native de l'agent de cette idée, sauf que vos utilisateurs n'écrivent aucun code. Ils décrivent ce qu'ils veulent et l'agent le construit.
 
@@ -16,10 +16,11 @@ Le cadrage est important : une extension n'est pas un bac à sable générique 
 > [emplacement](#slots) nommé exposé par le modèle. Elle ne peut pas injecter
 > d'éléments dans n'importe quel composant natif — par exemple à côté de chaque
 > participant dans Calendrier — sauf si le modèle expose un emplacement à cet
-> endroit. Pour une personnalisation plus poussée, demandez à l'agent de
-> modifier le code source du modèle. La personnalisation complète du code est
-> une capacité fondamentale d'Agent Native ; les extensions constituent la
-> couche rapide, sans déploiement.
+> endroit. Pour une personnalisation plus poussée, modifiez le template dans
+> votre dépôt et votre flux de développement. L'agent intégré ne peut aider que
+> si l'hôte accorde intentionnellement des outils d'écriture
+> repository/workspace ; les extensions restent la couche rapide sans
+> déploiement.
 
 Trois éléments font que les extensions fonctionnent :
 
@@ -27,10 +28,12 @@ Trois éléments font que les extensions fonctionnent :
 - **Accès complet aux données du modèle.** Les extensions peuvent appeler le même actions que l'agent appelle : `list-emails` dans Mail, `list-decks` dans Slides, `list-recordings` dans Clips – elles disposent donc de tout ce que l'application hôte possède.
 - **Stockage intégré.** Chaque extension possède son propre magasin de valeurs-clés par utilisateur/par organisation, elle peut donc enregistrer l'état sans que vous ayez à ajouter une nouvelle table SQL.
 
-Si un modèle ne doit pas exposer les extensions créées par l'utilisateur, définissez
-`extensionTools: false` sur `createAgentChatPlugin()`. Cela supprime le
-Extension actions destinée aux agents et conseils rapides tout en quittant le reste du
-Agent d'application intact.
+Les extensions sont désactivées par défaut. Pour les activer, définissez
+`extensionTools: true` sur `createAgentChatPlugin()` et
+`createCoreRoutesPlugin()`. Le premier ajoute les actions et les instructions
+destinées à l’agent ; le second autorise la création authentifiée via
+`POST /_agent-native/extensions`. Le runtime isolé et les routes existantes de
+lecture, modification et liens profonds restent disponibles par compatibilité.
 
 <Diagram id="doc-block-1d1pxwt" title={"Le pont du bac à sable"} summary={"L'extension HTML s'exécute dans une iframe isolée et atteint l'hôte uniquement via un ensemble fixe d'assistants de pont : chaque appel est limité et son accès est vérifié."}>
 
@@ -213,7 +216,7 @@ Modèle pour tous ces éléments : les extensions concernent **le moment** dans
 
 Le chemin simple :
 
-1. **Cliquez sur "Nouvelle extension"** dans la barre latérale (ou demandez simplement dans le chat).
+1. Ouvrez **Settings → Extensions** (ou demandez simplement dans le chat), puis cliquez sur **"Nouvelle extension"**.
 2. **Décrivez ce que vous voulez en une phrase.** "Un bloc-notes autocollant pour le contact auquel j'envoie un e-mail." "Une box KPI pour les essais a débuté cette semaine."
 3. **L'agent l'écrit et il apparaît dans votre liste d'extensions, prêt à être utilisé.**
 
@@ -425,20 +428,24 @@ Les extensions sont privées par défaut pour l'utilisateur qui les a créées. 
 
 Les extensions partagées ont leurs propres URL et se connectent à la même boîte de dialogue de partage que les documents, les présentations et les tableaux de bord. Les installations d'emplacements sont toujours personnelles : le partage d'une extension signifie que d'autres _peuvent_ l'installer ; il ne l'épingle pas automatiquement sur leur UI.
 
-## Extensions ou modification du code de l'application {#vs-app-code}
+## Dois-je utiliser une extension ou le flux de source de l’application ? {#vs-app-code}
 
-Le framework permet à l'agent de modifier directement le code source de l'application : composants, itinéraires, styles. Alors, quand devriez-vous plutôt demander une extension ?
+L'agent intégré ne modifie pas le code source par défaut ; il ne peut le faire que si l'hôte accorde intentionnellement des outils d'écriture repository/workspace. Utilisez le flux de source pour un comportement durable et les extensions pour une personnalisation rapide au runtime.
 
-|                              | Extension                                                     | Modification du code de l'application                    |
-| ---------------------------- | ------------------------------------------------------------- | -------------------------------------------------------- |
-| **Créé par**                 | Agent (ou utilisateur) au moment de l'exécution               | Agent modifiant les fichiers sources                     |
-| **Stocké dans**              | La base de données                                            | Le dépôt git                                             |
-| **Nécessite une build**      | Non                                                           | Oui                                                      |
-| **Nécessite un déploiement** | Non                                                           | Oui                                                      |
-| **Portée**                   | Un utilisateur (ou partagé avec l'organisation)               | Le produit dans son intégralité, chaque utilisateur      |
-| **Idéal pour**               | Widgets personnels, KPI personnalisés, utilitaires par équipe | Fonctionnalités de base fournies à tous les utilisateurs |
+- **Commencez par le code de l’application** pour le comportement du produit, l’interface native, la mise en page, les itinéraires, la logique métier ou tout ce qui doit être réutilisé.
+- **Utilisez un bloc personnalisé uniquement si l’application l’active** et si l’utilisateur demande explicitement une visualisation ou interaction ponctuelle dans une surface existante. Il est rapide et sans déploiement, mais reste un correctif isolé créé par l’agent.
+- **Promouvez les blocs durables.** Si un bloc devient utile au-delà de son contexte initial, utilisez **Promouvoir vers le code de l’application** et conservez-le jusqu’à la revue et au déploiement du changement.
 
-Règle générale : **si c'est pour un utilisateur ou une équipe, c'est une extension.** Si chaque utilisateur du modèle doit l'obtenir, expédiez-le comme une véritable fonctionnalité.
+|                              | Extension                                       | Modification du code de l'application               |
+| ---------------------------- | ----------------------------------------------- | --------------------------------------------------- |
+| **Créé par**                 | Agent (ou utilisateur) au moment de l'exécution | Utilisateur ou flux capable de modifier le code     |
+| **Stocké dans**              | La base de données                              | Le dépôt git                                        |
+| **Nécessite une build**      | Non                                             | Oui                                                 |
+| **Nécessite un déploiement** | Non                                             | Oui                                                 |
+| **Portée**                   | Un utilisateur (ou partagé avec l'organisation) | Le produit dans son intégralité, chaque utilisateur |
+| **Idéal pour**               | Blocs personnalisés ponctuels                   | Comportement durable du produit                     |
+
+Règle générale : **utilisez le code de l’application par défaut.** Dans une application qui active les extensions, une visualisation ponctuelle peut être un bloc personnalisé ; un nouveau type de graphique destiné à tous les tableaux de bord relève du code du modèle.
 
 Pour une récupération de données personnalisée destinée à alimenter des graphiques et tableaux natifs plutôt qu'une UI de widget sur mesure, voir [Programmes de données](/docs/data-programs) — un script `run-code` stocké et actualisable auquel les panneaux de dashboard se lient directement, sans aucun iframe d'extension.
 
@@ -472,7 +479,7 @@ Vous ne verrez pas cela non plus en utilisation normale, mais l'agent a un trois
 ## Quelle est la prochaine étape
 
 - [**Templates**](/docs/cloneable-saas) : les extensions des applications hôtes s'étendent
-- [**Actions**](/docs/actions) — les opérations qu'un poste appelle via `appAction`
+- [**Actions**](/docs/actions-overview) — les opérations qu'un poste appelle via `appAction`
 - [**Sharing & Privacy**](/docs/sharing) : fonctionnement de la visibilité des extensions, du partage d'organisation et des subventions par utilisateur
 - [**Onboarding & API Keys**](/docs/onboarding) — comment les secrets apparaissent dans les paramètres UI
 - [**Security**](/docs/security) – le modèle de portée et d'accès aux données du framework

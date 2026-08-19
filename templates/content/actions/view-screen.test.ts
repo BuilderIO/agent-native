@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { ContentDatabaseResponse, DocumentProperty } from "../shared/api";
 import {
   databaseCurrentViewSnapshot,
+  documentContentPreview,
   serializeDocumentTreeItemForScreen,
+  SCREEN_DOCUMENT_PREVIEW_CHARS,
 } from "./view-screen";
 
 function property(
@@ -247,6 +249,34 @@ describe("view-screen document tree", () => {
       visibility: "org",
       database: undefined,
     });
+  });
+});
+
+describe("view-screen document previews", () => {
+  it("keeps short bodies and their full length", () => {
+    const content = "  A short page.  ";
+
+    expect(documentContentPreview(content)).toEqual({
+      contentPreview: "A short page.",
+      contentLength: content.length,
+      contentTruncated: false,
+    });
+  });
+
+  it("bounds long bodies and points to the full-document action", () => {
+    const content = `  ${"x".repeat(SCREEN_DOCUMENT_PREVIEW_CHARS + 100)}  `;
+    const preview = documentContentPreview(content);
+
+    expect(preview.contentLength).toBe(content.length);
+    expect(preview.contentTruncated).toBe(true);
+    expect(preview.contentPreview).toHaveLength(
+      SCREEN_DOCUMENT_PREVIEW_CHARS +
+        "... [document body truncated; call get-document for the full content]"
+          .length,
+    );
+    expect(preview.contentPreview).toContain(
+      "call get-document for the full content",
+    );
   });
 });
 
@@ -610,5 +640,22 @@ describe("view-screen current database view", () => {
         result: "Median 1.50",
       },
     ]);
+  });
+
+  it("keeps totals honest when the current database window is bounded", () => {
+    const response = databaseResponse();
+    response.pagination = {
+      offset: 0,
+      limit: 50,
+      totalItems: 120,
+      returnedItems: 50,
+      hasMore: true,
+    };
+
+    const snapshot = databaseCurrentViewSnapshot({}, response);
+
+    expect(snapshot.visibleItemCount).toBe(50);
+    expect(snapshot.totalItemCount).toBe(120);
+    expect(snapshot.calculationResults).toBeNull();
   });
 });

@@ -1,4 +1,10 @@
-import { table, text, integer } from "../db/schema.js";
+import {
+  table,
+  text,
+  integer,
+  ownableColumns,
+  createSharesTable,
+} from "../db/schema.js";
 
 export const organizations = table("organizations", {
   id: text("id").primaryKey(),
@@ -7,6 +13,8 @@ export const organizations = table("organizations", {
   createdAt: integer("created_at").notNull(),
   allowedDomain: text("allowed_domain"),
   a2aSecret: text("a2a_secret"),
+  workspaceUrl: text("workspace_url"),
+  requiredAuthProvider: text("required_auth_provider"),
 });
 
 export const orgMembers = table("org_members", {
@@ -15,6 +23,21 @@ export const orgMembers = table("org_members", {
   email: text("email").notNull(),
   role: text("role").notNull(),
   joinedAt: integer("joined_at").notNull(),
+});
+
+/**
+ * Per-app role assignments, keyed to an existing `org_members` row. An app role
+ * only narrows what a member may do inside one app; it never grants membership,
+ * and it never implies an org role.
+ */
+export const appMemberRoles = table("app_member_roles", {
+  id: text("id").primaryKey(),
+  orgId: text("org_id").notNull(),
+  appId: text("app_id").notNull(),
+  email: text("email").notNull(),
+  role: text("role").notNull(),
+  updatedBy: text("updated_by").notNull(),
+  updatedAt: integer("updated_at").notNull(),
 });
 
 export const orgInvitations = table("org_invitations", {
@@ -26,3 +49,24 @@ export const orgInvitations = table("org_invitations", {
   status: text("status").notNull(),
   role: text("role"),
 });
+
+/** Workspace app access is framework-owned so every mounted app can enforce it. */
+export const workspaceApps = table("workspace_apps", {
+  id: text("id").primaryKey(),
+  ...ownableColumns(),
+  // Workspace apps are visible to their organization by default. The generic
+  // ownable primitive remains private-by-default for user-created resources;
+  // app creation is a deliberate workspace-level exception.
+  visibility: text("visibility", {
+    enum: ["private", "org", "public"],
+  })
+    .notNull()
+    .default("org"),
+  name: text("name").notNull(),
+  description: text("description"),
+  path: text("path").notNull(),
+  createdAt: integer("created_at").notNull(),
+  updatedAt: integer("updated_at").notNull(),
+});
+
+export const workspaceAppShares = createSharesTable("workspace_app_shares");

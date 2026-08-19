@@ -36,17 +36,39 @@ function extractMemberEmail(event: H3Event): string | undefined {
 const nanoid = (): string =>
   globalThis.crypto?.randomUUID?.().replace(/-/g, "") ??
   Math.random().toString(36).slice(2) + Date.now().toString(36);
-import { getDbExec } from "../db/client.js";
+import { getDbExec, isPostgres } from "../db/client.js";
+import { CORE_INVITE_EMAIL_ID } from "../email-catalog/system-emails.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { getAppProductionUrl } from "../server/app-url.js";
 import { getSession } from "../server/auth.js";
 import { renderInviteEmail } from "../server/email-templates.js";
 import { sendEmail, isEmailConfigured } from "../server/email.js";
 import { readBody } from "../server/h3-helpers.js";
-import { putUserSetting } from "../settings/user-settings.js";
+import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
+import { setActiveOrgId } from "./active-org.js";
+import { setRequiredAuthProvider } from "./auth-policy.js";
+import { invalidateDomainMatchCache } from "./auto-join-domain.js";
 import { getOrgContext, createOrganization } from "./context.js";
 import { isFreeEmailProvider } from "./free-email-providers.js";
-import type { OrgRole } from "./types.js";
+import { invalidateMemberOrgCaches } from "./request-org-cache.js";
+import type {
+  OrgRole,
+  RequiredAuthProvider,
+  WorkspaceAppDefaultVisibility,
+} from "./types.js";
+import { parseWorkspaceUrl } from "./workspace-url.js";
+
+const WORKSPACE_APP_DEFAULT_VISIBILITY_KEY = "workspace-app-default-visibility";
+
+function normalizeWorkspaceAppDefaultVisibility(
+  value: unknown,
+): WorkspaceAppDefaultVisibility {
+  if (value === "private" || value === "org") return value;
+  if (value == null) return "org";
+  throw new Error(
+    "Workspace app default visibility is invalid; refusing to widen access.",
+  );
+}
 
 function getInviteAppUrl(event: H3Event): string {
   return getAppProductionUrl(event);
@@ -108,24 +130,43 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
   }
 
   let allowedDomain: string | null = null;
-  let a2aSecret: string | null = null;
+  let workspaceUrl: string | null = null;
+  let requiredAuthProvider: RequiredAuthProvider = null;
+  let a2aSecretSet = false;
   if (ctx.orgId) {
-    try {
-      const adRes = await e.execute({
-        sql: `SELECT allowed_domain, a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
-        args: [ctx.orgId],
-      });
-      if (adRes.rows[0]) {
-        allowedDomain =
-          String((adRes.rows[0] as any).allowed_domain ?? "") || null;
-        a2aSecret = String((adRes.rows[0] as any).a2a_secret ?? "") || null;
+    const adRes = await e.execute({
+      sql: `SELECT allowed_domain, a2a_secret, workspace_url, required_auth_provider
+            FROM organizations WHERE id = ? LIMIT 1`,
+      args: [ctx.orgId],
+    });
+    if (adRes.rows[0]) {
+      allowedDomain =
+        String((adRes.rows[0] as any).allowed_domain ?? "") || null;
+      workspaceUrl = String((adRes.rows[0] as any).workspace_url ?? "") || null;
+      const provider = String(
+        (adRes.rows[0] as any).required_auth_provider ?? "",
+      );
+      if (provider && provider !== "google") {
+        throw new Error(`Unsupported organization auth provider: ${provider}`);
       }
-    } catch {
-      // Column may not exist yet
+      requiredAuthProvider = provider === "google" ? "google" : null;
+      a2aSecretSet = Boolean(
+        String((adRes.rows[0] as any).a2a_secret ?? "").trim(),
+      );
     }
   }
 
   const isOwnerOrAdmin = ctx.role === "owner" || ctx.role === "admin";
+  let workspaceAppDefaultVisibility: WorkspaceAppDefaultVisibility = "org";
+  if (ctx.orgId) {
+    const setting = await getOrgSetting(
+      ctx.orgId,
+      WORKSPACE_APP_DEFAULT_VISIBILITY_KEY,
+    );
+    workspaceAppDefaultVisibility = normalizeWorkspaceAppDefaultVisibility(
+      setting?.visibility,
+    );
+  }
 
   const invitesRes = await e.execute({
     // Case-insensitive match: invitations are stored with whatever case
@@ -154,9 +195,47 @@ export const getMyOrgHandler = defineEventHandler(async (event: H3Event) => {
     pendingInvitations,
     domainMatches,
     allowedDomain,
-    a2aSecret: isOwnerOrAdmin ? a2aSecret : undefined,
+    workspaceUrl,
+    requiredAuthProvider,
+    workspaceAppDefaultVisibility,
+    // Never serialize the A2A secret here. This route runs on every page load,
+    // so the value would sit in JSON any script on the page can read, and it
+    // signs the JWTs peers accept as first-party callers. Reveal is an explicit
+    // owner/admin GET on /_agent-native/org/a2a-secret.
+    a2aSecretSet: isOwnerOrAdmin ? a2aSecretSet : undefined,
   };
 });
+
+/** PUT /_agent-native/org/workspace-app-default-visibility - org admins only */
+export const setWorkspaceAppDefaultVisibilityHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only organization admins can change app defaults.",
+      });
+    }
+    if (!ctx.orgId) {
+      throw createError({
+        statusCode: 400,
+        message: "Join an organization before changing app defaults.",
+      });
+    }
+    const body = await readBody(event);
+    if (body?.visibility !== "private" && body?.visibility !== "org") {
+      throw createError({
+        statusCode: 400,
+        message: "visibility must be either private or org.",
+      });
+    }
+    const visibility: WorkspaceAppDefaultVisibility = body.visibility;
+    await putOrgSetting(ctx.orgId, WORKSPACE_APP_DEFAULT_VISIBILITY_KEY, {
+      visibility,
+    });
+    return { visibility };
+  },
+);
 
 /** POST /_agent-native/org — create a new organization */
 export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
@@ -179,7 +258,9 @@ export const createOrgHandler = defineEventHandler(async (event: H3Event) => {
 /** GET /_agent-native/org/members — list org members */
 export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   const ctx = await getOrgContext(event);
-  if (!ctx.orgId) return { members: [], hasMore: false, nextOffset: null };
+  if (!ctx.orgId) {
+    return { members: [], totalCount: 0, hasMore: false, nextOffset: null };
+  }
 
   const url = getRequestURL(event);
   const search = (
@@ -201,10 +282,14 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
 
   const e = await exec();
   const args: unknown[] = [ctx.orgId];
+  const countArgs: unknown[] = [ctx.orgId];
   let sql = `SELECT email, role, joined_at AS "joinedAt" FROM org_members WHERE org_id = ?`;
+  let countSql = `SELECT COUNT(*) AS "totalCount" FROM org_members WHERE org_id = ?`;
   if (search) {
     sql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
     args.push(`%${escapeLike(search)}%`);
+    countSql += ` AND LOWER(email) LIKE ? ESCAPE '!'`;
+    countArgs.push(`%${escapeLike(search)}%`);
   }
   sql += ` ORDER BY LOWER(email) ASC`;
   if (limit !== null) {
@@ -212,12 +297,23 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
     args.push(limit + 1, offset);
   }
 
+  const totalCountResult =
+    limit === null
+      ? undefined
+      : await e.execute({ sql: countSql, args: countArgs });
   const { rows } = await e.execute({
     sql,
     args,
   });
   const pageRows = limit !== null ? rows.slice(0, limit) : rows;
   const hasMore = limit !== null && rows.length > limit;
+  const totalCount =
+    totalCountResult === undefined
+      ? pageRows.length
+      : Number((totalCountResult.rows[0] as any)?.totalCount);
+  if (!Number.isSafeInteger(totalCount) || totalCount < 0) {
+    throw new Error("Organization member count was not returned");
+  }
   const members = pageRows.map((r: any) => ({
     email: String(r.email),
     role: String(r.role) as OrgRole,
@@ -225,6 +321,7 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
   }));
   return {
     members,
+    totalCount,
     hasMore,
     nextOffset: hasMore ? offset + members.length : null,
   };
@@ -320,7 +417,14 @@ async function inviteOne(
         acceptUrl: getInviteAppUrl(event),
         inviter: ctx.email,
       });
-      await sendEmail({ to: email, subject, html, text });
+      await sendEmail({
+        to: email,
+        subject,
+        html,
+        text,
+        templateId: CORE_INVITE_EMAIL_ID,
+        orgId: ctx.orgId,
+      });
       emailSent = true;
     } catch (err) {
       emailError = err instanceof Error ? err.message : String(err);
@@ -482,7 +586,7 @@ export const acceptInvitationHandler = defineEventHandler(
         sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
         args: [invitationId],
       });
-      await putUserSetting(email, "active-org-id", { orgId: invOrgId });
+      await setActiveOrgId(email, invOrgId, "accepted invitation");
       return {
         orgId: invOrgId,
         orgName,
@@ -494,13 +598,14 @@ export const acceptInvitationHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)`,
       args: [nanoid(), invOrgId, email, inviteRole, Date.now()],
     });
+    invalidateMemberOrgCaches();
 
     await e.execute({
       sql: `UPDATE org_invitations SET status = 'accepted' WHERE id = ?`,
       args: [invitationId],
     });
 
-    await putUserSetting(email, "active-org-id", { orgId: invOrgId });
+    await setActiveOrgId(email, invOrgId, "accepted invitation");
 
     return { orgId: invOrgId, orgName, role: inviteRole };
   },
@@ -563,6 +668,7 @@ export const removeMemberHandler = defineEventHandler(
       sql: `DELETE FROM org_members WHERE org_id = ? AND LOWER(email) = ?`,
       args: [ctx.orgId, memberEmailLower],
     });
+    invalidateMemberOrgCaches();
 
     return { success: true };
   },
@@ -642,6 +748,7 @@ export const changeMemberRoleHandler = defineEventHandler(
       sql: `UPDATE org_members SET role = ? WHERE org_id = ? AND LOWER(email) = ?`,
       args: [role, ctx.orgId, memberEmailLower],
     });
+    invalidateMemberOrgCaches();
 
     return { email: memberEmailLower, role };
   },
@@ -674,8 +781,112 @@ export const updateOrgHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET name = ? WHERE id = ?`,
     args: [name, ctx.orgId],
   });
+  // `orgName` is joined into the cached membership rows, so a rename that skips
+  // this leaves every member's org context showing the old name for the TTL.
+  invalidateMemberOrgCaches();
 
   return { orgId: ctx.orgId, name };
+});
+
+/**
+ * DELETE /_agent-native/org — permanently delete the current organization
+ * (owner only). Body: { name: string } must match the org's current name
+ * (trim + case-insensitive) as a confirmation guard against misclicks.
+ *
+ * Deletes org_invitations, org-scoped settings, org_members, and the
+ * organizations row, then repoints the caller's active-org-id to another
+ * membership of theirs (or null for Personal) so they aren't left pointing
+ * at a deleted org.
+ */
+export const deleteOrgHandler = defineEventHandler(async (event: H3Event) => {
+  const ctx = await getOrgContext(event);
+  if (!ctx.orgId) {
+    throw createError({ statusCode: 400, message: "No active organization" });
+  }
+  if (ctx.role !== "owner") {
+    throw createError({
+      statusCode: 403,
+      message: "Only the organization owner can delete an organization",
+    });
+  }
+
+  const body = await readBody(event);
+  const confirmName = String(body?.name ?? "").trim();
+
+  const e = await exec();
+  const orgRes = await e.execute({
+    sql: `SELECT name FROM organizations WHERE id = ? LIMIT 1`,
+    args: [ctx.orgId],
+  });
+  if (orgRes.rows.length === 0) {
+    throw createError({ statusCode: 404, message: "Organization not found" });
+  }
+  const actualName = String((orgRes.rows[0] as any).name ?? "").trim();
+
+  if (confirmName.toLowerCase() !== actualName.toLowerCase()) {
+    throw createError({
+      statusCode: 400,
+      message: "Organization name does not match",
+    });
+  }
+
+  const settingsTable = isPostgres() ? "public.settings" : "settings";
+  const settingsPrefix = `o:${ctx.orgId}:`.replace(
+    /[!%_]/g,
+    (character) => `!${character}`,
+  );
+  const deleteStatements = [
+    {
+      sql: `DELETE FROM org_invitations WHERE org_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM app_secrets WHERE scope IN ('org', 'workspace') AND scope_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM ${settingsTable} WHERE key LIKE ? ESCAPE '!'`,
+      args: [`${settingsPrefix}%`],
+    },
+    {
+      sql: `DELETE FROM org_members WHERE org_id = ?`,
+      args: [ctx.orgId],
+    },
+    {
+      sql: `DELETE FROM organizations WHERE id = ?`,
+      args: [ctx.orgId],
+    },
+  ];
+
+  if (e.transaction) {
+    await e.transaction(async (tx) => {
+      for (const statement of deleteStatements) await tx.execute(statement);
+    });
+  } else if (e.atomicBatch) {
+    await e.atomicBatch(deleteStatements);
+  } else {
+    throw createError({
+      statusCode: 503,
+      message: "Organization deletion requires atomic database support",
+    });
+  }
+
+  invalidateMemberOrgCaches();
+
+  const nextRes = await e.execute({
+    sql: `SELECT org_id AS "orgId" FROM org_members WHERE LOWER(email) = ? LIMIT 1`,
+    args: [ctx.email.toLowerCase()],
+  });
+  const nextOrgId =
+    nextRes.rows.length > 0
+      ? String(
+          (nextRes.rows[0] as any).orgId ?? (nextRes.rows[0] as any).org_id,
+        )
+      : null;
+
+  await setActiveOrgId(ctx.email, nextOrgId, "deleted active organization");
+
+  return { success: true, orgId: ctx.orgId, nextOrgId };
 });
 
 /** PUT /_agent-native/org/switch — switch the user's active organization */
@@ -687,7 +898,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
   const orgId = body?.orgId;
 
   if (!orgId) {
-    await putUserSetting(email, "active-org-id", { orgId: null });
+    await setActiveOrgId(email, null, "cleared active organization");
     return { orgId: null, orgName: null, role: null };
   }
 
@@ -707,7 +918,7 @@ export const switchOrgHandler = defineEventHandler(async (event: H3Event) => {
     });
   }
 
-  await putUserSetting(email, "active-org-id", { orgId });
+  await setActiveOrgId(email, orgId, "user switched organization");
 
   const row = membership.rows[0] as any;
   return {
@@ -765,8 +976,9 @@ export const joinByDomainHandler = defineEventHandler(
       sql: `INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, 'member', ?)`,
       args: [nanoid(), orgId, email, Date.now()],
     });
+    invalidateMemberOrgCaches();
 
-    await putUserSetting(email, "active-org-id", { orgId });
+    await setActiveOrgId(email, orgId, "joined domain-matched organization");
 
     return {
       orgId,
@@ -845,9 +1057,123 @@ export const setDomainHandler = defineEventHandler(async (event: H3Event) => {
     sql: `UPDATE organizations SET allowed_domain = ? WHERE id = ?`,
     args: [raw, ctx.orgId],
   });
+  // A domain that previously matched nothing now matches this org. Without this
+  // the negative cache keeps every account at that domain out of it for the
+  // rest of the TTL, right after an owner deliberately turned domain-join on.
+  invalidateDomainMatchCache();
+  // `allowedDomain` is joined into the cached membership rows too, and existing
+  // members read it to decide whether a domain auto-join is still needed.
+  invalidateMemberOrgCaches();
 
   return { domain: raw };
 });
+
+/**
+ * PUT /_agent-native/org/workspace-url — set or clear the org's own workspace
+ * origin (owner/admin only).
+ *
+ * Members who reach a shared hosted app from the template catalog land in a
+ * different deployment than their team's workspace, with the same org name in
+ * the switcher, and read the empty app as broken rather than as somewhere
+ * else. Setting this points them home from wherever they land.
+ *
+ * Body: { url: string | null } — a full URL or bare host; stored as an origin.
+ */
+export const setWorkspaceUrlHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({ statusCode: 400, message: "No active organization" });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can set the workspace URL",
+      });
+    }
+
+    const body = await readBody(event);
+    const raw = typeof body?.url === "string" ? body.url.trim() : "";
+
+    let workspaceUrl: string | null = null;
+    if (raw) {
+      const parsed = parseWorkspaceUrl(raw);
+      if (!parsed.ok) {
+        throw createError({ statusCode: 400, message: parsed.reason });
+      }
+      workspaceUrl = parsed.url;
+    }
+
+    const e = await exec();
+    await e.execute({
+      sql: `UPDATE organizations SET workspace_url = ? WHERE id = ?`,
+      args: [workspaceUrl, ctx.orgId],
+    });
+
+    return { url: workspaceUrl };
+  },
+);
+
+/** PUT /_agent-native/org/auth-provider — require Google sign-in (owner/admin only) */
+export const setRequiredAuthProviderHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({ statusCode: 400, message: "No active organization" });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can require Google sign-in",
+      });
+    }
+
+    const body = await readBody(event);
+    const provider = body?.provider;
+    if (provider !== "google" && provider !== null) {
+      throw createError({
+        statusCode: 400,
+        message: 'Provider must be "google" or null',
+      });
+    }
+
+    const result = await setRequiredAuthProvider(ctx.orgId, provider);
+    return { provider, ...result };
+  },
+);
+
+/**
+ * GET /_agent-native/org/a2a-secret — reveal the org's A2A secret
+ * (owner/admin only). Separate from `/org/me` so the secret is only ever sent
+ * to the browser when an operator explicitly asks to see or copy it.
+ */
+export const revealA2ASecretHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({
+        statusCode: 400,
+        message: "No active organization",
+      });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can read the A2A secret",
+      });
+    }
+
+    const e = await exec();
+    const res = await e.execute({
+      sql: `SELECT a2a_secret FROM organizations WHERE id = ? LIMIT 1`,
+      args: [ctx.orgId],
+    });
+
+    return {
+      a2aSecret: String((res.rows[0] as any)?.a2a_secret ?? "") || null,
+    };
+  },
+);
 
 /** PUT /_agent-native/org/a2a-secret — regenerate or set the org's A2A secret (owner/admin only) */
 export const setA2ASecretHandler = defineEventHandler(

@@ -2,10 +2,39 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
 import {
+  checkCatalogDevelopmentMarkers,
   checkLocalizedDocsCoverage,
   checkStaleBaselineEntries,
   normalizeLocalizedDocSlug,
 } from "./guard-i18n-catalogs";
+
+describe("catalog development markers", () => {
+  it("rejects the localization marker from non-English values", () => {
+    assert.deepEqual(
+      checkCatalogDevelopmentMarkers({
+        relDir: "templates/clips/app/i18n",
+        locale: "pt-BR",
+        target: new Map([
+          ["recordRoute.clipsRecorder", "Clips recorder (Localizado)"],
+        ]),
+      }),
+      [
+        'templates/clips/app/i18n/pt-BR: recordRoute.clipsRecorder contains the development-only localization marker "(Localizado)" — remove it before shipping',
+      ],
+    );
+  });
+
+  it("allows ordinary localized values", () => {
+    assert.deepEqual(
+      checkCatalogDevelopmentMarkers({
+        relDir: "templates/clips/app/i18n",
+        locale: "es-ES",
+        target: new Map([["recordRoute.clipsRecorder", "Grabador de Clips"]]),
+      }),
+      [],
+    );
+  });
+});
 
 describe("localized documentation coverage", () => {
   it("normalizes md and mdx extensions to the same slug", () => {

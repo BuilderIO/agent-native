@@ -13,7 +13,10 @@ import {
   SHARED_OWNER,
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
-import { getRequestUserEmail } from "../../server/request-context.js";
+import {
+  getAmbientUserEmail,
+  getRequestUserEmail,
+} from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 
 export default async function resourceDeleteScript(
@@ -51,7 +54,7 @@ Options:
   } else if (scope === "workspace") {
     owner = WORKSPACE_OWNER;
   } else {
-    const personalOwner = getRequestUserEmail() ?? process.env.AGENT_USER_EMAIL;
+    const personalOwner = getRequestUserEmail() ?? getAmbientUserEmail();
     if (!personalOwner) {
       fail(
         "resource-delete --scope=personal requires an authenticated user (request context or AGENT_USER_EMAIL env var).",

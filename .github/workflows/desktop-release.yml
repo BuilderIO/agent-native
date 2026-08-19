@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - ".github/workflows/desktop-release.yml"
       - "packages/desktop-app/**"
       - "packages/shared-app-config/**"
   workflow_dispatch:
@@ -109,7 +110,7 @@ jobs:
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
         run: |
-          pnpm build
+          pnpm build:mac-assets && pnpm build
           npx electron-builder --mac --config --publish always \
             "-c.appId=$ELECTRON_APP_ID" \
             "-c.productName=$ELECTRON_PRODUCT_NAME"
@@ -145,7 +146,7 @@ jobs:
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
         run: |
-          pnpm build
+          pnpm build:chrome-extension && pnpm build
           npx electron-builder --win --config --publish always \
             "-c.appId=$ELECTRON_APP_ID" \
             "-c.productName=$ELECTRON_PRODUCT_NAME"
@@ -181,7 +182,7 @@ jobs:
           SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           SENTRY_DESKTOP_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
         run: |
-          pnpm build
+          pnpm build:chrome-extension && pnpm build
           npx electron-builder --linux --config --publish always \
             "-c.appId=$ELECTRON_APP_ID" \
             "-c.productName=$ELECTRON_PRODUCT_NAME"

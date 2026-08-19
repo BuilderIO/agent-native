@@ -544,14 +544,17 @@ den passenden Bereich, und der Agent kann diese Änderungen für Sie vornehmen:
   Routen, Filter und ausgewählte IDs werden in `application_state` für Agenten gespiegelt
   Kontext.
 
-Bitten Sie den Agenten, Änderungen für Sie vorzunehmen – er kann seine eigene Quelle bearbeiten. Siehe
-[Self-Modifying Code](/docs/key-concepts#agent-modifies-code).
+Nehmen Sie diese Änderungen im Entwicklungsablauf des Repositorys vor. Der
+eingebettete Agent kann nur dann bei Quelländerungen helfen, wenn der Host
+bewusst Repository-/Workspace-Schreibwerkzeuge bereitstellt; andernfalls
+arbeitet er über Actions und Daten. Siehe
+[Key Concepts](/docs/key-concepts#agent-modifies-code).
 
 ## Was kommt als nächstes?
 
 - [**Dispatch**](/docs/dispatch) – die Arbeitsbereichssteuerungsebene
 - [**Dispatch template**](/docs/template-dispatch) – die gerüstete Koordinations-App
-- [**Workspace**](/docs/workspace) – gemeinsame Ressourcen über Apps hinweg
+- [**Agent-Ressourcen**](/docs/agent-resources) – gemeinsame Ressourcen über Apps hinweg
 - [**A2A Protocol**](/docs/a2a-protocol) – App-übergreifende Delegierung
 - [**Vorlagen**](/docs/cloneable-saas) – das Clone-and-own-Modell und jede weitere Domain-Vorlage als Ausgangspunkt
 - [**Erste Schritte**](/docs/getting-started) – die Grundlagen des Frameworks: Actions, Anwendungsstatus und Live-Synchronisierung

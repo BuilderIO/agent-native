@@ -2,7 +2,11 @@
 
 Visual feedback and annotation tool for web applications. Users select UI elements, add feedback, and send structured context to any AI agent.
 
-Works standalone, with [Builder.io](https://builder.io), or with any agent runtime that speaks the agent-native protocol (Builder.io, Claude Code, Codex, Gemini CLI, Cursor, etc.).
+Pinpoint is a Toolkit capability module installed on demand. It lives in its
+own npm package so apps only take the visual feedback surfaces and agent
+integration they need.
+
+Works standalone, with [Builder.io](https://builder.io?utm_source=agent-native&utm_medium=readme&utm_campaign=pinpoint&utm_content=overview), or with any agent runtime that speaks the agent-native protocol (Builder.io, Claude Code, Codex, Gemini CLI, Cursor, etc.).
 
 ## AI Agent Setup Guide
 
@@ -388,7 +392,7 @@ const { tools, handleTool } = createPinpointMCPTools(); // MCP tool handlers
 
 ## Builder.io Integration
 
-Inside [Builder.io's Fusion](https://builder.io), annotations are sent via `sendToAgentChat()` from `@agent-native/core`:
+Inside [Builder.io's Fusion](https://builder.io?utm_source=agent-native&utm_medium=readme&utm_campaign=pinpoint&utm_content=fusion), annotations are sent via `sendToAgentChat()` from `@agent-native/core`:
 
 ```tsx
 <Pinpoint author="Builder User" autoSubmit outputFormat="standard" />

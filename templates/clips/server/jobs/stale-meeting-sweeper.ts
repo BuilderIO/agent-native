@@ -46,6 +46,7 @@ const STALE_THRESHOLD_MS = 60 * 60 * 1000; // 60 min of zero transcript activity
 // a slow Gemini call. Mirrors finalize-meeting.ts's force-takeover window.
 const PENDING_STALE_MS = 2 * 60 * 1000; // 2 min
 let skippingLogged = false;
+let running = false;
 
 /**
  * Close out a single stranded-live meeting row: stamp actualEnd, set
@@ -284,9 +285,15 @@ export default function registerStaleMeetingSweeperJob(): void {
     return;
   }
   setInterval(() => {
-    runStaleMeetingSweepOnce().catch((err) =>
-      console.error("[stale-meeting-sweeper] interval failed:", err),
-    );
+    if (running) return;
+    running = true;
+    runStaleMeetingSweepOnce()
+      .catch((err) =>
+        console.error("[stale-meeting-sweeper] interval failed:", err),
+      )
+      .finally(() => {
+        running = false;
+      });
   }, SWEEP_INTERVAL_MS);
   console.log(
     `[stale-meeting-sweeper] Recurring stale-meeting reconciliation every ${SWEEP_INTERVAL_MS / 1000}s.`,

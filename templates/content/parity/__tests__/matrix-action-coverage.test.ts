@@ -12,6 +12,7 @@ function actionIds() {
     .filter((file) => file.endsWith(".ts"))
     .filter((file) => !file.startsWith("_"))
     .filter((file) => !file.endsWith(".test.ts"))
+    .filter((file) => !file.endsWith(".spec.ts"))
     .filter((file) => !file.endsWith(".db.test.ts"))
     .filter((file) => !file.endsWith(".live.test.ts"))
     .map((file) => file.replace(/\.ts$/, ""))

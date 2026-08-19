@@ -1,7 +1,7 @@
 import { DispatchControlPlane } from "../../components/dispatch-control-plane";
 
 const SEO_TITLE =
-  "Agent-Native Dispatch - Open Source workspace control plane for AI agents";
+  "Dispatch - Open Source workspace control plane for AI agents";
 const SEO_DESCRIPTION =
   "Open Source workspace control plane for AI agents to manage apps, secrets, approvals, messages, jobs, and cross-app delegation.";
 

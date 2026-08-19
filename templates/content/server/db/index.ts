@@ -17,6 +17,7 @@ registerShareableResource({
   displayName: "Document",
   titleColumn: "title",
   getResourcePath: (document) => `/page/${document.id}`,
+  ownerAccessIgnoresOrg: true,
   agentReadable: {
     resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,
     getContextPath: () => DOCUMENT_AGENT_CONTEXT_ENDPOINT,

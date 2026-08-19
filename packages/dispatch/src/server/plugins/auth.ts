@@ -3,7 +3,7 @@ import { createAuthPlugin } from "@agent-native/core/server";
 import { getDispatchConfig } from "../index.js";
 
 const DEFAULT_MARKETING = {
-  appName: "Agent-Native Dispatch",
+  appName: "Dispatch",
   tagline:
     "Your AI agent manages secrets, orchestrates other agents, and routes messages across your workspace.",
   features: [
@@ -28,6 +28,7 @@ const dispatchAuthPlugin = async (nitroApp: any) => {
   const plugin = createAuthPlugin({
     googleOnly,
     marketing: marketing as any,
+    publicPaths: authConfig.publicPaths,
   });
   return plugin(nitroApp);
 };

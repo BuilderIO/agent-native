@@ -1,0 +1,7 @@
+node_modules
+.output
+data
+.env
+.env.*
+!.env.example
+.git

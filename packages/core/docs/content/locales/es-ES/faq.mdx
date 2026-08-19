@@ -26,7 +26,7 @@ El agente nativo es para personas que desean que una aplicación real y un agent
 
 ### ¿En qué se diferencia esto de agregar IA a una aplicación existente? {#how-is-this-different}
 
-La mayoría de las aplicaciones incorporan IA como una ocurrencia tardía que en realidad no puede _hacer_ cosas en la aplicación. En una aplicación nativa del agente, el agente es un ciudadano de primera clase que comparte el mismo actions, la misma base de datos y el mismo estado que el UI, por lo que puede hacer cualquier cosa que los botones puedan hacer y modificar el propio código de la aplicación. Ver [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
+La mayoría de las aplicaciones incorporan IA como una ocurrencia tardía que en realidad no puede _hacer_ cosas en la aplicación. En una aplicación nativa del agente, el agente es un ciudadano de primera clase que comparte el mismo actions, la misma base de datos y el mismo estado que el UI, por lo que puede hacer cualquier cosa que los botones puedan hacer. Ver [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
 
 <Diagram id="doc-block-182gis3" title="IA integrada frente a agent-native" summary={"Una barra lateral de chat integrada vive en su propio mundo. Un agente agent-native comparte las mismas acciones, base de datos y estado que la interfaz de usuario."}>
 
@@ -104,7 +104,7 @@ Si prefiere no administrar nada de esto, la versión alojada en `agent-native.co
 
 ### ¿Puedo alojar esto yo mismo? {#can-i-self-host}
 
-Sí. Elija cualquier host que ejecute Node (Netlify, Vercel, Cloudflare, AWS, Deno Deploy, su propio servidor) y cualquier base de datos SQL (Postgres, SQLite, Turso, D1). El marco está diseñado para ser portátil. Ver [Deployment](/docs/deployment).
+Sí. Elija cualquier host que ejecute Node (Netlify, Vercel, Cloudflare, AWS, Deno Deploy, su propio servidor) y cualquier base de datos SQL (Postgres, SQLite, Turso, D1). El marco está diseñado para ser portátil. Empiece con la [guía rápida de Docker local](https://www.agent-native.com/docs/deployment#self-host-quickstart) y use [Deployment](/docs/deployment) para producción.
 
 ### ¿Qué modelos de IA admite? {#what-models}
 
@@ -126,7 +126,7 @@ El marco se entrega con plantillas listas para producción que incluyen [Chat](/
 
 ### ¿Puedo personalizar plantillas? {#can-i-customize-templates}
 
-Ese es el punto. Bifurca una plantilla y personalízala preguntándole al agente. "Agregar un campo de prioridad a los formularios". "Conéctese a nuestra instancia de Salesforce". "Cambie la combinación de colores para que coincida con nuestra marca". El agente modifica el código y su aplicación evoluciona con el tiempo.
+Ese es el punto. Empieza con una plantilla y personalízala en tu propio repositorio y flujo de desarrollo. Después, el agente integrado opera la aplicación resultante mediante sus actions y datos.
 
 ### ¿Puedo crear algo que las plantillas no cubran? {#build-from-scratch}
 
@@ -138,9 +138,9 @@ Sí: instale una habilidad en un agente de codificación que ya usa con un coman
 
 ## Capacidades del agente {#agent-capabilities}
 
-### ¿Puede realmente el agente modificar el propio código de la aplicación? {#can-the-agent-modify-code}
+### ¿Edita el agente integrado el código fuente de la aplicación? {#can-the-agent-modify-code}
 
-Sí, y es una característica. El agente puede editar de forma segura componentes, rutas, estilos y actions. Usted pregunta "agregar un gráfico de análisis de cohorte" y el agente lo crea. Pides "conectar a nuestra cuenta Stripe" y el agente escribe la integración. Todo es código normal rastreado por Git, por lo que los cambios incorrectos son fáciles de revertir.
+No de forma predeterminada. Solo puede editar el código fuente si el host le concede intencionalmente herramientas de escritura de repository/workspace. De lo contrario, trabaja mediante actions, estado respaldado por SQL e integraciones configuradas. Para cambiar componentes, rutas, estilos o actions, usa el flujo normal de tu repositorio o un frame de desarrollo/Builder con capacidad de código.
 
 ### ¿Pueden los usuarios hablar con el agente desde fuera de la aplicación? {#external-channels}
 

@@ -2,6 +2,7 @@
 
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SettingsTabsPage } from "./SettingsTabsPage.js";
@@ -84,6 +85,54 @@ describe("SettingsTabsPage", () => {
     expect(document.activeElement).toBe(searchInput);
   });
 
+  it("renders the optional navigation header above the settings search", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          navHeader={<div data-testid="settings-nav-header">Back to app</div>}
+        />,
+      );
+    });
+
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[type="search"]',
+    );
+    const navHeader = container.querySelector(
+      '[data-testid="settings-nav-header"]',
+    );
+
+    expect(navHeader).not.toBeNull();
+    expect(searchInput).not.toBeNull();
+    expect(
+      Boolean(
+        navHeader!.compareDocumentPosition(searchInput!) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+      ),
+    ).toBe(true);
+  });
+
+  it("centers the content panel while keeping the navigation rail compact", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          team={<div>Team members</div>}
+        />,
+      );
+    });
+
+    const navShell = container.firstElementChild
+      ?.firstElementChild as HTMLElement | null;
+    const tabpanel = container.querySelector<HTMLElement>('[role="tabpanel"]');
+
+    expect(navShell?.className).toContain("sm:w-56");
+    expect(navShell?.className).toContain("lg:w-60");
+    expect(tabpanel?.className).toContain("overflow-y-auto");
+    expect(tabpanel?.firstElementChild?.className).toContain("max-w-6xl");
+    expect(tabpanel?.firstElementChild?.className).toContain("mx-auto");
+  });
+
   it("does not focus the settings search on mobile entry", () => {
     stubMobileViewport(true);
     runAnimationFramesImmediately();
@@ -128,6 +177,59 @@ describe("SettingsTabsPage", () => {
     expect(document.activeElement).toBe(teamTab);
   });
 
+  it("opens general settings by default when the route has no hash", () => {
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "integrations",
+              label: "Integrations",
+              content: <div>Integration content</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("General content");
+    expect(container.textContent).not.toContain("Integration content");
+  });
+
+  it("restores a connections tab from its canonical route after a remount", () => {
+    const props = {
+      general: <div>General content</div>,
+      extraTabs: [
+        {
+          id: "connections",
+          label: "Connections",
+          content: <div>Connection content</div>,
+        },
+      ],
+    };
+
+    act(() => {
+      root.render(<SettingsTabsPage {...props} />);
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>("#settings-tab-connections")
+        ?.click();
+    });
+    expect(window.location.pathname).toBe("/settings/integrations");
+
+    act(() => {
+      root.unmount();
+      root = createRoot(container);
+      root.render(<SettingsTabsPage {...props} />);
+    });
+
+    expect(container.textContent).toContain("Connection content");
+    expect(container.textContent).not.toContain("General content");
+  });
+
   it("opens the team tab from the hash and avoids rendering a settings title", () => {
     window.history.replaceState(null, "", "/settings#team");
 
@@ -146,7 +248,7 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("Settings");
   });
 
-  it("updates the hash when switching tabs", () => {
+  it("updates the semantic route when switching tabs", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -166,8 +268,42 @@ describe("SettingsTabsPage", () => {
       whatsNewTab!.click();
     });
 
-    expect(window.location.hash).toBe("#whats-new");
+    expect(window.location.pathname).toBe("/settings/whats-new");
+    expect(window.location.hash).toBe("");
     expect(container.textContent).toContain("Recent updates");
+    expect(container.textContent).not.toContain("General content");
+  });
+
+  it("keeps semantic settings routes under a workspace mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    window.history.replaceState(null, "", "/dispatch/settings");
+
+    const props = {
+      general: <div>General content</div>,
+      account: <div>Account content</div>,
+    };
+
+    act(() => {
+      root.render(<SettingsTabsPage {...props} />);
+    });
+
+    act(() => {
+      container
+        .querySelector<HTMLButtonElement>("#settings-tab-account")
+        ?.click();
+    });
+
+    expect(window.location.pathname).toBe("/dispatch/settings/account");
+    expect(container.textContent).toContain("Account content");
+
+    act(() => {
+      root.unmount();
+      root = createRoot(container);
+      root.render(<SettingsTabsPage {...props} />);
+    });
+
+    expect(container.textContent).toContain("Account content");
     expect(container.textContent).not.toContain("General content");
   });
 
@@ -196,7 +332,7 @@ describe("SettingsTabsPage", () => {
     expect(tabLabels).toEqual(["General", "Agent", "Team", "What's new"]);
   });
 
-  it("visually separates app, agent, workspace, and update tabs", () => {
+  it("visually separates app, agent, and workspace tabs", () => {
     act(() => {
       root.render(
         <SettingsTabsPage
@@ -211,8 +347,8 @@ describe("SettingsTabsPage", () => {
               content: <div>Agent settings</div>,
             },
             {
-              id: "connections",
-              label: "Connections",
+              id: "integrations",
+              label: "Integrations",
               group: "agent",
               content: <div>Connection settings</div>,
             },
@@ -232,6 +368,50 @@ describe("SettingsTabsPage", () => {
     ).not.toBeNull();
     expect(
       container.querySelector('[data-settings-tab-group="updates"]'),
+    ).toBeNull();
+  });
+
+  it("keeps linked settings navigation last with an external-link marker", () => {
+    act(() => {
+      root.render(
+        <MemoryRouter initialEntries={["/settings"]}>
+          <SettingsTabsPage
+            general={<div>General content</div>}
+            team={<div>Team members</div>}
+            whatsNew={<div>Recent updates</div>}
+            extraTabs={[
+              {
+                id: "integrations",
+                label: "Integrations",
+                group: "workspace",
+                content: <div>Connection settings</div>,
+              },
+              {
+                id: "workspace",
+                label: "Workspace",
+                group: "workspace",
+                href: "/settings/workspace",
+                content: <div>Workspace settings</div>,
+              },
+            ]}
+          />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(
+      Array.from(container.querySelectorAll('[role="tab"]'), (tab) =>
+        tab.textContent?.trim(),
+      ),
+    ).toEqual(["General", "Integrations", "Team", "What's new", "Workspace"]);
+
+    const workspaceLink = container.querySelector<HTMLAnchorElement>(
+      'a[href="/settings/workspace"]',
+    );
+    expect(workspaceLink).not.toBeNull();
+    expect(workspaceLink?.querySelector("svg")).not.toBeNull();
+    expect(
+      workspaceLink?.closest('[data-settings-tab-group="workspace"]'),
     ).not.toBeNull();
   });
 
@@ -351,6 +531,35 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).not.toContain("General content");
   });
 
+  it("selects the deepest matching tab for nested agent deep links", () => {
+    window.history.replaceState(null, "", "/settings#agent:resources:files");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "agent",
+              label: "Overview",
+              group: "agent",
+              content: <div>Agent overview</div>,
+            },
+            {
+              id: "agent:resources",
+              label: "Resources",
+              group: "agent",
+              content: <div>Agent files</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Agent files");
+    expect(container.textContent).not.toContain("Agent overview");
+  });
+
   it("opens an extra workspace tab from the workspace hash", () => {
     window.history.replaceState(null, "", "/settings#workspace");
 
@@ -372,6 +581,30 @@ describe("SettingsTabsPage", () => {
 
     expect(container.textContent).toContain("Workspace controls");
     expect(container.textContent).not.toContain("Team members");
+  });
+
+  it("renders the Extensions tab from Settings", () => {
+    window.history.replaceState(null, "", "/settings#extensions");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "extensions",
+              label: "Extensions",
+              group: "workspace",
+              content: <div>Extension management</div>,
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.querySelector("#settings-tab-extensions")).not.toBeNull();
+    expect(container.textContent).toContain("Extension management");
+    expect(container.textContent).not.toContain("General content");
   });
 
   it("opens an organization tab from organization and legacy team hashes", () => {

@@ -54,6 +54,18 @@ export const deckShareLinks = table("deck_share_links", {
   title: text("title").notNull(),
   slides: text("slides").notNull(), // JSON array of slide snapshots
   aspectRatio: text("aspect_ratio"),
+  designSystemData: text("design_system_data"), // Share-safe token snapshot
+  createdAt: text("created_at").notNull().default(now()),
+});
+
+export const uploadedAssets = table("uploaded_assets", {
+  id: text("id").primaryKey(),
+  filename: text("filename").notNull(),
+  url: text("url").notNull(),
+  type: text("type").notNull(),
+  size: integer("size").notNull(),
+  provider: text("provider"),
+  ownerEmail: text("owner_email").notNull(),
   createdAt: text("created_at").notNull().default(now()),
 });
 
@@ -70,4 +82,14 @@ export const slideComments = table("slide_comments", {
   resolved: integer("resolved", { mode: "boolean" }).notNull().default(false),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
+});
+
+export const deckEvents = table("deck_events", {
+  id: text("id").primaryKey(),
+  deckId: text("deck_id").notNull(),
+  type: text("type").notNull(),
+  message: text("message").notNull(),
+  payload: text("payload"),
+  createdBy: text("created_by").notNull().default("human"),
+  createdAt: text("created_at").notNull().default(now()),
 });

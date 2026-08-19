@@ -2,6 +2,9 @@
 
 A small Tauri 2.x tray app for macOS, Windows, and Linux. Click the icon — or press the global shortcut `Cmd/Ctrl+Shift+L` — to open a popover with:
 
+The macOS desktop build requires macOS 13 or newer because its native
+ScreenCaptureKit and Metal transcription dependencies target that SDK.
+
 - **New recording** button (opens `/record` on your configured Clips server)
 - **Recent** — your three most recent recordings
 - Quick links to **Open library** and **Settings**

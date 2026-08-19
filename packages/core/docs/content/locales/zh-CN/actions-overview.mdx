@@ -1,0 +1,214 @@
+---
+title: "概览"
+description: "Actions 是应用所做一切事情的唯一事实来源。用 defineAction() 定义一个 action，它会自动分发给 agent 工具、UI 钩子、HTTP、MCP 工具、A2A 工具和 CLI 命令。"
+---
+
+# 概览
+
+Actions 是应用所做一切事情的唯一事实来源。用 `defineAction()` 定义一个 action 并放进 `actions/` 目录，下面的每一个界面都会自动接入它。你只需要写一次逻辑，没有任何界面会拥有自己的副本，也没有任何界面会与其他界面失去同步。
+
+<Cards columns={2}>
+
+### :robot: [Agent 工具](/docs/agent-surfaces)
+
+代理读取 description 和 schema，把它当作一个可调用的工具。在聊天中直接提出请求即可，比如“回复这个工单”或“总结这个话题”。
+
+### :components: [UI 钩子](/docs/client-data)
+
+`useActionQuery()`、`useActionMutation()` 和 `callAction()` 从 React 中调用同一个 action。一次点击和一条聊天消息运行的是完全相同的操作。
+
+### :server: [框架传输](/docs/http-api)
+
+启动时自动挂载到 `/_agent-native/actions/<name>`。UI 钩子底层调用的正是这个路由，外部 HTTP 客户端也可以直接调用它。
+
+### :plug: [MCP 工具](/docs/actions-other-surfaces#mcp)
+
+对任何 MCP 主机（Claude、Claude Desktop、Cursor、Codex）来说，它都会作为一个工具出现。当需要由另一个 AI 客户端来驱动你的应用时，使用它。
+
+### :network: [A2A 工具](/docs/actions-other-surfaces#a2a)
+
+工作区里的其他代理本机应用通过 A2A 发现并调用它。当第二个应用需要代表这个应用执行操作时，使用它。
+
+### :terminal: [CLI 命令](/docs/actions-other-surfaces#cli)
+
+`pnpm action <name>` 可以在终端中运行它。适合脚本、定时任务和快速手动测试。
+
+</Cards>
+
+大多数应用会在前端和数据库之间搭建一个独立的 API 层，且只有浏览器能调用它。如果代理想要相同的能力，就需要一套单独的、重复编写和维护的集成。代理本机应用跳过了这层拆分：UI 和代理调用的是完全相同的 action，所以只需要写一份实现，也只有一个地方可能藏 bug。
+
+<Diagram id="doc-block-actions-overview-2" title="传统前端 vs. Agent Native" summary="传统前端调用只有它自己能访问的 API 层。在 Agent Native 中，app/ 和代理都调用相同的 actions，因此在这里构建的每一项能力都可以免费供代理调用。">
+
+```html
+<div class="diagram-cocmp">
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">传统</div>
+    <div class="diagram-node">app/（React 前端）</div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <strong>API 层</strong>
+      <small class="diagram-muted">只有前端才能调用它</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>数据库</div>
+  </div>
+  <div class="cocmp-vs diagram-muted">vs</div>
+  <div class="cocmp-col">
+    <div class="cocmp-label diagram-muted">Agent Native</div>
+    <div class="cocmp-callers">
+      <div class="diagram-node">app/（React 前端）</div>
+      <div class="diagram-node">Agent</div>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-panel" data-rough>
+      <span class="diagram-pill accent">Actions</span
+      ><small class="diagram-muted">平等的伙伴，相同的操作</small>
+    </div>
+    <div class="cocmp-arrow diagram-muted" aria-hidden="true">&#8595;</div>
+    <div class="diagram-box" data-rough>SQL 数据库</div>
+  </div>
+</div>
+```
+
+```css
+.diagram-cocmp {
+  display: flex;
+  align-items: flex-start;
+  gap: 28px;
+  flex-wrap: wrap;
+}
+.cocmp-col {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+.cocmp-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.cocmp-callers {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.cocmp-vs {
+  font-size: 13px;
+  font-weight: 600;
+  padding-top: 52px;
+}
+.diagram-cocmp .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 16px;
+  align-self: stretch;
+  align-items: center;
+}
+.cocmp-arrow {
+  font-size: 18px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+如果 UI 和代理都需要做同一件事，就用一个 action 来实现，而不是一个自定义路由。对于那种路由式协议才是正解的少数场景，请参阅 [为应用操作优先选用 Actions](/docs/server-overview#actions-first)。
+
+## Actions 的定位 {#role}
+
+`app/`（参阅 [客户端概览](/docs/client-overview#role)）和代理最终都会解析到相同的 actions 和相同的 SQL 数据库。这里没有一个独立的“应用后端”是代理无法触达的。构建一个功能,意味着在这里定义一次操作,就能同时得到一个 UI、一个代理工具,以及其它每一个界面。
+
+`actions/` 本身是一个扁平的文件夹。每个文件就是一个 action：一次 `defineAction()` 调用,作为该文件的默认导出。框架在启动时扫描这个文件夹,并挂载它找到的每一个文件。没有注册步骤,也没有需要手动维护的索引文件。
+
+一个 action 的 `run()` 函数体就是普通的服务端代码,所以它通常会用到其他几个目录:
+
+<FileTree
+  id="doc-block-actions-overview-filetree"
+  entries={[
+    {
+      path: "actions/reply-to-email.ts",
+      note: "每个文件一个 action。导出一次 defineAction() 调用,框架会自动挂载它。",
+    },
+    {
+      path: "server/db/schema.ts",
+      note: "大多数 actions 读写所用到的 Drizzle 表定义。",
+    },
+    {
+      path: "server/lib/access.ts",
+      note: "跨 actions 复用的共享访问守卫(accessFilter、assertAccess、authorize)。",
+    },
+    {
+      path: "shared/feature-flags.ts",
+      note: "一个 action 和一个服务端插件都会检查的 flag 定义。",
+    },
+    {
+      path: "app/components/ReplyButton.tsx",
+      note: "通过 useActionMutation 从 UI 中调用该 action。",
+    },
+  ]}
+/>
+
+`actions/` 之外的任何代码都不应该直接导入某个 action 的 `run` 函数。请改为通过上面的某个界面来调用它:代理工具、UI 钩子、HTTP、MCP、A2A,或 CLI。这些路径中的每一条都会运行相同的 schema 校验、访问检查和审计追踪。
+
+## 从一个 action 开始 {#hello-action}
+
+聊天优先应用的第一个操作可以很小。在 Chat 模板中,
+替换 `actions/hello.ts`,或在它旁边新增一个文件:
+
+```ts
+// actions/hello.ts
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Say hello from the local agent.",
+  schema: z.object({
+    name: z.string().default("world"),
+  }),
+  http: { method: "GET" },
+  readOnly: true,
+  run: async ({ name }) => {
+    return { message: `Hello, ${name}!` };
+  },
+});
+```
+
+在同一个文件夹中运行它:
+
+```bash
+pnpm action hello '{"name":"Steve"}'
+```
+
+CLI 接受一个 JSON 对象作为 action 输入,这与代理已经在使用的
+结构化工具调用相匹配。简单的 flag 依然可以用于快速手动运行:
+
+```bash
+pnpm action hello --name Steve
+```
+
+然后针对该文件夹运行应用-代理循环:
+
+```bash
+npx agent-native agent "Call hello for Steve and explain the result"
+```
+
+这与你的定时任务、聊天 UI、外部 MCP 工具,以及未来的界面所使用的,是同一个
+应用-代理循环。Chat 和领域模板是用来在 actions 周围添加 UI 的,而不是
+action 本身的必需前提。
+
+## 下一步
+
+- [**定义 Actions**](/docs/actions-defining) — `defineAction()` 的结构、schema 和 HTTP 配置
+- [**访问与授权**](/docs/actions-access-control) — 暴露 flag、`ctx` 范围界定,以及 `authorize`
+- [**运行上下文**](/docs/actions-run-context) — 完整的 `ctx` 字段表
+- [**其他界面**](/docs/actions-other-surfaces) — 原生聊天 UI、CLI、A2A、MCP,以及标准 actions
+- [**高级与旧版**](/docs/actions-advanced) — feature flag 门控和旧版 CLI 风格 actions
+- [**概览**](/docs/client-overview) — 这份契约中 `app/` 那一侧
+- [**数据与同步**](/docs/client-data) — UI 中的 `useActionQuery`、`useActionMutation` 和 `callAction`
+- [**Agent 界面**](/docs/agent-surfaces) — 一个 action 如何从聊天工具成长为完整界面

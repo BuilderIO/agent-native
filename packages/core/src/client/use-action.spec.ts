@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const analyticsMocks = vi.hoisted(() => ({
+  trackEvent: vi.fn(),
+}));
+vi.mock("./analytics.js", () => analyticsMocks);
+
 import {
   ACTION_KEEPALIVE_BODY_BUDGET_BYTES,
   callAction,
@@ -19,6 +24,19 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.unstubAllEnvs();
+  vi.clearAllMocks();
+  delete (
+    globalThis as typeof globalThis & {
+      __AGENT_NATIVE_BUILD_ID__?: string;
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__?: string;
+    }
+  ).__AGENT_NATIVE_BUILD_ID__;
+  delete (
+    globalThis as typeof globalThis & {
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__?: string;
+    }
+  ).__AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__;
 });
 
 describe("serializeActionQueryParams", () => {
@@ -36,9 +54,150 @@ describe("serializeActionQueryParams", () => {
     expect(params.has("empty")).toBe(false);
     expect(params.has("none")).toBe(false);
   });
+
+  it("serializes nested object GET params as JSON", () => {
+    const tableQuery = {
+      filters: [
+        {
+          propertyId: "status",
+          operator: "equals",
+          value: "published",
+        },
+      ],
+      sorts: [{ propertyId: "date", direction: "desc" }],
+    };
+
+    const query = serializeActionQueryParams({
+      documentId: "doc-1",
+      tableQuery,
+    });
+
+    const params = new URLSearchParams(query);
+    expect(params.get("documentId")).toBe("doc-1");
+    expect(params.get("tableQuery")).toBe(JSON.stringify(tableQuery));
+    expect(query).not.toContain("%5Bobject+Object%5D");
+  });
 });
 
 describe("callAction", () => {
+  it("sends build compatibility and hard-refreshes once on a mismatch", async () => {
+    Object.assign(globalThis, {
+      __AGENT_NATIVE_BUILD_ID__: "client-build",
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: "spaces-v1",
+    });
+    const replace = vi.fn();
+    vi.stubGlobal("window", {
+      location: { href: "https://content.example/page/one", replace },
+      history: { state: null, replaceState: vi.fn() },
+      sessionStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        { code: "client_build_mismatch" },
+        {
+          status: 409,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Agent-Native-Client-Mismatch": "1",
+            "X-Agent-Native-Build-Id": "server-build",
+            "X-Agent-Native-Client-Compatibility": "spaces-v2",
+          },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction("list-files", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 409, code: "client_build_mismatch" });
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Client-Compatibility": "spaces-v1",
+      "X-Agent-Native-Build-Id": "client-build",
+    });
+    expect(replace).toHaveBeenCalledWith(
+      "https://content.example/page/one?__an_build=server-build",
+    );
+  });
+
+  it("correlates browser timing with server and database phases", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "1");
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        { ok: true },
+        {
+          status: 200,
+          headers: {
+            "Content-Type": "application/json",
+            "Content-Length": "11",
+            "X-Agent-Native-Request-Id": "request-123",
+            "Server-Timing":
+              "app;dur=120, startup;dur=45, startup-db;dur=44, startup-db-connect;dur=30, db;dur=60, db-connect;dur=35, db-slowest;dur=40",
+          },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction("list-plans", {}, { method: "GET" }),
+    ).resolves.toEqual({ ok: true });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({
+        action: "list-plans",
+        request_id: "request-123",
+        status_code: 200,
+        outcome: "success",
+        server_duration_ms: 120,
+        framework_ready_wait_ms: 45,
+        db_operation_wall_ms: 60,
+        db_connect_total_ms: 35,
+        db_slowest_operation_ms: 40,
+        startup_db_operation_wall_ms: 44,
+        startup_db_connect_total_ms: 30,
+        response_bytes: 11,
+      }),
+    );
+  });
+
+  it("always tracks 4xx action responses when success sampling is disabled", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE", "0");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonResponse(
+          { error: "Forbidden" },
+          {
+            status: 403,
+            headers: {
+              "Content-Type": "application/json",
+              "X-Agent-Native-Request-Id": "request-forbidden",
+            },
+          },
+        ),
+      ),
+    );
+
+    await expect(
+      callAction("get-visual-plan", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 403 });
+
+    expect(analyticsMocks.trackEvent).toHaveBeenCalledWith(
+      "action.response",
+      expect.objectContaining({
+        action: "get-visual-plan",
+        request_id: "request-forbidden",
+        status_code: 403,
+        status_class: "4xx",
+        outcome: "http-error",
+      }),
+    );
+  });
+
   it("calls mutating actions through the framework action transport", async () => {
     const fetchMock = vi
       .fn()
@@ -66,6 +225,31 @@ describe("callAction", () => {
     expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
       "X-Request-Source",
     );
+  });
+
+  it("sends the browser session id so actions share the agent run's session", async () => {
+    const store = new Map<string, string>([
+      ["agent-native.session_id_pin", "run-42"],
+    ]);
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          store.set(key, value);
+        },
+        removeItem: (key: string) => {
+          store.delete(key);
+        },
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await callAction("log-meal", { name: "Salad" });
+
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Session-Id": "run-42",
+    });
   });
 
   it("serializes GET params for imperative reads", async () => {
@@ -193,6 +377,116 @@ describe("callAction", () => {
     // React Query relies on recognizing the original cancellation.
     const error = await promise.catch((err) => err);
     expect(String(error.message)).not.toContain("Action any-action failed");
+  });
+
+  it("surfaces a transport-level abort as a retryable error, not a cancellation", async () => {
+    // Nobody asked for this: no caller signal, no timeout. The browser killed
+    // the request (connection reset, bfcache eviction, exhausted socket pool)
+    // while the user was still waiting on it.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() =>
+        Promise.reject(
+          new DOMException("The operation was aborted.", "AbortError"),
+        ),
+      ),
+    );
+
+    const error = await callAction("list-meetings").catch((err) => err);
+
+    // Must be a renderable, retryable failure — rethrowing the raw AbortError
+    // would let React Query treat it as a cancellation and park the query in
+    // `pending` behind a loading skeleton forever.
+    expect(String(error.message)).toContain("Action list-meetings failed");
+    expect(defaultActionQueryRetry(0, error)).toBe(true);
+  });
+
+  it("times out a transport that never settles and ignores the abort signal", async () => {
+    vi.useFakeTimers();
+    try {
+      // A patched fetch, a wedged service worker, or a browser that drops the
+      // promise: aborting the controller accomplishes nothing, so the timeout
+      // has to reject the caller itself.
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(() => new Promise<Response>(() => {})),
+      );
+
+      const promise = callAction("stuck-action", {}, { timeoutMs: 1_000 });
+      const assertion = expect(promise).rejects.toMatchObject({
+        timedOut: true,
+        status: 408,
+      });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("sends the caller's default POST even when the action declares DELETE, then fails loudly naming the fix", async () => {
+    // Reproduces the exact repro Alex Bridgeman reported (Slack C0ATH3CCZT4,
+    // 1785293830688019): an action registered as
+    // `defineAction({ http: { method: "DELETE" } })`, called without an
+    // explicit `{ method: "DELETE" }`. The client has no way to look up the
+    // declared method, so it silently sends its POST default — mirroring
+    // mountActionRoutes' real 405 body for a non-frontend-tolerated mismatch.
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          { error: "Method not allowed. Use DELETE." },
+          { status: 405 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await callAction("delete-todo", { id: "1" }).catch(
+      (err) => err,
+    );
+
+    // The client did in fact send POST, not the declared DELETE.
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/delete-todo",
+      expect.objectContaining({ method: "POST" }),
+    );
+    // The failure must be loud and typed — naming the action, what was sent,
+    // and what the action actually requires — not a bare 405 the caller has
+    // to reverse-engineer.
+    expect(error).toMatchObject({
+      status: 405,
+      code: "action_method_mismatch",
+      sentMethod: "POST",
+      requiredMethod: "DELETE",
+    });
+    expect(String(error.message)).toContain("delete-todo");
+    expect(String(error.message)).toContain('{ method: "DELETE" }');
+    // Deterministic failure — retrying would just resend the wrong verb.
+    expect(defaultActionQueryRetry(0, error)).toBe(false);
+  });
+
+  it("times out an unabortable body stream after headers arrive", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn(async () => ({
+          ok: true,
+          status: 200,
+          text: () => new Promise<string>(() => {}),
+        })),
+      );
+
+      const promise = callAction("stuck-body", {}, { timeoutMs: 1_000 });
+      const assertion = expect(promise).rejects.toMatchObject({
+        timedOut: true,
+        status: 408,
+      });
+      await vi.advanceTimersByTimeAsync(1_001);
+      await assertion;
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

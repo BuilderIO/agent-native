@@ -1,18 +1,32 @@
+import { isStandaloneHttpUrl } from "@shared/html-content";
+
+import { normalizeDesignLeftPanel } from "./tool-state";
 import {
+  type DesignFile,
   type DesignLeftPanel,
   type DesignTool,
-  SHOW_DESIGN_CODE_LEFT_PANEL,
+  type EditorMode,
 } from "./types";
 
-function isStandaloneHttpUrl(value: string): boolean {
-  const trimmed = value.trim();
-  if (!/^https?:\/\//i.test(trimmed)) return false;
-  try {
-    const parsed = new URL(trimmed);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
+// Definition moved to shared/ so the server write path and code-layer's
+// document transforms guard on the same predicate. Re-exported here because
+// the editor's URL-backed-screen refusals all import it from this module.
+export { isStandaloneHttpUrl };
+
+/**
+ * A live-screen route intentionally refuses whole-document replacement. That
+ * is a successful no-op, unlike an unavailable preview bridge, which callers
+ * must recover by rebuilding their render state.
+ */
+export type PreviewContentReplaceResult =
+  | "applied"
+  | "skipped-live-route"
+  | "unavailable";
+
+export function previewContentReplaceNeedsRenderFallback(
+  result: PreviewContentReplaceResult,
+): boolean {
+  return result === "unavailable";
 }
 
 /**
@@ -110,12 +124,10 @@ export function getDesignEditorStateUrlSearch(args: {
   leftPanel?: DesignLeftPanel | null;
   zoom?: number | null;
   tool?: DesignTool | null;
+  mode?: EditorMode | null;
 }) {
   const params = new URLSearchParams(args.currentSearch);
-  const leftPanel =
-    args.leftPanel === "code" && !SHOW_DESIGN_CODE_LEFT_PANEL
-      ? null
-      : args.leftPanel;
+  const leftPanel = normalizeDesignLeftPanel(args.leftPanel) ?? null;
   params.set("view", args.viewMode);
   if (leftPanel && leftPanel !== "file") {
     params.set("panel", leftPanel);
@@ -154,6 +166,11 @@ export function getDesignEditorStateUrlSearch(args: {
     params.set("tool", args.tool);
   } else {
     params.delete("tool");
+  }
+  if (args.viewMode === "single") {
+    params.set("mode", "interact");
+  } else {
+    params.delete("mode");
   }
   const query = params.toString();
   return query ? `?${query}` : "";
@@ -490,4 +507,50 @@ export function shouldSendKeepalive(
   collabLive: boolean,
 ): boolean {
   return hashKnown || !collabLive;
+}
+
+const EMPTY_DESIGN_FILES: DesignFile[] = [];
+
+/**
+ * Identity-stable `design.files` read for the editor render body.
+ *
+ * `design` is null until the `get-design` query resolves, and a literal `??
+ * []` there mints a new array on every render of that window. That identity
+ * feeds `files` → `proposalFileIds` → the pending-node-rewrite effect, whose
+ * empty-files branch commits a fresh `[]` — a passive-effect update that
+ * re-renders, remints the array, and re-fires itself until the query lands
+ * ("Maximum update depth exceeded" on cold loads). Return the shared empty
+ * array so the no-files render is stable.
+ */
+export function resolveServerFiles(
+  design: { files?: DesignFile[] } | null | undefined,
+): DesignFile[] {
+  return design?.files ?? EMPTY_DESIGN_FILES;
+}
+
+/**
+ * Pure decision helper (exported for unit testing) for the pending-local-write
+ * reconcile: now that `file` arrived from the server, may the editor stop
+ * overlaying this file's pending local content and trust the query cache?
+ *
+ * Matching content alone does not prove the server took the write. Every
+ * optimistic writer also mirrors its content into the cached `get-design`
+ * payload while deliberately keeping the file's prior server-clock
+ * `updatedAt`, so an echo of our own cache write is indistinguishable from an
+ * acknowledgement by content. A writer that records `baseUpdatedAt` keeps its
+ * overlay until `updatedAt` actually advances; retiring it early leaves the
+ * cache as the only carrier of the edit, and a `get-design` response already
+ * in flight when the write happened then lands with pre-write content and the
+ * edit vanishes until a reload.
+ */
+export function shouldRetirePendingLocalFileContent(
+  pending: { content: string; baseUpdatedAt?: string | null } | undefined,
+  file: { content?: string | null; updatedAt?: string | null },
+): boolean {
+  if (!pending) return false;
+  if ((file.content ?? "") !== pending.content) return false;
+  return (
+    pending.baseUpdatedAt === undefined ||
+    file.updatedAt !== pending.baseUpdatedAt
+  );
 }

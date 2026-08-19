@@ -3,18 +3,16 @@ import { describe, expect, it } from "vitest";
 import { normalizeSlidePadding } from "./normalize-slide-padding";
 
 describe("normalizeSlidePadding", () => {
-  it("forces 80px 110px when the agent dropped the second arg", () => {
+  it("preserves explicit one-value padding", () => {
     const html =
       '<div class="fmd-slide" style="padding: 80px; display: flex;"><h1>Hi</h1></div>';
-    expect(normalizeSlidePadding(html)).toBe(
-      '<div class="fmd-slide" style="padding: 80px 110px; display: flex;"><h1>Hi</h1></div>',
-    );
+    expect(normalizeSlidePadding(html)).toBe(html);
   });
 
-  it("forces 80px 110px when horizontal value drifted smaller", () => {
+  it("preserves fit-tuned vertical and horizontal padding", () => {
     const html =
-      '<div class="fmd-slide" style="padding: 80px 60px; font-family: Poppins;"></div>';
-    expect(normalizeSlidePadding(html)).toContain("padding: 80px 110px");
+      '<div class="fmd-slide" style="padding: 40px 64px; font-family: Poppins;"></div>';
+    expect(normalizeSlidePadding(html)).toContain("padding: 40px 64px");
     expect(normalizeSlidePadding(html)).toContain("font-family: Poppins");
   });
 
@@ -30,12 +28,25 @@ describe("normalizeSlidePadding", () => {
     const html =
       '<div class="fmd-slide" style="padding: 80px;"><div style="padding: 12px 24px;">x</div></div>';
     const out = normalizeSlidePadding(html);
-    expect(out).toContain('class="fmd-slide" style="padding: 80px 110px;"');
+    expect(out).toContain('class="fmd-slide" style="padding: 80px;"');
     expect(out).toContain('<div style="padding: 12px 24px;">');
   });
 
   it("is a no-op when the wrapper class is missing", () => {
     const html = '<div style="padding: 80px;"></div>';
     expect(normalizeSlidePadding(html)).toBe(html);
+  });
+
+  it("preserves explicit padding when attributes are reordered or quoted differently", () => {
+    const html =
+      "<div data-kind='slide' style='display: flex; padding: 72px 40px;' class='fmd-slide generated'><h1>Hi</h1></div>";
+    expect(normalizeSlidePadding(html)).toBe(html);
+  });
+
+  it("adds a style attribute when the canonical wrapper has no inline style", () => {
+    const html = '<div class="fmd-slide"></div>';
+    expect(normalizeSlidePadding(html)).toBe(
+      '<div class="fmd-slide" style="padding: 80px 110px;"></div>',
+    );
   });
 });

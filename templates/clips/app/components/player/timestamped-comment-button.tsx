@@ -1,4 +1,5 @@
-import { useActionMutation, useT } from "@agent-native/core/client";
+import { useActionMutation } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { IconMessagePlus, IconAt, IconMoodSmile } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -10,6 +11,7 @@ import { msToClock } from "./scrubber";
 
 interface TimestampedCommentButtonProps {
   enableComments: boolean;
+  canComment: boolean;
   onOpen: () => void;
   className?: string;
 }
@@ -17,11 +19,12 @@ interface TimestampedCommentButtonProps {
 /** Trigger that opens the docked comment composer, pinned to the current time. */
 export function TimestampedCommentButton({
   enableComments,
+  canComment,
   onOpen,
   className,
 }: TimestampedCommentButtonProps) {
   const t = useT();
-  if (!enableComments) return null;
+  if (!enableComments || !canComment) return null;
   return (
     <Button
       type="button"
@@ -42,6 +45,8 @@ interface TimestampedCommentBarProps {
   onClose: () => void;
   onAdded?: () => void;
   className?: string;
+  draft?: string;
+  onDraftChange?: (value: string) => void;
 }
 
 /**
@@ -54,9 +59,13 @@ export function TimestampedCommentBar({
   onClose,
   onAdded,
   className,
+  draft: controlledDraft,
+  onDraftChange,
 }: TimestampedCommentBarProps) {
   const t = useT();
-  const [draft, setDraft] = useState("");
+  const [uncontrolledDraft, setUncontrolledDraft] = useState("");
+  const draft = controlledDraft ?? uncontrolledDraft;
+  const setDraft = onDraftChange ?? setUncontrolledDraft;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const addComment = useActionMutation("add-comment");
@@ -68,7 +77,7 @@ export function TimestampedCommentBar({
   const insertAtCursor = (text: string) => {
     const el = textareaRef.current;
     if (!el) {
-      setDraft((d) => d + text);
+      setDraft(draft + text);
       return;
     }
     const start = el.selectionStart ?? draft.length;
@@ -98,7 +107,10 @@ export function TimestampedCommentBar({
   };
 
   return (
-    <div className={cn("absolute inset-x-0 bottom-0 z-30 p-3", className)}>
+    <div
+      data-player-ui
+      className={cn("absolute inset-x-0 bottom-0 z-30 p-3", className)}
+    >
       <div className="rounded-xl border border-border bg-background/95 p-3 shadow-lg backdrop-blur">
         <Textarea
           ref={textareaRef}

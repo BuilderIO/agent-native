@@ -14,9 +14,14 @@ import {
   markDefaultPluginProvided,
 } from "../server/framework-request-handler.js";
 import {
+  listAppRolesHandler,
+  setAppRoleHandler,
+} from "./app-roles-handlers.js";
+import {
   getMyOrgHandler,
   createOrgHandler,
   updateOrgHandler,
+  deleteOrgHandler,
   switchOrgHandler,
   listMembersHandler,
   removeMemberHandler,
@@ -26,9 +31,13 @@ import {
   acceptInvitationHandler,
   joinByDomainHandler,
   setDomainHandler,
+  setWorkspaceUrlHandler,
+  setRequiredAuthProviderHandler,
+  revealA2ASecretHandler,
   setA2ASecretHandler,
   syncA2ASecretHandler,
   receiveA2ASecretHandler,
+  setWorkspaceAppDefaultVisibilityHandler,
 } from "./handlers.js";
 import { ORG_MIGRATIONS } from "./migrations.js";
 
@@ -44,14 +53,20 @@ const ORG_PREFIX = `${FRAMEWORK_PREFIX}/org`;
  *   GET    /_agent-native/org/me                          — current user's active org + invites
  *   POST   /_agent-native/org                             — create organization
  *   PATCH  /_agent-native/org                             — rename organization (owner/admin)
+ *   DELETE /_agent-native/org                             — delete organization (owner only)
  *   PUT    /_agent-native/org/switch                      — switch active org
  *   GET    /_agent-native/org/members                     — list members of active org
  *   DELETE /_agent-native/org/members/:email              — remove member (owner/admin only)
+ *   GET    /_agent-native/org/app-roles?appId=X           — app role vocabulary + assignments
+ *   PUT    /_agent-native/org/app-roles/:email            — assign/clear app role (owner/admin)
  *   GET    /_agent-native/org/invitations                 — list pending invites
  *   POST   /_agent-native/org/invitations                 — invite by email
  *   POST   /_agent-native/org/invitations/:id/accept      — accept an invitation
  *   POST   /_agent-native/org/join-by-domain              — join org via email domain match
  *   PUT    /_agent-native/org/domain                      — set/clear allowed email domain (owner/admin)
+ *   PUT    /_agent-native/org/workspace-url               — set/clear the org's workspace origin (owner/admin)
+ *   PUT    /_agent-native/org/auth-provider               — require/clear Google sign-in (owner/admin)
+ *   GET    /_agent-native/org/a2a-secret                  — reveal A2A secret on demand (owner/admin)
  *   PUT    /_agent-native/org/a2a-secret                  — regenerate or set A2A secret (owner/admin)
  *   POST   /_agent-native/org/a2a-secret/sync             — push secret to all connected apps (owner/admin)
  *   POST   /_agent-native/org/a2a-secret/receive          — accept a peer's secret push (JWT-auth, no session)
@@ -75,6 +90,27 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return getMyOrgHandler(event);
+      }),
+    );
+
+    // /app-roles and /app-roles/:email — per-app role overlay on the roster.
+    app.use(
+      `${ORG_PREFIX}/app-roles`,
+      defineEventHandler(async (event: H3Event) => {
+        const tail = getRequestURL(event).pathname || "/";
+        const method = getMethod(event);
+        if (tail === "" || tail === "/") {
+          if (method !== "GET") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          return listAppRolesHandler(event);
+        }
+        if (method !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setAppRoleHandler(event);
       }),
     );
 
@@ -113,6 +149,19 @@ export function createOrgPlugin(): NitroPluginDef {
           return { error: "Method not allowed" };
         }
         return removeMemberHandler(event);
+      }),
+    );
+
+    // PUT /workspace-app-default-visibility — org admins choose the default
+    // for newly created workspace apps. Existing apps retain their setting.
+    app.use(
+      `${ORG_PREFIX}/workspace-app-default-visibility`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setWorkspaceAppDefaultVisibilityHandler(event);
       }),
     );
 
@@ -199,6 +248,7 @@ export function createOrgPlugin(): NitroPluginDef {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
         }
+        if (getMethod(event) === "GET") return revealA2ASecretHandler(event);
         if (getMethod(event) !== "PUT") {
           setResponseStatus(event, 405);
           return { error: "Method not allowed" };
@@ -219,6 +269,30 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
+    // PUT /workspace-url
+    app.use(
+      `${ORG_PREFIX}/workspace-url`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setWorkspaceUrlHandler(event);
+      }),
+    );
+
+    // PUT /auth-provider
+    app.use(
+      `${ORG_PREFIX}/auth-provider`,
+      defineEventHandler(async (event: H3Event) => {
+        if (getMethod(event) !== "PUT") {
+          setResponseStatus(event, 405);
+          return { error: "Method not allowed" };
+        }
+        return setRequiredAuthProviderHandler(event);
+      }),
+    );
+
     // PUT /switch
     app.use(
       `${ORG_PREFIX}/switch`,
@@ -231,13 +305,15 @@ export function createOrgPlugin(): NitroPluginDef {
       }),
     );
 
-    // POST / (create) + PATCH / (rename) — mounted last so the more specific routes match first
+    // POST / (create) + PATCH / (rename) + DELETE / (delete) — mounted last
+    // so the more specific routes match first
     app.use(
       ORG_PREFIX,
       defineEventHandler(async (event: H3Event) => {
         const method = getMethod(event);
         if (method === "POST") return createOrgHandler(event);
         if (method === "PATCH") return updateOrgHandler(event);
+        if (method === "DELETE") return deleteOrgHandler(event);
         setResponseStatus(event, 405);
         return { error: "Method not allowed" };
       }),

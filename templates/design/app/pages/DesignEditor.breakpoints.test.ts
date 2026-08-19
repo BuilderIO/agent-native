@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -340,6 +340,14 @@ describe("delete-to-display:none at an active breakpoint (item 7b)", () => {
 
 describe("DesignEditor breakpoint wiring (source assertions)", () => {
   const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const commandSource = (file: string) =>
+    readFileSync(`app/pages/design-editor/commands/${file}`, "utf8");
+  // Editor behaviour that moved into command modules is still editor wiring.
+  const editorSurface =
+    source +
+    readdirSync("app/pages/design-editor/commands")
+      .map((f) => commandSource(f))
+      .join("\n");
   const canvasSource = readFileSync(
     "app/components/design/MultiScreenCanvas.tsx",
     "utf8",
@@ -363,16 +371,38 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(source).toContain("handleResponsiveEditScopeChange");
   });
 
+  it("keeps the responsive scope control inline beside the breakpoints", () => {
+    expect(source).toContain(
+      'className="mt-1 flex min-w-0 flex-nowrap items-center gap-1.5"',
+    );
+    expect(source).toContain(
+      'className="flex min-w-0 flex-1 flex-nowrap items-center gap-1.5 overflow-x-auto"',
+    );
+    expect(source).toContain(
+      'className="size-7 shrink-0 justify-center p-0 [&>svg:last-child]:hidden"',
+    );
+    expect(source).toContain("IconArrowsDown");
+    expect(source).not.toContain("w-[190px] max-w-full shrink-0 !text-[11px]");
+  });
+
   it("confirms that deleting a base screen includes all responsive variants", () => {
-    expect(source).toContain("designEditor.screenDeletion.descriptionOne");
-    expect(source).toContain("designEditor.screenDeletion.descriptionMany");
+    const deletionDialogSource = readFileSync(
+      "app/components/design/editor/PendingScreenDeletionDialog.tsx",
+      "utf8",
+    );
+    expect(deletionDialogSource).toContain(
+      "designEditor.screenDeletion.descriptionOne",
+    );
+    expect(deletionDialogSource).toContain(
+      "designEditor.screenDeletion.descriptionMany",
+    );
   });
 
   it("routes every style-commit path through the scoped write helper", () => {
     // commitVisualStyles + commitStylesToSelectedLayers +
     // commitRelativeStyleDeltaToSelectedLayers all call the single
     // class-vs-media routing helper instead of raw kind:"style" patches.
-    const calls = source.match(/applyScopedVisualStyleEdit\(\{/g) ?? [];
+    const calls = editorSurface.match(/applyScopedVisualStyleEdit\(\{/g) ?? [];
     expect(calls.length).toBeGreaterThanOrEqual(3);
   });
 
@@ -421,13 +451,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     // the base frame's content, and empty-canvas selection clears all route
     // through the same handleBreakpointBarSelect(undefined) reset.
     const resets =
-      source.match(/handleBreakpointBarSelect\(undefined\)/g) ?? [];
+      editorSurface.match(/handleBreakpointBarSelect\(undefined\)/g) ?? [];
     expect(resets.length).toBeGreaterThanOrEqual(5);
     // Escape's reset is gated on the latest-ref mirror, not stale state.
-    const escape = source.slice(
-      source.indexOf("const handleEscapeHotkey"),
-      source.indexOf("const SINGLE_MODE_TEXT_TAGS"),
-    );
+    const escape = commandSource("escape-hotkey.ts");
     expect(escape).toContain(
       "activeBreakpointWidthStateRef.current !== undefined",
     );
@@ -487,15 +514,16 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("gates overview side-by-side frames on the show-all toggle", () => {
-    expect(source).toContain("!breakpointFramesHidden &&");
+    const overviewScreensSource = readFileSync(
+      "app/pages/design-editor/derive/overview-screens.ts",
+      "utf8",
+    );
+    expect(overviewScreensSource).toContain("!breakpointFramesHidden &&");
     expect(source).toContain("breakpointFramesHidden,");
   });
 
   it("stamps the active breakpoint scope onto pending gesture edits", () => {
-    const recorder = source.slice(
-      source.indexOf("const recordPendingVisualStyleEdit"),
-      source.indexOf("const activeProjectionContent"),
-    );
+    const recorder = commandSource("record-pending-visual-style-edit.ts");
     expect(recorder).toContain("breakpoint: {");
     expect(recorder).toContain("activeWidthPx: activeBreakpointWidthState");
     expect(recorder).toContain("upperBoundPx: activeBreakpointUpperBoundPx");
@@ -515,24 +543,25 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     // breakpointScoped + failure → hard error even when a legacy fallback
     // exists); this source assertion pins that commitVisualStyles actually
     // routes through it with the breakpoint-scope flag wired.
-    const start = source.indexOf(
+    const commitVisualStylesSource = readFileSync(
+      "app/pages/design-editor/commands/commit-visual-styles.ts",
+      "utf8",
+    );
+    const start = commitVisualStylesSource.indexOf(
       "const commitResolution = resolveVisualStyleCommitContent",
     );
     expect(start).toBeGreaterThanOrEqual(0);
-    const fallback = source.slice(start, start + 400);
+    const fallback = commitVisualStylesSource.slice(start, start + 400);
     expect(fallback).toContain(
       "breakpointScoped: activeBreakpointUpperBoundPx != null",
     );
   });
 
   it("item 7b: Delete routes through a display:none scoped write, not structural removal, while a breakpoint is active", () => {
-    const start = source.indexOf("const handleDeleteSelection = useCallback");
-    expect(start).toBeGreaterThanOrEqual(0);
-    const end = source.indexOf(
-      "// Wrap the current multi-layer selection into a new group container.",
+    const handler = readFileSync(
+      "app/pages/design-editor/commands/delete-selection.ts",
+      "utf8",
     );
-    expect(end).toBeGreaterThan(start);
-    const handler = source.slice(start, end);
     expect(handler).toContain("useBreakpointScopedDelete");
     expect(handler).toContain('property: "display"');
     expect(handler).toContain('value: "none"');
@@ -542,6 +571,39 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     // an added branch, not a replacement.
     expect(handler).toContain("removeCodeLayerNodeFromHtml");
     expect(handler).toContain("removeElementFromHtml");
+
+    const singleElementStart = handler.indexOf(
+      "// Item 7b — same breakpoint-scoped display:none routing",
+    );
+    const multiElementBranch = handler.slice(0, singleElementStart);
+    expect(multiElementBranch).toContain(
+      "file.id === activeFile?.id && !useBreakpointScopedDelete",
+    );
+    expect(multiElementBranch).toContain(
+      "if (updated && useBreakpointScopedDelete)",
+    );
+    expect(multiElementBranch).toContain(
+      "syncLiveScreenSnapshotPreview(file.id, content)",
+    );
+    // Indentation-insensitive: the contract is that the live-DOM delete is the
+    // first statement in the guard, not how deeply the guard happens to nest.
+    expect(multiElementBranch).toMatch(
+      /if \(shouldDeleteActiveLiveDom\) \{\s*deleteFromLiveDom\(activeRuntimeSelectors\);/,
+    );
+    const singleElementEnd = handler.indexOf(
+      "const nextContent = removeElementFromHtml",
+      singleElementStart,
+    );
+    const singleElementBranch = handler.slice(
+      singleElementStart,
+      singleElementEnd,
+    );
+    expect(singleElementStart).toBeGreaterThanOrEqual(0);
+    expect(singleElementEnd).toBeGreaterThan(singleElementStart);
+    expect(singleElementBranch).not.toContain("deleteFromLiveDom(");
+    expect(singleElementBranch).toContain(
+      "syncLiveScreenSnapshotPreview(activeFile!.id, patch.content)",
+    );
   });
 
   it("item 8b: overview breakpoint frame '…' menu and full-view callbacks are wired to MultiScreenCanvas", () => {
@@ -567,15 +629,22 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(editor).toContain("handleOverviewFrameAction(screenId)");
   });
 
-  it("keeps overview visible when entering Interact and uses the frame action for Full view", () => {
-    const modeHandler = source.slice(
-      source.indexOf("const handleModeChange = useCallback"),
-      source.indexOf("const handleOverviewFrameAction = useCallback"),
-    );
-    expect(modeHandler).not.toContain('setViewMode("single")');
+  it("enters responsive Interact immediately from overview", () => {
+    const modeHandler = commandSource("mode-change.ts");
+    expect(modeHandler).toContain("resolveModeChangeView({");
+    expect(modeHandler).toContain('if (routing === "enter-single-interact")');
+    expect(modeHandler).toContain("enterSingleScreen(nextActiveFile?.id)");
+    // The other direction: Edit/Annotate picked from a focused screen must
+    // route back to the canvas, never fall through to a bare setMode that
+    // leaves viewMode "single" (the forbidden single-screen editing state).
+    expect(modeHandler).toContain('if (routing === "enter-overview")');
+    expect(modeHandler).toContain("enterOverviewFromZoom(next)");
     expect(source).toContain('interactMode={mode === "interact"}');
+    // Two-view model: the infinite canvas is the editing view, so returning
+    // to overview always drops Interact. Annotate is a tool overlay on that
+    // same canvas, not a third view, so it survives the trip.
     expect(source).toContain(
-      'currentMode === "interact" ? "interact" : "edit"',
+      'currentMode === "annotate" ? "annotate" : "edit"',
     );
 
     const frameActionStart = source.indexOf(
@@ -593,22 +662,27 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("item 8b: single-view already renders at the active breakpoint's width on entry", () => {
-    // previewWidthPx is passed straight from activeBreakpointWidthState, and
+    // previewWidthPx resolves to activeBreakpointWidthState, and
     // BreakpointPreviewRow's activateThisFrame (MultiScreenCanvas.tsx) sets
     // that state BEFORE onEditBreakpoint/enterSingleScreen fires — so no
-    // separate wiring is needed here for full view to land at the right
-    // width; this just guards against a future refactor silently dropping
-    // the prop.
-    expect(source).toContain("previewWidthPx={activeBreakpointWidthState}");
+    // separate wiring is needed here for responsive Interact to land at the
+    // right width; this just guards against a future refactor silently dropping
+    // the prop. Responsive Interact overrides it with its own device width,
+    // so this asserts the breakpoint width is still the non-interact answer
+    // rather than pinning one exact expression.
+    const propStart = source.indexOf("previewWidthPx={");
+    expect(propStart).toBeGreaterThan(-1);
+    const propExpression = source.slice(propStart, propStart + 240);
+    expect(propExpression).toContain("activeBreakpointWidthState");
   });
 });
 
-describe("shouldPopToOverviewOnZoomOut (BP-DEEP v2 item 2 — full-view flicker)", () => {
+describe("shouldPopToOverviewOnZoomOut (BP-DEEP v2 item 2 — focused-view flicker)", () => {
   const threshold = 60;
 
   it("never pops on entry (no previously observed single-view zoom)", () => {
     // enterSingleScreen restoring a remembered sub-threshold zoom was the
-    // "Full view flashes then bounces back to overview" bug: the old
+    // "Focused view flashes then bounces back to overview" bug: the old
     // level-triggered check fired on the entry-restored value itself.
     expect(
       shouldPopToOverviewOnZoomOut({ previousZoom: null, zoom: 16, threshold }),

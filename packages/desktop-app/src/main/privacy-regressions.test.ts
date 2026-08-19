@@ -28,6 +28,28 @@ describe("desktop passive-access regressions", () => {
     expect(handler).not.toContain("startRemoteCodeAgentConnector");
   });
 
+  it("does not revalidate a verified desktop identity on tab status reads", () => {
+    const identity = source("./desktop-identity.ts");
+    const refreshStatus = between(
+      identity,
+      "async refreshStatus(authorityApp: DesktopIdentityApp | null)",
+      "private ensureAppSessionInternal(",
+    );
+
+    expect(refreshStatus).toContain('this.status === "signed-in"');
+    expect(refreshStatus).toContain("statusRevalidationIntervalMs");
+    expect(identity).toContain("statusTimeoutMs");
+
+    const signOutGuard = refreshStatus.indexOf(
+      "if (this.signOutOperation) return;",
+    );
+    const signedInFastPath = refreshStatus.indexOf(
+      'this.status === "signed-in"',
+    );
+    expect(signOutGuard).toBeGreaterThanOrEqual(0);
+    expect(signedInFastPath).toBeGreaterThan(signOutGuard);
+  });
+
   it("keeps remembered Content folder discovery metadata-only", () => {
     const main = source("./index.ts");
     const normalization = between(
@@ -97,13 +119,13 @@ describe("desktop passive-access regressions", () => {
 
     expect(runDetail).toContain("<TranscriptPanel");
     expect(runDetail).toContain("Approval pending");
-    expect(runDetail).toContain('secondaryActionLabel="API keys"');
+    expect(runDetail).toContain('secondaryActionLabel="Custom keys"');
     expect(runDetail).not.toContain("Task paused");
     expect(runDetail).not.toContain("code-agents-session-details");
     expect(runDetail).not.toContain("TokenUsageMeter");
     expect(runDetail).not.toContain("Open Task workspace");
-    expect(agent).toContain('code-agents-rail-label">Chats');
-    expect(agent).not.toContain('code-agents-rail-label">Tasks');
+    expect(agent).toContain("<ChatFirstChatHistory");
+    expect(agent).toContain("chatFirstNavigation?.onOpenChats");
   });
 
   it("retries a missing-provider chat after Builder connects", () => {
@@ -111,13 +133,13 @@ describe("desktop passive-access regressions", () => {
     const connectFlow = between(
       agent,
       "const connectBuilderProvider = useCallback(async () =>",
-      "useEffect(() => {\n    if (!isActive || !host.getRemoteConnectorStatus)",
+      "  const connectLocalRuntime = useCallback(",
     );
 
     expect(connectFlow).toContain('modelSelection.model === "auto"');
     expect(connectFlow).toContain("hasMissingCredentialSignal(");
     expect(connectFlow).toContain("await host.retryRun({");
-    expect(connectFlow).toContain("setSelectedRunId(retryResult.run.id)");
+    expect(connectFlow).toContain("selectRun(retryResult.run.id)");
     expect(agent).toContain(
       "const hasCredentialGap = providerBlocked && hasCredentialHistory",
     );
@@ -128,7 +150,7 @@ describe("desktop passive-access regressions", () => {
     const agent = source("../../../code-agents-ui/src/CodeAgentsApp.tsx");
 
     expect(agent).toContain("isCredentialGapCodeAgentEvent,");
-    expect(agent).toContain('} from "@agent-native/core/client";');
+    expect(agent).toContain('} from "@agent-native/core/client/agent-chat";');
     const detector = between(
       agent,
       "function isCredentialTranscriptEvent(",
@@ -143,7 +165,7 @@ describe("desktop passive-access regressions", () => {
     const main = source("./index.ts");
     const runtimeCheck = between(
       main,
-      "function hasRuntimeNonCodexCodeAgentLlmProvider()",
+      "function hasRuntimeNonCodexCodeAgentLlmProvider(",
       "function normalizeCodeAgentRequestedEngine(",
     );
 
@@ -152,6 +174,69 @@ describe("desktop passive-access regressions", () => {
     );
     expect(main).toContain("applyCodeAgentProviderCredentialsToEnv()");
     expect(main).toContain("applyResult.failedKeys.length > 0");
+  });
+
+  it("checks saved provider credentials before rejecting a coding chat", () => {
+    const main = source("./index.ts");
+    const providerCheck = between(
+      main,
+      "function ensureCodeAgentLlmProvider()",
+      "function getLocalCodexCliStatus()",
+    );
+
+    expect(providerCheck).toContain(
+      "AppStore.getCodeAgentProviderProcessEnv(process.env)",
+    );
+    expect(providerCheck).toContain(
+      "hasRuntimeNonCodexCodeAgentLlmProvider(providerEnv)",
+    );
+  });
+
+  it("keeps desktop app creation visible while provider setup is incomplete", () => {
+    const main = source("./index.ts");
+    const createRun = between(
+      main,
+      "async function createCodeAgentRun(",
+      "async function rerunCodeAgentRun(",
+    );
+    const runner = between(
+      main,
+      "async function spawnCodeAgentRunner(",
+      "function spawnCodeAgentApprovalRunner(",
+    );
+
+    expect(createRun).toContain(
+      'const isDesktopAppCreation = userMetadata.kind === "desktop-create-app"',
+    );
+    expect(createRun).toContain("if (!provider.ok && !isDesktopAppCreation)");
+    expect(runner).toContain('phase: "missing-credentials"');
+  });
+
+  it("starts empty desktop app creation from the framework workspace", () => {
+    const main = source("./index.ts");
+    const repository = between(
+      main,
+      "function resolveRepositoryRoot(",
+      "function touchCodeAgentRunRecord(",
+    );
+    const creation = between(
+      main,
+      "async function createDesktopAppFromPrompt(",
+      "const lastDesktopAppRuntimeStatus",
+    );
+
+    expect(repository).toContain(
+      'IS_DEV ? path.resolve(__dirname, "../../../..") : undefined',
+    );
+    expect(creation).toContain(
+      "const appCreationCwd = resolveRepositoryRoot(appsRoot);",
+    );
+    expect(creation).toContain("cwd: appCreationCwd");
+    expect(creation).toContain(
+      "const requestedName = requestedDesktopAppName(prompt);",
+    );
+    expect(creation).toContain("requestedName ??");
+    expect(main).toContain("includeWorkspaceApps: !isDesktopAppCreation");
   });
 
   it("only marks the local Codex provider configured after authentication", () => {
@@ -172,8 +257,54 @@ describe("desktop passive-access regressions", () => {
       'source: codex.authenticated ? ("local-codex" as const) : undefined',
     );
     expect(modelList).toContain("configured: codex.authenticated");
-    expect(modelList).toContain(
-      "codex.authenticated && !apiProviderConfigured",
+    expect(modelList).toContain('statusLabel: "ChatGPT subscription"');
+    expect(modelList).toContain('statusLabel: "Claude subscription"');
+    expect(modelList).not.toContain('engine: "auto"');
+  });
+
+  it("closes both desktop bridges during update preparation and quit", () => {
+    const main = source("./index.ts");
+    const closeLifecycle = between(
+      main,
+      "async function closeDesktopComputerMcpBridge(): Promise<void> {",
+      "function isShellIdentityIpc(",
     );
+
+    expect(closeLifecycle).toContain("if (computerBridge)");
+    expect(closeLifecycle).toContain("computerBridge.close()");
+    expect(closeLifecycle).toContain("if (browserBridge)");
+    expect(closeLifecycle).toContain("browserBridge.close()");
+    expect(closeLifecycle).toContain("Promise.allSettled(closePromises)");
+    expect(closeLifecycle).not.toContain("} else {");
+    expect(closeLifecycle).toContain("prepareForUpdate: async () => {");
+    expect(closeLifecycle).toContain("await closeDesktopComputerMcpBridge();");
+    expect(closeLifecycle).toContain(
+      "await disposeMultiFrontierAppIntegration();",
+    );
+    expect(main).toContain("void closeDesktopComputerMcpBridge().catch(");
+    expect(main).toContain("restoreAfterUpdateFailure: async () => {");
+    expect(main).toContain("await initializeDesktopComputerMcpBridge();");
+    expect(main).toContain(
+      "initializeMultiFrontierAppIntegrationForRuntime();",
+    );
+    expect(main).toContain("multiFrontierDisposePromise = undefined;");
+  });
+
+  it("runs the quit guard before poisoning shutdown state", () => {
+    const main = source("./index.ts");
+    const beforeQuit = between(
+      main,
+      'app.on("before-quit", (event) => {',
+      'app.on("will-quit", () => {',
+    );
+    const guardIndex = beforeQuit.indexOf("multiFrontierQuitGuard(event)");
+    const quittingIndex = beforeQuit.indexOf("appIsQuitting = true");
+    const stopServicesIndex = beforeQuit.indexOf(
+      "stopManagedDesktopApp(appId)",
+    );
+
+    expect(guardIndex).toBeGreaterThanOrEqual(0);
+    expect(guardIndex).toBeLessThan(quittingIndex);
+    expect(guardIndex).toBeLessThan(stopServicesIndex);
   });
 });
