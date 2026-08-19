@@ -6112,13 +6112,10 @@ describe("server/auth", () => {
         'window.location.replace("/?desktop_auth=complete")',
       );
       expect(html).not.toContain("agentnative://oauth-complete");
-      const setCookie =
-        (response as Response).headers.getSetCookie?.() ?? [
-          (response as Response).headers.get("set-cookie") ?? "",
-        ];
-      expect(setCookie.join("\n")).toContain(
-        "an_session=bound-session",
-      );
+      const setCookie = (response as Response).headers.getSetCookie?.() ?? [
+        (response as Response).headers.get("set-cookie") ?? "",
+      ];
+      expect(setCookie.join("\n")).toContain("an_session=bound-session");
     });
 
     it("does not deep-link from generic Electron webviews (e.g. Builder Fusion)", async () => {

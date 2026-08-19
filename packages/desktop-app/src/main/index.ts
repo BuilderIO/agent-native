@@ -224,7 +224,6 @@ import {
   isDesktopIdentityOriginEligible,
   type DesktopIdentityApp,
 } from "./desktop-identity";
-import { routeOAuthToBoundSession } from "./oauth-session";
 import {
   captureWebviewLogs,
   initializeDesktopLogger,
@@ -263,6 +262,7 @@ import {
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
 import { createOAuthPopupCloser } from "./oauth-popup-close";
+import { routeOAuthToBoundSession } from "./oauth-session";
 import {
   isQuickPromptActive,
   registerQuickPromptIpc,
