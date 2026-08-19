@@ -22,20 +22,13 @@ cluster, with the representative report as its cursor anchor.
 
 This is a reply-producing workflow, not a reaction-only workflow. Apply the
 reply rules in `address-feedback-with-replies` to every actionable Slack item.
-Reaction state is part of triage. Before a Slack parent enters this workflow,
-inspect the parent's reactions. If any `👀` reaction is already present, do not
-add another one or treat the parent as a new candidate for automatic
-investigation; record it as already marked or owned. A reporter reply to a
-clarification this workflow previously asked is a continuation of that
-existing ledger item, not a new candidate, so re-read and resume it without
-adding another reaction, subject to the ownership routes below. The moment
-this skill adds `👀` to a Slack parent,
-that parent enters a mandatory reply ledger. Before the run ends, re-read every
-ledger item and confirm that Steve has posted either a concise **Fixed** reply
-or a concise **Clarification needed** question. A bot acknowledgement, another
-person's reply, or the `👀` reaction alone never satisfies the ledger. Do not
-finish the sweep or report success while an actionable parent that this run
-marked has only `👀` or an unrelated reply.
+The moment this skill adds `👀` to a Slack parent, that parent enters a
+mandatory reply ledger. Before the run ends, re-read every ledger item and
+confirm that the `@agent-native` bot has posted either a concise **Fixed**
+reply or a concise **Clarification needed** question. A generic bot
+acknowledgement or forward, another person's reply, or the `👀` reaction alone
+never satisfies the ledger. Do not finish the sweep or report success while an
+actionable parent that this run marked has only `👀` or an unrelated reply.
 
 ## Start cursor
 
@@ -44,17 +37,13 @@ repository that is currently `#product-agent-native-feedback` (`C0ATH3CCZT4`);
 if the invocation names another channel, use that channel instead.
 
 Scan the channel newest to oldest and choose the most recent parent message
-without a final disposition reply from Steve, `agent-native`, or another person
-clearly investigating or owning the report, and without an existing `👀`
-reaction. Check the parent reaction list before selecting it. An `👀` reaction
-from anyone is an ownership/investigation marker for this automation: do not
-add a duplicate reaction, investigate the item as new work, or post a new
-reply. Record it as skipped because it is already marked or owned. The only
-exception is a reporter reply to a clarification this workflow previously
-asked; re-enter that existing ledger item, but never add another `👀`. Do not
-treat a generic acknowledgement, bot reply, or vague status update as a final
-disposition when no `👀` marker is present. Apply the ownership routes below
-before re-entering any existing ledger item.
+without a verified `@agent-native` bot-authored final disposition - either a
+**Fixed** reply or an open **Clarification needed** question - from the same
+token contract. An `👀` reaction is only an investigation marker and never
+suppresses the scan. A thread with only that reaction, including a fix waiting
+for internal verification, remains the next work item until it receives the
+verified bot disposition. Do not treat a Steve or another person's reply,
+generic bot acknowledgement or forward, or vague status update as terminal.
 
 That message is the start cursor. Classify it, record it if it is not
 actionable, then continue toward older messages, processing each actionable
@@ -72,26 +61,6 @@ Keep the cursor at the first unhandled parent, but fold older messages that are
 clearly the same symptom into that cluster instead of reopening a new thread for
 each duplicate. Continue to older messages only after the cluster is recorded
 and every grouped report has an auditable disposition.
-
-## Ownership routing
-
-Classify the app surface and ownership before adding a reaction or doing any
-investigation:
-
-- A UX or interaction bug in the Design app belongs to Sid. Do not
-  automatically add `👀`, investigate, edit code, ask for clarification, post a
-  reply, or dispatch work for it. Record the source link as **Already owned -
-  Sid / Design**.
-- Any feedback about the Content app belongs to Alice. Do not automatically
-  add `👀`, investigate, edit code, ask for clarification, post a reply, or
-  dispatch work for it. Record the source link as **Already owned - Alice /
-  Content**.
-
-These ownership routes apply even when the report is concrete or appears to
-need more evidence. Only an invocation that explicitly assigns the item to
-this workflow can override the route. A pre-existing `👀` on an owner-routed
-item is still only a marker to preserve in the recap; never add another one or
-post a reply merely because it is present.
 
 ## Full-thread evidence gate
 
@@ -141,10 +110,9 @@ post a new **Fixed** reply when the fix is verified. Ask another question only
 for the one remaining missing detail. An answered clarification is never a
 reason to skip the thread or continue scanning newer messages.
 
-Our own question is what makes a thread look owned to the cursor rule above,
-which is why this pass runs first. Without it every thread we asked about
-becomes permanently invisible on later runs and the reporter's answer is never
-read.
+Our own question is what makes a thread eligible for the first work item,
+which is why this pass runs first. Without it every thread we asked about can
+become invisible on later runs and the reporter's answer is never read.
 
 ## Required reading and tools
 
@@ -152,14 +120,22 @@ Before changing code, read `address-feedback`,
 `address-feedback-with-replies`, `concurrent-agents`, and
 `verifying-changes`. Read `ship` when a verified fix is ready to publish.
 
-Use the configured Slack, GitHub, and Sentry connectors when available:
+Use the Slack Web API under the bot-identity contract above. Use the configured
+GitHub and Sentry connectors when available:
 
  - Slack: channel history, reactions, full thread replies, permalinks, and
-   linked evidence.
+   Slack message/user/file metadata. Fetch linked external evidence through
+   its owning connector or public URL, not with the Slack bearer token.
  - GitHub: the newest relevant open issues in `BuilderIO/agent-native`, all
    comments and linked PRs, labels, current state, and duplicate searches.
  - Sentry: newest unresolved errors for the repository's projects, stack
    traces, route or component, frequency, affected release, and event links.
+
+For every Slack read or write, follow the `## Slack bot identity` contract in
+`address-feedback-with-replies`: load the local untracked `.env`'s
+`SLACK_BOT_TOKEN`, verify it with `auth.test` as `@agent-native`, and use that
+same bot identity for history, reactions, replies, and read-backs. Never fall
+back to a user/OAuth Slack connector or another bot token for this sweep.
 
 If a connector or permission is missing, continue with the other sources and
 name the exact gap in the final recap. Treat that as unavailable evidence, not
@@ -173,19 +149,15 @@ Do not infer a Sentry “no results” state from an unavailable API.
 Build one checklist per item with its source link, symptom, expected behavior,
 evidence, likely owner, and disposition. Use this order:
 
-1. **Check ownership and reaction state before any Slack write** - classify
-   the app surface first, then read the parent's reaction list. For a Design
-   UX/interaction report or any Content report, use the ownership route above
-   and do not react. If any `👀` is already present, skip new automatic work
-   and do not react. Only a concrete repo-owned bug or missing-reporter-
-   evidence case with no existing `👀` may receive one `👀` reaction, and that
-   reaction must be the first external action for the Slack item - before
-   reading linked evidence, delegating, editing code, or asking a
-   clarification. Never attempt a duplicate reaction when reaction state is
-   unavailable; record the item as unavailable/unverified and refresh the
-   thread before writing. GitHub and Sentry items have no Slack parent, so
-   apply the same evidence-first triage without a reaction. Do not react to
-   status-only, subjective, duplicate, external, or non-repo-owned items.
+1. **React first for actionable Slack feedback** - once a Slack item is
+   classified as a concrete repo-owned bug or missing-reporter-evidence case,
+   add `👀` to its parent immediately. This must be the first external action
+   for that Slack item: do it before reading linked evidence, delegating,
+   editing code, or asking a clarification. GitHub and Sentry items have no
+   Slack parent, so apply the same evidence-first triage without a reaction.
+   Do not react to status-only, subjective, duplicate, external, or non-repo-
+   owned items. A duplicate reaction is safe and should still be attempted
+   when the marker is not visible in the thread.
 2. **Concrete repo-owned bug** - after the `👀` marker, reproduce or establish
    it from source, tests, logs, a stack trace, or a linked run. Fix it and keep
    working until the smallest meaningful verification is green.
@@ -246,8 +218,9 @@ failure modes, surfaces, or owners.
    running surface. For Sentry reports, confirm the affected release and
    distinguish a source fix from deployed and observed-live recovery.
 6. This skill is authorized to react to actionable Slack threads and must post
-   one concise in-thread update for every actionable parent it marked `👀`, not
-   only for items whose code it changed. Post only after the fix or
+   one concise in-thread update through the `@agent-native` bot for every
+   actionable parent it marked `👀`, not only for items whose code it changed.
+   Post only after the fix or
    clarification is ready. A **Fixed** reply says that the fix is complete and
    when it should be live. A **Clarification needed** reply asks one concrete
    question about missing reporter or product input. Thank the reporter by name
@@ -259,11 +232,9 @@ failure modes, surfaces, or owners.
    generic acknowledgement, or a vague progress update. If internal
    verification is unavailable, keep investigating or run the missing check; do
    not turn an internal blocker into a reporter question or claim **Fixed**.
-   If a later classification discovers that an item this run marked is a
-   duplicate, external, or informational, still clear this run's ledger with a
-   concise honest disposition rather than leaving the eye unexplained. A
-   pre-existing `👀` belongs to the person or workflow that added it and does
-   not create a reply obligation for this run.
+   If a later classification discovers that an eye-marked item is a duplicate,
+   external, or informational, still clear the ledger with a concise honest
+   disposition rather than leaving the eye unexplained.
    Before posting **Clarification needed**, run the full-thread evidence gate
    again against the latest thread body. Confirm that the requested field is
    absent from the parent, every reply, and every accessible linked artifact;
@@ -314,11 +285,9 @@ skipped, duplicated, already owned, blocked by missing evidence, or blocked by
 an unavailable connector. Include direct links to the Slack message or thread,
 GitHub issue, Sentry event, PR, commit, and verification result when present.
 For Slack, include the reply-ledger result for every parent this run marked
-`👀`: Steve reply timestamp and disposition, or the exact reason the item was
-not marked. Also record every pre-existing `👀` skip and every owner route to
-Sid or Alice; those items do not require a new reaction or reply from this run.
-Never call a sweep complete while an actionable Slack parent in this run's
-ledger has no Steve reply.
+`👀`: `@agent-native` reply timestamp and disposition, or the exact reason the
+item was not marked. Never call a sweep complete while an actionable Slack
+parent in the ledger has no bot-authored reply.
 
 Use this shape:
 
@@ -328,7 +297,7 @@ Start cursor: [Slack message](...)
 
 | Source / item | Disposition | Action | Why and evidence |
 | --- | --- | --- | --- |
-| [Slack thread](...) | Fixed / Awaiting reply / Clarification needed / Already owned / Skipped / In progress | ... | ... |
+| [Slack thread](...) | Fixed / Awaiting reply / Clarification needed / Skipped / In progress | ... | ... |
 | [GitHub issue](...) | ... | ... | ... |
 | [Sentry event](...) | ... | ... | ... |
 
