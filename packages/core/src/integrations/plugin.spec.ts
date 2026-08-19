@@ -666,6 +666,42 @@ describe("integrations plugin routes", () => {
     });
   });
 
+  it("surfaces non-JSON Telegram setWebhook failures as provider errors", async () => {
+    getSessionMock.mockResolvedValueOnce({ email: "owner@example.test" });
+    resolveSecretMock.mockImplementation((key: string) =>
+      key === "TELEGRAM_BOT_TOKEN"
+        ? "telegram-bot-token-example"
+        : key === "TELEGRAM_WEBHOOK_SECRET"
+          ? "telegram-webhook-secret-example"
+          : null,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response("upstream gateway failure", {
+            status: 502,
+            headers: { "Content-Type": "text/html" },
+          }),
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "telegram", label: "Telegram" }],
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/telegram/setup",
+      "POST",
+    );
+
+    expect(result.status).toBe(502);
+    expect(result.body).toEqual({
+      error: "Telegram setWebhook failed: HTTP 502",
+    });
+  });
+
   it("answers platform verification challenges before requiring enablement", async () => {
     const challengeAdapter: PlatformAdapter = {
       ...adapter,

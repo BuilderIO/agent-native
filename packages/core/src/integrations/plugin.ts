@@ -3488,15 +3488,24 @@ export function createIntegrationsPlugin(
                   }),
                 },
               );
-              const data = (await res.json()) as {
+              const body = await res.text();
+              let data: {
                 ok?: boolean;
                 description?: string;
                 [key: string]: unknown;
-              };
-              if (!res.ok || data.ok !== true) {
+              } | null = null;
+              try {
+                const parsed = JSON.parse(body);
+                if (parsed && typeof parsed === "object") {
+                  data = parsed as typeof data;
+                }
+              } catch {
+                // Keep provider and proxy failures distinguishable from a successful setup.
+              }
+              if (!res.ok || data?.ok !== true) {
                 setResponseStatus(event, 502);
                 return {
-                  error: `Telegram setWebhook failed: ${data.description ?? `HTTP ${res.status}`}`,
+                  error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
                 };
               }
               return { ok: true, platform, webhookUrl, result: data };
