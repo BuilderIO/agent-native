@@ -1,5 +1,6 @@
 ---
+"@agent-native/core": patch
 "@agent-native/dispatch": patch
 ---
 
-Keep legacy app discovery organization-visible while preserving private defaults for explicitly configured new apps.
+Restore ownerless legacy app visibility while preserving explicit private defaults for new apps.
