@@ -104,6 +104,35 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Configure Nightly channel
+        if: env.RELEASE_CHANNEL == 'nightly'
+        working-directory: packages/desktop-app
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const builderPath = "electron-builder.yml";
+          let builder = fs.readFileSync(builderPath, "utf8");
+          builder = builder
+            .replace("  - name: Agent Native\n", "  - name: Agent Native Nightly\n")
+            .replace("      - agentnative\n", "      - agentnative-nightly\n");
+          if (!builder.includes("agentnative-nightly")) {
+            throw new Error("Could not configure the Nightly deep-link scheme.");
+          }
+          fs.writeFileSync(builderPath, builder);
+
+          const updateConfigPath = "desktop-update-config.yml";
+          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
+          updateConfig = updateConfig.replace(
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
+          );
+          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
+            throw new Error("Could not configure the Nightly updater cache.");
+          }
+          fs.writeFileSync(updateConfigPath, updateConfig);
+          NODE
+
       - name: Set version
         working-directory: packages/desktop-app
         run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
@@ -156,6 +185,35 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Configure Nightly channel
+        if: env.RELEASE_CHANNEL == 'nightly'
+        working-directory: packages/desktop-app
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const builderPath = "electron-builder.yml";
+          let builder = fs.readFileSync(builderPath, "utf8");
+          builder = builder
+            .replace("  - name: Agent Native\n", "  - name: Agent Native Nightly\n")
+            .replace("      - agentnative\n", "      - agentnative-nightly\n");
+          if (!builder.includes("agentnative-nightly")) {
+            throw new Error("Could not configure the Nightly deep-link scheme.");
+          }
+          fs.writeFileSync(builderPath, builder);
+
+          const updateConfigPath = "desktop-update-config.yml";
+          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
+          updateConfig = updateConfig.replace(
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
+          );
+          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
+            throw new Error("Could not configure the Nightly updater cache.");
+          }
+          fs.writeFileSync(updateConfigPath, updateConfig);
+          NODE
+
       - name: Set version
         working-directory: packages/desktop-app
         run: npm version "${{ needs.resolve-version.outputs.version }}" --no-git-tag-version --allow-same-version
@@ -191,6 +249,35 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Configure Nightly channel
+        if: env.RELEASE_CHANNEL == 'nightly'
+        working-directory: packages/desktop-app
+        shell: bash
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const builderPath = "electron-builder.yml";
+          let builder = fs.readFileSync(builderPath, "utf8");
+          builder = builder
+            .replace("  - name: Agent Native\n", "  - name: Agent Native Nightly\n")
+            .replace("      - agentnative\n", "      - agentnative-nightly\n");
+          if (!builder.includes("agentnative-nightly")) {
+            throw new Error("Could not configure the Nightly deep-link scheme.");
+          }
+          fs.writeFileSync(builderPath, builder);
+
+          const updateConfigPath = "desktop-update-config.yml";
+          let updateConfig = fs.readFileSync(updateConfigPath, "utf8");
+          updateConfig = updateConfig.replace(
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater"',
+            'updaterCacheDirName: "@agent-nativedesktop-app-updater-nightly"',
+          );
+          if (!updateConfig.includes("@agent-nativedesktop-app-updater-nightly")) {
+            throw new Error("Could not configure the Nightly updater cache.");
+          }
+          fs.writeFileSync(updateConfigPath, updateConfig);
+          NODE
 
       - name: Set version
         working-directory: packages/desktop-app

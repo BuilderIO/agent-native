@@ -80,12 +80,15 @@ Clips registers itself to open at login by default, then runs quietly in the men
 ## Releases + auto-update
 
 Clips Desktop has separate stable and Nightly lanes. The stable app keeps the
-`Clips` name and `com.clips.tray` identifier; its releases use `clips-v*` tags,
-the `clips-latest` updater pointer, and `/api/clips-updater.json`. Nightly
-builds are named `Clips Nightly`, use `com.clips.tray.nightly`, and use the
-`clips-nightly-v*` tags, `clips-nightly-latest` pointer, and
-`/api/clips-updater.json?channel=nightly`. The in-app updater only sees the
-pointer for the channel that produced the installed app.
+`Clips` name, `Clips` binary, `clips://` scheme, and `com.clips.tray` identifier;
+its releases use `clips-v*` tags, the `clips-latest` updater pointer, and
+`/api/clips-updater.json`. Nightly builds are named `Clips Nightly`, use the
+`Clips-Nightly` binary, the `clips-nightly://` scheme, and
+`com.clips.tray.nightly`. They use the `clips-nightly-v*` tags,
+`clips-nightly-latest` pointer, and `/api/clips-updater.json?channel=nightly`.
+The in-app updater only sees the pointer for the channel that produced the
+installed app, and the separate native binary/desktop entry keeps both lanes
+installable at once.
 
 ### Shipping a release
 

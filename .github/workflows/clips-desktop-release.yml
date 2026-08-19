@@ -198,9 +198,16 @@ jobs:
           const configPath = "src-tauri/tauri.conf.json";
           const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
           const nightly = channel === "nightly";
+          const binaryName = nightly ? "Clips-Nightly" : "Clips";
           config.productName = nightly ? "Clips Nightly" : "Clips";
+          config.mainBinaryName = binaryName;
           config.identifier = nightly ? "com.clips.tray.nightly" : "com.clips.tray";
           config.plugins ??= {};
+          config.plugins["deep-link"] ??= {};
+          config.plugins["deep-link"].desktop ??= {};
+          config.plugins["deep-link"].desktop.schemes = [
+            nightly ? "clips-nightly" : "clips",
+          ];
           config.plugins.updater ??= {};
           config.plugins.updater.endpoints = [
             nightly
@@ -208,6 +215,16 @@ jobs:
               : "https://clips.agent-native.com/api/clips-updater.json",
           ];
           fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+          const cargoPath = "src-tauri/Cargo.toml";
+          const cargo = fs.readFileSync(cargoPath, "utf8");
+          if (!/^name = "Clips"$/m.test(cargo)) {
+            throw new Error("Could not find the Clips Cargo binary target.");
+          }
+          const updatedCargo = cargo.replace(
+            /^name = "Clips"$/m,
+            `name = "${binaryName}"`,
+          );
+          fs.writeFileSync(cargoPath, updatedCargo);
           NODE
 
       - name: Build and release (tauri-action)
@@ -251,9 +268,11 @@ jobs:
         run: |
           set -euo pipefail
           APP_NAME="Clips"
+          EXPECTED_EXECUTABLE="Clips"
           EXPECTED_IDENTIFIER="com.clips.tray"
           if [ "$RELEASE_CHANNEL" = "nightly" ]; then
             APP_NAME="Clips Nightly"
+            EXPECTED_EXECUTABLE="Clips-Nightly"
             EXPECTED_IDENTIFIER="com.clips.tray.nightly"
           fi
           APP_PATH=$(find "$TAURI_APP_PATH/src-tauri/target" -path "*/bundle/macos/$APP_NAME.app" -type d | head -n 1)
@@ -270,7 +289,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :NSCalendarsFullAccessUsageDescription" "$INFO" >/dev/null
           /usr/libexec/PlistBuddy -c "Print :NSSpeechRecognitionUsageDescription" "$INFO" >/dev/null
           /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO" | grep -qx "$EXPECTED_IDENTIFIER"
-          /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO" | grep -qx 'Clips'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO" | grep -qx "$EXPECTED_EXECUTABLE"
           VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO")
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]]
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO" >/dev/null

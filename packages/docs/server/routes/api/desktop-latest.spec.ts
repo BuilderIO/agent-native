@@ -170,6 +170,28 @@ describe("getDesktopDownloadManifest", () => {
     expect(fetchMock.mock.calls[0]?.[0]).toContain("page=1");
   });
 
+  it("keeps looking past ten pages of unrelated releases", async () => {
+    const fetchMock = vi.fn(async (input: unknown) => {
+      const page = Number(new URL(String(input)).searchParams.get("page"));
+      if (page < 11) {
+        return jsonResponse(
+          Array.from({ length: 100 }, (_, index) =>
+            release(`unrelated-${page}-${index}`, "2026-01-01T00:00:00Z"),
+          ),
+        );
+      }
+      return jsonResponse([release("v1.0.0", "2026-01-01T00:00:00Z")]);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(getDesktopDownloadManifest()).resolves.toMatchObject({
+      version: "1.0.0",
+      tag: "v1.0.0",
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(11);
+  });
+
   it("exposes durable stale-while-revalidate headers for the public endpoint", () => {
     expect(DESKTOP_RELEASE_CACHE_HEADERS).toEqual({
       "cache-control":

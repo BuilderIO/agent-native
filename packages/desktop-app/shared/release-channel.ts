@@ -9,3 +9,6 @@ export const DESKTOP_RELEASE_CHANNEL: DesktopReleaseChannel =
   __AGENT_NATIVE_DESKTOP_RELEASE_CHANNEL__ === "nightly"
     ? "nightly"
     : "production";
+
+export const DESKTOP_DEEP_LINK_PROTOCOL =
+  DESKTOP_RELEASE_CHANNEL === "nightly" ? "agentnative-nightly" : "agentnative";

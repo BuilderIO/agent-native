@@ -330,7 +330,8 @@ The `Desktop App Release` workflow keeps stable and Nightly installs separate:
   It is released only by dispatching the workflow with `channel: production`.
 - Nightly uses the `Agent Native Nightly` name and
   `com.agentnative.desktop.nightly` app ID. Pushes to `main` publish this lane
-  automatically, with prerelease tags and update metadata under
+  automatically, with prerelease tags, the `agentnative-nightly://` deep-link
+  scheme, a separate updater cache, and update metadata under
   `/api/desktop-updates/nightly/`.
 
 The different app IDs let employees install both lanes side by side. Each lane
