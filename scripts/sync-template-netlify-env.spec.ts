@@ -75,6 +75,20 @@ describe("normalizeProductionUrlEntry", () => {
       normalized: true,
     });
   });
+
+  it("uses the beta deployment origin for beta branch context", () => {
+    expect(
+      normalizeProductionUrlEntry(
+        "clips",
+        "branch:beta",
+        "BETTER_AUTH_URL",
+        "http://localhost:8094",
+      ),
+    ).toEqual({
+      value: "https://beta.clips.agent-native.com",
+      normalized: true,
+    });
+  });
 });
 
 describe("resolveNetlifyTemplateName", () => {

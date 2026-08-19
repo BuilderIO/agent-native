@@ -33,6 +33,7 @@ import {
   LOCALE_METADATA,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
+  localeDisplayName,
   localeDirection,
   normalizeLocalizationPreference,
   resolveLocaleFromCandidates,
@@ -914,20 +915,23 @@ export function LanguagePicker({
   const [open, setOpen] = useState(false);
   const copy =
     LANGUAGE_PICKER_COPY[locale] ?? LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
+  const systemCopy =
+    LANGUAGE_PICKER_COPY[resolveLocaleFromCandidates(browserLanguageCandidates())] ??
+    LANGUAGE_PICKER_COPY[DEFAULT_LOCALE];
   const resolvedLabel = label ?? copy.label;
   const options = [
     ...(includeSystem
       ? [
           {
             value: "system" as const,
-            label: copy.system,
-            description: copy.systemDescription,
+            label: systemCopy.system,
+            description: systemCopy.systemDescription,
           },
         ]
       : []),
     ...supportedLocales.map((code) => ({
       value: code,
-      label: `${LOCALE_METADATA[code].nativeName} (${code})`,
+      label: localeDisplayName(code),
       description: code,
     })),
   ];
