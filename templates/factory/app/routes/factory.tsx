@@ -29,6 +29,7 @@ import {
   type FactoryCanvasGraph,
   type FactoryCanvasNode,
 } from "@/components/factory/FactoryCanvas";
+import { FactoryHistoryView } from "@/components/factory/FactoryHistoryView";
 import { FactoryInspector } from "@/components/factory/FactoryInspector";
 import { TriageStatusPill } from "@/components/triage/triage-status-pill";
 import { Button } from "@/components/ui/button";
@@ -126,6 +127,7 @@ type WorkspaceTab =
   | "automations"
   | "agents"
   | "audit"
+  | "history"
   | "settings";
 
 type FactoryAutomationRun = {
@@ -188,6 +190,10 @@ export default function FactoryRoute() {
         const next = new URLSearchParams(current);
         if (tab === "overview") next.delete("tab");
         else next.set("tab", tab);
+        if (tab === "history") {
+          next.delete("node");
+          next.delete("edge");
+        }
         return next;
       },
       { replace: true },
@@ -403,6 +409,15 @@ export default function FactoryRoute() {
     });
     setCreating(false);
     setDirty(false);
+    await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
+  }
+
+  async function handleFactoryRestored() {
+    setCreating(false);
+    setDraftGraph(null);
+    setDirty(false);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
     await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
   }
 
@@ -654,6 +669,12 @@ export default function FactoryRoute() {
               Activity
             </TabButton>
             <TabButton
+              active={activeTab === "history"}
+              onClick={() => setActiveTab("history")}
+            >
+              {t("factoryRoute.historyTab")}
+            </TabButton>
+            <TabButton
               active={activeTab === "settings"}
               onClick={() => setActiveTab("settings")}
             >
@@ -741,6 +762,13 @@ export default function FactoryRoute() {
             factoryId={factoryId}
             refreshToken={auditRefreshToken}
           />
+        ) : activeTab === "history" ? (
+          <FactoryHistoryView
+            factoryId={factoryId}
+            currentVersion={graphVersion}
+            hasUnsavedChanges={dirty}
+            onRestored={handleFactoryRestored}
+          />
         ) : (
           <SettingsView t={t} />
         )}
@@ -777,6 +805,7 @@ function parseWorkspaceTab(value: string | null): WorkspaceTab {
     value === "automations" ||
     value === "agents" ||
     value === "audit" ||
+    value === "history" ||
     value === "settings"
     ? value
     : "overview";

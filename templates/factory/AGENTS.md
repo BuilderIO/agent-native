@@ -72,6 +72,7 @@ decisions, feedback, agent runs, and provider audit records.
 | `reconcile-triage-run` | Persist callback/provider reconciliation. |
 | `list-factories` / `get-factory-graph` | Inspect definitions, versions, and metrics. |
 | `save-factory-graph` | Create or version a complete visual graph; never starts provider work. |
+| `list-factory-graph-versions` / `restore-factory-graph-version` | Factory graph version history. |
 | `list-factory-comments` / `add-factory-comment` | Read or attach comments to a canvas, node, or edge. |
 | `provider-api-catalog` / `provider-api-docs` / `provider-api-request` | Use connected provider APIs with shared credentials; never request raw keys. |
 | `list-workspace-apps` / `update-workspace-app-metadata` | Inventory and edit mounted apps. |
