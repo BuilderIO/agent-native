@@ -102,6 +102,7 @@ jobs:
               --draft \
               --prerelease \
               --latest=false \
+              --target "${{ github.sha }}" \
               --title "Agent Native Nightly v${{ needs.resolve-version.outputs.version }}" \
               --notes "Auto-updating Nightly build of the Agent Native desktop app." \
               -R "${{ github.repository }}"
@@ -109,9 +110,11 @@ jobs:
             gh release create "$TAG" \
               --draft \
               --latest=false \
+              --target "${{ github.sha }}" \
               --title "Agent Native v${{ needs.resolve-version.outputs.version }}" \
               --notes "Stable release of the Agent Native desktop app." \
               -R "${{ github.repository }}"
+          fi
 
   build-mac:
     needs: [resolve-version, prepare-release]
