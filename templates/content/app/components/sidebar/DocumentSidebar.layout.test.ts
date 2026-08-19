@@ -208,9 +208,7 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain(
       "return withDocumentsCacheShape(old, [...docs, tempDoc])",
     );
-    expect(sidebar).toContain(
-      "restoreListDocumentsSnapshot(queryClient, previousDocuments)",
-    );
+    expect(sidebar).toContain("rollbackOptimisticCreatedDocument(");
   });
 
   it("restores deleted list and page snapshots before refetching on failure", () => {

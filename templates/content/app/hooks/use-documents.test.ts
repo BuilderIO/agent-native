@@ -25,6 +25,7 @@ import {
   restoreQuerySnapshots,
   restoreDeletedDocumentSnapshots,
   restoreListDocumentsSnapshot,
+  rollbackOptimisticCreatedDocument,
   setDocumentFavoriteInDatabaseCache,
   setDocumentFavoriteInListCache,
   seedDatabaseItemDocumentCaches,
@@ -32,6 +33,35 @@ import {
 } from "./use-documents";
 
 describe("complete document discovery", () => {
+  it("rolls back only its own optimistic create", () => {
+    const queryClient = new QueryClient();
+    const existing = doc("existing", null);
+    const firstCreate = doc("first-create", null);
+    const secondCreate = doc("second-create", null);
+
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [existing, firstCreate, secondCreate],
+      pagination: { totalItems: 1 },
+    });
+    rollbackOptimisticCreatedDocument(queryClient, "first-create", true);
+
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toEqual({
+      documents: [existing, secondCreate],
+      pagination: { totalItems: 1 },
+    });
+  });
+
+  it("removes a failed optimistic list when no earlier list existed", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [doc("failed-create", null)],
+    });
+
+    rollbackOptimisticCreatedDocument(queryClient, "failed-create", false);
+
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toBeUndefined();
+  });
+
   it("restores an existing list snapshot and removes an absent one", () => {
     const queryClient = new QueryClient();
     const existing = { documents: [doc("existing", null)] };

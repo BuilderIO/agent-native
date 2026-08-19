@@ -77,6 +77,36 @@ export function restoreListDocumentsSnapshot(
   queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, snapshot);
 }
 
+export function rollbackOptimisticCreatedDocument(
+  queryClient: Pick<
+    QueryClient,
+    "getQueryData" | "removeQueries" | "setQueryData"
+  >,
+  documentId: string,
+  hadListSnapshot: boolean,
+) {
+  const current = queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY);
+  const documents: Document[] = Array.isArray(current)
+    ? current
+    : ((current as DocumentListResponse | undefined)?.documents ?? []);
+  const remaining = documents.filter((document) => document.id !== documentId);
+
+  if (!hadListSnapshot && remaining.length === 0) {
+    queryClient.removeQueries({ queryKey: LIST_DOCUMENTS_QUERY_KEY });
+    return;
+  }
+
+  if (Array.isArray(current)) {
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, remaining);
+    return;
+  }
+
+  queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+    ...(current && typeof current === "object" ? current : {}),
+    documents: remaining,
+  });
+}
+
 export function restoreDeletedDocumentSnapshots(
   queryClient: Pick<QueryClient, "removeQueries" | "setQueryData">,
   listSnapshot: unknown,

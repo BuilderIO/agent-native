@@ -127,8 +127,8 @@ import {
   buildDocumentTree,
   filterDocumentTreeDocuments,
   documentQueryFilter,
+  rollbackOptimisticCreatedDocument,
   restoreDeletedDocumentSnapshots,
-  restoreListDocumentsSnapshot,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
@@ -1158,6 +1158,7 @@ export function DocumentSidebar({
       const previousDocuments = queryClient.getQueryData(
         LIST_DOCUMENTS_QUERY_KEY,
       );
+      const previousPath = `${location.pathname}${location.search}${location.hash}`;
 
       // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
@@ -1212,9 +1213,11 @@ export function DocumentSidebar({
           });
         }
       } catch (err) {
-        // Restore the exact last complete tree before asking the server to
-        // reconcile it. A refetch alone leaves the sidebar temporarily stale.
-        restoreListDocumentsSnapshot(queryClient, previousDocuments);
+        rollbackOptimisticCreatedDocument(
+          queryClient,
+          id,
+          previousDocuments !== undefined,
+        );
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -1225,7 +1228,7 @@ export function DocumentSidebar({
             (current) => removeOptimisticItemFromContentDatabase(current, id),
           );
         }
-        navigate(activeDocumentId ? `/page/${activeDocumentId}` : "/", {
+        navigate(previousPath, {
           replace: true,
           flushSync: true,
         });
@@ -1238,7 +1241,9 @@ export function DocumentSidebar({
     [
       createDocument,
       localFileMode,
-      activeDocumentId,
+      location.hash,
+      location.pathname,
+      location.search,
       navigate,
       navigateToDocument,
       onNavigate,

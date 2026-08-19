@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   invalidateQueries: vi.fn(),
   navigate: vi.fn(),
   removeQueries: vi.fn(),
+  rollbackOptimisticCreatedDocument: vi.fn(),
   setQueryData: vi.fn(),
 }));
 
@@ -26,7 +27,11 @@ vi.mock("@tanstack/react-query", () => ({
 }));
 
 vi.mock("react-router", () => ({
-  useLocation: () => ({ pathname: "/page/existing-page" }),
+  useLocation: () => ({
+    pathname: "/page/existing-page",
+    search: "?view=table",
+    hash: "#details",
+  }),
   useNavigate: () => mocks.navigate,
 }));
 
@@ -39,15 +44,7 @@ vi.mock("@/hooks/use-content-spaces", () => ({
 }));
 
 vi.mock("@/hooks/use-documents", () => ({
-  restoreListDocumentsSnapshot: (queryClient: any, snapshot: unknown) => {
-    if (snapshot === undefined) {
-      queryClient.removeQueries({
-        queryKey: ["action", "list-documents", undefined],
-      });
-      return;
-    }
-    queryClient.setQueryData(["action", "list-documents", undefined], snapshot);
-  },
+  rollbackOptimisticCreatedDocument: mocks.rollbackOptimisticCreatedDocument,
   useCreateDocument: () => ({ mutateAsync: mocks.createDocument }),
 }));
 
@@ -152,7 +149,7 @@ describe("useCreatePage", () => {
     });
   });
 
-  it("preserves list metadata and restores the exact snapshot when creation fails", async () => {
+  it("preserves list metadata and rolls back only its optimistic page on failure", async () => {
     const previous = {
       documents: [{ id: "existing-page" }],
       pagination: { totalItems: 1 },
@@ -180,18 +177,22 @@ describe("useCreatePage", () => {
     const optimistic = optimisticUpdater(previous);
     expect(optimistic.pagination).toBe(previous.pagination);
     expect(optimistic.documents).toHaveLength(2);
-    expect(mocks.setQueryData).toHaveBeenCalledWith(
-      ["action", "list-documents", undefined],
-      previous,
+    expect(mocks.rollbackOptimisticCreatedDocument).toHaveBeenCalledWith(
+      expect.anything(),
+      optimistic.documents[1]?.id,
+      true,
     );
     expect(mocks.removeQueries).toHaveBeenCalledWith({
       queryKey: ["action", "get-document"],
       predicate: expect.any(Function),
     });
-    expect(mocks.navigate).toHaveBeenLastCalledWith("/page/existing-page", {
-      replace: true,
-      flushSync: true,
-    });
+    expect(mocks.navigate).toHaveBeenLastCalledWith(
+      "/page/existing-page?view=table#details",
+      {
+        replace: true,
+        flushSync: true,
+      },
+    );
   });
 
   it("removes an optimistic list when no prior list snapshot existed", async () => {
@@ -208,8 +209,10 @@ describe("useCreatePage", () => {
       await expect(createPage()).rejects.toThrow("create failed");
     });
 
-    expect(mocks.removeQueries).toHaveBeenCalledWith({
-      queryKey: ["action", "list-documents", undefined],
-    });
+    expect(mocks.rollbackOptimisticCreatedDocument).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      false,
+    );
   });
 });

@@ -11,7 +11,7 @@ import {
 } from "@/components/sidebar/select-content-space";
 import { useContentSpaces } from "@/hooks/use-content-spaces";
 import {
-  restoreListDocumentsSnapshot,
+  rollbackOptimisticCreatedDocument,
   useCreateDocument,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
@@ -85,7 +85,7 @@ export function useCreatePage(opts?: {
       const previousDocuments = queryClient.getQueryData(
         LIST_DOCUMENTS_QUERY_KEY,
       );
-      const previousPath = location.pathname;
+      const previousPath = `${location.pathname}${location.search}${location.hash}`;
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
@@ -123,7 +123,11 @@ export function useCreatePage(opts?: {
       };
 
       const onPersistError = (err: unknown) => {
-        restoreListDocumentsSnapshot(queryClient, previousDocuments);
+        rollbackOptimisticCreatedDocument(
+          queryClient,
+          id,
+          previousDocuments !== undefined,
+        );
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -152,7 +156,9 @@ export function useCreatePage(opts?: {
     },
     [
       createDocument,
+      location.hash,
       location.pathname,
+      location.search,
       navigate,
       onAfterNavigate,
       queryClient,
