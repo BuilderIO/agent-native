@@ -1549,6 +1549,7 @@ const jaJP = {
     fileUploads: "ファイルアップロード",
     deployment: "デプロイ",
     deploymentOverview: "概要",
+    deployAnApp: "アプリをデプロイ",
     workspaceDeployment: "ワークスペースのデプロイ",
     deploymentNodeDocker: "Node.js と Docker",
     deploymentVercel: "Vercel",

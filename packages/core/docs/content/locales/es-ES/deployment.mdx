@@ -1,263 +1,43 @@
 ---
 title: "Implementación"
-description: "Implemente aplicaciones nativas del agente en cualquier plataforma con ajustes preestablecidos de Nitro. Compatible con Node.js, Vercel, Netlify, Cloudflare, AWS y más."
+description: "Implementa una aplicación o un espacio de trabajo Agent-Native en una plataforma compatible con Nitro y una base de datos SQL persistente."
 ---
+
+<!-- i18n-docs-ignore -->
 
 # Implementación
 
-Las aplicaciones nativas del agente usan [Nitro](https://nitro.build) internamente. Eso significa que puedes implementarlas en cualquier plataforma sin cambios de configuración. Solo debes establecer un ajuste preestablecido.
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+Las aplicaciones Agent-Native usan Nitro. Elige la ruta que corresponda a lo que vas a publicar:
+
+<Cards columns={2}>
+
+### [Implementar una aplicación](/docs/deploy-an-app)
+
+Construye una aplicación y ejecútala en su propio dominio.
+
+### [Implementar un espacio de trabajo](/docs/workspace-deployment)
+
+Ejecuta varias aplicaciones bajo un mismo origen con inicio de sesión compartido.
+
+</Cards>
 
 ## Antes de implementar: elige una base de datos persistente {#persistent-database}
 
-Una base de datos **persistente** es aquella cuyos datos sobreviven a reinicios, reimplementaciones y a la ejecución en más de una instancia de servidor a la vez. Eso es lo que necesita toda aplicación implementada.
+Cada aplicación implementada necesita una base de datos SQL persistente. Configura `DATABASE_URL` en el entorno de implementación antes del primer despliegue de producción. Usa `DATABASE_AUTH_TOKEN` si tu proveedor requiere un token separado.
 
-<Comparison>
+Las aplicaciones independientes necesitan un `BETTER_AUTH_SECRET` estable. Los espacios de trabajo con solicitudes firmadas entre aplicaciones necesitan `A2A_SECRET`.
 
-### Antes
+## Destinos compatibles
 
-El desarrollo local recurre a un archivo SQLite en `data/app.db`. Eso es conveniente en tu máquina, pero el archivo vive en el sistema de archivos local, que los contenedores, las vistas previas y las plataformas sin servidor pueden restablecer en cualquier momento.
+Agent-Native admite Node.js, Vercel, Netlify, Cloudflare, AWS Lambda y Deno Deploy.
 
-### Después
+Consulta la [referencia de variables de entorno de implementación](/docs/deployment-environment-variables) para los ajustes avanzados, secretos y valores de producción.
 
-Producción necesita una base de datos persistente, como Postgres o Turso/libSQL, que sobreviva a reinicios, reimplementaciones y a la ejecución en más de una instancia a la vez.
+## Siguiente
 
-</Comparison>
-
-Conectar una lleva tres pasos:
-
-<Steps>
-
-### Elige un proveedor
-
-Cualquier host compatible con Postgres (Neon, Supabase, Railway, RDS y similares) o una base de datos libSQL/Turso funciona. El agente nativo lee y escribe a través de [Drizzle](https://orm.drizzle.team), una biblioteca de TypeScript que convierte tu esquema en consultas con tipos seguros en lugar de SQL escrito a mano, de modo que el mismo código de la aplicación funciona con cualquiera de ellas.
-
-### Obtén una cadena de conexión
-
-Tu proveedor te da una URL que identifica la base de datos y cómo alcanzarla, por ejemplo `postgres://user:pass@host:5432/dbname`.
-
-### Establece `DATABASE_URL`
-
-Establécela en las variables de entorno de tu proveedor de implementación antes de tu primera implementación en producción. El agente nativo lee la URL y detecta automáticamente con qué **dialecto** (qué motor de base de datos subyacente, Postgres frente a SQLite/libSQL) debe hablar. Consulta [Base de datos](/docs/server-database#production) para ver la lista completa de adaptadores.
-
-</Steps>
-
-<Callout tone="info">
-
-¿Usas Turso u otro proveedor libSQL que se autentica con un token independiente? Establece `DATABASE_AUTH_TOKEN` junto con `DATABASE_URL`. ¿Estás construyendo un [espacio de trabajo](/docs/multi-app-workspace) con más de una aplicación? Cada aplicación hereda la `DATABASE_URL` raíz de forma predeterminada. Establece `<APP_NAME>_DATABASE_URL` solo para la única aplicación que necesite una base de datos diferente.
-
-</Callout>
-
-### Configuración automática del esquema {#skip-ensure-tables}
-
-No necesitas un paso de migración independiente para empezar. La primera vez que cualquier parte de tu aplicación toca la base de datos, el agente nativo comprueba si las tablas, columnas e índices que necesita ya existen, y crea lo que falte. Esto ocurre una vez por arranque del servidor y es invisible en el uso normal.
-
-<Diagram id="doc-block-2ddlboot1" title="Qué ocurre en el primer contacto" summary={"Cada almacén de datos comprueba su propio esquema una vez por arranque y crea lo que falte antes de servir una solicitud real."}>
-
-```html
-<div class="diagram-boot">
-  <div class="diagram-box" data-rough>El servidor arranca</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">ensureTable()</span
-    ><small class="diagram-muted">comprueba el esquema de cada almacén</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    Listo<br /><small class="diagram-muted"
-      >tablas/columnas faltantes creadas</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-boot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-boot .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-boot .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-Concretamente, cada almacén de datos llama a una función interna `ensureTable()` la primera vez que se usa. Esa función comprueba el catálogo propio de la base de datos (el `information_schema` de Postgres, por ejemplo) y solo emite `CREATE TABLE`, `ADD COLUMN` o `CREATE INDEX` para lo que realmente falta. Esas son sentencias **DDL**, abreviatura de Data Definition Language, la parte de SQL que da forma a las tablas en lugar de leer o escribir las filas que contienen.
-
-### Cómo reducir la latencia de arranque en frío en serverless {#reducing-cold-start}
-
-En un servidor de larga duración, esta comprobación se ejecuta una vez por arranque y probablemente nunca la notes. Las plataformas sin servidor funcionan de otra manera. Un **arranque en frío** ocurre cuando la plataforma levanta una instancia completamente nueva de tu servidor para atender una solicitud, y en serverless, el "primer contacto" puede significar cada arranque en frío, en unos 57 almacenes distintos. Eso suma unos cientos de idas y vueltas antes de que una solicitud haga cualquier trabajo real.
-
-Tres cosas mantienen esto bajo control:
-
-- **Introspección por lotes.** En lugar de una consulta por tabla, columna e índice, las comprobaciones anteriores se ejecutan como un único paso de introspección por base de datos, solo dos consultas en total. Esto es automático y no requiere configuración.
-- **Omisión automática en serverless gestionado.** Netlify Functions, AWS Lambda y Vercel Functions omiten por completo esta comprobación en producción, sin necesidad de configuración.
-- **`AGENT_NATIVE_SKIP_ENSURE_TABLES=1`.** Establece esto en implementaciones que la omisión automática no cubre, como un servidor Node de larga duración, Docker u otra configuración autoalojada, una vez que tu esquema ya está migrado y no quieres que el arranque de la aplicación cree o altere tablas.
-
-<Callout tone="risk">
-
-Ni el flag ni la omisión automática en serverless pueden fallar de forma cerrada. Si realmente falta una tabla, la primera consulta real que la necesite falla de forma ruidosa en lugar de repararse en silencio. Eso es deliberado (una reparación silenciosa ocultaría un error de migración real), pero implica que la migración pasa a ser tu responsabilidad a partir de aquí. No establezcas este flag, ni confíes en la omisión automática, en una implementación que dependa del arranque de la aplicación para crear sus propias tablas.
-
-</Callout>
-
-Implementar más de una aplicación en un único origen, o autoalojar un espacio
-de trabajo con Docker Compose, es una página aparte: consulta
-[Implementación de espacios de trabajo](/docs/workspace-deployment).
-
-## Cómo funciona {#how-it-works}
-
-Cuando ejecutas `npx @agent-native/core@latest build`, Nitro construye tanto el SPA cliente como la API del servidor en `.output/`:
-
-<FileTree
-  id="doc-block-1vbo81"
-  title="Salida de compilación"
-  entries={[
-    {
-      path: ".output/",
-      note: "autónomo, cópialo a cualquier entorno y ejecútalo",
-    },
-    {
-      path: ".output/public/",
-      note: "SPA compilada (activos estáticos)",
-    },
-    {
-      path: ".output/server/index.mjs",
-      note: "punto de entrada del servidor",
-    },
-    {
-      path: ".output/server/chunks/",
-      note: "fragmentos de código del servidor",
-    },
-  ]}
-/>
-
-El resultado es autónomo. Copia `.output/` a cualquier entorno y ejecútalo.
-
-<Diagram id="doc-block-1gqwzzp" title="De la compilación a la implementación" summary={"Un único árbol de código fuente se compila con un ajuste preestablecido de Nitro. La misma salida autónoma se ejecuta en Node, Vercel, Netlify, Cloudflare, AWS o Deno. Cada instancia apunta a la misma DATABASE_URL persistente."}>
-
-```html
-<div class="diagram-deploy">
-  <div class="diagram-box" data-rough>Código fuente de la app</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">compilación</span
-    ><small class="diagram-muted">ajuste preestablecido de Nitro</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-grid">
-    <span class="diagram-pill">Node.js</span
-    ><span class="diagram-pill">Vercel</span
-    ><span class="diagram-pill">Netlify</span
-    ><span class="diagram-pill">Cloudflare</span
-    ><span class="diagram-pill">AWS Lambda</span
-    ><span class="diagram-pill">Deno</span>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    DATABASE_URL persistente<br /><small class="diagram-muted"
-      >compartida por todas las instancias</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-deploy {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-deploy .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-deploy .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-.diagram-deploy .diagram-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-```
-
-</Diagram>
-
-## Configuración del ajuste preestablecido {#setting-the-preset}
-
-De forma predeterminada, Nitro compila para Node.js. Para apuntar a una plataforma diferente, establece el ajuste preestablecido en tu `vite.config.ts`:
-
-```ts
-import { agentNative } from "@agent-native/core/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
-
-O usa la variable de entorno `NITRO_PRESET` en el momento de la compilación:
-
-```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
-```
-
-Consulta la página de tu plataforma para conocer los detalles de compilación e implementación:
-
-- [**Node.js y Docker**](/docs/node-docker): el ajuste preestablecido predeterminado, más un Dockerfile independiente
-- [**Vercel**](/docs/vercel)
-- [**Netlify**](/docs/netlify): incluye keep-warm para bases de datos con escalado a cero
-- [**Cloudflare**](/docs/cloudflare): Pages y Workers
-- [**Otras plataformas**](/docs/other-platforms): AWS Lambda y Deno Deploy
-
-La política de caché predeterminada del shell SSR, y cómo anularla con
-`AGENT_NATIVE_SSR_CACHE`, es una página aparte: consulta
-[Caché SSR](/docs/ssr-caching).
-
-La referencia completa de variables de entorno de producción
-(compilación/tiempo de ejecución, secretos requeridos, autenticación, webhooks,
-opciones de seguridad opcionales, herencia del `.env` del espacio de trabajo y
-generación de secretos robustos) es una página aparte: consulta
-[Implementación: variables de entorno](/docs/deployment-environment-variables).
-
-Qué herramientas del framework y qué capacidades de ejecución de código tiene
-un agente de producción implementado, a través de `frameworkTools` y
-`codeExecution`, es una página aparte: consulta
-[Acceso del agente en producción](/docs/actions-agent-tools).
-
-Cómo se actualiza la UI de una aplicación implementada después del
-lanzamiento, incluido el flujo de trabajo gestionado independiente de
-Builder.io para la edición visual en producción, es una página aparte:
-consulta [Actualizar la UI en producción](/docs/updating-ui-in-production).
-
-## Implementaciones multi-instancia {#multi-instance}
-
-Las aplicaciones nativas del agente almacenan todo su estado en SQL mediante Drizzle y sincronizan la UI mediante [polling](/docs/key-concepts#polling-sync) con la base de datos. No hay estado en el sistema de archivos, ni sesiones fijas, ni cachés en memoria. Eso significa que las implementaciones multi-instancia y sin servidor funcionan de forma inmediata: apunta cada instancia a la misma `DATABASE_URL` y convergerán automáticamente. Ver [Conceptos clave: Datos en SQL](/docs/key-concepts#data-in-sql) y [Portabilidad](/docs/key-concepts#hosting-agnostic).
-
-## Qué sigue
-
-- [**Base de datos**](/docs/server-database#production) — elige un backend SQL persistente antes de tu primera implementación en producción
-- [**Seguridad**](/docs/security) — la lista de comprobación de producción y los flags opcionales mencionados en esta página
-- [**Autenticación**](/docs/authentication) — credenciales OAuth y variables de entorno para el modo de autenticación que elijas
-- [**Implementación de espacios de trabajo**](/docs/workspace-deployment) — implementa cada aplicación de un espacio de trabajo en un único origen, o autoalójalo con Docker Compose
-- [**Caché SSR**](/docs/ssr-caching) — la política de caché estricta predeterminada y su anulación
-- [**Implementación: variables de entorno**](/docs/deployment-environment-variables) — la referencia completa de variables de entorno de producción
-- [**Acceso del agente en producción**](/docs/actions-agent-tools) — `frameworkTools` y `codeExecution` para un agente implementado
-- [**Espacios de trabajo multiaplicación**](/docs/multi-app-workspace) — el modelo de espacio de trabajo detrás de la compilación de origen único de `deploy`
-- [**Actualizar la UI en producción**](/docs/updating-ui-in-production) — el panel de agente integrado frente al frame en la nube de Builder.io para editar la UI en producción
-- [**Web de agente público**](/docs/agent-web-surfaces) — los archivos `robots.txt`, `llms.txt` y de espejo markdown que una compilación de Vite escribe en la salida de implementación para rutas públicas
+- [Implementar una aplicación](/docs/deploy-an-app)
+- [Implementar un espacio de trabajo](/docs/workspace-deployment)
+- [Base de datos](/docs/server-database#production)

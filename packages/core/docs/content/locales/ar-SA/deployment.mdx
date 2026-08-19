@@ -1,259 +1,43 @@
 ---
 title: "النشر"
-description: "انشر تطبيقات agent-native على أي منصة باستخدام إعدادات Nitro المسبقة. تدعم Node.js وVercel وNetlify وCloudflare وAWS والمزيد."
+description: "انشر تطبيق Agent-Native أو مساحة عمل على منصة متوافقة مع Nitro باستخدام قاعدة بيانات SQL دائمة."
 ---
+
+<!-- i18n-docs-ignore -->
 
 # النشر
 
-تستخدم تطبيقات agent-native [Nitro](https://nitro.build) تحت الغطاء. هذا يعني أنه يمكنك النشر على أي منصة بدون أي تغييرات في التكوين. فقط اضبط إعدادًا مسبقًا.
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
+
+تعمل تطبيقات Agent-Native على Nitro. اختر المسار الذي يناسب ما تريد شحنه:
+
+<Cards columns={2}>
+
+### [نشر تطبيق](/docs/deploy-an-app)
+
+أنشئ تطبيقًا واحدًا وانشره على نطاقه الخاص.
+
+### [نشر مساحة عمل](/docs/workspace-deployment)
+
+شغّل عدة تطبيقات خلف أصل واحد مع تسجيل دخول مشترك.
+
+</Cards>
 
 ## قبل النشر: اختر قاعدة بيانات دائمة {#persistent-database}
 
-قاعدة البيانات **الدائمة** هي قاعدة بيانات تنجو بياناتها من عمليات إعادة التشغيل، وإعادة النشر، والعمل على أكثر من مثيل خادم واحد في نفس الوقت. هذا ما يحتاجه كل تطبيق مُنشور.
+كل تطبيق منشور يحتاج إلى قاعدة بيانات SQL دائمة. اضبط `DATABASE_URL` في بيئة النشر قبل أول نشر إنتاجي. استخدم `DATABASE_AUTH_TOKEN` عندما يطلب موفر قاعدة البيانات رمزًا منفصلًا.
 
-<Comparison>
+تحتاج التطبيقات المستقلة إلى `BETTER_AUTH_SECRET` ثابت. تحتاج مساحات العمل التي تستخدم الطلبات الموقعة بين التطبيقات إلى `A2A_SECRET`.
 
-### قبل
+## الأهداف المدعومة
 
-يعود التطوير المحلي افتراضيًا إلى ملف SQLite في `data/app.db`. هذا مريح على جهازك، لكن الملف يعيش على نظام الملفات المحلي، الذي يمكن أن تعيد الحاويات، والمعاينات، ومنصات serverless ضبطه في أي وقت.
+يدعم Agent-Native Node.js وVercel وNetlify وCloudflare وAWS Lambda وDeno Deploy.
 
-### بعد
+راجع [مرجع متغيرات بيئة النشر](/docs/deployment-environment-variables) للإعدادات المتقدمة، والأسرار، وإعدادات الإنتاج.
 
-يحتاج الإنتاج إلى قاعدة بيانات دائمة، مثل Postgres أو Turso/libSQL، تنجو من عمليات إعادة التشغيل، وإعادة النشر، والعمل على أكثر من مثيل واحد في نفس الوقت.
+## التالي
 
-</Comparison>
-
-يتطلب توصيل واحدة ثلاث خطوات:
-
-<Steps>
-
-### اختر مزودًا
-
-يعمل أي مضيف متوافق مع Postgres (Neon، وSupabase، وRailway، وRDS، وما شابه) أو قاعدة بيانات libSQL/Turso. تقرأ agent-native وتكتب من خلال [Drizzle](https://orm.drizzle.team)، مكتبة TypeScript تحوّل مخططك إلى استعلامات آمنة النوع بدلاً من SQL مكتوب يدويًا، بحيث يعمل نفس كود التطبيق مقابل أي منها.
-
-### احصل على سلسلة اتصال
-
-يمنحك مزودك عنوان URL يحدد قاعدة البيانات وكيفية الوصول إليها، على سبيل المثال `postgres://user:pass@host:5432/dbname`.
-
-### اضبط `DATABASE_URL`
-
-اضبطها في متغيرات بيئة مزود النشر الخاص بك قبل أول نشر إنتاجي. تقرأ agent-native عنوان URL وتكتشف تلقائيًا **اللهجة** (محرك قاعدة البيانات الأساسي، Postgres مقابل SQLite/libSQL) التي يجب التحدث معها. راجع [قاعدة البيانات](/docs/server-database#production) للحصول على قائمة المحولات الكاملة.
-
-</Steps>
-
-<Callout tone="info">
-
-هل تستخدم Turso أو مزود libSQL آخر يُصادِق باستخدام رمز منفصل؟ اضبط `DATABASE_AUTH_TOKEN` بجانب `DATABASE_URL`. هل تبني [مساحة عمل](/docs/multi-app-workspace) بأكثر من تطبيق واحد؟ يرث كل تطبيق `DATABASE_URL` الجذر افتراضيًا. اضبط `<APP_NAME>_DATABASE_URL` فقط للتطبيق الواحد الذي يحتاج قاعدة بيانات مختلفة.
-
-</Callout>
-
-### إعداد المخطط التلقائي {#skip-ensure-tables}
-
-لست بحاجة إلى خطوة ترحيل منفصلة للبدء. في المرة الأولى التي يلمس فيها أي جزء من تطبيقك قاعدة البيانات، تتحقق agent-native مما إذا كانت الجداول والأعمدة والفهارس التي تحتاجها موجودة بالفعل، وتُنشئ ما هو مفقود. يحدث هذا مرة واحدة لكل إقلاع للخادم وهو غير مرئي في الاستخدام العادي.
-
-<Diagram id="doc-block-2ddlboot1" title="ما الذي يحدث عند اللمسة الأولى" summary={"يتحقق كل مخزن بيانات من مخططه الخاص مرة واحدة لكل إقلاع وينشئ ما هو مفقود قبل خدمة طلب حقيقي."}>
-
-```html
-<div class="diagram-boot">
-  <div class="diagram-box" data-rough>يقلع الخادم</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">ensureTable()</span
-    ><small class="diagram-muted">يتحقق من مخطط كل مخزن</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    جاهز<br /><small class="diagram-muted"
-      >الجداول/الأعمدة المفقودة تم إنشاؤها</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-boot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-boot .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-boot .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-على وجه التحديد، يستدعي كل مخزن بيانات دالة `ensureTable()` داخلية في المرة الأولى التي يُستخدَم فيها. تتحقق تلك الدالة من كتالوج قاعدة البيانات الخاص بها (`information_schema` الخاص بـ Postgres، على سبيل المثال) ولا تصدر إلا `CREATE TABLE`، أو `ADD COLUMN`، أو `CREATE INDEX` لما هو مفقود حقًا. هذه عبارات **DDL**، اختصار لـ Data Definition Language، الجزء من SQL الذي يشكّل الجداول بدلاً من قراءة أو كتابة الصفوف بداخلها.
-
-### تقليل زمن انتظار البداية الباردة على serverless {#reducing-cold-start}
-
-على خادم طويل الأمد، يعمل هذا الفحص مرة واحدة لكل إقلاع وربما لا تلاحظه أبدًا. تعمل منصات serverless بشكل مختلف. **البداية الباردة** هي عندما تُشغّل المنصة مثيلاً جديدًا تمامًا من خادمك للتعامل مع طلب، وعلى serverless، يمكن أن تعني "اللمسة الأولى" كل بداية باردة، عبر ما يقرب من 57 مخزنًا مختلفًا. هذا يتراكم إلى بضع مئات من الرحلات ذهابًا وإيابًا قبل أن يقوم الطلب بأي عمل حقيقي.
-
-ثلاثة أمور تُبقي ذلك تحت السيطرة:
-
-- **الاستبطان المُجمَّع.** بدلاً من استعلام واحد لكل جدول وعمود وفهرس، تعمل الفحوصات أعلاه كتمريرة استبطان واحدة لكل قاعدة بيانات، مجرد استعلامين إجمالاً. هذا تلقائي ولا يحتاج إلى أي تكوين.
-- **التخطي التلقائي على serverless المُدار.** تتخطى Netlify Functions، وAWS Lambda، وVercel Functions هذا الفحص تمامًا في الإنتاج، دون أي إعداد مطلوب.
-- **`AGENT_NATIVE_SKIP_ENSURE_TABLES=1`.** اضبط هذا على عمليات النشر التي لا يغطيها التخطي التلقائي، مثل خادم Node طويل الأمد، أو Docker، أو إعداد آخر مستضاف ذاتيًا، بمجرد ترحيل مخططك بالفعل ولا تريد أن يُنشئ إقلاع التطبيق أو يُعدِّل الجداول.
-
-<Callout tone="risk">
-
-لا يمكن للعلم ولا للتخطي التلقائي لـ serverless أن يفشلا بشكل مغلق. إذا كان جدول ما مفقودًا حقًا، فإن أول استعلام حقيقي يحتاجه يفشل بصوت عالٍ بدلاً من إصلاحه بصمت. هذا متعمَّد (الإصلاح الصامت سيخفي خطأ ترحيل حقيقي)، لكنه يعني أنك تمتلك قصة الترحيل من هنا فصاعدًا. لا تضبط هذا العلم، ولا تعتمد على التخطي التلقائي، على نشر يعتمد على إقلاع التطبيق لإنشاء جداوله الخاصة.
-
-</Callout>
-
-نشر أكثر من تطبيق واحد على مصدر واحد، أو الاستضافة الذاتية لمساحة عمل
-باستخدام Docker Compose، هي صفحتها الخاصة: راجع
-[نشر مساحة العمل](/docs/workspace-deployment).
-
-## كيف يعمل {#how-it-works}
-
-عند تشغيل `npx @agent-native/core@latest build`، يبني Nitro كلاً من SPA الخاص بالعميل وواجهة برمجة تطبيقات الخادم في `.output/`:
-
-<FileTree
-  id="doc-block-1vbo81"
-  title={"مخرجات البناء"}
-  entries={[
-    {
-      path: ".output/",
-      note: "مستقل بذاته، انسخه إلى أي بيئة وشغّله",
-    },
-    {
-      path: ".output/public/",
-      note: "SPA المبني (الأصول الثابتة)",
-    },
-    {
-      path: ".output/server/index.mjs",
-      note: "نقطة دخول الخادم",
-    },
-    {
-      path: ".output/server/chunks/",
-      note: "أجزاء كود الخادم",
-    },
-  ]}
-/>
-
-المخرجات مستقلة بذاتها. انسخ `.output/` إلى أي بيئة وشغّلها.
-
-<Diagram id="doc-block-1gqwzzp" title="البناء للنشر" summary={"تُبنى شجرة مصدر واحدة إلى إعداد Nitro مسبق. تعمل نفس المخرجات المستقلة بذاتها على Node، أو Vercel، أو Netlify، أو Cloudflare، أو AWS، أو Deno. يشير كل مثيل إلى نفس DATABASE_URL الدائم."}>
-
-```html
-<div class="diagram-deploy">
-  <div class="diagram-box" data-rough>مصدر التطبيق</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">البناء</span
-    ><small class="diagram-muted">إعداد Nitro مسبق</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-grid">
-    <span class="diagram-pill">Node.js</span
-    ><span class="diagram-pill">Vercel</span
-    ><span class="diagram-pill">Netlify</span
-    ><span class="diagram-pill">Cloudflare</span
-    ><span class="diagram-pill">AWS Lambda</span
-    ><span class="diagram-pill">Deno</span>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    DATABASE_URL الدائم<br /><small class="diagram-muted"
-      >يشترك فيه كل مثيل</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-deploy {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-deploy .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-deploy .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-.diagram-deploy .diagram-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-```
-
-</Diagram>
-
-## ضبط الإعداد المسبق {#setting-the-preset}
-
-افتراضيًا، يبني Nitro لأجل Node.js. لاستهداف منصة مختلفة، اضبط الإعداد المسبق في `vite.config.ts` الخاص بك:
-
-```ts
-import { agentNative } from "@agent-native/core/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
-
-أو استخدم متغير البيئة `NITRO_PRESET` وقت البناء:
-
-```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
-```
-
-راجع صفحة منصتك للحصول على تفاصيل البناء والنشر:
-
-- [**Node.js & Docker**](/docs/node-docker) — الإعداد المسبق الافتراضي، بالإضافة إلى Dockerfile مستقل
-- [**Vercel**](/docs/vercel)
-- [**Netlify**](/docs/netlify) — يشمل الإبقاء دافئًا لقواعد البيانات ذات التوسع إلى صفر
-- [**Cloudflare**](/docs/cloudflare) — Pages وWorkers
-- [**منصات أخرى**](/docs/other-platforms) — AWS Lambda وDeno Deploy
-
-سياسة التخزين المؤقت الافتراضية لواجهة SSR، وكيفية تجاوزها باستخدام
-`AGENT_NATIVE_SSR_CACHE`، هي صفحتها الخاصة: راجع [التخزين المؤقت SSR](/docs/ssr-caching).
-
-المرجع الكامل لمتغيرات بيئة الإنتاج (البناء/وقت التشغيل، والأسرار
-المطلوبة، والمصادقة، وwebhooks، والاختيارات الأمنية، ووراثة `.env` لمساحة
-العمل، وتوليد أسرار قوية) هي صفحتها الخاصة: راجع
-[النشر: متغيرات البيئة](/docs/deployment-environment-variables).
-
-أدوات الإطار وقدرات تنفيذ الكود التي يملكها الوكيل الإنتاجي المُنشور، من
-خلال `frameworkTools` و`codeExecution`، هي صفحتها الخاصة: راجع
-[وصول الوكيل الإنتاجي](/docs/actions-agent-tools).
-
-كيف تُحدَّث واجهة تطبيق مُنشور بعد الإطلاق، بما في ذلك سير عمل Builder.io
-المُدار المنفصل للتحرير المرئي في الإنتاج، هي صفحتها الخاصة:
-راجع [تحديث الواجهة في الإنتاج](/docs/updating-ui-in-production).
-
-## عمليات النشر متعددة المثيلات {#multi-instance}
-
-تُخزّن تطبيقات agent-native كل الحالة في SQL عبر Drizzle وتُزامن الواجهة عبر [الاستطلاع](/docs/key-concepts#polling-sync) مقابل قاعدة البيانات. لا توجد حالة نظام ملفات، ولا جلسات لاصقة، ولا ذاكرات تخزين مؤقت في الذاكرة. هذا يعني أن عمليات النشر متعددة المثيلات وserverless تعمل جاهزة للاستخدام: وجّه كل مثيل إلى نفس `DATABASE_URL` وستتقارب تلقائيًا. راجع [المفاهيم الأساسية — البيانات في SQL](/docs/key-concepts#data-in-sql) و[قابلية النقل](/docs/key-concepts#hosting-agnostic).
-
-## ما هي الخطوة التالية
-
-- [**قاعدة البيانات**](/docs/server-database#production) — اختر خلفية SQL دائمة قبل أول نشر إنتاجي
-- [**الأمان**](/docs/security) — قائمة التحقق الخاصة بالإنتاج والأعلام الاختيارية المشار إليها في هذه الصفحة
-- [**المصادقة**](/docs/authentication) — بيانات اعتماد OAuth ومتغيرات البيئة لوضع المصادقة الذي تختاره
-- [**نشر مساحة العمل**](/docs/workspace-deployment) — انشر كل تطبيق في مساحة عمل إلى مصدر واحد، أو استضف واحدة ذاتيًا باستخدام Docker Compose
-- [**التخزين المؤقت SSR**](/docs/ssr-caching) — سياسة التخزين المؤقت الصارمة الافتراضية وتجاوزها
-- [**النشر: متغيرات البيئة**](/docs/deployment-environment-variables) — المرجع الكامل لمتغيرات بيئة الإنتاج
-- [**وصول الوكيل الإنتاجي**](/docs/actions-agent-tools) — `frameworkTools` و`codeExecution` لوكيل مُنشور
-- [**مساحة عمل متعددة التطبيقات**](/docs/multi-app-workspace) — نموذج مساحة العمل الذي يُبنى عليه بناء `deploy` أحادي المصدر
-- [**تحديث الواجهة في الإنتاج**](/docs/updating-ui-in-production) — لوحة الوكيل المضمّنة مقابل إطار Builder.io السحابي لتحريرات الواجهة الإنتاجية
-- [**ويب الوكيل العام**](/docs/agent-web-surfaces) — ملفات `robots.txt`، و`llms.txt`، والمرايا بصيغة markdown التي يكتبها بناء Vite في مخرجات النشر للمسارات العامة
+- [نشر تطبيق](/docs/deploy-an-app)
+- [نشر مساحة عمل](/docs/workspace-deployment)
+- [قاعدة البيانات](/docs/server-database#production)

@@ -1542,6 +1542,7 @@ const enUS = {
     fileUploads: "File Uploads",
     deployment: "Deployment",
     deploymentOverview: "Overview",
+    deployAnApp: "Deploy an app",
     workspaceDeployment: "Workspace Deployment",
     deploymentNodeDocker: "Node.js & Docker",
     deploymentVercel: "Vercel",

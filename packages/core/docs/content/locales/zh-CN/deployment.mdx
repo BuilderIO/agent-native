@@ -1,255 +1,43 @@
 ---
 title: "部署"
-description: "使用 Nitro 预设将代理本机应用部署到任何平台。支持 Node.js、Vercel、Netlify、Cloudflare、AWS 等。"
+description: "使用持久 SQL 数据库将 Agent-Native 应用或工作区部署到兼容 Nitro 的平台。"
 ---
+
+<!-- i18n-docs-ignore -->
 
 # 部署
 
-代理本机应用在底层使用 [Nitro](https://nitro.build)。这意味着你可以零配置更改地部署到任何平台，只需设置一个预设即可。
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
 
-## 部署之前：选择持久数据库 {#persistent-database}
+Agent-Native 应用运行在 Nitro 上。请选择适合你要发布内容的路径：
 
-**持久**数据库是指其数据在重启、重新部署,以及同时运行多个服务器实例时都能保留下来的数据库。这是每个已部署应用都需要的。
+<Cards columns={2}>
 
-<Comparison>
+### [部署应用](/docs/deploy-an-app)
 
-### 之前
+构建一个应用并在自己的域名上运行。
 
-本地开发默认回退到位于 `data/app.db` 的 SQLite 文件。这在你自己的机器上很方便,但该文件存在于本地文件系统上,而容器、预览环境和无服务器平台随时可能重置这个文件系统。
+### [部署工作区](/docs/workspace-deployment)
 
-### 之后
+在一个来源下运行多个应用，并共享登录状态。
 
-生产环境需要一个持久数据库,例如 Postgres 或 Turso/libSQL,它能在重启、重新部署,以及同时运行多个实例时都保留数据。
+</Cards>
 
-</Comparison>
+## 部署前：选择持久数据库 {#persistent-database}
 
-连接一个持久数据库只需三个步骤:
+每个已部署应用都需要持久 SQL 数据库。在首次生产部署前，将 `DATABASE_URL` 设置到部署环境中。如果数据库提供商需要单独的令牌，也要设置 `DATABASE_AUTH_TOKEN`。
 
-<Steps>
+独立应用需要稳定的 `BETTER_AUTH_SECRET`。使用签名跨应用请求的工作区需要 `A2A_SECRET`。
 
-### 选择提供商
+## 支持的部署目标
 
-任何兼容 Postgres 的主机(Neon、Supabase、Railway、RDS 等)或 libSQL/Turso 数据库都可以。代理本机应用通过 [Drizzle](https://orm.drizzle.team) 读写数据,这是一个 TypeScript 库,能把你的 schema 转换成类型安全的查询,而不是手写 SQL,因此同一份应用代码可以在这些数据库中的任何一个上运行。
+Agent-Native 支持 Node.js、Vercel、Netlify、Cloudflare、AWS Lambda 和 Deno Deploy。
 
-### 获取连接字符串
-
-你的提供商会给你一个 URL,用于标识该数据库以及如何访问它,例如 `postgres://user:pass@host:5432/dbname`。
-
-### 设置 `DATABASE_URL`
-
-在你的部署提供商的环境变量中设置它,要在你第一次生产部署之前完成。代理本机应用会读取该 URL,并自动检测应该使用哪种**方言**(即底层数据库引擎,Postgres 还是 SQLite/libSQL)进行通信。完整的适配器列表见 [Database](/docs/server-database#production)。
-
-</Steps>
-
-<Callout tone="info">
-
-正在使用 Turso 或其他需要单独令牌进行身份验证的 libSQL 提供商?请在 `DATABASE_URL` 之外同时设置 `DATABASE_AUTH_TOKEN`。正在构建一个包含多个应用的[工作区](/docs/multi-app-workspace)?每个应用默认都会继承根 `DATABASE_URL`。只有当某个应用需要使用不同的数据库时,才为该应用单独设置 `<APP_NAME>_DATABASE_URL`。
-
-</Callout>
-
-### 自动 schema 设置 {#skip-ensure-tables}
-
-你不需要单独的迁移步骤就能开始使用。你的应用中任何一部分第一次接触数据库时,代理本机应用会检查它需要的表、列和索引是否已经存在,并创建缺失的部分。这只在每次服务器启动时发生一次,在正常使用中是不可见的。
-
-<Diagram id="doc-block-2ddlboot1" title="首次接触时会发生什么" summary={"每个数据存储在每次启动时只检查一次自己的 schema,并在处理真实请求之前创建缺失的部分。"}>
-
-```html
-<div class="diagram-boot">
-  <div class="diagram-box" data-rough>服务器启动</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">ensureTable()</span
-    ><small class="diagram-muted">检查每个存储的 schema</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    就绪<br /><small class="diagram-muted">缺失的表/列已创建</small>
-  </div>
-</div>
-```
-
-```css
-.diagram-boot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-boot .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-boot .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-具体来说,每个数据存储在第一次被使用时都会调用一个内部的 `ensureTable()` 函数。该函数检查数据库自身的目录(例如 Postgres 的 `information_schema`),只对确实缺失的对象发出 `CREATE TABLE`、`ADD COLUMN` 或 `CREATE INDEX`。这些是 **DDL** 语句,即数据定义语言(Data Definition Language)的缩写,是 SQL 中负责定义表结构、而不是读写表内数据行的那部分。
-
-### 降低无服务器环境下的冷启动延迟 {#reducing-cold-start}
-
-在长期运行的服务器上,这项检查每次启动只运行一次,你多半永远不会察觉到它。无服务器平台的运作方式不同。**冷启动**是指平台为处理一个请求而启动一个全新的服务器实例,而在无服务器环境下,"首次接触"可能意味着每一次冷启动都要重新经历,涉及大约 57 个不同的存储。这会在请求真正开始做任何实际工作之前,累积成数百次往返。
-
-有三件事能控制住这一点:
-
-- **批量内省。** 上述检查不是每张表、每一列、每个索引各发一次查询,而是作为每个数据库一次内省来运行,总共只有两条查询。这是自动的,不需要任何配置。
-- **在托管无服务器环境中自动跳过。** Netlify Functions、AWS Lambda 和 Vercel Functions 在生产环境中都会完全跳过这项检查,无需任何设置。
-- **`AGENT_NATIVE_SKIP_ENSURE_TABLES=1`。** 在自动跳过机制没有覆盖到的部署上设置它,例如长期运行的 Node 服务器、Docker 或其他自托管环境,前提是你的 schema 已经迁移完毕,并且你不希望应用启动去创建或修改表。
-
-<Callout tone="risk">
-
-无论是这个标志,还是自动的无服务器跳过机制,都无法做到"失败即关闭"。如果某张表确实缺失,第一条真正需要它的查询会大声失败,而不是被悄悄修复。这是刻意为之的(悄悄修复会掩盖一个真实的迁移错误),但这也意味着从此以后迁移工作由你自己负责。如果某个部署依赖应用启动来创建自己的表,就不要设置这个标志,也不要依赖自动跳过机制。
-
-</Callout>
-
-把多个应用部署到同一个源,或者用 Docker Compose 自托管一个
-工作区,是单独的一个主题,见
-[Workspace Deployment](/docs/workspace-deployment)。
-
-## 它是如何工作的 {#how-it-works}
-
-当你运行 `npx @agent-native/core@latest build` 时,Nitro 会把客户端 SPA 和服务器 API 都构建到 `.output/` 中:
-
-<FileTree
-  id="doc-block-1vbo81"
-  title="构建输出"
-  entries={[
-    {
-      path: ".output/",
-      note: "自包含,复制到任何环境即可运行",
-    },
-    {
-      path: ".output/public/",
-      note: "构建后的 SPA(静态资源)",
-    },
-    {
-      path: ".output/server/index.mjs",
-      note: "服务器入口点",
-    },
-    {
-      path: ".output/server/chunks/",
-      note: "服务器代码分块",
-    },
-  ]}
-/>
-
-这份输出是自包含的。把 `.output/` 复制到任何环境并运行它即可。
-
-<Diagram id="doc-block-1gqwzzp" title="从构建到部署" summary={"一棵源码树构建成一个 Nitro 预设。同一份自包含的输出可以运行在 Node、Vercel、Netlify、Cloudflare、AWS 或 Deno 上。每个实例都指向同一个持久的 DATABASE_URL。"}>
-
-```html
-<div class="diagram-deploy">
-  <div class="diagram-box" data-rough>应用源码</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">build</span
-    ><small class="diagram-muted">Nitro preset</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-grid">
-    <span class="diagram-pill">Node.js</span
-    ><span class="diagram-pill">Vercel</span
-    ><span class="diagram-pill">Netlify</span
-    ><span class="diagram-pill">Cloudflare</span
-    ><span class="diagram-pill">AWS Lambda</span
-    ><span class="diagram-pill">Deno</span>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    持久的 DATABASE_URL<br /><small class="diagram-muted">由每个实例共享</small>
-  </div>
-</div>
-```
-
-```css
-.diagram-deploy {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-deploy .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-deploy .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-.diagram-deploy .diagram-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-```
-
-</Diagram>
-
-## 设置预设 {#setting-the-preset}
-
-默认情况下,Nitro 为 Node.js 构建。要面向不同的平台,请在 `vite.config.ts` 中设置预设:
-
-```ts
-import { agentNative } from "@agent-native/core/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
-
-或者在构建时使用 `NITRO_PRESET` 环境变量:
-
-```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
-```
-
-查看你所用平台对应的页面,了解构建和部署的详细信息:
-
-- [**Node.js & Docker**](/docs/node-docker) — 默认预设,外加一个独立的 Dockerfile
-- [**Vercel**](/docs/vercel)
-- [**Netlify**](/docs/netlify) — 包含针对缩容到零数据库的 keep-warm 机制
-- [**Cloudflare**](/docs/cloudflare) — Pages 和 Workers
-- [**Other Platforms**](/docs/other-platforms) — AWS Lambda 和 Deno Deploy
-
-默认的 SSR 外壳缓存策略,以及如何通过
-`AGENT_NATIVE_SSR_CACHE` 覆盖它,是单独的一个主题,见 [SSR Caching](/docs/ssr-caching)。
-
-完整的生产环境变量参考(构建/运行时、必需的
-密钥、身份验证、webhooks、安全选择加入项、工作区 `.env` 继承,以及
-生成强密钥)是单独的一个主题,见
-[Deployment: Environment Variables](/docs/deployment-environment-variables)。
-
-已部署的生产代理通过 `frameworkTools` 和 `codeExecution` 拥有哪些框架
-工具和代码执行能力,是单独的一个主题,见
-[Production Agent Access](/docs/actions-agent-tools)。
-
-已部署应用的 UI 在上线后如何更新,包括 Builder.io
-用于生产环境可视化编辑的独立托管工作流,是单独的一个主题,
-见 [Updating UI in Production](/docs/updating-ui-in-production)。
-
-## 多实例部署 {#multi-instance}
-
-代理本机应用通过 Drizzle 把所有状态存储在 SQL 中,并通过[轮询](/docs/key-concepts#polling-sync)针对数据库同步 UI。没有文件系统状态,没有粘性会话,也没有内存缓存。这意味着多实例和无服务器部署开箱即用:让每个实例都指向同一个 `DATABASE_URL`,它们会自动收敛。参见 [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) 和 [Portability](/docs/key-concepts#hosting-agnostic)。
+有关高级设置、密钥和生产值，请参阅[部署环境变量参考](/docs/deployment-environment-variables)。
 
 ## 下一步
 
-- [**Database**](/docs/server-database#production) — 在你第一次生产部署之前选择一个持久的 SQL 后端
-- [**Security**](/docs/security) — 本页贯穿始终引用的生产检查清单和可选择加入的标志
-- [**Authentication**](/docs/authentication) — 你所选身份验证模式对应的 OAuth 凭据和环境变量
-- [**Workspace Deployment**](/docs/workspace-deployment) — 把工作区中的每个应用发布到同一个源,或用 Docker Compose 自托管一个工作区
-- [**SSR Caching**](/docs/ssr-caching) — 默认的硬缓存策略及其覆盖方式
-- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — 完整的生产环境变量参考
-- [**Production Agent Access**](/docs/actions-agent-tools) — 已部署代理可用的 `frameworkTools` 和 `codeExecution`
-- [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` 单源构建背后的工作区模型
-- [**Updating UI in Production**](/docs/updating-ui-in-production) — 嵌入式代理面板与 Builder.io 云端框架在生产 UI 编辑上的对比
-- [**Public Agent Web**](/docs/agent-web-surfaces) — Vite 构建为公共路由写入部署输出中的 `robots.txt`、`llms.txt` 和 markdown 镜像文件
+- [部署应用](/docs/deploy-an-app)
+- [部署工作区](/docs/workspace-deployment)
+- [数据库](/docs/server-database#production)

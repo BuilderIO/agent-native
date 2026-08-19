@@ -1524,6 +1524,7 @@ const zhCN = {
     fileUploads: "文件上传",
     deployment: "部署",
     deploymentOverview: "概览",
+    deployAnApp: "部署应用",
     workspaceDeployment: "工作区部署",
     deploymentNodeDocker: "Node.js 与 Docker",
     deploymentVercel: "Vercel",

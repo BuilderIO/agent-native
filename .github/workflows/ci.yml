@@ -113,7 +113,7 @@ jobs:
             pnpm exec oxfmt --check "${format_files[@]}"
           fi
           if ((${#lint_files[@]} > 0)); then
-            pnpm exec oxlint --config .oxlintrc.json "${lint_files[@]}"
+            pnpm exec oxlint --config .oxlintrc.json --no-error-on-unmatched-pattern "${lint_files[@]}"
           fi
 
   typecheck:

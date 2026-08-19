@@ -1,251 +1,43 @@
 ---
-title: "तैनाती"
-description: "Nitro प्रीसेट के साथ किसी भी प्लेटफ़ॉर्म पर agent-native ऐप्स तैनात करें। Node.js, Vercel, Netlify, Cloudflare, AWS, और अन्य को सपोर्ट करता है।"
+title: "Deployment"
+description: "किसी Agent-Native ऐप या वर्कस्पेस को persistent SQL database के साथ Nitro-compatible platform पर deploy करें।"
 ---
 
-# तैनाती
+<!-- i18n-docs-ignore -->
 
-Agent-native ऐप्स हुड के तहत [Nitro](https://nitro.build) का उपयोग करते हैं। इसका मतलब है कि आप बिना किसी config बदलाव के किसी भी platform पर तैनात कर सकते हैं। बस एक preset सेट करें।
+# Deployment
 
-## तैनात करने से पहले: एक स्थायी डेटाबेस चुनें {#persistent-database}
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
 
-एक **स्थायी** डेटाबेस वह है जिसका डेटा रीस्टार्ट, फिर से तैनात करने, और एक साथ कई सर्वर इंस्टेंस पर चलने के बावजूद भी बचा रहता है। हर तैनात किए गए ऐप को यही चाहिए।
+Agent-Native apps Nitro पर चलती हैं। अपने deployment के अनुसार रास्ता चुनें:
 
-<Comparison>
+<Cards columns={2}>
 
-### पहले
+### [ऐप deploy करें](/docs/deploy-an-app)
 
-Local development `data/app.db` पर एक SQLite फ़ाइल पर वापस चला जाता है। यह आपकी मशीन पर सुविधाजनक है, लेकिन फ़ाइल local filesystem पर रहती है, जिसे containers, previews, और serverless platforms कभी भी reset कर सकते हैं।
+एक standalone app बनाएं और अपने domain पर चलाएं।
 
-### बाद में
+### [वर्कस्पेस deploy करें](/docs/workspace-deployment)
 
-Production को एक स्थायी डेटाबेस चाहिए, जैसे Postgres या Turso/libSQL, जो रीस्टार्ट, फिर से तैनात करने, और एक साथ कई instance पर चलने के बावजूद भी बचा रहे।
+Shared login के साथ कई apps को एक origin के पीछे चलाएं।
 
-</Comparison>
+</Cards>
 
-एक कनेक्ट करने में तीन चरण लगते हैं:
+## Deploy करने से पहले: persistent database चुनें {#persistent-database}
 
-<Steps>
+हर deployed app को persistent SQL database चाहिए। पहले production deploy से पहले deployment environment में `DATABASE_URL` सेट करें। अगर provider अलग token मांगता है, तो `DATABASE_AUTH_TOKEN` भी सेट करें।
 
-### एक प्रोवाइडर चुनें
+Standalone app को stable `BETTER_AUTH_SECRET` चाहिए। Signed cross-app requests वाले workspace को `A2A_SECRET` चाहिए।
 
-कोई भी Postgres-compatible host (Neon, Supabase, Railway, RDS, और इसी तरह के) या एक libSQL/Turso डेटाबेस काम करता है। Agent-native [Drizzle](https://orm.drizzle.team) के ज़रिए पढ़ता और लिखता है, जो एक TypeScript library है जो आपके schema को हाथ से लिखे SQL के बजाय type-safe queries में बदल देती है, इसलिए वही app code इन सभी में से किसी के भी साथ चलता है।
+## Supported targets
 
-### एक connection string प्राप्त करें
+Agent-Native Node.js, Vercel, Netlify, Cloudflare, AWS Lambda और Deno Deploy को support करता है।
 
-आपका provider आपको एक URL देता है जो डेटाबेस की पहचान करता है और बताता है कि उस तक कैसे पहुंचा जाए, उदाहरण के लिए `postgres://user:pass@host:5432/dbname`।
+Advanced settings, secrets और production values के लिए [Deployment environment variables reference](/docs/deployment-environment-variables) देखें।
 
-### `DATABASE_URL` सेट करें
+## आगे
 
-इसे अपने पहले production deploy से पहले अपने deploy provider के environment variables में सेट करें। Agent-native URL को पढ़ता है और स्वतः पता लगा लेता है कि किस **dialect** (कौन सा underlying database engine, Postgres या SQLite/libSQL) से बात करनी है। पूरी adapter सूची के लिए [डेटाबेस](/docs/server-database#production) देखें।
-
-</Steps>
-
-<Callout tone="info">
-
-Turso या किसी अन्य libSQL provider का उपयोग कर रहे हैं जो अलग token से authenticate होता है? `DATABASE_URL` के साथ `DATABASE_AUTH_TOKEN` भी सेट करें। एक से ज़्यादा ऐप वाला [कार्यस्थान](/docs/multi-app-workspace) बना रहे हैं? हर ऐप डिफ़ॉल्ट रूप से root `DATABASE_URL` inherit करता है। केवल उस एक ऐप के लिए `<APP_NAME>_DATABASE_URL` सेट करें जिसे अलग डेटाबेस चाहिए।
-
-</Callout>
-
-### स्वचालित schema सेटअप {#skip-ensure-tables}
-
-शुरू करने के लिए आपको एक अलग migration step की ज़रूरत नहीं है। जब आपके ऐप का कोई भी हिस्सा पहली बार डेटाबेस को छूता है, तो agent-native जांचता है कि उसे चाहिए tables, columns, और indexes पहले से मौजूद हैं या नहीं, और जो भी missing है उसे बना देता है। यह हर server boot पर एक बार होता है और सामान्य उपयोग में अदृश्य रहता है।
-
-<Diagram id="doc-block-2ddlboot1" title="पहले टच पर क्या होता है" summary={"हर data store अपने schema की जांच बूट पर एक बार करता है और किसी असली request को serve करने से पहले जो भी missing है उसे बना देता है।"}>
-
-```html
-<div class="diagram-boot">
-  <div class="diagram-box" data-rough>सर्वर बूट होता है</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">ensureTable()</span
-    ><small class="diagram-muted">हर store का schema जांचता है</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    तैयार<br /><small class="diagram-muted">गुम tables/columns बनाए गए</small>
-  </div>
-</div>
-```
-
-```css
-.diagram-boot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-boot .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-boot .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-ठोस रूप से, हर data store पहली बार इस्तेमाल होने पर एक internal `ensureTable()` function को कॉल करता है। वह function डेटाबेस के अपने catalog (उदाहरण के लिए Postgres का `information_schema`) की जांच करता है और केवल उसी के लिए `CREATE TABLE`, `ADD COLUMN`, या `CREATE INDEX` चलाता है जो वाकई missing है। ये **DDL** statements हैं, Data Definition Language का संक्षिप्त रूप, SQL का वह हिस्सा जो rows को पढ़ने या लिखने के बजाय tables को आकार देता है।
-
-### Serverless पर cold-start latency घटाना {#reducing-cold-start}
-
-एक लंबे समय तक चलने वाले server पर, यह जांच बूट पर एक बार चलती है और आप शायद इसे कभी notice भी नहीं करते। Serverless platforms अलग तरह से काम करते हैं। एक **cold start** तब होता है जब platform किसी request को handle करने के लिए आपके server का बिल्कुल नया instance spin up करता है, और serverless पर, "पहला टच" हर cold start का मतलब हो सकता है, करीब 57 अलग-अलग stores में। यह किसी request के असली काम शुरू करने से पहले कुछ सौ round trips तक जुड़ जाता है।
-
-तीन चीज़ें इसे काबू में रखती हैं:
-
-- **Batched introspection.** हर table, column, और index के लिए एक-एक query चलाने के बजाय, ऊपर दी गई जांचें प्रति डेटाबेस एक ही introspection pass के रूप में चलती हैं, बस कुल दो queries। यह अपने-आप होता है और इसके लिए किसी configuration की ज़रूरत नहीं।
-- **Managed serverless पर स्वचालित skip।** Netlify Functions, AWS Lambda, और Vercel Functions production में यह जांच पूरी तरह skip कर देते हैं, बिना किसी setup के।
-- **`AGENT_NATIVE_SKIP_ENSURE_TABLES=1`।** इसे उन deployments पर सेट करें जिन्हें automatic skip cover नहीं करता, जैसे कोई लंबे समय चलने वाला Node server, Docker, या कोई अन्य self-hosted setup, एक बार जब आपका schema पहले से migrate हो चुका हो और आप नहीं चाहते कि application boot tables बनाए या बदले।
-
-<Callout tone="risk">
-
-न तो flag और न ही automatic serverless skip fail-closed हो सकता है। अगर कोई table वाकई missing है, तो उसे चाहने वाली पहली असली query चुपचाप ठीक होने के बजाय ज़ोर से fail होती है। यह जान-बूझकर है (एक silent repair असली migration bug को छुपा देगा), लेकिन इसका मतलब है कि यहां से migration की ज़िम्मेदारी आपकी है। इस flag को उस deployment पर सेट न करें, और automatic skip पर भरोसा न करें, जो अपनी tables बनाने के लिए application boot पर निर्भर है।
-
-</Callout>
-
-एक ही origin पर एक से ज़्यादा ऐप तैनात करना, या Docker Compose के साथ किसी कार्यस्थान को self-host करना, अपने आप में एक अलग पेज है: देखें
-[कार्यस्थान तैनाती](/docs/workspace-deployment)।
-
-## यह कैसे काम करता है {#how-it-works}
-
-जब आप `npx @agent-native/core@latest build` चलाते हैं, तो Nitro client SPA और server API दोनों को `.output/` में build करता है:
-
-<FileTree
-  id="doc-block-1vbo81"
-  title="बिल्ड आउटपुट"
-  entries={[
-    {
-      path: ".output/",
-      note: "self-contained, किसी भी environment में copy करके चलाएं",
-    },
-    {
-      path: ".output/public/",
-      note: "बनाया गया SPA (static assets)",
-    },
-    {
-      path: ".output/server/index.mjs",
-      note: "server entry पॉइंट",
-    },
-    {
-      path: ".output/server/chunks/",
-      note: "server कोड chunks",
-    },
-  ]}
-/>
-
-आउटपुट self-contained है। `.output/` को किसी भी environment में copy करें और उसे चलाएं।
-
-<Diagram id="doc-block-1gqwzzp" title="Deploy करने के लिए Build" summary={"एक source tree एक Nitro preset में build होता है। वही self-contained आउटपुट Node, Vercel, Netlify, Cloudflare, AWS, या Deno पर चलता है। हर instance एक ही स्थायी DATABASE_URL की ओर इशारा करता है।"}>
-
-```html
-<div class="diagram-deploy">
-  <div class="diagram-box" data-rough>ऐप सोर्स</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">build</span
-    ><small class="diagram-muted">Nitro preset</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-grid">
-    <span class="diagram-pill">Node.js</span
-    ><span class="diagram-pill">Vercel</span
-    ><span class="diagram-pill">Netlify</span
-    ><span class="diagram-pill">Cloudflare</span
-    ><span class="diagram-pill">AWS Lambda</span
-    ><span class="diagram-pill">Deno</span>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    स्थायी DATABASE_URL<br /><small class="diagram-muted"
-      >हर instance द्वारा shared</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-deploy {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-deploy .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-deploy .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-.diagram-deploy .diagram-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-```
-
-</Diagram>
-
-## Preset सेट करना {#setting-the-preset}
-
-डिफ़ॉल्ट रूप से, Nitro Node.js के लिए build करता है। किसी अलग platform को target करने के लिए, अपने `vite.config.ts` में preset सेट करें:
-
-```ts
-import { agentNative } from "@agent-native/core/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
-
-या build time पर `NITRO_PRESET` environment variable का उपयोग करें:
-
-```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
-```
-
-अपने platform के लिए build और deploy विवरण के लिए वह पेज देखें:
-
-- [**Node.js और Docker**](/docs/node-docker): डिफ़ॉल्ट preset, साथ ही एक standalone Dockerfile
-- [**Vercel**](/docs/vercel)
-- [**Netlify**](/docs/netlify): scale-to-zero डेटाबेस के लिए keep-warm शामिल है
-- [**Cloudflare**](/docs/cloudflare): Pages और Workers
-- [**अन्य प्लेटफ़ॉर्म**](/docs/other-platforms): AWS Lambda और Deno Deploy
-
-डिफ़ॉल्ट SSR shell cache policy, और `AGENT_NATIVE_SSR_CACHE` से इसे override करने का तरीका, अपने आप में एक अलग पेज है: देखें [SSR कैशिंग](/docs/ssr-caching)।
-
-पूरा production पर्यावरण चर reference (build/runtime, ज़रूरी secrets, auth, webhooks, security opt-ins, कार्यस्थान `.env` inheritance, और strong secrets generate करना) अपने आप में एक अलग पेज है: देखें
-[तैनाती: पर्यावरण चर](/docs/deployment-environment-variables)।
-
-एक तैनात production agent के पास `frameworkTools` और `codeExecution` के ज़रिए कौन से framework tools और code-execution capabilities होती हैं, यह अपने आप में एक अलग पेज है: देखें
-[प्रोडक्शन एजेंट एक्सेस](/docs/actions-agent-tools)।
-
-launch के बाद एक तैनात ऐप का UI कैसे update होता है, जिसमें production में visual editing के लिए Builder.io का अलग managed workflow भी शामिल है, यह अपने आप में एक अलग पेज है:
-देखें [Production में UI अपडेट करना](/docs/updating-ui-in-production)।
-
-## मल्टी-इंस्टेंस तैनाती {#multi-instance}
-
-Agent-native ऐप्स Drizzle के ज़रिए सारी state SQL में store करते हैं और डेटाबेस के against UI को [polling](/docs/key-concepts#polling-sync) से sync करते हैं। कोई file-system state नहीं, कोई sticky sessions नहीं, और कोई in-memory caches नहीं। इसका मतलब है कि multi-instance और serverless तैनाती बिना किसी अतिरिक्त काम के चलती हैं: हर instance को एक ही `DATABASE_URL` पर point करें और वे अपने-आप converge हो जाते हैं। देखें [मुख्य अवधारणाएं — SQL में Data](/docs/key-concepts#data-in-sql) और [Portability](/docs/key-concepts#hosting-agnostic)।
-
-## आगे क्या है
-
-- [**डेटाबेस**](/docs/server-database#production) — पहले production deploy से पहले एक स्थायी SQL backend चुनें
-- [**सुरक्षा**](/docs/security) — इस पेज में बताए गए production checklist और opt-in flags
-- [**प्रमाणीकरण**](/docs/authentication) — चुने गए auth mode के लिए OAuth credentials और env vars
-- [**कार्यस्थान तैनाती**](/docs/workspace-deployment) — कार्यस्थान के हर ऐप को एक origin पर भेजें, या Docker Compose के साथ किसी एक को self-host करें
-- [**SSR कैशिंग**](/docs/ssr-caching) — डिफ़ॉल्ट hard-cache policy और उसका override
-- [**तैनाती: पर्यावरण चर**](/docs/deployment-environment-variables) — पूरा production env var reference
-- [**प्रोडक्शन एजेंट एक्सेस**](/docs/actions-agent-tools) — एक तैनात agent के लिए `frameworkTools` और `codeExecution`
-- [**मल्टी-ऐप वर्कस्पेस**](/docs/multi-app-workspace) — `deploy` के one-origin build के पीछे का workspace model
-- [**Production में UI अपडेट करना**](/docs/updating-ui-in-production) — production UI edits के लिए embedded agent panel बनाम Builder.io का cloud frame
-- [**Public Agent Web**](/docs/agent-web-surfaces) — public routes के लिए Vite build द्वारा deploy आउटपुट में लिखी गई `robots.txt`, `llms.txt`, और markdown-mirror फ़ाइलें
+- [ऐप deploy करें](/docs/deploy-an-app)
+- [वर्कस्पेस deploy करें](/docs/workspace-deployment)
+- [Database](/docs/server-database#production)

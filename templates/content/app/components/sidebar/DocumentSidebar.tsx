@@ -127,6 +127,8 @@ import {
   buildDocumentTree,
   filterDocumentTreeDocuments,
   documentQueryFilter,
+  rollbackOptimisticCreatedDocument,
+  restoreDeletedDocumentSnapshots,
 } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
@@ -1153,12 +1155,16 @@ export function DocumentSidebar({
         createdAt: now,
         updatedAt: now,
       });
+      const previousDocuments = queryClient.getQueryData(
+        LIST_DOCUMENTS_QUERY_KEY,
+      );
+      const previousPath = `${location.pathname}${location.search}${location.hash}`;
 
       // Optimistically inject into caches so UI updates immediately
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: any) => {
         const docs: Document[] =
           old?.documents ?? (Array.isArray(old) ? old : []);
-        return { documents: [...docs, tempDoc] };
+        return withDocumentsCacheShape(old, [...docs, tempDoc]);
       });
       queryClient.setQueryData(["action", "get-document", { id }], tempDoc);
       if (rootFilesDatabaseId) {
@@ -1207,7 +1213,11 @@ export function DocumentSidebar({
           });
         }
       } catch (err) {
-        // Revert optimistic updates
+        rollbackOptimisticCreatedDocument(
+          queryClient,
+          id,
+          previousDocuments !== undefined,
+        );
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -1218,7 +1228,10 @@ export function DocumentSidebar({
             (current) => removeOptimisticItemFromContentDatabase(current, id),
           );
         }
-        navigate("/");
+        navigate(previousPath, {
+          replace: true,
+          flushSync: true,
+        });
         toast.error(t("sidebar.failedCreatePage"), {
           description:
             err instanceof Error ? err.message : t("empty.genericError"),
@@ -1228,6 +1241,9 @@ export function DocumentSidebar({
     [
       createDocument,
       localFileMode,
+      location.hash,
+      location.pathname,
+      location.search,
       navigate,
       navigateToDocument,
       onNavigate,
@@ -1284,6 +1300,13 @@ export function DocumentSidebar({
         navigationCandidates.find((doc) => doc.isFavorite) ??
         [...navigationCandidates].sort(compareDocumentsByPosition)[0] ??
         null;
+      const previousDocuments = queryClient.getQueryData(
+        LIST_DOCUMENTS_QUERY_KEY,
+      );
+      const previousDocumentQueries = [...deletedIds].flatMap((deletedId) =>
+        queryClient.getQueriesData(documentQueryFilter(deletedId)),
+      );
+      const previousPath = `${location.pathname}${location.search}${location.hash}`;
 
       queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) => {
         const cachedDocs: Document[] =
@@ -1317,11 +1340,17 @@ export function DocumentSidebar({
           queryKey: ["action", "list-documents"],
         });
       } catch (err) {
+        restoreDeletedDocumentSnapshots(
+          queryClient,
+          previousDocuments,
+          previousDocumentQueries,
+          deletedIds,
+        );
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
-        if (activeDeleted && activeDocumentId) {
-          navigate(`/page/${activeDocumentId}`, {
+        if (activeDeleted) {
+          navigate(previousPath, {
             replace: true,
             flushSync: true,
           });
@@ -1338,6 +1367,9 @@ export function DocumentSidebar({
       deleteDocument,
       documents,
       localFileMode,
+      location.hash,
+      location.pathname,
+      location.search,
       navigate,
       queryClient,
     ],

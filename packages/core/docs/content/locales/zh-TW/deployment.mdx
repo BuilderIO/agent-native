@@ -1,253 +1,43 @@
 ---
 title: "部署"
-description: "使用 Nitro 預設集將 agent-native 應用程式部署到任何平台。支援 Node.js、Vercel、Netlify、Cloudflare、AWS 等等。"
+description: "使用持久性 SQL 資料庫，將 Agent-Native 應用程式或工作區部署到相容於 Nitro 的平台。"
 ---
+
+<!-- i18n-docs-ignore -->
 
 # 部署
 
-Agent-native 應用程式底層使用 [Nitro](https://nitro.build)。這表示你可以在不變更任何設定的情況下部署到任何平台，只需要設定一個預設集即可。
+<a id="self-host-quickstart"></a>
+<a id="skip-ensure-tables"></a>
 
-## 部署前：選擇一個持久性資料庫 {#persistent-database}
+Agent-Native 應用程式執行於 Nitro。請選擇符合部署內容的路徑：
 
-**持久性**資料庫是指資料能在重新啟動、重新部署，以及同時執行多個伺服器執行個體時依然留存的資料庫。這是每個已部署的應用程式都需要的條件。
+<Cards columns={2}>
 
-<Comparison>
+### [部署應用程式](/docs/deploy-an-app)
 
-### Before
+建置一個應用程式，並在自己的網域上執行。
 
-本機開發會回退使用位於 `data/app.db` 的 SQLite 檔案。這在你自己的機器上很方便，但這個檔案存放在本機檔案系統中，而容器、預覽環境和無伺服器平台隨時都可能重設檔案系統。
+### [部署工作區](/docs/workspace-deployment)
 
-### After
+在單一來源下執行多個應用程式，並共用登入狀態。
 
-正式環境需要一個持久性資料庫，例如 Postgres 或 Turso/libSQL，能在重新啟動、重新部署，以及同時執行多個執行個體時依然存續。
+</Cards>
 
-</Comparison>
+## 部署前：選擇持久性資料庫 {#persistent-database}
 
-連接資料庫只需要三個步驟：
+每個已部署的應用程式都需要持久性 SQL 資料庫。在第一次正式環境部署前，請將 `DATABASE_URL` 設定在部署環境中。如果資料庫供應商需要獨立權杖，也請設定 `DATABASE_AUTH_TOKEN`。
 
-<Steps>
+獨立應用程式需要穩定的 `BETTER_AUTH_SECRET`。使用簽署跨應用程式要求的工作區需要 `A2A_SECRET`。
 
-### 選擇一個提供者
+## 支援的部署目標
 
-任何相容於 Postgres 的主機（Neon、Supabase、Railway、RDS 及類似服務）或 libSQL/Turso 資料庫都可以使用。Agent-native 透過 [Drizzle](https://orm.drizzle.team) 進行讀寫，這是一個 TypeScript 函式庫，能把你的結構描述轉換成型別安全的查詢，而不需要手寫 SQL，因此相同的應用程式程式碼可以在任何一種資料庫上執行。
+Agent-Native 支援 Node.js、Vercel、Netlify、Cloudflare、AWS Lambda 和 Deno Deploy。
 
-### 取得連線字串
+如需進階設定、密鑰和正式環境值，請參閱[部署環境變數參考](/docs/deployment-environment-variables)。
 
-你的提供者會給你一個 URL，用來識別資料庫以及如何連線到它，例如 `postgres://user:pass@host:5432/dbname`。
+## 下一步
 
-### 設定 `DATABASE_URL`
-
-在第一次正式環境部署之前，將它設定在你的部署提供者的環境變數中。Agent-native 會讀取這個 URL，並自動偵測要對接的**方言**（也就是底層的資料庫引擎，Postgres 或 SQLite/libSQL）。完整的轉接器清單請參閱 [Database](/docs/server-database#production)。
-
-</Steps>
-
-<Callout tone="info">
-
-使用 Turso 或其他以獨立權杖進行驗證的 libSQL 提供者嗎？請將 `DATABASE_AUTH_TOKEN` 與 `DATABASE_URL` 一起設定。正在建置一個擁有多個應用程式的[工作區](/docs/multi-app-workspace)嗎？每個應用程式預設都會繼承根目錄的 `DATABASE_URL`。只有在某個應用程式需要使用不同的資料庫時，才需要設定 `<APP_NAME>_DATABASE_URL`。
-
-</Callout>
-
-### 自動結構描述設定 {#skip-ensure-tables}
-
-一開始你不需要另外執行遷移步驟。當應用程式的任何部分第一次接觸資料庫時，agent-native 會檢查它所需的資料表、欄位和索引是否已經存在，並建立任何缺少的部分。這在每次伺服器啟動時只會發生一次，在一般使用情況下是看不見的。
-
-<Diagram id="doc-block-2ddlboot1" title="第一次接觸時會發生什麼" summary={"每個資料儲存區每次啟動只會檢查一次自己的結構描述，並在提供實際請求服務之前建立任何缺少的部分。"}>
-
-```html
-<div class="diagram-boot">
-  <div class="diagram-box" data-rough>伺服器啟動</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">ensureTable()</span
-    ><small class="diagram-muted">檢查每個儲存區的結構描述</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    就緒<br /><small class="diagram-muted">已建立缺少的資料表/欄位</small>
-  </div>
-</div>
-```
-
-```css
-.diagram-boot {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-boot .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-boot .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-```
-
-</Diagram>
-
-具體來說，每個資料儲存區第一次被使用時，都會呼叫內部的 `ensureTable()` 函式。這個函式會檢查資料庫自己的目錄（例如 Postgres 的 `information_schema`），並只針對真正缺少的部分發出 `CREATE TABLE`、`ADD COLUMN` 或 `CREATE INDEX`。這些是 **DDL** 陳述式，也就是資料定義語言（Data Definition Language）的縮寫，是 SQL 中負責塑造資料表結構、而非讀寫資料列內容的那個部分。
-
-### 降低無伺服器環境的冷啟動延遲 {#reducing-cold-start}
-
-在長期運作的伺服器上，這項檢查每次啟動只會執行一次，你可能完全不會注意到它。無伺服器平台的運作方式不同。**冷啟動**是指平台為了處理一個請求而啟動一個全新的伺服器執行個體，而在無伺服器環境中，「第一次接觸」可能代表每一次冷啟動，橫跨大約 57 個不同的儲存區。這在請求真正開始做任何實際工作之前，累積起來就是幾百次往返。
-
-有三件事讓這個問題保持在可控範圍內：
-
-- **批次自省。** 上述檢查不會針對每個資料表、欄位和索引各自查詢一次，而是每個資料庫執行單一次自省流程，總共只需要兩次查詢。這是自動進行的，不需要任何設定。
-- **在受管理的無伺服器環境中自動跳過。** Netlify Functions、AWS Lambda 和 Vercel Functions 在正式環境中都會完全跳過這項檢查，不需要任何設定。
-- **`AGENT_NATIVE_SKIP_ENSURE_TABLES=1`。** 在自動跳過機制沒有涵蓋到的部署環境中設定這個變數，例如長期運作的 Node 伺服器、Docker，或其他自架設定，前提是你的結構描述已經完成遷移，而且你不希望應用程式啟動時建立或變更資料表。
-
-<Callout tone="risk">
-
-這個旗標和自動跳過機制都無法在失敗時安全關閉。如果資料表真的不存在，第一個需要它的實際查詢會明確地失敗，而不是被悄悄修復。這是刻意的設計（悄悄修復會掩蓋真正的遷移錯誤），但這也表示從此之後遷移的正確性由你負責。如果某個部署依賴應用程式啟動來建立自己的資料表，就不要設定這個旗標，也不要依賴自動跳過機制。
-
-</Callout>
-
-將多個應用程式部署到單一來源，或使用 Docker Compose 自行架設一個工作區，這部分內容獨立成一個頁面，請參閱
-[Workspace Deployment](/docs/workspace-deployment)。
-
-## 運作方式 {#how-it-works}
-
-當你執行 `npx @agent-native/core@latest build` 時，Nitro 會將用戶端 SPA 和伺服器 API 都建置到 `.output/` 中：
-
-<FileTree
-  id="doc-block-1vbo81"
-  title="建置輸出"
-  entries={[
-    {
-      path: ".output/",
-      note: "自成一體，可複製到任何環境並執行",
-    },
-    {
-      path: ".output/public/",
-      note: "已建置的 SPA（靜態資源）",
-    },
-    {
-      path: ".output/server/index.mjs",
-      note: "伺服器進入點",
-    },
-    {
-      path: ".output/server/chunks/",
-      note: "伺服器程式碼區塊",
-    },
-  ]}
-/>
-
-輸出結果是自成一體的。將 `.output/` 複製到任何環境並執行即可。
-
-<Diagram id="doc-block-1gqwzzp" title="建置後部署" summary={"一份原始碼樹會建置成一個 Nitro 預設集。相同的自成一體輸出可以在 Node、Vercel、Netlify、Cloudflare、AWS 或 Deno 上執行。每個執行個體都指向同一個持久性的 DATABASE_URL。"}>
-
-```html
-<div class="diagram-deploy">
-  <div class="diagram-box" data-rough>應用程式原始碼</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center" data-rough>
-    <span class="diagram-pill accent">建置</span
-    ><small class="diagram-muted">Nitro 預設集</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-grid">
-    <span class="diagram-pill">Node.js</span
-    ><span class="diagram-pill">Vercel</span
-    ><span class="diagram-pill">Netlify</span
-    ><span class="diagram-pill">Cloudflare</span
-    ><span class="diagram-pill">AWS Lambda</span
-    ><span class="diagram-pill">Deno</span>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    持久性 DATABASE_URL<br /><small class="diagram-muted"
-      >由每個執行個體共用</small
-    >
-  </div>
-</div>
-```
-
-```css
-.diagram-deploy {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
-}
-.diagram-deploy .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  padding: 14px 16px;
-}
-.diagram-deploy .diagram-arrow {
-  font-size: 22px;
-  line-height: 1;
-}
-.diagram-deploy .diagram-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-```
-
-</Diagram>
-
-## 設定預設集 {#setting-the-preset}
-
-預設情況下，Nitro 會針對 Node.js 進行建置。若要指定不同的平台，請在你的 `vite.config.ts` 中設定預設集：
-
-```ts
-import { agentNative } from "@agent-native/core/vite";
-import { defineConfig } from "vite";
-
-export default defineConfig({
-  plugins: [agentNative({ nitro: { preset: "vercel" } })],
-});
-```
-
-或者在建置時使用 `NITRO_PRESET` 環境變數：
-
-```bash
-NITRO_PRESET=netlify npx @agent-native/core@latest build
-```
-
-你所使用平台的建置與部署細節，請參閱對應頁面：
-
-- [**Node.js & Docker**](/docs/node-docker)：預設的預設集，加上一個獨立的 Dockerfile
-- [**Vercel**](/docs/vercel)
-- [**Netlify**](/docs/netlify)：包含針對縮減至零資料庫的 keep-warm 機制
-- [**Cloudflare**](/docs/cloudflare)：Pages 和 Workers
-- [**Other Platforms**](/docs/other-platforms)：AWS Lambda 和 Deno Deploy
-
-預設的 SSR shell 快取政策，以及如何使用
-`AGENT_NATIVE_SSR_CACHE` 覆寫它，這部分獨立成一個頁面，請參閱 [SSR Caching](/docs/ssr-caching)。
-
-完整的正式環境環境變數參考（建置/執行時期、必要密鑰、驗證、
-Webhook、安全性選用項目、工作區 `.env` 繼承，以及產生強密鑰）獨立成一個頁面，請參閱
-[Deployment: Environment Variables](/docs/deployment-environment-variables)。
-
-已部署的正式環境代理透過 `frameworkTools` 和 `codeExecution` 擁有哪些框架工具和程式碼執行能力，這部分獨立成一個頁面，請參閱
-[Production Agent Access](/docs/actions-agent-tools)。
-
-已部署應用程式的 UI 在上線後如何更新，包括 Builder.io 針對正式環境視覺化編輯的獨立受管理工作流程，這部分獨立成一個頁面，
-請參閱 [Updating UI in Production](/docs/updating-ui-in-production)。
-
-## 多執行個體部署 {#multi-instance}
-
-Agent-native 應用程式透過 Drizzle 將所有狀態存放在 SQL 中，並透過對資料庫進行[輪詢](/docs/key-concepts#polling-sync)來同步 UI。這裡沒有檔案系統狀態、沒有黏性工作階段，也沒有記憶體內快取。這表示多執行個體和無伺服器部署可以開箱即用：將每個執行個體都指向同一個 `DATABASE_URL`，它們就會自動收斂一致。請參閱[關鍵概念：SQL 中的資料](/docs/key-concepts#data-in-sql)和[可移植性](/docs/key-concepts#hosting-agnostic)。
-
-## 接下來呢
-
-- [**Database**](/docs/server-database#production) — 在第一次正式環境部署之前，選擇一個持久性 SQL 後端
-- [**Security**](/docs/security) — 本頁面中提到的正式環境檢查清單與選用旗標
-- [**Authentication**](/docs/authentication) — 你所選擇驗證模式所需的 OAuth 憑證與環境變數
-- [**Workspace Deployment**](/docs/workspace-deployment) — 將工作區中的每個應用程式部署到單一來源，或使用 Docker Compose 自行架設
-- [**SSR Caching**](/docs/ssr-caching) — 預設的強制快取政策及其覆寫方式
-- [**Deployment: Environment Variables**](/docs/deployment-environment-variables) — 完整的正式環境環境變數參考
-- [**Production Agent Access**](/docs/actions-agent-tools) — 已部署代理的 `frameworkTools` 和 `codeExecution`
-- [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` 單一來源建置背後的工作區模型
-- [**Updating UI in Production**](/docs/updating-ui-in-production) — 正式環境 UI 編輯：嵌入式代理面板與 Builder.io 雲端 frame 的比較
-- [**Public Agent Web**](/docs/agent-web-surfaces) — Vite 建置為公開路由寫入部署輸出中的 `robots.txt`、`llms.txt`，以及 markdown 鏡像檔案
+- [部署應用程式](/docs/deploy-an-app)
+- [部署工作區](/docs/workspace-deployment)
+- [資料庫](/docs/server-database#production)
