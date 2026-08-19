@@ -13,7 +13,9 @@ permissions:
 
 concurrency:
   group: deploy-agent-native-beta-sites
-  cancel-in-progress: false
+  # The beta branch is a single moving mirror; only its newest main commit can
+  # be deployed, so an older run must not wait for a ref it can no longer own.
+  cancel-in-progress: true
 
 jobs:
   deploy:
