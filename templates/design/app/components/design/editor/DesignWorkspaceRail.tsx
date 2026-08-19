@@ -19,8 +19,11 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import type { DesignLeftPanel } from "@/pages/design-editor/types";
-import { SHOW_DESIGN_CODE_LEFT_PANEL } from "@/pages/design-editor/types";
+import {
+  SHOW_DESIGN_CODE_LEFT_PANEL,
+  SHOW_DESIGN_SECONDARY_LEFT_PANELS,
+  type DesignLeftPanel,
+} from "@/pages/design-editor/types";
 
 export const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>(
   ["file", "assets", "tools", "tokens", "import", "code"],
@@ -29,6 +32,7 @@ export const INITIAL_GENERATION_DISABLED_LEFT_PANELS = new Set<DesignLeftPanel>(
 export function DesignWorkspaceRail({
   activePanel,
   disabledPanels,
+  hiddenPanels,
   motionOpen,
   motionDisabled,
   projectMenu,
@@ -37,6 +41,7 @@ export function DesignWorkspaceRail({
 }: {
   activePanel: DesignLeftPanel;
   disabledPanels?: ReadonlySet<DesignLeftPanel>;
+  hiddenPanels?: ReadonlySet<DesignLeftPanel>;
   motionOpen?: boolean;
   motionDisabled?: boolean;
   projectMenu: ReactNode;
@@ -60,26 +65,34 @@ export function DesignWorkspaceRail({
       label: t("designEditor.leftRail.agent"),
       icon: <IconMessage className="size-[15px]" />,
     },
-    {
-      panel: "assets",
-      label: t("designEditor.leftRail.assets"),
-      icon: <IconPhoto className="size-[15px]" />,
-    },
+    ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
+      ? [
+          {
+            panel: "assets" as const,
+            label: t("designEditor.leftRail.assets"),
+            icon: <IconPhoto className="size-[15px]" />,
+          },
+        ]
+      : []),
     {
       panel: "import",
       label: t("designEditor.leftRail.import"),
       icon: <IconFileImport className="size-[15px]" />,
     },
-    {
-      panel: "tools",
-      label: t("designEditor.leftRail.tools"),
-      icon: <IconPuzzle className="size-[15px]" />,
-    },
-    {
-      panel: "tokens",
-      label: t("designEditor.leftRail.tokens"),
-      icon: <IconAssembly className="size-[15px]" />,
-    },
+    ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
+      ? [
+          {
+            panel: "tools" as const,
+            label: t("designEditor.leftRail.tools"),
+            icon: <IconPuzzle className="size-[15px]" />,
+          },
+          {
+            panel: "tokens" as const,
+            label: t("designEditor.leftRail.tokens"),
+            icon: <IconAssembly className="size-[15px]" />,
+          },
+        ]
+      : []),
     ...(SHOW_DESIGN_CODE_LEFT_PANEL
       ? [
           {
@@ -103,6 +116,7 @@ export function DesignWorkspaceRail({
       <div className="mb-5 h-px w-8 bg-border/70" />
       <div className="flex min-h-0 flex-1 flex-col items-center gap-4">
         {items.map((item) => {
+          if (hiddenPanels?.has(item.panel)) return null;
           const active = item.panel === activePanel;
           const disabled = disabledPanels?.has(item.panel) ?? false;
           return (

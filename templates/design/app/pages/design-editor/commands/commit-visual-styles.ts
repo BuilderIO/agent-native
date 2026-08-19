@@ -2,6 +2,7 @@ import type { CodeLayerProjection } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { assertDesignHtmlEditIntegrity } from "@shared/html-integrity";
 import type { InteractionState } from "@shared/interaction-states";
+import { isRunningAppSourceType } from "@shared/source-mode";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 import * as Y from "yjs";
@@ -52,7 +53,6 @@ import {
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { applyInlineStylesToHtml } from "@/pages/design-editor/screen-command-utils";
 import type { DesignFile } from "@/pages/design-editor/types";
-import { isRunningAppSourceType } from "@shared/source-mode";
 
 export interface CommitVisualStylesArgs {
   activeBreakpointUpperBoundPx: number | null;

@@ -2693,12 +2693,14 @@ function DesignEditor() {
         // using only the scoped owner as permission to clear both keys would
         // erase that newer tab's context during our unmount.
         for (const key of keys) {
+          // coercion-ok: absent client state means there is nothing to clear.
           const current = await readClientAppState(key).catch(() => null);
           const ownerId =
             current && typeof current === "object"
               ? (current as { ownerId?: unknown }).ownerId
               : undefined;
           if (ownerId !== designSelectionOwnerIdRef.current) continue;
+          // coercion-ok: state cleanup is best effort during unmount.
           await setClientAppState(key, null, {
             keepalive: true,
           }).catch(() => {});
@@ -3380,6 +3382,7 @@ function DesignEditor() {
       try {
         await journalDesignSaveOutboxEntry(entry);
         return true;
+        // coercion-ok: IndexedDB journaling is optional; the network save remains authoritative.
       } catch {
         // IndexedDB can be unavailable in private/embedded contexts. The
         // network mutation still runs below, so this is not a disconnect and
@@ -3398,6 +3401,7 @@ function DesignEditor() {
         // The server save already succeeded. A local outbox cleanup failure
         // is neither data loss nor a connectivity warning; operation ids make
         // a later replay idempotent.
+        // coercion-ok: the server mutation already succeeded; cleanup is best effort.
       }
     },
     [],
@@ -3963,18 +3967,21 @@ function DesignEditor() {
     let cancelled = false;
     void Promise.all(
       proposalFileIds.map(async (fileId) => {
+        // coercion-ok: missing pending state means there is no active reprompt.
         const pending = await readClientAppState(
           designRepromptPendingStateKey(id, fileId),
-        ).catch(() => null);
+        ).catch(() => null); // coercion-ok: missing pending state means no active reprompt.
         if (!isPendingDesignReprompt(pending)) return null;
+        // coercion-ok: missing proposal state means the reprompt has no result.
         const current = await readClientAppState(
           designRepromptProposalStateKey(id, fileId, pending.repromptId),
-        ).catch(() => null);
+        ).catch(() => null); // coercion-ok: missing state means the reprompt has no result.
         if (isNodeRewriteProposal(current)) return current;
         if (!pending.priorProposalId || !pending.priorRepromptId) return null;
+        // coercion-ok: missing prior state means there is no earlier proposal.
         const prior = await readClientAppState(
           designRepromptProposalStateKey(id, fileId, pending.priorRepromptId),
-        ).catch(() => null);
+        ).catch(() => null); // coercion-ok: missing state means no earlier proposal.
         return isNodeRewriteProposal(prior) &&
           prior.proposalId === pending.priorProposalId
           ? prior
@@ -4715,6 +4722,7 @@ function DesignEditor() {
         designId?: string;
         activeBreakpointId?: string;
         responsiveEditScope?: ResponsiveEditScope;
+        // coercion-ok: missing persisted breakpoint state means use defaults.
       }>(`design-active-breakpoint:${id}`).catch(() => null);
       if (
         cancelled ||
@@ -4762,6 +4770,7 @@ function DesignEditor() {
         connectionId?: string;
         rootPath?: string;
         files?: string[];
+        // coercion-ok: missing consent state means no pending request.
       }>(key).catch(() => null);
       if (
         cancelled ||
@@ -5070,12 +5079,15 @@ function DesignEditor() {
 
     void (async () => {
       for (const key of keys) {
+        // coercion-ok: an absent command is equivalent to no queued command.
         const command = await readClientAppState<DesignEditorCommand>(
           key,
+          // coercion-ok: an absent command is equivalent to no queued command.
         ).catch(() => null);
         if (cancelled || !command || command.designId !== id) continue;
         const applied = applyDesignEditorCommand(command);
         if (!applied) return;
+        // coercion-ok: command cleanup is best effort after applying it.
         await setClientAppState(key, null).catch(() => {});
       }
     })();
@@ -5958,6 +5970,7 @@ function DesignEditor() {
       let doc: Document | null = null;
       try {
         doc = iframe.contentDocument;
+        // coercion-ok: cross-origin iframe access is an expected absent-geometry result.
       } catch {
         return null; // cross-origin — cannot inspect
       }
@@ -5965,6 +5978,7 @@ function DesignEditor() {
       let el: Element | null = null;
       try {
         el = doc.querySelector(selector);
+        // coercion-ok: an invalid selector has no inspectable geometry.
       } catch {
         return null; // invalid selector
       }
@@ -5983,6 +5997,7 @@ function DesignEditor() {
       let doc: Document | null = null;
       try {
         doc = iframe.contentDocument;
+        // coercion-ok: cross-origin iframe access is an expected absent-geometry result.
       } catch {
         return null;
       }
@@ -6001,6 +6016,7 @@ function DesignEditor() {
             if (rect.width > 0 || rect.height > 0) {
               return mapIframeRectToViewport(iframe, rect);
             }
+            // coercion-ok: a range can become invalid during DOM mutation; use the parent rect.
           } catch {
             // fall back to the parent element rect below
           }
@@ -14227,6 +14243,8 @@ function DesignEditor() {
         overviewScreens,
         pendingAgentHandoffBusyRef,
         pendingLiveNonStyleEdits,
+        stagedHandoffStartTimerRef,
+        stagedSourceHandoffRef,
         pendingStructureVerificationRevisionRef,
         pendingStructureVerificationSessionRef,
         pendingStructureVerificationSnapshotsRef,
@@ -14234,6 +14252,7 @@ function DesignEditor() {
         pendingVisualStyleEdits,
         pendingVisualStylePrompt,
         setActiveLeftPanel,
+        setApplyingViaHost,
         setPendingAgentHandoffBusy,
         setPendingStructureAckRequest,
         setPendingStructureVerificationStatus,

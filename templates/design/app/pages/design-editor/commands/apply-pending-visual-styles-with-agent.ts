@@ -11,6 +11,7 @@ import type {
 } from "@/pages/design-editor/command-types";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
+  HOST_TURN_START_TIMEOUT_MS,
   PENDING_STRUCTURE_RUNTIME_POLL_MS,
   PENDING_STRUCTURE_RUNTIME_TIMEOUT_MS,
   PENDING_STRUCTURE_SOURCE_POLL_MS,
@@ -37,6 +38,8 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   overviewScreens: OverviewScreen[];
   pendingAgentHandoffBusyRef: RefObject<boolean>;
   pendingLiveNonStyleEdits: PendingLiveNonStyleEdit[];
+  stagedHandoffStartTimerRef: RefObject<number | undefined>;
+  stagedSourceHandoffRef: RefObject<"idle" | "awaiting-start" | "running">;
   pendingStructureVerificationRevisionRef: RefObject<number>;
   pendingStructureVerificationSessionRef: RefObject<
     PendingStructureVerificationSession | undefined
@@ -48,6 +51,7 @@ export interface ApplyPendingVisualStylesWithAgentArgs {
   pendingVisualStyleEdits: PendingVisualStyleEdit[];
   pendingVisualStylePrompt: string;
   setActiveLeftPanel: Dispatch<SetStateAction<DesignLeftPanel>>;
+  setApplyingViaHost: Dispatch<SetStateAction<boolean>>;
   setPendingAgentHandoffBusy: Dispatch<SetStateAction<boolean>>;
   setPendingStructureAckRequest: Dispatch<
     SetStateAction<{
@@ -80,6 +84,8 @@ export async function runApplyPendingVisualStylesWithAgent({
   overviewScreens,
   pendingAgentHandoffBusyRef,
   pendingLiveNonStyleEdits,
+  stagedHandoffStartTimerRef,
+  stagedSourceHandoffRef,
   pendingStructureVerificationRevisionRef,
   pendingStructureVerificationSessionRef,
   pendingStructureVerificationSnapshotsRef,
@@ -87,6 +93,7 @@ export async function runApplyPendingVisualStylesWithAgent({
   pendingVisualStyleEdits,
   pendingVisualStylePrompt,
   setActiveLeftPanel,
+  setApplyingViaHost,
   setPendingAgentHandoffBusy,
   setPendingStructureAckRequest,
   setPendingStructureVerificationStatus,
@@ -164,7 +171,19 @@ export async function runApplyPendingVisualStylesWithAgent({
         );
         return;
       }
-      finalizeWithoutStructureVerification();
+      if (delivery.awaitingHostTurn) {
+        stagedSourceHandoffRef.current = "awaiting-start";
+        setApplyingViaHost(true);
+        stagedHandoffStartTimerRef.current = window.setTimeout(() => {
+          stagedHandoffStartTimerRef.current = undefined;
+          if (stagedSourceHandoffRef.current !== "awaiting-start") return;
+          stagedSourceHandoffRef.current = "idle";
+          setApplyingViaHost(false);
+          toast.error(
+            t("designEditor.pendingVisualStyles.agentHandoffFailedToast"),
+          );
+        }, HOST_TURN_START_TIMEOUT_MS);
+      } else finalizeWithoutStructureVerification();
       if (delivery.target === "local") setActiveLeftPanel("agent");
       toast.success(t("designEditor.pendingVisualStyles.sentToast"));
       return;
