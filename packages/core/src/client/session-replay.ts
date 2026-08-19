@@ -1732,6 +1732,10 @@ function isFinalFlushReason(reason: string): boolean {
   ].includes(reason);
 }
 
+function isTerminalReplayFlushReason(reason: string): boolean {
+  return reason === "pagehide" || reason === "beforeunload";
+}
+
 function flushReasonPriority(reason: string): number {
   // Unload reasons must retain their keepalive sequence reservation even when
   // another final request (for example, an explicit manual stop) is coalesced.
@@ -1943,7 +1947,8 @@ async function recoverAfterPendingReplayUploadInternal(
 
     const wasActive = state.active;
     const suppressRestart =
-      pending.reason === "pagehide" || pending.reason === "beforeunload";
+      isTerminalReplayFlushReason(pending.reason) ||
+      isTerminalReplayFlushReason(state.pendingFlushReason ?? "");
 
     // Never reuse the replay identity after a timeout. The server may have
     // accepted the old request even when this client observed an abort, so a
@@ -2080,11 +2085,15 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       state.pendingFlushWaiters.push(resolve);
     });
   }
-  if (!hasPendingReplayBatch(state)) return;
+  if (!hasPendingReplayBatch(state)) {
+    if (reason === "pagehide-persisted") state.bfcacheRestored = false;
+    return;
+  }
   const events = state.retryBatches.shift() ?? takeQueuedReplayBatch(state);
   const payload = buildReplayBody(state, reason, events);
   if (!payload || !state.options) {
     restoreReplayEvents(state, events);
+    if (reason === "pagehide-persisted") state.bfcacheRestored = false;
     return;
   }
   state.flushing = true;

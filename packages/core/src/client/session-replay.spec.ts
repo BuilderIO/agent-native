@@ -807,6 +807,55 @@ describe("session replay", () => {
     }
   });
 
+  it("does not restart after terminal pagehide coalesces behind an active upload", async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchMock } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      vi.stubGlobal("AbortController", undefined);
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const replay = await freshSessionReplay();
+
+      await replay.startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxEventsPerBatch: 10,
+        flushIntervalMs: 100_000,
+      });
+
+      let resolveUpload!: (response: Response) => void;
+      fetchMock.mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveUpload = resolve;
+          }),
+      );
+      recordOptions.emit({ type: 3, data: { href: "/terminal-pagehide" } });
+      const visibilityFlush = replay.flushSessionReplay("visibility-hidden");
+      await vi.advanceTimersByTimeAsync(0);
+      const terminalFlush = replay.flushSessionReplay("pagehide");
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      resolveUpload(new Response("{}"));
+      await vi.advanceTimersByTimeAsync(0);
+      await visibilityFlush;
+      await terminalFlush;
+
+      // The coalesced terminal reason suppresses the implicit restart even
+      // though the timed-out payload itself was labeled visibility-hidden.
+      expect(recordMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      await replay.stopSessionReplay();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("restarts after a persisted pagehide upload timeout for BFCache", async () => {
     vi.useFakeTimers();
     try {
@@ -927,6 +976,69 @@ describe("session replay", () => {
       // second recovery when it eventually settles.
       resolveUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
+      expect(recordMock).toHaveBeenCalledTimes(2);
+
+      await replay.stopSessionReplay();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears the BFCache marker after a coalesced persisted flush with no batch", async () => {
+    vi.useFakeTimers();
+    try {
+      const { fetchMock, fireWindowEvent } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      vi.stubGlobal("AbortController", undefined);
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const replay = await freshSessionReplay();
+
+      await replay.startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxEventsPerBatch: 10,
+        flushIntervalMs: 100_000,
+      });
+
+      let resolveFirstUpload!: (response: Response) => void;
+      fetchMock.mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveFirstUpload = resolve;
+          }),
+      );
+      recordOptions.emit({ type: 3, data: { href: "/bfcache-coalesced" } });
+      const firstFlush = replay.flushSessionReplay("visibility-hidden");
+      await vi.advanceTimersByTimeAsync(0);
+      fireWindowEvent("pagehide", { persisted: true });
+      fireWindowEvent("pageshow", { persisted: true });
+      resolveFirstUpload(new Response("{}"));
+      await vi.advanceTimersByTimeAsync(0);
+      await firstFlush;
+
+      let resolveSecondUpload!: (response: Response) => void;
+      fetchMock.mockImplementation(
+        () =>
+          new Promise<Response>((resolve) => {
+            resolveSecondUpload = resolve;
+          }),
+      );
+      recordOptions.emit({ type: 3, data: { href: "/after-bfcache" } });
+      const secondFlush = replay.flushSessionReplay("interval");
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(15_000);
+
+      // A later ordinary timeout must remain fenced until its old request
+      // settles; a stale BFCache marker would restart immediately here.
+      expect(recordMock).toHaveBeenCalledTimes(1);
+      resolveSecondUpload(new Response("{}"));
+      await vi.advanceTimersByTimeAsync(0);
+      await secondFlush;
       expect(recordMock).toHaveBeenCalledTimes(2);
 
       await replay.stopSessionReplay();
