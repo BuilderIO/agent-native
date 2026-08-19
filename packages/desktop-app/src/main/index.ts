@@ -666,6 +666,15 @@ function getAppOrigin(appConfig: AppConfig): string | null {
   }
 }
 
+function appOriginMatches(appConfig: AppConfig, origin: string): boolean {
+  const appOrigin = getAppOrigin(appConfig);
+  return (
+    appOrigin !== null &&
+    (appOrigin === origin ||
+      resolveEnvironmentLaneOrigins(appOrigin).includes(origin))
+  );
+}
+
 function withCodeAgentApps(apps: AppConfig[]): AppConfig[] {
   let next = apps;
   try {
@@ -13009,25 +13018,14 @@ app.whenReady().then(async () => {
       const apps = loadAppsForAuthContext();
       if (appId) {
         const configured = apps.find((candidate) => candidate.id === appId);
-        if (
-          configured &&
-          (getAppOrigin(configured) === parsed.origin ||
-            resolveEnvironmentLaneOrigins(getAppOrigin(configured)).includes(
-              parsed.origin,
-            ))
-        ) {
+        if (configured && appOriginMatches(configured, parsed.origin)) {
           return configured.id;
         }
         return null;
       }
       return (
-        apps.find(
-          (candidate) =>
-            getAppOrigin(candidate) === parsed.origin ||
-            resolveEnvironmentLaneOrigins(getAppOrigin(candidate)).includes(
-              parsed.origin,
-            ),
-        )?.id ?? null
+        apps.find((candidate) => appOriginMatches(candidate, parsed.origin))
+          ?.id ?? null
       );
     } catch {
       // coercion-ok: malformed webview URLs have no associated app identity.

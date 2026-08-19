@@ -752,8 +752,8 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
               setDesktopIdentityStatus("signed-in");
               return;
             }
-          } else if (status !== "signing-in") {
-            setDesktopIdentitySessionReady(status !== "signing-in");
+          } else {
+            setDesktopIdentitySessionReady(true);
             setDesktopIdentityStatus(status);
             return;
           }
