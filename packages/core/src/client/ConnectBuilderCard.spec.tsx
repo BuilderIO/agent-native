@@ -260,6 +260,35 @@ describe("ConnectBuilderCard", () => {
     expect(container.textContent).toContain("This requires a code change");
   });
 
+  it("keeps cloud code-change send when OAuth and legacy keys both exist", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      codeChangeConfigured: true,
+      builderEnabled: true,
+      orgName: "Builder space",
+      envManaged: false,
+      connecting: false,
+      error: null,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled
+          connectUrl=""
+          prompt="Update the dashboard layout"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Send this to Builder");
+    expect(container.textContent).toContain("Send to Builder");
+  });
+
   it("sends the background-coding use case when joining the waitlist", async () => {
     setLocation("https://agent-native.test/");
     const requests: Array<{ input: RequestInfo | URL; init?: RequestInit }> =

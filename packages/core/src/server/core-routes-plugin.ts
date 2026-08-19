@@ -90,6 +90,7 @@ import {
   putSetting,
   deleteSetting,
   mutateSetting,
+  listSettingsByPrefix,
 } from "../settings/store.js";
 import {
   getUserSetting,
@@ -1015,8 +1016,30 @@ export async function readBuilderConnectPendingState(
     if (!pending || pending.consumed === true) return null;
     return pending;
   } catch {
+    // coercion-ok: missing, consumed, or unreadable pending rows all deny the
+    // callback the same way so attackers cannot probe storage errors.
     return null;
   }
+}
+
+const BUILDER_CONNECT_PENDING_PREFIX = "builder-connect-pending:";
+
+export async function purgeExpiredBuilderConnectPendingStates(
+  now = Date.now(),
+  dependencies: {
+    list: typeof listSettingsByPrefix;
+    remove: typeof deleteSetting;
+  } = { list: listSettingsByPrefix, remove: deleteSetting },
+): Promise<number> {
+  const rows = await dependencies.list(BUILDER_CONNECT_PENDING_PREFIX);
+  let deleted = 0;
+  for (const row of rows) {
+    const expiresAt = row.value.expiresAt;
+    if (typeof expiresAt === "number" && expiresAt > now) continue;
+    const removed = await dependencies.remove(row.key).catch(() => false); // coercion-ok: expired pending cleanup is best-effort; a failed delete is retried on the next connect
+    if (removed) deleted += 1;
+  }
+  return deleted;
 }
 
 type BuilderAnonymousOwnerResolver = (
@@ -2227,13 +2250,29 @@ export function createCoreRoutesPlugin(
                 }
               }
               if (oauthAccess) {
+                let privateKeyConfigured = false;
+                let publicKeyConfigured = false;
+                let orgName = "Builder OAuth";
+                try {
+                  const { resolveBuilderCredentials } =
+                    await import("./credential-provider.js");
+                  const creds = await resolveBuilderCredentials();
+                  privateKeyConfigured = !!creds.privateKey;
+                  publicKeyConfigured = !!creds.publicKey;
+                  if (typeof creds.orgName === "string" && creds.orgName) {
+                    orgName = creds.orgName;
+                  }
+                } catch {
+                  // coercion-ok: OAuth already proves the chat gateway; missing
+                  // key flags only hide code-change send until secrets are readable.
+                }
                 return withConnectToken({
                   ...requestStatus,
                   configured: true,
                   credentialSource: "user" as const,
-                  privateKeyConfigured: false,
-                  publicKeyConfigured: false,
-                  orgName: "Builder OAuth",
+                  privateKeyConfigured,
+                  publicKeyConfigured,
+                  orgName,
                   spaces: [],
                 });
               }
@@ -2599,6 +2638,7 @@ export function createCoreRoutesPlugin(
               expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
               tracking: connectTracking,
             });
+            await purgeExpiredBuilderConnectPendingStates().catch(() => 0); // coercion-ok: connect already persisted the new pending row; purge of abandoned rows must not fail OAuth start
           } catch (err) {
             await trackBuilderLifecycle(
               event,
@@ -3072,6 +3112,11 @@ export function createCoreRoutesPlugin(
             redirectUri !== expectedRedirectUri ||
             !isBuilderConnectCallbackUrlAllowed(redirectUri, event)
           ) {
+            if (Date.now() >= expiresAt) {
+              await deleteSetting(`builder-connect-pending:${state}`).catch(
+                () => false,
+              ); // coercion-ok: expired pending cleanup is best-effort; callback already failed verification
+            }
             return fail(
               403,
               "Builder connect callback could not be verified. Restart the connection.",

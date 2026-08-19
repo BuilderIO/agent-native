@@ -396,7 +396,10 @@ function isCurrentConnectError(
 }
 
 function isCodeChangeConfigured(
-  status: BuilderStatus | null | undefined,
+  status:
+    | Pick<BuilderStatus, "privateKeyConfigured" | "publicKeyConfigured">
+    | null
+    | undefined,
 ): boolean {
   return !!status?.privateKeyConfigured && !!status?.publicKeyConfigured;
 }
@@ -618,16 +621,19 @@ export function useBuilderConnectFlow(
           { signal: signal ?? ownController?.signal },
         );
         if (!r.ok) return null;
-        return (await r.json()) as {
-          configured: boolean;
-          envManaged?: boolean;
-          builderEnabled?: boolean;
-          orgName?: string | null;
-          connectUrl?: string;
-          credentialSource?: "user" | "org" | "workspace" | "env";
-          connectError?: { message: string; at: number };
-          authError?: { message: string; at: number };
-        };
+        return (await r.json()) as Pick<
+          BuilderStatus,
+          | "configured"
+          | "envManaged"
+          | "builderEnabled"
+          | "orgName"
+          | "connectUrl"
+          | "credentialSource"
+          | "connectError"
+          | "authError"
+          | "privateKeyConfigured"
+          | "publicKeyConfigured"
+        >;
       } catch {
         // coercion-ok: null means "status unknown this tick" and callers hold
         // their previous state rather than rendering a disconnected Builder.

@@ -17,6 +17,7 @@ import {
   checkBuilderWaitlistRateLimit,
   consumeBuilderConnectPendingState,
   isBuilderConnectCallbackOwner,
+  purgeExpiredBuilderConnectPendingStates,
   readBuilderConnectPendingState,
   resolveBuilderOwnerContextForRequest,
   resolveBuilderWaitlistFormTargetForRequest,
@@ -410,6 +411,37 @@ describe("Builder OAuth callback state", () => {
         consumed: true,
       })),
     ).resolves.toBeNull();
+  });
+
+  it("deletes expired Builder OAuth pending-flow rows", async () => {
+    const now = 1_000;
+    const removed: string[] = [];
+    await expect(
+      purgeExpiredBuilderConnectPendingStates(now, {
+        list: async () => [
+          {
+            key: "builder-connect-pending:expired",
+            value: { expiresAt: 999 },
+          },
+          {
+            key: "builder-connect-pending:live",
+            value: { expiresAt: 1_001 },
+          },
+          {
+            key: "builder-connect-pending:malformed",
+            value: {},
+          },
+        ],
+        remove: async (key) => {
+          removed.push(key);
+          return true;
+        },
+      }),
+    ).resolves.toBe(2);
+    expect(removed).toEqual([
+      "builder-connect-pending:expired",
+      "builder-connect-pending:malformed",
+    ]);
   });
 });
 
