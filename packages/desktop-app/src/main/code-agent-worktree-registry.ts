@@ -40,6 +40,7 @@ export type CodeAgentWorktreeRunState = "active" | "queued" | "terminal";
 
 interface CodeAgentWorktreeLease {
   runId: string;
+  ownerId?: string;
   acquiredAt: string;
 }
 
@@ -469,6 +470,7 @@ export function claimCodeAgentWorktreeRun(input: {
   registryPath: string;
   worktreeId: string;
   runId: string;
+  ownerId: string;
   now?: Date;
 }): boolean {
   const now = nowIso(input.now);
@@ -479,11 +481,19 @@ export function claimCodeAgentWorktreeRun(input: {
     if (!worktree || worktree.state === "removed") {
       throw new Error("The selected worktree is no longer available.");
     }
-    if (worktree.activeLease && worktree.activeLease.runId !== input.runId) {
+    if (
+      worktree.activeLease &&
+      (worktree.activeLease.runId !== input.runId ||
+        worktree.activeLease.ownerId !== input.ownerId)
+    ) {
       return false;
     }
     addRunId(worktree, input.runId);
-    worktree.activeLease = { runId: input.runId, acquiredAt: now };
+    worktree.activeLease = {
+      runId: input.runId,
+      ownerId: input.ownerId,
+      acquiredAt: now,
+    };
     worktree.state = "attached";
     worktree.updatedAt = now;
     worktree.lastUsedAt = now;
@@ -528,6 +538,7 @@ export function cleanupDueCodeAgentWorktrees(input: {
   now?: Date;
   runGit?: RunGit;
   canRemove?: (worktree: CodeAgentManagedWorktree) => boolean;
+  onWorktreeStateChanged?: (worktree: CodeAgentManagedWorktree) => void;
 }): CodeAgentManagedWorktree[] {
   const nowDate = input.now ?? new Date();
   const now = nowDate.toISOString();
@@ -539,7 +550,6 @@ export function cleanupDueCodeAgentWorktrees(input: {
         worktree.policy !== "ephemeral" ||
         worktree.state === "removed" ||
         worktree.state === "recoverable" ||
-        worktree.state === "error" ||
         worktree.attachedRunIds.length > 0 ||
         worktree.activeLease !== undefined ||
         !worktree.cleanupAfter ||
@@ -568,6 +578,7 @@ export function cleanupDueCodeAgentWorktrees(input: {
             : "Worktree has uncommitted changes; it was kept for recovery.";
           worktree.cleanupAttempts += 1;
           worktree.updatedAt = now;
+          input.onWorktreeStateChanged?.(worktree);
           continue;
         }
         const result: CodeAgentWorktreeCleanupResult = cleanupCodeAgentWorktree(
@@ -585,6 +596,7 @@ export function cleanupDueCodeAgentWorktrees(input: {
         worktree.updatedAt = now;
         worktree.cleanupAttempts += 1;
         worktree.lastCleanupError = undefined;
+        input.onWorktreeStateChanged?.(worktree);
         cleaned.push(worktree);
       } catch (error) {
         worktree.state = "error";
@@ -592,6 +604,7 @@ export function cleanupDueCodeAgentWorktrees(input: {
           error instanceof Error ? error.message : String(error);
         worktree.cleanupAttempts += 1;
         worktree.updatedAt = now;
+        input.onWorktreeStateChanged?.(worktree);
       }
     }
     return cleaned;

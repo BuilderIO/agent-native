@@ -3702,6 +3702,7 @@ function activeCodeAgentRunUsesWorktree(
 }
 
 const startingCodeAgentWorktreeRuns = new Set<string>();
+const codeAgentWorktreeLeaseOwnerId = randomUUID();
 
 function codeAgentWorktreeIdFromRunRecord(
   record: Record<string, unknown> | null,
@@ -3787,6 +3788,38 @@ function reconcileManagedCodeAgentWorktreeLeases(): void {
   }
 }
 
+function syncManagedWorktreeStateToRuns(
+  worktree: CodeAgentManagedWorktree,
+): void {
+  for (const { runId, record } of listRawCodeAgentRunRecords()) {
+    const metadata = isObject(record.metadata) ? record.metadata : undefined;
+    const runWorktree = isObject(metadata?.worktree)
+      ? metadata.worktree
+      : undefined;
+    const runWorktreeId = firstStringValue(runWorktree?.id);
+    const runWorktreePath = firstStringValue(runWorktree?.path);
+    if (
+      (!runWorktreeId && !runWorktreePath) ||
+      (runWorktreeId !== worktree.id &&
+        path.resolve(runWorktreePath ?? "") !== path.resolve(worktree.path))
+    ) {
+      continue;
+    }
+    try {
+      touchCodeAgentRunRecord(runId, {
+        metadata: {
+          worktree: codeAgentWorktreeMetadata(worktree),
+        },
+      });
+    } catch (error) {
+      console.warn(
+        `[code-agents] Could not update cleanup state for run ${runId}:`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+}
+
 async function startNextQueuedCodeAgentWorktreeRun(
   worktreeId: string,
 ): Promise<void> {
@@ -3849,6 +3882,7 @@ async function startNextQueuedCodeAgentWorktreeRun(
         registryPath: codeAgentWorktreeRegistryFile(),
         worktreeId,
         runId: candidate.runId,
+        ownerId: codeAgentWorktreeLeaseOwnerId,
       })
     ) {
       return;
@@ -3901,6 +3935,7 @@ function cleanupDueManagedCodeAgentWorktrees(): void {
     cleanupDueCodeAgentWorktrees({
       registryPath: codeAgentWorktreeRegistryFile(),
       canRemove: (worktree) => !activeCodeAgentRunUsesWorktree(worktree),
+      onWorktreeStateChanged: syncManagedWorktreeStateToRuns,
     });
   } catch (error) {
     console.warn(
@@ -5400,6 +5435,7 @@ async function spawnCodeAgentRunner(
         registryPath: codeAgentWorktreeRegistryFile(),
         worktreeId,
         runId,
+        ownerId: codeAgentWorktreeLeaseOwnerId,
       });
       if (!claimed) {
         touchCodeAgentRunRecord(runId, {
@@ -5927,6 +5963,7 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
         registryPath: codeAgentWorktreeRegistryFile(),
         worktreeId: attachedWorktree.id,
         runId: input.runId,
+        ownerId: codeAgentWorktreeLeaseOwnerId,
       });
     } catch (error) {
       return {
@@ -6490,6 +6527,7 @@ async function createCodeAgentRun(
         registryPath: codeAgentWorktreeRegistryFile(),
         worktreeId: worktree.id,
         runId,
+        ownerId: codeAgentWorktreeLeaseOwnerId,
       });
     } catch (error) {
       return {

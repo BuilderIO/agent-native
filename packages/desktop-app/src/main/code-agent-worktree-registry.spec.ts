@@ -16,6 +16,7 @@ import {
   restoreManagedCodeAgentWorktree,
   worktreeRegistryPath,
 } from "./code-agent-worktree-registry.js";
+import type { RunGit } from "./code-agent-worktrees.js";
 
 describe("code-agent-worktree-registry", () => {
   it("reuses a named worktree across runs", () => {
@@ -90,6 +91,7 @@ describe("code-agent-worktree-registry", () => {
           registryPath,
           worktreeId: worktree.id,
           runId: "writer-one",
+          ownerId: "desktop-one",
         }),
       ).toBe(true);
       expect(
@@ -97,6 +99,15 @@ describe("code-agent-worktree-registry", () => {
           registryPath,
           worktreeId: worktree.id,
           runId: "writer-two",
+          ownerId: "desktop-two",
+        }),
+      ).toBe(false);
+      expect(
+        claimCodeAgentWorktreeRun({
+          registryPath,
+          worktreeId: worktree.id,
+          runId: "writer-one",
+          ownerId: "desktop-two",
         }),
       ).toBe(false);
 
@@ -110,6 +121,7 @@ describe("code-agent-worktree-registry", () => {
           registryPath,
           worktreeId: worktree.id,
           runId: "writer-two",
+          ownerId: "desktop-two",
         }),
       ).toBe(true);
     });
@@ -284,6 +296,62 @@ describe("code-agent-worktree-registry", () => {
     });
   });
 
+  it("retries cleanup after a transient Git failure", () => {
+    withRepository((root) => {
+      const registryPath = worktreeRegistryPath(root);
+      const worktree = createOrAttachCodeAgentWorktree({
+        registryPath,
+        sourcePath: root,
+        worktreeRoot: path.join(root, "managed-worktrees"),
+        runId: "flaky-cleanup",
+        policy: "ephemeral",
+      });
+      releaseCodeAgentWorktree({
+        registryPath,
+        worktreeId: worktree.id,
+        runId: "flaky-cleanup",
+        cleanupAfter: new Date("2026-08-01T00:00:00.000Z"),
+      });
+
+      let failRemove = true;
+      const flakyRunGit: RunGit = (args, cwd) => {
+        if (failRemove && args[0] === "worktree" && args[1] === "remove") {
+          failRemove = false;
+          return { status: 1, stderr: "repository is locked" };
+        }
+        const result = spawnSync("git", args, {
+          cwd,
+          encoding: "utf8",
+          stdio: ["ignore", "pipe", "pipe"],
+        });
+        return {
+          error: result.error,
+          status: result.status,
+          stderr: result.stderr ?? undefined,
+          stdout: result.stdout ?? undefined,
+        };
+      };
+
+      cleanupDueCodeAgentWorktrees({
+        registryPath,
+        now: new Date("2026-08-22T00:00:00.000Z"),
+        runGit: flakyRunGit,
+      });
+      expect(
+        getManagedCodeAgentWorktree(registryPath, worktree.id)?.state,
+      ).toBe("error");
+
+      cleanupDueCodeAgentWorktrees({
+        registryPath,
+        now: new Date("2026-08-23T00:00:00.000Z"),
+        runGit: flakyRunGit,
+      });
+      expect(
+        getManagedCodeAgentWorktree(registryPath, worktree.id)?.state,
+      ).toBe("removed");
+    });
+  });
+
   it("keeps ephemeral worktrees that contain committed work", () => {
     withRepository((root) => {
       const registryPath = worktreeRegistryPath(root);
@@ -332,6 +400,7 @@ describe("code-agent-worktree-registry", () => {
         registryPath,
         worktreeId: worktree.id,
         runId: "crashed-run",
+        ownerId: "desktop-one",
       });
 
       reconcileCodeAgentWorktreeLeases({

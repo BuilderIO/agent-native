@@ -932,6 +932,7 @@ export default function CodeAgentsApp({
     CodeAgentWorktreeSummary[]
   >([]);
   const [namedWorktreesLoading, setNamedWorktreesLoading] = useState(false);
+  const namedWorktreeRequestRef = useRef(0);
   const [namedWorktreeDialogOpen, setNamedWorktreeDialogOpen] = useState(false);
   const [namedWorktreeName, setNamedWorktreeName] = useState("");
   const [forkSourceRun, setForkSourceRun] = useState<CodeAgentRun | null>(null);
@@ -1247,6 +1248,9 @@ export default function CodeAgentsApp({
   }, [host]);
 
   const loadNamedWorktrees = useCallback(async () => {
+    const requestId = namedWorktreeRequestRef.current + 1;
+    namedWorktreeRequestRef.current = requestId;
+    const requestedProjectPath = selectedProjectPath;
     if (newRunExecutionTarget !== "worktree" || !selectedProjectPath) {
       setNamedWorktrees([]);
       setNamedWorktreesLoading(false);
@@ -1260,11 +1264,25 @@ export default function CodeAgentsApp({
     setNamedWorktreesLoading(true);
     try {
       const result = await host.listWorktrees(selectedProjectPath);
+      if (
+        requestId !== namedWorktreeRequestRef.current ||
+        requestedProjectPath !== selectedProjectPath
+      ) {
+        return;
+      }
       setNamedWorktrees(result.status === "ok" ? result.worktrees : []);
     } catch {
+      if (
+        requestId !== namedWorktreeRequestRef.current ||
+        requestedProjectPath !== selectedProjectPath
+      ) {
+        return;
+      }
       setNamedWorktrees([]);
     } finally {
-      setNamedWorktreesLoading(false);
+      if (requestId === namedWorktreeRequestRef.current) {
+        setNamedWorktreesLoading(false);
+      }
     }
   }, [host, newRunExecutionTarget, selectedProjectPath]);
 
