@@ -1877,6 +1877,7 @@ export async function setDesktopExchange(
   // same-instance poll succeed while a delayed write recreated a token after
   // it had already been consumed.
   await persistDesktopExchangeToDB(flowId, token, email, verifierHash);
+  _desktopExchanges.delete(flowId);
 }
 
 /**
