@@ -2154,6 +2154,7 @@ export function App() {
       const authResponse = await fetch(
         `${base}/_agent-native/google/auth-url?${authParams.toString()}`,
         {
+          method: "POST",
           headers: {
             Accept: "application/json",
             "X-Agent-Native-Desktop-Verifier": verifier,

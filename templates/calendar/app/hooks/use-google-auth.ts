@@ -295,6 +295,7 @@ export function useGoogleDesktopAuth(options: DesktopAuthOptions = {}) {
           const { url } = await fetchJson<{ url: string }>(
             agentNativePath(`${path}?${params.toString()}`),
             {
+              method: "POST",
               credentials: "include",
               headers: {
                 "X-Agent-Native-Desktop-Verifier": verifier,

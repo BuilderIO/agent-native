@@ -319,8 +319,8 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       };
     }
     try {
-    const q = getQuery(event);
-    const method = getMethod(event);
+      const q = getQuery(event);
+      const method = getMethod(event);
       const redirectUri = resolveOAuthRedirectUri(event);
       if (!redirectUri) {
         setResponseStatus(event, 400);
@@ -331,18 +331,18 @@ export const getGoogleAddAccountUrl = defineEventHandler(
       }
       const desktop =
         isElectron(event) || q.desktop === "1" || q.desktop === "true";
-    const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
-    if (method === "POST" && (!desktop || !flowId)) {
-      setResponseStatus(event, 400);
-      return { error: "Invalid desktop exchange challenge." };
-    }
-    let desktopVerifierHash: string | undefined;
-    if (flowId) {
-      if (method !== "POST" || q.redirect !== undefined) {
+      const flowId = desktop ? (q.flow_id as string) || undefined : undefined;
+      if (method === "POST" && (!desktop || !flowId)) {
         setResponseStatus(event, 400);
         return { error: "Invalid desktop exchange challenge." };
       }
-      const verifier = getHeader(event, "x-agent-native-desktop-verifier");
+      let desktopVerifierHash: string | undefined;
+      if (flowId) {
+        if (method !== "POST" || q.redirect !== undefined) {
+          setResponseStatus(event, 400);
+          return { error: "Invalid desktop exchange challenge." };
+        }
+        const verifier = getHeader(event, "x-agent-native-desktop-verifier");
         if (!verifier || q.verifier !== undefined) {
           setResponseStatus(event, 400);
           return { error: "Invalid desktop exchange challenge." };

@@ -155,6 +155,7 @@ export function GoogleConnectBanner({
       return;
     }
     void fetch(`${origin}${agentNativePath(endpoint)}?${params.toString()}`, {
+      method: "POST",
       credentials: "include",
       headers: { "X-Agent-Native-Desktop-Verifier": verifier },
     })

@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getHeader: (event: any, name: string) => event.headers?.[name.toLowerCase()],
+  getMethod: (event: any) => event.method ?? "GET",
   getQuery: (event: any) => event.query ?? {},
   setResponseStatus: mocks.setResponseStatus,
 }));

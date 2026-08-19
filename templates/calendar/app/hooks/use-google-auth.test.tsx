@@ -109,9 +109,8 @@ describe("useGoogleDesktopAuth", () => {
   it("opens the browser after receiving a valid auth URL", async () => {
     renderHarness();
     const open = vi.spyOn(window, "open").mockImplementation(() => null);
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, _init?: RequestInit) => {
         if (String(input).startsWith("/_agent-native/google/auth-url")) {
           return new Response(
             JSON.stringify({
@@ -123,8 +122,9 @@ describe("useGoogleDesktopAuth", () => {
         return new Response(JSON.stringify({ pending: true }), {
           status: 200,
         });
-      }),
+      },
     );
+    vi.stubGlobal("fetch", fetchMock);
 
     act(() => {
       expect(controls?.startDesktopGoogleAuth()).toBe(true);
@@ -136,6 +136,25 @@ describe("useGoogleDesktopAuth", () => {
         "_blank",
       );
     });
+
+    const authStartCall = fetchMock.mock.calls.find(([input]) =>
+      String(input).startsWith("/_agent-native/google/auth-url"),
+    );
+    expect(authStartCall).toBeDefined();
+    const [authStartInput, authStartInit] = authStartCall!;
+    expect(
+      new URL(String(authStartInput), "http://localhost").searchParams.has(
+        "verifier",
+      ),
+    ).toBe(false);
+    expect(authStartInit).toEqual(
+      expect.objectContaining({
+        credentials: "include",
+        headers: {
+          "X-Agent-Native-Desktop-Verifier": expect.any(String),
+        },
+      }),
+    );
   });
 
   it("detects the desktop preload even when the user agent marker is missing", () => {

@@ -955,6 +955,7 @@ export class DesktopIdentityBroker {
       const response = await this.options.identitySession.fetch(
         authUrl.toString(),
         {
+          method: "POST",
           credentials: "include",
           headers: {
             Accept: "application/json",
