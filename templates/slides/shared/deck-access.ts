@@ -1,5 +1,8 @@
 /** Short-lived capability used by a private deck viewer to request access. */
 export const SLIDES_ACCESS_REQUEST_TOKEN_PREFIX = "slides-access-request";
+/** Capability used when the private-deck access probe is unavailable. */
+export const SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX =
+  "slides-access-request-fallback";
 export const SLIDES_ACCESS_REQUEST_TOKEN_TTL_SECONDS = 10 * 60;
 
 /** Signed capability used by an owner to approve a private deck access request. */

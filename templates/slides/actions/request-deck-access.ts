@@ -22,6 +22,7 @@ import {
   SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID,
 } from "../server/lib/access-request-email.js";
 import {
+  SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX,
   SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
   deckAccessApprovalPath,
   SLIDES_ACCESS_APPROVAL_TOKEN_PREFIX,
@@ -292,12 +293,23 @@ export default defineAction({
     requesterEmail: requesterEmailInput,
   }) => {
     const sessionEmail = getRequestUserEmail();
-    const requestToken = accessRequestToken
+    let requestToken = accessRequestToken
       ? verifyScopedAgentAccessToken(accessRequestToken, {
           resourceKind: SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
           resourceId: deckId,
         })
       : { ok: false as const, reason: "missing" };
+    let accessProbeWasUnavailable = false;
+    if (accessRequestToken && !requestToken.ok) {
+      const fallbackToken = verifyScopedAgentAccessToken(accessRequestToken, {
+        resourceKind: SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX,
+        resourceId: deckId,
+      });
+      if (fallbackToken.ok) {
+        requestToken = fallbackToken;
+        accessProbeWasUnavailable = true;
+      }
+    }
     if (accessRequestToken && !requestToken.ok) {
       throw httpError(`Deck ${deckId} not found`, 404);
     }
@@ -479,7 +491,9 @@ export default defineAction({
       throw httpError(`Deck ${deckId} not found`, 404);
     }
 
-    const access = await resolveAccess("deck", deckId, currentAccess());
+    const access = accessProbeWasUnavailable
+      ? null
+      : await resolveAccess("deck", deckId, currentAccess());
     if (access) {
       return {
         ok: true as const,

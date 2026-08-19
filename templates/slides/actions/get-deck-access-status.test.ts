@@ -7,6 +7,7 @@ const state = vi.hoisted(() => ({
     | { id: string; visibility: string }
     | undefined,
   access: null as { role?: string } | null,
+  accessProbeError: null as Error | null,
 }));
 
 const limitSelect = vi.hoisted(() =>
@@ -34,7 +35,10 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   currentAccess: () => ({ userEmail: state.viewerEmail }),
-  resolveAccess: vi.fn(async () => state.access),
+  resolveAccess: vi.fn(async () => {
+    if (state.accessProbeError) throw state.accessProbeError;
+    return state.access;
+  }),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -53,6 +57,7 @@ beforeEach(() => {
   state.viewerName = "Viewer";
   state.deck = { id: "deck-1", visibility: "private" };
   state.access = null;
+  state.accessProbeError = null;
 });
 
 describe("get-deck-access-status", () => {
@@ -98,5 +103,14 @@ describe("get-deck-access-status", () => {
       role: "editor",
       visibility: "org",
     });
+  });
+
+  it("mints a fallback request capability when the access probe fails", async () => {
+    state.accessProbeError = new Error("temporary access lookup failure");
+
+    const result = await action.run({ deckId: "deck-1" });
+
+    expect(result.accessRequestToken).toEqual(expect.any(String));
+    expect(result.hasAccess).toBe(false);
   });
 });

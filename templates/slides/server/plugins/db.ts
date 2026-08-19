@@ -261,6 +261,13 @@ export const runSlidesMigrations = runMigrations(
     request_count INTEGER NOT NULL DEFAULT 0
   )`,
     },
+    {
+      version: 24,
+      name: "slides-deck-shares-user-principal-unique",
+      sql: `CREATE UNIQUE INDEX IF NOT EXISTS deck_shares_resource_user_principal_uidx
+ON deck_shares (resource_id, LOWER(principal_id))
+WHERE principal_type = 'user'`,
+    },
   ],
   { table: "slides_migrations" },
 );

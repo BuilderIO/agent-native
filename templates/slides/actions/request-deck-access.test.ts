@@ -131,6 +131,7 @@ const signScopedAgentAccessToken = vi.hoisted(() =>
 const verifyScopedAgentAccessToken = vi.hoisted(() =>
   vi.fn(() => ({ ok: true as const, viewerEmail: undefined })),
 );
+const resolveAccess = vi.hoisted(() => vi.fn(async () => state.access));
 
 vi.mock("../server/db/index.js", () => ({
   getDb: () => db,
@@ -178,7 +179,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   currentAccess: () => ({ userEmail: state.requesterEmail }),
-  resolveAccess: vi.fn(async () => state.access),
+  resolveAccess: (...args: unknown[]) => resolveAccess(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -562,6 +563,28 @@ describe("request-deck-access", () => {
     expect(sendEmail).toHaveBeenCalledWith(
       expect.objectContaining({ replyTo: "guest@example.com" }),
     );
+  });
+
+  it("uses the fallback capability when the access probe was unavailable", async () => {
+    state.requesterEmail = null;
+    verifyScopedAgentAccessToken.mockImplementation((_, scope) =>
+      scope.resourceKind === "slides-access-request"
+        ? { ok: false as const, reason: "wrong_resource" }
+        : { ok: true as const, viewerEmail: undefined },
+    );
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        accessRequestToken: "fallback-request-token",
+        requesterEmail: "guest@example.com",
+      }),
+    ).resolves.toMatchObject({
+      ok: true,
+      alreadyHasAccess: false,
+      notifiedOwner: true,
+    });
+    expect(resolveAccess).not.toHaveBeenCalled();
   });
 
   it("requires an email for an anonymous requester", async () => {

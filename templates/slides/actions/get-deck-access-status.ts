@@ -10,6 +10,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX,
   SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
   SLIDES_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
 } from "../shared/deck-access.js";
@@ -60,11 +61,14 @@ export default defineAction({
     }
 
     let access: Awaited<ReturnType<typeof resolveAccess>> = null;
+    let accessProbeFailed = false;
     try {
       access = await resolveAccess("deck", deckId, currentAccess());
     } catch (error) {
       // coercion-ok: an access probe failure must fail closed as no access so
-      // the page stays gated while the request capability remains available.
+      // the page stays gated while a separate fallback request capability
+      // keeps the owner-notification path available.
+      accessProbeFailed = true;
       console.warn(
         "[slides] deck access probe failed; treating the deck as private:",
         error,
@@ -74,7 +78,9 @@ export default defineAction({
     const accessRequestToken =
       !access && visibility === "private"
         ? signScopedAgentAccessToken({
-            resourceKind: SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
+            resourceKind: accessProbeFailed
+              ? SLIDES_ACCESS_REQUEST_FALLBACK_TOKEN_PREFIX
+              : SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
             resourceId: deckId,
             ...(viewerEmail ? { viewerEmail } : {}),
             ttlSeconds: SLIDES_ACCESS_REQUEST_TOKEN_TTL_SECONDS,
