@@ -20,6 +20,7 @@ on:
 
 permissions:
   issues: write
+  contents: read
 
 concurrency:
   group: keep-neon-warm
@@ -98,16 +99,17 @@ jobs:
           if [ -z "$ISSUE_NUMBER" ]; then
             gh issue create --repo "${{ github.repository }}" \
               --title "$ISSUE_TITLE" --body "$BODY"
-            page_oncall
-            exit 0
+          else
+            LAST=$(gh issue view "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+              --json comments,body --jq '[.body] + [.comments[].body] | last')
+            if printf '%s' "$LAST" | grep -q "health-signature: $SIGNATURE"; then
+              echo "Same failure as the last report — issue #$ISSUE_NUMBER already open, not commenting again."
+            else
+              gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
+            fi
           fi
-          LAST=$(gh issue view "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
-            --json comments,body --jq '[.body] + [.comments[].body] | last')
-          if printf '%s' "$LAST" | grep -q "health-signature: $SIGNATURE"; then
-            echo "Same failure as the last report — issue #$ISSUE_NUMBER already open, not commenting again."
-            exit 0
-          fi
-          gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
+          # PagerDuty uses a fixed dedup key, so retries refresh the same incident
+          # without creating a second one when a prior delivery failed.
           page_oncall
 
       - name: Close the rolling issue once the fleet is healthy
@@ -122,19 +124,19 @@ jobs:
           if [ -n "$ISSUE_NUMBER" ]; then
             gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
               --comment "Fleet audit is green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            if [ -n "${PAGERDUTY_ROUTING_KEY:-}" ]; then
-              # The jq program intentionally uses jq variables, not shell vars.
-              # shellcheck disable=SC2016
-              jq -n \
-                --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
-                --arg dedup_key "agent-native-production-health" \
-                --arg source "${{ github.repository }}" \
-                '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent Native production health audit recovered", source: $source}}' \
-                | curl --fail-with-body --silent --show-error \
-                    --header 'Content-Type: application/json' \
-                    --data-binary @- \
-                    https://events.pagerduty.com/v2/enqueue
-            else
-              echo "PagerDuty resolve skipped: PAGERDUTY_ROUTING_KEY is not configured."
-            fi
+          fi
+          if [ -n "${PAGERDUTY_ROUTING_KEY:-}" ]; then
+            # The jq program intentionally uses jq variables, not shell vars.
+            # shellcheck disable=SC2016
+            jq -n \
+              --arg routing_key "$PAGERDUTY_ROUTING_KEY" \
+              --arg dedup_key "agent-native-production-health" \
+              --arg source "${{ github.repository }}" \
+              '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent Native production health audit recovered", source: $source}}' \
+              | curl --fail-with-body --silent --show-error \
+                  --header 'Content-Type: application/json' \
+                  --data-binary @- \
+                  https://events.pagerduty.com/v2/enqueue
+          else
+            echo "PagerDuty resolve skipped: PAGERDUTY_ROUTING_KEY is not configured."
           fi

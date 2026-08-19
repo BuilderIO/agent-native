@@ -119,6 +119,17 @@ describe("agent-native app config", () => {
     },
   );
 
+  it("rejects unsupported explicit deployment environments", () => {
+    expect(() =>
+      inferAgentNativeDeploymentEnvironment(
+        { AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT: "staging" },
+        "development",
+      ),
+    ).toThrow(
+      'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+    );
+  });
+
   it("normalizes hosted harness capabilities and runtimes", () => {
     expect(normalizeAgentNativeConfig({ harness: true })).toEqual({
       harness: true,

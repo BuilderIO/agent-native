@@ -30,7 +30,7 @@ The install step creates the lockfile that the production Dockerfile below copie
 
 Create `Dockerfile`, `.dockerignore`, and `docker-compose.yml` in the app root. `docker compose up --build` needs the Dockerfile, and `.dockerignore` keeps host-only files such as `node_modules` out of the Linux build context. Compose starts Postgres only on the private Compose network.
 
-You can also download the [Dockerfile](https://www.agent-native.com/examples/self-hosted-chat/Dockerfile), [.dockerignore](https://www.agent-native.com/examples/self-hosted-chat/.dockerignore), [Compose file](https://www.agent-native.com/examples/self-hosted-chat/docker-compose.yml), and [environment template](https://www.agent-native.com/examples/self-hosted-chat/env.example) as a starter fixture. The [Dockerfile](#docker) below matches the fixture.
+You can also download the [Dockerfile](https://www.agent-native.com/examples/self-hosted-chat/Dockerfile.txt), [.dockerignore](https://www.agent-native.com/examples/self-hosted-chat/.dockerignore), [Compose file](https://www.agent-native.com/examples/self-hosted-chat/docker-compose.yml), and [environment template](https://www.agent-native.com/examples/self-hosted-chat/env.example) as a starter fixture. The [Dockerfile](#docker) below matches the fixture.
 
 ```yaml filename="docker-compose.yml" maxLines=40
 services:

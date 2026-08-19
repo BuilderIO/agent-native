@@ -14,9 +14,11 @@ function readFixture(name: string) {
 describe("self-hosted Chat fixture", () => {
   it("keeps the downloadable files aligned with the local quickstart", () => {
     const dockerfile = readFixture("Dockerfile");
+    const dockerfileDownload = readFixture("Dockerfile.txt");
     const dockerignore = readFixture(".dockerignore");
     const compose = readFixture("docker-compose.yml");
 
+    expect(dockerfileDownload).toBe(dockerfile);
     expect(dockerfile).toContain("COPY package.json pnpm-lock.yaml ./");
     expect(dockerfile).toContain("RUN pnpm build");
     expect(dockerfile).toContain('CMD ["node", ".output/server/index.mjs"]');

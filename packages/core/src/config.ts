@@ -661,6 +661,11 @@ export function inferAgentNativeDeploymentEnvironment(
 ): AgentNativeDeploymentEnvironment | undefined {
   const explicit =
     env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT?.trim().toLowerCase();
+  if (explicit && !isAgentNativeDeploymentEnvironment(explicit)) {
+    throw new Error(
+      'AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT must be "local", "beta", "production", or "preview"',
+    );
+  }
   if (isAgentNativeDeploymentEnvironment(explicit)) return explicit;
 
   const context = env.CONTEXT?.trim().toLowerCase();
