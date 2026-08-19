@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.164.7
+
+### Patch Changes
+
+- 06cea8f: Keep the desktop chat composer blank while the identity gate is handling an unauthenticated saved thread.
+
 ## 0.164.6
 
 ### Patch Changes
