@@ -703,9 +703,9 @@ export default function ClipsTemplate() {
       {/* CTA */}
       <section
         id="start-now"
-        className="scroll-mt-24 border-t border-[#1a1a1a] lg:bg-[linear-gradient(to_right,#1a1a1a_1px,transparent_1px),linear-gradient(to_bottom,#1a1a1a_1px,transparent_1px)] lg:bg-[size:32px_32px]"
+        className="scroll-mt-24 border-t border-[var(--docs-border)] lg:bg-[linear-gradient(to_right,var(--docs-border)_1px,transparent_1px),linear-gradient(to_bottom,var(--docs-border)_1px,transparent_1px)] lg:bg-[size:32px_32px]"
       >
-        <div className="flex flex-col gap-6 border-x border-[#1a1a1a] px-6 pb-10 pt-16 sm:flex-row sm:items-end sm:justify-between sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
+        <div className="flex flex-col gap-6 border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:flex-row sm:items-end sm:justify-between sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
           <div>
             <p className="m-0 mb-2 font-mono text-sm font-semibold uppercase tracking-[0.28px] text-[#01c8f1]">
               Learn more
@@ -719,7 +719,7 @@ export default function ClipsTemplate() {
               type="button"
               aria-label="Previous clip"
               onClick={() => sliderHandleRef.current?.scroll(-1)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#5e5e5e] bg-[#0a0a0a] transition hover:border-[var(--fg-secondary)]"
+              className="inline-flex size-10 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] text-[var(--fg)] transition-[border-color,color] hover:border-[var(--fg-secondary)]"
             >
               <svg
                 width="18"
@@ -730,7 +730,7 @@ export default function ClipsTemplate() {
               >
                 <path
                   d="M10.8523 4.10225C11.0719 3.88258 11.428 3.88258 11.6477 4.10225C11.8673 4.32192 11.8673 4.67799 11.6477 4.89766L7.54537 8.99996L11.6477 13.1023C11.8673 13.3219 11.8673 13.678 11.6477 13.8977C11.428 14.1173 11.0719 14.1173 10.8523 13.8977L6.35225 9.39766C6.13258 9.17799 6.13258 8.82192 6.35225 8.60225L10.8523 4.10225Z"
-                  fill="#FAF9F5"
+                  fill="currentColor"
                 />
               </svg>
             </button>
@@ -738,7 +738,7 @@ export default function ClipsTemplate() {
               type="button"
               aria-label="Next clip"
               onClick={() => sliderHandleRef.current?.scroll(1)}
-              className="inline-flex h-10 w-10 items-center justify-center rounded-md border border-[#5e5e5e] bg-[#0a0a0a] transition hover:border-[var(--fg-secondary)]"
+              className="inline-flex size-10 items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)] text-[var(--fg)] transition-[border-color,color] hover:border-[var(--fg-secondary)]"
             >
               <svg
                 width="18"
@@ -749,18 +749,18 @@ export default function ClipsTemplate() {
               >
                 <path
                   d="M6.35225 4.10225C6.57192 3.88258 6.92799 3.88258 7.14766 4.10225L11.6477 8.60225C11.8673 8.82192 11.8673 9.17799 11.6477 9.39766L7.14766 13.8977C6.92799 14.1173 6.57192 14.1173 6.35225 13.8977C6.13258 13.678 6.13258 13.3219 6.35225 13.1023L10.4545 8.99996L6.35225 4.89766C6.13258 4.67799 6.13258 4.32192 6.35225 4.10225Z"
-                  fill="#FAF9F5"
+                  fill="currentColor"
                 />
               </svg>
             </button>
           </div>
         </div>
 
-        <div className="border-x border-[#1a1a1a] pb-16">
+        <div className="border-x border-[var(--docs-border)] pb-16">
           <ClipPreviewSlider ref={sliderHandleRef} />
         </div>
 
-        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[#1a1a1a] px-6 py-10 sm:flex-row sm:items-center sm:gap-[120px] sm:px-8">
+        <div className="template-detail-cta-actions flex flex-col items-stretch justify-center gap-3 border-x border-t border-[var(--docs-border)] px-6 py-10 sm:flex-row sm:items-center sm:gap-[120px] sm:px-8">
           <a
             href={template.demoUrl}
             target="_blank"
