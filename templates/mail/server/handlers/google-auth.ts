@@ -75,6 +75,9 @@ function googleOAuthErrorPayload(
   const msg = error?.message || "Unknown error";
   const statusCode = Number(error?.statusCode || error?.status || 0);
   const isPermission =
+    error?.oauthErrorCode === "access_denied" ||
+    error?.oauthErrorCode === "forbidden" ||
+    error?.oauthErrorCode === "insufficient_scope" ||
     msg.includes("Insufficient Permission") ||
     msg.includes("insufficient_scope") ||
     /insufficient authentication scopes/i.test(msg) ||
@@ -170,16 +173,11 @@ export const handleGoogleCallback = defineEventHandler(
       if (googleError) {
         const errorDesc =
           (query.error_description as string | undefined) || googleError;
-        const isPermission =
-          googleError === "access_denied" ||
-          errorDesc.includes("Insufficient Permission");
-        const userMessage = isPermission
-          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
-          : `Connection failed: ${errorDesc}`;
-        return googleOAuthErrorResponse(event, new Error(userMessage), {
-          desktop,
-          flowId,
-        });
+        return googleOAuthErrorResponse(
+          event,
+          Object.assign(new Error(errorDesc), { oauthErrorCode: googleError }),
+          { desktop, flowId },
+        );
       }
 
       const code = query.code as string;
@@ -344,16 +342,11 @@ export const handleGoogleAddAccountCallback = defineEventHandler(
       if (googleError) {
         const errorDesc =
           (query.error_description as string | undefined) || googleError;
-        const isPermission =
-          googleError === "access_denied" ||
-          errorDesc.includes("Insufficient Permission");
-        const userMessage = isPermission
-          ? "Access was denied. Make sure to check all the permission boxes on the consent screen. If the app is in testing mode, add this email as a test user in Google Cloud Console."
-          : `Connection failed: ${errorDesc}`;
-        return googleOAuthErrorResponse(event, new Error(userMessage), {
-          desktop,
-          flowId,
-        });
+        return googleOAuthErrorResponse(
+          event,
+          Object.assign(new Error(errorDesc), { oauthErrorCode: googleError }),
+          { desktop, flowId },
+        );
       }
 
       const { redirectUri, owner: stateOwner } = state;

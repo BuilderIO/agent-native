@@ -98,12 +98,55 @@ describe("mergeRecordingReactions", () => {
   it("keeps optimistic reactions visible until the server copy arrives", () => {
     const merged = mergeRecordingReactions(
       [{ id: "reaction-1", emoji: "🔥", videoTimestampMs: 42_000 }],
-      [{ id: "pending-1", emoji: "🔥", videoTimestampMs: 42_000 }],
+      [
+        {
+          id: "pending-1",
+          emoji: "🔥",
+          videoTimestampMs: 42_000,
+          recordingId: "recording-1",
+        },
+      ],
+      "recording-1",
     );
 
     expect(merged).toEqual([
       { id: "reaction-1", emoji: "🔥", videoTimestampMs: 42_000 },
-      { id: "pending-1", emoji: "🔥", videoTimestampMs: 42_000 },
+      {
+        id: "pending-1",
+        emoji: "🔥",
+        videoTimestampMs: 42_000,
+        recordingId: "recording-1",
+      },
+    ]);
+  });
+
+  it("does not show pending reactions from another recording", () => {
+    expect(
+      mergeRecordingReactions(
+        [],
+        [
+          {
+            id: "pending-a",
+            emoji: "🔥",
+            videoTimestampMs: 42_000,
+            recordingId: "recording-a",
+          },
+          {
+            id: "pending-b",
+            emoji: "👏",
+            videoTimestampMs: 5_000,
+            recordingId: "recording-b",
+          },
+        ],
+        "recording-b",
+      ),
+    ).toEqual([
+      {
+        id: "pending-b",
+        emoji: "👏",
+        videoTimestampMs: 5_000,
+        recordingId: "recording-b",
+      },
     ]);
   });
 });
@@ -113,11 +156,28 @@ describe("removePendingReaction", () => {
     expect(
       removePendingReaction(
         [
-          { id: "pending-1", emoji: "🔥", videoTimestampMs: 42_000 },
-          { id: "pending-2", emoji: "👏", videoTimestampMs: 42_000 },
+          {
+            id: "pending-1",
+            emoji: "🔥",
+            videoTimestampMs: 42_000,
+            recordingId: "recording-1",
+          },
+          {
+            id: "pending-2",
+            emoji: "👏",
+            videoTimestampMs: 42_000,
+            recordingId: "recording-1",
+          },
         ],
         "pending-1",
       ),
-    ).toEqual([{ id: "pending-2", emoji: "👏", videoTimestampMs: 42_000 }]);
+    ).toEqual([
+      {
+        id: "pending-2",
+        emoji: "👏",
+        videoTimestampMs: 42_000,
+        recordingId: "recording-1",
+      },
+    ]);
   });
 });

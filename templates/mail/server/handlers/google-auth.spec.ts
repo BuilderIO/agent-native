@@ -184,6 +184,28 @@ describe("Mail Google auth-url handlers", () => {
     expect(message).not.toContain("second-login@example.com");
   });
 
+  it("treats scope failures from the primary callback query as missing permissions", async () => {
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://mail.agent-native.com/_agent-native/google/callback",
+      owner: "owner@example.com",
+    });
+    mocks.getAppUrl.mockReturnValue(
+      "https://mail.agent-native.com/_agent-native/google/callback",
+    );
+    mocks.oauthErrorPage.mockImplementation((message: string) => message);
+
+    const response = await handleGoogleCallback({
+      query: {
+        error: "forbidden",
+        error_description: "Request had insufficient authentication scopes.",
+      },
+    } as any);
+
+    expect(response).toContain("required permissions");
+    expect(response).toContain("Google Cloud Console");
+  });
+
   it("treats 403 scope failures as missing Google permissions", async () => {
     const { handleGoogleAddAccountCallback } = await import("./google-auth.js");
     mocks.getSession.mockResolvedValue({ email: "owner@example.com" });

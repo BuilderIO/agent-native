@@ -116,14 +116,27 @@ type RecordingReaction = {
   videoTimestampMs: number;
 };
 
+type PendingRecordingReaction = RecordingReaction & {
+  recordingId: string;
+};
+
 export function mergeRecordingReactions(
   serverReactions: RecordingReaction[] | undefined,
-  pendingReactions: RecordingReaction[],
+  pendingReactions: PendingRecordingReaction[],
+  recordingId: string | undefined,
 ) {
   const seen = new Set<string>();
   const merged: RecordingReaction[] = [];
+  const visiblePendingReactions = recordingId
+    ? pendingReactions.filter(
+        (reaction) => reaction.recordingId === recordingId,
+      )
+    : [];
 
-  for (const reaction of [...(serverReactions ?? []), ...pendingReactions]) {
+  for (const reaction of [
+    ...(serverReactions ?? []),
+    ...visiblePendingReactions,
+  ]) {
     const key = `${reaction.id}:${reaction.emoji}:${reaction.videoTimestampMs}`;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -134,7 +147,7 @@ export function mergeRecordingReactions(
 }
 
 export function removePendingReaction(
-  pendingReactions: RecordingReaction[],
+  pendingReactions: PendingRecordingReaction[],
   pendingId: string,
 ) {
   return pendingReactions.filter((reaction) => reaction.id !== pendingId);
@@ -335,9 +348,9 @@ export default function RecordingPage() {
   const lastPlayerStateWriteRef = useRef(0);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
   const [metadataRefreshUntil, setMetadataRefreshUntil] = useState(0);
-  const [pendingReactions, setPendingReactions] = useState<RecordingReaction[]>(
-    [],
-  );
+  const [pendingReactions, setPendingReactions] = useState<
+    PendingRecordingReaction[]
+  >([]);
 
   const playerDataQ = useActionQuery<any>(
     "get-recording-player-data",
@@ -441,8 +454,12 @@ export default function RecordingPage() {
   const comments = playerDataQ.data?.comments ?? [];
   const reactions = useMemo(
     () =>
-      mergeRecordingReactions(playerDataQ.data?.reactions, pendingReactions),
-    [pendingReactions, playerDataQ.data?.reactions],
+      mergeRecordingReactions(
+        playerDataQ.data?.reactions,
+        pendingReactions,
+        recordingId,
+      ),
+    [pendingReactions, playerDataQ.data?.reactions, recordingId],
   );
   const chapters = playerDataQ.data?.chapters ?? [];
   const transcriptSegments = playerDataQ.data?.transcript?.segments ?? [];
@@ -1769,12 +1786,13 @@ export default function RecordingPage() {
                         onReact={(emoji) => {
                           tracking.reportReaction(emoji);
                           const liveMs = resolvePlaybackMs();
-                          const pendingReaction: RecordingReaction = {
+                          const pendingReaction: PendingRecordingReaction = {
                             id: `pending-${Date.now()}-${Math.random()
                               .toString(36)
                               .slice(2)}`,
                             emoji,
                             videoTimestampMs: liveMs,
+                            recordingId: recording.id,
                           };
                           setPendingReactions((current) => [
                             ...current,

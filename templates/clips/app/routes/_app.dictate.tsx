@@ -159,8 +159,8 @@ function dayBucket(iso: string): string {
   }
 }
 
-export function dictationsRefetchInterval(): number {
-  return 2_000;
+export function dictationsRefetchInterval(isActive: boolean): number | false {
+  return isActive ? 2_000 : false;
 }
 
 function sourceMeta(
@@ -698,14 +698,6 @@ function DownloadDesktopAppCard() {
 
 export default function DictateRoute() {
   const t = useT();
-  const { data, isLoading, isError } = useActionQuery<
-    { dictations: Dictation[] } | Dictation[] | undefined
-  >(
-    "list-dictations",
-    {},
-    { retry: false, refetchInterval: dictationsRefetchInterval() },
-  );
-
   const { isDesktopApp } = useDesktopPromo();
   const [filter, setFilter] = useState<SourceFilter>("all");
   const [listening, setListening] = useState(false);
@@ -714,6 +706,20 @@ export default function DictateRoute() {
   const [speechSupported, setSpeechSupported] = useState(false);
   const qc = useQueryClient();
   const createDictation = useActionMutation("create-dictation");
+  const { data, isLoading, isError } = useActionQuery<
+    { dictations: Dictation[] } | Dictation[] | undefined
+  >(
+    "list-dictations",
+    {},
+    {
+      retry: false,
+      // Action-backed mutations invalidate this query when a desktop-created
+      // dictation lands. Poll only while browser work is active or saving,
+      // rather than running a permanent interval over idle history.
+      refetchInterval: () =>
+        dictationsRefetchInterval(listening || createDictation.isPending),
+    },
+  );
 
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const transcriptRef = useRef("");
