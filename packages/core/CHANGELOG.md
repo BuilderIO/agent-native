@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.164.10
+
+### Patch Changes
+
+- 6a18780: Keep the beta environment switcher visible to signed-out visitors, including the standalone auth page.
+- e439054: Support reusable Code Agent worktrees and reliable local chat forking across Desktop sessions.
+- 5ececad: Surface sync-version allocator reseed failures while preserving the existing retry and clock-fallback behavior.
+
 ## 0.164.9
 
 ### Patch Changes
