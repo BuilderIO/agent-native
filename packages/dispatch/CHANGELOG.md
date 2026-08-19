@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.30.2
+
+### Patch Changes
+
+- 330cf77: Keep impersonal HTML redirects eligible for the shared SSR edge cache.
+
 ## 0.30.1
 
 ### Patch Changes
