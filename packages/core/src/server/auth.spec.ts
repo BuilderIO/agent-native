@@ -1381,6 +1381,19 @@ describe("server/auth", () => {
           state.desktopBrowserBindingHash!,
         ),
       ).toBe(true);
+
+      const httpsInitiator = createJsonPostEvent(
+        "/_agent-native/google/auth-url?desktop=1&flow_id=bound-flow-https",
+        {},
+        { "x-agent-native-desktop-verifier": "w".repeat(32) },
+        "https://localhost",
+      );
+      const httpsResult = await authUrlHandler(httpsInitiator);
+      expect(httpsResult.url).toBeTypeOf("string");
+      const httpsSetCookie = httpsInitiator.res.headers.get("set-cookie") ?? "";
+      expect(httpsSetCookie).toContain("SameSite=None");
+      expect(httpsSetCookie).toContain("Secure");
+      expect(httpsSetCookie).not.toContain("Partitioned");
     });
 
     it("lets templates own Google OAuth routes when opted out", async () => {
