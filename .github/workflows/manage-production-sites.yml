@@ -85,6 +85,14 @@ jobs:
               return new Promise((resolve) => setTimeout(resolve, ms));
             }
 
+            function publishedAtTimestamp(deploy) {
+              const value =
+                typeof deploy?.published_at === 'string'
+                  ? Date.parse(deploy.published_at)
+                  : Number.NaN;
+              return Number.isFinite(value) ? value : null;
+            }
+
             async function readJson(response, label) {
               const text = await response.text();
               let body = null;
@@ -261,19 +269,35 @@ jobs:
               const currentId = currentSite.published_deploy?.id;
               if (!currentId) throw new Error(`[${name}] has no published production deploy.`);
 
+              const currentDeploy = await readJson(
+                await request(`${API}/sites/${site.siteId}/deploys/${currentId}`, { headers }),
+                `[${name}] published deploy history anchor`,
+              );
+              const currentPublishedAt = publishedAtTimestamp(currentDeploy);
+              if (currentPublishedAt === null) {
+                throw new Error(
+                  `[${name}] current production deploy ${currentId} has no valid published_at timestamp.`,
+                );
+              }
+
               const deploys = await readJson(
                 await request(`${API}/sites/${site.siteId}/deploys?per_page=100`, { headers }),
                 `[${name}] production deploy history`,
               );
               const previous = deploys
+                .map((deploy) => ({
+                  deploy,
+                  publishedAt: publishedAtTimestamp(deploy),
+                }))
                 .filter(
-                  (deploy) =>
+                  ({ deploy, publishedAt }) =>
                     deploy.context === 'production' &&
                     deploy.state === 'ready' &&
                     deploy.id !== currentId &&
-                    deploy.published_at,
+                    publishedAt !== null &&
+                    publishedAt < currentPublishedAt,
                 )
-                .sort((left, right) => String(right.published_at).localeCompare(String(left.published_at)))[0];
+                .sort((left, right) => right.publishedAt - left.publishedAt)[0]?.deploy;
               if (!previous) throw new Error(`[${name}] has no prior ready production deploy to restore.`);
 
               await readJson(
