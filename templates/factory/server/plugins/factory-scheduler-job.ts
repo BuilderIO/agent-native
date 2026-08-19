@@ -169,8 +169,7 @@ type AutomationSeed = {
   body: string;
 };
 
-const FACTORY_DEFAULT_MODEL =
-  process.env.FACTORY_AUTOMATION_MODEL?.trim() || "gpt-5.6-luna";
+const FACTORY_DEFAULT_MODEL = "gpt-5.6-luna";
 const FACTORY_DEFAULT_MAX_ITERATIONS = 32;
 const FACTORY_DEFAULT_MAX_RUN_INPUT_TOKENS = 1_000_000;
 const SKIP_RECORD_GUARD =
