@@ -17,7 +17,7 @@ metadata:
 Editor **behavior** lives in `app/pages/design-editor/`, not in
 `app/pages/DesignEditor.tsx`.
 
-`DesignEditor.tsx` is ~20,700 lines and holds only three things: state
+`DesignEditor.tsx` is ~20,900 lines and holds only three things: state
 declarations, the `useCallback` wrappers that gather arguments, and the JSX.
 Every wrapper delegates to a `run<Name>()` command module.
 
@@ -27,7 +27,7 @@ exhaust your context before you find the code.
 
 | Directory | Holds |
 | --- | --- |
-| `design-editor/commands/` | 85 one-per-action modules, each exporting `run<Name>(args, …)`. Start at `commands/README.md` |
+| `design-editor/commands/` | 86 one-per-action modules, each exporting `run<Name>(args, …)`. Start at `commands/README.md` |
 | `design-editor/effects/` | Subscription and autosave loops (collab text, motion autosave, agent selection mirroring) |
 | `design-editor/derive/` | Pure derivations (`overview-screens.ts`, `design-breakpoints.ts`) |
 | `design-editor/domains/` | Whole-domain hooks owning state + refs + effects + handlers together (`use-tweaks.ts`) |
@@ -38,7 +38,7 @@ exhaust your context before you find the code.
 | Task | File |
 | --- | --- |
 | Undo / redo | `commands/undo.ts`, `commands/redo.ts` |
-| Paste | `commands/editor-paste.ts` routes; `commands/paste-selection.ts` does layers |
+| Paste | `commands/editor-paste.ts` routes; `commands/paste-selection.ts` and `commands/paste-over-selection.ts` do layers |
 | Copy | `commands/copy-selection.ts` |
 | Delete | `commands/delete-selection.ts` (layers), `commands/delete-files.ts` (screens) |
 | Duplicate | `commands/duplicate-selection.ts`, `commands/duplicate-screen.ts` |
@@ -63,7 +63,7 @@ that test and cannot be extracted without changing when values are read.
 
 ## Navigating DesignEditor.tsx when you must
 
-The file carries ~79 section banners. This prints a table of contents:
+The file carries ~82 section banners. This prints a table of contents:
 
 ```bash
 grep -n "──" app/pages/DesignEditor.tsx

@@ -21,7 +21,7 @@ a module breaks those — re-point the spec in the same commit.
 | Module    | Does                                                                                                       |
 | --------- | ---------------------------------------------------------------------------------------------------------- |
 | `undo.ts` | Undo one step, routing across pending live edits, clipboard pastes, structure replays, and content history |
-| `redo.ts` | Redo the last undone step, mirroring `undo.ts` routing                                                     |
+| `redo.ts` | Redo the last undone step, mirroring undo routing                                                          |
 
 ## Clipboard
 
@@ -29,6 +29,7 @@ a module breaks those — re-point the spec in the same commit.
 | --------------------------------------- | ------------------------------------------------------------------------ |
 | `copy-selection.ts`                     | Copy selected layers to the design clipboard and the system clipboard    |
 | `paste-selection.ts`                    | Paste clipboard layers into the target screen with cascade placement     |
+| `paste-over-selection.ts`               | Paste clipboard layers alongside the current selection                   |
 | `paste-copied-screens.ts`               | Paste whole copied screens as new files                                  |
 | `paste-to-replace.ts`                   | Replace the selected layer with the clipboard payload                    |
 | `editor-paste.ts`                       | Top-level paste router: image files vs Figma payload vs design clipboard |

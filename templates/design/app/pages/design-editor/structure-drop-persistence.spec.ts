@@ -2,10 +2,6 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const editorSource = readFileSync(
-  new URL("../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
 // setFlowPositioningOverrideForNodeInHtml/setAbsolutePositioningForNodeInHtml
 // live in html-layer-positioning.ts (extracted from DesignEditor.tsx as a
 // pure, non-closure module-scope helper module); the second test below

@@ -526,7 +526,6 @@ import {
   extractLayerPosition,
   getElementOuterHtml,
   insertClonedHtmlLayer,
-  insertClonedHtmlLayers,
   prepareClonedHtmlLayersForLiveInsert,
   preserveClipboardLayerName,
   setPenNodesAttributeOnElement,
@@ -642,6 +641,7 @@ import { runModeChange } from "./design-editor/commands/mode-change";
 import { runNudgeSelection } from "./design-editor/commands/nudge-selection";
 import { runOverviewPrimitiveReparent } from "./design-editor/commands/overview-primitive-reparent";
 import { runPasteCopiedScreens } from "./design-editor/commands/paste-copied-screens";
+import { runPasteOverSelection } from "./design-editor/commands/paste-over-selection";
 import { runPasteSelection } from "./design-editor/commands/paste-selection";
 import { runPasteToReplace } from "./design-editor/commands/paste-to-replace";
 import { runPastedImageFiles } from "./design-editor/commands/pasted-image-files";
@@ -10921,67 +10921,52 @@ function DesignEditor() {
     [canEditDesign, handlePastedImageFiles],
   );
 
-  // OS-file-drop (contract 13): MultiScreenCanvas's `onDropFiles` reports a
-  // canvas-space drop point plus the screen frame id under it (if any);
-  // DesignCanvas's `onDropFiles` reports a point already in screen-content
-  // space for the active single screen. Both reuse the exact same image
-  // insertion primitives handlePastedImageFiles already established (upload,
-  // cloneHtmlLayerAtPosition, pasteCascadeRef stagger, one
-  // applyLocalContentUpdate/applyFileContentUpdate + selectInsertedLayers per
-  // file) — only the target resolution differs (an explicit drop point
-  // instead of a best-effort viewport-center guess), so this is written as
-  // its own pair of handlers rather than overloading
-  // handlePastedImageFiles's signature.
   const insertDroppedImageFiles = useCallback(
     (
       files: File[],
       targetFileId: string,
       localPoint: { x: number; y: number },
-    ) => {
-      if (files.length === 0 || !canEditDesign) return;
-      void (async () => {
-        for (const file of files) {
-          const imageUrl = await uploadImageFileForHtml(file);
-          if (!imageUrl) continue;
-          const baseContent =
-            targetFileId === activeFile?.id
-              ? getFreshActiveContent()
-              : (getScreenContent(targetFileId) ?? "");
-          const cascadeOffset = pasteCascadeRef.current * 16;
-          pasteCascadeRef.current += 1;
-          const nodeId = uniqueLayerId("pasted-image");
-          const html = `<img src="${imageUrl}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
-          const nextContent = cloneHtmlLayerAtPosition(baseContent, html, {
-            x: localPoint.x + cascadeOffset,
-            y: localPoint.y + cascadeOffset,
-          });
-          if (!nextContent) {
-            toast.error(t("designEditor.toasts.duplicateElementFailed"));
-            continue;
-          }
-          if (targetFileId === activeFile?.id) {
-            applyLocalContentUpdate(nextContent, {
-              forcePreviewFullDocument: true,
-            });
-          } else {
-            applyFileContentUpdate(targetFileId, nextContent, {
-              forcePreviewFullDocument: true,
-            });
-          }
-          selectInsertedLayers(targetFileId, nextContent, [nodeId]);
-        }
-      })();
-    },
+    ) =>
+      runPastedImageFiles(
+        {
+          activeFile,
+          applyFileContentUpdate,
+          applyLocalContentUpdate,
+          boardFileId,
+          canEditDesign,
+          canvasContainerRef,
+          canvasFrameGeometryById,
+          getFreshActiveContent,
+          getScreenContent,
+          overviewScreens,
+          overviewSelectedScreenIds,
+          pasteCascadeRef,
+          selectInsertedLayers,
+          t,
+          uploadImageFileForHtml,
+          viewModeRef,
+          zoom,
+        },
+        files,
+        { fileId: targetFileId, point: localPoint },
+      ),
     [
       activeFile?.id,
       applyFileContentUpdate,
       applyLocalContentUpdate,
+      boardFileId,
       canEditDesign,
+      canvasContainerRef,
+      canvasFrameGeometryById,
       getFreshActiveContent,
       getScreenContent,
+      overviewScreens,
+      overviewSelectedScreenIds,
       selectInsertedLayers,
       t,
       uploadImageFileForHtml,
+      viewModeRef,
+      zoom,
     ],
   );
 
@@ -11064,44 +11049,27 @@ function DesignEditor() {
     };
   }, [embedded, handleEditorPaste, pendingQuestions]);
 
-  const handlePasteOverSelection = useCallback(() => {
-    const entries = getCanvasClipboardEntries();
-    if (!activeFile || entries.length === 0) return;
-    const baseContent = getFreshActiveContent();
-    if (selectedElement?.boundingRect) {
-      const { x, y } = selectedElement.boundingRect;
-      const result = insertClonedHtmlLayers(
-        baseContent,
-        entries.map((entry) => entry.html),
-        {
-          positions: entries.map((_, index) => ({
-            x: x + index * 16,
-            y: y + index * 16,
-          })),
-          styleSnapshots: entries.map((entry) => entry.portableStyleSnapshot),
-          managedStyleSnapshots: entries.map(
-            (entry) => entry.managedStyleSnapshot,
-          ),
-        },
-      );
-      if (!result) return;
-      applyLocalContentUpdate(result.content, {
-        forcePreviewFullDocument: true,
-      });
-      selectInsertedLayers(activeFile.id, result.content, result.rootNodeIds);
-    } else {
-      void handlePasteSelection();
-    }
-  }, [
-    activeFile,
-    applyLocalContentUpdate,
-    boardFileId,
-    getCanvasClipboardEntries,
-    getFreshActiveContent,
-    handlePasteSelection,
-    selectInsertedLayers,
-    selectedElement,
-  ]);
+  const handlePasteOverSelection = useCallback(
+    () =>
+      runPasteOverSelection({
+        activeFile,
+        applyLocalContentUpdate,
+        getCanvasClipboardEntries,
+        getFreshActiveContent,
+        handlePasteSelection,
+        selectedElement,
+        selectInsertedLayers,
+      }),
+    [
+      activeFile,
+      applyLocalContentUpdate,
+      getCanvasClipboardEntries,
+      getFreshActiveContent,
+      handlePasteSelection,
+      selectInsertedLayers,
+      selectedElement,
+    ],
+  );
 
   // Figma's Shift+Cmd+R — "Paste to replace": the current selection's node
   // is swapped out for the clipboard's node in place, as a single history

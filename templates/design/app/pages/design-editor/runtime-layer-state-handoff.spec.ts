@@ -2,19 +2,6 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const editorSource = readFileSync(
-  new URL("../DesignEditor.tsx", import.meta.url),
-  "utf8",
-);
-
-function sourceSection(start: string, end: string): string {
-  const startIndex = editorSource.indexOf(start);
-  const endIndex = editorSource.indexOf(end, startIndex + start.length);
-  expect(startIndex).toBeGreaterThanOrEqual(0);
-  expect(endIndex).toBeGreaterThan(startIndex);
-  return editorSource.slice(startIndex, endIndex);
-}
-
 function commandSource(file: string): string {
   return readFileSync(new URL(`./commands/${file}`, import.meta.url), "utf8");
 }

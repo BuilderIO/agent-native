@@ -13,6 +13,11 @@ import {
 } from "@/pages/design-editor/overview-camera";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+export interface PastedImageFilesTarget {
+  fileId: string;
+  point: { x: number; y: number };
+}
+
 export interface PastedImageFilesArgs {
   activeFile: DesignFile;
   applyFileContentUpdate: (
@@ -83,54 +88,79 @@ export function runPastedImageFiles(
     zoom,
   }: PastedImageFilesArgs,
   files: File[],
+  target?: PastedImageFilesTarget,
 ) {
   if (files.length === 0 || !canEditDesign) return false;
-  if (viewModeRef.current !== "overview") {
-    const targetFileId = activeFile?.id;
-    if (!targetFileId) return false;
+
+  const insertFilesAtPoint = (
+    targetFileId: string,
+    localPoint: { x: number; y: number } | (() => { x: number; y: number }),
+  ) => {
     void (async () => {
       for (const file of files) {
         const imageUrl = await uploadImageFileForHtml(file);
         if (!imageUrl) continue;
-        const baseContent = getFreshActiveContent();
-        const center = (() => {
-          const iframe = canvasContainerRef.current?.querySelector<HTMLElement>(
-            "[data-design-preview-iframe]",
-          );
-          if (iframe) {
-            const iframeRect = iframe.getBoundingClientRect();
-            const factor = zoom / 100;
-            return {
-              x: Math.max(0, iframeRect.width / 2 / factor),
-              y: Math.max(0, iframeRect.height / 2 / factor),
-            };
-          }
-          const rect = canvasContainerRef.current?.getBoundingClientRect();
-          return rect
-            ? {
-                x: Math.max(0, rect.width / 2),
-                y: Math.max(0, rect.height / 2),
-              }
-            : { x: 120, y: 120 };
-        })();
+        const baseContent =
+          targetFileId === activeFile?.id
+            ? getFreshActiveContent()
+            : (getScreenContent(targetFileId) ?? "");
+        const resolvedPoint =
+          typeof localPoint === "function" ? localPoint() : localPoint;
         const cascadeOffset = pasteCascadeRef.current * 16;
         pasteCascadeRef.current += 1;
         const nodeId = uniqueLayerId("pasted-image");
         const html = `<img src="${imageUrl}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
         const nextContent = cloneHtmlLayerAtPosition(baseContent, html, {
-          x: center.x + cascadeOffset,
-          y: center.y + cascadeOffset,
+          x: resolvedPoint.x + cascadeOffset,
+          y: resolvedPoint.y + cascadeOffset,
         });
         if (!nextContent) {
           toast.error(t("designEditor.toasts.duplicateElementFailed"));
           continue;
         }
-        applyLocalContentUpdate(nextContent, {
-          forcePreviewFullDocument: true,
-        });
+        if (targetFileId === activeFile?.id) {
+          applyLocalContentUpdate(nextContent, {
+            forcePreviewFullDocument: true,
+          });
+        } else {
+          applyFileContentUpdate(targetFileId, nextContent, {
+            forcePreviewFullDocument: true,
+          });
+        }
         selectInsertedLayers(targetFileId, nextContent, [nodeId]);
       }
     })();
+  };
+
+  if (target) {
+    insertFilesAtPoint(target.fileId, target.point);
+    return true;
+  }
+
+  if (viewModeRef.current !== "overview") {
+    const targetFileId = activeFile?.id;
+    if (!targetFileId) return false;
+    const getCenter = () => {
+      const iframe = canvasContainerRef.current?.querySelector<HTMLElement>(
+        "[data-design-preview-iframe]",
+      );
+      if (iframe) {
+        const iframeRect = iframe.getBoundingClientRect();
+        const factor = zoom / 100;
+        return {
+          x: Math.max(0, iframeRect.width / 2 / factor),
+          y: Math.max(0, iframeRect.height / 2 / factor),
+        };
+      }
+      const rect = canvasContainerRef.current?.getBoundingClientRect();
+      return rect
+        ? {
+            x: Math.max(0, rect.width / 2),
+            y: Math.max(0, rect.height / 2),
+          }
+        : { x: 120, y: 120 };
+    };
+    insertFilesAtPoint(targetFileId, getCenter);
     return true;
   }
 
@@ -174,37 +204,6 @@ export function runPastedImageFiles(
       }
     : anchorCanvasPoint;
 
-  void (async () => {
-    for (const file of files) {
-      const imageUrl = await uploadImageFileForHtml(file);
-      if (!imageUrl) continue;
-      const baseContent =
-        targetFileId === activeFile?.id
-          ? getFreshActiveContent()
-          : (getScreenContent(targetFileId) ?? "");
-      const cascadeOffset = pasteCascadeRef.current * 16;
-      pasteCascadeRef.current += 1;
-      const nodeId = uniqueLayerId("pasted-image");
-      const html = `<img src="${imageUrl}" alt="${escapeHtmlAttributeValue(file.name || "Pasted image")}" data-agent-native-node-id="${nodeId}" data-agent-native-layer-name="Pasted image" style="position:absolute;width:320px;height:auto;" />`;
-      const nextContent = cloneHtmlLayerAtPosition(baseContent, html, {
-        x: localAnchor.x + cascadeOffset,
-        y: localAnchor.y + cascadeOffset,
-      });
-      if (!nextContent) {
-        toast.error(t("designEditor.toasts.duplicateElementFailed"));
-        continue;
-      }
-      if (targetFileId === activeFile?.id) {
-        applyLocalContentUpdate(nextContent, {
-          forcePreviewFullDocument: true,
-        });
-      } else {
-        applyFileContentUpdate(targetFileId, nextContent, {
-          forcePreviewFullDocument: true,
-        });
-      }
-      selectInsertedLayers(targetFileId, nextContent, [nodeId]);
-    }
-  })();
+  insertFilesAtPoint(targetFileId, localAnchor);
   return true;
 }
