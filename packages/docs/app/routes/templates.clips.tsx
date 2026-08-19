@@ -333,21 +333,13 @@ export default function ClipsTemplate() {
             <div
               key={stat.title}
               className={`flex min-h-[220px] flex-col justify-center gap-3 border-[var(--docs-border)] p-8 sm:min-h-[260px] sm:p-10 ${
-                index === 1 ? "bg-[#0a0a0a]" : ""
+                index === 1 ? "bg-[var(--bg-secondary)]" : ""
               } ${index > 0 ? "border-t sm:border-t-0 sm:border-s" : ""}`}
             >
-              <div
-                className={`text-3xl font-medium tracking-tight sm:text-4xl ${
-                  index === 1 ? "!text-white" : "text-[var(--fg)]"
-                }`}
-              >
+              <div className="text-3xl font-medium tracking-tight text-[var(--fg)] sm:text-4xl">
                 {stat.title}
               </div>
-              <div
-                className={`text-lg sm:text-xl ${
-                  index === 1 ? "!text-white/60" : "text-[var(--fg-secondary)]"
-                }`}
-              >
+              <div className="text-lg text-[var(--fg-secondary)] sm:text-xl">
                 {stat.caption}
               </div>
             </div>
@@ -549,14 +541,14 @@ export default function ClipsTemplate() {
               </li>
             </ul>
           </div>
-          <div className="flex flex-col bg-[#0f0f0f]">
-            <h3 className="m-0 px-6 pt-10 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] !text-white sm:px-8 lg:px-10 lg:pt-16">
+          <div className="flex flex-col bg-[var(--bg-secondary)]">
+            <h3 className="m-0 px-6 pt-10 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)] sm:px-8 lg:px-10 lg:pt-16">
               {t("templateLanding.clips.s021")}
             </h3>
-            <p className="m-0 px-6 pb-6 pt-6 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#9a9997] sm:px-8 lg:px-10 lg:pb-10">
+            <p className="m-0 px-6 pb-6 pt-6 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[var(--fg-secondary)] sm:px-8 lg:px-10 lg:pb-10">
               {t("templateLanding.clips.s022")}
             </p>
-            <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[#e0e0d7] sm:px-8 lg:px-10">
+            <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[var(--fg)] sm:px-8 lg:px-10">
               <li className="flex items-center gap-4 py-3">
                 <svg
                   className="shrink-0"
