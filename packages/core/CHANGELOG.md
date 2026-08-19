@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.164.14
+
+### Patch Changes
+
+- 667a1c1: Deliver authenticated Desktop task tools to local code-agent MCP clients.
+- 667a1c1: Add a development-only configuration control for isolated Desktop authentication acceptance runs.
+
 ## 0.164.13
 
 ### Patch Changes
