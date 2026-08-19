@@ -6,7 +6,6 @@ import { sitePathForLocale } from "../components/docs-locale";
 import { applyFirstTouchAttributionToLink } from "../components/marketing-attribution";
 import { SectionDivider } from "../components/SectionDivider";
 import {
-  TemplateActivationFrame,
   TemplateCapabilityGrid,
   TemplateComparisonTable,
   TemplateFinalCta,
@@ -131,28 +130,6 @@ export default function DesignTemplate() {
           />
         }
       />
-
-      <TemplateActivationFrame>
-        <div className="flex w-full min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-center sm:gap-[120px]">
-          <div className="template-detail-actions contents">
-            <a
-              href="https://design.agent-native.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="primary-button"
-              onClick={(event) => {
-                applyFirstTouchAttributionToLink(event.currentTarget);
-                trackEvent("try live demo", {
-                  template: "design",
-                  location: "landing_page",
-                });
-              }}
-            >
-              {t("templateLanding.design.s008")}
-            </a>
-          </div>
-        </div>
-      </TemplateActivationFrame>
 
       <SectionDivider showOnSmallScreens={false} />
 
