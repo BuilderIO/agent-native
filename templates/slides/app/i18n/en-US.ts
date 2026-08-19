@@ -721,6 +721,7 @@ const messages = {
     chooseReferences: "Choose references",
     addDesignSystem: "+ Design system",
     importFrom: "Import from",
+    attachedFiles: "Attached",
     imported: "Imported",
     importedReferenceDeck: "Imported reference deck",
     referenceImportSuccess: "Imported successfully",

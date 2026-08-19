@@ -721,6 +721,7 @@ const messages = {
     chooseReferences: "参照を選択",
     addDesignSystem: "+ デザインシステム",
     importFrom: "インポート元",
+    attachedFiles: "添付ファイル",
     imported: "インポート済み",
     importedReferenceDeck: "インポートした参考デッキ",
     referenceImportSuccess: "インポートしました",

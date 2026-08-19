@@ -702,6 +702,7 @@ const messages = {
     chooseReferences: "选择参考资料",
     addDesignSystem: "+ 设计系统",
     importFrom: "导入自",
+    attachedFiles: "已附加文件",
     imported: "已导入",
     importedReferenceDeck: "已导入的参考幻灯片",
     referenceImportSuccess: "导入成功",

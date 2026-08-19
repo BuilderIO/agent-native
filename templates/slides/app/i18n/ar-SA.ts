@@ -737,6 +737,7 @@ const messages = {
     chooseReferences: "اختر المراجع",
     addDesignSystem: "+ نظام تصميم",
     importFrom: "استيراد من",
+    attachedFiles: "المرفقات",
     imported: "تم الاستيراد",
     importedReferenceDeck: "عرض مرجعي مستورد",
     referenceImportSuccess: "تم الاستيراد بنجاح",

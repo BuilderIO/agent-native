@@ -714,6 +714,7 @@ const messages = {
     chooseReferences: "참조 선택",
     addDesignSystem: "+ 디자인 시스템",
     importFrom: "가져오기",
+    attachedFiles: "첨부 파일",
     imported: "가져옴",
     importedReferenceDeck: "가져온 참고 덱",
     referenceImportSuccess: "성공적으로 가져왔습니다",

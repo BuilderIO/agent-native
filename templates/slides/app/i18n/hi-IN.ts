@@ -714,6 +714,7 @@ const messages = {
     chooseReferences: "संदर्भ चुनें",
     addDesignSystem: "+ डिज़ाइन सिस्टम",
     importFrom: "इससे आयात करें",
+    attachedFiles: "अटैच किया गया",
     imported: "इंपोर्ट किया गया",
     importedReferenceDeck: "इंपोर्ट किया गया रेफरेंस डेक",
     referenceImportSuccess: "सफलतापूर्वक इंपोर्ट किया गया",

@@ -697,6 +697,7 @@ const messages = {
     chooseReferences: "選擇參考資料",
     addDesignSystem: "+ 設計系統",
     importFrom: "匯入來源",
+    attachedFiles: "已附加檔案",
     imported: "已匯入",
     importedReferenceDeck: "已匯入的參考投影片",
     referenceImportSuccess: "匯入成功",
