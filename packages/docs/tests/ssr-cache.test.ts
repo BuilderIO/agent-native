@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { applyDocsSsrCacheKeyHeaders } from "../server/ssr-cache";
+import { applyDocsSsrCacheKeyHeaders } from "../lib/ssr-cache";
 
 describe("Docs SSR cache key wrapper", () => {
   afterEach(() => {

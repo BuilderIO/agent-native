@@ -10,7 +10,7 @@ import {
 import { getRequestHeader, getRequestURL, setHeader, type H3Event } from "h3";
 
 import { estimateMarkdownTokens } from "../../../core/src/agent-web/index";
-import { applyDocsSsrCacheKeyHeaders } from "../ssr-cache";
+import { applyDocsSsrCacheKeyHeaders } from "../../lib/ssr-cache";
 
 const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));

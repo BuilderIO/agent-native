@@ -17,7 +17,7 @@ import {
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
 import { wrapDocumentResponse } from "../../lib/analytics";
-import { applyDocsSsrCacheKeyHeaders } from "../ssr-cache";
+import { applyDocsSsrCacheKeyHeaders } from "../../lib/ssr-cache";
 
 const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
