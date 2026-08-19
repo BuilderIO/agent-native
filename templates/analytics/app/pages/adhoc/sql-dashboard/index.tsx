@@ -129,6 +129,7 @@ import {
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import BlankDashboard from "../BlankDashboard";
 import { DashboardSkeleton } from "../DashboardSkeleton";
@@ -598,8 +599,11 @@ function SqlDashboardPageContent({
   );
   const [editingName, setEditingName] = useState(false);
   const [nameInput, setNameInput] = useState("");
+  const nameInputRef = useAutoFocusSelect<HTMLInputElement>(editingName);
   const [editingDescription, setEditingDescription] = useState(false);
   const [descriptionInput, setDescriptionInput] = useState("");
+  const descriptionInputRef =
+    useAutoFocusSelect<HTMLTextAreaElement>(editingDescription);
   const [loaded, setLoaded] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [openDeleteAfterMenuClose, setOpenDeleteAfterMenuClose] =
@@ -1734,6 +1738,7 @@ function SqlDashboardPageContent({
       <div className="flex min-w-0 items-center gap-2">
         {editingName && canEdit ? (
           <Input
+            ref={nameInputRef}
             value={nameInput}
             onChange={(e) => setNameInput(e.target.value)}
             onBlur={handleSaveName}
@@ -2159,6 +2164,7 @@ function SqlDashboardPageContent({
       {/* Description (click to edit) */}
       {editingDescription && canEdit ? (
         <Textarea
+          ref={descriptionInputRef}
           value={descriptionInput}
           onChange={(e) => setDescriptionInput(e.target.value)}
           onBlur={handleSaveDescription}

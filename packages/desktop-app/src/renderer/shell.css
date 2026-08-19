@@ -238,6 +238,7 @@ body {
   --sidebar-accent: 0 0% 95%;
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
+  --desktop-chat-composer-background: 0 0% 100%;
   --agent-native-lower-surface: hsl(var(--sidebar-background));
   position: relative;
   display: grid;
@@ -246,6 +247,16 @@ body {
   min-width: 0;
   min-height: 0;
   background: var(--shell-bg);
+}
+
+/* The light desktop chat shell needs more contrast between the composer and
+   its surrounding surface; leave the shared card treatment unchanged. */
+.light
+  .desktop-chat-first-hub
+  [data-chat-first-app-pane]
+  .agent-sidebar-panel
+  .agent-composer-root {
+  background: hsl(var(--desktop-chat-composer-background));
 }
 
 @supports (background: color-mix(in srgb, white, black)) {
@@ -3792,4 +3803,346 @@ body {
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   padding: 0 9px;
+}
+
+.desktop-code-agent-schedules {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.desktop-code-agent-schedules__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 36px 48px 22px;
+}
+
+.desktop-code-agent-schedules__header h1,
+.desktop-code-agent-schedules__detail h2 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.desktop-code-agent-schedules__header h1 {
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.desktop-code-agent-schedules__header p:last-child {
+  margin: 7px 0 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+}
+
+.desktop-code-agent-schedules__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.desktop-code-agent-schedules__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 48px 16px;
+  padding: 0 10px;
+  border: 1px solid hsl(var(--input));
+  border-radius: calc(var(--radius) + 2px);
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-code-agent-schedules__toolbar input {
+  height: 40px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.desktop-code-agent-schedules__toolbar input:focus-visible {
+  box-shadow: none;
+}
+
+.desktop-code-agent-schedules__error {
+  margin: 0 48px 12px;
+  padding: 9px 11px;
+  border: 1px solid hsl(var(--destructive) / 0.35);
+  border-radius: var(--radius);
+  color: hsl(var(--destructive));
+  font-size: 12px;
+}
+
+.desktop-code-agent-schedules__body {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0 48px 36px;
+  overflow: hidden;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.desktop-code-agent-schedules__body--selected {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) + 2px);
+}
+
+.desktop-code-agent-schedules__list {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.desktop-code-agent-schedules__list-header,
+.desktop-code-agent-schedules__row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(100px, 150px);
+  align-items: center;
+  gap: 12px;
+}
+
+.desktop-code-agent-schedules__list-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px 16px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+
+.desktop-code-agent-schedules__list-header span:last-child {
+  text-align: right;
+}
+
+.desktop-code-agent-schedules__row {
+  width: 100%;
+  min-height: 70px;
+  padding: 13px 16px;
+  border: 0;
+  border-bottom: 1px solid hsl(var(--border) / 0.75);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.desktop-code-agent-schedules__row:hover,
+.desktop-code-agent-schedules__row--selected {
+  background: hsl(var(--accent) / 0.58);
+}
+
+.desktop-code-agent-schedules__row-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 50%;
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-code-agent-schedules__row-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.desktop-code-agent-schedules__row-copy strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-code-agent-schedules__row-copy span,
+.desktop-code-agent-schedules__row-next {
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-code-agent-schedules__row-next {
+  text-align: right;
+}
+
+.desktop-code-agent-schedules__empty {
+  display: grid;
+  min-height: 260px;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  padding: 40px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  text-align: center;
+}
+
+.desktop-code-agent-schedules__empty strong {
+  color: hsl(var(--foreground));
+  font-size: 14px;
+}
+
+.desktop-code-agent-schedules__detail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 18px;
+  overflow: auto;
+  padding: 24px;
+  border-left: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / 0.45);
+}
+
+.desktop-code-agent-schedules__detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.desktop-code-agent-schedules__detail h2 {
+  max-width: 270px;
+  font-size: 19px;
+}
+
+.desktop-code-agent-schedules__status {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.desktop-code-agent-schedules__status--paused {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-code-agent-schedules__detail > label {
+  display: grid;
+  gap: 6px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.desktop-code-agent-schedules__detail > label input,
+.desktop-code-agent-schedules__detail > label textarea,
+.desktop-code-agent-schedules__detail > label button {
+  font-weight: 400;
+}
+
+.desktop-code-agent-schedules__prompt {
+  padding: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground) / 0.86);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.desktop-code-agent-schedules__metadata {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.desktop-code-agent-schedules__metadata > div {
+  display: grid;
+  gap: 3px;
+}
+
+.desktop-code-agent-schedules__metadata dt,
+.desktop-code-agent-schedules__metadata dd {
+  margin: 0;
+}
+
+.desktop-code-agent-schedules__metadata dt {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.desktop-code-agent-schedules__metadata dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: hsl(var(--foreground));
+  font-size: 12px;
+}
+
+.desktop-code-agent-schedules__field-hint {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.desktop-code-agent-schedules__detail-actions,
+.desktop-code-agent-schedules__danger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.desktop-code-agent-schedules__danger {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+
+.desktop-code-agent-schedules__last-error {
+  margin: 0;
+  color: hsl(var(--destructive));
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 860px) {
+  .desktop-code-agent-schedules__header,
+  .desktop-code-agent-schedules__toolbar,
+  .desktop-code-agent-schedules__body {
+    margin-inline: 20px;
+  }
+
+  .desktop-code-agent-schedules__header {
+    padding-inline: 0;
+  }
+
+  .desktop-code-agent-schedules__body--selected {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  .desktop-code-agent-schedules__detail {
+    border-top: 1px solid hsl(var(--border));
+    border-left: 0;
+  }
 }
