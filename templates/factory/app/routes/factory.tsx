@@ -21,6 +21,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
 import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
@@ -163,6 +164,7 @@ type FactoryAutomation = {
   timezone?: string | null;
   condition?: string | null;
   canUpdate?: boolean;
+  updatedAt?: string | number | null;
   runs?: FactoryAutomationRun[] | null;
   pastRuns?: FactoryAutomationRun[] | null;
 };
@@ -980,7 +982,8 @@ function AutomationsView({
         current.body === nextDraft.body &&
         current.model === nextDraft.model &&
         current.schedule === nextDraft.schedule &&
-        current.enabled === nextDraft.enabled
+        current.enabled === nextDraft.enabled &&
+        current.updatedAt === nextDraft.updatedAt
       ) {
         return current;
       }
@@ -990,16 +993,25 @@ function AutomationsView({
 
   async function saveAutomation() {
     if (!draft) return;
-    await saveMutation.mutateAsync({
-      factoryId,
-      automationId: draft.id,
-      name: draft.name,
-      prompt: draft.prompt ?? draft.body ?? "",
-      model: draft.model ?? "",
-      schedule: draft.schedule ?? "",
-      enabled: draft.enabled,
-    });
-    await automationsQuery.refetch();
+    try {
+      await saveMutation.mutateAsync({
+        factoryId,
+        automationId: draft.id,
+        name: draft.name,
+        prompt: draft.prompt ?? draft.body ?? "",
+        model: draft.model ?? "",
+        schedule: draft.schedule ?? "",
+        enabled: draft.enabled,
+      });
+      await automationsQuery.refetch();
+      toast.success(t("factoryRoute.automationSaved"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("factoryRoute.automationSaveFailed"),
+      );
+    }
   }
 
   async function runAutomation() {
@@ -1200,8 +1212,24 @@ function AutomationsView({
                   </div>
                 </div>
                 <div className="grid gap-1.5">
-                  <Label>{t("factoryRoute.automationPrompt")}</Label>
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <Label htmlFor="factory-automation-prompt">
+                      {t("factoryRoute.automationPrompt")}
+                    </Label>
+                    {draft.updatedAt ? (
+                      <span className="capitalize text-xs text-muted-foreground">
+                        {t("factoryRoute.automationLastUpdated")}{" "}
+                        <time
+                          dateTime={new Date(draft.updatedAt).toISOString()}
+                          title={formatAutomationDate(draft.updatedAt)}
+                        >
+                          {formatInboxDateTime(draft.updatedAt)}
+                        </time>
+                      </span>
+                    ) : null}
+                  </div>
                   <Textarea
+                    id="factory-automation-prompt"
                     value={draft.prompt ?? draft.body ?? ""}
                     onChange={(event) =>
                       setDraft({ ...draft, prompt: event.target.value })
