@@ -358,25 +358,25 @@ export default function ClipsTemplate() {
       <SectionDivider showOnSmallScreens={false} />
 
       {/* Core capabilities */}
-      <section className="border-t border-[#1a1a1a]">
-        <div className="flex flex-col border-y border-[#1a1a1a] lg:flex-row lg:items-stretch">
-          <div className="flex shrink-0 flex-col gap-6 border-b border-[#1a1a1a] bg-[#0a0a0a] py-2 ps-2 pe-4 sm:py-4 sm:ps-4 sm:pe-8 lg:w-1/3 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
-            <h2 className="text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] !text-white">
+      <section className="border-t border-[var(--docs-border)]">
+        <div className="flex flex-col border-y border-[var(--docs-border)] lg:flex-row lg:items-stretch">
+          <div className="flex shrink-0 flex-col gap-6 border-b border-[var(--docs-border)] bg-[var(--bg-secondary)] py-2 ps-2 pe-4 sm:py-4 sm:ps-4 sm:pe-8 lg:w-1/3 lg:border-b-0 lg:border-e lg:py-8 lg:ps-8 lg:pe-16">
+            <h2 className="text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
               {t("templateLanding.clips.s010")}
             </h2>
-            <p className="max-w-[320px] text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#9a9997]">
+            <p className="max-w-[320px] text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[var(--fg-secondary)]">
               {t("templateLanding.clips.s011")}
             </p>
             <TemplateDocsLink
               template={template}
               location="landing_page_capabilities"
-              className="inline-flex h-10 w-fit items-center justify-center rounded-md border border-[#5e5e5e] bg-[#0a0a0a] px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[#faf9f5] no-underline transition hover:border-[var(--fg-secondary)] hover:text-white hover:no-underline"
+              className="inline-flex h-10 w-fit items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg)] px-5 font-mono text-[14px] font-semibold uppercase leading-[1.2] tracking-[0.28px] text-[var(--fg)] no-underline transition-[border-color,color] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)] hover:no-underline"
             >
               {t("templateLanding.clips.s061")}
             </TemplateDocsLink>
           </div>
 
-          <div className="grid flex-1 grid-cols-1 border-t border-[#1a1a1a] sm:grid-cols-2 lg:border-t-0">
+          <div className="grid flex-1 grid-cols-1 border-t border-[var(--docs-border)] sm:grid-cols-2 lg:border-t-0">
             {[
               {
                 icon: (
@@ -461,16 +461,16 @@ export default function ClipsTemplate() {
             ].map((card) => (
               <div
                 key={card.title}
-                className="flex flex-col gap-6 border-b border-[#1a1a1a] p-6 sm:border-e sm:p-8 sm:odd:border-e sm:even:border-e-0 lg:[&:nth-child(3)]:border-b-0 lg:[&:nth-child(4)]:border-b-0"
+                className="flex flex-col gap-6 border-b border-[var(--docs-border)] p-6 sm:border-e sm:p-8 sm:odd:border-e sm:even:border-e-0 lg:[&:nth-child(3)]:border-b-0 lg:[&:nth-child(4)]:border-b-0"
               >
-                <div className="flex h-[34px] w-[34px] items-center justify-center rounded-md border border-[#3a3a3a] bg-[#1d1d1d]">
+                <div className="flex size-[34px] items-center justify-center rounded-md border border-[var(--docs-border)] bg-[var(--bg-secondary)]">
                   {card.icon}
                 </div>
                 <div className="flex flex-col gap-2">
                   <h3 className="m-0 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[var(--fg)]">
                     {card.title}
                   </h3>
-                  <p className="m-0 text-lg leading-[1.3] text-[#9a9997]">
+                  <p className="m-0 text-lg leading-[1.3] text-[var(--fg-secondary)]">
                     {card.body}
                   </p>
                 </div>
