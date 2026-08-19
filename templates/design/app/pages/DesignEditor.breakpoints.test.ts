@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
@@ -340,6 +340,14 @@ describe("delete-to-display:none at an active breakpoint (item 7b)", () => {
 
 describe("DesignEditor breakpoint wiring (source assertions)", () => {
   const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const commandSource = (file: string) =>
+    readFileSync(`app/pages/design-editor/commands/${file}`, "utf8");
+  // Editor behaviour that moved into command modules is still editor wiring.
+  const editorSurface =
+    source +
+    readdirSync("app/pages/design-editor/commands")
+      .map((f) => commandSource(f))
+      .join("\n");
   const canvasSource = readFileSync(
     "app/components/design/MultiScreenCanvas.tsx",
     "utf8",
@@ -378,15 +386,23 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("confirms that deleting a base screen includes all responsive variants", () => {
-    expect(source).toContain("designEditor.screenDeletion.descriptionOne");
-    expect(source).toContain("designEditor.screenDeletion.descriptionMany");
+    const deletionDialogSource = readFileSync(
+      "app/components/design/editor/PendingScreenDeletionDialog.tsx",
+      "utf8",
+    );
+    expect(deletionDialogSource).toContain(
+      "designEditor.screenDeletion.descriptionOne",
+    );
+    expect(deletionDialogSource).toContain(
+      "designEditor.screenDeletion.descriptionMany",
+    );
   });
 
   it("routes every style-commit path through the scoped write helper", () => {
     // commitVisualStyles + commitStylesToSelectedLayers +
     // commitRelativeStyleDeltaToSelectedLayers all call the single
     // class-vs-media routing helper instead of raw kind:"style" patches.
-    const calls = source.match(/applyScopedVisualStyleEdit\(\{/g) ?? [];
+    const calls = editorSurface.match(/applyScopedVisualStyleEdit\(\{/g) ?? [];
     expect(calls.length).toBeGreaterThanOrEqual(3);
   });
 
@@ -435,13 +451,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     // the base frame's content, and empty-canvas selection clears all route
     // through the same handleBreakpointBarSelect(undefined) reset.
     const resets =
-      source.match(/handleBreakpointBarSelect\(undefined\)/g) ?? [];
+      editorSurface.match(/handleBreakpointBarSelect\(undefined\)/g) ?? [];
     expect(resets.length).toBeGreaterThanOrEqual(5);
     // Escape's reset is gated on the latest-ref mirror, not stale state.
-    const escape = source.slice(
-      source.indexOf("const handleEscapeHotkey"),
-      source.indexOf("const SINGLE_MODE_TEXT_TAGS"),
-    );
+    const escape = commandSource("escape-hotkey.ts");
     expect(escape).toContain(
       "activeBreakpointWidthStateRef.current !== undefined",
     );
@@ -501,15 +514,16 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("gates overview side-by-side frames on the show-all toggle", () => {
-    expect(source).toContain("!breakpointFramesHidden &&");
+    const overviewScreensSource = readFileSync(
+      "app/pages/design-editor/derive/overview-screens.ts",
+      "utf8",
+    );
+    expect(overviewScreensSource).toContain("!breakpointFramesHidden &&");
     expect(source).toContain("breakpointFramesHidden,");
   });
 
   it("stamps the active breakpoint scope onto pending gesture edits", () => {
-    const recorder = source.slice(
-      source.indexOf("const recordPendingVisualStyleEdit"),
-      source.indexOf("const activeProjectionContent"),
-    );
+    const recorder = commandSource("record-pending-visual-style-edit.ts");
     expect(recorder).toContain("breakpoint: {");
     expect(recorder).toContain("activeWidthPx: activeBreakpointWidthState");
     expect(recorder).toContain("upperBoundPx: activeBreakpointUpperBoundPx");
@@ -529,24 +543,25 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     // breakpointScoped + failure → hard error even when a legacy fallback
     // exists); this source assertion pins that commitVisualStyles actually
     // routes through it with the breakpoint-scope flag wired.
-    const start = source.indexOf(
+    const commitVisualStylesSource = readFileSync(
+      "app/pages/design-editor/commands/commit-visual-styles.ts",
+      "utf8",
+    );
+    const start = commitVisualStylesSource.indexOf(
       "const commitResolution = resolveVisualStyleCommitContent",
     );
     expect(start).toBeGreaterThanOrEqual(0);
-    const fallback = source.slice(start, start + 400);
+    const fallback = commitVisualStylesSource.slice(start, start + 400);
     expect(fallback).toContain(
       "breakpointScoped: activeBreakpointUpperBoundPx != null",
     );
   });
 
   it("item 7b: Delete routes through a display:none scoped write, not structural removal, while a breakpoint is active", () => {
-    const start = source.indexOf("const handleDeleteSelection = useCallback");
-    expect(start).toBeGreaterThanOrEqual(0);
-    const end = source.indexOf(
-      "// Wrap the current multi-layer selection into a new group container.",
+    const handler = readFileSync(
+      "app/pages/design-editor/commands/delete-selection.ts",
+      "utf8",
     );
-    expect(end).toBeGreaterThan(start);
-    const handler = source.slice(start, end);
     expect(handler).toContain("useBreakpointScopedDelete");
     expect(handler).toContain('property: "display"');
     expect(handler).toContain('value: "none"');
@@ -570,8 +585,10 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
     expect(multiElementBranch).toContain(
       "syncLiveScreenSnapshotPreview(file.id, content)",
     );
-    expect(multiElementBranch).toContain(
-      "if (shouldDeleteActiveLiveDom) {\n        deleteFromLiveDom(activeRuntimeSelectors);",
+    // Indentation-insensitive: the contract is that the live-DOM delete is the
+    // first statement in the guard, not how deeply the guard happens to nest.
+    expect(multiElementBranch).toMatch(
+      /if \(shouldDeleteActiveLiveDom\) \{\s*deleteFromLiveDom\(activeRuntimeSelectors\);/,
     );
     const singleElementEnd = handler.indexOf(
       "const nextContent = removeElementFromHtml",
@@ -613,10 +630,7 @@ describe("DesignEditor breakpoint wiring (source assertions)", () => {
   });
 
   it("enters responsive Interact immediately from overview", () => {
-    const modeHandler = source.slice(
-      source.indexOf("const handleModeChange = useCallback"),
-      source.indexOf("const handleOverviewFrameAction = useCallback"),
-    );
+    const modeHandler = commandSource("mode-change.ts");
     expect(modeHandler).toContain("resolveModeChangeView({");
     expect(modeHandler).toContain('if (routing === "enter-single-interact")');
     expect(modeHandler).toContain("enterSingleScreen(nextActiveFile?.id)");

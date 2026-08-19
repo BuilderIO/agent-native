@@ -38,6 +38,9 @@ the right abstraction, not the most general one.
 - If no link or feedback text is provided, ask for it.
 - Read the repo `AGENTS.md` before touching code.
 - Use the relevant connector/plugin/skill for the source when available, instead of scraping authenticated pages.
+- For Slack, use the `SLACK_BOT_TOKEN` / `@agent-native` identity contract in
+  `address-feedback-with-replies`; never mix user OAuth reads or writes into a
+  bot-authenticated feedback workflow.
 - Before starting work, search available task history and local Git/PR metadata for the exact feedback link or issue identifiers. Reuse existing work instead of creating a duplicate fix.
 
 ## Steps
@@ -50,11 +53,11 @@ the right abstraction, not the most general one.
    | Google Docs/Drive link | Google Drive connector or Google Docs skill |
    | Linear link | Linear connector if installed; otherwise ask for pasted content |
    | GitHub issue or PR | GitHub connector or `gh issue view` / `gh pr view` |
-   | Slack thread | Slack connector |
+   | Slack thread | Slack Web API with `SLACK_BOT_TOKEN` / `@agent-native` identity |
    | Public URL | Web browsing |
    | Pasted text | Read directly |
 
-   Use web browsing only for public URLs. Auth-gated docs usually need their matching connector. For threads, read the parent and all replies; note when there are no replies, and inspect linked files or newer follow-ups when the source refers to them.
+   Use web browsing only for public URLs. Auth-gated docs usually need their matching connector. For Slack threads, use the bot-authenticated Web API for the parent, replies, reactions, and Slack metadata; fetch linked external artifacts through their owning connector or public URL.
 
 2. Check whether this defect has already been reported.
 

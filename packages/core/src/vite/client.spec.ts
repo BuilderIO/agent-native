@@ -129,9 +129,12 @@ describe("Nitro dev startup recovery", () => {
     expect(res.statusCode).toBe(503);
     expect(res.setHeader).toHaveBeenCalledWith("retry-after", "1");
     const html = res.end.mock.calls[0]?.[0] as string;
-    expect(html).toContain("__agent_native_nitro_startup_retry");
-    expect(html).toContain("Retrying in one second");
-    expect(html).toContain("Refresh when it is ready");
+    expect(html).toContain("Waiting for the dev server");
+    expect(html).toContain("first boot can take a couple of minutes");
+    expect(html).toContain("res.status !== 503");
+    expect(html).toContain("fetch(location.href");
+    expect(html).not.toContain("sessionStorage");
+    expect(html).not.toContain("Refresh when it is ready");
     expect(html).not.toContain('http-equiv="refresh"');
   });
 

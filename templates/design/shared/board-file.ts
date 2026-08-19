@@ -678,7 +678,8 @@ export function stripBoardSurfaceOffsetFromCoord(value: number): number {
  * Parent-relative position for a node being reparented INTO a target
  * container, from the two elements' persisted absolute positions in the same
  * coordinate space. This is the pure seam used by
- * `handleOverviewPrimitiveReparent` (DesignEditor.tsx).
+ * `handleOverviewPrimitiveReparent`
+ * (app/pages/design-editor/commands/overview-primitive-reparent.ts).
  *
  * The flat subtraction below is only correct when both `source` and `target`
  * are already expressed in the SAME coordinate space — historically that

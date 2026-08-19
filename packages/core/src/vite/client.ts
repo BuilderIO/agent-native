@@ -2836,10 +2836,9 @@ type NitroModuleGraph = {
 
 const NITRO_STARTUP_SETTLE_MS = 1_000;
 const NITRO_STARTUP_TIMEOUT_MS = 30_000;
-const NITRO_STARTUP_RETRY_KEY = "__agent_native_nitro_startup_retry";
-const NITRO_STARTUP_RETRY_MAX = 5;
 const NITRO_STARTUP_RETRY_DELAY_MS = 1_000;
-const NITRO_STARTUP_RETRY_RESET_MS = 15_000;
+const NITRO_STARTUP_RETRY_MAX_DELAY_MS = 3_000;
+const NITRO_STARTUP_SLOW_HINT_MS = 8_000;
 
 function nitroModuleGraphSignature(environment: unknown): string | null {
   const graph = (environment as { moduleGraph?: NitroModuleGraph } | undefined)
@@ -2874,6 +2873,9 @@ function sendNitroStartingResponse(
   req: IncomingMessage,
   res: ServerResponse,
 ): void {
+  // Fetch-poll this URL instead of location.reload(). Reloading after the
+  // startup gate opens stacks Nitro SSR compiles, and a 5-reload cap left
+  // the tab stuck on this page for the rest of a multi-minute first boot.
   res.statusCode = 503;
   res.setHeader("cache-control", "no-store");
   res.setHeader("content-type", "text/html; charset=utf-8");
@@ -2902,42 +2904,38 @@ function sendNitroStartingResponse(
     </main>
     <script>
       (() => {
-        const key = ${JSON.stringify(NITRO_STARTUP_RETRY_KEY)};
-        const maxRetries = ${NITRO_STARTUP_RETRY_MAX};
-        const resetAfterMs = ${NITRO_STARTUP_RETRY_RESET_MS};
-        const retryDelayMs = ${NITRO_STARTUP_RETRY_DELAY_MS};
         const status = document.getElementById("agent-native-nitro-retry-status");
-        const now = Date.now();
-        let count = 0;
-        let lastAttemptAt = 0;
-
-        try {
-          const stored = JSON.parse(sessionStorage.getItem(key) || "null");
-          if (stored && typeof stored === "object") {
-            count = Number.isFinite(stored.count) ? stored.count : 0;
-            lastAttemptAt = Number.isFinite(stored.at) ? stored.at : 0;
+        const startedAt = Date.now();
+        let delayMs = ${NITRO_STARTUP_RETRY_DELAY_MS};
+        const maxDelayMs = ${NITRO_STARTUP_RETRY_MAX_DELAY_MS};
+        const slowHintMs = ${NITRO_STARTUP_SLOW_HINT_MS};
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const setStatus = (text) => {
+          if (status) status.textContent = text;
+        };
+        const poll = async () => {
+          setStatus("Waiting for the dev server…");
+          while (true) {
+            if (Date.now() - startedAt >= slowHintMs) {
+              setStatus("Still starting… first boot can take a couple of minutes.");
+            }
+            try {
+              const res = await fetch(location.href, {
+                cache: "no-store",
+                headers: { Accept: "text/html" },
+              });
+              if (res.status !== 503) {
+                location.reload();
+                return;
+              }
+            } catch {
+              // Connection reset mid-boot; keep polling.
+            }
+            await wait(delayMs);
+            delayMs = Math.min(delayMs + 500, maxDelayMs);
           }
-        } catch (error) {
-          // A blocked session store is handled below by showing a manual retry.
-        }
-
-        if (now - lastAttemptAt > resetAfterMs) count = 0;
-        if (count >= maxRetries) {
-          if (status) status.textContent = "The server is still unavailable. Refresh when it is ready.";
-          return;
-        }
-
-        const nextState = JSON.stringify({ count: count + 1, at: now });
-        try {
-          sessionStorage.setItem(key, nextState);
-          if (sessionStorage.getItem(key) !== nextState) throw new Error("unavailable");
-        } catch (error) {
-          if (status) status.textContent = "Refresh manually when the server is ready.";
-          return;
-        }
-
-        if (status) status.textContent = "Retrying in one second…";
-        setTimeout(() => window.location.reload(), retryDelayMs);
+        };
+        void poll();
       })();
     </script>
   </body>

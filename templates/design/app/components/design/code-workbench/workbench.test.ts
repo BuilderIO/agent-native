@@ -60,7 +60,10 @@ describe("code workbench shell", () => {
   });
 
   it("places Code directly under Tokens with a rail separator", () => {
-    const source = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+    const source = readFileSync(
+      "app/components/design/editor/DesignWorkspaceRail.tsx",
+      "utf8",
+    );
     const tokensIndex = source.indexOf('panel: "tokens"');
     const codeIndex = source.indexOf('panel: "code"');
     expect(tokensIndex).toBeGreaterThanOrEqual(0);
