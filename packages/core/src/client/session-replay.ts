@@ -92,8 +92,8 @@ interface SessionReplayState {
   pendingReplayUpload: PendingReplayUpload | null;
   /** A caller-requested restart that arrived while the old upload was fenced. */
   pendingReplayStart: PendingReplayStart | null;
-  /** Prevents a late upload settlement from racing BFCache recovery. */
-  recoveringPendingReplayUpload: boolean;
+  /** Shared recovery promise for BFCache and late-upload settlement callers. */
+  pendingReplayRecovery: Promise<void> | null;
   /** Keeps a post-BFCache timeout connected to the old upload's recovery. */
   bfcacheRestored: boolean;
   /** Drop incremental events until a new FullSnapshot can re-anchor the DOM. */
@@ -487,7 +487,7 @@ function getState(): SessionReplayState {
       pendingFlushWaiters: [],
       pendingReplayUpload: null,
       pendingReplayStart: null,
-      recoveringPendingReplayUpload: false,
+      pendingReplayRecovery: null,
       bfcacheRestored: false,
       awaitingFullSnapshot: false,
       stopRecorder: null,
@@ -512,7 +512,7 @@ function getState(): SessionReplayState {
   state.pendingFlushWaiters ??= [];
   state.pendingReplayUpload ??= null;
   state.pendingReplayStart ??= null;
-  state.recoveringPendingReplayUpload ??= false;
+  state.pendingReplayRecovery ??= null;
   state.bfcacheRestored ??= false;
   state.awaitingFullSnapshot ??= false;
   state.startGeneration ??= 0;
@@ -1904,25 +1904,35 @@ function resumeAfterPendingReplayUpload(
   state: SessionReplayState,
   pending: PendingReplayUpload,
 ): void {
-  if (state.pendingReplayUpload !== pending) return;
-  const waiters = state.pendingFlushWaiters.splice(0);
-  void recoverAfterPendingReplayUpload(state, pending).then(
-    () => {
-      for (const resolve of waiters) resolve();
-    },
-    () => {
-      for (const resolve of waiters) resolve();
-    },
-  );
+  if (state.pendingReplayUpload !== pending && !state.pendingReplayRecovery) {
+    return;
+  }
+  void recoverAfterPendingReplayUpload(state, pending);
 }
 
-async function recoverAfterPendingReplayUpload(
+function recoverAfterPendingReplayUpload(
   state: SessionReplayState,
   pending: PendingReplayUpload,
 ): Promise<void> {
-  if (state.pendingReplayUpload !== pending) return;
-  if (state.recoveringPendingReplayUpload) return;
-  state.recoveringPendingReplayUpload = true;
+  if (state.pendingReplayRecovery) return state.pendingReplayRecovery;
+  if (state.pendingReplayUpload !== pending) return Promise.resolve();
+  let recovery: Promise<void>;
+  recovery = recoverAfterPendingReplayUploadInternal(state, pending).finally(
+    () => {
+      if (state.pendingReplayRecovery === recovery) {
+        state.pendingReplayRecovery = null;
+      }
+      for (const resolve of state.pendingFlushWaiters.splice(0)) resolve();
+    },
+  );
+  state.pendingReplayRecovery = recovery;
+  return recovery;
+}
+
+async function recoverAfterPendingReplayUploadInternal(
+  state: SessionReplayState,
+  pending: PendingReplayUpload,
+): Promise<void> {
   state.bfcacheRestored = false;
   try {
     if (state.replayId !== pending.payload.replayId) {
@@ -1987,7 +1997,8 @@ async function recoverAfterPendingReplayUpload(
       restartRequest.sessionId,
     );
   } finally {
-    state.recoveringPendingReplayUpload = false;
+    // The wrapper owns clearing state.pendingReplayRecovery after every
+    // recovery caller observes the same settled promise.
   }
 }
 

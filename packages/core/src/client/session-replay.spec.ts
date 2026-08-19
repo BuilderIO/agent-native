@@ -815,8 +815,14 @@ describe("session replay", () => {
       );
       vi.stubGlobal("AbortController", undefined);
       let recordOptions: any;
+      let waiterResolved = false;
       recordMock.mockImplementation((options) => {
         recordOptions = options;
+        if (recordMock.mock.calls.length > 1) {
+          // A late settlement may race the pageshow recovery, but it must not
+          // resolve flush callers before the fresh recorder is active.
+          expect(waiterResolved).toBe(false);
+        }
         return vi.fn();
       });
       const replay = await freshSessionReplay();
@@ -838,6 +844,9 @@ describe("session replay", () => {
       recordOptions.emit({ type: 3, data: { href: "/bfcache" } });
       fireWindowEvent("pagehide", { persisted: true });
       await vi.advanceTimersByTimeAsync(0);
+      const pendingFlush = replay.flushSessionReplay("manual").then(() => {
+        waiterResolved = true;
+      });
       await vi.advanceTimersByTimeAsync(15_000);
       expect(recordMock).toHaveBeenCalledTimes(1);
 
@@ -845,19 +854,17 @@ describe("session replay", () => {
       // keepalive request never settles. Waiting for it would leave replay
       // fenced indefinitely after the page returns.
       fireWindowEvent("pageshow", { persisted: true });
+      resolveUpload(new Response("{}"));
       await vi.advanceTimersByTimeAsync(0);
       expect(recordMock).toHaveBeenCalledTimes(2);
+      expect(waiterResolved).toBe(true);
 
       fetchMock.mockResolvedValue(new Response("{}"));
       recordOptions.emit({ type: 2, data: { href: "/resumed" } });
       await vi.advanceTimersByTimeAsync(0);
       expect(fetchMock).toHaveBeenCalledTimes(2);
 
-      // A late settlement from the old identity must not trigger a second
-      // recovery after the BFCache path has already rotated the recorder.
-      resolveUpload(new Response("{}"));
-      await vi.advanceTimersByTimeAsync(0);
-      expect(recordMock).toHaveBeenCalledTimes(2);
+      await pendingFlush;
 
       await replay.stopSessionReplay();
     } finally {
