@@ -15,7 +15,7 @@ import {
 
 export default defineAction({
   description:
-    "Delete or remove a Google Calendar event. For recurring events, choose just this instance, all events in the series, or this and following events.",
+    "Delete or remove ONE Google Calendar event. For recurring events, choose just this instance, all events in the series, or this and following events. For more than one event — any 'remove all …' / 'clear …' request — use delete-events instead; never call this in a loop.",
   schema: z.object({
     id: z
       .string()
