@@ -72,6 +72,7 @@ import {
   isMediaConstraintFailure,
 } from "./lib/media-capture-constraints";
 import { sendNativeNotification } from "./lib/native-notification";
+import { openBoundOAuthWindow } from "./lib/desktop-oauth-window";
 import { openMeetingJoinUrl } from "./lib/open-meeting-join-url";
 import {
   DESKTOP_CAPTURE_PERMISSION_MESSAGE,
@@ -2138,15 +2139,17 @@ export function App() {
     void tick();
   }
 
-  // Google and magic-link verification open in the system browser because
-  // the Tauri WebView has its own cookie jar. Both flows return through the
-  // same short-lived server-side exchange.
+  // Google verification opens in a child of the bound Tauri WebView so the
+  // callback sees the same browser-binding cookie. Magic-link verification
+  // still completes in the system browser through its own exchange flow.
   async function signInExternal() {
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
+    let oauthWindow: ReturnType<typeof openBoundOAuthWindow> | null = null;
 
     try {
       setSignInError(null);
+      oauthWindow = openBoundOAuthWindow();
       const flowId = crypto.randomUUID?.() ?? null;
       const verifier = (() => {
         const randomUuid = crypto.randomUUID;
@@ -2205,11 +2208,12 @@ export function App() {
               : "Could not start Google sign-in.";
         throw new Error(message);
       }
-      await openExternal(authPayload.url);
+      oauthWindow.location.href = authPayload.url;
       setSignInPending("google");
       startDesktopAuthExchange(flowId, "google", verifier);
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
+      oauthWindow?.close();
       signInInflightRef.current = false;
       setSignInPending(null);
       setSignInError(
@@ -3971,8 +3975,8 @@ export function App() {
   // (not a separate Tauri window). This avoids Tauri 2's separate-WebKit-
   // data-store-per-WebviewWindow cookie-jar issue — the cookie is set in
   // the same webview that reads it on the next /auth/session poll.
-  // Google and magic-link verification use the system browser, while the
-  // password fallback stays inline in this WebView.
+  // Google verification uses a bound WebView child, while magic-link
+  // verification uses the system browser and password stays inline here.
   if (authStatus === "anon") {
     return (
       <div className="app" ref={appRef}>
@@ -4881,7 +4885,7 @@ function SignInForm({
         type="button"
         className="signin-google"
         onClick={onUseBrowser}
-        title="Opens your default browser to complete Google sign-in"
+        title="Opens a secure Clips window to complete Google sign-in"
       >
         <GoogleIcon />
         Sign in with Google

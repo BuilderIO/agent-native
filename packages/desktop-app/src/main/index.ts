@@ -224,6 +224,7 @@ import {
   isDesktopIdentityOriginEligible,
   type DesktopIdentityApp,
 } from "./desktop-identity";
+import { routeOAuthToBoundSession } from "./oauth-session";
 import {
   captureWebviewLogs,
   initializeDesktopLogger,
@@ -585,11 +586,6 @@ function decodeOAuthStatePayload(
 function extractAppFromOAuthState(state: string | null): string | undefined {
   const parsed = decodeOAuthStatePayload(state);
   return typeof parsed?.app === "string" ? parsed.app : undefined;
-}
-
-function extractFlowFromOAuthState(state: string | null): string | undefined {
-  const parsed = decodeOAuthStatePayload(state);
-  return typeof parsed?.f === "string" ? parsed.f : undefined;
 }
 
 function getCookieNameForApp(id: string | null | undefined): string {
@@ -10971,11 +10967,6 @@ function rememberOAuthStateFromNavigation(
   }
 }
 
-function googleOAuthUsesDesktopExchange(url: URL): boolean {
-  if (url.searchParams.has("flow_id")) return true;
-  return !!extractFlowFromOAuthState(url.searchParams.get("state"));
-}
-
 function builderOAuthUsesDesktopProvider(url: URL): boolean {
   if (!url.pathname.startsWith("/cli-auth")) return false;
   if (url.searchParams.get("host") === "agent-native-desktop") return true;
@@ -11020,10 +11011,11 @@ function shouldOpenOAuthInSystemBrowser(provider: OAuthProvider, url: URL) {
       builderConnectUsesSignedBrowserProvider(url)
     );
   }
-  // Google blocks embedded/Electron OAuth surfaces. Framework pages that pass
-  // a flow id poll /desktop-exchange, so the system browser can complete the
-  // OAuth callback and the app webview can claim the resulting session token.
-  return provider.name === "google" && googleOAuthUsesDesktopExchange(url);
+  // Desktop Google OAuth carries a browser-binding cookie created by the
+  // bootstrap request. It must complete in the source session, not in the
+  // system browser's unrelated cookie jar. Non-desktop Google OAuth already
+  // uses the same in-app popup path.
+  return false;
 }
 
 function openMatchedOAuthUrl(
@@ -11037,7 +11029,9 @@ function openMatchedOAuthUrl(
     openExternalUrl(url);
     return;
   }
-  openOAuthWindow(url, sourceSession, provider, sourceUrl);
+  routeOAuthToBoundSession(url, sourceSession, (boundUrl, callbackSession) =>
+    openOAuthWindow(boundUrl, callbackSession, provider, sourceUrl),
+  );
 }
 
 function isAllowedOAuthChildPopup(provider: OAuthProvider, url: URL): boolean {
