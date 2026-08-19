@@ -72,11 +72,19 @@ describe("new deck generation state", () => {
   });
 
   it("names the placeholder the agent fills instead of adding a generating row", () => {
+    const BLANK = "<blank>";
+    const slides = [
+      { id: "slide-1", content: "real content" },
+      { id: "slide-2", content: BLANK },
+      { id: "slide-3", content: "real content" },
+    ];
+
     expect(
       slideBeingFilledInPlace({
         addSlideGenerating: true,
         addSlideTargetId: "slide-2",
-        slideIds: ["slide-1", "slide-2", "slide-3"],
+        slides,
+        blankContent: BLANK,
       }),
     ).toBe("slide-2");
 
@@ -84,7 +92,8 @@ describe("new deck generation state", () => {
       slideBeingFilledInPlace({
         addSlideGenerating: false,
         addSlideTargetId: "slide-2",
-        slideIds: ["slide-1", "slide-2"],
+        slides,
+        blankContent: BLANK,
       }),
     ).toBeNull();
 
@@ -93,7 +102,8 @@ describe("new deck generation state", () => {
       slideBeingFilledInPlace({
         addSlideGenerating: true,
         addSlideTargetId: null,
-        slideIds: ["slide-1"],
+        slides,
+        blankContent: BLANK,
       }),
     ).toBeNull();
 
@@ -102,7 +112,23 @@ describe("new deck generation state", () => {
       slideBeingFilledInPlace({
         addSlideGenerating: true,
         addSlideTargetId: "slide-2",
-        slideIds: ["slide-1", "slide-3"],
+        slides: [
+          { id: "slide-1", content: "real content" },
+          { id: "slide-3", content: "real content" },
+        ],
+        blankContent: BLANK,
+      }),
+    ).toBeNull();
+
+    // The agent has already written real content: the fill is done, so a
+    // follow-up `add-slide` for the rest of a multi-slide request gets the
+    // trailing generating row again instead of staying suppressed.
+    expect(
+      slideBeingFilledInPlace({
+        addSlideGenerating: true,
+        addSlideTargetId: "slide-1",
+        slides,
+        blankContent: BLANK,
       }),
     ).toBeNull();
   });

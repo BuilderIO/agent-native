@@ -1,3 +1,4 @@
+import type { AttributedRecentEdit } from "@agent-native/core/client/collab";
 // @vitest-environment happy-dom
 import {
   act,
@@ -118,6 +119,40 @@ describe("EditorSidebar AI-active slide", () => {
     expect(
       otherThumbnail?.querySelector(".slide-thumbnail-ai-shimmer"),
     ).toBeFalsy();
+  });
+
+  it("shows the badge but not the shimmer for a slide with only a lingering recent edit", () => {
+    const recentEdits: AttributedRecentEdit[] = [
+      {
+        descriptor: { kind: "paths", paths: ["slides.slide-3"] },
+        at: Date.now(),
+        clientId: 1,
+        user: { name: "Agent", color: "#5b8cff", email: "agent@example.com" },
+        isAgent: true,
+      },
+    ];
+
+    render(
+      <EditorSidebar
+        slides={slides}
+        activeSlideId="slide-2"
+        deckId="deck-1"
+        deckTitle="Test deck"
+        onSelectSlide={() => {}}
+        describeSlideId={null}
+        onCloseDescribe={() => {}}
+        addSlideAgentSubmit={() => {}}
+        recentEdits={recentEdits}
+      />,
+    );
+
+    const recentlyEditedThumbnail = document.querySelector(
+      '[data-slide-thumbnail-id="slide-3"]',
+    );
+    expect(screen.getAllByTestId("ai-marker")).toHaveLength(1);
+    expect(
+      recentlyEditedThumbnail?.querySelector(".slide-thumbnail-ai-shimmer"),
+    ).toBeNull();
   });
 
   it("renders no generating row while a placeholder is filled in place", () => {

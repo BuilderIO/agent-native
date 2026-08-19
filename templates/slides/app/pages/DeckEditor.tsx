@@ -68,6 +68,7 @@ import { Button } from "@/components/ui/button";
 import {
   clearSlideEditingActive,
   deckIdFromPathname,
+  defaultSlideContent,
   hasUnsavedDeckChanges,
   markSlideEditingActive,
   type Slide,
@@ -369,6 +370,12 @@ export default function DeckEditor() {
       endAddSlideGeneration();
     }
   }, [addSlideGenerating, addSlideAgentGenerating, endAddSlideGeneration]);
+  // Same "seen true first" guard for the broad `generating` signal below: the
+  // target is set synchronously on submit, before `flushDeckSave` resolves and
+  // before the chat request that would actually flip `generating` true. Without
+  // this guard, a stale `generating === false` from before the request ever
+  // started clears the freshly-set target mid-persistence-wait.
+  const sawGeneratingRef = useRef(false);
   // Generation intent can arrive after this route mounts because the user
   // answers pre-generation questions from the empty editor.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
@@ -518,7 +525,8 @@ export default function DeckEditor() {
   const fillingPlaceholderSlideId = slideBeingFilledInPlace({
     addSlideGenerating,
     addSlideTargetId,
-    slideIds: deck?.slides.map((slide) => slide.id) ?? [],
+    slides: deck?.slides ?? [],
+    blankContent: defaultSlideContent.blank,
   });
   const generatingSlideVisible =
     canEdit &&
@@ -536,10 +544,19 @@ export default function DeckEditor() {
   }, [generatingSlideVisible]);
 
   // The add-slide request is finished once the agent stops generating, so the
-  // rail's placeholder must not outlive it.
+  // rail's placeholder must not outlive it. Mirrors the "seen true first"
+  // guard above so this backstop can't fire while `generating` just hasn't
+  // caught up with a run that hasn't started sending yet.
   useEffect(() => {
-    if (!generating) endAddSlideGeneration();
-  }, [generating, endAddSlideGeneration]);
+    if (generating) {
+      sawGeneratingRef.current = true;
+      return;
+    }
+    if (addSlideGenerating && sawGeneratingRef.current) {
+      sawGeneratingRef.current = false;
+      endAddSlideGeneration();
+    }
+  }, [generating, addSlideGenerating, endAddSlideGeneration]);
 
   // Below `md` the rail is a drawer behind a full-viewport dimming scrim; at
   // `md` and up it's docked with no scrim. `sidebarOpen` is seeded from the

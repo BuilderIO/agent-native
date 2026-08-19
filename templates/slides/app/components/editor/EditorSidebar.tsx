@@ -207,6 +207,7 @@ function SortableSlideThumb({
   onOverflowChange,
   readOnly = false,
   aiEditing = false,
+  isFillingPlaceholder = false,
   canDelete = true,
   hasSlideClipboard = false,
   onCutSlide,
@@ -227,7 +228,11 @@ function SortableSlideThumb({
   aspectRatio?: AspectRatio;
   designSystem?: DesignSystemData;
   onOverflowChange: (info: SlideOverflowInfo) => void;
+  /** A recent edit attributed to the agent — a lingering highlight, not a live signal. */
   aiEditing?: boolean;
+  /** This exact slide is the placeholder the agent is filling right now — the
+   *  one case where the shimmer belongs even without live presence. */
+  isFillingPlaceholder?: boolean;
   /** False when this is the deck's last remaining slide — Cut/Delete stay enabled elsewhere but must not remove it. */
   canDelete?: boolean;
   hasSlideClipboard?: boolean;
@@ -263,7 +268,11 @@ function SortableSlideThumb({
   const humanPresenceUsers = presenceUsers.filter(
     (user) => !isAgentPresenceUser(user),
   );
-  const showAiMarker = aiEditing || agentPresent;
+  const showAiMarker = aiEditing || agentPresent || isFillingPlaceholder;
+  // Narrower than the badge above: `aiEditing` also covers a slide's lingering
+  // post-edit highlight, which is "recently done," not "in progress." The
+  // shimmer should only run while the agent is actually live on this slide.
+  const showGeneratingShimmer = agentPresent || isFillingPlaceholder;
 
   return (
     <div ref={setNodeRef} style={style}>
@@ -339,7 +348,7 @@ function SortableSlideThumb({
                   designSystem={designSystem}
                   onOverflowChange={onOverflowChange}
                 />
-                {showAiMarker && (
+                {showGeneratingShimmer && (
                   <div
                     aria-hidden="true"
                     className="slide-thumbnail-ai-shimmer pointer-events-none absolute inset-0 z-10"
@@ -676,10 +685,8 @@ export default function EditorSidebar({
                 presenceUsers={slidePresence?.get(slide.id) ?? []}
                 aspectRatio={aspectRatio}
                 designSystem={designSystem}
-                aiEditing={
-                  aiEditedSlideIds.has(slide.id) ||
-                  slide.id === aiGeneratingSlideId
-                }
+                aiEditing={aiEditedSlideIds.has(slide.id)}
+                isFillingPlaceholder={slide.id === aiGeneratingSlideId}
                 canDelete={slides.length > 1}
                 hasSlideClipboard={hasSlideClipboard}
                 onCutSlide={onCutSlide}
