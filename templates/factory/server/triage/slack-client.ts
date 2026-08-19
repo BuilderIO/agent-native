@@ -9,6 +9,7 @@ import {
   getUserInfo as readUserInfo,
   postThreadReply as writeThreadReply,
   type ChannelHistoryResult,
+  type SlackAuthTestResult,
   type SlackMessage,
   type SlackPostMessageResult,
   type SlackReactionResult,
@@ -44,12 +45,13 @@ function createTokenResolver({
 
 export function createSlackReader(identity: SlackReaderIdentity) {
   const tokenResolver = createTokenResolver(identity);
-  const verifiedWorkspaces = new Set<Workspace>();
+  const identities = new Map<Workspace, SlackAuthTestResult>();
 
-  async function verifyAgentNativeIdentity(
+  async function getAgentNativeIdentity(
     workspace: Workspace,
-  ): Promise<void> {
-    if (verifiedWorkspaces.has(workspace)) return;
+  ): Promise<SlackAuthTestResult> {
+    const existing = identities.get(workspace);
+    if (existing) return existing;
     const auth = await readAuthTest(workspace, tokenResolver);
     const userName = auth.userName.trim().replace(/^@/, "").toLowerCase();
     if (userName !== "agent-native") {
@@ -57,7 +59,14 @@ export function createSlackReader(identity: SlackReaderIdentity) {
         `Slack credential authenticated as @${auth.userName}, not @agent-native.`,
       );
     }
-    verifiedWorkspaces.add(workspace);
+    identities.set(workspace, auth);
+    return auth;
+  }
+
+  async function verifyAgentNativeIdentity(
+    workspace: Workspace,
+  ): Promise<void> {
+    await getAgentNativeIdentity(workspace);
   }
 
   return {
@@ -162,5 +171,6 @@ export function createSlackReader(identity: SlackReaderIdentity) {
       return { messages, hasMore: true };
     },
     verifyAgentNativeIdentity,
+    getAgentNativeIdentity,
   };
 }

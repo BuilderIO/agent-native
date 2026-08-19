@@ -555,6 +555,26 @@ export default defineAction({
             slackBuilderReplyTs: posted.ts,
           });
         }
+        const agentNative = await slack.getAgentNativeIdentity(workspace);
+        const hasAgentNativeDisposition = thread.messages.some(
+          (message) =>
+            (message.user === agentNative.userId ||
+              message.username?.trim().toLowerCase() === "agent-native") &&
+            /^(Fixed|In progress|Clarification needed):/i.test(message.text.trim()),
+        );
+        if (!hasAgentNativeDisposition) {
+          const disposition = await slack.postThreadReply(
+            workspace,
+            item.channelId,
+            item.threadTs,
+            `Thanks - Builder owns this feedback cluster and will follow up after verification. In progress: ${reason}`,
+          );
+          await writeMetadata(itemId, orgId, {
+            slackDispositionAt: new Date().toISOString(),
+            slackDispositionTs: disposition.ts,
+            slackDisposition: "In progress",
+          });
+        }
         const clusterItemIds = [itemId, ...relatedItems.map(({ id }) => id)];
         const clusterMetadata = {
           feedbackClusterRepresentativeId: itemId,
