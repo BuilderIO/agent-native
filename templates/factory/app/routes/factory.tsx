@@ -811,6 +811,7 @@ export default function FactoryRoute() {
           />
         ) : activeTab === "history" ? (
           <FactoryHistoryView
+            key={factoryId}
             factoryId={factoryId}
             currentVersion={graphVersion}
             hasUnsavedChanges={dirty}

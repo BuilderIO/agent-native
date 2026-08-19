@@ -74,14 +74,24 @@ export function FactoryHistoryView({
 }: FactoryHistoryViewProps) {
   const t = useT();
   const [beforeVersion, setBeforeVersion] = useState<number | undefined>();
-  const historyQuery = useActionQuery<FactoryGraphHistoryResponse>(
+  const firstPageHistoryQuery = useActionQuery<FactoryGraphHistoryResponse>(
+    "list-factory-graph-versions",
+    {
+      factoryId,
+      limit: HISTORY_PAGE_SIZE,
+    },
+  );
+  const olderHistoryQuery = useActionQuery<FactoryGraphHistoryResponse>(
     "list-factory-graph-versions",
     {
       factoryId,
       limit: HISTORY_PAGE_SIZE,
       beforeVersion,
     },
+    { enabled: beforeVersion !== undefined },
   );
+  const historyQuery =
+    beforeVersion === undefined ? firstPageHistoryQuery : olderHistoryQuery;
   const [versions, setVersions] = useState<FactoryGraphVersion[]>([]);
   const [hasMore, setHasMore] = useState(false);
   const [nextBeforeVersion, setNextBeforeVersion] = useState<number | null>(
@@ -129,12 +139,22 @@ export function FactoryHistoryView({
     { enabled: Boolean(selectedVersion) },
   );
 
-  function resetHistory() {
+  async function refreshHistory(preferredVersionId?: string) {
+    const refreshed = await firstPageHistoryQuery.refetch();
+    if (refreshed.error || !refreshed.data) {
+      throw refreshed.error ?? new Error("Factory history refresh failed.");
+    }
+    const page = refreshed.data;
     setBeforeVersion(undefined);
-    setVersions([]);
-    setHasMore(false);
-    setNextBeforeVersion(null);
-    setSelectedVersionId(null);
+    setVersions(page.versions);
+    setHasMore(page.hasMore);
+    setNextBeforeVersion(page.nextBeforeVersion);
+    setSelectedVersionId(
+      preferredVersionId &&
+        page.versions.some((version) => version.id === preferredVersionId)
+        ? preferredVersionId
+        : (page.versions[0]?.id ?? null),
+    );
   }
 
   function isCurrent(version: FactoryGraphVersion) {
@@ -161,43 +181,60 @@ export function FactoryHistoryView({
     setRestoreError(null);
     setRestoreRefreshError(null);
     setRestoringVersionId(version.id);
-    let mutationResolved = false;
+    let rawResult: unknown;
     try {
-      const rawResult = await restoreMutation.mutateAsync({
+      rawResult = await restoreMutation.mutateAsync({
         factoryId,
         versionId: version.id,
       });
-      mutationResolved = true;
-      const result = readRestoreResult(rawResult);
+    } catch (error) {
+      setRestoreError(
+        error instanceof Error
+          ? error.message
+          : t("factoryRoute.historyRestoreFailed"),
+      );
+      setRestoringVersionId(null);
+      return;
+    }
+
+    let result: RestoreResult;
+    try {
+      result = readRestoreResult(rawResult);
+    } catch {
       setPendingRestore(null);
-      setRestoreStatus(t("factoryRoute.historyRestored"));
+      setRestoreStatus(null);
+      setRestoreError(t("factoryRoute.historyRestoreUnverified"));
       try {
-        await onRestored(result);
+        await onRestored();
       } catch {
         setRestoreRefreshError(t("factoryRoute.historyRefreshFailed"));
       }
-      resetHistory();
-    } catch (error) {
-      if (mutationResolved) {
-        setPendingRestore(null);
-        setRestoreStatus(null);
-        setRestoreError(t("factoryRoute.historyRestoreUnverified"));
-        try {
-          await onRestored();
-        } catch {
-          setRestoreRefreshError(t("factoryRoute.historyRefreshFailed"));
-        }
-        resetHistory();
-      } else {
-        setRestoreError(
-          error instanceof Error
-            ? error.message
-            : t("factoryRoute.historyRestoreFailed"),
-        );
+      try {
+        await refreshHistory();
+      } catch {
+        setRestoreRefreshError(t("factoryRoute.historyRefreshFailed"));
       }
-    } finally {
       setRestoringVersionId(null);
+      return;
     }
+
+    setPendingRestore(null);
+    setRestoreStatus(t("factoryRoute.historyRestored"));
+    let refreshFailed = false;
+    try {
+      await onRestored(result);
+    } catch {
+      refreshFailed = true;
+    }
+    try {
+      await refreshHistory(result.versionId);
+    } catch {
+      refreshFailed = true;
+    }
+    if (refreshFailed) {
+      setRestoreRefreshError(t("factoryRoute.historyRefreshFailed"));
+    }
+    setRestoringVersionId(null);
   }
 
   if (
