@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.163.4
+
+### Patch Changes
+
+- 0860ba4: Keep the Vite "dev server is restarting" page polling until Nitro answers instead of stopping after five 1-second reloads during a multi-minute first boot.
+
 ## 0.163.3
 
 ### Patch Changes
