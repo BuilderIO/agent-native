@@ -105,6 +105,24 @@ const FAQ_ITEMS = [
     answer:
       "Clips is open source, you own the data, and every share link is readable by AI agents — not just people.",
   },
+  {
+    id: "console-errors",
+    question: "Can a screen recording capture console errors?",
+    answer:
+      "Yes. Clips captures browser console errors and failed network requests alongside the recording. They attach themselves to the same share link as the transcript and frames. An agent can debug from a clip, not just watch it.",
+  },
+  {
+    id: "agent-support",
+    question: "Does Clips work with Claude, ChatGPT, or Cursor?",
+    answer:
+      "Yes! No plugin or API key required. Paste a Clips share link into any agent and it can read the transcript, summary, and frames directly.",
+  },
+  {
+    id: "recording-storage",
+    question: "Where do my recordings live?",
+    answer:
+      "Wherever you deploy them. Self-hosted Clips keeps your video, transcripts, and analytics in your own infrastructure.",
+  },
 ];
 
 type ClipPreviewSliderHandle = {
