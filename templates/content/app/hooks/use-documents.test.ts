@@ -62,6 +62,18 @@ describe("complete document discovery", () => {
     expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toBeUndefined();
   });
 
+  it("removes the list after concurrent optimistic creates both fail", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [doc("first-create", null), doc("second-create", null)],
+    });
+
+    rollbackOptimisticCreatedDocument(queryClient, "first-create", false);
+    rollbackOptimisticCreatedDocument(queryClient, "second-create", false);
+
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toBeUndefined();
+  });
+
   it("restores an existing list snapshot and removes an absent one", () => {
     const queryClient = new QueryClient();
     const existing = { documents: [doc("existing", null)] };
@@ -76,23 +88,31 @@ describe("complete document discovery", () => {
     expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toBeUndefined();
   });
 
-  it("restores the complete list and deleted page snapshots together", () => {
+  it("restores only deleted entries without overwriting concurrent changes", () => {
     const queryClient = new QueryClient();
     const existing = doc("existing", null);
     const child = doc("child", "existing");
+    const concurrent = doc("concurrent", null);
     const listSnapshot = { documents: [existing, child] };
     const existingKey = documentQueryKey("existing");
     const childKey = documentQueryKey("child");
 
-    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, { documents: [] });
-    restoreDeletedDocumentSnapshots(queryClient, listSnapshot, [
-      [existingKey, existing],
-      [childKey, child],
-    ]);
-
-    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toEqual(
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      documents: [concurrent],
+    });
+    restoreDeletedDocumentSnapshots(
+      queryClient,
       listSnapshot,
+      [
+        [existingKey, existing],
+        [childKey, child],
+      ],
+      ["existing", "child"],
     );
+
+    expect(queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY)).toEqual({
+      documents: [concurrent, existing, child],
+    });
     expect(queryClient.getQueryData(existingKey)).toBe(existing);
     expect(queryClient.getQueryData(childKey)).toBe(child);
   });

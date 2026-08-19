@@ -1344,6 +1344,7 @@ export function DocumentSidebar({
           queryClient,
           previousDocuments,
           previousDocumentQueries,
+          deletedIds,
         );
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],

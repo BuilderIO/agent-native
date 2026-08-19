@@ -108,11 +108,39 @@ export function rollbackOptimisticCreatedDocument(
 }
 
 export function restoreDeletedDocumentSnapshots(
-  queryClient: Pick<QueryClient, "removeQueries" | "setQueryData">,
+  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
   listSnapshot: unknown,
   documentSnapshots: Array<[readonly unknown[], unknown]>,
+  deletedDocumentIds: Iterable<string>,
 ) {
-  restoreListDocumentsSnapshot(queryClient, listSnapshot);
+  const deletedIds = new Set(deletedDocumentIds);
+  const snapshotDocuments: Document[] = Array.isArray(listSnapshot)
+    ? listSnapshot
+    : ((listSnapshot as DocumentListResponse | undefined)?.documents ?? []);
+  const current = queryClient.getQueryData(LIST_DOCUMENTS_QUERY_KEY);
+  const currentDocuments: Document[] = Array.isArray(current)
+    ? current
+    : ((current as DocumentListResponse | undefined)?.documents ?? []);
+  const restoredDocuments = snapshotDocuments.filter((document) =>
+    deletedIds.has(document.id),
+  );
+  const documents = [
+    ...currentDocuments.filter((document) => !deletedIds.has(document.id)),
+    ...restoredDocuments,
+  ];
+
+  if (Array.isArray(current)) {
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, documents);
+  } else {
+    queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, {
+      ...(current && typeof current === "object"
+        ? current
+        : listSnapshot && typeof listSnapshot === "object"
+          ? listSnapshot
+          : {}),
+      documents,
+    });
+  }
   for (const [queryKey, data] of documentSnapshots) {
     queryClient.setQueryData(queryKey, data);
   }
