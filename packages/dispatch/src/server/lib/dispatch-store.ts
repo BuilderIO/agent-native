@@ -868,6 +868,7 @@ export async function consumeLinkToken(input: {
   token: string;
   externalUserId?: string | null;
   externalUserName?: string | null;
+  expectedOrgId?: string;
 }) {
   if (!input.externalUserId) {
     throw new Error("Linking requires a platform user id");
@@ -910,6 +911,12 @@ export async function consumeLinkToken(input: {
   if (tokenRow.expiresAt < now()) {
     recordLinkFailure(input.platform, input.externalUserId);
     throw new Error("Link token has expired");
+  }
+  if (input.expectedOrgId && tokenRow.orgId !== input.expectedOrgId) {
+    recordLinkFailure(input.platform, input.externalUserId);
+    throw new Error(
+      "This link token belongs to a different organization. Create a token from this workspace and try again.",
+    );
   }
 
   const timestamp = now();
