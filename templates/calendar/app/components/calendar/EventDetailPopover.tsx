@@ -82,6 +82,7 @@ import {
 } from "@/lib/calendar-timezone";
 import {
   attachmentsToDrafts,
+  buildCustomRecurrenceRules,
   buildRecurrenceRules,
   buildReminderPayload,
   dateTimeInTimezoneToIso,
@@ -90,6 +91,7 @@ import {
   getEventEndValidationMessage,
   getLocalTimezone,
   getRecurrencePreset,
+  type CustomRecurrenceDraft,
   remindersToDraftState,
   resolveTimeEditScope,
   type AttachmentDraft,
@@ -1307,6 +1309,16 @@ export function EventDetailPopover({
     ],
   );
 
+  const handleSaveCustomRecurrence = useCallback(
+    (draft: CustomRecurrenceDraft) => {
+      saveField({
+        recurrence: buildCustomRecurrenceRules(draft),
+        scope: isRecurringEvent ? "all" : "single",
+      });
+    },
+    [isRecurringEvent, saveField],
+  );
+
   const handleAddAttendee = useCallback(
     (attendee: AttendeeRecipient) => {
       const email = attendee.email.trim().toLowerCase();
@@ -1790,7 +1802,9 @@ export function EventDetailPopover({
                 <RepeatPicker
                   preset={getRecurrencePreset(recurrenceRules)}
                   referenceDate={event.start}
+                  recurrence={recurrenceRules}
                   onChange={handleSaveRecurrence}
+                  onCustomChange={handleSaveCustomRecurrence}
                 />
               )}
 

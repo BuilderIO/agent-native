@@ -18,9 +18,19 @@ import {
 } from "@/components/ui/popover";
 import {
   formatTimezoneLabel,
+  createCustomRecurrenceDraft,
+  parseCustomRecurrence,
   type RecurrencePreset,
+  type CustomRecurrenceDraft,
 } from "@/lib/event-form-utils";
 import { cn } from "@/lib/utils";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 const TIME_OPTIONS = Array.from({ length: 24 * 4 }, (_, index) => {
   const hour = Math.floor(index / 4);
@@ -247,14 +257,22 @@ export function TimezonePickerPopover({
 export function RepeatPicker({
   preset,
   referenceDate,
+  recurrence,
   onChange,
+  onCustomChange,
 }: {
   preset: RecurrencePreset;
   referenceDate: string;
+  recurrence?: string[];
   onChange: (preset: RecurrencePreset) => void;
+  onCustomChange?: (draft: CustomRecurrenceDraft) => void;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [customOpen, setCustomOpen] = useState(false);
+  const [customDraft, setCustomDraft] = useState(() =>
+    parseCustomRecurrence(recurrence, referenceDate),
+  );
   const reference = new Date(referenceDate);
   const weekday = Number.isNaN(reference.getTime())
     ? ""
@@ -297,11 +315,7 @@ export function RepeatPicker({
         ? t("eventForm.onDate", { date: format(reference, "MMM d") })
         : undefined,
     },
-    {
-      value: "custom",
-      label: t("eventForm.customSchedule"),
-      disabled: true,
-    },
+    { value: "custom", label: t("eventForm.customSchedule") },
   ];
 
   const selectedOption = options.find((option) => option.value === preset);
@@ -309,7 +323,17 @@ export function RepeatPicker({
     preset === "none" ? t("eventForm.repeat") : selectedOption?.label;
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen);
+        if (nextOpen && preset === "custom") {
+          setCustomDraft(parseCustomRecurrence(recurrence, referenceDate));
+          setCustomOpen(true);
+        }
+        if (!nextOpen) setCustomOpen(false);
+      }}
+    >
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -325,42 +349,234 @@ export function RepeatPicker({
       <PopoverContent
         align="start"
         sideOffset={6}
-        className="w-64 p-1"
+        className={cn(
+          "p-1",
+          customOpen ? "w-[min(22rem,calc(100vw-2rem))]" : "w-64",
+        )}
         data-time-picker-popover
       >
-        {options.map((option) => {
-          const selected = option.value === preset;
-          return (
-            <button
-              key={option.value}
-              type="button"
-              disabled={option.disabled}
-              className={cn(
-                "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
-                selected && "bg-accent text-accent-foreground",
-                option.disabled &&
-                  "cursor-not-allowed opacity-50 hover:bg-transparent",
-              )}
-              onClick={() => {
-                if (option.disabled) return;
-                onChange(option.value);
-                setOpen(false);
-              }}
-            >
-              <span>{option.label}</span>
-              <span className="ml-3 flex items-center gap-2 text-muted-foreground">
-                {option.meta}
-                <span
-                  aria-hidden="true"
-                  className="flex size-3.5 shrink-0 items-center justify-center"
-                >
-                  {selected && <IconCheck className="size-3.5" />}
+        {customOpen ? (
+          <CustomRecurrenceEditor
+            draft={customDraft}
+            onChange={setCustomDraft}
+            onCancel={() => {
+              setCustomOpen(false);
+              setOpen(false);
+            }}
+            onSave={() => {
+              onCustomChange?.(customDraft);
+              onChange("custom");
+              setCustomOpen(false);
+              setOpen(false);
+            }}
+          />
+        ) : (
+          options.map((option) => {
+            const selected = option.value === preset;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                className={cn(
+                  "flex w-full items-center justify-between rounded-md px-2.5 py-2 text-left text-sm transition-colors hover:bg-accent hover:text-accent-foreground",
+                  selected && "bg-accent text-accent-foreground",
+                )}
+                onClick={() => {
+                  if (option.value === "custom") {
+                    setCustomDraft(
+                      parseCustomRecurrence(recurrence, referenceDate),
+                    );
+                    setCustomOpen(true);
+                    return;
+                  }
+                  onChange(option.value);
+                  setOpen(false);
+                }}
+              >
+                <span>{option.label}</span>
+                <span className="ml-3 flex items-center gap-2 text-muted-foreground">
+                  {option.meta}
+                  <span
+                    aria-hidden="true"
+                    className="flex size-3.5 shrink-0 items-center justify-center"
+                  >
+                    {selected && <IconCheck className="size-3.5" />}
+                  </span>
                 </span>
-              </span>
-            </button>
-          );
-        })}
+              </button>
+            );
+          })
+        )}
       </PopoverContent>
     </Popover>
+  );
+}
+
+const CUSTOM_WEEKDAYS = [
+  ["SU", "S"],
+  ["MO", "M"],
+  ["TU", "T"],
+  ["WE", "W"],
+  ["TH", "T"],
+  ["FR", "F"],
+  ["SA", "S"],
+] as const;
+
+function CustomRecurrenceEditor({
+  draft,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  draft: CustomRecurrenceDraft;
+  onChange: (draft: CustomRecurrenceDraft) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  const t = useT();
+  const update = (changes: Partial<CustomRecurrenceDraft>) =>
+    onChange({ ...draft, ...changes });
+  const toggleDay = (day: string) => {
+    const days = draft.days.includes(day)
+      ? draft.days.filter((value) => value !== day)
+      : [...draft.days, day];
+    update({ days });
+  };
+
+  return (
+    <div className="max-h-[min(32rem,var(--radix-popover-content-available-height))] overflow-y-auto p-3">
+      <div className="mb-3 text-base font-semibold text-foreground">
+        {t("eventForm.customRecurrenceTitle")}
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="text-sm text-muted-foreground">
+          {t("eventForm.repeatEvery")}
+        </span>
+        <Input
+          type="number"
+          min={1}
+          max={999}
+          value={draft.interval}
+          onChange={(event) =>
+            update({ interval: Math.max(1, Number(event.target.value) || 1) })
+          }
+          className="h-9 w-16 text-center"
+          aria-label={t("eventForm.repeatEvery")}
+        />
+        <Select
+          value={draft.unit}
+          onValueChange={(unit) =>
+            update({
+              unit: unit as CustomRecurrenceDraft["unit"],
+              days: unit === "week" ? draft.days : [],
+            })
+          }
+        >
+          <SelectTrigger className="h-9 flex-1">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="day">{t("eventForm.day")}</SelectItem>
+            <SelectItem value="week">{t("eventForm.week")}</SelectItem>
+            <SelectItem value="month">{t("eventForm.month")}</SelectItem>
+            <SelectItem value="year">{t("eventForm.year")}</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      {draft.unit === "week" && (
+        <div className="mt-4">
+          <div className="mb-2 text-sm text-muted-foreground">
+            {t("eventForm.repeatOn")}
+          </div>
+          <div className="flex justify-between gap-1">
+            {CUSTOM_WEEKDAYS.map(([value, label]) => {
+              const selected = draft.days.includes(value);
+              return (
+                <Button
+                  key={value}
+                  type="button"
+                  variant={selected ? "default" : "secondary"}
+                  size="icon"
+                  className="size-8 rounded-full text-xs"
+                  aria-pressed={selected}
+                  onClick={() => toggleDay(value)}
+                >
+                  {label}
+                </Button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <fieldset className="mt-5 space-y-2">
+        <legend className="mb-2 text-sm text-muted-foreground">
+          {t("eventForm.ends")}
+        </legend>
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input
+            type="radio"
+            name="custom-recurrence-end"
+            checked={draft.endMode === "never"}
+            onChange={() => update({ endMode: "never" })}
+          />
+          {t("eventForm.never")}
+        </label>
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input
+            type="radio"
+            name="custom-recurrence-end"
+            checked={draft.endMode === "date"}
+            onChange={() => update({ endMode: "date" })}
+          />
+          <span>{t("eventForm.onDate", { date: "" }).replace(/ $/, "")}</span>
+          <Input
+            type="date"
+            value={draft.endDate}
+            onChange={(event) =>
+              update({ endMode: "date", endDate: event.target.value })
+            }
+            className="h-8 min-w-0 flex-1"
+          />
+        </label>
+        <label className="flex items-center gap-2 text-sm text-foreground">
+          <input
+            type="radio"
+            name="custom-recurrence-end"
+            checked={draft.endMode === "count"}
+            onChange={() => update({ endMode: "count" })}
+          />
+          <span>{t("eventForm.after")}</span>
+          <Input
+            type="number"
+            min={1}
+            max={999}
+            value={draft.count}
+            onChange={(event) =>
+              update({ endMode: "count", count: Math.max(1, Number(event.target.value) || 1) })
+            }
+            className="h-8 w-20"
+          />
+          <span className="text-muted-foreground">
+            {t("eventForm.occurrences")}
+          </span>
+        </label>
+      </fieldset>
+
+      <div className="mt-5 flex justify-end gap-2 border-t border-border pt-3">
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel}>
+          {t("eventForm.cancel")}
+        </Button>
+        <Button
+          type="button"
+          size="sm"
+          disabled={draft.unit === "week" && draft.days.length === 0}
+          onClick={onSave}
+        >
+          {t("eventForm.save")}
+        </Button>
+      </div>
+    </div>
   );
 }
