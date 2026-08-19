@@ -6088,6 +6088,39 @@ describe("server/auth", () => {
       expect(html).not.toContain("return to Mail");
     });
 
+    it("returns a staged session cookie to a bound native WebView", async () => {
+      const { oauthCallbackResponse } = await import("./google-oauth.js");
+      const event = createMockEvent({ query: { state: "state-1" } });
+      event.res.headers.append(
+        "set-cookie",
+        "an_session=bound-session; Path=/; HttpOnly; SameSite=Lax",
+      );
+      const response = await Promise.resolve(
+        oauthCallbackResponse(event, "steve@example.com", {
+          desktop: true,
+          desktopWebview: true,
+          flowId: "flow-1",
+          returnUrl: "/?desktop_auth=complete",
+          sessionToken: "bound-session",
+          appName: "Clips",
+        }),
+      );
+
+      expect(response).toBeInstanceOf(Response);
+      const html = await (response as Response).text();
+      expect(html).toContain(
+        'window.location.replace("/?desktop_auth=complete")',
+      );
+      expect(html).not.toContain("agentnative://oauth-complete");
+      const setCookie =
+        (response as Response).headers.getSetCookie?.() ?? [
+          (response as Response).headers.get("set-cookie") ?? "",
+        ];
+      expect(setCookie.join("\n")).toContain(
+        "an_session=bound-session",
+      );
+    });
+
     it("does not deep-link from generic Electron webviews (e.g. Builder Fusion)", async () => {
       const { oauthCallbackResponse } = await import("./google-oauth.js");
       const response = await Promise.resolve(

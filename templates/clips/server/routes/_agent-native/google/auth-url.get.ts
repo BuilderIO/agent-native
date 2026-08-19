@@ -116,9 +116,13 @@ export default defineEventHandler(async (event: H3Event) => {
       redirectUri,
       owner,
       desktop,
+      desktopWebview: desktop && q.webview === "1" && !calendarConnect,
       addAccount: calendarConnect,
       app: CLIPS_GOOGLE_OAUTH_APP_ID,
-      returnUrl,
+      returnUrl:
+        desktop && q.webview === "1" && !calendarConnect
+          ? "/?desktop_auth=complete"
+          : returnUrl,
       flowId: calendarConnect ? undefined : flowId,
       desktopVerifierHash,
       desktopBrowserBindingHash,

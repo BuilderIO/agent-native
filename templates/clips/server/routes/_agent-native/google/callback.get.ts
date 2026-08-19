@@ -133,6 +133,7 @@ async function handleGoogleSignInCallback(
     return oauthCallbackResponse(event, email, {
       sessionToken,
       desktop,
+      desktopWebview: state.desktopWebview,
       returnUrl: state.returnUrl,
       flowId,
       appName: "Clips",

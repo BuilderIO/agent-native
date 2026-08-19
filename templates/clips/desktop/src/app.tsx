@@ -72,7 +72,6 @@ import {
   isMediaConstraintFailure,
 } from "./lib/media-capture-constraints";
 import { sendNativeNotification } from "./lib/native-notification";
-import { openBoundOAuthWindow } from "./lib/desktop-oauth-window";
 import { openMeetingJoinUrl } from "./lib/open-meeting-join-url";
 import {
   DESKTOP_CAPTURE_PERMISSION_MESSAGE,
@@ -2145,11 +2144,9 @@ export function App() {
   async function signInExternal() {
     if (signInInflightRef.current) return;
     signInInflightRef.current = true;
-    let oauthWindow: ReturnType<typeof openBoundOAuthWindow> | null = null;
 
     try {
       setSignInError(null);
-      oauthWindow = openBoundOAuthWindow();
       const flowId = crypto.randomUUID?.() ?? null;
       const verifier = (() => {
         const randomUuid = crypto.randomUUID;
@@ -2178,6 +2175,7 @@ export function App() {
       const authParams = new URLSearchParams({
         desktop: "1",
         flow_id: flowId,
+        webview: "1",
       });
       const authResponse = await fetch(
         `${base}/_agent-native/google/auth-url?${authParams.toString()}`,
@@ -2208,12 +2206,13 @@ export function App() {
               : "Could not start Google sign-in.";
         throw new Error(message);
       }
-      oauthWindow.location.href = authPayload.url;
       setSignInPending("google");
-      startDesktopAuthExchange(flowId, "google", verifier);
+      // Stay in this exact WebView: the auth bootstrap set the HttpOnly
+      // browser-binding cookie here, and the callback returns this page with
+      // the staged session cookie after Google completes.
+      window.location.href = authPayload.url;
     } catch (err) {
       console.error("[clips-tray] signInExternal failed:", err);
-      oauthWindow?.close();
       signInInflightRef.current = false;
       setSignInPending(null);
       setSignInError(
