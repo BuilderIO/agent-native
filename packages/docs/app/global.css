@@ -2135,13 +2135,13 @@ html.dark .shiki span {
 .primary-button {
   flex-shrink: 0;
   gap: 8px;
-  border: 1px solid #faf9f5;
-  background-color: #faf9f5;
-  color: #0a0a0a;
+  border: 1px solid var(--fg);
+  background-color: var(--fg);
+  color: var(--bg);
 }
 
 .primary-button:hover {
-  background-color: #e8e6df;
+  background-color: var(--fg-secondary);
   text-decoration: none;
 }
 
