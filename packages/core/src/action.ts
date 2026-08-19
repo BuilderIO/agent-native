@@ -1282,7 +1282,10 @@ export function stripUnsupportedSchemaKeywords<T>(node: T): T {
   const obj = node as Record<string, unknown>;
 
   for (const keyword of PROVIDER_REJECTED_KEYWORDS) delete obj[keyword];
-  if (typeof obj.format === "string" && !PROVIDER_SUPPORTED_FORMATS.has(obj.format)) {
+  if (
+    typeof obj.format === "string" &&
+    !PROVIDER_SUPPORTED_FORMATS.has(obj.format)
+  ) {
     delete obj.format;
   }
 
