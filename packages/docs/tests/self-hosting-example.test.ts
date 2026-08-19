@@ -17,8 +17,15 @@ describe("self-hosted Chat fixture", () => {
     const dockerfileDownload = readFixture("Dockerfile.txt");
     const dockerignore = readFixture(".dockerignore");
     const compose = readFixture("docker-compose.yml");
+    const netlifyConfig = readFileSync(
+      new URL("../netlify.toml", import.meta.url),
+      "utf8",
+    );
 
     expect(dockerfileDownload).toBe(dockerfile);
+    expect(netlifyConfig).toContain(
+      'from = "/examples/self-hosted-chat/Dockerfile"\nto = "/examples/self-hosted-chat/Dockerfile.txt"\nstatus = 200',
+    );
     expect(dockerfile).toContain("COPY package.json pnpm-lock.yaml ./");
     expect(dockerfile).toContain("RUN pnpm build");
     expect(dockerfile).toContain('CMD ["node", ".output/server/index.mjs"]');

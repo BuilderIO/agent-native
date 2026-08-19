@@ -93,6 +93,10 @@ jobs:
                   --data-binary @- \
                   https://events.pagerduty.com/v2/enqueue
           }
+          # Page before GitHub Issues bookkeeping. A transient Issues API
+          # failure must not suppress the independent on-call escalation.
+          pagerduty_status=0
+          page_oncall || pagerduty_status=$?
           ISSUE_NUMBER=$(gh issue list --repo "${{ github.repository }}" --state open \
             --search "\"$ISSUE_TITLE\" in:title" --json number,title \
             --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)
@@ -108,9 +112,10 @@ jobs:
               gh issue comment "$ISSUE_NUMBER" --repo "${{ github.repository }}" --body "$BODY"
             fi
           fi
-          # PagerDuty uses a fixed dedup key, so retries refresh the same incident
-          # without creating a second one when a prior delivery failed.
-          page_oncall
+          if [ "$pagerduty_status" -ne 0 ]; then
+            echo "::error::PagerDuty delivery failed; GitHub issue reporting completed but the audit remains failed." >&2
+            exit "$pagerduty_status"
+          fi
 
       - name: Close the rolling issue once the fleet is healthy
         if: success()
