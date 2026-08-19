@@ -172,6 +172,15 @@ export function GoogleConnectBanner({
       });
       return;
     }
+    let pollHandle: ReturnType<typeof setInterval> | null = null;
+    const stopPoll = () => {
+      if (!pollHandle) return;
+      clearInterval(pollHandle);
+      if (desktopPollRef.current === pollHandle) {
+        desktopPollRef.current = null;
+      }
+      pollHandle = null;
+    };
     void fetch(`${origin}${agentNativePath(endpoint)}?${params.toString()}`, {
       method: "POST",
       credentials: "include",
@@ -200,6 +209,7 @@ export function GoogleConnectBanner({
         popup.location.href = data.url;
       })
       .catch((error) => {
+        stopPoll();
         popup.close();
         setDesktopAuthIssue({
           code: "desktop_auth_start_failed",
@@ -211,7 +221,7 @@ export function GoogleConnectBanner({
       });
     const start = Date.now();
     if (desktopPollRef.current) clearInterval(desktopPollRef.current);
-    desktopPollRef.current = setInterval(async () => {
+    pollHandle = setInterval(async () => {
       if (document.hidden || desktopPollInFlightRef.current) return;
       desktopPollInFlightRef.current = true;
       const controller = new AbortController();
@@ -234,12 +244,10 @@ export function GoogleConnectBanner({
           );
           const data = await res.json();
           if (data?.error) {
-            clearInterval(desktopPollRef.current!);
-            desktopPollRef.current = null;
+            stopPoll();
             setDesktopAuthIssue(data);
           } else if (data?.token) {
-            clearInterval(desktopPollRef.current!);
-            desktopPollRef.current = null;
+            stopPoll();
             await fetch(
               agentNativePath(
                 `/_agent-native/auth/session?_session=${data.token}`,
@@ -251,13 +259,11 @@ export function GoogleConnectBanner({
             );
             window.location.reload();
           } else if (Date.now() - start > 120_000) {
-            clearInterval(desktopPollRef.current!);
-            desktopPollRef.current = null;
+            stopPoll();
           }
         } catch {
           if (Date.now() - start > 120_000) {
-            clearInterval(desktopPollRef.current!);
-            desktopPollRef.current = null;
+            stopPoll();
           }
         }
       } finally {
@@ -265,6 +271,7 @@ export function GoogleConnectBanner({
         desktopPollInFlightRef.current = false;
       }
     }, DESKTOP_POLL_INTERVAL_MS);
+    desktopPollRef.current = pollHandle;
   }
 
   const [authError, setAuthError] = useState<string | null>(null);

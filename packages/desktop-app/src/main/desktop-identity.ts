@@ -786,12 +786,14 @@ export class DesktopIdentityBroker {
     // The initiating-browser binding is held by that window's session cookie;
     // opening the authorization URL in the system browser would lose the
     // binding and reintroduce login-CSRF token theft.
-    const operation = adoption
-      ? adoption.then(
-          () => this.runSignInFanout(appId, generation),
-          () => this.runSignInFanout(appId, generation),
-        )
-      : this.runCeremony(appId, generation);
+    const operation = this.options.openExternal
+      ? this.runSecureGoogleSignIn(appId, generation)
+      : adoption
+        ? adoption.then(
+            () => this.runSignInFanout(appId, generation),
+            () => this.runSignInFanout(appId, generation),
+          )
+        : this.runSignInFanout(appId, generation);
     this.signInOperation = operation;
     void operation.then(
       () => {
@@ -936,6 +938,114 @@ export class DesktopIdentityBroker {
     );
 
     return { ok: true, email, pending: true };
+  }
+
+  private async runSecureGoogleSignIn(
+    appId: string,
+    generation: number,
+  ): Promise<boolean> {
+    const authority = this.resolveIdentityAuthority();
+    if (!authority) return false;
+
+    const flowId = randomBytes(32).toString("base64url");
+    const verifier = randomBytes(32).toString("base64url");
+    const authUrl = new URL("/_agent-native/google/auth-url", authority.origin);
+    authUrl.searchParams.set("desktop", "1");
+    authUrl.searchParams.set("flow_id", flowId);
+
+    this.setStatus("signing-in");
+    const abortController = new AbortController();
+    let identityWindow: DesktopIdentityWindow | null = null;
+    let closedByBroker = false;
+    try {
+      const response = await this.options.identitySession.fetch(
+        authUrl.toString(),
+        {
+          method: "POST",
+          credentials: "include",
+          headers: {
+            Accept: "application/json",
+            "X-Agent-Native-Desktop-Verifier": verifier,
+          },
+        },
+      );
+      let payload: { url?: unknown; error?: unknown; message?: unknown };
+      try {
+        payload = (await response.json()) as typeof payload;
+      } catch {
+        throw new Error("Could not start Google sign-in.");
+      }
+      if (!response.ok || typeof payload.url !== "string") {
+        throw new Error(
+          typeof payload.message === "string"
+            ? payload.message
+            : typeof payload.error === "string"
+              ? payload.error
+              : "Could not start Google sign-in.",
+        );
+      }
+
+      identityWindow = this.options.createWindow({
+        width: 520,
+        height: 720,
+        title: "Sign in to Agent Native",
+        show: true,
+        backgroundColor: "#111111",
+        parent: this.options.parentWindow?.() ?? undefined,
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+          session: this.options.identitySession,
+        },
+      });
+      this.activeWindow = identityWindow;
+
+      let resolveWindowClosed: (result: boolean) => void = () => {};
+      const windowClosed = new Promise<boolean>((resolve) => {
+        resolveWindowClosed = resolve;
+        identityWindow!.on("closed", () => {
+          if (!closedByBroker) resolve(false);
+        });
+      });
+
+      await identityWindow.loadURL(payload.url);
+      const exchange = this.pollDesktopOAuthExchange(
+        authority,
+        flowId,
+        verifier,
+        generation,
+        abortController.signal,
+      ).then(async () => {
+        const succeeded = await this.runSignInFanout(appId, generation, {
+          interactive: false,
+        });
+        if (succeeded) {
+          closedByBroker = true;
+          resolveWindowClosed(true);
+        }
+        return succeeded;
+      });
+
+      return await Promise.race([exchange, windowClosed]);
+    } catch (error) {
+      if (this.isCeremonyCurrent(generation) && !this.signOutOperation) {
+        this.setStatus("failed");
+      }
+      console.warn("[desktop identity] isolated Google sign-in failed", {
+        reason: error instanceof Error ? error.message : "unknown error",
+      });
+      return false;
+    } finally {
+      abortController.abort();
+      if (identityWindow && this.activeWindow === identityWindow) {
+        this.activeWindow = null;
+      }
+      if (identityWindow && !identityWindow.isDestroyed()) {
+        closedByBroker = true;
+        identityWindow.close();
+      }
+    }
   }
 
   private async finishExternalAuthentication(

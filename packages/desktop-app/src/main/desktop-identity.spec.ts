@@ -1646,7 +1646,7 @@ describe("DesktopIdentityBroker", () => {
     expect(identityFetch).toHaveBeenCalledTimes(1);
   });
 
-  it("uses the system browser and one-time embed sessions for modern fan-out", async () => {
+  it("uses an isolated identity window and one-time embed sessions for modern fan-out", async () => {
     const authority = authorityFixture();
     const mail = appFixture();
     const identityCookies = cookieStore();
@@ -1735,7 +1735,17 @@ describe("DesktopIdentityBroker", () => {
           : new Response(null, { status: 404 });
       }),
     } as unknown as Electron.Session;
-    const createWindow = vi.fn();
+    const identityWindow = {
+      webContents: {
+        on: vi.fn(),
+        setWindowOpenHandler: vi.fn(),
+      },
+      loadURL: vi.fn(async () => {}),
+      isDestroyed: vi.fn(() => false),
+      close: vi.fn(),
+      on: vi.fn(),
+    };
+    const createWindow = vi.fn(() => identityWindow as never);
     const reloadApp = vi.fn();
     const broker = new DesktopIdentityBroker({
       identitySession: {
@@ -1757,10 +1767,11 @@ describe("DesktopIdentityBroker", () => {
 
     await expect(broker.signIn(mail.id)).resolves.toBe(true);
 
-    expect(createWindow).not.toHaveBeenCalled();
-    expect(openedUrls).toHaveLength(1);
-    expect(new URL(openedUrls[0]!).hostname).toBe("accounts.google.com");
-    expect(openedUrls[0]).not.toContain("verifier");
+    expect(createWindow).toHaveBeenCalledOnce();
+    expect(openedUrls).toHaveLength(0);
+    expect(identityWindow.loadURL).toHaveBeenCalledWith(
+      expect.stringContaining("accounts.google.com"),
+    );
     expect(authorityCookies.set).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "an_session_dispatch",

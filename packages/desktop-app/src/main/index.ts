@@ -1448,8 +1448,9 @@ function ensureDesktopIdentityBroker(): DesktopIdentityBroker | null {
   desktopIdentityBroker = new DesktopIdentityBroker({
     identitySession: session.fromPartition(DESKTOP_IDENTITY_PARTITION),
     isAvailable: isDesktopIdentityAvailable,
-    // Parent Google and magic-link verification runs in the system browser;
-    // this persistent partition receives only the one-time exchange result.
+    // Parent Google verification runs in the isolated identity window so its
+    // browser-bound OAuth state remains in the same cookie partition. Magic
+    // links may still complete through the system browser exchange path.
     resolveApp: resolveDesktopIdentityApp,
     listApps: () => listDesktopIdentityApps(),
     openExternal: (url) => openExternalUrl(url),
