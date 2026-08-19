@@ -25,6 +25,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: desktop-release-${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  cancel-in-progress: false
+
 env:
   # Pushes to main are the employee-facing Nightly train. Production is only
   # released deliberately through workflow_dispatch.
@@ -48,19 +52,25 @@ jobs:
       - name: Resolve version
         id: v
         shell: bash
+        env:
+          RELEASE_VERSION_INPUT: ${{ inputs.version }}
         run: |
-          if [ -n "${{ inputs.version }}" ]; then
+          if [ -n "$RELEASE_VERSION_INPUT" ]; then
             if [ "$RELEASE_CHANNEL" = "nightly" ]; then
-              if [[ "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-                echo "version=${{ inputs.version }}-nightly.${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
-              elif [[ "${{ inputs.version }}" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly([.+-].*)?$ ]]; then
-                echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+              if [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "version=${RELEASE_VERSION_INPUT}-nightly.${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
+              elif [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]+$ ]]; then
+                echo "version=$RELEASE_VERSION_INPUT" >> "$GITHUB_OUTPUT"
               else
                 echo "::error::Nightly versions must be semver or include the -nightly prerelease marker."
                 exit 1
               fi
             else
-              echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
+              if [[ ! "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "::error::Production versions must be an exact stable major.minor.patch version."
+                exit 1
+              fi
+              echo "version=$RELEASE_VERSION_INPUT" >> "$GITHUB_OUTPUT"
             fi
           else
             BASE=$(node -p "require('./packages/desktop-app/package.json').version")
@@ -70,6 +80,10 @@ jobs:
               # collide across automatic runs.
               echo "version=${BASE}-nightly.${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
             else
+              if [[ ! "$BASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+                echo "::error::The production package version must be an exact stable major.minor.patch version."
+                exit 1
+              fi
               echo "version=${BASE}" >> "$GITHUB_OUTPUT"
             fi
           fi

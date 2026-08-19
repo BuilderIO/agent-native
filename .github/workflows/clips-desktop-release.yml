@@ -29,6 +29,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: clips-desktop-release-${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  cancel-in-progress: false
+
 env:
   TAURI_APP_PATH: templates/clips/desktop
   RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
@@ -147,8 +151,24 @@ jobs:
         working-directory: ${{ env.TAURI_APP_PATH }}
         shell: bash
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION_INPUT: ${{ inputs.version }}
         run: |
+          if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+            if [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              RELEASE_VERSION="${RELEASE_VERSION_INPUT}-nightly.${GITHUB_RUN_NUMBER}.0"
+            elif [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]+$ ]]; then
+              RELEASE_VERSION="$RELEASE_VERSION_INPUT"
+            else
+              echo "::error::Nightly versions must be semver or include the -nightly prerelease marker."
+              exit 1
+            fi
+          else
+            if [[ ! "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Production versions must be an exact stable major.minor.patch version."
+              exit 1
+            fi
+            RELEASE_VERSION="$RELEASE_VERSION_INPUT"
+          fi
           npm version "$RELEASE_VERSION" --no-git-tag-version
           node -e "
             const fs = require('fs');
