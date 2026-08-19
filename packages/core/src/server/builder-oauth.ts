@@ -10,7 +10,7 @@ import {
   type McpOAuthDiscoveryState,
 } from "../mcp-client/oauth-client.js";
 import { getOAuthTokens } from "../oauth-tokens/store.js";
-import { mutateSetting, putSetting } from "../settings/store.js";
+import { getSetting, mutateSetting, putSetting } from "../settings/store.js";
 
 export const BUILDER_OAUTH_ISSUER = "https://mcp.builder.io";
 export const BUILDER_OAUTH_RESOURCE = "https://api.builder.io";
@@ -244,9 +244,26 @@ export async function finishBuilderOAuthAuthorization(input: {
   });
 }
 
+export async function markBuilderOAuthReconnectRequired(
+  ownerEmail: string,
+): Promise<void> {
+  await putSetting(reconnectKey(ownerEmail), {
+    required: true,
+    at: Date.now(),
+  });
+}
+
+export async function builderOAuthReconnectRequired(
+  ownerEmail: string,
+): Promise<boolean> {
+  const row = await getSetting(reconnectKey(ownerEmail));
+  return row?.required === true;
+}
+
 export async function getBuilderOAuthSession(
   ownerEmail: string,
 ): Promise<BuilderOAuthSession | null> {
+  if (await builderOAuthReconnectRequired(ownerEmail)) return null;
   const credentials = await readMcpOAuthCredentials(ownerOptions(ownerEmail));
   if (!credentials || !isBuilderCredential(credentials)) return null;
   if (
@@ -310,10 +327,7 @@ async function refreshBuilderOAuthSession(
     }
     return sessionFrom(next);
   } catch {
-    await putSetting(reconnectKey(ownerEmail), {
-      required: true,
-      at: Date.now(),
-    });
+    await markBuilderOAuthReconnectRequired(ownerEmail);
     return null;
   } finally {
     await mutateSetting(leaseKey, (current) =>
@@ -345,6 +359,12 @@ export async function deleteBuilderOAuthSession(
 ): Promise<{ localDeleted: boolean; remoteRevoked: boolean }> {
   const options = ownerOptions(ownerEmail);
   const result = await revokeMcpOAuthCredentials(options);
+  await putSetting(reconnectKey(ownerEmail), {
+    required: false,
+    at: Date.now(),
+  }).catch(() => {
+    // coercion-ok: reconnect flag clear is best-effort after local revoke.
+  });
   return {
     localDeleted: result.local === "deleted",
     remoteRevoked: result.remote === "succeeded",

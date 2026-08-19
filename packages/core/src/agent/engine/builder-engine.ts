@@ -19,6 +19,7 @@
 import {
   BUILDER_OAUTH_SCOPE,
   hasBuilderOAuthSession,
+  markBuilderOAuthReconnectRequired,
   resolveBuilderOAuthRequestAccess,
 } from "../../server/builder-oauth.js";
 import { captureError } from "../../server/capture-error.js";
@@ -585,6 +586,24 @@ function gatewayErrorStop(
   };
 }
 
+async function recordAuthFailureForCurrentLane(opts: {
+  recordLegacyCredentialFailure?: boolean;
+  status?: number;
+  code?: string;
+  message?: string;
+}): Promise<void> {
+  if (opts.recordLegacyCredentialFailure !== false) {
+    await recordBuilderGatewayAuthFailure({
+      status: opts.status,
+      code: opts.code,
+      message: opts.message,
+    });
+    return;
+  }
+  const ownerEmail = getRequestUserEmail();
+  if (ownerEmail) await markBuilderOAuthReconnectRequired(ownerEmail);
+}
+
 async function* emitHttpError(
   response: Response,
   opts: {
@@ -627,9 +646,12 @@ async function* emitHttpError(
     return;
   }
   if (status === 401 || code === "unauthorized") {
-    if (opts.recordLegacyCredentialFailure !== false) {
-      await recordBuilderGatewayAuthFailure({ status, code, message });
-    }
+    await recordAuthFailureForCurrentLane({
+      recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      status,
+      code,
+      message,
+    });
     yield stop({
       error:
         "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
@@ -638,9 +660,12 @@ async function* emitHttpError(
     return;
   }
   if (status === 403 && isBuilderCredentialAuthError(message)) {
-    if (opts.recordLegacyCredentialFailure !== false) {
-      await recordBuilderGatewayAuthFailure({ status, code, message });
-    }
+    await recordAuthFailureForCurrentLane({
+      recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      status,
+      code,
+      message,
+    });
     yield stop({
       error:
         "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
@@ -963,11 +988,10 @@ async function* parseJsonlStream(
             console.error(
               `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
             );
-            if (
-              isCredentialAuthError &&
-              captureContext.recordLegacyCredentialFailure !== false
-            ) {
-              await recordBuilderGatewayAuthFailure({
+            if (isCredentialAuthError) {
+              await recordAuthFailureForCurrentLane({
+                recordLegacyCredentialFailure:
+                  captureContext.recordLegacyCredentialFailure,
                 code:
                   typeof gatewayErrCode === "string" ? gatewayErrCode : errCode,
                 message: String(errMsg),

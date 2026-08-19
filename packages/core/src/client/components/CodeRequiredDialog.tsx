@@ -33,7 +33,11 @@ function useBuilderConnected() {
       .then((data) => {
         if (data) {
           setConnected(!!data.configured);
-          setCloudAgentsAvailable(!!data.builderEnabled);
+          setCloudAgentsAvailable(
+            !!data.builderEnabled &&
+              !!data.privateKeyConfigured &&
+              !!data.publicKeyConfigured,
+          );
           setConnectUrl(data.connectUrl || null);
         }
       })

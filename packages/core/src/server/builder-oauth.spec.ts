@@ -10,6 +10,7 @@ const validateIssuerMock = vi.hoisted(() => vi.fn());
 const getRawTokensMock = vi.hoisted(() => vi.fn());
 const mutateSettingMock = vi.hoisted(() => vi.fn());
 const putSettingMock = vi.hoisted(() => vi.fn());
+const getSettingMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../mcp-client/oauth-client.js", () => ({
   startMcpOAuthAuthorization: startMock,
@@ -28,6 +29,7 @@ vi.mock("../oauth-tokens/store.js", () => ({
 vi.mock("../settings/store.js", () => ({
   mutateSetting: mutateSettingMock,
   putSetting: putSettingMock,
+  getSetting: getSettingMock,
 }));
 
 import {
@@ -45,6 +47,7 @@ import {
   finishBuilderOAuthAuthorization,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
+  markBuilderOAuthReconnectRequired,
   resolveBuilderOAuthRequestAccess,
   startBuilderOAuthAuthorization,
 } from "./builder-oauth.js";
@@ -97,6 +100,8 @@ beforeEach(() => {
   getAccessTokenMock.mockReset();
   validateIssuerMock.mockReset();
   getRawTokensMock.mockReset();
+  getSettingMock.mockReset();
+  getSettingMock.mockResolvedValue(null);
   putSettingMock.mockReset();
   putSettingMock.mockResolvedValue(undefined);
   mutateSettingMock.mockReset();
@@ -273,6 +278,22 @@ describe("Builder hosted user OAuth", () => {
       "mcp",
       "builder-general-resource-v1",
       "user:bob@example.com",
+    );
+  });
+
+  it("does not return a stored access token after reconnect is required", async () => {
+    getSettingMock.mockResolvedValue({ required: true, at: Date.now() });
+    readMock.mockResolvedValue(credentials());
+
+    await expect(getBuilderOAuthSession(ownerEmail)).resolves.toBeNull();
+    expect(readMock).not.toHaveBeenCalled();
+  });
+
+  it("marks reconnect required for a revoked OAuth grant", async () => {
+    await markBuilderOAuthReconnectRequired(ownerEmail);
+    expect(putSettingMock).toHaveBeenCalledWith(
+      "builder-oauth-reconnect:user:alice@example.com",
+      expect.objectContaining({ required: true }),
     );
   });
 

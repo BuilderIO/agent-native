@@ -105,27 +105,27 @@ The Agent-Native integration belongs primarily in the
 
 ### Existing OAuth foundation to reuse
 
-| Area | Location | Purpose |
-| --- | --- | --- |
-| OAuth token API | `packages/core/src/oauth-tokens/index.ts` | Public token lifecycle exports |
-| Encrypted token storage | `packages/core/src/oauth-tokens/store.ts` | Encrypt and persist access/refresh tokens |
-| Token lifecycle | `packages/core/src/oauth-tokens/lifecycle.ts` | Resolve, save, revoke, and inspect credentials |
-| OAuth 2.1 client reference | `packages/core/src/mcp-client/oauth-client.ts` | Discovery, PKCE, refresh, revocation, and guarded requests |
-| Builder MCP catalog entry | `packages/core/src/client/resources/mcp-integration-catalog.ts` | Existing `mcp.builder.io` integration |
+| Area                       | Location                                                        | Purpose                                                    |
+| -------------------------- | --------------------------------------------------------------- | ---------------------------------------------------------- |
+| OAuth token API            | `packages/core/src/oauth-tokens/index.ts`                       | Public token lifecycle exports                             |
+| Encrypted token storage    | `packages/core/src/oauth-tokens/store.ts`                       | Encrypt and persist access/refresh tokens                  |
+| Token lifecycle            | `packages/core/src/oauth-tokens/lifecycle.ts`                   | Resolve, save, revoke, and inspect credentials             |
+| OAuth 2.1 client reference | `packages/core/src/mcp-client/oauth-client.ts`                  | Discovery, PKCE, refresh, revocation, and guarded requests |
+| Builder MCP catalog entry  | `packages/core/src/client/resources/mcp-integration-catalog.ts` | Existing `mcp.builder.io` integration                      |
 
 `https://mcp.builder.io/mcp/publish` already exercises Builder's OAuth-enabled
 remote MCP flow and is the best in-repository reference to trace first.
 
 ### CLI-auth code to replace or retire
 
-| Area | Location | Required change |
-| --- | --- | --- |
-| CLI-auth URLs and signed state | `packages/core/src/server/builder-browser.ts` | Add OAuth authorization helpers and retire CLI-auth callback construction |
-| Connect and callback routes | `packages/core/src/server/core-routes-plugin.ts` | Start OAuth, process callback, and perform the code exchange |
-| Existing Builder credential resolution | `packages/core/src/server/credential-provider.ts` | Resolve OAuth access instead of requiring `BUILDER_PRIVATE_KEY` |
-| Client connection state | `packages/core/src/client/settings/useBuilderStatus.ts` | Launch OAuth and report connected, expired, and revoked states |
-| Onboarding connection UI | `packages/core/src/client/onboarding/OnboardingPanel.tsx` and related connection components | Keep the Connect Builder experience while changing its underlying flow |
-| Desktop Builder connection handling | `packages/desktop-app/src/main/index.ts` | Update popup/callback handling if the new OAuth flow affects desktop |
+| Area                                   | Location                                                                                    | Required change                                                           |
+| -------------------------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| CLI-auth URLs and signed state         | `packages/core/src/server/builder-browser.ts`                                               | Add OAuth authorization helpers and retire CLI-auth callback construction |
+| Connect and callback routes            | `packages/core/src/server/core-routes-plugin.ts`                                            | Start OAuth, process callback, and perform the code exchange              |
+| Existing Builder credential resolution | `packages/core/src/server/credential-provider.ts`                                           | Resolve OAuth access instead of requiring `BUILDER_PRIVATE_KEY`           |
+| Client connection state                | `packages/core/src/client/settings/useBuilderStatus.ts`                                     | Launch OAuth and report connected, expired, and revoked states            |
+| Onboarding connection UI               | `packages/core/src/client/onboarding/OnboardingPanel.tsx` and related connection components | Keep the Connect Builder experience while changing its underlying flow    |
+| Desktop Builder connection handling    | `packages/desktop-app/src/main/index.ts`                                                    | Update popup/callback handling if the new OAuth flow affects desktop      |
 
 Tests that currently exercise CLI auth should be replaced or supplemented with
 OAuth coverage, especially:

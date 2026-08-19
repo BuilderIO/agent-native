@@ -50,6 +50,7 @@ describe("ConnectBuilderCard", () => {
     mocks.useBuilderConnectFlow.mockReturnValue({
       hasFetchedStatus: true,
       configured: true,
+      codeChangeConfigured: false,
       builderEnabled: false,
       orgName: "Builder space",
       envManaged: false,
@@ -227,6 +228,36 @@ describe("ConnectBuilderCard", () => {
 
     expect(container.textContent).toContain("Send this to Builder");
     expect(container.textContent).toContain("Send to Builder");
+  });
+
+  it("does not enable cloud code-change send for an OAuth-only connection", () => {
+    mocks.useBuilderConnectFlow.mockReturnValue({
+      hasFetchedStatus: true,
+      statusResolved: true,
+      configured: true,
+      codeChangeConfigured: false,
+      builderEnabled: true,
+      orgName: "Builder OAuth",
+      envManaged: false,
+      connecting: false,
+      error: null,
+      start: mocks.start,
+    });
+
+    act(() => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled
+          connectUrl=""
+          prompt="Update the dashboard layout"
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Builder.io connected");
+    expect(container.textContent).not.toContain("Send to Builder");
+    expect(container.textContent).toContain("This requires a code change");
   });
 
   it("sends the background-coding use case when joining the waitlist", async () => {

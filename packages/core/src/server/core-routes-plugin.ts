@@ -1005,6 +1005,20 @@ export async function consumeBuilderConnectPendingState(
   }
 }
 
+export async function readBuilderConnectPendingState(
+  state: string,
+  read: typeof getSetting = getSetting,
+): Promise<Record<string, unknown> | null> {
+  if (!isSignedBuilderConnectState(state)) return null;
+  try {
+    const pending = await read(`builder-connect-pending:${state}`);
+    if (!pending || pending.consumed === true) return null;
+    return pending;
+  } catch {
+    return null;
+  }
+}
+
 type BuilderAnonymousOwnerResolver = (
   event: H3Event,
 ) => string | null | Promise<string | null>;
@@ -2189,10 +2203,18 @@ export function createCoreRoutesPlugin(
               try {
                 hasOAuthCustody = await hasBuilderOAuthSession(userEmail);
               } catch {
-                // coercion-ok: unreadable OAuth store is not "custody present";
-                // fall through to legacy credential status instead of claiming
-                // a reconnect state we could not verify.
-                hasOAuthCustody = false;
+                return withConnectToken({
+                  ...requestStatus,
+                  configured: false,
+                  credentialSource: "user" as const,
+                  privateKeyConfigured: false,
+                  publicKeyConfigured: false,
+                  connectError: {
+                    message:
+                      "Builder connection status could not be read. Retry in a moment.",
+                    at: Date.now(),
+                  },
+                });
               }
               if (hasOAuthCustody) {
                 try {
@@ -2442,6 +2464,25 @@ export function createCoreRoutesPlugin(
           if (!ownerEmail) {
             setResponseStatus(event, 401);
             return { error: "Authentication required" };
+          }
+          if (
+            ownerContext.anonymous ||
+            isAgentNativeAnonymousOwner(ownerEmail)
+          ) {
+            setResponseStatus(event, 401);
+            setResponseHeader(
+              event,
+              "Content-Type",
+              "text/html; charset=utf-8",
+            );
+            return createBuilderBrowserCallbackErrorPage(
+              "Sign in to connect Builder.",
+              {
+                title: "Sign in required",
+                body: "Builder OAuth is tied to a signed-in account. Sign in, then try Connect Builder again.",
+                parentOrigin: getBuilderBrowserOriginForEvent(event),
+              },
+            );
           }
 
           const requestUrl = getFrameworkRouteRequestUrl(event);
@@ -2994,7 +3035,7 @@ export function createCoreRoutesPlugin(
             );
           }
 
-          const pending = await consumeBuilderConnectPendingState(state);
+          const pending = await readBuilderConnectPendingState(state);
           if (!pending) {
             return fail(
               403,
@@ -3035,6 +3076,17 @@ export function createCoreRoutesPlugin(
               403,
               "Builder connect callback could not be verified. Restart the connection.",
               ownerEmail ?? undefined,
+              "callback_verification_failed",
+              tracking,
+            );
+          }
+
+          const consumed = await consumeBuilderConnectPendingState(state);
+          if (!consumed) {
+            return fail(
+              403,
+              "No active Builder connect flow found. Restart the connection from Settings.",
+              ownerEmail,
               "callback_verification_failed",
               tracking,
             );
@@ -3110,9 +3162,10 @@ export function createCoreRoutesPlugin(
         }),
       );
 
-      // POST /_agent-native/builder/disconnect — remove user OAuth custody and
-      // any legacy request-scoped Builder credentials. Deploy env credentials
-      // remain untouched for existing installations.
+      // POST /_agent-native/builder/disconnect — remove this user's OAuth
+      // custody. Legacy BUILDER_* secrets are cleared at user scope when OAuth
+      // was present, so an admin disconnect cannot delete the org-wide keys.
+      // A legacy-only disconnect still uses the owner/admin org write gate.
       getH3App(nitroApp).use(
         `${P}/builder/disconnect`,
         defineEventHandler(async (event: H3Event) => {
@@ -3143,7 +3196,10 @@ export function createCoreRoutesPlugin(
             } catch {
               // coercion-ok: org module is optional; disconnect still clears user-scoped custody.
             }
-            await deleteBuilderCredentials(session.email, { orgId, role });
+            await deleteBuilderCredentials(
+              session.email,
+              hadOAuth ? undefined : { orgId, role },
+            );
             await trackBuilderLifecycle(
               event,
               "builder disconnect succeeded",

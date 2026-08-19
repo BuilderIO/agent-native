@@ -27,6 +27,7 @@ const oauthState = vi.hoisted(() => ({
   stored: false,
   resolveAccess: vi.fn(),
   hasSession: vi.fn(),
+  markReconnect: vi.fn(async () => {}),
 }));
 
 const AGENT_NATIVE_UPGRADE_URL =
@@ -76,6 +77,7 @@ vi.mock("../../server/builder-oauth.js", () => ({
   BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
   resolveBuilderOAuthRequestAccess: oauthState.resolveAccess,
   hasBuilderOAuthSession: oauthState.hasSession,
+  markBuilderOAuthReconnectRequired: oauthState.markReconnect,
 }));
 
 vi.mock("../../server/request-context.js", () => ({
@@ -141,6 +143,7 @@ describe("createBuilderEngine", () => {
     oauthState.hasSession
       .mockReset()
       .mockImplementation(async () => oauthState.stored);
+    oauthState.markReconnect.mockClear();
     vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
     vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
     vi.stubEnv("BUILDER_USER_ID", "builder-user-123");
@@ -783,6 +786,32 @@ describe("createBuilderEngine", () => {
       code: "unauthorized",
       message: "Invalid key",
     });
+    expect(oauthState.markReconnect).not.toHaveBeenCalled();
+  });
+
+  it("marks OAuth custody for reconnect on gateway 401 instead of the legacy key fingerprint", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(401, {
+          code: "unauthorized",
+          message: "Invalid token",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events.find((e) => e.type === "stop")?.errorCode).toBe(
+      "builder_auth_error",
+    );
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+    expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
   });
 
   it("maps 403 invalid token to Builder auth stop-error", async () => {

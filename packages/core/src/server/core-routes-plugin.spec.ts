@@ -17,6 +17,7 @@ import {
   checkBuilderWaitlistRateLimit,
   consumeBuilderConnectPendingState,
   isBuilderConnectCallbackOwner,
+  readBuilderConnectPendingState,
   resolveBuilderOwnerContextForRequest,
   resolveBuilderWaitlistFormTargetForRequest,
   resolveWaitlistEmail,
@@ -391,6 +392,23 @@ describe("Builder OAuth callback state", () => {
     });
     await expect(
       consumeBuilderConnectPendingState(state, dependencies as never),
+    ).resolves.toBeNull();
+  });
+
+  it("reads pending state without consuming it", async () => {
+    const state = createBuilderConnectState();
+    const pending = {
+      ownerEmail: "alice@example.com",
+      expiresAt: Date.now() + 60_000,
+    };
+    await expect(
+      readBuilderConnectPendingState(state, async () => pending),
+    ).resolves.toEqual(pending);
+    await expect(
+      readBuilderConnectPendingState(state, async () => ({
+        ...pending,
+        consumed: true,
+      })),
     ).resolves.toBeNull();
   });
 });

@@ -182,6 +182,12 @@ export interface BuilderConnectFlow {
    */
   envManaged: boolean;
   /**
+   * True when legacy Builder private/public keys are present. Cloud code-change
+   * routes (`/builder/run`, `/builder/agents-run`) still require those keys;
+   * OAuth `configured` only covers the chat gateway.
+   */
+  codeChangeConfigured: boolean;
+  /**
    * True when the server has a Builder branch project configured for this
    * request. When false, the card surfaces a waitlist CTA instead of a Send
    * button.
@@ -389,6 +395,12 @@ function isCurrentConnectError(
   return typeof error.at !== "number" || error.at >= startedAt - 1000;
 }
 
+function isCodeChangeConfigured(
+  status: BuilderStatus | null | undefined,
+): boolean {
+  return !!status?.privateKeyConfigured && !!status?.publicKeyConfigured;
+}
+
 function showBuilderConnectPopupPlaceholder(opened: Window) {
   // Keep opener attached: the Builder callback uses postMessage to notify the
   // settings tab that the popup completed. We still hold the WindowProxy so the
@@ -552,6 +564,7 @@ export function useBuilderConnectFlow(
     onConnected,
   } = opts;
   const [configured, setConfigured] = useState(false);
+  const [codeChangeConfigured, setCodeChangeConfigured] = useState(false);
   const [envManaged, setEnvManaged] = useState(false);
   const [builderEnabled, setBuilderEnabled] = useState(false);
   const [orgName, setOrgName] = useState<string | null>(null);
@@ -634,6 +647,7 @@ export function useBuilderConnectFlow(
   useEffect(() => {
     if (!enabled) {
       setConfigured(false);
+      setCodeChangeConfigured(false);
       setEnvManaged(false);
       setBuilderEnabled(false);
       setOrgName(null);
@@ -657,6 +671,7 @@ export function useBuilderConnectFlow(
       if (!s) return;
       setStatusResolved(true);
       setConfigured(!!s.configured);
+      setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
       const nextConnectUrl = s.connectUrl ?? null;
@@ -774,6 +789,7 @@ export function useBuilderConnectFlow(
               setHasFetchedStatus(true);
               setStatusResolved(true);
               setConfigured(!!s.configured);
+              setCodeChangeConfigured(isCodeChangeConfigured(s));
               setEnvManaged(!!s.envManaged);
               setBuilderEnabled(!!s.builderEnabled);
               const nextConnectUrl = s.connectUrl ?? null;
@@ -814,6 +830,7 @@ export function useBuilderConnectFlow(
               setHasFetchedStatus(true);
               setStatusResolved(true);
               setConfigured(!!s.configured);
+              setCodeChangeConfigured(isCodeChangeConfigured(s));
               setEnvManaged(!!s.envManaged);
               setBuilderEnabled(!!s.builderEnabled);
               const nextConnectUrl = s.connectUrl ?? null;
@@ -881,6 +898,7 @@ export function useBuilderConnectFlow(
       if (s) setStatusResolved(true);
       if (s?.configured) {
         setConfigured(true);
+        setCodeChangeConfigured(isCodeChangeConfigured(s));
         setEnvManaged(!!s.envManaged);
         setBuilderEnabled(!!s.builderEnabled);
         const nextConnectUrl = s.connectUrl ?? null;
@@ -973,6 +991,7 @@ export function useBuilderConnectFlow(
         if (s) {
           setStatusResolved(true);
           setConfigured(false);
+          setCodeChangeConfigured(false);
           setEnvManaged(!!s.envManaged);
           setBuilderEnabled(!!s.builderEnabled);
           const nextConnectUrl = s.connectUrl ?? null;
@@ -992,6 +1011,7 @@ export function useBuilderConnectFlow(
       setHasFetchedStatus(true);
       setStatusResolved(true);
       setConfigured(true);
+      setCodeChangeConfigured(isCodeChangeConfigured(s));
       setEnvManaged(!!s.envManaged);
       setBuilderEnabled(!!s.builderEnabled);
       const nextConnectUrl = s.connectUrl ?? null;
@@ -1049,6 +1069,7 @@ export function useBuilderConnectFlow(
 
   return {
     configured,
+    codeChangeConfigured,
     statusResolved,
     envManaged,
     builderEnabled,
