@@ -2817,6 +2817,7 @@ export default function CodeAgentsApp({
                                 />
                               )}
                             <NewSessionComposer
+                              key={newPromptSeed}
                               prompt={newPrompt}
                               promptSeed={newPromptSeed}
                               inputRef={newPromptRef}
