@@ -60,7 +60,6 @@ import {
   isReasoningEffort,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
-import { createCodeAgentAgentTools } from "./code-agent-agent-tools.js";
 import {
   createAgentNativeConfigContext,
   loadResolvedAgentNativeConfig,
