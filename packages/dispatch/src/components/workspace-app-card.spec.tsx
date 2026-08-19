@@ -35,11 +35,18 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     String(values?.defaultValue ?? key),
 }));
 
+const frameState = vi.hoisted(() => ({ inBuilderFrame: false }));
+
+vi.mock("@agent-native/core/client/host", () => ({
+  isInBuilderFrame: () => frameState.inBuilderFrame,
+}));
+
 describe("WorkspaceAppCard", () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
+    frameState.inBuilderFrame = false;
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -127,6 +134,7 @@ describe("WorkspaceAppCard", () => {
   });
 
   it("opens mounted workspace apps at their published URL", async () => {
+    frameState.inBuilderFrame = true;
     const originalParent = window.parent;
     const originalTop = window.top;
     const topWindow = { location: { href: "" } } as unknown as Window;

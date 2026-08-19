@@ -12,6 +12,11 @@ import { createRequire } from "node:module";
 
 import { getAppConfig } from "../../app-config/index.js";
 import {
+  BUILDER_OAUTH_SCOPE,
+  hasBuilderOAuthSession,
+  resolveBuilderOAuthRequestAccess,
+} from "../../server/builder-oauth.js";
+import {
   assertCredentialStoreReadable,
   canUseDeployCredentialFallbackForRequest,
   getBuilderCredentialAuthFailure,
@@ -22,6 +27,7 @@ import {
   resolveSecret,
   type BuilderCredentialLookupIdentity,
 } from "../../server/credential-provider.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 import { getSetting } from "../../settings/store.js";
 import { getAgentAppModelDefaultForCurrentRequest } from "../app-model-defaults.js";
 import {
@@ -752,6 +758,22 @@ async function resolveProviderBaseUrl(
 async function hasUsableBuilderConnection(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<boolean> {
+  const ownerEmail =
+    identity?.userEmail?.trim().toLowerCase() || getRequestUserEmail();
+  if (ownerEmail && (await hasBuilderOAuthSession(ownerEmail))) {
+    try {
+      return Boolean(
+        await resolveBuilderOAuthRequestAccess({
+          ownerEmail,
+          requiredScope: BUILDER_OAUTH_SCOPE,
+        }),
+      );
+    } catch {
+      // coercion-ok: custody present but unusable is "not usable", not absent;
+      // reconnect UX is owned by /builder/status, not this boolean probe.
+      return false;
+    }
+  }
   const creds = await resolveBuilderCredentialsDetailed(identity);
   assertCredentialStoreReadable(creds);
   return Boolean(creds.privateKey && creds.publicKey);

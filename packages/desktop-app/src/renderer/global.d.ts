@@ -301,6 +301,40 @@ type CodeAgentRunListResult<TRun extends CodeAgentRun = CodeAgentRun> = {
   error?: string;
 };
 
+type CodeAgentScheduleScope = "global" | "thread";
+type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
+type CodeAgentSchedule = {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  prompt: string;
+  scope: CodeAgentScheduleScope;
+  targetRunId?: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  nextRunAt: string;
+  lastRunAt?: string;
+  lastStatus?: CodeAgentScheduleStatus;
+  lastError?: string;
+  lastTriggeredRunId?: string;
+  createdByRunId?: string;
+};
+
+type CodeAgentScheduleListResult = {
+  status: "ok" | "unavailable";
+  schedules: CodeAgentSchedule[];
+  error?: string;
+};
+
+type CodeAgentScheduleResult = {
+  ok: boolean;
+  schedule?: CodeAgentSchedule;
+  message: string;
+  error?: string;
+};
+
 type CodeAgentTranscriptEventType = "user" | "system" | "artifact" | "status";
 
 type CodeAgentTranscriptEvent = {
@@ -838,6 +872,11 @@ interface ElectronAPI {
 
   codeAgents: {
     listRuns(goalId?: string): Promise<CodeAgentRunListResult>;
+    listSchedules(): Promise<CodeAgentScheduleListResult>;
+    createSchedule(input: unknown): Promise<CodeAgentScheduleResult>;
+    updateSchedule(input: unknown): Promise<CodeAgentScheduleResult>;
+    deleteSchedule(input: unknown): Promise<CodeAgentScheduleResult>;
+    runScheduleNow(input: unknown): Promise<CodeAgentScheduleResult>;
     listModels(): Promise<CodeAgentModelListResult>;
     createRun(
       request: CodeAgentCreateRunRequest,

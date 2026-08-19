@@ -256,7 +256,9 @@ export function isPendingBuilderHref(app: WorkspaceAppSummary): boolean {
 
 export function shouldOpenWorkspaceAppInTopWindow(): boolean {
   if (typeof window === "undefined") return false;
-  return isInBuilderFrame() || window.parent !== window;
+  // A generic iframe is an inline host by design. Only Builder owns the
+  // parent navigation contract for workspace apps.
+  return isInBuilderFrame();
 }
 
 export function navigateToWorkspaceApp(href: string): boolean {

@@ -42,6 +42,41 @@ export type CodeAgentFollowUpMode = "immediate" | "queued";
 
 export type CodeAgentExecutionTarget = "local" | "worktree" | "portal";
 
+export type CodeAgentScheduleScope = "global" | "thread";
+export type CodeAgentScheduleStatus = "queued" | "completed" | "errored";
+
+export interface CodeAgentSchedule {
+  schemaVersion: 1;
+  id: string;
+  name: string;
+  prompt: string;
+  scope: CodeAgentScheduleScope;
+  targetRunId?: string;
+  intervalMinutes: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  nextRunAt: string;
+  lastRunAt?: string;
+  lastStatus?: CodeAgentScheduleStatus;
+  lastError?: string;
+  lastTriggeredRunId?: string;
+  createdByRunId?: string;
+}
+
+export interface CodeAgentScheduleListResult {
+  status: "ok" | "unavailable";
+  schedules: CodeAgentSchedule[];
+  error?: string;
+}
+
+export interface CodeAgentScheduleResult {
+  ok: boolean;
+  schedule?: CodeAgentSchedule;
+  message: string;
+  error?: string;
+}
+
 export interface CodeAgentRemoteWaitlistRequest {
   email: string;
   pageUrl?: string;

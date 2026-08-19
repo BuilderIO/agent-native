@@ -157,6 +157,7 @@ import {
   createPortalTransferContext,
   portalTransferContinuationPrompt,
 } from "../../../core/src/cli/portal-transfer.js";
+import { listCodeAgentSchedules } from "../../../core/src/cli/code-agent-schedules.js";
 import {
   createPortalHandoff,
   type PortalHandoff,
