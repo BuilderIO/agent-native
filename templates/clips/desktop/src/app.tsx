@@ -2147,9 +2147,7 @@ export function App() {
 
     try {
       setSignInError(null);
-      const flowId =
-        crypto.randomUUID?.() ||
-        Math.random().toString(36).slice(2) + Date.now().toString(36);
+      const flowId = crypto.randomUUID?.() ?? null;
       const verifier = (() => {
         const randomUuid = crypto.randomUUID;
         if (typeof randomUuid === "function") {
@@ -2167,8 +2165,10 @@ export function App() {
         }
         return null;
       })();
-      if (!verifier) {
-        throw new Error("Secure OAuth verifier generation is unavailable.");
+      if (!flowId || !verifier) {
+        // A Math.random flow id is guessable, which lets anyone else claim this
+        // sign-in's exchange slot; fail closed rather than weaken the credential.
+        throw new Error("Secure OAuth flow generation is unavailable.");
       }
       const base = serverUrl.replace(/\/+$/, "");
 
@@ -2197,11 +2197,13 @@ export function App() {
         throw new Error("Could not start Google sign-in.");
       }
       if (!authResponse.ok || typeof authPayload?.url !== "string") {
-        throw new Error(
-          authPayload?.message ||
-            authPayload?.error ||
-            "Could not start Google sign-in.",
-        );
+        const message =
+          typeof authPayload.message === "string"
+            ? authPayload.message
+            : typeof authPayload.error === "string"
+              ? authPayload.error
+              : "Could not start Google sign-in.";
+        throw new Error(message);
       }
       await openExternal(authPayload.url);
       setSignInPending("google");
