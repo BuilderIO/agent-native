@@ -1,67 +1,125 @@
 # Existing localized docs strings that still match English source.
 # Keep this file sorted. Remove entries as translated docs improve.
 # Format: relative/localized/path.md|English source string
+packages/core/docs/content/locales/ar-SA/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/ar-SA/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/ar-SA/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/ar-SA/file-uploads.mdx|No provider
 packages/core/docs/content/locales/ar-SA/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ar-SA/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/ar-SA/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+packages/core/docs/content/locales/ar-SA/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/ar-SA/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ar-SA/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ar-SA/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ar-SA/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ar-SA/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/ar-SA/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Launch goals
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Reading list
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Top objectives
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/ar-SA/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/ar-SA/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/ar-SA/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/ar-SA/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ar-SA/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ar-SA/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/ar-SA/what-is-agent-native.mdx|Agent Surfaces
+packages/core/docs/content/locales/de-DE/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/de-DE/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|Agent-Native routes
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/de-DE/agent-surfaces.mdx|route · selection
 packages/core/docs/content/locales/de-DE/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/de-DE/file-uploads.mdx|No provider
 packages/core/docs/content/locales/de-DE/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/de-DE/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/de-DE/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+packages/core/docs/content/locales/de-DE/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/de-DE/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/de-DE/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/de-DE/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/de-DE/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/de-DE/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/de-DE/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/de-DE/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/de-DE/template-content.mdx|Launch goals
+packages/core/docs/content/locales/de-DE/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/de-DE/template-content.mdx|Reading list
+packages/core/docs/content/locales/de-DE/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/de-DE/template-content.mdx|Top objectives
+packages/core/docs/content/locales/de-DE/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/de-DE/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/de-DE/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/de-DE/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/de-DE/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/de-DE/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/es-ES/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/es-ES/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/es-ES/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/es-ES/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/es-ES/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/es-ES/file-uploads.mdx|No provider
 packages/core/docs/content/locales/es-ES/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/es-ES/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/es-ES/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+packages/core/docs/content/locales/es-ES/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/es-ES/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/es-ES/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/es-ES/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/es-ES/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/es-ES/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/es-ES/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/es-ES/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/es-ES/template-content.mdx|Launch goals
+packages/core/docs/content/locales/es-ES/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/es-ES/template-content.mdx|Reading list
+packages/core/docs/content/locales/es-ES/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/es-ES/template-content.mdx|Top objectives
+packages/core/docs/content/locales/es-ES/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/es-ES/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/es-ES/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/es-ES/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/es-ES/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/es-ES/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/es-ES/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/fr-FR/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/fr-FR/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/fr-FR/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/fr-FR/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/fr-FR/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/fr-FR/file-uploads.mdx|No provider
 packages/core/docs/content/locales/fr-FR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/fr-FR/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/fr-FR/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+packages/core/docs/content/locales/fr-FR/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/fr-FR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/fr-FR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/fr-FR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/fr-FR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/fr-FR/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/fr-FR/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Launch goals
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Reading list
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Top objectives
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/fr-FR/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/fr-FR/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/fr-FR/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/fr-FR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/fr-FR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/fr-FR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
 packages/core/docs/content/locales/fr-FR/what-is-agent-native.mdx|Agent Surfaces
+packages/core/docs/content/locales/hi-IN/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/hi-IN/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|A2A Protocol
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|Agent-Native routes
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|Automation-First Apps
@@ -81,13 +139,25 @@ packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|SQL state
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|The surface spectrum
 packages/core/docs/content/locales/hi-IN/agent-surfaces.mdx|route · selection
 packages/core/docs/content/locales/hi-IN/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/hi-IN/file-uploads.mdx|No provider
 packages/core/docs/content/locales/hi-IN/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/hi-IN/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/hi-IN/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+packages/core/docs/content/locales/hi-IN/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/hi-IN/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/hi-IN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/hi-IN/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/hi-IN/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/hi-IN/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/hi-IN/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Launch goals
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Reading list
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Top objectives
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/hi-IN/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/hi-IN/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/hi-IN/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/hi-IN/toolkit-capability-packages.mdx|Creative Context
@@ -96,54 +166,98 @@ packages/core/docs/content/locales/hi-IN/using-your-agent.mdx|**Shared awareness
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Agent Surfaces
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Getting Started
 packages/core/docs/content/locales/hi-IN/what-is-agent-native.mdx|Key Concepts
+packages/core/docs/content/locales/ja-JP/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/ja-JP/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/ja-JP/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/ja-JP/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/ja-JP/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/ja-JP/file-uploads.mdx|No provider
 packages/core/docs/content/locales/ja-JP/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ja-JP/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/ja-JP/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+packages/core/docs/content/locales/ja-JP/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/ja-JP/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ja-JP/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ja-JP/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ja-JP/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ja-JP/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/ja-JP/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Launch goals
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Reading list
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Top objectives
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/ja-JP/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/ja-JP/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/ja-JP/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/ja-JP/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ja-JP/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ja-JP/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/ko-KR/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/ko-KR/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/ko-KR/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/ko-KR/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/ko-KR/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/ko-KR/file-uploads.mdx|No provider
 packages/core/docs/content/locales/ko-KR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/ko-KR/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/ko-KR/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+packages/core/docs/content/locales/ko-KR/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/ko-KR/onboarding.mdx|Hide setup
 packages/core/docs/content/locales/ko-KR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/ko-KR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/ko-KR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/ko-KR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/ko-KR/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/ko-KR/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Launch goals
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Reading list
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Top objectives
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/ko-KR/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/ko-KR/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/ko-KR/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/ko-KR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/ko-KR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/ko-KR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/pt-BR/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/pt-BR/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/pt-BR/agent-surfaces.mdx|Context awareness
 packages/core/docs/content/locales/pt-BR/agent-surfaces.mdx|Deep links
 packages/core/docs/content/locales/pt-BR/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/pt-BR/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/pt-BR/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/pt-BR/file-uploads.mdx|No provider
 packages/core/docs/content/locales/pt-BR/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/pt-BR/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/pt-BR/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+packages/core/docs/content/locales/pt-BR/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/pt-BR/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/pt-BR/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/pt-BR/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/pt-BR/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/pt-BR/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/pt-BR/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Launch goals
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Reading list
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Top objectives
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/pt-BR/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/pt-BR/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/pt-BR/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/pt-BR/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/pt-BR/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/pt-BR/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/zh-CN/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/zh-CN/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/zh-CN/agent-surfaces.mdx|A2A Protocol
 packages/core/docs/content/locales/zh-CN/agent-surfaces.mdx|Automation-First Apps
 packages/core/docs/content/locales/zh-CN/agent-surfaces.mdx|External Agents
@@ -151,18 +265,32 @@ packages/core/docs/content/locales/zh-CN/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/zh-CN/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/zh-CN/agent-surfaces.mdx|SQL state
 packages/core/docs/content/locales/zh-CN/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/zh-CN/file-uploads.mdx|No provider
 packages/core/docs/content/locales/zh-CN/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/zh-CN/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/zh-CN/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+packages/core/docs/content/locales/zh-CN/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/zh-CN/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/zh-CN/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-CN/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/zh-CN/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/zh-CN/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/zh-CN/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Launch goals
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Reading list
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Top objectives
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/zh-CN/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/zh-CN/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/zh-CN/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/zh-CN/toolkit-capability-packages.mdx|Creative Context
 packages/core/docs/content/locales/zh-CN/toolkit-context-knowledge.mdx|Context X-Ray
 packages/core/docs/content/locales/zh-CN/using-your-agent.mdx|**Shared awareness is two-way.** You and the agent both read and write `application_state`, so "reply to this" or "summarize the selection" just works — and when the agent navigates, the real UI moves with it.
+packages/core/docs/content/locales/zh-TW/actions-access-control.mdx|Needs approval
+packages/core/docs/content/locales/zh-TW/actions-access-control.mdx|subject: Following up on the proposal
 packages/core/docs/content/locales/zh-TW/agent-surfaces.mdx|A2A Protocol
 packages/core/docs/content/locales/zh-TW/agent-surfaces.mdx|Automation-First Apps
 packages/core/docs/content/locales/zh-TW/agent-surfaces.mdx|Context awareness
@@ -170,13 +298,25 @@ packages/core/docs/content/locales/zh-TW/agent-surfaces.mdx|External Agents
 packages/core/docs/content/locales/zh-TW/agent-surfaces.mdx|Generative UI
 packages/core/docs/content/locales/zh-TW/agent-surfaces.mdx|Native Chat UI
 packages/core/docs/content/locales/zh-TW/dispatch.mdx|"summarize last week's signups"
+packages/core/docs/content/locales/zh-TW/file-uploads.mdx|No provider
 packages/core/docs/content/locales/zh-TW/frames.mdx|type: \"code\"
 packages/core/docs/content/locales/zh-TW/messaging.mdx|Microsoft Teams
+packages/core/docs/content/locales/zh-TW/node-docker.mdx|For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+packages/core/docs/content/locales/zh-TW/node-docker.mdx|data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
 packages/core/docs/content/locales/zh-TW/progress.mdx|Ingest 1M rows
 packages/core/docs/content/locales/zh-TW/progress.mdx|Triage 128 unread emails
 packages/core/docs/content/locales/zh-TW/progress.mdx|Writing to target DB
 packages/core/docs/content/locales/zh-TW/recurring-jobs.mdx|, recompute
 packages/core/docs/content/locales/zh-TW/template-calendar.mdx|"find a 1-hour slot next week"
+packages/core/docs/content/locales/zh-TW/template-content.mdx|At a glance · owner, window, status
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Engineering wiki
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Launch goals
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Q3 Roadmap
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Reading list
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Ship the onboarding flow, reduce setup time, and document owner handoffs.
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Top objectives
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Weekly sync
+packages/core/docs/content/locales/zh-TW/template-content.mdx|Workstreams table
 packages/core/docs/content/locales/zh-TW/template-forms.mdx|"add an NPS question"
 packages/core/docs/content/locales/zh-TW/template-slides.mdx|"10-slide pitch deck"
 packages/core/docs/content/locales/zh-TW/toolkit-capability-packages.mdx|Creative Context

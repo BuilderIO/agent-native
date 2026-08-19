@@ -1,23 +1,27 @@
 ---
 title: "Téléchargements de fichiers"
-description: "Configurer un stockage objet durable pour les téléchargements : Builder.io ou un fournisseur S3 compatible personnalisé."
+description: "Configurez un stockage durable des téléchargements de fichiers avec Builder.io ou un fournisseur de stockage objet personnalisé pour la production."
 ---
 
 # Téléchargements de fichiers
 
-Le framework fournit une abstraction de téléchargement de fichiers qui achemine les téléchargements via un fournisseur configurable. Les modèles appellent `uploadFile()` et récupèrent un URL : le backend de stockage est échangeable sans modifier le code de l'application.
+Le framework fournit une abstraction de téléchargement de fichiers qui achemine les téléchargements via un fournisseur configurable. Les modèles appellent `uploadFile()` et récupèrent un URL. Le backend de stockage est interchangeable sans modifier le code de l'application.
 
 ## Comment ça marche {#how-it-works}
 
-Les requêtes de téléchargement sont envoyées à `POST /_agent-native/file-upload`, qui les envoie au fournisseur actif. Vous pouvez vérifier quel fournisseur est configuré sur `GET /_agent-native/file-upload/status`.
+Les requêtes de téléchargement sont envoyées à `POST /_agent-native/file-upload`, qui les transmet au fournisseur actif. Vous pouvez vérifier quel fournisseur est configuré à l'adresse `GET /_agent-native/file-upload/status`.
 
-L'ordre de résolution du fournisseur est :
+L'ordre de résolution du fournisseur est le suivant :
 
-1. **Fournisseurs enregistrés par l'utilisateur** : fournisseurs personnalisés enregistrés via `registerFileUploadProvider()`
-2. **Fournisseur Builder.io** (offre gratuite disponible) — intégré, s'active automatiquement lorsque Builder.io est connecté
-3. **Stockage requis** — sans fournisseur, le téléchargement est refusé de manière sûre et une carte de configuration s’affiche ; les données binaires ne sont jamais stockées dans SQL
+1. **Fournisseurs enregistrés par l'utilisateur** : fournisseurs personnalisés enregistrés via `registerFileUploadProvider()`.
+2. **Fournisseur Builder.io** : intégré, il s'active automatiquement lorsque Builder.io est connecté.
+3. **Aucun fournisseur** : le téléchargement est refusé et le chat affiche un appel à l'action pour configurer le stockage. Les données binaires ne sont jamais persistées dans SQL.
 
-<Diagram id="doc-block-1msczw9" title={"Ordre de résolution du fournisseur"} summary={"uploadFile() sélectionne le premier fournisseur configuré dans l'ordre. Sans fournisseur, le téléchargement est refusé de manière sûre et une carte de configuration s'affiche."}>
+Parmi les fournisseurs enregistrés par l'utilisateur, le premier à s'être enregistré et à se signaler comme configuré l'emporte. `registerFileUploadProvider()` est idempotent par `id`. Enregistrer un fournisseur sous un id déjà utilisé remplace le fournisseur existant.
+
+L'interface décide d'afficher ou non une invite de configuration du stockage en utilisant uniquement la vérification synchrone `isConfigured()`, avant qu'un téléchargement ne soit tenté. Le téléchargement lui-même vérifie à la fois `isConfigured()` et `isConfiguredForRequest()`. Un fournisseur qui ne se signale comme configuré que via `isConfiguredForRequest()` reste invisible pour l'invite de configuration, même si les téléchargements effectués via ce fournisseur réussiraient.
+
+<Diagram id="doc-block-hq5uvx" title="Ordre de résolution du fournisseur" summary="uploadFile() choisit le premier fournisseur configuré dans l'ordre. En l'absence de fournisseur, le téléchargement échoue de façon contrôlée afin que les données binaires ne soient jamais persistées dans SQL.">
 
 ```html
 <div class="diagram-upload">
@@ -31,8 +35,8 @@ L'ordre de résolution du fournisseur est :
     <div class="diagram-step">
       <span class="diagram-pill accent">1</span>
       <div class="diagram-node">
-        Enregistré par l’utilisateur<br /><small class="diagram-muted"
-          >registerFileUploadProvider() — S3, R2, GCS…</small
+        Enregistré par l'utilisateur<br /><small class="diagram-muted"
+          >registerFileUploadProvider() pour S3, R2, GCS…</small
         >
       </div>
     </div>
@@ -40,15 +44,15 @@ L'ordre de résolution du fournisseur est :
       <span class="diagram-pill">2</span>
       <div class="diagram-node">
         Builder.io<br /><small class="diagram-muted"
-          >automatique une fois connecté — servi par CDN</small
+          >automatique une fois connecté, servi par CDN</small
         >
       </div>
     </div>
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        stockage requis<br /><small class="diagram-muted"
-          >configurer Builder.io ou un stockage S3 compatible</small
+        Aucun fournisseur<br /><small class="diagram-muted"
+          >CTA de configuration, aucune persistance binaire</small
         >
       </div>
     </div>
@@ -81,62 +85,90 @@ L'ordre de résolution du fournisseur est :
 
 </Diagram>
 
-<Endpoint id="doc-block-19egsjk" title={"Le point de terminaison de téléchargement"} method="POST" path="/_agent-native/file-upload" summary={"Téléchargez un fichier via le fournisseur actif et récupérez un URL public."} request={{
+<Endpoint id="doc-block-4os0mo" title="Le point de terminaison de téléchargement" method="POST" path="/_agent-native/file-upload" summary="Téléchargez un fichier via le fournisseur actif et récupérez un URL public en retour." request={{
   "contentType": "multipart/form-data"
 }} responses={[
   {
-    "status": "200",
-    "description": "{ url, id?, provider } — the public URL and which provider handled it."
+    "status": "201",
+    "description": "`{ url, id?, provider }` : l'URL publique et le fournisseur qui l'a traité."
+  },
+  {
+    "status": "401",
+    "description": "Aucune session authentifiée."
+  },
+  {
+    "status": "413",
+    "description": "Le fichier dépasse la limite de téléchargement de 25 Mo."
+  },
+  {
+    "status": "415",
+    "description": "Type MIME bloqué, comme un exécutable ou un script."
+  },
+  {
+    "status": "503",
+    "description": "Aucun fournisseur de téléchargement de fichiers n'est configuré."
   }
 ]}>
 
-Dispatches to the first configured provider in resolution order. Check the active provider at `GET /_agent-native/file-upload/status`.
+Transmet la requête au premier fournisseur configuré selon l'ordre de résolution. Vérifiez le fournisseur actif à l'adresse `GET /_agent-native/file-upload/status`.
 
 </Endpoint>
 
 ## Stockage requis pour des téléchargements durables {#storage-required}
 
-Lorsqu'aucun fournisseur n'est configuré, le téléchargement est refusé de manière sûre et une carte permet de configurer Builder.io ou un fournisseur S3 compatible. Les données binaires ne sont pas stockées en base64 dans SQL.
-
-Les octets peuvent uniquement être utilisés pour la requête actuelle et ne sont pas enregistrés dans l'historique du chat. Une fois le stockage configuré, les téléchargements renvoient une URL publique stable, réutilisable lors des tours suivants.
+Lorsqu'aucun fournisseur n'est configuré, `uploadFile()` renvoie `null` et la route multipart renvoie `503`. Les pièces jointes du chat restent disponibles uniquement pour la requête en cours, l'agent reçoit une indication pour configurer le stockage, et la transcription enregistre un marqueur de configuration au lieu de la charge utile binaire. Ce comportement d'échec contrôlé permet de garder SQL léger et de rendre visible la configuration manquante.
 
 ## Hébergement Builder.io {#builder-hosting}
 
-Lorsque votre application est connectée à Builder.io (offre gratuite disponible), les téléchargements de fichiers sont automatiquement acheminés vers l'hébergement d'actifs de Builder. Les fichiers sont servis à partir d'un CDN sans aucune configuration nécessaire. Il s'agit de la configuration de production recommandée.
+Lorsque votre application est connectée à Builder.io, les téléchargements de fichiers sont automatiquement acheminés vers l'hébergement d'actifs de Builder. L'offre gratuite de Builder.io inclut ce stockage géré. Les fichiers sont servis à partir d'un CDN sans aucune configuration nécessaire, et l'URL durable est stockée dans le fil de discussion afin que les tours suivants puissent la réutiliser. Il s'agit de la configuration de production recommandée.
 
 ## Fournisseurs personnalisés {#custom-providers}
 
-Enregistrez un fournisseur personnalisé dans un plugin de serveur pour utiliser n'importe quel backend de stockage (S3, Cloudflare R2, GCS, etc.) :
+Le framework fournit déjà un fournisseur intégré pour le stockage compatible
+S3 (AWS S3, Cloudflare R2, MinIO, et similaires). Connectez-le avec des
+variables d'environnement ou via la liste de configuration initiale de la
+barre latérale. Aucun code n'est nécessaire. Voir [Onboarding](/docs/onboarding).
 
-```ts
-// server/plugins/file-upload.ts
+N'enregistrez un fournisseur personnalisé que pour un type de backend
+différent. Cet exemple effectue un téléchargement via une API HTTP générique
+en utilisant `fetch()` :
+
+```ts filename="server/plugins/file-upload.ts"
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import { defineNitroPlugin } from "@agent-native/core/server";
 
 export default defineNitroPlugin(() => {
   registerFileUploadProvider({
-    id: "s3",
-    name: "Amazon S3",
-    isConfigured: () => !!process.env.S3_BUCKET,
+    id: "my-storage",
+    name: "My Storage",
+    isConfigured: () => !!process.env.UPLOAD_ENDPOINT,
     upload: async ({ data, filename, mimeType }) => {
-      const key = `uploads/${Date.now()}-${filename}`;
-      await s3Client.putObject({
-        Bucket: process.env.S3_BUCKET!,
-        Key: key,
-        Body: data,
-        ContentType: mimeType,
-      });
-      return {
-        url: `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`,
-        provider: "s3",
-      };
+      const endpoint = process.env.UPLOAD_ENDPOINT!;
+      const body = new FormData();
+      body.append("file", new Blob([data], { type: mimeType }), filename);
+
+      // This example assumes an upload API that accepts a multipart file
+      // and returns { url }. Adjust the request and response handling to
+      // match your own provider's actual contract.
+      const response = await fetch(endpoint, { method: "POST", body });
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      return { url, provider: "my-storage" };
     },
   });
 });
 ```
 
-## Télécharger API {#upload-api}
+Utilisez `resolveSecret()` depuis `@agent-native/core/server` plutôt qu'une
+variable d'environnement lorsque le fournisseur nécessite une véritable
+information d'identification, comme une clé API. Voir [Sécurité — Gestion des secrets](/docs/security#secrets).
 
-L'interface `FileUploadProvider` :
+## API de téléchargement {#upload-api}
+
+L'interface `FileUploadProvider` :
 
 ```ts
 interface FileUploadProvider {
@@ -152,6 +184,8 @@ interface FileUploadInput {
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
   ownerEmail?: string; // For request-scoped provider credentials
+  stableUrl?: boolean; // Builder.io hint: one stable URL while compression finishes
+  recordAsset?: boolean; // Builder.io hint: set false to skip the asset library
 }
 
 interface FileUploadResult {
@@ -161,7 +195,7 @@ interface FileUploadResult {
 }
 ```
 
-Utilisez `uploadFile()` à partir de `@agent-native/core/file-upload` dans actions ou le code serveur :
+Utilisez `uploadFile()` depuis `@agent-native/core/file-upload` dans les actions ou le code serveur :
 
 ```ts
 import { uploadFile } from "@agent-native/core/file-upload";
@@ -173,8 +207,58 @@ const result = await uploadFile({
 });
 
 if (result) {
-  // Provider handled it — result.url is the public URL
+  // Provider handled it. result.url is the public URL.
 } else {
-  // Configurer le stockage ou ignorer le téléchargement
+  // No provider configured. Show the storage setup CTA, or skip.
 }
 ```
+
+## Téléchargements reprenables / en streaming {#resumable}
+
+Un fournisseur peut implémenter de façon optionnelle un bloc `resumable` sur `FileUploadProvider` pour les téléchargements qui doivent transmettre les données au stockage au fur et à mesure de leur arrivée, plutôt que de mettre en mémoire tampon le fichier entier au préalable. Le modèle Clips utilise cette fonctionnalité pour relayer un enregistrement vers le stockage morceau par morceau pendant qu'il est encore en cours d'enregistrement, plutôt que d'assembler le blob complet une fois l'enregistreur arrêté.
+
+```ts
+interface FileUploadProvider {
+  // ...id, name, isConfigured, upload...
+
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
+    ): Promise<string>;
+    // Best-effort provider cleanup for a session the caller will not resume.
+    abortSession?(session: ResumableUploadSession): Promise<void>;
+  };
+}
+
+interface ResumableUploadSession {
+  sessionId: string; // Provider-specific: GCS Location URI, S3 UploadId, etc.
+  meta: Record<string, unknown>; // Provider state carried between calls
+}
+
+interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  updatedMeta?: Record<string, unknown>; // Merged back into the stored session
+}
+```
+
+Lorsque `resumable` est présent, les appelants qui transmettent des données en continu (comme un enregistreur) appellent `startSession` une fois, `relayChunk` de façon répétée à mesure que les octets arrivent, et `completeSession` lorsque le flux se termine. Cela remplace l'appel unique et mis en mémoire tampon à `upload()`. Un fournisseur sans bloc `resumable` ne voit jamais que le chemin mis en mémoire tampon. Implémentez-le uniquement lorsque votre backend de stockage dispose d'une API de téléchargement fragmenté ou reprenable native (S3 multipart, téléchargements reprenables GCS, etc.) qui mérite d'être exposée.
+
+## Et ensuite
+
+- [**Base de données**](/docs/server-database) — le modèle `getDb()`/schéma pour stocker l'URL renvoyée par `uploadFile()`
+- [**Sécurité — Gestion des secrets**](/docs/security#secrets) — comment `resolveSecret()` et le coffre-fort d'identifiants chiffrent les clés des fournisseurs au repos
+- [**Onboarding**](/docs/onboarding) — enregistrer l'étape de configuration d'un fournisseur personnalisé dans la liste de configuration de la barre latérale

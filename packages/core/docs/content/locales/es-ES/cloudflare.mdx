@@ -1,0 +1,44 @@
+---
+title: "Cloudflare"
+description: "Implementa una aplicación nativa del agente en Cloudflare Pages o Cloudflare Workers con el ajuste preestablecido de Nitro correspondiente."
+---
+
+# Cloudflare
+
+## Cloudflare Pages {#cloudflare-pages}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
+});
+```
+
+## Cloudflare Workers {#cloudflare-workers}
+
+Usa la salida de módulos nativa de Nitro para un Cloudflare Worker. Esto
+mantiene el SSR habilitado y genera el punto de entrada del Worker más los
+activos estáticos bajo `.output/server` y `.output/public`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
+Compila e implementa el Worker generado con Wrangler:
+
+```bash
+npx @agent-native/core@latest build
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+También puedes seleccionar el ajuste preestablecido explícitamente con
+`NITRO_PRESET=cloudflare_module`. Configura una base de datos SQL externa
+duradera antes de implementar. El sistema de archivos de un Worker no es un
+almacén persistente para la aplicación.
+
+## Qué sigue
+
+- [**Implementación**](/docs/deployment) — elige una base de datos persistente y un ajuste preestablecido antes de tu primera implementación en producción
+- [**Implementación de espacios de trabajo**](/docs/workspace-deployment) — Cloudflare Pages es el ajuste preestablecido predeterminado para el comando unificado `deploy`
+- [**Node.js y Docker**](/docs/node-docker), [**Vercel**](/docs/vercel), [**Netlify**](/docs/netlify) y [**Otras plataformas**](/docs/other-platforms) — los demás ajustes preestablecidos de Nitro

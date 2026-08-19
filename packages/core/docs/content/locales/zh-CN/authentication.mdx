@@ -414,7 +414,7 @@ function SignInCta() {
 
 普通应用页面为所有访问者使用同一个非个性化、可公开缓存的 SSR 外壳。`AppProviders` 在客户端检查会话；访问 `/dashboard` 等私有路径时，它会在挂载私有应用界面之前将匿名访问者重定向到 `/sign-in?return=%2Fdashboard`。登录后，访问者会返回 `/dashboard`。公共或 SEO 路由请使用 `isPublicPath`；通过 MCP 嵌入令牌等其他受限机制认证的界面请使用 `sessionBypass`。
 
-该外壳的缓存时长是一个部署范围的设置——关于 `AGENT_NATIVE_SSR_CACHE`，参见 [SSR Caching](/docs/deployment#ssr-caching)。缩短或禁用缓存只会改变时长；SSR 仍会在剥离 cookie 后渲染匿名分支。
+该外壳的缓存时长是一个部署范围的设置——关于 `AGENT_NATIVE_SSR_CACHE`，参见 [SSR Caching](/docs/ssr-caching)。缩短或禁用缓存只会改变时长；SSR 仍会在剥离 cookie 后渲染匿名分支。
 
 ### 幕后花絮：谷歌OAuth
 

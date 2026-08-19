@@ -29,7 +29,7 @@ Jede Action beginnt mit einem Aufruf von `defineAction()`. Sie bündelt eine Bes
     {
       lines: "12-16",
       label: "Eine Implementierung",
-      note: "Der `run`-Rumpf ist die einzige Quelle der Wahrheit. Die UI-Schaltfläche und das Agent-Tool führen beide genau diesen Code aus. `getDb()` und `schema` stammen aus der `server/db/index.ts` Ihrer App. Siehe [Datenbank](/docs/database).",
+      note: "Der `run`-Rumpf ist die einzige Quelle der Wahrheit. Die UI-Schaltfläche und das Agent-Tool führen beide genau diesen Code aus. `getDb()` und `schema` stammen aus der `server/db/index.ts` Ihrer App. Siehe [Datenbank](/docs/server-database).",
     },
   ]}
 />
@@ -271,5 +271,5 @@ Das Repo enthält einen beratenden Helfer, `node scripts/audit-template-actions.
 - [**Zugriff & Autorisierung**](/docs/actions-access-control) — `agentTool`, `toolCallable`, `authorize` und `ctx`-Scoping
 - [**Ausführungskontext**](/docs/actions-run-context) — die vollständige `ctx`-Feldtabelle
 - [**Weitere Oberflächen**](/docs/actions-other-surfaces) — native Chat-UI, CLI, A2A, MCP und Standard-Actions
-- [**Datenbank**](/docs/database) — `getDb()`/`schema`, verwendet innerhalb von `run()`
+- [**Datenbank**](/docs/server-database) — `getDb()`/`schema`, verwendet innerhalb von `run()`
 - [**Daten & Sync**](/docs/client-data) — diese Action aus der UI aufrufen

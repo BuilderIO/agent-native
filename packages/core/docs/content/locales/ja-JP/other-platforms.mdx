@@ -1,0 +1,27 @@
+---
+title: "その他のプラットフォーム"
+description: "対応する Nitro プリセットを使って、agent-native アプリを AWS Lambda または Deno Deploy にデプロイします。"
+---
+
+# その他のプラットフォーム
+
+## AWS Lambda {#aws-lambda}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
+});
+```
+
+## Deno Deploy {#deno-deploy}
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
+});
+```
+
+## 次は何ですか
+
+- [**デプロイ**](/docs/deployment) — 初回の本番デプロイの前に、永続的なデータベースとプリセットを選ぶ
+- [**Node.js & Docker**](/docs/node-docker)、[**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify)、[**Cloudflare**](/docs/cloudflare) — その他の Nitro プリセット

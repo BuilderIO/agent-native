@@ -1,0 +1,83 @@
+---
+title: "배포: 환경 변수"
+description: "빌드, 런타임, 시크릿, 호스팅 동작에 대한 프로덕션 환경 변수 참조."
+---
+
+# 배포: 환경 변수
+
+템플릿, 제공업체, 로컬, CI 변수를 포함한 저장소 전체 참조는
+[Environment Variables](/docs/environment-variables)를 참조하세요. 아래 표는
+프로덕션 값과 호스팅 동작에 대한 공식 배포 가이드로 유지됩니다.
+
+## 빌드 / 런타임 {#env-runtime}
+
+| 변수                                        | 설명                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PORT`                                      | 서버 포트(Node.js 전용)                                                                                                                                                                                                                                                                                                                          |
+| `NITRO_PRESET`                              | 빌드 시점에 빌드 프리셋을 재정의합니다                                                                                                                                                                                                                                                                                                           |
+| `APP_BASE_PATH`                             | 앱을 접두사(예: `/mail`) 아래에 마운트합니다. `npx @agent-native/core@latest deploy`가 자동으로 설정합니다. 독립형에서는 설정하지 않은 채로 두세요.                                                                                                                                                                                              |
+| `APP_URL`                                   | 선택적인 정규 공개 오리진입니다. A2A JWT audience, OAuth 공개 오리진, 자체 디스패치 웹훅 대상, 생성된 리소스 링크를 확인할 때 `BETTER_AUTH_URL`보다 먼저 확인됩니다. 요청 호스트를 신뢰할 수 없는 프리뷰/스테이징 배포에서는 명시적으로 설정하세요.                                                                                              |
+| `AGENT_PROD_CODE_EXECUTION`                 | 선택적인 프로덕션 코드 실행 모드입니다: `off`(기본값), `sandboxed`, `trusted` 중 하나입니다. [Production Code Execution](/docs/actions-agent-tools#production-code-execution)을 참조하세요.                                                                                                                                                      |
+| `AGENT_NATIVE_SSR_CACHE`                    | 배포 전체의 SSR 셸 캐시 정책입니다: 설정 안 함/`on`은 기본 하드 캐시를 유지하고, `off`는 `no-store`를 보내며, `30s` / `5m` 같은 기간은 더 짧은 신선도를 설정합니다. [SSR Caching](/docs/ssr-caching)을 참조하세요.                                                                                                                               |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Netlify keep-warm 예약 함수를 옵트인합니다. 기본적으로 설정되지 않습니다. [Keep-warm](/docs/netlify#netlify-keep-warm)을 참조하세요.                                                                                                                                                                                                             |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Netlify keep-warm 예약 함수를 위한 호환성 킬 스위치입니다. [Keep-warm](/docs/netlify#netlify-keep-warm)을 참조하세요.                                                                                                                                                                                                                            |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | 5개 필드의 cron 표현식으로 keep-warm 주기를 재정의합니다(활성화 시 기본값은 `* * * * *`). 파싱할 수 없는 값은 빌드를 실패시킵니다. [Keep-warm](/docs/netlify#netlify-keep-warm)을 참조하세요.                                                                                                                                                    |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | 백그라운드 함수 warm만 중단하고 서버 warm은 유지합니다. [Keep-warm](/docs/netlify#netlify-keep-warm)을 참조하세요.                                                                                                                                                                                                                               |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | 프로세스 내 백스톱 스윕 타이머(자동화 재디스패치, agent-teams 조정, 샌드박스 실행 복구)를 끕니다. 서버리스에서는 이것들이 warm 컨테이너마다 실행되므로, 쿼리 비율이 인스턴스 수에 따라 늘어납니다. 이미 내구성 있는 스케줄러가 동일한 복구를 수행하는 경우에만 이를 설정하세요. 그렇지 않으면 대기 중인 작업이 재시도되지 않습니다.              |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | 자동 서버리스 건너뛰기가 적용되지 않는 배포에서 온디맨드 스키마 DDL을 건너뜁니다. 스키마가 이미 마이그레이션되어 있어야 합니다. [On-demand schema DDL](/docs/deployment#skip-ensure-tables)을 참조하세요.                                                                                                                                        |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 프리뷰에 안전한 Builder 인증 릴레이를 위한 전용 32자 이상 공유 HMAC 시크릿입니다. 인증이 격리된 프리뷰 데이터베이스에 반드시 도달해야 하는 경우에만, 승인된 기업 콜백 배포와 프리뷰 배포에 동일한 값을 설정하세요.                                                                                                                               |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 기업 콜백 전용, 정확히 신뢰할 수 있는 프리뷰 오리진의 쉼표로 구분된 허용 목록입니다(예: `https://0123456789abcdef01234567--content.netlify.app`). 기업 콜백 배포에서만 설정하세요. Netlify 오리진은 변경 불가능한, 배포별 24자리 16진수 퍼머링크를 사용해야 합니다. 변경 가능한 `deploy-preview-*` 별칭, 와일드카드, 도메인 접미사는 거부됩니다. |
+
+데이터베이스 연결 변수(`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, 앱별 `<APP_NAME>_DATABASE_URL`)는 [Database](/docs/server-database#production)에 있습니다.
+
+## 프로덕션에 민감한 구성 {#env-required-prod}
+
+이 설정들은 프로덕션에 민감한 동작을 다룹니다. 프레임워크 인증을 사용하는
+독립형 앱에는 안정적인 `BETTER_AUTH_SECRET`과 영구 데이터베이스가 필요합니다.
+공개 인증 URL은 설정되지 않은 경우 요청, 알려진 템플릿, 호스팅 플랫폼으로부터
+추론됩니다. 작업 공간과 A2A 설정은 해당 기능이 사용될 때만 필요합니다. 값이
+없으면 안전하게 실패하거나 눈에 띄는 경고와 함께 더 약한 동작으로 대체됩니다.
+
+| 변수                                        | 설명                                                                                                                                                                                                                                                                                                                                    |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32자 이상의 무작위 문자열입니다. 세션 쿠키에 서명하며 `OAUTH_STATE_SECRET`과 앱 로컬 암호화 값의 대체값으로 사용됩니다. 기존 공유 vault 암호문에 대한 레거시 읽기 후보이기도 합니다. 필수 항목입니다. 프로덕션에서 누락되면 프레임워크가 시작 시 예외를 발생시킵니다.                                                                   |
+| `BETTER_AUTH_URL`                           | 이 앱을 위한 선택적인 공개 오리진 재정의입니다(예: `https://mail.example.com`). 설정되지 않은 경우 프레임워크는 요청, 알려진 템플릿, 호스팅 플랫폼 컨텍스트로부터 이를 추론합니다.                                                                                                                                                      |
+| `ANTHROPIC_API_KEY`                         | 임베디드 프로덕션 에이전트를 위한 API 키입니다. **다중 테넌트 배포에서는** 사용자에게 사용자별 키가 없을 때 프레임워크가 이 값으로 대체하는 것을 거부합니다. Bring-your-own-key가 필요합니다. 단일 테넌트 자체 호스팅 설치에서는 이를 전역 키로 사용합니다.                                                                             |
+| `OAUTH_STATE_SECRET`                        | OAuth 상태 봉투(Google, Atlassian, Zoom)를 위한 전용 HMAC 키입니다. 설정되지 않으면 `BETTER_AUTH_SECRET`으로 대체되지만, 하나를 교체해도 다른 하나가 무효화되지 않도록 전용 값을 사용하는 것이 권장됩니다. `openssl rand -hex 32`로 생성하세요.                                                                                         |
+| `A2A_SECRET`                                | 앱 간 A2A JSON-RPC와 서명된 백그라운드 핸드오프를 위한 공유 HMAC입니다. 호스팅된 작업 공간 배포와 A2A 기능에 필요합니다. 없으면 프로덕션에서 해당 엔드포인트가 안전하게 실패합니다. 전용 작업 공간 vault 키가 설정되지 않은 경우, 공유 vault 암호문은 이 값에서 파생된 목적별 키를 사용하므로 이를 교체하면 vault 키도 함께 교체됩니다. |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | 공유된, 저장 시 암호화되는 시크릿 vault를 위해 권장되는 안정적인 AES-256-GCM 키입니다. vault를 읽는 모든 앱에 동일한 값을 설정하세요. 앱 로컬 OAuth/자격 증명 암호화와는 별개이므로, vault 행을 좌초시키지 않고도 A2A 신뢰를 교체할 수 있습니다. 기존 A2A, Better Auth, 앱 키 암호문은 성공적인 읽기 시 마이그레이션됩니다.             |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | 회전 기간 동안만 사용되는 선택적인 이전 작업 공간 vault 키입니다. 새 `WORKSPACE_SECRETS_ENCRYPTION_KEY`와 함께 배포하여 성공적인 읽기가 행을 재암호화하도록 한 다음, 마이그레이션 후 제거하세요.                                                                                                                                        |
+| `SECRETS_ENCRYPTION_KEY`                    | 앱 로컬 암호화와 공유 vault를 위한 레거시 통합 키입니다. 계속 지원되지만, 새로운 다중 앱 배포는 작업 공간 암호화를 변경해도 앱 로컬 OAuth 암호문이 변경되지 않도록 공유 vault에는 `WORKSPACE_SECRETS_ENCRYPTION_KEY`를 사용해야 합니다.                                                                                                 |
+
+## 인증 및 신원 {#env-auth}
+
+OAuth 제공업체 자격 증명(Google, GitHub), 정적 MCP bearer 대체값(`ACCESS_TOKEN` / `ACCESS_TOKENS`), 이메일 인증 토글은 [Authentication](/docs/authentication)에 문서화되어 있습니다. 선택한 인증 모드에 따라 그곳에서 설정하세요.
+
+## 인바운드 웹훅 {#env-webhooks}
+
+각 메시징 통합은 프로덕션에서 자체 서명 시크릿이 필요합니다(시크릿이 없으면 핸들러는 위조된 요청에 대해 안전하게 실패합니다). 통합별 변수는 [Messaging](/docs/messaging)과 [Security](/docs/security)에 나와 있습니다. 로컬 개발 전용으로, `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS=1`은 "경고 후 수락" 동작으로 되돌립니다. 프로덕션에서는 절대 설정하지 마세요.
+
+## 보안 구성(옵트인) {#security-config}
+
+기본값은 엄격합니다. 몇 가지 옵트인 플래그가 동작을 완화합니다(디버그 스택 트레이스, 미검증 웹훅, 작업 공간 범위 키 대체, MCP 허브 다중 조직 스위치, 런타임 환경 변수 쓰기). 이들은 보안 트레이드오프와 함께 [Security](/docs/security)에 문서화되어 있습니다. 완화된 경로를 특별히 원하는 경우가 아니라면 설정하지 마세요.
+
+## 작업 공간 .env 상속 {#env-inheritance}
+
+작업 공간 내부에서는 루트 `.env`가 모든 앱에 자동으로 로드되므로, `ANTHROPIC_API_KEY`, `A2A_SECRET`, `BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET` 같은 공유 키는 한 번만 설정하면 됩니다. 앱별 `apps/<name>/.env`가 충돌 시 우선합니다.
+
+## 강력한 시크릿 생성하기 {#env-generate-secrets}
+
+"32자 이상의 무작위 문자열"로 표시된 모든 시크릿(`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`)에 대해 다음으로 새 값을 생성하세요:
+
+```bash
+openssl rand -hex 32
+```
+
+모든 인스턴스에서 환경 변수를 교체하고 재배포하여 서명/세션 키를 교체하세요. 이전 키로 서명된 세션과 OAuth 상태 봉투는 무효화되므로 사용자가 다시 로그인해야 할 수 있습니다. 암호화된 vault 행이 마이그레이션되는 동안에도 읽을 수 있도록, 위에서 설명한 `..._PREVIOUS` 기간을 사용해 `WORKSPACE_SECRETS_ENCRYPTION_KEY`를 교체하세요.
+
+## 다음 단계
+
+- [**Deployment**](/docs/deployment) — 첫 프로덕션 배포 전에 영구 데이터베이스와 프리셋을 선택하세요
+- [**Environment Variables**](/docs/environment-variables) — 템플릿, 제공업체, 로컬, CI 변수를 포함한 저장소 전체 참조
+- [**Security**](/docs/security) — 이 페이지 전반에서 참조하는 프로덕션 체크리스트와 옵트인 플래그
+- [**Authentication**](/docs/authentication) — 선택한 인증 모드에 필요한 OAuth 자격 증명과 환경 변수

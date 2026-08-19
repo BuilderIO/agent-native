@@ -1,23 +1,27 @@
 ---
 title: "文件上传"
-description: "为文件上传配置持久对象存储 - Builder.io 或自定义 S3 兼容提供程序。"
+description: "为生产环境配置持久文件上传存储，可以使用 Builder.io，也可以使用自定义对象存储提供程序。"
 ---
 
 # 文件上传
 
-该框架提供了一个文件上传抽象，可通过可配置的提供程序路由上传。模板调用 `uploadFile()` 并返回 URL — 存储后端可交换，无需更改应用程序代码。
+该框架提供了一个文件上传抽象层，可将上传请求路由至可配置的提供程序。模板调用 `uploadFile()` 并获得一个 URL。存储后端可以替换，无需更改应用程序代码。
 
 ## 它是如何工作的 {#how-it-works}
 
-上传请求发送至 `POST /_agent-native/file-upload`，后者分派至活动提供者。您可以在`GET /_agent-native/file-upload/status`处查看配置了哪个提供商。
+上传请求会发送到 `POST /_agent-native/file-upload`，该端点会分派给当前激活的提供程序。您可以在 `GET /_agent-native/file-upload/status` 查看当前配置的是哪个提供程序。
 
-提供者解析顺序是：
+提供程序的解析顺序如下：
 
-1. **用户注册的提供程序** — 通过 `registerFileUploadProvider()` 注册的自定义提供程序
-2. **Builder.io 提供程序**（提供免费套餐）— 内置，连接 Builder.io 时自动激活
-3. **需要存储** - 未配置提供程序时，上传会安全失败并显示设置卡片；二进制数据不会存入 SQL
+1. **用户注册的提供程序**：通过 `registerFileUploadProvider()` 注册的自定义提供程序。
+2. **Builder.io 提供程序**：内置提供程序，在连接 Builder.io 后会自动激活。
+3. **无提供程序**：上传会被拒绝，聊天界面会渲染一个存储设置的引导操作。二进制数据永远不会持久化存储到 SQL 中。
 
-<Diagram id="doc-block-4gomr8" title={"提供商决议顺序"} summary={"uploadFile() 按顺序选择第一个配置的提供程序。未配置提供程序时，上传会安全失败并显示设置卡片。"}>
+在多个用户注册的提供程序中，第一个报告自身已配置完成的提供程序会被采用。`registerFileUploadProvider()` 针对同一个 `id` 是幂等的，使用已被占用的 id 注册会替换现有的提供程序。
+
+界面仅使用同步的 `isConfigured()` 检查来决定是否显示存储设置提示，这个判断发生在尝试上传之前。实际上传时会同时检查 `isConfigured()` 和 `isConfiguredForRequest()`。如果某个提供程序只通过 `isConfiguredForRequest()` 报告自身已配置，它就不会出现在设置提示中，即便通过它上传实际上会成功。
+
+<Diagram id="doc-block-hq5uvx" title="提供程序解析顺序" summary="uploadFile() 会按顺序选择第一个已配置的提供程序，如果没有可用的提供程序，上传会安全失败，二进制数据也就不会持久化存储到 SQL 中。">
 
 ```html
 <div class="diagram-upload">
@@ -32,7 +36,7 @@ description: "为文件上传配置持久对象存储 - Builder.io 或自定义 
       <span class="diagram-pill accent">1</span>
       <div class="diagram-node">
         用户注册<br /><small class="diagram-muted"
-          >registerFileUploadProvider() — S3, R2, GCS…</small
+          >registerFileUploadProvider() for S3, R2, GCS…</small
         >
       </div>
     </div>
@@ -40,15 +44,15 @@ description: "为文件上传配置持久对象存储 - Builder.io 或自定义 
       <span class="diagram-pill">2</span>
       <div class="diagram-node">
         Builder.io<br /><small class="diagram-muted"
-          >连接后自动启用——由 CDN 提供</small
+          >连接后自动启用，由 CDN 提供服务</small
         >
       </div>
     </div>
     <div class="diagram-step">
       <span class="diagram-pill warn">3</span>
       <div class="diagram-node">
-        需要存储<br /><small class="diagram-muted"
-          >配置 Builder.io 或 S3 兼容存储</small
+        无提供程序<br /><small class="diagram-muted"
+          >设置引导操作，不持久化二进制数据</small
         >
       </div>
     </div>
@@ -81,12 +85,28 @@ description: "为文件上传配置持久对象存储 - Builder.io 或自定义 
 
 </Diagram>
 
-<Endpoint id="doc-block-1p7mnrm" title={"上传端点"} method="POST" path="/_agent-native/file-upload" summary={"通过活动提供者上传文件并返回公共URL。"} request={{
+<Endpoint id="doc-block-4os0mo" title="上传端点" method="POST" path="/_agent-native/file-upload" summary="通过当前激活的提供程序上传文件，并获得一个公共 URL。" request={{
   "contentType": "multipart/form-data"
 }} responses={[
   {
-    "status": "200",
-    "description": "{ url, id?, provider } — the public URL and which provider handled it."
+    "status": "201",
+    "description": "`{ url, id?, provider }`：公共 URL，以及处理该上传的提供程序。"
+  },
+  {
+    "status": "401",
+    "description": "没有已认证的会话。"
+  },
+  {
+    "status": "413",
+    "description": "文件超过了 25 MB 的上传上限。"
+  },
+  {
+    "status": "415",
+    "description": "MIME 类型被禁止，例如可执行文件或脚本。"
+  },
+  {
+    "status": "503",
+    "description": "未配置任何文件上传提供程序。"
   }
 ]}>
 
@@ -96,47 +116,52 @@ Dispatches to the first configured provider in resolution order. Check the activ
 
 ## 持久上传需要存储 {#storage-required}
 
-当没有配置提供程序时，上传会安全失败，并显示用于配置 Builder.io 或 S3 兼容提供程序的设置卡片。二进制数据不会以 base64 形式存储在 SQL 中。
-
-字节只能用于当前请求，不会保存到聊天记录中。配置存储后，上传会返回稳定的公共 URL，可在后续轮次中重复使用。
+当没有配置提供程序时，`uploadFile()` 会返回 `null`，multipart 路由会返回 `503`。聊天附件仅在当前请求中可用，智能体会收到一个存储设置的提示，聊天记录中会保存一个设置标记，而不是二进制负载本身。这种安全失败的行为让 SQL 保持轻量，也让缺失的配置变得一目了然。
 
 ## Builder.io 托管 {#builder-hosting}
 
-当您的应用连接到 Builder.io 时（提供免费套餐），文件上传会自动路由到 Builder 的资产托管。文件由 CDN 提供，无需配置。这是推荐的生产设置。
+当您的应用连接到 Builder.io 后，文件上传会自动路由到 Builder 的资产托管服务。Builder.io 的免费套餐就包含这项托管存储。文件由 CDN 提供服务，无需任何配置，持久 URL 会保存在聊天会话中，供后续轮次复用。这是推荐的生产环境设置方式。
 
-## 自定义提供商 {#custom-providers}
+## 自定义提供程序 {#custom-providers}
 
-在服务器插件中注册自定义提供程序以使用任何存储后端（S3、Cloudflare R2、GCS 等）：
+该框架已经内置了一个适用于 S3 兼容存储（AWS S3、Cloudflare R2、MinIO 等）的提供程序。您可以通过环境变量，或通过侧边栏的引导清单来连接它，无需编写任何代码。参见[引导设置](/docs/onboarding)。
 
-```ts
-// server/plugins/file-upload.ts
+只有在需要接入不同类型的后端时，才需要注册自定义提供程序。下面的示例通过 `fetch()` 调用一个通用的 HTTP API 来完成上传：
+
+```ts filename="server/plugins/file-upload.ts"
 import { registerFileUploadProvider } from "@agent-native/core/file-upload";
+import { defineNitroPlugin } from "@agent-native/core/server";
 
 export default defineNitroPlugin(() => {
   registerFileUploadProvider({
-    id: "s3",
-    name: "Amazon S3",
-    isConfigured: () => !!process.env.S3_BUCKET,
+    id: "my-storage",
+    name: "My Storage",
+    isConfigured: () => !!process.env.UPLOAD_ENDPOINT,
     upload: async ({ data, filename, mimeType }) => {
-      const key = `uploads/${Date.now()}-${filename}`;
-      await s3Client.putObject({
-        Bucket: process.env.S3_BUCKET!,
-        Key: key,
-        Body: data,
-        ContentType: mimeType,
-      });
-      return {
-        url: `https://${process.env.S3_BUCKET}.s3.amazonaws.com/${key}`,
-        provider: "s3",
-      };
+      const endpoint = process.env.UPLOAD_ENDPOINT!;
+      const body = new FormData();
+      body.append("file", new Blob([data], { type: mimeType }), filename);
+
+      // This example assumes an upload API that accepts a multipart file
+      // and returns { url }. Adjust the request and response handling to
+      // match your own provider's actual contract.
+      const response = await fetch(endpoint, { method: "POST", body });
+      if (!response.ok) {
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      const { url } = await response.json();
+      return { url, provider: "my-storage" };
     },
   });
 });
 ```
 
-## 上传API {#upload-api}
+当提供程序需要真实凭据（例如 API 密钥）时，使用 `@agent-native/core/server` 中的 `resolveSecret()`，而不要使用环境变量。参见[安全性 — 密钥管理](/docs/security#secrets)。
 
-`FileUploadProvider`接口：
+## 上传 API {#upload-api}
+
+`FileUploadProvider` 接口：
 
 ```ts
 interface FileUploadProvider {
@@ -152,6 +177,8 @@ interface FileUploadInput {
   filename?: string; // Original filename
   mimeType?: string; // MIME type, e.g. "image/png"
   ownerEmail?: string; // For request-scoped provider credentials
+  stableUrl?: boolean; // Builder.io hint: one stable URL while compression finishes
+  recordAsset?: boolean; // Builder.io hint: set false to skip the asset library
 }
 
 interface FileUploadResult {
@@ -173,8 +200,58 @@ const result = await uploadFile({
 });
 
 if (result) {
-  // Provider handled it — result.url is the public URL
+  // Provider handled it. result.url is the public URL.
 } else {
-  // 配置存储，或跳过上传
+  // No provider configured. Show the storage setup CTA, or skip.
 }
 ```
+
+## 可续传/流式上传 {#resumable}
+
+对于需要在数据到达时就流式写入存储、而不是先缓冲整个文件的上传场景，提供程序可以选择在 `FileUploadProvider` 上实现一个 `resumable` 代码块。Clips 模板正是用它把录制内容逐块中继到存储中，而不是等录制结束后再拼装完整的二进制数据。
+
+```ts
+interface FileUploadProvider {
+  // ...id, name, isConfigured, upload...
+
+  resumable?: {
+    startSession(
+      filename: string,
+      mimeType: string,
+      maxBytes: number,
+    ): Promise<ResumableUploadSession>;
+    relayChunk(
+      session: ResumableUploadSession,
+      contentRange: string,
+      bytes: Uint8Array,
+      options?: { mimeType?: string },
+    ): Promise<ResumableChunkResult>;
+    completeSession(
+      session: ResumableUploadSession,
+      filename: string,
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
+    ): Promise<string>;
+    // Best-effort provider cleanup for a session the caller will not resume.
+    abortSession?(session: ResumableUploadSession): Promise<void>;
+  };
+}
+
+interface ResumableUploadSession {
+  sessionId: string; // Provider-specific: GCS Location URI, S3 UploadId, etc.
+  meta: Record<string, unknown>; // Provider state carried between calls
+}
+
+interface ResumableChunkResult {
+  ok: boolean;
+  status: number;
+  updatedMeta?: Record<string, unknown>; // Merged back into the stored session
+}
+```
+
+当存在 `resumable` 时，像录制器这样流式写入数据的调用方会先调用一次 `startSession`，在字节到达时反复调用 `relayChunk`，并在流结束时调用 `completeSession`。这取代了单次缓冲式的 `upload()` 调用。没有 `resumable` 代码块的提供程序只会走缓冲式路径。只有当您的存储后端拥有原生的分块/可续传上传 API（例如 S3 分段上传、GCS 可续传上传等）且值得暴露出来时，才需要实现它。
+
+## 接下来做什么
+
+- [**数据库**](/docs/server-database) — 用于持久化 `uploadFile()` 返回的 URL 的 `getDb()`/schema 模式
+- [**安全性 — 密钥管理**](/docs/security#secrets) — `resolveSecret()` 与凭据保管库如何对提供程序密钥进行静态加密
+- [**引导设置**](/docs/onboarding) — 如何在侧边栏引导清单中为自定义提供程序注册设置步骤

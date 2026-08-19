@@ -17,6 +17,7 @@ describe("app config store", () => {
     resetAppConfigForTests();
     process.env = { ...originalEnv };
     delete process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK;
+    delete process.env.AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK;
   });
 
   afterEach(() => {
@@ -32,6 +33,19 @@ describe("app config store", () => {
   it("reads a declared environment alias", () => {
     process.env.AGENT_NATIVE_PRIVATE_BLOB_PUBLIC_UPLOAD_FALLBACK = "0";
     expect(getAppConfig().privateBlob.publicUploadFallback).toBe(false);
+  });
+
+  it("declares the development Desktop SSO fallback control", () => {
+    expect(getAppConfig().auth.disableDesktopSsoFallbackInDevelopment).toBe(
+      false,
+    );
+
+    process.env.AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK = "1";
+    resetAppConfigForTests();
+
+    expect(getAppConfig().auth.disableDesktopSsoFallbackInDevelopment).toBe(
+      true,
+    );
   });
 
   it("lets an explicit value win over the environment alias", () => {

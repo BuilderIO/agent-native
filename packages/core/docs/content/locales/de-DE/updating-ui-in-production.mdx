@@ -1,0 +1,46 @@
+---
+title: "UI in der Produktion aktualisieren"
+description: "Wie die UI einer bereitgestellten App nach dem Launch aktualisiert wird, und Builder.ios separater verwalteter Workflow für visuelles Bearbeiten in Produktion."
+---
+
+# UI in der Produktion aktualisieren
+
+Der gewöhnliche Agent einer bereitgestellten App arbeitet über App-Tools
+(Actions, Datenbank, MCP und konfigurierte Integrationen), statt automatisch
+Zugriff auf den Quellcode der App zu erhalten. Quelländerungen gehören in den
+Entwicklungsworkflow des Repositorys. Ein eingebetteter, lokaler oder
+Builder-Frame kann das Repository bearbeiten, wenn diesem Frame bewusst
+Workspace- und Schreibwerkzeuge gewährt werden.
+
+In einer standardmäßigen Produktionsbereitstellung mit deaktivierter
+[Produktions-Code-Ausführung](/docs/actions-agent-tools#production-code-execution)
+hat der Agent Zugriff auf App-Tools (Actions, Datenbank, MCP), aber nicht auf
+das Dateisystem. Das bedeutet, der Agent kann Daten lesen und schreiben,
+Actions ausführen und mit externen Diensten interagieren. Er kann Ihre
+React-Komponenten nicht bearbeiten oder neue Routen auf einer bereitgestellten
+Instanz hinzufügen.
+
+## Builder.io: Visuelles Bearbeiten in Produktion {#builderio}
+
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment)
+ist ein separater verwalteter, code-fähiger Workflow, bei dem ein Agent die UI
+Ihrer App in Produktion ändern kann. Verbinden Sie Ihr Repository mit
+Builder.io (kostenloser Tarif verfügbar) und fordern Sie UI-Änderungen direkt
+an. Keine erneute Bereitstellung nötig.
+
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
+
+**So funktioniert es:**
+
+1. Verbinden Sie Ihr agentennatives Repository mit Builder.io (kostenloser Tarif verfügbar)
+2. Builder.io stellt einen Cloud-Frame mit dem Agenten, visuellem Bearbeiten und Zusammenarbeit in Echtzeit bereit
+3. Fordern Sie den Agenten auf, UI-Änderungen vorzunehmen. Er bearbeitet Ihre Komponenten, Routen und Stile live
+4. Änderungen werden zurück in Ihr Repository committet
+
+Mehr zum eingebetteten Agent-Panel im Vergleich zu den Cloud-Frame-Optionen finden Sie unter [Frames](/docs/frames).
+
+## Was kommt als nächstes?
+
+- [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank und eine Voreinstellung vor Ihrer ersten Produktionsbereitstellung
+- [**Frames**](/docs/frames) — das eingebettete Agent-Panel gegenüber Builder.ios Cloud-Frame für UI-Änderungen in Produktion
+- [**Zugriff für Produktionsagenten**](/docs/actions-agent-tools) — welche Tools der bereitgestellte Agent standardmäßig hat

@@ -1,0 +1,91 @@
+---
+title: "Node.js & Docker"
+description: "デフォルトの Node.js Nitro プリセットを使って agent-native アプリをデプロイします。スタンドアロンでも、Docker でコンテナ化してもかまいません。"
+---
+
+# Node.js & Docker
+
+Node.js はデフォルトの Nitro プリセットです。このページでは、直接実行する方法と Docker でコンテナ化する方法を扱います。まずデータベースを選ぶには [デプロイ](/docs/deployment) を、Docker Compose でマルチアプリワークスペースをセルフホストするには [ワークスペースのデプロイ](/docs/workspace-deployment#workspace-docker-compose) を参照してください。
+
+## クイックスタート: Chat アプリをローカルでセルフホストする {#self-host-quickstart}
+
+始め方は次の 2 つです。
+
+- **アプリを作成する場合:** [Getting Started](/docs/getting-started) から始め、アプリを永続的な環境に置くときにここへ戻ります。
+- **アプリを運用する場合:** まずローカル Docker パスを試します。小さなサーバーで使う Node.js、Postgres、認証、環境変数の構成を同じ形で確認できます。
+
+ローカル スタックは意図的にサンプル認証シークレットとローカル Postgres ボリュームを使用します。`localhost` 用であり、インターネットに公開するためのものではありません。完全な Compose ファイルとコピー可能な手順は [完全なクイックスタート](/docs/node-docker#self-host-quickstart) を参照してください。このクイックスタートでは PostgreSQL 18 のボリューム構成を使用します。PostgreSQL 17 以前で作成したボリュームを再利用しないでください。イメージやマウントパスを変更する前に、既存データをバックアップして移行してください。
+
+### 1. アプリを作成する
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. ローカル スタックを起動する
+
+```bash
+docker compose up --build
+```
+
+[http://localhost:3000](http://localhost:3000) を開きます。組み込みエージェントを使用する場合は、ローカルの `.env` ファイルに `ANTHROPIC_API_KEY` を追加してください。
+
+## Node.js (Default) {#nodejs}
+
+デフォルトのプリセットです。ビルドして実行します。
+
+```bash
+npx @agent-native/core@latest build
+node .output/server/index.mjs
+```
+
+`PORT` を設定してリッスンポートを構成します（デフォルト: `3000`）。
+
+本番デプロイには現在の Node.js LTS ラインを使用してください。2026年5月時点では Node.js 24 です。Node.js 20 は 2026年4月30日にエンドオブライフを迎え、アップストリームのセキュリティアップデートを受け取らなくなりました。
+
+## Docker {#docker}
+
+This Dockerfile works for the standalone app created above. Run `pnpm install` before building so `pnpm-lock.yaml` exists in the build context. Keep the dependency manifest and lockfile in sync when you update the app.
+
+```dockerfile filename="Dockerfile"
+FROM node:24-slim AS build
+WORKDIR /app
+COPY package.json pnpm-lock.yaml ./
+RUN corepack enable && pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm build
+
+FROM node:24-slim
+WORKDIR /app
+COPY --from=build /app/.output .output
+# data/ is a runtime-created SQLite directory. Do not copy a dev DB into prod.
+# For production, set DATABASE_URL to a hosted Postgres or Turso instance.
+RUN mkdir -p /app/data
+ENV NODE_ENV=production
+ENV PORT=3000
+EXPOSE 3000
+CMD ["node", ".output/server/index.mjs"]
+```
+
+Create `.dockerignore` alongside the Dockerfile:
+
+```text filename=".dockerignore"
+node_modules
+.output
+data
+.env
+.env.*
+!.env.example
+.git
+```
+
+この同じスタンドアロンの Dockerfile を土台にした、Docker Compose によるマルチアプリワークスペースのセルフホストは
+[ワークスペースのデプロイ](/docs/workspace-deployment#workspace-docker-compose) で扱っています。
+
+## 次は何ですか
+
+- [**デプロイ**](/docs/deployment) — 初回の本番デプロイの前に、永続的なデータベースとプリセットを選ぶ
+- [**ワークスペースのデプロイ**](/docs/workspace-deployment) — Docker Compose でマルチアプリワークスペースをセルフホストする
+- [**Vercel**](/docs/vercel)、[**Netlify**](/docs/netlify)、[**Cloudflare**](/docs/cloudflare)、[**その他のプラットフォーム**](/docs/other-platforms) — その他の Nitro プリセット

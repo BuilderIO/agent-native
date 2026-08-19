@@ -83,7 +83,141 @@ Use it only for safe, read-only, or ingest-only actions, the kind you'd let a st
 
 A handful of actions are too consequential to let the agent run on its own, like sending an email, charging a card, or deleting an account. Set `needsApproval: true` (or a predicate `(args, ctx) => boolean | Promise<boolean>`) on `defineAction()`, and the loop pauses before `run()`, requiring a human to approve that specific call. The default is **off**, and almost every action should stay that way.
 
-See [Human-in-the-Loop Approvals](/docs/human-approval) for the predicate API, the `approval_required` event, and the full end-to-end flow.
+<Callout tone="warning">
+  Keep approvals rare. Every gated action is a hard stop in the agent loop. It
+  interrupts the run and demands a human round-trip. Use `needsApproval` only
+  for genuinely high-consequence, hard-to-undo, outward-facing operations. If
+  you find yourself gating reads or routine writes, you're holding it wrong. The
+  default is **off**, and almost every action should leave it off.
+</Callout>
+
+<AnnotatedCode
+  id="doc-block-13p4g9y"
+  title="Gating the one consequential action"
+  filename="actions/send-email.ts"
+  language="ts"
+  code={
+    'export default defineAction({\n  description: "Send an email via Gmail.",\n  schema: z.object({\n    to: z.string(),\n    subject: z.string(),\n    body: z.string(),\n  }),\n  // Sending is outward-facing and hard to undo, so the agent can never send\n  // without a human approving the specific call. Drafting and queueing are\n  // not affected. Only the real send is gated.\n  needsApproval: true,\n  run: async (args) => {\n    /* ...actually send... */\n  },\n});'
+  }
+  annotations={[
+    {
+      lines: "10",
+      label: "The whole gate",
+      note: "One flag. When it is truthy and the call has not been approved, the loop stops before `run`. The model never reaches the side effect on its own.",
+    },
+    {
+      lines: "11-13",
+      label: "run() is untouched",
+      note: "The handler stays the same. Approval is enforced by the loop around it, not by anything inside `run`.",
+    },
+  ]}
+/>
+
+- **`needsApproval: true`** always requires approval.
+- **`needsApproval: (args, ctx) => boolean | Promise<boolean>`** requires approval only when the predicate returns true. Use this to gate conditionally, for example only for external recipients or only above a dollar threshold:
+
+  ```ts
+  needsApproval: (args) => !args.to.endsWith("@your-company.com"),
+  ```
+
+  Keep the predicate pure and fast. If the predicate throws an error, the framework treats the call the same as if the predicate had returned true, so the action pauses for approval instead of running. This means a broken predicate can never silently let a high-consequence action run without a human approving it first.
+
+When `needsApproval` is omitted, behavior is byte-for-byte unchanged. There is no extra cost on the common path.
+
+This works the same way for legacy `parameters`-style actions and for schema-based actions. It also works the same way for the in-app agent, sub-agents, A2A, and MCP callers, because every agent surface routes through the same loop.
+
+### How the loop pauses {#loop}
+
+When the agent calls a gated action and this specific call has **not** already been approved, the loop does **not** execute `run()`. Instead it:
+
+1. Resolves the gate. For a predicate, the loop calls `needsApproval(input, ctx)`. If that call throws an error, the loop treats it the same as a `true` result, so the action requires approval.
+2. Emits a `tool_start` event (so the UI shows the call) followed immediately by an **`approval_required`** event, then stops the turn. The action's side effect never happens.
+
+The `approval_required` event carries everything the client needs to render an affordance:
+
+| Field         | Type     | Notes                                                               |
+| ------------- | -------- | ------------------------------------------------------------------- |
+| `tool`        | `string` | The action name the agent tried to call.                            |
+| `input`       | object   | The arguments the agent passed.                                     |
+| `approvalKey` | `string` | **Stable key** the client echoes back to approve _this exact call_. |
+| `toolCallId`  | `string` | The model-side tool-call id, when available.                        |
+
+The `approvalKey` is derived deterministically from the tool name plus its input, so the same logical call always produces the same key. The model never sees or sets it. It exists purely as a handshake between the framework and the human's Approve affordance.
+
+The paused tool returns a result telling the model the turn is paused and not to retry, so the model does not spin.
+
+### How the human approves {#approve}
+
+On `approval_required`, the chat UI renders an **Approve / Deny** affordance on the paused tool call. This is wired automatically in `AssistantChat`. You do not need to build it per template.
+
+<WireframeBlock id="doc-block-humanapprovalwf1">
+  <Screen
+    surface="popover"
+    html={
+      "<div style='display:flex;flex-direction:column;box-sizing:border-box;padding:16px;gap:12px'><div class='wf-card' style='display:flex;flex-direction:column;gap:8px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-pill warn'>Needs approval</span><strong>send-email</strong></div><div style='display:flex;flex-direction:column;gap:2px'><span class='wf-muted'>to: alex@acme.com</span><span class='wf-muted'>subject: Following up on the proposal</span></div><div style='display:flex;gap:8px'><button>Deny</button><button class='primary'>Approve</button></div></div></div>"
+    }
+  />
+</WireframeBlock>
+
+- **Approve** re-issues the turn as an ordinary continuation message that carries the call's key in `approvedToolCalls: [approvalKey]`. On the re-issued turn, the gate sees the key in the approved set and lets that specific call run normally.
+- **Deny** dismisses the affordance locally. Nothing is re-issued, so the action never runs.
+
+`approvedToolCalls` is a field on the chat request (`AgentChatRequest.approvedToolCalls`). Keys that are not present in it stay paused. Approving one call never approves any other call. Because the key is content-addressed, an approval only authorizes that exact call with those exact arguments. If the model later proposes a different send, that becomes a new key and needs its own fresh approval.
+
+### End-to-end {#flow}
+
+<Diagram id="doc-block-2nor1g" title="The approval interrupt" summary={"A gated call pauses the turn before run() fires. Approval re-issues the turn carrying the call's key. Only then does the side effect happen."}>
+
+```html
+<div class="diagram-approve">
+  <div class="diagram-box" data-rough>Agent calls send-email</div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel warn" data-rough>
+    <strong>Gate truthy, call not yet approved</strong
+    ><small class="diagram-muted"
+      >loop emits tool_start + approval_required { tool, input, approvalKey
+      }</small
+    ><span class="diagram-pill warn">run() has not executed</span>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-box" data-rough>
+    Human clicks Approve in chat<br /><small class="diagram-muted"
+      >client re-issues the turn with approvedToolCalls: [approvalKey]</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&darr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok"
+      >Gate sees the key &rarr; run() executes &rarr; email sends</span
+    >
+  </div>
+</div>
+```
+
+```css
+.diagram-approve {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.diagram-approve .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  padding: 12px 16px;
+  text-align: center;
+}
+.diagram-approve .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+The Mail template's `send-email` action is the canonical use of this gate in the framework, and it is intentionally rare. It sets `needsApproval: true` so the agent can draft and queue emails freely. It can never actually send a message without a human approving that specific send.
 
 ## Restrict callers by role {#authorize}
 
@@ -220,7 +354,7 @@ A few other options. `audit: { onRead: true }` audits a sensitive read, like a s
 - [**Overview**](/docs/actions-overview) — what an action is and the hello-world walkthrough
 - [**Defining Actions**](/docs/actions-defining) — `defineAction()` anatomy, schema, and HTTP config
 - [**Run Context**](/docs/actions-run-context) — the `ctx` argument these checks read
-- [**Human-in-the-Loop Approvals**](/docs/human-approval) — the `needsApproval` gate in depth
+- [**Mail template**](/docs/template-mail) — `send-email` is the reference example for `needsApproval`
 - [**Audit Log**](/docs/audit-log) — the automatic who-changed-what trail
 - [**Security**](/docs/security) — `accessFilter`/`assertAccess` and the extension iframe trust boundary
 - [**Sharing**](/docs/sharing) — the framework sharing system these helpers back
