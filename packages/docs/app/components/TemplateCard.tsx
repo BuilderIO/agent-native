@@ -93,16 +93,6 @@ export const templates = [
       "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F46975a73af5246b39a23e6c4c1361516?format=webp&width=800&height=1200",
   },
   {
-    name: "Brain",
-    slug: "brain",
-    cliCommand:
-      "npx @agent-native/core@latest create my-brain-app --template brain",
-    demoUrl: "https://brain.agent-native.com",
-    color: "#8B5CF6",
-    screenshot:
-      "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8cc4d4e2d39d4781bd4dd86d449d88e7?format=webp&width=800&height=1200",
-  },
-  {
     name: "Assets",
     slug: "assets",
     cliCommand:
@@ -164,7 +154,6 @@ export const featuredTemplates = [
   "content",
   "chat",
   "dispatch",
-  "brain",
   "calendar",
   "mail",
   "forms",

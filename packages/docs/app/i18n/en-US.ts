@@ -515,12 +515,6 @@ const enUS = {
       description:
         "Agent-native form builder. Generate forms from a prompt, edit fields visually or conversationally, and send submissions to Slack, Discord, Google Sheets, or webhooks.",
     },
-    brain: {
-      replaces:
-        "Replaces or augments team wikis, Glean-style recall, and institutional memory tools",
-      description:
-        "Full-page company chat over cited memory from approved Slack, Clips, Granola, GitHub, and transcript sources, with review gates, evals, and shared connection readiness built in.",
-    },
     assets: {
       replaces:
         "Replaces or augments DAMs, brand asset libraries, and AI media generators",
@@ -547,22 +541,6 @@ const enUS = {
     faq: {
       eyebrow: "FAQs",
       title: "Get answers to common questions",
-    },
-    brain: {
-      faq: {
-        question1: "Can AI remember what my team knows?",
-        answer1:
-          "That's Brain: shared memory built from approved Slack, Clips, Granola, GitHub, and transcript sources. Ask in company chat; answers come back with citations.",
-        question2: "How is Brain different from a wiki?",
-        answer2:
-          "A wiki waits for someone to write it, then goes stale. Brain captures from where work already happens, gates what gets in with reviews, and cites its sources when it answers.",
-        question3: "How do I trust what it says?",
-        answer3:
-          'Two ways: review gates control what enters memory, and every answer cites where it came from — so "the wiki said so" becomes "this Slack thread, this recording, this commit."',
-        question4: "Do my other apps share this memory?",
-        answer4:
-          "That's the point — Brain is the memory layer other Agent-Native apps connect to, so what one app learns, the stack knows.",
-      },
     },
     assets: {
       faq: {
@@ -1948,12 +1926,6 @@ const enUS = {
     clipsAiAndEditing: "AI & Editing",
     clipsSharingAndTeams: "Sharing & Teams",
     clipsDevelopers: "Developer Guide",
-    brain: "Brain",
-    brainOverview: "Overview",
-    brainSources: "Connecting Sources",
-    brainKnowledge: "Asking & Citations",
-    brainAgent: "Talking to the Agent",
-    brainDevelopers: "Developer Guide",
     assets: "Assets",
     assetsOverview: "Overview",
     assetsGeneration: "Generating & Refining",

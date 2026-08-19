@@ -19,15 +19,12 @@ import { withDefaultSocialImage, withTemplateSocialImage } from "../seo";
 
 const genericFaqCounts: Partial<Record<Template["slug"], number>> = {
   assets: 4,
-  brain: 4,
   chat: 3,
 };
 
 const genericHeroScreenshots: Partial<Record<Template["slug"], string>> = {
   assets:
     "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F797d0b56b93a4e779baa0d7a5724e0db?format=webp&width=2200",
-  brain:
-    "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdc8ace6fbf8f4705964bf4da9758e252?format=webp&width=2200",
   chat: "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F202088a9b7de469b8b0faf5aca061ff0?format=webp&width=2200",
 };
 

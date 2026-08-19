@@ -505,11 +505,6 @@ const messages = {
       description:
         "Agent-Native 表單生成器。根據提示生成表單，以可視方式或對話方式編輯欄位，並將提交內容傳送到 Slack、Discord、Google Sheets 或 webhooks。",
     },
-    brain: {
-      replaces: "替換或增強團隊維基、Glean 式回憶和機構記憶工具",
-      description:
-        "透過來自核准的 Slack、Clips、Granola、GitHub 和轉錄來源的引用記憶進行整頁面公司聊天，並內建審核門、評估和共用連線準備情況。",
-    },
     assets: {
       replaces: "替換或增強 DAMs、品牌資產庫和 AI 媒體生成器",
       description:
@@ -690,22 +685,6 @@ const messages = {
           "可以。它透過 OAuth 同步，支援多個帳戶和自動重新整理權杖，並可直接在 Google 上建立、更新和刪除活動。",
         question4: "Calendar 免費嗎？",
         answer4: "免費且開放原始碼，預約頁面也包含在內。",
-      },
-    },
-    brain: {
-      faq: {
-        question1: "AI 能記住團隊掌握的知識嗎？",
-        answer1:
-          "這正是 Brain 的用途：從經過核准的 Slack、Clips、Granola、GitHub 和逐字稿來源建立共享記憶。在公司聊天中提問，答案會附上引用。",
-        question2: "Brain 與 Wiki 有什麼不同？",
-        answer2:
-          "Wiki 要等人撰寫，之後還會逐漸過時。Brain 從工作實際發生的地方擷取知識，透過審核控制哪些內容可以進入，並在回答時引用來源。",
-        question3: "我如何相信它的回答？",
-        answer3:
-          "有兩層保障：審核關卡控制哪些內容進入記憶，每個答案也會引用來源。因此，「Wiki 上這麼說」會變成「來自這則 Slack 討論、這段錄製和這次提交」。",
-        question4: "我的其他應用會共享這些記憶嗎？",
-        answer4:
-          "這正是它的目的。Brain 是其他 Agent-Native 應用連接的記憶層，因此一個應用學到的內容會成為整個應用堆疊的知識。",
       },
     },
     assets: {
@@ -1920,12 +1899,6 @@ const messages = {
     clipsAiAndEditing: "AI 與編輯",
     clipsSharingAndTeams: "分享與團隊",
     clipsDevelopers: "開發者指南",
-    brain: "知識庫",
-    brainOverview: "總覽",
-    brainSources: "連線來源",
-    brainKnowledge: "提問與引用",
-    brainAgent: "與 Agent 對話",
-    brainDevelopers: "開發者指南",
     assets: "資產",
     assetsOverview: "總覽",
     assetsGeneration: "產生與精煉",
