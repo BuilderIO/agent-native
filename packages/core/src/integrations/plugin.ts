@@ -3488,7 +3488,17 @@ export function createIntegrationsPlugin(
                   }),
                 },
               );
-              const data = await res.json();
+              const data = (await res.json()) as {
+                ok?: boolean;
+                description?: string;
+                [key: string]: unknown;
+              };
+              if (!res.ok || data.ok !== true) {
+                setResponseStatus(event, 502);
+                return {
+                  error: `Telegram setWebhook failed: ${data.description ?? `HTTP ${res.status}`}`,
+                };
+              }
               return { ok: true, platform, webhookUrl, result: data };
             } catch (err: any) {
               setResponseStatus(event, 500);
