@@ -1,4 +1,4 @@
-import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+import { defineFeatureFlag } from "@agent-native/core/feature-flags/registry";
 
 /**
  * Browser-only rollout for app-scoped sessions in Dispatch panes. The server

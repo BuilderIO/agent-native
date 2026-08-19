@@ -364,7 +364,6 @@
   flex: 0 0 auto;
   width: auto;
   max-width: 112px;
-  min-width: 96px;
   padding-left: 6px;
 }
 
@@ -2151,6 +2150,13 @@
 .code-agents-button--primary:disabled:hover {
   background: hsl(var(--foreground));
   color: hsl(var(--background));
+}
+
+.code-agents-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 4px;
 }
 
 .code-agents-button--ghost {

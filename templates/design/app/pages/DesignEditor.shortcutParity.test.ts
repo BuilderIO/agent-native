@@ -36,7 +36,7 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
       "onShowLayersPanel: initialGenerationChromeLimited\n      ? undefined\n      : handleShowLayersPanel",
     );
     expect(editorSource).toContain(
-      "onShowAssetsPanel: initialGenerationChromeLimited\n      ? undefined\n      : handleShowAssetsPanel",
+      "onShowAssetsPanel:\n      initialGenerationChromeLimited || !SHOW_DESIGN_SECONDARY_LEFT_PANELS\n        ? undefined\n        : handleShowAssetsPanel",
     );
   });
 

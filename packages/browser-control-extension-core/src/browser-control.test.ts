@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BrowserControlService } from "./browser-control";
+import { cursorOverlayExpression } from "./cursor-overlay";
 
 describe("BrowserControlService", () => {
   const debuggerMethods: string[] = [];
+  const runtimeExpressions: string[] = [];
   const attach = vi.fn();
   const detach = vi.fn();
   const createTab = vi.fn();
@@ -16,6 +18,7 @@ describe("BrowserControlService", () => {
 
   beforeEach(() => {
     debuggerMethods.length = 0;
+    runtimeExpressions.length = 0;
     attach.mockReset();
     attach.mockImplementation(
       (
@@ -58,10 +61,19 @@ describe("BrowserControlService", () => {
       (
         _source: chrome.debugger.Debuggee,
         method: string,
-        _params: object | undefined,
+        params: object | undefined,
         callback?: (result: unknown) => void,
       ) => {
         debuggerMethods.push(method);
+        if (
+          method === "Runtime.evaluate" &&
+          typeof (params as { expression?: unknown } | undefined)
+            ?.expression === "string"
+        ) {
+          runtimeExpressions.push(
+            (params as { expression: string }).expression,
+          );
+        }
         callback?.({});
       },
     );
@@ -123,7 +135,7 @@ describe("BrowserControlService", () => {
     expect(detach).toHaveBeenCalledWith({ tabId: 42 }, expect.any(Function));
   });
 
-  it("never uses unrestricted runtime evaluation", async () => {
+  it("uses only the fixed cursor expression for visual cleanup", async () => {
     const service = new BrowserControlService();
 
     await service.execute({
@@ -137,7 +149,106 @@ describe("BrowserControlService", () => {
     });
     await service.emergencyStopAll();
 
-    expect(debuggerMethods).not.toContain("Runtime.evaluate");
+    expect(debuggerMethods).toContain("Runtime.evaluate");
+    expect(runtimeExpressions).toEqual([
+      cursorOverlayExpression({ type: "hide" }),
+    ]);
+  });
+
+  it("shows the phantom cursor at a click target and clears it on stop", async () => {
+    sendCommand.mockImplementation(
+      (
+        _source: chrome.debugger.Debuggee,
+        method: string,
+        params: object | undefined,
+        callback?: (result: unknown) => void,
+      ) => {
+        debuggerMethods.push(method);
+        if (
+          method === "Runtime.evaluate" &&
+          typeof (params as { expression?: unknown } | undefined)
+            ?.expression === "string"
+        ) {
+          runtimeExpressions.push(
+            (params as { expression: string }).expression,
+          );
+        }
+        if (method === "Accessibility.getFullAXTree") {
+          callback?.({
+            nodes: [
+              {
+                backendDOMNodeId: 7,
+                role: { value: "button" },
+                name: { value: "Open" },
+              },
+            ],
+          });
+          return;
+        }
+        if (method === "Accessibility.getPartialAXTree") {
+          callback?.({
+            nodes: [
+              {
+                backendDOMNodeId: 7,
+                role: { value: "button" },
+                name: { value: "Open" },
+              },
+            ],
+          });
+          return;
+        }
+        if (method === "DOM.getBoxModel") {
+          callback?.({
+            model: { border: [100, 200, 120, 200, 120, 220, 100, 220] },
+          });
+          return;
+        }
+        callback?.({});
+      },
+    );
+    const service = new BrowserControlService();
+
+    await service.execute({
+      id: "attach-request",
+      taskId: "task-1",
+      command: {
+        type: "attach",
+        tabId: 42,
+        allowedOrigins: ["https://example.com"],
+      },
+    });
+    const observation = (await service.execute({
+      id: "observe-request",
+      taskId: "task-1",
+      command: { type: "observe", includeScreenshot: false },
+    })) as { observationId: string };
+
+    await service.execute({
+      id: "click-request",
+      taskId: "task-1",
+      command: {
+        type: "click",
+        target: { observationId: observation.observationId, backendNodeId: 7 },
+      },
+    });
+
+    expect(runtimeExpressions[0]).toBe(
+      cursorOverlayExpression({ type: "show", x: 110, y: 210, click: true }),
+    );
+    expect(debuggerMethods.indexOf("Runtime.evaluate")).toBeLessThan(
+      debuggerMethods.indexOf("Input.dispatchMouseEvent"),
+    );
+
+    await service.execute({
+      id: "stop-request",
+      taskId: "task-1",
+      command: { type: "stop" },
+    });
+    await vi.waitFor(() =>
+      expect(runtimeExpressions).toContain(
+        cursorOverlayExpression({ type: "hide" }),
+      ),
+    );
   });
 
   it("rechecks ownership before committing concurrent attaches", async () => {
@@ -495,6 +606,7 @@ describe("BrowserControlService", () => {
       }),
     ).rejects.toMatchObject({ code: "BROWSER_STOPPING" });
 
+    await vi.waitFor(() => expect(releaseDetach).toBeDefined());
     releaseDetach?.();
     await expect(emergencyStop).resolves.toBeUndefined();
   });

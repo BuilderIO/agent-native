@@ -26,7 +26,8 @@ function commitVisualStylesSection(): string {
 }
 
 describe("localhost style commit route order", () => {
-  const LOCALHOST_ROUTE = 'if (activeCanvasSourceType === "localhost") {';
+  const LOCALHOST_ROUTE =
+    "if (isRunningAppSourceType(activeCanvasSourceType)) {";
   const RUNTIME_ONLY_REFUSAL =
     "if (!targetNode && elementInfoIsRuntimeOnly(targetInfo)) {";
 

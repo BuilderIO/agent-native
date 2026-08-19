@@ -116,6 +116,11 @@ describe("CodeAgentsApp full-page chat width", () => {
     expect(css).toMatch(
       /\.code-agents-project-picker--bar \.code-agents-project-select\s*\{[\s\S]*?flex: 0 1 auto;/,
     );
+    const executionTargetRule = css.match(
+      /\.code-agents-project-picker--bar \.code-agents-execution-target-select\s*\{([^}]*)\}/,
+    )?.[1];
+    expect(executionTargetRule).toContain("flex: 0 0 auto;");
+    expect(executionTargetRule).not.toContain("min-width:");
   });
 });
 
@@ -199,6 +204,18 @@ describe("CodeAgentsApp project folder picker", () => {
       ".dark .code-agents-popover-content {\n  box-shadow: 0 18px 44px hsl(var(--code-agents-dark-shadow, 0 0% 0%) / 0.42);",
     );
     expect(css).not.toContain("hsl(var(--foreground, 0 0% 90%) / 0.42)");
+  });
+});
+
+describe("CodeAgentsApp Portal transfer actions", () => {
+  it("offers bulk and per-chat handoff controls", () => {
+    const source = readFileSync("src/CodeAgentsApp.tsx", "utf8");
+
+    expect(source).toContain("Move local chats to Portal");
+    expect(source).toContain("Move to Portal");
+    expect(source).toContain("transferAll");
+    expect(source).toContain("transferRun");
+    expect(source).toContain("full text context");
   });
 });
 

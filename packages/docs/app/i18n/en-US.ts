@@ -87,6 +87,7 @@ const enUS = {
     suggestionDeploy: "How do I deploy to production?",
   },
   errors: {
+    loadingLatest: "Loading the latest version...",
     notFoundTitle: "Page not found",
     notFoundBody:
       "The page you're looking for doesn't exist or has been moved.",

@@ -29,7 +29,9 @@ describe("code workbench shell", () => {
     const workbenchIndex = source.indexOf("<CodeWorkbenchLoader");
     expect(workbenchIndex).toBeGreaterThan(0);
     const mountGate = source.slice(workbenchIndex - 120, workbenchIndex);
-    expect(mountGate).toContain("{id ? (");
+    expect(mountGate).toContain("{id");
+    // Excluded in shell mode only: there is no design row to list files from.
+    expect(mountGate).toContain("!shellMode");
     expect(mountGate).not.toContain('activeLeftPanel === "code"');
     expect(mountGate).not.toContain("activeCodeFile");
   });

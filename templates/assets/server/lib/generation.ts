@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import {
   FeatureNotConfiguredError,
   getBuilderImageGenerationBaseUrl,
-  resolveBuilderCredentials,
+  resolveBuilderGatewayCredentials,
   resolveSecret,
 } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
@@ -265,16 +265,20 @@ interface BuilderImageGenerationResponse {
 export async function generateWithBuilderImageApi(
   input: GenerateProviderInput,
 ): Promise<GenerateProviderOutput> {
-  const builderCredentials = await resolveBuilderCredentials();
+  // Gateway lane: a published site paying with Builder credits carries the
+  // injected gateway pair and no identity credential at all, and image
+  // generation is metered rather than identity-bearing. The resolver still
+  // prefers a connected Builder account, so a site that has one is unaffected.
+  const builderCredentials = await resolveBuilderGatewayCredentials();
   if (!builderCredentials.privateKey || !builderCredentials.publicKey) {
     const detail =
       !builderCredentials.privateKey && !builderCredentials.publicKey
-        ? "Builder private and public keys are missing"
+        ? "Builder credentials are missing"
         : !builderCredentials.privateKey
-          ? "Builder private key is missing"
-          : "Builder public key is missing";
+          ? "Builder token is missing"
+          : "Builder space id is missing";
     throw new BuilderImageGenerationError(
-      "Builder.io is not fully connected for managed image generation. Reconnect Builder.io (free tier available) so both Builder private and public keys are available.",
+      "Builder.io is not connected for managed image generation. Connect Builder.io (free tier available), or publish with Builder credits so the site is issued its own gateway credential.",
       401,
       detail,
     );

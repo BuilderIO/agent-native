@@ -7,6 +7,7 @@ import {
   getBrowserTabId,
   useSession,
 } from "@agent-native/core/client/hooks";
+import { setAgentNativeApiDisabled } from "@agent-native/core/client/host";
 import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import {
   CommandMenu,
@@ -36,6 +37,7 @@ import type { LinksFunction } from "react-router";
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
 import { requestDesignUiToggle } from "@/lib/design-ui-events";
 
 import changelog from "../CHANGELOG.md?raw";
@@ -43,6 +45,11 @@ import { i18nCatalog } from "./i18n";
 import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
+
+// Builder frames this canvas with no session of its own, so every
+// `/_agent-native/*` call it makes is an unauthorized one that buries real
+// failures in 401 noise.
+if (isBuilderHostEmbed()) setAgentNativeApiDisabled("builder shell canvas");
 
 configureTracking({
   llmConnectionStatus:
@@ -63,7 +70,7 @@ const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-design-app suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -168,6 +175,21 @@ function DesignCommandMenu({
   );
 }
 
+/**
+ * The one toaster: AppProviders renders its own by default, and a second copy
+ * here made every toast appear twice once the two positions stopped coinciding.
+ * Builder's chat covers the left column when it hosts the editor, which would
+ * hide any toast underneath it.
+ */
+function DesignToaster() {
+  return (
+    <Toaster
+      richColors
+      position={isBuilderHostEmbed() ? "bottom-right" : "bottom-left"}
+    />
+  );
+}
+
 function RootContent() {
   const location = useLocation();
   const { session } = useSession();
@@ -191,7 +213,6 @@ function RootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
-      <Toaster richColors position="bottom-left" />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
@@ -210,6 +231,7 @@ export default function Root() {
         queryClient={queryClient}
         isPublicPath={isPublicPath}
         i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
+        toaster={<DesignToaster />}
       >
         <RootContent />
       </AppProviders>

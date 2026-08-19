@@ -3,6 +3,8 @@ import type { ChatModelAdapter, ChatModelRunResult } from "@assistant-ui/react";
 
 import { actionPreparationContinuationNote } from "../agent/action-continuation-guidance.js";
 import {
+  formatLlmCredentialErrorMessage,
+  isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
 } from "../agent/engine/credential-errors.js";
@@ -141,7 +143,28 @@ const MAX_HISTORY_ATTACHMENT_CHARS = 60_000;
 // the trailing truncation notice still makes a pathological multi-MB paste
 // visibly (not silently) capped.
 const MAX_OUTBOUND_ATTACHMENT_CHARS = 200_000;
-const MAX_HISTORY_MESSAGES = 24;
+// An array-length backstop, NOT the reduction policy. Reducing a long thread is
+// Observational Memory's job: it folds older turns into observations/reflections
+// and replaces the raw prefix with a memory block plus a recent-raw window
+// (agent/observational-memory/). But its Observer only engages once a thread
+// passes 30k unobserved tokens, and a count cap of 24 bit long before that — so
+// turns were evicted from the request while compaction still had nothing to say
+// about them, and only reached the model again once thread_data was observed a
+// turn or more later. The two char budgets below are the real bound (they cap
+// what a request can carry regardless of message count); this cap only keeps the
+// array from growing without limit.
+const MAX_HISTORY_MESSAGES = 80;
+// Every provider prompt cache matches a byte-identical PREFIX. A window that
+// ends at the newest message and starts MAX_HISTORY_MESSAGES back moves its
+// START by one message per turn, so from the first turn past the cap onward no
+// cached prefix ever matches again and the whole conversation is re-billed at
+// full write price on every turn — the cache breakpoints the engines place
+// (system prefix, last tool, last user message) cannot save a prefix whose
+// first bytes changed. Quantizing where the window starts holds those bytes
+// identical for a stride of turns, so one turn in STRIDE pays the write and the
+// rest read. The window then holds up to MAX + STRIDE - 1 messages; the char
+// budgets below, not the message count, are what bound the payload.
+const HISTORY_WINDOW_STRIDE = 8;
 const MAX_HISTORY_TOTAL_CHARS = 64_000;
 // Budget for everything actually said in the thread — every user ask and every
 // assistant conclusion. Separate from MAX_HISTORY_TOTAL_CHARS, which bounds the
@@ -291,6 +314,29 @@ const BACKGROUND_TERMINAL_REASON_MESSAGES: Record<string, string> = {
   turn_continuation_budget_exhausted:
     "This request needed more automatic continuations than allowed and was stopped. Try breaking it into smaller steps.",
 };
+
+/**
+ * Re-decide the mapped copy for whoever is reading it.
+ *
+ * The map above is client-authored copy for a server-produced code, and for the
+ * credential reasons that duplicates a decision the server already makes with
+ * `formatLlmCredentialErrorMessage({ visitorFacing })` — without the one input
+ * the decision needs. Earlier notes called this an unfixable residual gap on the
+ * grounds that the client cannot know the lane; the framing was wrong, because
+ * the lane is a fact about the deployment that the run snapshot can carry
+ * (`deploymentPaysForAi` on `/runs/active`). Everything else in the map is
+ * background-handoff copy that reads the same to either party.
+ */
+function laneAwareTerminalReasonMessage(
+  mapped: string | undefined,
+  terminalReason: string,
+  deploymentPaysForAi: boolean,
+): string | undefined {
+  if (!mapped || !isLlmCredentialError(mapped, terminalReason)) return mapped;
+  return formatLlmCredentialErrorMessage({
+    visitorFacing: deploymentPaysForAi,
+  });
+}
 
 /**
  * `agent_runs.terminal_reason` values that mark a CHUNK boundary, not the end
@@ -987,7 +1033,10 @@ function limitPriorMessagesForRequest<
     attachments?: readonly AssistantUiAttachment[];
   },
 >(messages: readonly T[]): T[] {
-  const recent = messages.slice(-MAX_HISTORY_MESSAGES);
+  const overflow = Math.max(0, messages.length - MAX_HISTORY_MESSAGES);
+  const recent = messages.slice(
+    Math.floor(overflow / HISTORY_WINDOW_STRIDE) * HISTORY_WINDOW_STRIDE,
+  );
   const kept: T[] = [];
   let words = 0;
   let payload = 0;
@@ -2808,7 +2857,11 @@ export function createAgentChatAdapter(
           const hasErrorTerminalReason = rawTerminalReason.startsWith("error:");
           const terminalReason = rawTerminalReason.replace(/^error:/, "");
           const mappedMessage = terminalReason
-            ? BACKGROUND_TERMINAL_REASON_MESSAGES[terminalReason]
+            ? laneAwareTerminalReasonMessage(
+                BACKGROUND_TERMINAL_REASON_MESSAGES[terminalReason],
+                terminalReason,
+                lastKnown?.deploymentPaysForAi === true,
+              )
             : undefined;
           const mappedErrorCode =
             terminalReason === "missing_api_key" ||
@@ -2816,31 +2869,44 @@ export function createAgentChatAdapter(
               ? LLM_MISSING_CREDENTIALS_ERROR_CODE
               : terminalReason;
 
-          if (mappedMessage) {
-            yield* emitBackgroundTerminalError({
-              message: mappedMessage,
-              errorCode: mappedErrorCode,
-              details: `terminal_reason: ${rawTerminalReason}`,
-            });
-            return;
-          }
-
           if (hasErrorTerminalReason) {
-            if (lastRecoverableRunError) {
+            // Never REPLACE the wording the server chose for this failure: a
+            // deployment that pays for its own AI answers whoever is chatting
+            // with one visitor line, and the map only knows the owner copy.
+            // Only the captured error whose code IS the terminal reason is that
+            // wording — an earlier auto-recoverable error in the same run is
+            // stale (the cursor reset only clears it when the followed run
+            // changes), and letting it outrank the terminal reason reports a
+            // transient blip for a run that died of something else.
+            const serverChosenError =
+              lastRecoverableRunError?.errorCode === terminalReason
+                ? lastRecoverableRunError
+                : null;
+            if (serverChosenError) {
               yield* emitBackgroundTerminalError({
-                message: lastRecoverableRunError.message,
+                message: serverChosenError.message,
                 errorCode:
-                  lastRecoverableRunError.errorCode ||
+                  serverChosenError.errorCode ||
                   mappedErrorCode ||
                   "background_run_failed",
-                details: lastRecoverableRunError.details,
+                details: serverChosenError.details,
               });
               return;
             }
             yield* emitBackgroundTerminalError({
               message:
+                mappedMessage ??
                 "The agent's background run failed before its final response could be recovered. You can retry from the preserved chat context.",
               errorCode: mappedErrorCode || "background_run_failed",
+              details: `terminal_reason: ${rawTerminalReason}`,
+            });
+            return;
+          }
+
+          if (mappedMessage) {
+            yield* emitBackgroundTerminalError({
+              message: mappedMessage,
+              errorCode: mappedErrorCode,
               details: `terminal_reason: ${rawTerminalReason}`,
             });
             return;

@@ -45,6 +45,7 @@ Read the relevant skill before deeper work in that area.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private
   Builder/internal data, customer data, or credential-looking literals. Use
   secrets/OAuth/runtime configuration and obvious placeholders in examples.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
 - Use the app actions for designs, files, versions, design systems, variants,
   export, and sharing. Do not write design rows directly with SQL.
 - A message beginning with `[Reprompt selection]` is preview-only: the only

@@ -146,6 +146,7 @@ import {
   isProductionServerlessFunctionRuntime,
   isTransientDatabaseError,
 } from "../db/client.js";
+import { isFeatureFlagEnabled } from "../feature-flags/index.js";
 import {
   filterFrameworkToolGroups,
   resolveFrameworkTools,
@@ -301,6 +302,7 @@ import {
 // `createAgentChatPlugin` below stays a thinner orchestrator.
 // ---------------------------------------------------------------------------
 import {
+  buildSelectedA2AReceiverContext,
   createA2AEngineToolSurface,
   DEFAULT_DELEGATED_MAX_ITERATIONS,
   DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
@@ -309,6 +311,7 @@ import {
   filterPublicAgentActions,
   filterDirectA2AActions,
   filterReadOnlyActions,
+  isSelectedA2AReceiver,
   resolveInitialToolNames,
   runA2AAgentLoop,
   runMCPAgentLoop,
@@ -399,6 +402,7 @@ export type { AgentChatPluginOptions };
 export { runA2AAgentLoop };
 export { runMCPAgentLoop };
 export { createA2AEngineToolSurface };
+export { buildSelectedA2AReceiverContext, isSelectedA2AReceiver };
 export {
   DEFAULT_DELEGATED_MAX_ITERATIONS,
   DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
@@ -1231,14 +1235,14 @@ export function createAgentChatPlugin(
             await import("../extensions/web-search-tool.js");
           const {
             getBuilderWebSearchBaseUrl,
-            resolveBuilderCredentials,
+            resolveBuilderGatewayCredentials,
             resolveSecret,
           } = await import("./credential-provider.js");
           const { getBuilderGatewayRequestHeaders } =
             await import("../agent/engine/builder-gateway-headers.js");
           webSearchTool = createWebSearchToolEntry({
             resolveSecret,
-            resolveBuilderCredentials,
+            resolveBuilderCredentials: resolveBuilderGatewayCredentials,
             getBuilderWebSearchBaseUrl,
             getBuilderRequestHeaders: getBuilderGatewayRequestHeaders,
           });
@@ -1875,15 +1879,25 @@ export function createAgentChatPlugin(
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
 
+          const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
+          const receiverOwnsObjective =
+            isSelectedA2AReceiver(
+              correlation.selectedReceiverApp,
+              options?.appId,
+            ) &&
+            !!options?.a2aReceiverOwnershipFlag &&
+            (await isFeatureFlagEnabled(options.a2aReceiverOwnershipFlag, {
+              userEmail,
+              userKey: userEmail,
+              orgId: getRequestOrgId() ?? undefined,
+            }));
           const a2aStoredModel = await getStoredModelForEngine(a2aEngine, {
             appId: options?.appId,
           });
           // Preference only, and last before the default: an app that pinned
           // a model keeps it. Read separately from the correlation sanitizer
           // below so it stays out of every identity/access path.
-          const a2aCallerModelHint = sanitizeA2ACorrelationMetadata(
-            context.metadata,
-          ).callerModel;
+          const a2aCallerModelHint = correlation.callerModel;
           const model = resolveDelegatedRunModel(a2aEngine, {
             explicitModel: options?.model,
             storedModel: a2aStoredModel,
@@ -1927,6 +1941,10 @@ export function createAgentChatPlugin(
           // a day rollover (or the resources/extra content changing) only
           // invalidates the cached prompt prefix as late as possible.
           const runtimeContext = runtimeContextForEvent(context.event);
+          const selectedReceiverContext =
+            receiverOwnsObjective && options?.appId
+              ? buildSelectedA2AReceiverContext(options.appId)
+              : "";
           // Delegated turns use native template actions in every environment,
           // so they must also receive the native-tool prompt. The interactive
           // dev prompt teaches `pnpm action` and would send this receiver back
@@ -1938,6 +1956,7 @@ export function createAgentChatPlugin(
             schemaBlock +
             extra +
             modelOverlay +
+            selectedReceiverContext +
             runtimeContext;
           if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
@@ -2007,6 +2026,10 @@ export function createAgentChatPlugin(
           const a2aToolSurface = createA2AEngineToolSurface(
             actionsToEngineTools(a2aActions),
             effectiveInitialToolNames,
+            {
+              receiverOwnsObjective,
+              localCapabilityNames: mcpOptions.connectorCatalog,
+            },
           );
 
           // Precise current time rides the user message (not the cached
@@ -2057,7 +2080,6 @@ export function createAgentChatPlugin(
             recoverableArtifactStatusWriter.enqueue(activityStatusMessage());
           };
           const controller = new AbortController();
-          const correlation = sanitizeA2ACorrelationMetadata(context.metadata);
           const telemetryThreadId =
             sanitizeA2ACorrelationId(context.contextId) ??
             correlation.callerThreadId ??
@@ -5332,6 +5354,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const workerClaim = run.runId
               ? await readBackgroundRunClaim(run.runId).catch(() => null)
               : null;
+            const { isBuilderGatewayDeployConfigured } =
+              await import("./credential-provider.js");
 
             return {
               active: true,
@@ -5349,6 +5373,12 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               // `/runs/active?threadId=...` and inspect `diagStage`.
               dispatchMode: run.dispatchMode ?? null,
               terminalReason: run.terminalReason ?? null,
+              // Who is paying for AI here, which is also who is reading a
+              // failure. `terminalReason` is a bare error CODE, and the client
+              // owns the copy for the handoff failures that never produce an
+              // error event — so without this it has to author credential copy
+              // for a reader it cannot identify, and picks the owner's.
+              deploymentPaysForAi: isBuilderGatewayDeployConfigured(),
               diagStage: run.diagStage ?? null,
               workerStage: workerClaim?.workerStage ?? null,
               // Server clock so the client computes "stuck" elapsed time
@@ -6441,17 +6471,33 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 return null;
               },
             );
+            // Rides the same site-tick as the reap above, for the same reason:
+            // it is the only durable driver on serverless. Never fatal to the
+            // job sweep, and its own failure is a distinguishable outcome
+            // rather than a silent healthy.
+            const { checkChatHealthAndAlert } =
+              await import("../agent/chat-health-alert.js");
+            const chatHealth = await checkChatHealthAndAlert().catch(
+              (error: unknown) => {
+                console.error("[agent-chat] chat-health alert failed:", error);
+                return null;
+              },
+            );
             try {
               // Jobs may request MCP tools, and `getActions` is synchronous —
               // hydrate before the sweep so a serverless container that never
               // eagerly initialized still resolves them.
               await ensureMcpInitialized();
               await processRecurringJobs(schedulerDeps);
-              return { ok: true, staleRunsReaped };
+              return { ok: true, staleRunsReaped, chatHealth };
             } catch (error) {
               console.error("[recurring-jobs] Sweep route failed:", error);
               setResponseStatus(event, 500);
-              return { error: "Recurring-job sweep failed", staleRunsReaped };
+              return {
+                error: "Recurring-job sweep failed",
+                staleRunsReaped,
+                chatHealth,
+              };
             }
           }),
         );

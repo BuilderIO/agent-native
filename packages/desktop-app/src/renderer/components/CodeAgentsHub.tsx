@@ -517,7 +517,7 @@ function DesktopAppsGrid({
                     },
                     {
                       id: "pin",
-                      label: pinned ? "Unpin from top" : "Pin to top",
+                      label: pinned ? "Unpin this app" : "Pin this app",
                       icon: (
                         <IconPin size={14} strokeWidth={pinned ? 2.2 : 1.6} />
                       ),
@@ -2006,6 +2006,32 @@ export default function CodeAgentsHub({
           };
         }
         return api.appendFollowUp(request);
+      },
+      async transferRun(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.transferRun) {
+          return {
+            ok: false,
+            runId: request.runId,
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.transferRun(request);
+      },
+      async transferAll(request) {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.transferAll) {
+          return {
+            ok: false,
+            transferred: [],
+            skipped: [],
+            failed: [],
+            message: "Desktop bridge is not available.",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.transferAll(request);
       },
       async updateRun(request) {
         const api = window.electronAPI?.codeAgents;

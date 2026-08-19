@@ -32,6 +32,7 @@ import type { DesktopIdentityStatus, UpdateStatus } from "@shared/ipc-channels";
 import {
   IconAlertCircle,
   IconArrowLeft,
+  IconBrain,
   IconCheck,
   IconChevronDown,
   IconChevronRight,
@@ -956,7 +957,7 @@ export default function AppSettings({
     {
       id: "providers",
       label: "AI providers",
-      icon: IconTerminal2,
+      icon: IconBrain,
       group: "agent",
       content: (
         <div className="w-full max-w-3xl space-y-8">

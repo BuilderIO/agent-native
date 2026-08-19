@@ -89,7 +89,7 @@ describe("live style runtime history", () => {
     );
     const forwardSection = commitVisualStylesSource.slice(
       commitVisualStylesSource.indexOf(
-        'if (activeCanvasSourceType === "localhost")',
+        "if (isRunningAppSourceType(activeCanvasSourceType))",
       ),
       commitVisualStylesSource.indexOf(
         "// Base every patch off the freshest known content",

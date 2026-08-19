@@ -233,6 +233,15 @@ export { displayableUserMessageText } from "./chat/message-components.js";
 type AuthSessionCheckResult = "available" | "missing" | "unknown";
 type ThreadRestoreErrorKind = "not-found" | "unavailable";
 
+// Desktop chat mounts beside the parent identity gate, so an unauthenticated
+// relay is an expected empty state until that gate establishes a session.
+export function shouldSuppressUnauthenticatedDesktopThreadRestore(
+  surface: AgentChatSurfaceKind,
+  status: number,
+): boolean {
+  return surface === "desktop" && (status === 401 || status === 403);
+}
+
 const useBrowserLayoutEffect =
   typeof window === "undefined" ? useEffect : useLayoutEffect;
 
@@ -2354,8 +2363,16 @@ export function useAutoResumeStatus(
 function approvalResolutionIdentity(
   approvalKey: string,
   toolCallId?: string,
+  // Included so a NEW `approval_required` ask for the same toolCallId/
+  // approvalKey (the server re-emitting after a failed resume never
+  // consumed the earlier grant) looks up as unresolved instead of
+  // inheriting the earlier ask's retained "approved" mark forever. Two
+  // asks sharing no askId (older events, non-production-agent approval
+  // sources) still collapse onto the same identity, preserving the
+  // existing remount-survives-as-approved behavior for them.
+  askId?: string,
 ): string {
-  return `${toolCallId ?? ""}\u0000${approvalKey}`;
+  return `${toolCallId ?? ""}\u0000${approvalKey}\u0000${askId ?? ""}`;
 }
 
 const AssistantChatInner = forwardRef<
@@ -3856,6 +3873,7 @@ const AssistantChatInner = forwardRef<
     // A restored tab can be reclassified as client-only after the thread list
     // loads. Once that happens, there is no server row to restore, so show the
     // empty composer instead of leaving the per-thread restore skeleton up.
+    setThreadRestoreError(null);
     setIsRestoring(false);
   }, [isNewThread, threadId]);
 
@@ -3908,7 +3926,14 @@ const AssistantChatInner = forwardRef<
           if (!res.ok) {
             if (!cancelled) {
               setThreadRestoreError(
-                res.status === 404 ? "not-found" : "unavailable",
+                shouldSuppressUnauthenticatedDesktopThreadRestore(
+                  agentChatSurface,
+                  res.status,
+                )
+                  ? null
+                  : res.status === 404
+                    ? "not-found"
+                    : "unavailable",
               );
             }
             return;
@@ -5584,7 +5609,9 @@ const AssistantChatInner = forwardRef<
     >
       <IconRefresh className="h-5 w-5 text-muted-foreground" />
       <p className="text-sm text-muted-foreground">
-        {t("agentChat.message.restoreRequestFailed")}
+        {threadRestoreError === "not-found"
+          ? t("agentChat.message.threadNotFound")
+          : t("agentChat.message.restoreRequestFailed")}
       </p>
       <button
         type="button"
@@ -5635,13 +5662,13 @@ const AssistantChatInner = forwardRef<
     byIdentity: new Map(),
   }));
   const getApprovalResolution = useCallback(
-    (approvalKey: string, toolCallId?: string) => {
+    (approvalKey: string, toolCallId?: string, askId?: string) => {
       if (approvalResolutionState.scope !== approvalResolutionScope) {
         return null;
       }
       return (
         approvalResolutionState.byIdentity.get(
-          approvalResolutionIdentity(approvalKey, toolCallId),
+          approvalResolutionIdentity(approvalKey, toolCallId, askId),
         ) ?? null
       );
     },
@@ -5652,6 +5679,7 @@ const AssistantChatInner = forwardRef<
       approvalKey: string,
       resolution: ApprovalResolution,
       toolCallId?: string,
+      askId?: string,
     ) => {
       setApprovalResolutionState((previous) => {
         const byIdentity =
@@ -5660,7 +5688,7 @@ const AssistantChatInner = forwardRef<
             : new Map<string, ApprovalResolution>();
         const next = new Map(byIdentity);
         next.set(
-          approvalResolutionIdentity(approvalKey, toolCallId),
+          approvalResolutionIdentity(approvalKey, toolCallId, askId),
           resolution,
         );
         return { scope: approvalResolutionScope, byIdentity: next };

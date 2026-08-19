@@ -78,6 +78,51 @@ export function isSupersededSelectionEcho(
   return false;
 }
 
+export function describeSelectionForHost(element: ElementInfo): {
+  label: string;
+  detail: string;
+} {
+  const text = element.textContent?.trim();
+  const label =
+    element.provenance?.component ||
+    element.componentName ||
+    (text ? text.slice(0, 60) : "") ||
+    element.tagName.toLowerCase();
+  const provenance = element.provenance;
+  const sourceFile = provenance?.sourceFile
+    ? `${provenance.sourceFile}${provenance.line ? `:${provenance.line}` : ""}`
+    : null;
+  const classSelector = element.classes?.length
+    ? `${element.tagName.toLowerCase()}.${element.classes.slice(0, 2).join(".")}`
+    : null;
+  const detail =
+    sourceFile ??
+    classSelector ??
+    element.selector ??
+    element.tagName.toLowerCase();
+  return { label, detail };
+}
+
+export function reloadRunningAppPreviewFrames(): void {
+  if (typeof document === "undefined") return;
+  const frames = document.querySelectorAll<HTMLIFrameElement>(
+    "iframe[data-design-preview-iframe]",
+  );
+  for (const frame of frames) {
+    const src = frame.getAttribute("src");
+    if (!src) continue;
+    let origin: string;
+    try {
+      origin = new URL(src, window.location.href).origin;
+      // coercion-ok: an unparsable src names no container to reload.
+    } catch {
+      continue;
+    }
+    if (origin === window.location.origin) continue;
+    frame.contentWindow?.postMessage({ type: "agentNative.reload" }, origin);
+  }
+}
+
 /**
  * A code-layer-derived ElementInfo carries authored inline styles and a zero
  * rect, so the inspector shows 0 for anything the source does not state

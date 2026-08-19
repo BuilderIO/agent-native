@@ -15,6 +15,24 @@ Use this skill when the user shares a feedback document, issue, thread, or paste
 
 The default posture is judgment plus action: fix clear, verified bugs you agree with; propose UX changes with rationale; skip or flag low-signal, unclear, or out-of-scope items.
 
+## Choose the fix altitude
+
+Before coding, name the smallest invariant that explains the report and the
+boundary that owns it. Use the evidence to choose the altitude:
+
+- One isolated report -> fix the local seam and add a focused regression check.
+- Repeated or cross-surface reports -> consider the shared primitive or
+  contract, but only after confirming the reports share the same failure mode.
+- Missing capability or wrong tool -> fix discovery, the registry, or the
+  action contract rather than coaching the agent around the gap.
+- Source behavior differs from the reported live behavior -> check the build,
+  deploy, and version state before changing code.
+
+Do not turn one data point into a global agent rule. For subjective feedback,
+state the underlying invariant and wait for repeated evidence before broadening
+it. Keep a concrete local fix when it solves the reported boundary; the goal is
+the right abstraction, not the most general one.
+
 ## Prerequisites
 
 - If no link or feedback text is provided, ask for it.
@@ -93,6 +111,21 @@ The default posture is judgment plus action: fix clear, verified bugs you agree 
    - Cite issue IDs or links when you find a match.
    - If nothing matches, say that plainly.
 
+## Fix-altitude gate
+
+Before editing a verified bug, choose the narrowest seam supported by the
+evidence:
+
+- One isolated report -> fix the owning local seam and add a regression check.
+- Repeated or cross-surface evidence -> inspect the shared primitive or
+  contract before patching a leaf.
+- Missing capability or wrong tool -> fix discovery, registry, or action-contract
+  wiring.
+- Source-vs-live mismatch -> diagnose build/deploy state before changing source.
+- Do not turn one data point into a global agent instruction. For subjective
+  feedback, name the invariant and require repeated evidence before broadening
+  it.
+
 6. Fix only the clear bugs you agree with.
 
    - Verify before fixing: reproduce locally, read the relevant code, inspect logs, or confirm with a stack trace.
@@ -134,30 +167,61 @@ The default posture is judgment plus action: fix clear, verified bugs you agree 
    - For resource visibility or lifecycle changes, verify both the screen and
      shared action/tool behavior, including owner versus non-owner access when
      relevant.
-   - If you cannot run a useful verification, say why.
+   - If you cannot run a useful verification, record the reason internally. In
+     the user-facing reply, use only "[plain-language item] - Verification
+     pending. Timing not confirmed yet." unless the user explicitly asks why.
 
-## Report Format
+## User-Facing Reply
 
-Keep the final report short:
+Keep the outward reply to a status update, not an implementation report. The
+technical investigation, reproduction details, test results, file names, and
+internal reasoning stay internal unless the user explicitly asks for them.
+
+For every actionable item, use a plain-language label and one short status:
+
+- For a requested change: **Fixed** or **Not fixed yet**.
+- For an unclear request: **Needs clarification**.
+- For a declined, skipped, or out-of-scope request: **Not planned** or **Not in
+  scope**.
+- For any item that still needs verification: **Verification pending**.
+
+Add one timing phrase to every status. If the current ship is expected to
+finish that day and the completed fix is confirmed to be included in that
+ship, use "Expected live by EOD." Otherwise use "Timing not confirmed yet."
+For items that are not planned or out of scope, use "No live date." Do not
+invent a release date.
+
+If a requested change is implemented but not yet verified, use
+"[plain-language item] - Verification pending. Timing not confirmed yet."
+instead of **Fixed** until verification is complete.
+
+When this skill is used by `address-feedback-with-replies`, that skill's Slack
+reply states take precedence: a completed Slack thread must end as **Fixed** or
+**Clarification needed**. Do not post **Not fixed yet**, **Needs clarification**,
+or a bare **Verification pending** status in Slack. Ask one concrete,
+plain-language clarification question only when reporter or product input is
+missing. **Clarification needed** is the one timing exception: do not give a
+live estimate until the question is answered and the fix is complete. If only
+internal test, deployment, or tooling verification is unavailable, keep that
+blocker internal, do not post an external Slack status yet, and resume the
+thread after verification is available. Do not turn it into a reporter
+question. Keep the no-technical-details rule in all cases.
+
+Use this format:
 
 ```md
-## Repeat Reports
-- [defect] - reported [N] times since [date] by [reporters]; [what now fails if it regresses]
-
-## Bugs Fixed
-- [feedback item] - [what changed, file:line]
-
-## Bugs Flagged But Not Fixed
-- [feedback item] - [why]
-
-## UX Suggestions
-- [feedback item] -> [proposed change]
-
-## Skipped
-- [feedback item] - [reason]
+## Feedback Status
+- [plain-language item] - Fixed. Expected live by EOD.
+- [plain-language item] - Not fixed yet. Timing not confirmed yet.
+- [plain-language item] - Needs clarification. Timing not confirmed yet.
+- [plain-language item] - Not planned. No live date.
 ```
 
-Only include sections that have content. The user can read the diff; do not write a second feedback document.
+Do not include implementation details, technical explanations, file paths,
+line numbers, test counts, PR numbers, worktree names, stack traces, or
+internal labels in the user-facing reply. Do not add separate sections for
+bugs, UX suggestions, skipped items, or technical evidence. Keep each item to
+one short sentence.
 
 ## Avoid
 
@@ -166,6 +230,7 @@ Only include sections that have content. The user can read the diff; do not writ
 - Do not implement UX changes that make an important screen busier without explicit user approval.
 - Do not claim a UI change is done without browser verification when a local app can be run.
 - Do not invent Sentry matches, affected users, or reproduction steps.
+- Do not expose the technical details used to verify or implement the work unless the user asks for them.
 
 ## Related Skills
 

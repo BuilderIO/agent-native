@@ -1,10 +1,11 @@
-import { getSession, runWithRequestContext } from "@agent-native/core/server";
+import { runWithRequestContext } from "@agent-native/core/server";
 import {
   defineEventHandler,
   readMultipartFormData,
   setResponseStatus,
 } from "h3";
 
+import { resolveSlidesRequestAuth } from "../../../handlers/request-auth-context.js";
 import { getGoogleDocsAccessToken } from "../../../lib/google-docs-oauth.js";
 
 const PPTX_CONTENT_TYPE =
@@ -28,8 +29,14 @@ const UPLOAD_URL =
  * See "Export Behavior" in `templates/slides/AGENTS.md` for the routing rule.
  */
 export default defineEventHandler(async (event) => {
-  const session = await getSession(event).catch(() => null);
-  if (!session?.email) {
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const session = auth.context;
+  const sessionEmail = session.email;
+  if (!sessionEmail) {
     setResponseStatus(event, 401);
     return { error: "Unauthorized" };
   }
@@ -50,8 +57,8 @@ export default defineEventHandler(async (event) => {
   // be org-scoped vault secrets, and resolving them without the org reports the
   // integration as unconfigured.
   const account = await runWithRequestContext(
-    { userEmail: session.email, orgId: session.orgId },
-    () => getGoogleDocsAccessToken(session.email),
+    { userEmail: sessionEmail, orgId: session.orgId },
+    () => getGoogleDocsAccessToken(sessionEmail),
   );
   if (!account) {
     setResponseStatus(event, 409);

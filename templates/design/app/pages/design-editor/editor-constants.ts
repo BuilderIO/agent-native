@@ -1,5 +1,6 @@
 export const MAX_GENERATION_ATTEMPTS = 3;
 export const AUTO_RETRY_DELAY_MS = 1200;
+export const HOST_CHAT_SLOT_MESSAGE = "agentNative.chatSlot";
 export const STORED_RUN_LIVENESS_GRACE_MS = 20_000;
 
 export const OVERVIEW_ZOOM_THRESHOLD = 60;

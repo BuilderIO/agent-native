@@ -148,10 +148,10 @@ describe("responsive Interact wiring", () => {
     // that path keyed to `isSignedIn` fails for exactly the user it serves:
     // the write-consent dialog never opens (edits can't reach source) and
     // agent-driven navigate/select/zoom commands are dropped on the floor.
-    const consent = source.slice(
-      source.indexOf("design-localhost-write-consent-request") - 900,
-      source.indexOf("design-localhost-write-consent-request"),
-    );
+    const consentAnchor = "const key = `design-localhost-write-consent-request";
+    const consentIndex = source.indexOf(consentAnchor);
+    expect(consentIndex).toBeGreaterThan(0);
+    const consent = source.slice(consentIndex - 900, consentIndex);
     expect(consent).toContain("!id || !canEditDesign");
     expect(consent).not.toContain("!id || !isSignedIn");
 
@@ -163,9 +163,12 @@ describe("responsive Interact wiring", () => {
   });
 
   it("routes every Interact request into the responsive view", () => {
-    expect(source).toContain("enterSingleScreen(screenId)");
+    expect(source).toContain("enterSingleScreen(screenId");
     expect(source).toContain("enterSingleScreen(activeFileId)");
     expect(editorSurface).toContain("resolveModeChangeView({");
+    // Only an explicit mode from an embedding host differs; every other entry
+    // into a focused screen is still Interact.
+    expect(source).toContain('options?.mode ?? "interact"');
     // Interact is the only mode that lives on a focused screen, so the bottom
     // toolbar's tools and mode tabs are hidden while it owns the surface.
     expect(source).toContain("!responsiveInteractActive &&");

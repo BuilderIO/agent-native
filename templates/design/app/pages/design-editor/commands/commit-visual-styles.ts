@@ -52,6 +52,7 @@ import {
 import { designSaveErrorMessage } from "@/pages/design-editor/save-failure";
 import { applyInlineStylesToHtml } from "@/pages/design-editor/screen-command-utils";
 import type { DesignFile } from "@/pages/design-editor/types";
+import { isRunningAppSourceType } from "@shared/source-mode";
 
 export interface CommitVisualStylesArgs {
   activeBreakpointUpperBoundPx: number | null;
@@ -214,7 +215,7 @@ export function runCommitVisualStyles(
   // into the live DOM and queue it, exactly like a canvas gesture
   // (handleVisualStyleChange delegates here with runtimeApplied set
   // because its gesture already moved the live DOM).
-  if (activeCanvasSourceType === "localhost") {
+  if (isRunningAppSourceType(activeCanvasSourceType)) {
     const targetInfo = options.elementInfo ?? selectedElement ?? undefined;
     // Breakpoint-scoped writes are excluded for the same reason as the
     // base path below (Item 5, edit-flash): the agent persists them as a

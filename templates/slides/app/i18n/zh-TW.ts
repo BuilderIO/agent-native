@@ -434,6 +434,12 @@ const messages = {
     pasteStyle: "貼上樣式",
     copy: "複製",
     paste: "貼上",
+    insertRowAbove: "在上方插入列",
+    insertRowBelow: "在下方插入列",
+    deleteRow: "刪除列",
+    insertColumnLeft: "在左側插入欄",
+    insertColumnRight: "在右側插入欄",
+    deleteColumn: "刪除欄",
   },
   animations: {
     appear: "出現",
@@ -508,6 +514,11 @@ const messages = {
     newSlide: "新增投影片",
     closeAddSlides: "關閉",
     describeThisSlide: "描述這張投影片",
+    cut: "剪下",
+    copy: "複製",
+    paste: "貼上",
+    skipSlide: "略過投影片",
+    unskipSlide: "取消略過投影片",
   },
   presentation: {
     loadFailed: "無法載入此簡報。",
@@ -536,6 +547,18 @@ const messages = {
     joinTeamDescription:
       "此連結指向團隊簡報。加入上方顯示的團隊後，幻燈片會自動在此開啟。",
     deckUnavailableDescription: "此幻燈片可能已被移除，或你的帳戶無權存取。",
+    privateDeckTitle: "此幻燈片是私密的",
+    privateDeckDescription:
+      "請求擁有者授予存取權限以開啟此幻燈片。傳送請求後，擁有者會收到通知。",
+    signedInAs: "你已登入為",
+    accessRequestSentDescription:
+      "擁有者已收到通知。取得存取權限後，你就可以開啟此幻燈片。",
+    accessRequestRecordedDescription:
+      "你的請求已記錄。取得存取權限後，你就可以開啟此幻燈片。",
+    requestAccessPending: "正在傳送請求…",
+    accessRequestSent: "請求已傳送",
+    requestAccess: "請求存取權限",
+    signInToRequestAccess: "登入以請求存取權限",
     backToDecks: "返回幻燈片",
     tryAgain: "重試",
     imageUploadFailed: "圖片上傳失敗",

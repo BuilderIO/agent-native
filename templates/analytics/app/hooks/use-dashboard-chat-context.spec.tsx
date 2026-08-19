@@ -11,9 +11,8 @@ const clientMocks = vi.hoisted(() => ({
     title: string;
     context: string;
   }>,
-  deleteClientAppState: vi.fn(async () => {}),
+  callAction: vi.fn(async () => ({ cleared: true })),
   getBrowserTabId: vi.fn(() => "test-tab"),
-  readClientAppState: vi.fn(async () => null),
   removeAgentChatContextItem: vi.fn(),
   setAgentChatContextItem: vi.fn(),
   setClientAppState: vi.fn(async () => {}),
@@ -31,9 +30,8 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
-  deleteClientAppState: clientMocks.deleteClientAppState,
+  callAction: clientMocks.callAction,
   getBrowserTabId: clientMocks.getBrowserTabId,
-  readClientAppState: clientMocks.readClientAppState,
   setClientAppState: clientMocks.setClientAppState,
 }));
 
@@ -137,68 +135,27 @@ describe("useDashboardChatContext", () => {
     );
   });
 
-  it("does not clear selected-object state owned by another tab", async () => {
-    clientMocks.readClientAppState.mockResolvedValueOnce({
-      type: "dashboard",
-      id: "dash-2",
-      __agentNativeSelectedObjectSource: "other-tab",
-    } as any);
-
+  it("passes its published selection to atomic cleanup on unmount", async () => {
     await act(async () => {
       root.render(<Harness id="dash-1" />);
     });
+    await settleContextPublish();
     await act(async () => {
       root.render(<Harness id={null} />);
     });
 
-    expect(clientMocks.readClientAppState).toHaveBeenCalledWith(
-      "selected-object",
+    expect(clientMocks.callAction).toHaveBeenCalledWith(
+      "clear-selected-dashboard-object",
+      {
+        browserTabId: TAB_ID,
+        expectedSelection: expect.objectContaining({
+          id: "dash-1",
+          __agentNativeSelectedObjectSource: TAB_ID,
+        }),
+        source: TAB_ID,
+      },
     );
-    expect(clientMocks.deleteClientAppState).not.toHaveBeenCalled();
   });
-
-  it.each([
-    [
-      "dashboard",
-      {
-        type: "dashboard",
-        id: "dash-2",
-        __agentNativeSelectedObjectSource: TAB_ID,
-      },
-    ],
-    [
-      "dashboard panel",
-      {
-        type: "dashboard-panel",
-        dashboardId: "dash-2",
-        panelId: "panel-2",
-        __agentNativeSelectedObjectSource: TAB_ID,
-      },
-    ],
-  ])(
-    "does not let old dashboard cleanup clear the next page's %s selection",
-    async (_selectionKind, currentSelection) => {
-      let resolveRead!: (value: Record<string, unknown>) => void;
-      clientMocks.readClientAppState.mockImplementationOnce(
-        () =>
-          new Promise((resolve) => {
-            resolveRead = resolve;
-          }) as any,
-      );
-
-      await act(async () => {
-        root.render(<Harness id="dash-1" />);
-      });
-      await act(async () => {
-        root.render(<Harness id="dash-2" />);
-      });
-      await act(async () => {
-        resolveRead(currentSelection);
-      });
-
-      expect(clientMocks.deleteClientAppState).not.toHaveBeenCalled();
-    },
-  );
 
   it("stages a selected panel for chat and app state", async () => {
     await act(async () => {

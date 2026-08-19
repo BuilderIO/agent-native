@@ -44,6 +44,10 @@ export interface EnterSingleScreenArgs {
   viewModeRef: RefObject<"single" | "overview">;
 }
 
+export interface EnterSingleScreenOptions {
+  mode?: EditorMode;
+}
+
 export function runEnterSingleScreen(
   {
     activeFileId,
@@ -70,7 +74,9 @@ export function runEnterSingleScreen(
     viewModeRef,
   }: EnterSingleScreenArgs,
   fileId?: string | null,
+  options?: EnterSingleScreenOptions,
 ) {
+  const entryMode = options?.mode ?? "interact";
   const targetFileId = fileId ?? activeFileId;
   const targetScreen = targetFileId
     ? overviewScreens.find((screen) => screen.id === targetFileId)
@@ -114,7 +120,7 @@ export function runEnterSingleScreen(
     // The early return used to swallow a requested mode change, so
     // re-clicking a screen after closing Interact left it in whatever
     // mode it had drifted to instead of reopening the responsive view.
-    setMode("interact");
+    setMode(entryMode);
     setInteractDeviceName(nextInteractDevice.name);
     setInteractDeviceSize({
       width: nextInteractDevice.width,
@@ -147,7 +153,7 @@ export function runEnterSingleScreen(
     if (fileId) setActiveFileId(fileId);
     setDrawMode(false);
     setPinMode(false);
-    setMode("interact");
+    setMode(entryMode);
     setSelectedElement(null);
     setHoveredElement(null);
     setActiveTool("move");

@@ -113,6 +113,10 @@ import type {
   CodeAgentModelListResult,
   CodeAgentModelOption,
   CodeAgentModelSelection,
+  CodeAgentPortalTransferAllRequest,
+  CodeAgentPortalTransferAllResult,
+  CodeAgentPortalTransferRequest,
+  CodeAgentPortalTransferResult,
   CodeAgentProviderConnectResult,
   CodeAgentPromptAttachment,
   CodeAgentProjectFolder,
@@ -190,6 +194,12 @@ export interface CodeAgentsHost {
   appendFollowUp: (
     request: CodeAgentFollowUpRequest,
   ) => Promise<CodeAgentFollowUpResult>;
+  transferRun?: (
+    request: CodeAgentPortalTransferRequest,
+  ) => Promise<CodeAgentPortalTransferResult>;
+  transferAll?: (
+    request?: CodeAgentPortalTransferAllRequest,
+  ) => Promise<CodeAgentPortalTransferAllResult>;
   updateRun: (
     request: CodeAgentUpdateRunRequest,
   ) => Promise<CodeAgentUpdateRunResult>;
@@ -643,9 +653,11 @@ const codeAgentComposerRootStyle = {
 function CodeAgentsChatHistoryHeaderActions({
   hasUnread,
   onMarkAllRead,
+  onTransferAll,
 }: {
   hasUnread: boolean;
   onMarkAllRead: () => void;
+  onTransferAll?: () => void;
 }) {
   return (
     <DropdownMenu>
@@ -668,8 +680,23 @@ function CodeAgentsChatHistoryHeaderActions({
           <IconCheck size={14} strokeWidth={1.8} aria-hidden="true" />
           <span>Mark all as read</span>
         </DropdownMenuItem>
+        {onTransferAll ? (
+          <DropdownMenuItem onSelect={onTransferAll}>
+            <IconRoute size={14} strokeWidth={1.8} aria-hidden="true" />
+            <span>Move local chats to Portal</span>
+          </DropdownMenuItem>
+        ) : null}
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+function isPortalCodeAgentRun(run: CodeAgentRun): boolean {
+  const metadata = run.metadata;
+  return Boolean(
+    metadata &&
+    (metadata.executionTarget === "portal" ||
+      (typeof metadata.portal === "object" && metadata.portal !== null)),
   );
 }
 
@@ -879,6 +906,10 @@ export default function CodeAgentsApp({
   >(null);
   const [remoteConnectorPairing, setRemoteConnectorPairing] = useState(false);
   const [remoteConnectorUpdating, setRemoteConnectorUpdating] = useState(false);
+  const [portalTransferRequest, setPortalTransferRequest] = useState<
+    { kind: "run"; runId: string; title: string } | { kind: "all" } | null
+  >(null);
+  const [portalTransferBusy, setPortalTransferBusy] = useState(false);
   const [cloudWaitlistOpen, setCloudWaitlistOpen] = useState(false);
   const cloudWaitlistOpeningRef = useRef(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
@@ -2343,6 +2374,65 @@ export default function CodeAgentsApp({
     if (run) void renameRunRef.current(run, nextTitle);
   }, []);
 
+  const requestPortalTransfer = useCallback(
+    (runId?: string) => {
+      if (runId) {
+        const run = runsRef.current.find((candidate) => candidate.id === runId);
+        if (!run || isPortalCodeAgentRun(run)) return;
+        setPortalTransferRequest({
+          kind: "run",
+          runId,
+          title: getRunTitle(run) ?? "this chat",
+        });
+        return;
+      }
+      if (host.transferAll) setPortalTransferRequest({ kind: "all" });
+    },
+    [host.transferAll],
+  );
+
+  const confirmPortalTransfer = useCallback(async () => {
+    const request = portalTransferRequest;
+    if (!request || portalTransferBusy) return;
+    setPortalTransferBusy(true);
+    try {
+      if (request.kind === "run") {
+        if (!host.transferRun) {
+          toast("Portal transfer is not available on this host.", {
+            duration: 2200,
+          });
+          return;
+        }
+        const result = await host.transferRun({ runId: request.runId });
+        toast(result.ok ? result.message : "Could not move chat to Portal.", {
+          description: result.ok ? undefined : (result.error ?? result.message),
+          duration: 2600,
+        });
+      } else {
+        if (!host.transferAll) {
+          toast("Portal transfer is not available on this host.", {
+            duration: 2200,
+          });
+          return;
+        }
+        const result = await host.transferAll();
+        toast(result.ok ? result.message : "Portal transfer needs attention.", {
+          description: result.ok ? undefined : (result.error ?? result.message),
+          duration: 3200,
+        });
+      }
+      await loadRuns(true);
+    } catch (error) {
+      toast("Portal transfer did not finish.", {
+        description: error instanceof Error ? error.message : String(error),
+        duration: 3200,
+      });
+    } finally {
+      setPortalTransferBusy(false);
+      setPortalTransferRequest(null);
+    }
+  }, [host, loadRuns, portalTransferBusy, portalTransferRequest]);
+
   const handleRailAdditionalRowActions = useCallback(
     (item: ChatHistoryItem, closeMenu: () => void) => (
       <>
@@ -2389,9 +2479,26 @@ export default function CodeAgentsApp({
               : "Watch and message session"}
           </span>
         </button>
+        {host.transferRun &&
+        runsRef.current.some(
+          (run) => run.id === item.id && !isPortalCodeAgentRun(run),
+        ) ? (
+          <button
+            type="button"
+            role="menuitem"
+            className="an-chat-history-row__menu-item"
+            onClick={() => {
+              closeMenu();
+              requestPortalTransfer(item.id);
+            }}
+          >
+            <IconRoute size={13} strokeWidth={1.8} />
+            <span>Move to Portal</span>
+          </button>
+        ) : null}
       </>
     ),
-    [],
+    [host.transferRun, requestPortalTransfer],
   );
 
   const showingSelectedRunDetail =
@@ -2448,6 +2555,9 @@ export default function CodeAgentsApp({
               <CodeAgentsChatHistoryHeaderActions
                 hasUnread={runs.some((run) => unreadRunIds.has(run.id))}
                 onMarkAllRead={markAllRunsRead}
+                onTransferAll={
+                  host.transferAll ? () => requestPortalTransfer() : undefined
+                }
               />
             }
             loading={loading}
@@ -2795,6 +2905,47 @@ export default function CodeAgentsApp({
           </>
         )}
       </main>
+      <Dialog
+        open={Boolean(portalTransferRequest)}
+        onOpenChange={(open) => {
+          if (!open && !portalTransferBusy) setPortalTransferRequest(null);
+        }}
+      >
+        <DialogContent aria-describedby="portal-transfer-description">
+          <DialogTitle>
+            {portalTransferRequest?.kind === "all"
+              ? "Move local chats to Portal?"
+              : "Move chat to Portal?"}
+          </DialogTitle>
+          <DialogDescription id="portal-transfer-description">
+            {portalTransferRequest?.kind === "all"
+              ? "Each local or worktree chat will move its code and full text context to the paired computer."
+              : `Move ${portalTransferRequest?.title ?? "this chat"} with its code and full text context to the paired computer.`}
+          </DialogDescription>
+          <div className="code-agents-dialog-actions">
+            <button
+              type="button"
+              className="code-agents-button"
+              onClick={() => setPortalTransferRequest(null)}
+              disabled={portalTransferBusy}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="code-agents-button--primary"
+              onClick={() => void confirmPortalTransfer()}
+              disabled={portalTransferBusy}
+            >
+              {portalTransferBusy
+                ? "Moving..."
+                : portalTransferRequest?.kind === "all"
+                  ? "Move all"
+                  : "Move to Portal"}
+            </button>
+          </div>
+        </DialogContent>
+      </Dialog>
       <ComputerAccessDialog
         open={computerSetupOpen}
         onOpenChange={setComputerSetupOpen}
@@ -3199,7 +3350,7 @@ function ProjectFolderPicker({
                   description="Continue on a paired computer"
                 >
                   <span className="code-agents-project-select__item">
-                    <IconCloud size={14} strokeWidth={1.8} />
+                    <IconRoute size={14} strokeWidth={1.8} />
                     <span>Portal</span>
                   </span>
                 </SelectItem>

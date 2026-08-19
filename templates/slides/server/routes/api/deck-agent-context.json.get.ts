@@ -77,7 +77,7 @@ export default defineEventHandler(async (event) => {
   const data = parseDeckData(deck.data);
   const slides = Array.isArray(data.slides)
     ? data.slides.map((slide: unknown, index: number) =>
-        toSharedDeckSlide(slide, index),
+        toSharedDeckSlide(slide, index, { includeNotes: false }),
       )
     : [];
 

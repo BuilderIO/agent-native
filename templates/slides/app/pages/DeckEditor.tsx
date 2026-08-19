@@ -1,5 +1,8 @@
 import { useGuidedQuestionFlow } from "@agent-native/core/client/agent-chat";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import {
+  agentNativePath,
+  appBasePath,
+} from "@agent-native/core/client/api-path";
 import {
   useCollaborativeDoc,
   emailToColor,
@@ -8,6 +11,7 @@ import {
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
+import { buildSignInReturnHref } from "@agent-native/core/client/ui";
 import {
   DndContext,
   closestCenter,
@@ -17,9 +21,13 @@ import {
   DragEndEvent,
 } from "@dnd-kit/core";
 import {
+  IconAt,
   IconArrowLeft,
   IconLock,
+  IconLoader2,
+  IconLogin2,
   IconRefresh,
+  IconUserPlus,
   IconUsersGroup,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
@@ -58,12 +66,20 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import {
+  clearSlideEditingActive,
   deckIdFromPathname,
   hasUnsavedDeckChanges,
+  markSlideEditingActive,
+  type Slide,
   useDecks,
   useSaveState,
 } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
+import {
+  useDeckAccessStatus,
+  useRequestDeckAccess,
+  type DeckAccessStatusResponse,
+} from "@/hooks/use-deck-access";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
 import { useDeckPresence } from "@/hooks/use-deck-presence";
 import { useDeckRole } from "@/hooks/use-deck-role";
@@ -106,37 +122,70 @@ import { shortcutLabel } from "@/lib/utils";
 type EditorSidePanel = "comments" | null;
 
 function MissingDeckAccessPane({
+  accessStatus,
+  accessStatusError,
+  accessStatusLoading,
   hasTeamJoinOption,
   orgLoading,
   orgError,
+  requestAccessPending,
+  accessRequestSent,
+  accessRequestNotified,
+  signedIn,
+  viewerEmail,
   refreshing,
+  onRequestAccess,
+  onSignIn,
   onRetry,
   onBack,
 }: {
+  accessStatus: DeckAccessStatusResponse | null;
+  accessStatusError: boolean;
+  accessStatusLoading: boolean;
   hasTeamJoinOption: boolean;
   orgLoading: boolean;
   orgError: boolean;
+  requestAccessPending: boolean;
+  accessRequestSent: boolean;
+  accessRequestNotified: boolean;
+  signedIn: boolean;
+  viewerEmail: string | null;
   refreshing: boolean;
+  onRequestAccess: () => void;
+  onSignIn: () => void;
   onRetry: () => void;
   onBack: () => void;
 }) {
   const t = useT();
+  const privateDeck = Boolean(
+    accessStatus?.exists &&
+    !accessStatus.hasAccess &&
+    accessStatus.visibility === "private",
+  );
+  const checkingAccess = !privateDeck && (accessStatusLoading || orgLoading);
+  const accessCheckFailed = accessStatusError || orgError;
   const Icon =
-    hasTeamJoinOption || orgLoading || orgError ? IconUsersGroup : IconLock;
-  const title = orgLoading
+    privateDeck || (!hasTeamJoinOption && !checkingAccess && !accessCheckFailed)
+      ? IconLock
+      : IconUsersGroup;
+  const title = checkingAccess
     ? t("deckEditor.lookingForDeck")
-    : orgError
-      ? t("deckEditor.teamAccessCheckFailed")
-      : hasTeamJoinOption
-        ? t("deckEditor.joinTeamToOpen")
-        : t("deckEditor.deckUnavailable");
-  const description = orgLoading
+    : privateDeck
+      ? t("deckEditor.privateDeckTitle")
+      : accessCheckFailed
+        ? t("deckEditor.teamAccessCheckFailed")
+        : hasTeamJoinOption
+          ? t("deckEditor.joinTeamToOpen")
+          : t("deckEditor.deckUnavailable");
+  const description = checkingAccess
     ? t("deckEditor.checkingSharedAccess")
-    : orgError
-      ? t("deckEditor.verifySharedAccessFailed")
-      : hasTeamJoinOption
-        ? t("deckEditor.joinTeamDescription")
-        : t("deckEditor.deckUnavailableDescription");
+    : privateDeck
+      ? t("deckEditor.privateDeckDescription")
+      : accessCheckFailed
+        ? t("deckEditor.verifySharedAccessFailed")
+        : hasTeamJoinOption
+          ? t("deckEditor.joinTeamDescription")
+          : t("deckEditor.deckUnavailableDescription");
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-background px-4 py-10">
@@ -150,25 +199,89 @@ function MissingDeckAccessPane({
           </div>
         </div>
         <p className="text-sm leading-6 text-muted-foreground">{description}</p>
-        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button type="button" variant="outline" onClick={onBack}>
-            <IconArrowLeft className="size-4" />
-            {t("deckEditor.backToDecks")}
-          </Button>
-          <Button
-            type="button"
-            onClick={onRetry}
-            disabled={refreshing || orgLoading}
-          >
-            <IconRefresh
-              className={refreshing ? "size-4 animate-spin" : "size-4"}
-            />
-            {t("deckEditor.tryAgain")}
-          </Button>
+        {privateDeck && viewerEmail ? (
+          <div className="mt-4 flex items-center gap-2 rounded-md border border-border bg-muted/35 px-3 py-2 text-sm">
+            <IconAt className="size-4 shrink-0 text-muted-foreground" />
+            <span className="min-w-0 truncate text-muted-foreground">
+              {t("deckEditor.signedInAs")}{" "}
+              <span className="font-medium text-foreground">{viewerEmail}</span>
+            </span>
+          </div>
+        ) : null}
+        {privateDeck && accessRequestSent ? (
+          <div className="mt-3 rounded-md border border-emerald-500/25 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-700 dark:text-emerald-300">
+            {t(
+              accessRequestNotified
+                ? "deckEditor.accessRequestSentDescription"
+                : "deckEditor.accessRequestRecordedDescription",
+            )}
+          </div>
+        ) : null}
+        <div className="mt-5 flex flex-col gap-2">
+          {privateDeck ? (
+            <Button
+              type="button"
+              onClick={signedIn ? onRequestAccess : onSignIn}
+              disabled={requestAccessPending || accessRequestSent}
+            >
+              {requestAccessPending ? (
+                <IconLoader2 className="size-4 animate-spin" />
+              ) : signedIn ? (
+                <IconUserPlus className="size-4" />
+              ) : (
+                <IconLogin2 className="size-4" />
+              )}
+              {requestAccessPending
+                ? t("deckEditor.requestAccessPending")
+                : accessRequestSent
+                  ? t("deckEditor.accessRequestSent")
+                  : signedIn
+                    ? t("deckEditor.requestAccess")
+                    : t("deckEditor.signInToRequestAccess")}
+            </Button>
+          ) : null}
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+            <Button type="button" variant="outline" onClick={onBack}>
+              <IconArrowLeft className="size-4" />
+              {t("deckEditor.backToDecks")}
+            </Button>
+            <Button
+              type="button"
+              variant={privateDeck ? "ghost" : "default"}
+              onClick={onRetry}
+              disabled={refreshing || checkingAccess}
+            >
+              <IconRefresh
+                className={refreshing ? "size-4 animate-spin" : "size-4"}
+              />
+              {t("deckEditor.tryAgain")}
+            </Button>
+          </div>
         </div>
       </div>
     </div>
   );
+}
+
+// The Cmd/Ctrl+C-then-V slide-duplicate shortcut can only tell "this key
+// event targets the slide rail/canvas" apart from "focus fell back to
+// nothing because a panel/dialog elsewhere just closed" by checking a
+// deny-list of known text surfaces — and that list can never be complete
+// (see the Andrew Rohman Slack thread this guards against: a slide copied
+// once early in a session kept silently re-duplicating on unrelated later
+// pastes). Bounding how long a copy stays "armed" turns a missed deny-list
+// entry from a silent, indefinite landmine into, at worst, a narrow window
+// that still covers the real copy-then-paste gesture.
+export const SLIDE_CLIPBOARD_ARM_WINDOW_MS = 30_000;
+
+/** True when a Cmd/Ctrl+V should still be treated as "paste the slide that
+ * was just copied" rather than unrelated clipboard activity landing outside
+ * every recognized text field. */
+export function isSlideClipboardStillArmed(
+  armedAt: number | null,
+  now: number = Date.now(),
+): boolean {
+  return armedAt !== null && now - armedAt <= SLIDE_CLIPBOARD_ARM_WINDOW_MS;
 }
 
 export default function DeckEditor() {
@@ -176,6 +289,7 @@ export default function DeckEditor() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const { session, isLoading: sessionLoading } = useSession();
   const {
     getDeck,
     reloadDecks,
@@ -185,6 +299,7 @@ export default function DeckEditor() {
     updateSlide,
     deleteSlide,
     duplicateSlide,
+    pasteSlide,
     duplicateDeck,
     addSlide,
     flushDeckSave,
@@ -194,6 +309,8 @@ export default function DeckEditor() {
     loading,
     loadError,
   } = useDecks();
+  const deckAccessStatusQuery = useDeckAccessStatus(id);
+  const requestDeckAccessMutation = useRequestDeckAccess();
   const [activeSlideId, setActiveSlideId] = useState<string | null>(null);
   const [inlineEditActive, setInlineEditActive] = useState(false);
   const [addSlideGenerating, setAddSlideGenerating] = useState(false);
@@ -269,6 +386,10 @@ export default function DeckEditor() {
   const [wideContextToolbarSlot, setWideContextToolbarSlot] =
     useState<HTMLDivElement | null>(null);
   const [retryingMissingDeck, setRetryingMissingDeck] = useState(false);
+  const [accessRequestSentDeckId, setAccessRequestSentDeckId] = useState<
+    string | null
+  >(null);
+  const [accessRequestNotified, setAccessRequestNotified] = useState(false);
   const [checkedDeckAccessKey, setCheckedDeckAccessKey] = useState<
     string | null
   >(null);
@@ -324,6 +445,7 @@ export default function DeckEditor() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const deck = getDeck(id || "");
+  const deckAccessStatus = deckAccessStatusQuery.data ?? null;
   const fitDims = getAspectRatioDims(deck?.aspectRatio);
   const currentDeckAccessKey = deckAccessCheckKey(id, org?.orgId);
   const hasTeamJoinOption =
@@ -485,6 +607,32 @@ export default function DeckEditor() {
       setRetryingMissingDeck(false);
     }
   }, [refetchOrg, reloadDecks]);
+
+  const openSignIn = useCallback(() => {
+    window.location.href = buildSignInReturnHref();
+  }, []);
+
+  const requestDeckAccess = useCallback(() => {
+    if (!id) return;
+    requestDeckAccessMutation.mutate(
+      { deckId: id },
+      {
+        onSuccess: (result) => {
+          setAccessRequestSentDeckId(id);
+          setAccessRequestNotified(result.notifiedOwner);
+          toast.success(result.message);
+          if (result.alreadyHasAccess) void reloadDecks();
+        },
+      },
+    );
+  }, [id, reloadDecks, requestDeckAccessMutation]);
+
+  useEffect(() => {
+    if (accessRequestSentDeckId && accessRequestSentDeckId !== id) {
+      setAccessRequestSentDeckId(null);
+      setAccessRequestNotified(false);
+    }
+  }, [accessRequestSentDeckId, id]);
 
   // The final generation write can race the last sync event. Pull the
   // authoritative open deck when the run settles so a stale canvas does not
@@ -852,11 +1000,114 @@ export default function DeckEditor() {
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [deck, id, activeSlideId, deleteSlideWithUndo, pinMode, drawMode]);
 
-  // Command/Ctrl+C then Command/Ctrl+V on the slide rail duplicates the
+  // Slide-level clipboard backing both the Cmd+C/Cmd+V shortcut below and the
+  // rail's right-click Cut/Copy/Paste menu. Holds a full slide snapshot
+  // (rather than just an id) so paste still works after Cut has already
+  // removed the original slide from the deck.
+  const slideClipboardRef = useRef<Slide | null>(null);
+  // Only gates the ambient document-level Cmd/Ctrl+V shortcut below — the
+  // rail's right-click "Paste" menu item is an explicit click with no
+  // ambiguity risk, so it keeps working off `hasSlideClipboard` alone however
+  // long ago the copy happened.
+  const slideClipboardArmedAtRef = useRef<number | null>(null);
+  const [hasSlideClipboard, setHasSlideClipboard] = useState(false);
+
+  const copySlide = useCallback(
+    (slideId: string) => {
+      const slide = deck?.slides.find((s) => s.id === slideId);
+      if (!slide) return;
+      slideClipboardRef.current = slide;
+      slideClipboardArmedAtRef.current = Date.now();
+      setHasSlideClipboard(true);
+    },
+    [deck],
+  );
+
+  const cutSlide = useCallback(
+    (slideId: string) => {
+      if (!deck || !id || deck.slides.length <= 1) return; // don't cut the last slide
+      const slide = deck.slides.find((s) => s.id === slideId);
+      if (!slide) return;
+      slideClipboardRef.current = slide;
+      slideClipboardArmedAtRef.current = Date.now();
+      setHasSlideClipboard(true);
+      const idx = deck.slides.findIndex((s) => s.id === slideId);
+      const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
+      deleteSlideWithUndo(id, slideId);
+      if (activeSlideId === slideId && nextSlide) {
+        setActiveSlideId(nextSlide.id);
+      }
+    },
+    [deck, id, activeSlideId, deleteSlideWithUndo],
+  );
+
+  const pasteSlideAfter = useCallback(
+    (targetSlideId: string) => {
+      const clipboard = slideClipboardRef.current;
+      if (!clipboard || !id) return;
+      const { id: _clipboardId, ...fields } = clipboard;
+      const newId = pasteSlide(id, targetSlideId, fields);
+      if (newId) setActiveSlideId(newId);
+    },
+    [id, pasteSlide],
+  );
+
+  // Handlers backing the slide rail's right-click menu.
+  const handleDeleteSlideFromRail = useCallback(
+    (slideId: string) => {
+      if (!deck || !id || deck.slides.length <= 1) return; // don't delete the last slide
+      const idx = deck.slides.findIndex((s) => s.id === slideId);
+      const nextSlide = deck.slides[idx + 1] || deck.slides[idx - 1];
+      deleteSlideWithUndo(id, slideId);
+      if (activeSlideId === slideId && nextSlide) {
+        setActiveSlideId(nextSlide.id);
+      }
+    },
+    [deck, id, activeSlideId, deleteSlideWithUndo],
+  );
+
+  const handleDuplicateSlideFromRail = useCallback(
+    (slideId: string) => {
+      if (!id) return;
+      const newId = duplicateSlide(id, slideId);
+      if (newId) setActiveSlideId(newId);
+    },
+    [id, duplicateSlide],
+  );
+
+  const handleNewSlideAfter = useCallback(
+    (afterSlideId: string) => {
+      if (!deck || !id) return;
+      const afterIdx = deck.slides.findIndex((s) => s.id === afterSlideId);
+      // Immediate persistence: mirrors handleAddEmptySlide, since this also
+      // opens the "describe this slide" popover right away.
+      const newId = addSlide(
+        id,
+        "blank",
+        afterIdx >= 0 ? afterIdx : undefined,
+        { persistence: "immediate" },
+      );
+      setActiveSlideId(newId);
+      setSidebarOpen(true);
+      setDescribeSlideId(newId);
+    },
+    [deck, id, addSlide],
+  );
+
+  const handleToggleSkipSlide = useCallback(
+    (slideId: string) => {
+      if (!deck || !id) return;
+      const slide = deck.slides.find((s) => s.id === slideId);
+      if (!slide) return;
+      updateSlide(id, slideId, { skipped: !slide.skipped });
+    },
+    [deck, id, updateSlide],
+  );
+
+  // Command/Ctrl+C then Command/Ctrl+V on the slide rail copies/pastes the
   // selected slide directly below itself. Only claims the shortcut when no
   // slide element is selected — SlideEditor owns Cmd+C/V for object copy/paste
   // in that case.
-  const copiedSlideIdRef = useRef<string | null>(null);
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (!deck || !id || !canEdit) return;
@@ -925,19 +1176,32 @@ export default function DeckEditor() {
 
       if (key === "c") {
         if (!activeSlideId) return;
-        copiedSlideIdRef.current = activeSlideId;
+        copySlide(activeSlideId);
         return;
       }
 
-      const copiedId = copiedSlideIdRef.current;
-      if (!copiedId || !deck.slides.some((s) => s.id === copiedId)) return;
+      if (
+        !hasSlideClipboard ||
+        !activeSlideId ||
+        !isSlideClipboardStillArmed(slideClipboardArmedAtRef.current)
+      )
+        return;
       e.preventDefault();
-      const newId = duplicateSlide(id, copiedId);
-      if (newId) setActiveSlideId(newId);
+      pasteSlideAfter(activeSlideId);
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [deck, id, canEdit, activeSlideId, duplicateSlide, pinMode, drawMode]);
+  }, [
+    deck,
+    id,
+    canEdit,
+    activeSlideId,
+    copySlide,
+    hasSlideClipboard,
+    pasteSlideAfter,
+    pinMode,
+    drawMode,
+  ]);
 
   // Resolve the active slide from URL/deck state. Imports replace slide IDs, so
   // keep this valid after deck contents change instead of only on first load.
@@ -1063,7 +1327,6 @@ export default function DeckEditor() {
     useRef<typeof deck extends undefined ? null : any>(null);
 
   // Session for collab user identity
-  const { session } = useSession();
   const currentUser = session?.email
     ? {
         email: session.email,
@@ -1101,7 +1364,7 @@ export default function DeckEditor() {
     recentEdits: deckRecentEdits,
     awareness: deckPresenceAwareness,
   } = useDeckPresence({
-    deckId: id ?? null,
+    deckId: deck ? (id ?? null) : null,
     activeSlideId: activeSlideId,
     user: currentUser,
   });
@@ -1113,7 +1376,10 @@ export default function DeckEditor() {
   const agentActive = generating || deckAgentActive || slideAgentActive;
 
   // Comments for the current slide (for badge count)
-  const currentSlideCommentsQuery = useSlideComments(id ?? null, activeSlideId);
+  const currentSlideCommentsQuery = useSlideComments(
+    deck ? (id ?? null) : null,
+    activeSlideId,
+  );
   const currentSlideThreads: CommentThread[] =
     currentSlideCommentsQuery.data ?? [];
   const unresolvedCommentCount = currentSlideThreads.filter(
@@ -1128,6 +1394,11 @@ export default function DeckEditor() {
       accessCheckKey: currentDeckAccessKey,
       checkedAccessKey: checkedDeckAccessKey,
       retrying: retryingMissingDeck,
+      privateDeckAccessConfirmed: Boolean(
+        deckAccessStatus?.exists &&
+        !deckAccessStatus.hasAccess &&
+        deckAccessStatus.visibility === "private",
+      ),
     })
   ) {
     return <DeckEditorSkeleton label={t("deckEditor.lookingForDeck")} />;
@@ -1135,10 +1406,20 @@ export default function DeckEditor() {
   if (!deck || !id) {
     return (
       <MissingDeckAccessPane
+        accessStatus={deckAccessStatus}
+        accessStatusError={deckAccessStatusQuery.isError}
+        accessStatusLoading={loading || deckAccessStatusQuery.isLoading}
         hasTeamJoinOption={hasTeamJoinOption}
         orgLoading={orgLoading}
         orgError={orgError || loadError}
+        requestAccessPending={requestDeckAccessMutation.isPending}
+        accessRequestSent={accessRequestSentDeckId === id}
+        accessRequestNotified={accessRequestNotified}
+        signedIn={Boolean(session) && !sessionLoading}
+        viewerEmail={session?.email ?? deckAccessStatus?.viewerEmail ?? null}
         refreshing={retryingMissingDeck}
+        onRequestAccess={requestDeckAccess}
+        onSignIn={openSignIn}
         onRetry={() => void retryOpenDeck()}
         onBack={() => navigate("/")}
       />
@@ -1371,6 +1652,14 @@ export default function DeckEditor() {
                     setGeneratingSlideSelected(true);
                     if (window.innerWidth < 768) setSidebarOpen(false);
                   }}
+                  hasSlideClipboard={hasSlideClipboard}
+                  onCutSlide={cutSlide}
+                  onCopySlide={copySlide}
+                  onPasteSlide={pasteSlideAfter}
+                  onDeleteSlide={handleDeleteSlideFromRail}
+                  onNewSlideAfter={handleNewSlideAfter}
+                  onDuplicateSlide={handleDuplicateSlideFromRail}
+                  onToggleSkipSlide={handleToggleSkipSlide}
                 />
               </DndContext>
             </div>
@@ -1447,11 +1736,15 @@ export default function DeckEditor() {
                 options,
               )
             }
-            onInlineEditStart={() => {
+            onInlineEditStart={(slideId) => {
               setInlineEditActive(true);
               markDeckDirty(id);
+              if (id) markSlideEditingActive(id, slideId);
             }}
-            onInlineEditEnd={() => setInlineEditActive(false)}
+            onInlineEditEnd={(slideId) => {
+              setInlineEditActive(false);
+              if (id) clearSlideEditingActive(id, slideId);
+            }}
             onGenerateImage={() => setImageGenOpen(true)}
             onOpenAssetLibrary={(src) => {
               setReplaceImageSrc(src);
@@ -1476,7 +1769,7 @@ export default function DeckEditor() {
               slideAgentActive ||
               (deckAgentActive && agentSlideId === currentSlide.id) ||
               (isNewDeckGenerating &&
-                currentSlide.id === deck.slides.at(-1)?.id)
+                currentSlide.id === deck.slides[deck.slides.length - 1]?.id)
             }
             recentEdits={deckRecentEdits}
             onComment={(quotedText) => {

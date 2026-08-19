@@ -275,6 +275,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "इस मॉडल के पीछे मौजूद प्रदाता ने अनुरोध अस्वीकार कर दिया। कोई दूसरा मॉडल चुनें, फिर से प्रयास करें।",
   "errorMessages.errorPrefix": "त्रुटि: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "एजेंट के उत्तर देने से पहले मॉडल गेटवे में एक आंतरिक त्रुटि आई। कुछ देर में फिर कोशिश करें, और बार-बार होने पर नीचे दिया गया error id बताएं।",
   "errorMessages.gatewayNoDetails":
     "मॉडल गेटवे ने त्रुटि का कोई विवरण नहीं दिया और चैट रिकवर नहीं हो सकी। कुछ देर रुककर फिर से प्रयास करें या समस्या बनी रहने पर नई चैट शुरू करें।",
   "errorMessages.inactivityTimeout":
@@ -348,6 +350,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "पुनर्स्थापना विफल रही ({{status}})।",
   "message.restoreQuestion": "यहाँ तक पुनर्स्थापित करें?",
   "message.restoreRequestFailed": "पुनर्स्थापना अनुरोध विफल रहा।",
+  "message.threadNotFound":
+    "यह चैट थ्रेड अब उपलब्ध नहीं है। नई चैट शुरू करें या यदि यह अप्रत्याशित है तो फिर कोशिश करें।",
   "message.restoring": "पुनर्स्थापित किया जा रहा है...",
   "message.revertHere": "यहाँ तक वापस जाएँ",
   "message.sentAt": "{{time}} पर भेजा गया",
@@ -517,6 +521,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "अज्ञात व्यक्ति",
   "share.viewer": "दर्शक",
   "share.viewerDescription": "देख सकता है",
+  "share.userGroup": "उपयोगकर्ता समूह",
   "status.resuming": "फिर से शुरू हो रहा है",
   "status.stillWorking": "अभी काम जारी है",
   "status.thinking": "सोच रहा है",

@@ -38,6 +38,7 @@ const rootDir = path.resolve(
   "..",
 );
 const registry = "https://registry.npmjs.org";
+const npmDistTag = process.env.AGENT_NATIVE_NPM_DIST_TAG ?? "latest";
 const availabilityPollIntervalMs = 10_000;
 const availabilityTimeoutMs = Number(
   process.env.AGENT_NATIVE_NPM_AVAILABILITY_TIMEOUT_MS ?? 5 * 60_000,
@@ -514,7 +515,7 @@ async function publishPackage(pkg: PublishPackage): Promise<boolean> {
       "--access",
       access,
       "--tag",
-      "latest",
+      npmDistTag,
       `--registry=${registry}`,
       bootstrapToken ? "--no-provenance" : "--provenance",
       "--json",

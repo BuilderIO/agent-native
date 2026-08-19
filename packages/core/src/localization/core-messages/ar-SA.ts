@@ -281,6 +281,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "رفض المزوّد الذي يشغّل هذا النموذج الطلب. اختر نموذجًا آخر، ثم أعد المحاولة.",
   "errorMessages.errorPrefix": "خطأ: {{message}}",
+  "errorMessages.gatewayInternalError":
+    "حدث خطأ داخلي في بوابة النموذج قبل أن يتمكن الوكيل من الإجابة. أعد المحاولة بعد قليل، وإذا تكرر الأمر فأرفق معرّف الخطأ الظاهر أدناه.",
   "errorMessages.gatewayNoDetails":
     "لم تُرجع بوابة النموذج أي تفاصيل عن الخطأ وتعذّر على المحادثة الاسترداد. انتظر قليلًا ثم أعد المحاولة، أو ابدأ محادثة جديدة إذا استمرت المشكلة.",
   "errorMessages.inactivityTimeout":
@@ -362,6 +364,8 @@ const messages: AgentChatTranslation = {
   "message.restoreFailed": "فشلت الاستعادة ({{status}}).",
   "message.restoreQuestion": "هل تريد الاستعادة إلى هنا؟",
   "message.restoreRequestFailed": "فشل طلب الاستعادة.",
+  "message.threadNotFound":
+    "لم تعد سلسلة الدردشة هذه متاحة. ابدأ دردشة جديدة أو أعد المحاولة إذا كان ذلك غير متوقع.",
   "message.restoring": "جارٍ الاستعادة...",
   "message.revertHere": "الرجوع إلى هنا",
   "message.sentAt": "أُرسلت في {{time}}",
@@ -536,6 +540,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "شخص غير معروف",
   "share.viewer": "مشاهد",
   "share.viewerDescription": "يمكنه العرض",
+  "share.userGroup": "مجموعة مستخدمين",
   "status.resuming": "جارٍ الاستئناف",
   "status.stillWorking": "لا يزال قيد العمل",
   "status.thinking": "يفكّر",
