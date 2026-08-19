@@ -46,6 +46,7 @@ import { setBrowserDemoModeEnabled } from "../../demo/browser-state.js";
 import { shouldOfferWorkspace } from "../../org/workspace-url.js";
 import { agentNativePath } from "../api-path.js";
 import { useT } from "../i18n.js";
+import { buildSignInReturnHref } from "../require-session.js";
 import { useDemoModeStatus } from "../use-demo-mode-status.js";
 import { notifySessionInvalidated, useSession } from "../use-session.js";
 import {
@@ -374,10 +375,10 @@ export function OrgSwitcher({
         credentials: "include",
       });
     } catch {
-      /* fall through to reload — server may already have cleared the cookie */
+      /* continue to sign-in — the server may already have cleared the cookie */
     }
     notifySessionInvalidated();
-    window.location.reload();
+    window.location.href = buildSignInReturnHref();
   };
 
   if (!org) {

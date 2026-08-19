@@ -261,7 +261,7 @@ describe("OrgSwitcher", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/settings/account");
   });
 
-  it("invalidates mounted sessions before reloading after sign out", async () => {
+  it("invalidates mounted sessions before returning to sign-in after sign out", async () => {
     const originalLocation = window.location;
     const reload = vi.fn();
     Object.defineProperty(window, "location", {
@@ -311,7 +311,8 @@ describe("OrgSwitcher", () => {
         credentials: "include",
       });
       expect(mocks.notifySessionInvalidated).toHaveBeenCalledOnce();
-      expect(reload).toHaveBeenCalledOnce();
+      expect(window.location.href).toContain("/sign-in?c=");
+      expect(reload).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(window, "location", {
         configurable: true,
