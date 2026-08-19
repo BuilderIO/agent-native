@@ -88,7 +88,7 @@ jobs:
               --arg failing "$FAILING" \
               --arg signature "$SIGNATURE" \
               '{routing_key: $routing_key, event_action: "trigger", dedup_key: $dedup_key, payload: {summary: $summary, source: $source, severity: "critical", custom_details: {run_url: $run_url, failing_apps: $failing, health_signature: $signature}}}' \
-              | curl --fail-with-body --silent --show-error \
+              | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
                   --header 'Content-Type: application/json' \
                   --data-binary @- \
                   https://events.pagerduty.com/v2/enqueue
@@ -123,14 +123,10 @@ jobs:
         run: |
           set -euo pipefail
           ISSUE_TITLE="Production health check failing"
-          ISSUE_NUMBER=$(gh issue list --repo "${{ github.repository }}" --state open \
-            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
-            --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)
-          if [ -n "$ISSUE_NUMBER" ]; then
-            gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
-              --comment "Fleet audit is green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-          fi
+          pagerduty_status=0
           if [ -n "${PAGERDUTY_ROUTING_KEY:-}" ]; then
+            # Resolve before GitHub issue bookkeeping so an Issues API failure
+            # cannot bypass the independent recovery notification.
             # The jq program intentionally uses jq variables, not shell vars.
             # shellcheck disable=SC2016
             jq -n \
@@ -138,10 +134,21 @@ jobs:
               --arg dedup_key "agent-native-production-health" \
               --arg source "${{ github.repository }}" \
               '{routing_key: $routing_key, event_action: "resolve", dedup_key: $dedup_key, payload: {summary: "Agent Native production health audit recovered", source: $source}}' \
-              | curl --fail-with-body --silent --show-error \
+              | curl --fail-with-body --connect-timeout 10 --max-time 20 --silent --show-error \
                   --header 'Content-Type: application/json' \
                   --data-binary @- \
-                  https://events.pagerduty.com/v2/enqueue
+                  https://events.pagerduty.com/v2/enqueue || pagerduty_status=$?
           else
             echo "PagerDuty resolve skipped: PAGERDUTY_ROUTING_KEY is not configured."
+          fi
+          ISSUE_NUMBER=$(gh issue list --repo "${{ github.repository }}" --state open \
+            --search "\"$ISSUE_TITLE\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$ISSUE_TITLE\") | .number" | head -n1)
+          if [ -n "$ISSUE_NUMBER" ]; then
+            gh issue close "$ISSUE_NUMBER" --repo "${{ github.repository }}" \
+              --comment "Fleet audit is green again: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          fi
+          if [ "$pagerduty_status" -ne 0 ]; then
+            echo "::error::PagerDuty resolve failed; GitHub issue bookkeeping completed only if available." >&2
+            exit "$pagerduty_status"
           fi
