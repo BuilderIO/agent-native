@@ -1,5 +1,5 @@
-import { useLocale } from "@agent-native/core/client";
-import { useT } from "@agent-native/core/client";
+import { useLocale } from "@agent-native/core/client/i18n";
+import { useT } from "@agent-native/core/client/i18n";
 import type { ReactNode } from "react";
 
 import { sitePathForLocale } from "../components/docs-locale";
@@ -70,7 +70,7 @@ function Section({
 function ScopeCard({ title, body }: { title: string; body: string }) {
   return (
     <div className="rounded-lg border border-[var(--docs-border)] bg-[var(--bg-secondary)] p-5">
-      <h3 className="mb-2 text-sm font-semibold uppercase tracking-[0.12em] text-[var(--fg)]">
+      <h3 className="mb-2 font-mono text-sm font-semibold uppercase tracking-[0.12em] text-[var(--fg)]">
         {title}
       </h3>
       <p className="m-0 text-sm leading-6 text-[var(--fg-secondary)]">{body}</p>
@@ -100,7 +100,7 @@ export default function TermsPage() {
   return (
     <main className="mx-auto w-full max-w-[980px] px-6 py-14 sm:py-20">
       <header className="mb-10">
-        <p className="mb-3 text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
+        <p className="mb-3 font-mono text-sm font-semibold uppercase tracking-[0.14em] text-[var(--fg-secondary)]">
           {t("legal.terms.eyebrow")}
         </p>
         <h1 className="mb-5 max-w-3xl text-4xl font-bold leading-tight tracking-tight text-[var(--fg)] sm:text-5xl">
@@ -133,7 +133,7 @@ export default function TermsPage() {
         <p>{t("legal.terms.paragraphs.scope1")}</p>
         <p>
           {t("legal.terms.paragraphs.scope2Prefix")}{" "}
-          <InlineLink href="https://www.builder.io/legal/terms">
+          <InlineLink href="https://www.builder.io/legal/terms?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=terms">
             {t("legal.terms.links.builderTerms")}
           </InlineLink>{" "}
           {t("legal.terms.paragraphs.scope2Middle")}{" "}
@@ -196,7 +196,7 @@ export default function TermsPage() {
         <p>{t("legal.terms.paragraphs.disclaimers1")}</p>
         <p>
           {t("legal.terms.paragraphs.disclaimers2Prefix")}{" "}
-          <InlineLink href="https://www.builder.io/legal/terms">
+          <InlineLink href="https://www.builder.io/legal/terms?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=terms">
             {t("legal.terms.links.builderTerms")}
           </InlineLink>{" "}
           {t("legal.terms.paragraphs.disclaimers2Suffix")}
@@ -207,7 +207,7 @@ export default function TermsPage() {
         <p>{t("legal.terms.paragraphs.changes1")}</p>
         <p>
           {t("legal.terms.paragraphs.changes2Prefix")}{" "}
-          <InlineLink href="https://www.builder.io/legal/terms">
+          <InlineLink href="https://www.builder.io/legal/terms?utm_source=agent-native&utm_medium=docs&utm_campaign=legal&utm_content=terms">
             {t("legal.terms.links.builderTerms")}
           </InlineLink>
           .

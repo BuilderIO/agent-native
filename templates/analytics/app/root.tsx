@@ -1,13 +1,13 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
-  appPath,
   callAction,
   createAgentNativeQueryClient,
-  getLocaleInitScript,
-  getThemeInitScript,
   useDbSync,
-} from "@agent-native/core/client";
-import { configureTracking } from "@agent-native/core/client";
+} from "@agent-native/core/client/hooks";
+import { getLocaleInitScript } from "@agent-native/core/client/i18n";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
 import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import {
@@ -65,7 +65,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#F59E0B" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -95,6 +94,10 @@ function DbSyncBridge() {
   const queryClient = useQueryClient();
   useDbSync({
     queryClient,
+    // Netlify functions cannot reliably hold the local long-lived SSE
+    // response. Analytics uses the poll safety net until a hosted realtime
+    // gateway is configured for this deployment.
+    sseUrl: false,
     ignoreSource: TAB_ID,
     onEvent: notifyProviderCorpusJobSyncEvent,
     actionInvalidatePredicate: shouldInvalidateAnalyticsQueryForAction,
@@ -190,4 +193,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

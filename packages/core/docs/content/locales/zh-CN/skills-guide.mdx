@@ -124,6 +124,8 @@ Skills 位于 `.agents/skills/<name>/SKILL.md`，包含针对代理的详细指�
 
 **完整详细信息如下：** [App-backed skills — full details](#app-backed-skills-full) 中介绍了应用程序支持的 skills 的机制（清单格式、CLI 命令、市场适配器、自动更新哈希）。
 
+`app-skill` 包也会生成标准 Agent Plugin 文件。使用 `agent-native plugin import <path> --into <workspace> --yes` 导入 Skills 和远程 Streamable HTTP MCP 服务器；包中的请求头会被忽略，stdio 和 SSE 服务器会被报告并跳过。
+
 </Callout>
 
 ## 创建自定义 skills {#creating-skills}
@@ -137,7 +139,7 @@ Skills 位于 `.agents/skills/<name>/SKILL.md`，包含针对代理的详细指�
 在以下情况下不要创建技能：
 
 - 该指导已存在于另一项技能中 - 请扩展它
-- 该指导是一次性的 - 将其放入 `AGENTS.md` 或工作区内存中
+- 该指导是一次性的 - 将其放入 `AGENTS.md` 或代理内存中
 
 ## 技能格式 {#skill-format}
 
@@ -295,11 +297,11 @@ scope: dev
 
 </Callout>
 
-如果这些知识适用于在应用程序中工作的*每个人*（“总是更喜欢 CTE 而不是子查询”），那么它就是一项技能或共享的 `LEARNINGS.md`。如果它是关于*这个特定用户*（“史蒂夫喜欢简洁的答案”），它就属于 `memory/MEMORY.md`。完整治疗请参见[Workspace Memory](/docs/workspace#memory)。
+如果这些知识适用于在应用程序中工作的*每个人*（“总是更喜欢 CTE 而不是子查询”），那么它就是一项技能或共享的 `LEARNINGS.md`。如果它是关于*这个特定用户*（“史蒂夫喜欢简洁的答案”），它就属于 `memory/MEMORY.md`。完整治疗请参见[代理资源 — 内存](/docs/agent-resources#memory)。
 
 ## Skills 与 SQL 资源 {#skills-vs-resources}
 
-本页将 skill 描述为 `.agents/skills/<name>/SKILL.md` 中的文件。[Workspace](/docs/workspace#skills) 则将同一个 skill 描述为路径为 `skills/<slug>/SKILL.md`、范围为 workspace/shared/personal 的 SQL 资源。两者是从不同角度描述同一概念：Code 模式直接读写文件；App 模式将其存储为资源行，因此无需文件系统也能工作。无论采用哪种方式，都请按本页格式编写内容。
+本页将 skill 描述为 `.agents/skills/<name>/SKILL.md` 中的文件。[代理资源](/docs/agent-resources#skills) 则将同一个 skill 描述为路径为 `skills/<slug>/SKILL.md`、范围为 workspace/shared/personal 的 SQL 资源。两者是从不同角度描述同一概念：Code 模式直接读写文件；App 模式将其存储为资源行，因此无需文件系统也能工作。无论采用哪种方式，都请按本页格式编写内容。
 
 ## 应用程序支持的 skills — 完整详细信息 {#app-backed-skills-full}
 
@@ -313,7 +315,7 @@ scope: dev
   "id": "assets",
   "hosted": {
     "url": "https://assets.agent-native.com",
-    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+    "mcpUrl": "https://assets.agent-native.com/mcp"
   },
   "mcp": { "serverName": "agent-native-assets" },
   "skills": [
@@ -424,6 +426,6 @@ Claude 兼容性链接（`CLAUDE.md` 和 `.claude/skills`），因此 Claude 代
 ## 接下来 {#whats-next}
 
 - [**编写代理指令**](/docs/writing-agent-instructions) — 编写 skill 描述，并在 AGENTS.md、skills 和内存之间拆分指导
-- [**Workspace**](/docs/workspace#skills) — App 模式下 skills 作为 SQL 资源存储的位置
+- [**代理资源**](/docs/agent-resources#skills) — App 模式下 skills 作为 SQL 资源存储的位置
 - [**代理提及**](/docs/agent-mentions) — 在聊天中调用 skill 的 `/` 命令触发器
 - [**Plan 插件与市场**](/docs/plan-plugin) — 真实应用程序支持的 skill 的端到端安装和自动更新流程

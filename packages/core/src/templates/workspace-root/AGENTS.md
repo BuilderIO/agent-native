@@ -6,11 +6,17 @@ in `apps/<app>/AGENTS.md`; shared cross-app behavior belongs in
 The root `.agents/skills` path points at the shared package's skills so local
 coding agents can discover the same workspace-wide guidance from the root.
 
+The inherited skill set is intentionally small: actions, data, security,
+secrets, sync, shared UI, agent delegation, and workspace conventions. Skills
+for feature flags, translations, changelogs, providers, automations, release
+workflows, and other specialized work are opt-in. Add an optional skill to the
+workspace core or the app that needs it; do not copy it into every app.
+
 ## Framework Docs Lookup
 
 Version-matched Agent Native docs ship with `@agent-native/core` in
-`node_modules/@agent-native/core/docs`. A source-only corpus of core and
-first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
+`node_modules/@agent-native/core/docs`. A source-only corpus of first-party
+template patterns ships in `node_modules/@agent-native/core/corpus`.
 
 - From an app directory, use `pnpm action docs-search --query "<topic>"`,
   `pnpm action docs-search --slug <slug>`, or `pnpm action docs-search --list`.
@@ -18,19 +24,27 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
   `pnpm action source-search --path <path>` when source examples matter.
 - From the workspace root, read `node_modules/@agent-native/core/docs/AGENTS.md`
   and search `node_modules/@agent-native/core/docs/content/` directly with `rg`.
-  Search `node_modules/@agent-native/core/corpus/` for core and template source
-  examples.
+  Search `node_modules/@agent-native/core/corpus/` for template source examples
+  and `node_modules/@agent-native/core/dist/` for framework internals.
 - For advanced workspace features, start with `workspace`, `multi-app-workspace`,
   `a2a-protocol`, `pure-agent-apps`, `automations`, `recurring-jobs`,
-  `external-agents`, `mcp-protocol`, `sharing`, and `security`.
+  `external-agents`, `mcp-protocol`, `sharing`, and `security`. These are
+  optional skills; read them only when the app or workspace uses that feature.
 
 Use package docs for framework APIs, the package corpus for reusable
-framework/template patterns, and `packages/shared/AGENTS.md` plus
+template patterns, and `packages/shared/AGENTS.md` plus
 `packages/shared/.agents/skills/` for workspace-specific conventions.
+Before building common workspace or agent UI, read `agent-native-toolkit` to
+inventory existing public kits and installed package seams. Read
+`customizing-agent-native` before adapting shared UI. Use the supported
+ladder: configure → compose → eject the smallest unit → propose a shared seam.
+Preview before `--apply`, commit `agent-native.ejections.json`, and never edit
+`node_modules` or eject protected runtime contracts.
 To bring an older workspace current, run `pnpm upgrade:agent-native` or
 `npx @agent-native/core@latest upgrade` from the workspace root. That bumps
 `@agent-native/*` deps, installs, refreshes scaffold skills, and typechecks.
-Do **not** add `pnpm.overrides` / patches against `@agent-native/*` or edit
+Do **not** run `pnpm patch` / `pnpm patch-commit`, add
+`pnpm.patchedDependencies`, commit dependency patches, or edit
 `node_modules/@agent-native/*` when an upgrade fails — fix app code or ask.
 See the `upgrade-agent-native` and `self-modifying-code` skills.
 After a manual core bump only, `pnpm skills:update` (or
@@ -38,17 +52,60 @@ After a manual core bump only, `pnpm skills:update` (or
 refreshes framework-provided shared skills and repairs `CLAUDE.md` /
 `.claude/skills` compatibility links.
 
+## Lightweight defaults
+
+New apps use English as the source locale and do not generate changelog
+entries. To opt into additional translations or changelog generation, edit
+`agent-native.config.ts` at the workspace root:
+
+```ts
+import { defineAgentNativeConfig } from "@agent-native/core";
+
+export default defineAgentNativeConfig({
+  translations: { locales: ["en-US", "es-ES"] },
+  changelog: { enabled: true },
+});
+```
+
+An app-local config can override the workspace policy when only one app needs
+an additional locale or changelog.
+
 ## Core Agent Rule
 
 - All AI/LLM behavior goes through the app's agent chat. UI and server code
   must not call model providers, AI SDK `generateText()` / `streamText()`, or
   other inline LLM APIs directly. Use `sendToAgentChat()` for local app-agent
   work, including hidden `context` and `submit: false` prefill/review flows.
+  Keep actions deterministic and focused. If a workflow is framed as research,
+  analysis, generation, recommendation, or synthesis, use
+  `sendToAgentChat({ openSidebar: true })` to open the AgentSidebar and let the
+  agent orchestrate its provider/data actions. Keep follow-ups in the same
+  thread, not a second freeform textbox.
   Only use `useAgentChatContext`, `setAgentChatContextItem`,
   `listAgentChatContext`, `removeAgentChatContextItem`, and
   `clearAgentChatContext` when UI needs two-way sync with staged context chips.
   Read `packages/shared/.agents/skills/delegate-to-agent/SKILL.md` before
   building agent-driven UI or "AI" features.
+
+## Agent Surface
+
+- Keep domain workflows on named routes and preserve the scaffold's full-page
+  chat route. Use the right `AgentSidebar` for contextual AI and open it when a
+  domain button hands work to the agent.
+- Keep the first viewport focused: one primary action, progressive disclosure,
+  concise copy, and domain-specific navigation. Never use sparkle, wand,
+  magic, or robot icons as AI affordances.
+- Page and section data loads use layout-matching `Skeleton` geometry, never a
+  generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
+  and progress actions.
+- Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
+  type for content previews. Give the AgentSidebar a subtle surface/divider
+  boundary, and stack original/generated review vertically by default.
+- Every AI-labeled button must call `sendToAgentChat()` with
+  `openSidebar: true`; label deterministic local actions as local or preview.
+- Before visual work, read `frontend-design` and `DESIGN.md`. Shared workspace
+  chrome stays semantic and neutral; each app chooses a named visual direction
+  and palette family rather than inheriting the last app's accent.
 
 ## Workspace Resources
 
@@ -70,6 +127,9 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
 
 ## Workspace Scope
 
+- Scale effort to the task. A small, well-specified change is a short read, the
+  edit, and the existing checks — not a codebase survey, unrequested tests, or
+  browser automation.
 - Keep root changes focused on workspace orchestration, shared configuration,
   deploy settings, and monorepo tooling.
 - Keep application routes, actions, server plugins, and app state inside the
@@ -104,6 +164,22 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
 - Dispatch vault access is workspace-wide by default: every saved vault key is
   available to every workspace app. Only create or request per-app vault grants
   when Dispatch's vault access setting is switched to manual mode.
+- Before implementing an app that connects to an external service, inspect the
+  workspace/provider connection catalog first. Reuse an existing connection and
+  its scoped credential resolver; only then use shared settings, vault, OAuth,
+  onboarding, and provider API primitives for app-local setup.
+- Keep custom setup UI only for provider-specific prerequisites, sequencing,
+  readiness, or health checks. It must link to or call shared settings/OAuth and
+  action surfaces, not duplicate credential storage or transport. Model one
+  logical connection as one onboarding outcome instead of marking every field
+  required by reflex.
+- When an app needs a provider credential, read it through the framework's
+  scoped secret or workspace-connection resolver so the Dispatch vault remains
+  the source of truth. Framework apps should use `resolveSecret` from
+  `@agent-native/core/server`; workspace repos with a connector helper should
+  use that helper. Do not ask a non-admin builder to add a key to local project
+  settings or `.env`; request a missing key through Dispatch's vault workflow
+  instead.
 - Do not satisfy a new-app request by adding a route, page, component, or file
   to `apps/chat` or another existing app unless the user explicitly asks to
   modify that existing app.
@@ -150,7 +226,9 @@ refreshes framework-provided shared skills and repairs `CLAUDE.md` /
   for the same data unless the route is for uploads, streaming, webhooks,
   OAuth, or another route-only concern. Do not add routes whose main job is to
   wrap, proxy, or re-export an action; the action endpoint already exists at
-  `/_agent-native/actions/:name`. Action-backed UI is what makes agent-created
+  `/_agent-native/actions/:name`. If you are about to create a file under
+  `server/routes/api/`, or middleware to guard one, stop and write a
+  `defineAction` instead. Action-backed UI is what makes agent-created
   or agent-edited records appear without a manual refresh.
 - App database code must be provider-agnostic. Define schemas with
   `@agent-native/core/db/schema` helpers and write app reads/writes with

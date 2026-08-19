@@ -1,4 +1,5 @@
 import type { UseDesignHotkeysProps } from "@/hooks/useDesignHotkeys";
+import { SHOW_DESIGN_SECONDARY_LEFT_PANELS } from "@/pages/design-editor/types";
 
 export const DESIGN_SHORTCUT_CATEGORIES = [
   "essential",
@@ -49,6 +50,9 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "show-shortcuts",
     category: "essential",
+    // Literal ctrl, not $mod: on macOS ⌘⇧? is the system Help-menu shortcut and
+    // the browser consumes it before the page sees it, so ⌃⇧? is the only
+    // pressable binding there. Do not "fix" this to $mod.
     bindings: ["ctrl+shift+?"],
     labelKey: "designEditor.keyboardShortcuts.commands.showShortcuts",
     handler: "onShowKeyboardShortcuts",
@@ -78,7 +82,8 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "frame-tool",
     category: "tools",
-    bindings: ["f"],
+    // Figma binds both to the frame tool; A is the one long-time users reach for.
+    bindings: ["f", "a"],
     labelKey: "designEditor.keyboardShortcuts.commands.frameTool",
     handler: "onFrameTool",
   }),
@@ -132,17 +137,22 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
     labelKey: "designEditor.keyboardShortcuts.commands.showLayers",
     handler: "onShowLayersPanel",
   }),
-  shortcut({
-    id: "show-assets",
-    category: "view",
-    bindings: ["alt+2"],
-    labelKey: "designEditor.keyboardShortcuts.commands.showAssets",
-    handler: "onShowAssetsPanel",
-  }),
+  ...(SHOW_DESIGN_SECONDARY_LEFT_PANELS
+    ? [
+        shortcut({
+          id: "show-assets",
+          category: "view" as const,
+          bindings: ["alt+2"],
+          labelKey:
+            "designEditor.keyboardShortcuts.commands.showAssets" as const,
+          handler: "onShowAssetsPanel" as const,
+        }),
+      ]
+    : []),
   shortcut({
     id: "toggle-ui",
     category: "view",
-    bindings: ["$mod+\\"],
+    bindings: ["shift+\\"],
     labelKey: "designEditor.keyboardShortcuts.commands.toggleUi",
     handler: "onToggleUi",
   }),
@@ -171,7 +181,7 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "zoom-reset",
     category: "zoom",
-    bindings: ["$mod+0"],
+    bindings: ["shift+0", "$mod+0"],
     labelKey: "designEditor.keyboardShortcuts.commands.zoomReset",
     handler: "onZoomReset",
   }),
@@ -502,7 +512,7 @@ export const DESIGN_SHORTCUTS: readonly DesignShortcutDefinition[] = [
   shortcut({
     id: "ungroup",
     category: "layout",
-    bindings: ["$mod+backspace"],
+    bindings: ["$mod+shift+g", "$mod+backspace"],
     labelKey: "designEditor.keyboardShortcuts.commands.ungroup",
     handler: "onUngroup",
   }),

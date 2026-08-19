@@ -1,4 +1,5 @@
 import {
+  createError,
   defineEventHandler,
   setResponseStatus,
   setResponseHeader,
@@ -8,8 +9,13 @@ import {
   getRequestURL,
 } from "h3";
 
-import { isAgentActionStopError } from "../action.js";
+import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
+import { isActionContractError, isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { isTransientDatabaseError } from "../db/client.js";
+import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
+import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
+import { resolveOrgByDomain, resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -17,21 +23,89 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
-import { notifyActionChange } from "./action-change.js";
+import { actionCallIsReadOnly, notifyActionChange } from "./action-change.js";
+import {
+  readBrowserSessionIdHeader,
+  readAnalyticsClientPlatformHeader,
+  seedAgentRunOwnerContext,
+  type AgentRunOwnerContext,
+} from "./agent-run-context.js";
+import { captureError } from "./capture-error.js";
 import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
 } from "./cors-origins.js";
+import {
+  resolveEmbedSessionFromRequest,
+  resolvedEmbedCapabilityScope,
+} from "./embed-session.js";
+import { getHttpRequestTelemetryId } from "./http-response-telemetry.js";
+import { consumeOneTimeJti } from "./identity-sso-store.js";
+
+declare const __AGENT_NATIVE_BUILD_ID__: string | undefined;
+declare const __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: string | undefined;
+
+function requiredClientCompatibilityVersion(): string {
+  const configured =
+    typeof __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__ === "string"
+      ? __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__
+      : process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION;
+  return configured?.trim() ?? "";
+}
+
+function currentBuildId(): string {
+  const configured =
+    typeof __AGENT_NATIVE_BUILD_ID__ === "string"
+      ? __AGENT_NATIVE_BUILD_ID__
+      : process.env.AGENT_NATIVE_BUILD_ID;
+  return configured?.trim() || "unknown";
+}
+
 /**
  * Auto-mount actions as HTTP endpoints under /_agent-native/actions/:name.
  *
  * Actions are exposed as POST by default. Use `http: { method: "GET" }` in
  * defineAction to expose as GET. Use `http: false` to mark as agent-only.
  */
+import { isLoopbackRequest, registerAuthPublicPaths } from "./auth.js";
 import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
+const FRONTEND_MUTATION_METHODS = new Set(["POST", "PUT", "DELETE"]);
+
+async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
+  const required =
+    actionName === "list-feature-flags"
+      ? "flags:read"
+      : actionName === "set-feature-flag"
+        ? "flags:write"
+        : null;
+  if (!required) return null;
+  const authorization = getHeader(event, "authorization");
+  if (!authorization?.startsWith("Bearer ")) return null;
+  const token = authorization.slice(7);
+  if (!declaresFeatureFlagDelegation(token)) return null;
+  const claims = await verifyA2ATokenWithClaims(token, event);
+  if (!claims || !claims.scope.includes(required))
+    throw new Error("Invalid feature flag delegation");
+  const localOrg = await resolveOrgByDomain(claims.orgDomain);
+  if (!localOrg && !isFeatureFlagAdminEmail(claims.email))
+    throw new Error("Invalid feature flag delegation");
+  if (
+    actionName === "set-feature-flag" &&
+    (await consumeOneTimeJti(claims.jti))
+  ) {
+    throw new Error("Invalid feature flag delegation");
+  }
+  return {
+    owner: claims.email,
+    orgId: localOrg?.orgId ?? null,
+    anonymous: false,
+    delegationJti: claims.jti,
+    delegationIssuer: claims.issuer,
+  } as ActionRouteResolvedCaller;
+}
 
 export function parseActionSearchParams(
   searchParams: URLSearchParams,
@@ -118,7 +192,10 @@ function getAllowedCorsOrigin(origin: string | undefined): CorsOrigin | null {
     // keeps production from trusting arbitrary localhost callers.
   });
   if (allowedOrigin) {
-    return { origin: allowedOrigin, credentials: true };
+    return {
+      origin: allowedOrigin,
+      credentials: shouldAllowMcpEmbedCredentials(allowedOrigin),
+    };
   }
   if (origin && isMcpEmbedCorsOrigin(origin)) {
     return {
@@ -155,8 +232,8 @@ function handleOptionsRequest(event: any): string {
       event,
       "Access-Control-Allow-Headers",
       cors.credentials
-        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,${EMBED_TARGET_HEADER}`
-        : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend`,
+        ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+        : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
     );
   }
 
@@ -164,15 +241,111 @@ function handleOptionsRequest(event: any): string {
   return "";
 }
 
+/**
+ * Declarative auth adapter for the HTTP action route. Its `resolveCaller` runs
+ * BEFORE the framework's `getOwnerFromEvent` / `getSession` chain, letting an
+ * app accept caller identities `getSession` doesn't understand (e.g. an A2A
+ * JWT) without reaching into request context from a Nitro `request` hook.
+ *
+ * Scoped to `/_agent-native/actions/*` only — it does not affect other routes.
+ */
+export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
+  /**
+   * Org to scope the request to, verified from the same credential as the
+   * caller identity (e.g. the A2A token's org claim). When omitted, the org
+   * is derived from the verified owner email via the framework's owner→org
+   * membership lookup. An explicit `null` means the verified caller has no
+   * org and must not fall back to another membership. The ambient session/org
+   * state on the request is never consulted for adapter-resolved callers: a
+   * request can carry both a valid A2A bearer and an unrelated browser cookie,
+   * and the cookie user's org must not leak into the token caller's request
+   * context.
+   */
+  orgId?: string | null;
+  /** Verified A2A correlation and issuer metadata for the audit row. */
+  delegationJti?: string;
+  delegationIssuer?: string;
+};
+
+export interface ActionRouteAuthAdapter {
+  /**
+   * Resolve a caller from the raw event before the cookie/bearer chain.
+   *
+   * - Return the resolved caller to run the action scoped to that identity.
+   *   Org scoping comes exclusively from the caller: the returned `orgId` if
+   *   set, otherwise the owner-email membership lookup — never from the
+   *   request's session cookie or org context.
+   * - Return `null` when the credential isn't yours to judge — the request
+   *   defers to `getOwnerFromEvent` / `getSession`.
+   * - THROW to hard-reject: the credential is present but invalid (e.g. an
+   *   expired or forged A2A bearer). The action route responds 401 and does
+   *   NOT fall through to the cookie/session chain, so a valid same-origin
+   *   session cookie can't be used to execute the request as the logged-in
+   *   user. Do not throw merely to signal "not mine" — return `null` for that.
+   */
+  resolveCaller?: (
+    event: any,
+  ) =>
+    | ActionRouteResolvedCaller
+    | null
+    | Promise<ActionRouteResolvedCaller | null>;
+}
+
 export interface MountActionRoutesOptions {
   /** Resolve owner email from the H3 event (for data scoping). */
   getOwnerFromEvent?: (event: any) => string | Promise<string>;
+  /** Hosting app/template id used for app-owned action resources. */
+  appId?: string;
   /** Resolve display name from the H3 event, when available. */
   getUserNameFromEvent?: (
     event: any,
   ) => string | undefined | Promise<string | undefined>;
   /** Resolve org ID from the H3 event (for org scoping). */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
+  /**
+   * Optional caller resolver that runs before the `getOwnerFromEvent` /
+   * `getSession` chain. Lets apps accept A2A JWTs (or other bearer schemes) on
+   * the action route declaratively. See {@link ActionRouteAuthAdapter}.
+   */
+  actionRouteAuth?: ActionRouteAuthAdapter;
+}
+
+function normalizeOrgId(value: string | null | undefined): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
+}
+
+function isFirstBootMissingOrgTableError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return (
+    /no such table:?\s*["'`]?org_members["'`]?/i.test(error.message) ||
+    /relation\s+["'`]?org_members["'`]?\s+does not exist/i.test(error.message)
+  );
+}
+
+/**
+ * The user's stored active org, for a request whose own org resolution came
+ * back empty. An empty `orgId` is not "this user has no org": it silently
+ * narrows every scoped read to rows with a null `org_id`, so a session minted
+ * before org selection — or one whose membership read failed — stops seeing
+ * the user's own org-scoped dashboards, credentials, and resources. This
+ * honors an explicit Personal selection by returning undefined, so it can
+ * never promote a user into an org they left. A transient database failure is
+ * not an answer and propagates.
+ */
+async function storedActiveOrgId(email: string): Promise<string | undefined> {
+  try {
+    return normalizeOrgId(await resolveOrgIdForEmail(email));
+  } catch (error) {
+    if (
+      isTransientDatabaseError(error) ||
+      !isFirstBootMissingOrgTableError(error)
+    ) {
+      throw error;
+    }
+    return undefined;
+  }
 }
 
 function isAuthResolutionFailure(error: unknown): boolean {
@@ -195,6 +368,19 @@ function isAuthResolutionFailure(error: unknown): boolean {
   );
 }
 
+async function resolveRequestAuthCapability(
+  event: any,
+): Promise<string | undefined> {
+  try {
+    return resolvedEmbedCapabilityScope(
+      await resolveEmbedSessionFromRequest(event),
+    );
+  } catch {
+    // Invalid or unavailable embed auth must fail closed as no capability.
+    return undefined;
+  }
+}
+
 /**
  * Mount discovered actions as HTTP endpoints.
  *
@@ -207,6 +393,7 @@ export function mountActionRoutes(
   options?: MountActionRoutesOptions,
 ) {
   const mounted: string[] = [];
+  const app = getH3App(nitroApp);
 
   for (const [name, entry] of Object.entries(actions)) {
     // Skip agent-only actions
@@ -216,7 +403,15 @@ export function mountActionRoutes(
     const path = entry.http?.path ?? name;
     const routePath = `${ROUTE_PREFIX}/${path}`;
 
-    getH3App(nitroApp).use(
+    // These two actions authenticate with a scoped A2A bearer rather than a
+    // browser session. Let that verifier see the request before the cookie
+    // auth guard rejects it; the action route still fails closed on invalid
+    // or missing credentials.
+    if (name === "list-feature-flags" || name === "set-feature-flag") {
+      registerAuthPublicPaths([routePath], app);
+    }
+
+    app.use(
       routePath,
       defineEventHandler(async (event) => {
         const reqMethod = getMethod(event);
@@ -228,11 +423,47 @@ export function mountActionRoutes(
         }
 
         setResponseHeader(event, "Cache-Control", "no-store");
+        setResponseHeader(
+          event,
+          "Access-Control-Expose-Headers",
+          "X-Agent-Native-Client-Mismatch,X-Agent-Native-Build-Id,X-Agent-Native-Client-Compatibility",
+        );
 
-        // Allow the declared method
-        if (effectiveMethod !== method) {
+        // Browser action calls are RPCs over the framework transport. The
+        // action's HTTP method remains authoritative for direct HTTP callers,
+        // but frontend callers must not have to duplicate it in every hook.
+        const isFrontendMutation =
+          isFrontendActionRequest(event) &&
+          FRONTEND_MUTATION_METHODS.has(method) &&
+          FRONTEND_MUTATION_METHODS.has(effectiveMethod);
+        if (effectiveMethod !== method && !isFrontendMutation) {
           setResponseStatus(event, 405);
           return { error: `Method not allowed. Use ${method}.` };
+        }
+
+        const requiredCompatibility = requiredClientCompatibilityVersion();
+        if (isFrontendActionRequest(event) && requiredCompatibility) {
+          const receivedCompatibility = getHeader(
+            event,
+            "x-agent-native-client-compatibility",
+          );
+          if (receivedCompatibility !== requiredCompatibility) {
+            const serverBuildId = currentBuildId();
+            setResponseStatus(event, 409);
+            setResponseHeader(event, "X-Agent-Native-Client-Mismatch", "1");
+            setResponseHeader(event, "X-Agent-Native-Build-Id", serverBuildId);
+            setResponseHeader(
+              event,
+              "X-Agent-Native-Client-Compatibility",
+              requiredCompatibility,
+            );
+            return {
+              error: "This browser tab must reload before it can use this app.",
+              code: "client_build_mismatch",
+              serverBuildId,
+              requiredCompatibility,
+            };
+          }
         }
 
         // (audit H5) Per-action `toolCallable` opt-out for the tools-iframe
@@ -259,7 +490,47 @@ export function mountActionRoutes(
         // Resolve auth context for per-request scoping
         let userEmail: string | undefined;
         let userName: string | undefined;
-        if (options?.getOwnerFromEvent) {
+        const authCapability = await resolveRequestAuthCapability(event);
+        // An app-supplied auth adapter runs first: it can accept caller
+        // identities the framework's getSession chain doesn't understand (e.g.
+        // an A2A JWT). A resolved caller is seeded onto the event context so any
+        // downstream resolveAgentRunOwnerContext (nested agent runs) sees the
+        // same identity. The adapter is only consulted for the action route, so
+        // it can't affect other surfaces.
+        //
+        // Contract: `resolveCaller` returning `null` means "this credential
+        // isn't mine — defer to the cookie/session chain below". THROWING means
+        // "the credential is mine but invalid" (e.g. an expired/forged A2A
+        // bearer) and is a hard rejection: we surface a 401 instead of falling
+        // through, so a live same-origin session cookie can't silently execute
+        // the request as the logged-in user.
+        let resolvedCaller: ActionRouteResolvedCaller | null = null;
+        {
+          let caller: ActionRouteResolvedCaller | null;
+          try {
+            caller = options?.actionRouteAuth?.resolveCaller
+              ? await options.actionRouteAuth.resolveCaller(event)
+              : null;
+            if (!caller)
+              caller = await resolveFeatureFlagA2ACaller(event, name);
+          } catch {
+            throw createError({
+              statusCode: 401,
+              statusMessage: "Unauthorized",
+            });
+          }
+          if (caller) {
+            seedAgentRunOwnerContext(event, {
+              owner: caller.owner,
+              anonymous: caller.anonymous,
+              name: caller.name,
+            });
+            userEmail = caller.owner;
+            userName = caller.name;
+            resolvedCaller = caller;
+          }
+        }
+        if (!resolvedCaller && options?.getOwnerFromEvent) {
           try {
             userEmail = await options.getOwnerFromEvent(event);
             userName = options?.getUserNameFromEvent
@@ -277,18 +548,50 @@ export function mountActionRoutes(
             }
           }
         }
-        const orgId = options?.resolveOrgId
-          ? ((await options.resolveOrgId(event)) ?? undefined)
-          : undefined;
+        // Org scoping. For adapter-resolved callers the org must come
+        // exclusively from the verified credential: the adapter-asserted
+        // orgId when present, explicit null when the caller has no org,
+        // otherwise the owner-email membership lookup.
+        // The request's ambient session/org state (`resolveOrgId`, usually
+        // getSession-backed) is deliberately NOT consulted — a request can
+        // carry both a valid A2A bearer and an unrelated same-origin browser
+        // cookie, and the cookie user's org must not become the org the
+        // token caller's actions execute under. Non-adapter callers keep the
+        // original resolveOrgId-only behavior.
+        let orgId: string | undefined;
+        if (resolvedCaller) {
+          orgId = normalizeOrgId(resolvedCaller.orgId);
+          if (
+            resolvedCaller.orgId !== null &&
+            !orgId &&
+            resolvedCaller.owner &&
+            !resolvedCaller.anonymous
+          ) {
+            orgId = await storedActiveOrgId(resolvedCaller.owner);
+          }
+        } else {
+          orgId = options?.resolveOrgId
+            ? ((await options.resolveOrgId(event)) ?? undefined)
+            : undefined;
+          if (!orgId && userEmail) orgId = await storedActiveOrgId(userEmail);
+        }
         const timezone = readTimezoneHeader(event);
+        const browserSessionId = readBrowserSessionIdHeader(event);
+        const clientPlatform = readAnalyticsClientPlatformHeader(event);
 
         return runWithRequestContext(
           {
             userEmail,
             userName,
             orgId,
+            authCapability,
             timezone,
+            browserSessionId,
+            clientPlatform,
             requestOrigin: getRequestURL(event).origin,
+            // Captured here because this is the last layer that still holds
+            // the h3 event; everything below reads it off the request store.
+            isLoopbackRequest: isLoopbackRequest(event),
           },
           async () => {
             // Reject oversize bodies from Content-Length before parsing, so a
@@ -342,14 +645,25 @@ export function mountActionRoutes(
             // userEmail / orgId mirror the request context resolved above (do
             // NOT inject a dev identity — leave undefined when unauthenticated).
             try {
-              const caller = isFrontendActionRequest(event)
-                ? "frontend"
-                : "http";
+              const caller = resolvedCaller
+                ? "a2a"
+                : isFrontendActionRequest(event)
+                  ? "frontend"
+                  : "http";
               const result = await entry.run(params, {
                 userEmail,
                 orgId: orgId ?? null,
+                appId: options?.appId,
                 caller,
+                requestHeaders: event.headers,
                 actionName: name,
+                ...(resolvedCaller?.delegationJti
+                  ? {
+                      networkProtocol: "a2a",
+                      networkId: resolvedCaller.delegationJti,
+                      networkPeer: resolvedCaller.delegationIssuer,
+                    }
+                  : {}),
               });
 
               // Auto-refresh the UI after a successful mutating action. GET
@@ -358,14 +672,16 @@ export function mountActionRoutes(
               // their action queries. The calling tab already refetches via
               // useActionMutation's onSuccess, so this is mainly cross-tab
               // sync (and parity with the agent's tool-call path).
-              // Explicit entry.readOnly (true OR false) wins over the method
-              // heuristic. defineAction already auto-infers GET → readOnly=true,
-              // so for actions registered through that path entry.readOnly is
-              // always set and the fallback just guards legacy wrap paths.
-              const isReadOnly =
-                typeof entry.readOnly === "boolean"
-                  ? entry.readOnly
-                  : method === "GET";
+              // A per-call Plan-mode effect wins over entry.readOnly, which
+              // wins (true OR false) over the method heuristic. defineAction
+              // already auto-infers GET → readOnly=true, so for actions
+              // registered through that path entry.readOnly is always set and
+              // the fallback just guards legacy wrap paths.
+              const isReadOnly = actionCallIsReadOnly(
+                entry,
+                params,
+                method === "GET",
+              );
               if (!isReadOnly) {
                 try {
                   await notifyActionChange({
@@ -425,9 +741,37 @@ export function mountActionRoutes(
                 isAgentActionStopError(err) ||
                 (explicitStatus !== undefined && explicitStatus < 500);
               if (isUserFacing) {
-                return { error: msg };
+                return isActionContractError(err)
+                  ? {
+                      error: msg,
+                      errorCode: err.errorCode,
+                      ...(err.details === undefined
+                        ? {}
+                        : { details: err.details }),
+                    }
+                  : { error: msg };
               }
-              console.error(`[agent-native] action '${name}' failed:`, err);
+              const requestId = getHttpRequestTelemetryId(event);
+              const captureId = captureError(err, {
+                route: routePath,
+                method: reqMethod,
+                tags: {
+                  action: name,
+                  caller: resolvedCaller
+                    ? "a2a"
+                    : isFrontendActionRequest(event)
+                      ? "frontend"
+                      : "http",
+                  status_code: String(status),
+                },
+                ...(requestId ? { extra: { request_id: requestId } } : {}),
+              });
+              console.error(`[agent-native] action '${name}' failed:`, {
+                action: name,
+                ...(requestId ? { requestId } : {}),
+                ...(captureId ? { captureId } : {}),
+                error: err?.stack ?? String(err),
+              });
               return { error: "Internal server error" };
             }
           },

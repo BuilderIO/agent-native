@@ -2,7 +2,7 @@ import type { ActionMcpAppResourceConfig } from "../action.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 
 const MCP_APP_IMPORT =
-  "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.2/app-with-deps";
+  "https://esm.sh/@modelcontextprotocol/ext-apps@1.7.5/app-with-deps";
 
 export const MCP_APP_REQUEST_ORIGIN_CSP_SOURCE = "$requestOrigin";
 const MCP_APP_WRAPPER_CHROME_HEIGHT = 44;
@@ -74,6 +74,8 @@ export function embedApp(
     iframe { display: block; width: 100%; height: var(--agent-native-viewport-height); border: 0; background: Canvas; }
     .message { display: grid; place-items: center; min-height: var(--agent-native-viewport-height); padding: 18px; color: color-mix(in srgb, CanvasText 62%, Canvas); font-size: 13px; line-height: 1.45; text-align: center; }
     .fallback { display: grid; align-content: center; justify-items: center; gap: 12px; min-height: var(--agent-native-viewport-height); padding: 24px; background: Canvas; color: CanvasText; text-align: center; }
+    .fallback-overlay { position: absolute; inset: 0; z-index: 2; display: grid; align-items: start; justify-items: end; padding: 12px; pointer-events: none; }
+    .fallback-overlay .fallback { width: min(100%, 560px); min-height: 0; border: 1px solid color-mix(in srgb, CanvasText 18%, Canvas); border-radius: 9px; background: color-mix(in srgb, Canvas 96%, transparent); box-shadow: 0 8px 24px color-mix(in srgb, CanvasText 16%, transparent); pointer-events: auto; }
     .fallback-title { max-width: 440px; font-size: 14px; font-weight: 700; }
     .fallback-copy { max-width: 520px; color: color-mix(in srgb, CanvasText 64%, Canvas); font-size: 13px; line-height: 1.45; }
     .fallback-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; }
@@ -760,7 +762,7 @@ export function embedApp(
 
     function stripDevOnlyModuleImports(code) {
       return String(code).replace(
-        /\\bimport\\s+(?:[^"']+\\s+from\\s+)?["'][^"']*(?:virtual:react-router\\/inject-hmr-runtime|__x00__virtual:react-router\\/inject-hmr-runtime)[^"']*["']\\s*;?/g,
+        /\\bimport\\s+(?:[^"']+\\s+from\\s+)?["'][^"']*(?:virtual:react-router\\/(?:inject-)?hmr-runtime|__x00__virtual:react-router\\/(?:inject-)?hmr-runtime)[^"']*["']\\s*;?/g,
         ""
       );
     }
@@ -1100,14 +1102,64 @@ export function embedApp(
       } catch {}
     }
 
+    function clearFallbackOverlay() {
+      stage.querySelector("[data-fallback-overlay]")?.remove();
+    }
+
+    function renderFallbackOverlay({ title, copyHtml, retryLabel, onRetry }) {
+      if (!appFrame || appFrame.parentElement !== stage) return false;
+      clearFallbackOverlay();
+      const overlay = document.createElement("div");
+      overlay.className = "fallback-overlay";
+      overlay.dataset.fallbackOverlay = "1";
+      overlay.innerHTML =
+        '<div class="fallback">' +
+          '<div class="fallback-title">' + esc(title) + '</div>' +
+          '<div class="fallback-copy">' + copyHtml + '</div>' +
+          '<div class="fallback-actions">' +
+            '<button type="button" class="primary" data-fallback-open>Open in new tab</button>' +
+            '<button type="button" data-fallback-retry>' + esc(retryLabel) + '</button>' +
+          '</div>' +
+          (openUrl ? '<a class="fallback-url" href="' + esc(openUrl) + '" target="_blank" rel="noreferrer">' + esc(openUrl) + '</a>' : '') +
+        '</div>';
+      stage.appendChild(overlay);
+
+      const fallbackOpen = overlay.querySelector("[data-fallback-open]");
+      const fallbackRetry = overlay.querySelector("[data-fallback-retry]");
+      if (fallbackOpen) {
+        fallbackOpen.disabled = !openUrl;
+        fallbackOpen.onclick = () => {
+          if (openUrl) void openFallbackExternal();
+        };
+      }
+      if (fallbackRetry) {
+        fallbackRetry.disabled = typeof onRetry !== "function";
+        fallbackRetry.onclick = () => {
+          if (typeof onRetry === "function") void onRetry();
+        };
+      }
+      return true;
+    }
+
     function renderFrameFallback() {
       clearFrameReadyTimer();
       clearFrameLoadTimer();
-      appFrame = null;
+      appFrameReady = false;
       const fallbackCopy = openUrl
         ? "This chat host did not allow the embedded app frame to load inline. You can still open the same app route through the host or use the URL below."
         : "This chat host did not allow the embedded app frame to load inline.";
       reportEmbedError("frame-fallback", fallbackCopy);
+      if (renderFallbackOverlay({
+        title: "Open this app in its own tab",
+        copyHtml: esc(fallbackCopy),
+        retryLabel: "Try inline again",
+        onRetry: lastFrameSrc
+          ? () => renderFrame(lastFrameSrc)
+          : undefined
+      })) {
+        return;
+      }
+      appFrame = null;
       stage.innerHTML =
         '<div class="fallback">' +
           '<div class="fallback-title">Open this app in its own tab</div>' +
@@ -1137,7 +1189,7 @@ export function embedApp(
     function renderAppLaunchError(message) {
       clearFrameReadyTimer();
       clearFrameLoadTimer();
-      appFrame = null;
+      appFrameReady = false;
       const fallbackCopy = openUrl
         ? "The inline MCP app could not load in this chat host. You can open the same app route in a new tab or retry the inline load."
         : "The inline MCP app could not load in this chat host.";
@@ -1145,6 +1197,18 @@ export function embedApp(
       const copyHtml = message
         ? '<div>' + esc(message) + '</div><div>' + esc(fallbackCopy) + '</div>'
         : esc(fallbackCopy);
+      if (renderFallbackOverlay({
+        title: "App did not load",
+        copyHtml,
+        retryLabel: "Retry",
+        onRetry: () => {
+          startedFor = "";
+          void launchEmbed();
+        }
+      })) {
+        return;
+      }
+      appFrame = null;
       stage.innerHTML =
         '<div class="fallback">' +
           '<div class="fallback-title">App did not load</div>' +
@@ -1204,6 +1268,10 @@ export function embedApp(
         notifyOuterMcpAppReady();
         sendFrameReadyMessages(frame);
         startFrameReadyTimer(frame);
+      });
+      frame.addEventListener("error", () => {
+        if (appFrame !== frame) return;
+        renderFrameFallback();
       });
       stage.replaceChildren(frame);
       notifyHostHeight();
@@ -1486,18 +1554,30 @@ export function embedApp(
     });
 
     window.addEventListener("message", (event) => {
-      if (!appFrame || event.source !== appFrame.contentWindow) return;
-      if (!event.data) return;
+      const message = event.data;
+      const expiredSessionMessage =
+        message?.type === "agentNative.embedSessionExpired" &&
+        typeof message.embedStartUrl === "string" &&
+        event.source === null &&
+        (message.embedStartUrl === appFrame?.src ||
+          message.embedStartUrl === lastFrameSrc);
+      if (
+        !appFrame ||
+        (!expiredSessionMessage && event.source !== appFrame.contentWindow)
+      )
+        return;
+      if (!message) return;
       const data = event.data.data || {};
-      if (event.data.type === "agentNative.embeddedAppReady") {
+      if (message.type === "agentNative.embeddedAppReady") {
         appFrameReady = true;
+        clearFallbackOverlay();
         embedSessionRefreshAttempts = 0;
         clearFrameLoadTimer();
         clearFrameReadyTimer();
         notifyOuterMcpAppReady();
         return;
       }
-      if (event.data.type === "agentNative.contentHeight") {
+      if (message.type === "agentNative.contentHeight") {
         const next = finiteNumber(data && data.height);
         if (next && Math.abs(next - reportedContentHeight) >= 1) {
           reportedContentHeight = next;
@@ -1505,23 +1585,23 @@ export function embedApp(
         }
         return;
       }
-      if (event.data.type === "agentNative.embedSessionExpired") {
+      if (message.type === "agentNative.embedSessionExpired") {
         refreshExpiredEmbedSession();
         return;
       }
-      if (event.data.type === "agentNative.submitChat") {
+      if (message.type === "agentNative.submitChat") {
         void sendHostChat(data);
         return;
       }
-      if (event.data.type === "agentNative.mcpHost.updateModelContext") {
+      if (message.type === "agentNative.mcpHost.updateModelContext") {
         respondToAppFrame(data.requestId, updateHostModelContext(data));
         return;
       }
-      if (event.data.type === "agentNative.mcpHost.openLink") {
+      if (message.type === "agentNative.mcpHost.openLink") {
         respondToAppFrame(data.requestId, openHostLink(data));
         return;
       }
-      if (event.data.type === "agentNative.mcpHost.requestDisplayMode") {
+      if (message.type === "agentNative.mcpHost.requestDisplayMode") {
         respondToAppFrame(data.requestId, requestHostDisplayMode(data.mode));
       }
     });

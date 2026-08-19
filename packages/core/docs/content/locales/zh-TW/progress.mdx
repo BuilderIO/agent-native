@@ -15,7 +15,7 @@ import {
 } from "@agent-native/core/progress";
 
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Triage 128 unread emails",
   step: "Fetching inbox",
 });
@@ -100,7 +100,7 @@ await completeRun(run.id, run.owner, "succeeded");
 
 ```ts
 const run = await startRun({
-  owner: "steve@builder.io",
+  owner: "user@example.com",
   title: "Ingest 1M rows",
   step: "Opening CSV",
   metadata: { jobId: "abc123", artifactPath: "s3://..." },
@@ -140,9 +140,9 @@ await completeRun(run.id, run.owner, "succeeded", {
 ```ts
 import { listRuns, getRun, deleteRun } from "@agent-native/core/progress";
 
-const active = await listRuns("steve@builder.io", { activeOnly: true });
-const run = await getRun("run-id", "steve@builder.io");
-await deleteRun("run-id", "steve@builder.io");
+const active = await listRuns("user@example.com", { activeOnly: true });
+const run = await getRun("run-id", "user@example.com");
+await deleteRun("run-id", "user@example.com");
 ```
 
 ## HTTP API {#http}
@@ -233,7 +233,7 @@ mode: agentic
 ## 它是如何工作的 {#internals}
 
 - **所有者範圍** — 每行都有一個 `owner` 列；每個查詢都會對其進行過濾。使用者只能看到自己的跑步。
-- **輪詢整合** - 每個突變都會呼叫 `recordChange()`，因此使用 [`useDbSync`](/docs/client) 的範本會自動失效，無需任何額外的接線。
+- **輪詢整合** - 每個突變都會呼叫 `recordChange()`，因此使用 [`useDbSync`](/docs/client-data#usedbsync) 的範本會自動失效，無需任何額外的接線。
 - **表名稱** — 此框架還有一個 `agent_runs` 表，用於內部代理聊天回合生命週期跟蹤。進度原語使用 `progress_runs` 將兩個關注點分開。
 - **百分比限制** — 值被限制為 `[0, 100]` 並在寫入時四舍五入為整數。
 
@@ -241,4 +241,4 @@ mode: agentic
 
 - [**Notifications**](/docs/notifications) — 與 `manage-progress` (`action=complete`) 配對，告訴使用者工作何時完成
 - [**Automations**](/docs/automations) — 看門狗透過 `run.progress.updated` 緩慢執行
-- [**Client**](/docs/client) — `useDbSync` 用於即時快取失效
+- [**資料與同步**](/docs/client-data) — `useDbSync` 用於即時快取失效

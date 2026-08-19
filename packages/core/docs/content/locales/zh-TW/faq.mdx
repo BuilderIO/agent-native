@@ -26,7 +26,7 @@ Agent-Native 適合那些想要真正的應用程式和 AI 代理使用相同資
 
 ### 這與向現有應用新增 AI 有何不同？ {#how-is-this-different}
 
-大多數應用程式將人工智慧作為事後的想法，實際上無法在應用程式中*做*事情。在 Agent-Native 應用程式中，代理是一等公民，與 UI 共用相同的 actions、資料庫和狀態，因此它可以執行按鈕可以執行的任何操作 - 並修改應用程式自己的程式碼。參見[What Is Agent-Native?](/docs/what-is-agent-native#the-ladder)。
+大多數應用程式將人工智慧作為事後的想法，實際上無法在應用程式中*做*事情。在 Agent-Native 應用程式中，代理是一等公民，與 UI 共用相同的 actions、資料庫和狀態，因此它可以執行按鈕可以執行的任何操作。參見[What Is Agent-Native?](/docs/what-is-agent-native#the-ladder)。
 
 <Diagram id="doc-block-k43heh" title={"附加人工智慧與 agent-native"} summary={"螺栓固定的聊天側邊欄有自己的世界。 agent-native 代理與 UI 共用相同的操作、資料庫和狀態。"}>
 
@@ -102,7 +102,7 @@ Agent-Native 適合那些想要真正的應用程式和 AI 代理使用相同資
 
 ### 我可以自己主持嗎？ {#can-i-self-host}
 
-是的。選取執行 Node 的任何主機 — Netlify、Vercel、Cloudflare、AWS、Deno Deploy、您自己的伺服器 — 以及任何 SQL 資料庫（Postgres、SQLite、Turso、D1）。此框架是為了可移植而建置的。參見[Deployment](/docs/deployment)。
+是的。選取執行 Node 的任何主機 — Netlify、Vercel、Cloudflare、AWS、Deno Deploy、您自己的伺服器 — 以及任何 SQL 資料庫（Postgres、SQLite、Turso、D1）。此框架是為了可移植而建置的。先從[本機 Docker 快速入門](https://www.agent-native.com/docs/deployment#self-host-quickstart)開始，然後參閱[Deployment](/docs/deployment)進行正式環境部署。
 
 ### 支援哪些 AI 模型？ {#what-models}
 
@@ -124,7 +124,7 @@ Anthropic Claude、OpenAI（GPT-5 系列）、Google Gemini 以及使用 OpenAI 
 
 ### 我可以自訂範本嗎？ {#can-i-customize-templates}
 
-這就是重點。分叉一個範本並透過詢問代理來自訂它。 “向表單新增優先級欄位。” “連線到我們的 Salesforce 執行個體。” “更改配色方案以匹配我們的品牌。”代理修改程式碼，您的應用程式會隨著時間的推移而發展。
+這就是重點。從範本開始，在自己的程式碼庫和開發流程中進行自訂。嵌入式代理隨後透過 actions 和資料操作產生的應用程式。
 
 ### 我可以建置範本未涵蓋的內容嗎？ {#build-from-scratch}
 
@@ -136,9 +136,9 @@ Anthropic Claude、OpenAI（GPT-5 系列）、Google Gemini 以及使用 OpenAI 
 
 ## 代理能力 {#agent-capabilities}
 
-### 代理真的可以修改應用程式自己的程式碼嗎？ {#can-the-agent-modify-code}
+### 嵌入式代理會編輯應用程式原始碼嗎？ {#can-the-agent-modify-code}
 
-是的，這是一個功能。代理可以安全地編輯元件、路由、樣式和 actions。您要求“新增群組分析圖表”，代理就會建置它。您詢問“連線到我們的 Stripe 帳戶”，然後代理會編寫整合。一切都是正常的 Git 跟蹤程式碼，因此不良更改很容易恢復。
+預設不會。只有當主機有意授予 repository/workspace 寫入工具時，它才能編輯原始碼。否則，嵌入式代理透過 actions、SQL 支援的狀態和已設定的整合來工作。若要修改元件、路由、樣式或 actions，請使用程式碼庫的正常開發流程，或使用獨立的程式碼能力開發/Builder frame。
 
 ### 使用者可以從應用程式外部與代理交談嗎？ {#external-channels}
 

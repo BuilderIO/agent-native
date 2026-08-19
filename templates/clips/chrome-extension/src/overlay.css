@@ -353,6 +353,7 @@ body {
   border-radius: 999px;
   background: #d4d4d8;
   animation: saving-indeterminate 1.1s linear infinite;
+  /* compositing-ok: indeterminate bar animates continuously while shown. */
   will-change: transform;
 }
 

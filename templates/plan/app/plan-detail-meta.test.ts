@@ -54,4 +54,19 @@ describe("plan detail route meta", () => {
       "Provider API Body Cursors Recap",
     );
   });
+
+  it("falls back when a plan name is a serialized payload", () => {
+    const entries = planMeta({
+      loaderData: {
+        planMeta: {
+          title: '[{"id":"automation-1","status":"success"}]',
+          brief: "Keep the tab title human-readable.",
+          kind: "plan",
+        },
+      },
+    } as Parameters<typeof planMeta>[0]) as MetaEntry[];
+
+    expect(titleFrom(entries)).toBe("Plan");
+    expect(propertyFrom(entries, "og:title")).toBe("Plan");
+  });
 });

@@ -1,11 +1,15 @@
 ---
 name: shadcn-ui
 description: >-
-  Use when adding, updating, debugging, styling, or composing shadcn/ui
-  components, forms, dialogs, menus, charts, sidebars, themes, registries, or
-  any project with a components.json file.
+  The shadcn CLI, component composition, theming, and registry workflow. Use
+  when adding, replacing, upgrading, or debugging a shadcn/ui primitive itself,
+  or when changing a theme or registry. Do not load it for ordinary edits to a
+  file that happens to import a shadcn component.
 scope: dev
 source: https://ui.shadcn.com/docs/skills
+local-changes: >-
+  Description narrowed deliberately; an upstream sync must not restore the
+  "any project with a components.json file" trigger.
 metadata:
   internal: true
 ---
@@ -17,10 +21,33 @@ This skill keeps shadcn/ui work project-aware. Components are source files in th
 ## First Steps
 
 1. Work from the app root that owns `components.json`.
-2. Run `pnpm dlx shadcn@latest info --json` when you need current project context: framework, Tailwind version, aliases, icon library, installed components, and resolved paths.
-3. Use the actual aliases from `components.json` or `shadcn info`; do not assume `@/components/ui` if the project says otherwise.
-4. Check `app/components/ui/` or the resolved `ui` path before importing a component.
-5. For unfamiliar components, run `pnpm dlx shadcn@latest docs <component>` and read the returned docs or examples before coding.
+2. In an Agent Native app, inspect `app/design-system.ts` and
+   `ToolkitProvider` before choosing a primitive. A registered company design
+   system takes precedence over the default shadcn adapter.
+3. Run `pnpm dlx shadcn@latest info --json` when you need current project context: framework, Tailwind version, aliases, icon library, installed components, and resolved paths.
+4. Use the actual aliases from `components.json` or `shadcn info`; do not assume `@/components/ui` if the project says otherwise.
+5. Check `app/components/ui/` or the resolved `ui` path before importing a component.
+6. For unfamiliar components, run `pnpm dlx shadcn@latest docs <component>` and read the returned docs or examples before coding.
+
+## Agent Native Adapter Rule
+
+Pages, routes, and domain components import controls through the app's local UI
+adapter layer. Never import `@agent-native/toolkit/ui/*` directly in app product
+code. Direct imports bypass `app/design-system.ts` and make Toolkit/Core
+surfaces use different controls from the app.
+
+When shadcn is the app's adapter, add or update the local primitive and keep
+product code on that local import. When a company design system is registered,
+adapt its components to the semantic contracts from
+`@agent-native/toolkit/design-system`; do not recreate a parallel shadcn
+surface. The semantic API is styling-runtime agnostic, so do not require
+Tailwind, CVA, or `className` in customer adapters.
+
+For shared Toolkit features, customize presentation through semantic
+components, a feature-level controller, and product-level render slots. Keep
+the same controller for default and custom views. Use the conformance kit for
+behavior components whose focus, portal, keyboard, dismissal, or stacking
+behavior comes from the company design system.
 
 ## Adding Or Updating Components
 
@@ -33,7 +60,7 @@ This skill keeps shadcn/ui work project-aware. Components are source files in th
 ## Component Composition
 
 - Use existing primitives before custom markup: `Alert` for callouts, `Badge` for small status labels, `Separator` for dividers, `Skeleton` for placeholders, `Table` for tabular data, and `Card` for framed content.
-- Use full card anatomy when appropriate: `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, and `CardFooter`.
+- Compose cards from `CardHeader`, `CardTitle`, `CardContent`, and `CardFooter`. Leave `CardDescription` out: a card gets a title or a description, never both. See `frontend-design` → Default Surface Density.
 - Dialog, Sheet, Drawer, and AlertDialog content must include an accessible title. Use visually hidden titles only when the visible UI already communicates the title.
 - Put items inside their group components: `SelectItem` in `SelectGroup`, `DropdownMenuItem` in `DropdownMenuGroup`, `CommandItem` in `CommandGroup`, and equivalent menu groups.
 - `TabsTrigger` belongs inside `TabsList`.
@@ -91,5 +118,6 @@ Do not wrap triggers in extra divs just to place a Button or Link inside them.
 ## Related Skills
 
 - **frontend-design** — Product UX, visual direction, responsive polish, and verification
+- **customizing-agent-native** — Registered design systems, controllers, slots, conformance, and ejection
 - **actions** — Data fetching and mutation patterns for agent-native apps
 - **security** — User data, forms, external input, and action safety

@@ -94,6 +94,24 @@ describe("recordActionAudit attribution", () => {
     expect(ev.ownerEmail).toBe("alice@x.com");
   });
 
+  it("keeps the concrete run id for ordinary agent and automation actions", async () => {
+    await recordActionAudit({
+      config: undefined,
+      args: {},
+      ctx: {
+        actionName: "update-dashboard",
+        caller: "tool",
+        userEmail: "alice@x.com",
+        runId: "job-weekly-dashboard-123",
+        threadId: "th-1",
+      },
+      status: "error",
+      error: new Error("dashboard write failed"),
+    });
+
+    expect(lastEvent().runId).toBe("job-weekly-dashboard-123");
+  });
+
   it("marks frontend calls as human and system calls with no identity", async () => {
     await recordActionAudit({
       config: undefined,

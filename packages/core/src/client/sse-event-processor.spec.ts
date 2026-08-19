@@ -1,13 +1,19 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { RUN_NO_PROGRESS_HARD_TIMEOUT_MS } from "../agent/run-manager.js";
+import { subscribeChatFirstOpenApp } from "./chat-first.js";
 import {
   AgentAutoContinueSignal,
+  processEvent,
   readSSEStream,
   readSSEStreamRaw,
   SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
   SSE_DURABLE_ACTION_PREPARATION_STALL_TIMEOUT_MS,
   SSE_DURABLE_NO_PROGRESS_TIMEOUT_MS,
+  SSE_IN_FLIGHT_WORK_TIMEOUT_MS,
   SSE_NO_PROGRESS_TIMEOUT_MS,
+  settleInterruptedToolCalls,
+  type ContentPart,
 } from "./sse-event-processor.js";
 
 function commentOnlyStream(delayMs: number): ReadableStream<Uint8Array> {
@@ -298,6 +304,10 @@ function preparingActionProgressStream(
   });
 }
 
+// Long enough to exercise id-scoped preparation tracking, short enough to stay
+// inside the action-preparation stall window this fixture is not testing.
+const PARALLEL_PREPARATION_TERMINAL_DELAY_MS = 80_000;
+
 function parallelSameToolPreparationStream(
   tool = "edit-design",
 ): ReadableStream<Uint8Array> {
@@ -358,7 +368,7 @@ function parallelSameToolPreparationStream(
             ),
           );
           controller.close();
-        }, SSE_NO_PROGRESS_TIMEOUT_MS + 5_000),
+        }, PARALLEL_PREPARATION_TERMINAL_DELAY_MS),
       );
     },
     cancel() {
@@ -577,6 +587,534 @@ async function drain(iterable: AsyncIterable<unknown>) {
   }
   return results;
 }
+
+describe("SSE first-party app handoff", () => {
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("emits exact open_app results without steering namespaced tools", () => {
+    type OpenAppEvent = { type: string; detail: unknown };
+    const listeners = new Set<(event: OpenAppEvent) => void>();
+    vi.stubGlobal("window", {
+      addEventListener: (type: string, listener: (event: unknown) => void) => {
+        if (type === "agentNative:openApp") {
+          listeners.add(listener as (event: OpenAppEvent) => void);
+        }
+      },
+      removeEventListener: (
+        _type: string,
+        listener: (event: unknown) => void,
+      ) => {
+        listeners.delete(listener as (event: OpenAppEvent) => void);
+      },
+      dispatchEvent: (event: OpenAppEvent) => {
+        if (event.type !== "agentNative:openApp") return true;
+        for (const listener of listeners) listener(event);
+        return true;
+      },
+    });
+    vi.stubGlobal(
+      "CustomEvent",
+      class FakeCustomEvent {
+        readonly type: string;
+        readonly detail: unknown;
+
+        constructor(type: string, init: { detail: unknown }) {
+          this.type = type;
+          this.detail = init.detail;
+        }
+      },
+    );
+
+    const details: unknown[] = [];
+    const unsubscribe = subscribeChatFirstOpenApp((detail) =>
+      details.push(detail),
+    );
+    try {
+      const content: ContentPart[] = [];
+      const toolCallCounter = { value: 0 };
+      processEvent(
+        {
+          type: "tool_start",
+          id: "open-app-1",
+          tool: "open_app",
+          input: { app: "analytics", path: "/reports" },
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+      processEvent(
+        {
+          type: "tool_done",
+          id: "open-app-1",
+          tool: "open_app",
+          result: JSON.stringify({ app: "analytics", path: "/reports" }),
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+      processEvent(
+        {
+          type: "tool_done",
+          id: "namespaced-open-app-1",
+          tool: "evil___open_app",
+          result: JSON.stringify({ app: "analytics", path: "/phishing" }),
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+      processEvent(
+        {
+          type: "tool_start",
+          id: "failed-open-app-1",
+          tool: "open_app",
+          input: { app: "analytics", path: "/failed" },
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+      processEvent(
+        {
+          type: "tool_done",
+          id: "failed-open-app-1",
+          tool: "open_app",
+          result: JSON.stringify({ app: "analytics", path: "/failed" }),
+          isError: true,
+        },
+        content,
+        toolCallCounter,
+        undefined,
+      );
+    } finally {
+      unsubscribe();
+    }
+
+    expect(details).toEqual([
+      expect.objectContaining({ app: "analytics", path: "/reports" }),
+    ]);
+  });
+});
+
+describe("SSE replay render pacing", () => {
+  it("marks an explicit done frame terminal without treating EOF as success", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([{ type: "text", text: "complete" }, { type: "done" }]),
+        [],
+        { value: 0 },
+        "tab-terminal-frame",
+        undefined,
+        undefined,
+        { markTerminalResults: true },
+      ),
+    );
+
+    expect(results.at(-1)).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+    });
+
+    const abruptEof = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.close();
+      },
+    });
+    await expect(
+      drain(
+        readSSEStream(
+          abruptEof,
+          [],
+          { value: 0 },
+          "tab-abrupt-eof",
+          undefined,
+          undefined,
+          { markTerminalResults: true },
+        ),
+      ),
+    ).rejects.toMatchObject({ reason: "stream_ended" });
+  });
+
+  it("yields to the browser event loop during a dense replay burst", async () => {
+    const textEvents = Array.from({ length: 60 }, (_, index) => ({
+      type: "text",
+      text: `${index}|`,
+    }));
+    const results: any[] = [];
+    let eventLoopAdvanced = false;
+    let firstResultAfterEventLoopAdvance: number | null = null;
+    const eventLoopTurn = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        eventLoopAdvanced = true;
+        resolve();
+      }, 0);
+    });
+
+    for await (const result of readSSEStream(
+      eventStream([...textEvents, { type: "done" }]),
+      [],
+      { value: 0 },
+      undefined,
+    )) {
+      results.push(result);
+      if (eventLoopAdvanced && firstResultAfterEventLoopAdvance === null) {
+        firstResultAfterEventLoopAdvance = results.length - 1;
+      }
+    }
+    await eventLoopTurn;
+
+    expect(firstResultAfterEventLoopAdvance).not.toBeNull();
+    expect(firstResultAfterEventLoopAdvance).toBeLessThan(4);
+    expect(results).toHaveLength(textEvents.length + 1);
+    expect(results.at(-1)?.content).toEqual([
+      {
+        type: "text",
+        text: textEvents.map((event) => event.text).join(""),
+      },
+    ]);
+  });
+
+  it("preserves event order and tool content across cooperative yields", async () => {
+    const before = Array.from({ length: 24 }, (_, index) => ({
+      type: "text",
+      text: `before-${index}|`,
+    }));
+    const after = Array.from({ length: 24 }, (_, index) => ({
+      type: "text",
+      text: `after-${index}|`,
+    }));
+    const events = [
+      ...before,
+      {
+        type: "tool_start",
+        id: "tool-1",
+        tool: "query-data",
+        input: { query: "select 1" },
+      },
+      {
+        type: "tool_done",
+        id: "tool-1",
+        tool: "query-data",
+        result: "one row",
+      },
+      ...after,
+      { type: "done" },
+    ].map((event, seq) => ({ ...event, seq }));
+    const seenSeq: number[] = [];
+
+    const results = (await drain(
+      readSSEStream(eventStream(events), [], { value: 0 }, undefined, (seq) =>
+        seenSeq.push(seq),
+      ),
+    )) as any[];
+
+    expect(seenSeq).toEqual(events.map((event) => event.seq));
+    expect(results).toHaveLength(events.length);
+    expect(results.at(-1)?.content).toEqual([
+      {
+        type: "text",
+        text: before.map((event) => event.text).join(""),
+      },
+      {
+        type: "tool-call",
+        toolCallId: "tool-1",
+        toolName: "query-data",
+        argsText: JSON.stringify({ query: "select 1" }),
+        args: { query: "select 1" },
+        result: "one row",
+      },
+      {
+        type: "text",
+        text: after.map((event) => event.text).join(""),
+      },
+    ]);
+  });
+
+  it("marks the browser liveness cursor only for durable progress events", async () => {
+    const events = [
+      { type: "text", text: "working", seq: 0 },
+      { type: "stream_keepalive", seq: 1 },
+      { type: "clear", seq: 2 },
+      { type: "tool_input_delta", text: "{", seq: 3 },
+      { type: "done", seq: 4 },
+    ];
+    const progressBySeq = new Map<number, boolean | undefined>();
+
+    await drain(
+      readSSEStream(
+        eventStream(events),
+        [],
+        { value: 0 },
+        undefined,
+        (seq, isProgress) => progressBySeq.set(seq, isProgress),
+      ),
+    );
+
+    expect([...progressBySeq.entries()]).toEqual([
+      [0, true],
+      [1, false],
+      [2, false],
+      [3, true],
+      [4, true],
+    ]);
+  });
+
+  it("streams partial tool input into one card before upgrading it", async () => {
+    const events = [
+      { type: "tool_input_start", id: "call-1", tool: "add-slide" },
+      {
+        type: "tool_input_delta",
+        id: "call-1",
+        tool: "add-slide",
+        text: '{"deckId":"deck-1","content":"<div class=\\"fmd-slide\\">',
+      },
+      {
+        type: "tool_input_delta",
+        id: "call-1",
+        tool: "add-slide",
+        text: "<h1>Live title",
+      },
+      {
+        type: "tool_start",
+        id: "call-1",
+        tool: "add-slide",
+        input: {
+          deckId: "deck-1",
+          content: '<div class="fmd-slide"><h1>Live title</h1></div>',
+        },
+      },
+      {
+        type: "tool_done",
+        id: "call-1",
+        tool: "add-slide",
+        result: '{"slideId":"slide-1"}',
+      },
+      { type: "done" },
+    ];
+
+    const results = (await drain(
+      readSSEStream(eventStream(events), [], { value: 0 }, undefined),
+    )) as any[];
+
+    expect(results[2].content).toEqual([
+      expect.objectContaining({
+        toolCallId: "call-1",
+        toolName: "add-slide",
+        activity: true,
+        argsText:
+          '{"deckId":"deck-1","content":"<div class=\\"fmd-slide\\"><h1>Live title',
+      }),
+    ]);
+    expect(results[3].content).toEqual([
+      {
+        type: "tool-call",
+        toolCallId: "call-1",
+        toolName: "add-slide",
+        argsText: JSON.stringify(events[3].input),
+        args: events[3].input,
+      },
+    ]);
+    expect(results.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolCallId: "call-1",
+          toolName: "add-slide",
+          result: '{"slideId":"slide-1"}',
+        }),
+      ]),
+    );
+  });
+
+  it("marks synthetic agent-call cards as presentation-only activity", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            id: "call-analytics",
+            tool: "call-agent",
+            input: { agent: "analytics", message: "Count signups" },
+          },
+          { type: "agent_call", agent: "Analytics", status: "start" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+
+    expect(results[1].content).toEqual([
+      expect.objectContaining({
+        toolCallId: "call-analytics",
+        toolName: "call-agent",
+      }),
+      expect.objectContaining({
+        toolName: "agent:Analytics",
+        activity: true,
+      }),
+    ]);
+  });
+
+  it("marks pending delegated calls as nonterminal presentation work", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-pending",
+            status: "start",
+          },
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-pending",
+            status: "pending",
+            taskId: "remote-task-1",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+
+    expect(results.at(-1)?.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolName: "agent:Analytics",
+          result: "Remote agent task is still pending",
+          structuredMeta: { agentPending: true },
+        }),
+      ]),
+    );
+  });
+
+  it("correlates concurrent same-name agent activity by call id", async () => {
+    const snapshot = {
+      kind: "agent-native/agent-activity",
+      version: 1,
+      sequence: 1,
+      startedAt: 1_000,
+      updatedAt: 2_000,
+      durationMs: 1_000,
+      activePhase: "tool",
+      reasoning: [],
+      toolCalls: [{ id: "query-1", name: "query-data", status: "running" }],
+    };
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-a",
+            status: "start",
+          },
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-b",
+            status: "start",
+          },
+          {
+            type: "agent_call_activity",
+            agent: "Analytics",
+            agentCallId: "analytics-b",
+            snapshot,
+          },
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-b",
+            status: "done",
+            durationMs: 1_000,
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+
+    const agentRows = results
+      .at(-1)
+      ?.content.filter((part: any) => part.toolName === "agent:Analytics");
+    expect(agentRows).toEqual([
+      expect.objectContaining({
+        toolCallId: "analytics-a",
+        result: "Stopped before this action started.",
+        outcome: "unknown",
+      }),
+      expect.objectContaining({
+        toolCallId: "analytics-b",
+        result: "Done",
+        structuredMeta: {
+          agentActivity: snapshot,
+          agentDurationMs: 1_000,
+        },
+      }),
+    ]);
+  });
+
+  it("stores generic A2A progress on only the matching agent call", async () => {
+    const results = (await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-a",
+            status: "start",
+          },
+          {
+            type: "agent_call",
+            agent: "Analytics",
+            agentCallId: "analytics-b",
+            status: "start",
+          },
+          {
+            type: "agent_call_progress",
+            agent: "Analytics",
+            agentCallId: "analytics-b",
+            state: "working",
+            elapsedSeconds: 30,
+            detail: "Querying the warehouse",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    )) as any[];
+
+    const agentRows = results[2]?.content.filter(
+      (part: any) => part.toolName === "agent:Analytics",
+    );
+    expect(agentRows).toHaveLength(2);
+    expect(agentRows?.[0]).toEqual(
+      expect.objectContaining({ toolCallId: "analytics-a" }),
+    );
+    expect(agentRows?.[0]).not.toHaveProperty("structuredMeta");
+    expect(agentRows?.[1]).toEqual(
+      expect.objectContaining({
+        toolCallId: "analytics-b",
+        structuredMeta: {
+          agentProgress: {
+            state: "working",
+            elapsedSeconds: 30,
+            detail: "Querying the warehouse",
+          },
+        },
+      }),
+    );
+  });
+});
 
 describe("SSE event processor no-progress recovery", () => {
   afterEach(() => {
@@ -1032,7 +1570,7 @@ describe("SSE event processor no-progress recovery", () => {
       ),
     );
 
-    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 5_000);
+    await vi.advanceTimersByTimeAsync(PARALLEL_PREPARATION_TERMINAL_DELAY_MS);
 
     await expect(donePromise).resolves.toBeDefined();
   });
@@ -1304,6 +1842,39 @@ describe("SSE event processor no-progress recovery", () => {
         activity: true,
       }),
     ]);
+  });
+
+  // `error-detail.ts` now names two deterministic failures that used to persist
+  // as `unknown` (a model/tools config rejection and a missing auth header) so
+  // they stop reaching users as raw provider text. Naming them must not make
+  // them auto-continue — a retry cannot fix either one, and this is the check
+  // that keeps a future addition to the recoverable list from doing so.
+  it("names a deterministic failure without making it recoverable", async () => {
+    for (const [errorCode, error] of [
+      [
+        "provider_config_error",
+        "Function tools with reasoning_effort are not supported for gpt-5.6-luna in /v1/chat/completions. To use function tools, use /v1/responses or set reasoning_effort to 'none'.",
+      ],
+      ["authentication_error", "Missing Authentication header"],
+    ]) {
+      const caught = await (async () => {
+        try {
+          for await (const _ of readSSEStream(
+            eventStream([{ type: "error", error, errorCode }]),
+            [],
+            { value: 0 },
+            undefined,
+          )) {
+            // no-op
+          }
+        } catch (err) {
+          return err;
+        }
+        return undefined;
+      })();
+
+      expect(caught).not.toBeInstanceOf(AgentAutoContinueSignal);
+    }
   });
 
   it("carries activity trail on auto-continuation signals", async () => {
@@ -1635,7 +2206,7 @@ describe("SSE event processor error classification", () => {
         type: "agent-chat:run-error",
         detail: {
           message:
-            "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+            "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
           details: "401 status code (no body)",
           tabId: "tab-provider-auth",
         },
@@ -1648,7 +2219,7 @@ describe("SSE event processor error classification", () => {
       content: [
         {
           type: "text",
-          text: "Error: The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+          text: "Error: The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
         },
       ],
       status: { type: "incomplete", reason: "error" },
@@ -1656,7 +2227,7 @@ describe("SSE event processor error classification", () => {
         custom: {
           runError: {
             message:
-              "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+              "The saved provider key was rejected. Connect Builder.io for managed AI, or update your provider key, then retry.",
             details: "401 status code (no body)",
           },
         },
@@ -1760,7 +2331,7 @@ describe("SSE event processor error classification", () => {
             argsText: "",
             args: {},
             activity: true,
-            isError: true,
+            outcome: "unknown",
             result: "Stopped before this action started.",
           }),
           {
@@ -1922,7 +2493,7 @@ describe("SSE event processor error classification", () => {
     );
   });
 
-  it("does not render non-tool activity as visible content", async () => {
+  it("turns a terminal activity-only run into a visible final warning", async () => {
     const results = await drain(
       readSSEStream(
         eventStream([
@@ -1938,20 +2509,54 @@ describe("SSE event processor error classification", () => {
       ),
     );
 
-    expect(results).toEqual([
-      {
-        content: [],
-        metadata: {
-          custom: {
-            activityTrail: [
-              {
-                label: "Contacting model",
-              },
-            ],
+    expect(results.at(-1)).toMatchObject({
+      content: [
+        {
+          type: "text",
+          text: "The agent stopped without sending a final message. Ask the agent to continue or retry.",
+        },
+      ],
+      status: { type: "complete", reason: "stop" },
+      metadata: {
+        custom: {
+          activityTrail: [{ label: "Contacting model" }],
+          runWarning: {
+            errorCode: "final_response_missing",
+            recoverable: true,
           },
         },
       },
-    ]);
+    });
+  });
+
+  it("keeps an intentional user stop neutral instead of adding a final warning", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Contacting model",
+          },
+          { type: "done", reason: "user" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-user-stop",
+      ),
+    );
+
+    expect(results.at(-1)).toMatchObject({
+      status: { type: "complete", reason: "stop" },
+      metadata: { custom: { userStopped: true } },
+    });
+    expect(results.at(-1)?.content).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "text",
+          text: expect.stringContaining("without sending a final message"),
+        }),
+      ]),
+    );
   });
 
   it("fills the pending tool activity card when tool_start arrives", async () => {
@@ -2560,6 +3165,45 @@ describe("SSE event processor error classification", () => {
     ]);
   });
 
+  it("treats a completed custom UI as the final response", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "tool_start",
+            tool: "render-todo-list-inline",
+            input: {},
+            chatUI: { renderer: "todo-demo.todo-list-inline" },
+          },
+          {
+            type: "tool_done",
+            tool: "render-todo-list-inline",
+            result: '{"ok":true}',
+            chatUI: { renderer: "todo-demo.todo-list-inline" },
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-custom-ui",
+        undefined,
+        "run-custom-ui",
+      ),
+    );
+
+    const last = results.at(-1) as any;
+    expect(last).toMatchObject({
+      content: [
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "render-todo-list-inline",
+          chatUI: { renderer: "todo-demo.todo-list-inline" },
+        }),
+      ],
+    });
+    expect(last.metadata?.custom?.runWarning).toBeUndefined();
+  });
+
   it("does not add a missing-final warning when text arrives after the last completed tool", async () => {
     const results = await drain(
       readSSEStream(
@@ -2757,6 +3401,40 @@ describe("SSE event processor error classification", () => {
           result: "1",
         }),
         { type: "text", text: "Corrected answer" },
+      ],
+    });
+  });
+
+  it("keeps narration from earlier steps when a later draft is cleared", async () => {
+    // A `clear` is the server retrying the CURRENT draft, which always resumes
+    // after the last completed tool. Splicing every text part wiped multi-step
+    // narration from the whole turn, which users reported as "it deleted its
+    // reply and started over".
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Step 1: reading the schema." },
+          { type: "tool_start", tool: "query", input: { sql: "select 1" } },
+          { type: "tool_done", tool: "query", result: "1" },
+          { type: "text", text: "Step 2: rejected draft." },
+          { type: "clear" },
+          { type: "text", text: "Step 2: corrected answer." },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+      ),
+    );
+
+    expect(results.at(-1)).toEqual({
+      content: [
+        { type: "text", text: "Step 1: reading the schema." },
+        expect.objectContaining({
+          type: "tool-call",
+          toolName: "query",
+          result: "1",
+        }),
+        { type: "text", text: "Step 2: corrected answer." },
       ],
     });
   });
@@ -2996,6 +3674,78 @@ describe("SSE event processor error classification", () => {
     });
   });
 
+  it("auto-continues provider network errors", async () => {
+    const message =
+      "Failed after 2 attempts. Last error: Cannot connect to API: " +
+      "ERR_SSL_TLSV1_ALERT_INTERNAL_ERROR tlsv1 alert internal error";
+    const err = await readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error: message,
+          errorCode: "provider_network_error",
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-provider-network",
+    )
+      [Symbol.asyncIterator]()
+      .next()
+      .then(
+        () => undefined,
+        (caught) => caught,
+      );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("stream_ended");
+    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
+      errorCode: "provider_network_error",
+      message:
+        "The model provider could not be reached. Check your connection and retry.",
+      details: message,
+      recoverable: true,
+    });
+  });
+
+  it("auto-continues the Builder gateway internal-error envelope", async () => {
+    const message =
+      "Sorry, we ran into an issue processing your request. " +
+      "ERROR ID: bebaeb5da13441539790834b63ff955a";
+    const err = await readSSEStream(
+      eventStream([
+        {
+          type: "error",
+          error: message,
+          errorCode: "builder_gateway_internal_error",
+        },
+      ]),
+      [],
+      { value: 0 },
+      "tab-gateway-internal",
+    )
+      [Symbol.asyncIterator]()
+      .next()
+      .then(
+        () => undefined,
+        (caught) => caught,
+      );
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).errorInfo).toMatchObject({
+      errorCode: "builder_gateway_internal_error",
+      recoverable: true,
+    });
+    // The correlation id is the only part support can act on, so it stays —
+    // just not as the whole sentence the user reads.
+    expect((err as AgentAutoContinueSignal).errorInfo?.details).toContain(
+      "bebaeb5da13441539790834b63ff955a",
+    );
+    expect((err as AgentAutoContinueSignal).errorInfo?.message).not.toContain(
+      "ERROR ID",
+    );
+  });
+
   it("surfaces run_budget_exhausted as a loud terminal error without auto-continuing", async () => {
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -3053,6 +3803,143 @@ describe("SSE event processor error classification", () => {
           recoverable: true,
         }),
       }),
+    );
+  });
+
+  it("does not auto-continue a deliberate abort reported as a recoverable aborted_* error", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    // Must NOT throw AgentAutoContinueSignal — restarting work a Slack cancel
+    // or the stuck banner just stopped is the destructive outcome.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error: "The agent run was stopped before it finished.",
+            errorCode: "aborted_slack_cancel",
+            recoverable: true,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-abort",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { recoverable?: boolean } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.recoverable).toBe(true);
+  });
+
+  it("does not auto-continue a breaker stop that preserved its underlying transient code", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    // The server's no-progress breaker keeps the gateway code and reference id
+    // so the failure stays diagnosable. Reading the code instead of the flag
+    // re-POSTs the exact chain the server just refused to continue.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: 0f3c9ab21d7e\n\nThis failed 2 times in a row without making any progress, so I stopped instead of retrying again.",
+            errorCode: "builder_gateway_internal_error",
+            recoverable: false,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-no-progress-breaker",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { errorCode?: string } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.errorCode).toBe(
+      "builder_gateway_internal_error",
+    );
+  });
+
+  it("does not auto-continue a repeat-guard stop whose message names a tool that matches the transient message sniff", async () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    // The guard interpolates the looping tool's name, and 17 shipped actions
+    // are named `*connection*` — enough to match the "connection" sniff and
+    // auto-continue the exact loop this event exists to break.
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "error",
+            error:
+              "Stopped because `list-workspace-connections` was called 8 times with identical arguments without making progress.",
+            errorCode: "repeated_tool_call",
+            recoverable: false,
+          },
+        ]),
+        [],
+        { value: 0 },
+        "tab-repeat-guard",
+      ),
+    );
+
+    const terminal = results.at(-1) as
+      | {
+          status?: { type: string; reason: string };
+          metadata?: { custom?: { runError?: { errorCode?: string } } };
+        }
+      | undefined;
+    expect(terminal?.status).toEqual({ type: "incomplete", reason: "error" });
+    expect(terminal?.metadata?.custom?.runError?.errorCode).toBe(
+      "repeated_tool_call",
     );
   });
 });
@@ -3194,6 +4081,85 @@ describe("SSE event processor tool id matching", () => {
       approvalKey: 'send-email:{"to":"a@b.com"}',
     });
   });
+
+  it("prefers toolCallId over id when an approval carries both", async () => {
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "send-email", id: "call-1", input: {} },
+          { type: "tool_start", tool: "send-email", id: "call-2", input: {} },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: "send-email:call-2",
+            // `toolCallId` is the contract field; `id` is a stale older frame.
+            toolCallId: "call-2",
+            id: "call-1",
+            input: {},
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const byId = (id: string) =>
+      content.find((p: any) => p.type === "tool-call" && p.toolCallId === id);
+    expect(byId("call-2")?.approval).toEqual({
+      approvalKey: "send-email:call-2",
+    });
+    expect(byId("call-1")?.approval).toBeUndefined();
+  });
+
+  it("does not attach a replayed approval to a different call of the same action", async () => {
+    // call-1 is gated and resolved by its paused tool_done. call-2 is a second
+    // in-flight call to the same action. Replaying call-1's approval must not
+    // put call-1's key behind call-2's Approve button.
+    const content: any[] = [];
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "send-email", id: "call-1", input: {} },
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: "send-email:call-1",
+            toolCallId: "call-1",
+            input: {},
+          },
+          {
+            type: "tool_done",
+            tool: "send-email",
+            id: "call-1",
+            result: "Awaiting human approval — did NOT execute.",
+          },
+          { type: "tool_start", tool: "send-email", id: "call-2", input: {} },
+          // Reordered/replayed frame for the already-resolved call-1.
+          {
+            type: "approval_required",
+            tool: "send-email",
+            approvalKey: "send-email:call-1",
+            toolCallId: "call-1",
+            input: {},
+          },
+          { type: "done" },
+        ]),
+        content,
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    const byId = (id: string) =>
+      content.find((p: any) => p.type === "tool-call" && p.toolCallId === id);
+    expect(byId("call-1")?.approval).toEqual({
+      approvalKey: "send-email:call-1",
+    });
+    expect(byId("call-2")?.approval).toBeUndefined();
+  });
 });
 
 describe("SSE event processor activity-label clearing", () => {
@@ -3259,6 +4225,136 @@ describe("SSE event processor activity-label clearing", () => {
         detail: { tabId: "tab-clear-text" },
       }),
     );
+  });
+
+  it("clears the running activity label when a terminal done follows preparation", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          {
+            type: "activity",
+            label: "Preparing patch deck...",
+            tool: "patch-deck",
+          },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-clear-terminal",
+      ),
+    );
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:activity-clear",
+        detail: { tabId: "tab-clear-terminal" },
+      }),
+    );
+  });
+});
+
+describe("SSE event processor stream-progress signaling", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const stubWindow = () => {
+    const dispatchEvent = vi.fn();
+    vi.stubGlobal("window", { dispatchEvent });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+    return dispatchEvent;
+  };
+
+  function streamProgressCalls(dispatchEvent: ReturnType<typeof vi.fn>) {
+    return dispatchEvent.mock.calls.filter(
+      (call) => (call[0] as CustomEvent).type === "agent-chat:stream-progress",
+    );
+  }
+
+  it("dispatches stream-progress once per chunk even across multiple text deltas", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Hello" },
+          { type: "text", text: " there" },
+          { type: "text", text: "!" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-progress",
+      ),
+    );
+
+    expect(streamProgressCalls(dispatchEvent)).toHaveLength(1);
+    expect(dispatchEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent-chat:stream-progress",
+        detail: { tabId: "tab-progress" },
+      }),
+    );
+  });
+
+  it("re-arms stream-progress after a server clear retries the draft", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "text", text: "Rejected draft" },
+          { type: "clear" },
+          { type: "text", text: "Corrected answer" },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-rearm",
+      ),
+    );
+
+    expect(streamProgressCalls(dispatchEvent)).toHaveLength(2);
+  });
+
+  it("dispatches stream-progress once per chunk for reasoning deltas too", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([
+          { type: "thinking", text: "Let me consider" },
+          { type: "thinking", text: " this further." },
+          { type: "done" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-reasoning-progress",
+      ),
+    );
+
+    expect(streamProgressCalls(dispatchEvent)).toHaveLength(1);
+  });
+
+  it("does not dispatch stream-progress for an empty text delta", async () => {
+    const dispatchEvent = stubWindow();
+    await drain(
+      readSSEStream(
+        eventStream([{ type: "text", text: "" }, { type: "done" }]),
+        [],
+        { value: 0 },
+        "tab-empty",
+      ),
+    );
+
+    expect(streamProgressCalls(dispatchEvent)).toHaveLength(0);
   });
 });
 
@@ -3406,5 +4502,231 @@ describe("SSE thinking / reasoning events", () => {
     ).catch(() => {});
 
     expect(content).toEqual([{ type: "text", text: "retry" }]);
+  });
+});
+
+function inFlightToolStream(
+  terminalDelayMs: number,
+  toolDoneDelayMs?: number,
+): ReadableStream<Uint8Array> {
+  const timers: ReturnType<typeof setTimeout>[] = [];
+  const encode = (event: unknown) =>
+    new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(
+        encode({ type: "tool_start", tool: "run-report", id: "call-1" }),
+      );
+      if (toolDoneDelayMs !== undefined) {
+        timers.push(
+          setTimeout(() => {
+            controller.enqueue(
+              encode({
+                type: "tool_done",
+                tool: "run-report",
+                id: "call-1",
+                result: "ok",
+              }),
+            );
+          }, toolDoneDelayMs),
+        );
+      }
+      timers.push(
+        setTimeout(() => {
+          controller.enqueue(encode({ type: "done" }));
+          controller.close();
+        }, terminalDelayMs),
+      );
+    },
+    cancel() {
+      for (const timer of timers) clearTimeout(timer);
+    },
+  });
+}
+
+describe("SSE client watchdog ordering", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps the client no-progress window above the server backstop", () => {
+    // The server owns recovery. If the browser fires first, the whole
+    // server-side ladder becomes unreachable dead code.
+    expect(SSE_NO_PROGRESS_TIMEOUT_MS).toBeGreaterThan(
+      RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
+    );
+    expect(SSE_IN_FLIGHT_WORK_TIMEOUT_MS).toBeGreaterThan(
+      SSE_NO_PROGRESS_TIMEOUT_MS,
+    );
+  });
+
+  it("suspends the no-progress watchdog while a tool call is in flight", async () => {
+    vi.useFakeTimers();
+
+    const donePromise = drain(
+      readSSEStream(
+        inFlightToolStream(SSE_NO_PROGRESS_TIMEOUT_MS + 120_000),
+        [],
+        { value: 0 },
+        undefined,
+      ),
+    );
+
+    await vi.advanceTimersByTimeAsync(SSE_NO_PROGRESS_TIMEOUT_MS + 120_000);
+
+    await expect(donePromise).resolves.toBeDefined();
+  });
+
+  it("resumes the no-progress watchdog once the tool settles", async () => {
+    vi.useFakeTimers();
+
+    const errPromise = (async () => {
+      try {
+        await drain(
+          readSSEStream(
+            inFlightToolStream(SSE_NO_PROGRESS_TIMEOUT_MS * 3, 1_000),
+            [],
+            { value: 0 },
+            undefined,
+          ),
+        );
+      } catch (err) {
+        return err;
+      }
+    })();
+
+    await vi.advanceTimersByTimeAsync(1_000 + SSE_NO_PROGRESS_TIMEOUT_MS + 1);
+    const err = await errPromise;
+
+    expect(err).toBeInstanceOf(AgentAutoContinueSignal);
+    expect((err as AgentAutoContinueSignal).reason).toBe("no_progress");
+    expect((err as AgentAutoContinueSignal).clientWatchdog).toBe(true);
+  });
+});
+
+describe("settleInterruptedToolCalls", () => {
+  const pendingTool = (): ContentPart => ({
+    type: "tool-call",
+    toolCallId: "tc_1",
+    toolName: "send-email",
+    argsText: "{}",
+    args: {},
+  });
+
+  it("records an interrupted side effect as unknown, not failed", () => {
+    const content: ContentPart[] = [pendingTool()];
+
+    expect(settleInterruptedToolCalls(content)).toBe(true);
+
+    const part = content[0] as Extract<ContentPart, { type: "tool-call" }>;
+    expect(part.result).toBeDefined();
+    expect(part.outcome).toBe("unknown");
+    expect(part.isError).toBeUndefined();
+  });
+
+  it("leaves a server-reported failure marked as an error", () => {
+    const failed: ContentPart = {
+      ...pendingTool(),
+      result: "Boom",
+      isError: true,
+    };
+    const content: ContentPart[] = [failed];
+
+    expect(settleInterruptedToolCalls(content)).toBe(false);
+    expect((content[0] as typeof failed).isError).toBe(true);
+    expect((content[0] as typeof failed).outcome).toBeUndefined();
+  });
+
+  it("only settles activity placeholders when asked", () => {
+    const content: ContentPart[] = [{ ...pendingTool(), activity: true }];
+
+    expect(settleInterruptedToolCalls(content)).toBe(false);
+    expect(
+      settleInterruptedToolCalls(content, undefined, {
+        includeActivity: true,
+      }),
+    ).toBe(true);
+    expect(
+      (content[0] as Extract<ContentPart, { type: "tool-call" }>).outcome,
+    ).toBe("unknown");
+  });
+});
+
+// A Builder-credits deployment answers every gateway rejection with one visitor
+// line and keeps the real reason on `errorCode`. Auto-continue used to be
+// decided from the message text, so on those sites alone a transient upstream
+// failure — which carries no code at all — ended the turn.
+describe("auto-continue on a deployment that replaces the error message", () => {
+  const VISITOR_LINE = "AI features aren't available on this site right now.";
+
+  async function readError(event: Record<string, unknown>) {
+    const content: ContentPart[] = [];
+    try {
+      const results = await drain(
+        readSSEStream(
+          eventStream([{ type: "error", error: VISITOR_LINE, ...event }]),
+          content,
+          { value: 0 },
+          undefined,
+        ),
+      );
+      return { continued: false, results };
+    } catch (err) {
+      if (err instanceof AgentAutoContinueSignal) {
+        return { continued: true, signal: err };
+      }
+      throw err;
+    }
+  }
+
+  it("continues on the engine's structural retry verdict", async () => {
+    // No error code: an upstream "Overloaded" reaches the client with the
+    // reason only in `providerRetryable`.
+    expect((await readError({ providerRetryable: true })).continued).toBe(true);
+  });
+
+  it("does not continue the same message without that verdict", async () => {
+    expect((await readError({})).continued).toBe(false);
+  });
+
+  it("continues a truncated stream by its code", async () => {
+    expect(
+      (await readError({ errorCode: "builder_gateway_stream_ended" }))
+        .continued,
+    ).toBe(true);
+  });
+
+  // The verdict is checked after the terminal codes, so it can never revive a
+  // quota, auth or daily-cap rejection into a retry loop.
+  for (const errorCode of [
+    "rate_limit_exceeded",
+    "credits-limit-reached",
+    "builder_auth_error",
+    "builder_gateway_error",
+    "gateway_not_enabled",
+  ]) {
+    it(`stays terminal for ${errorCode} even with the retry verdict set`, async () => {
+      expect(
+        (await readError({ errorCode, providerRetryable: true })).continued,
+      ).toBe(false);
+    });
+  }
+
+  // End of the wire: what a terminal gateway rejection actually renders as. The
+  // error code is preserved for the owner's logs, and the rendered text is the
+  // one line — not the "Reconnect Builder in Settings" copy this code maps to.
+  it("renders the terminal rejection as the one line the server chose", async () => {
+    const outcome = await readError({ errorCode: "builder_auth_error" });
+
+    expect(outcome.continued).toBe(false);
+    const last = outcome.results?.at(-1) as any;
+    expect(last.content.at(-1)).toEqual({
+      type: "text",
+      text: `Error: ${VISITOR_LINE}`,
+    });
+    expect(last.metadata.custom.runError).toStrictEqual({
+      message: VISITOR_LINE,
+      errorCode: "builder_auth_error",
+    });
   });
 });

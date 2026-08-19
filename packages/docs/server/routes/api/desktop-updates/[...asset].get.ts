@@ -8,6 +8,7 @@ import {
 } from "h3";
 
 import {
+  DESKTOP_RELEASE_CACHE_HEADERS,
   getDesktopDownloadManifest,
   getDesktopReleaseError,
   isDesktopUpdateMetadataAsset,
@@ -72,25 +73,13 @@ export default defineEventHandler(async (event) => {
   }
 
   if (isDesktopUpdateMetadataAsset(asset.name)) {
-    const upstream = await fetch(asset.url, {
-      headers: { "user-agent": "agent-native-desktop-update-feed" },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!upstream.ok) {
-      throw createError({
-        statusCode: 502,
-        statusMessage: `Desktop update metadata fetch failed (${upstream.status})`,
-      });
-    }
-    setResponseHeaders(event, {
-      "content-type": "application/x-yaml; charset=utf-8",
-      "cache-control": "public, max-age=60",
-    });
-    return upstream.text();
+    // Let the updater follow GitHub's signed asset redirect directly. Proxying
+    // the YAML through the docs function adds a second fragile upstream fetch
+    // to the update path and turns transient GitHub asset failures into a 502.
+    setResponseHeaders(event, DESKTOP_RELEASE_CACHE_HEADERS);
+    return sendRedirect(event, asset.url, 302);
   }
 
-  setResponseHeaders(event, {
-    "cache-control": "public, max-age=300",
-  });
+  setResponseHeaders(event, DESKTOP_RELEASE_CACHE_HEADERS);
   return sendRedirect(event, asset.url, 302);
 });

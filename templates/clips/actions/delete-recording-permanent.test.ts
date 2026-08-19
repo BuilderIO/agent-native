@@ -89,6 +89,9 @@ vi.mock("../server/db/index.js", () => ({
     recordingComments: { recordingId: "recordingComments.recordingId" },
     recordingReactions: { recordingId: "recordingReactions.recordingId" },
     recordingViews: { recordingId: "recordingViews.recordingId" },
+    recordingPlaybackPositions: {
+      recordingId: "recordingPlaybackPositions.recordingId",
+    },
     recordingViewers: { recordingId: "recordingViewers.recordingId" },
     recordingEvents: { recordingId: "recordingEvents.recordingId" },
     recordingTranscripts: {

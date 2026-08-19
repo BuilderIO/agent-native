@@ -6,6 +6,8 @@ export {
   cleanupOldCheckpoints,
 } from "./store.js";
 
+export { isCheckpointRestorePath } from "./route-match.js";
+
 export {
   isGitRepo,
   hasUncommittedChanges,

@@ -22,7 +22,7 @@ MCP は、AI ツールを外部機能に接続するための標準プロトコ�
 
 重要な概念:
 
-- **自動マウント** — すべてのアプリは無料で `/_agent-native/mcp` を入手でき、セットアップは必要ありません
+- **自動マウント** — すべてのアプリは無料で `/mcp` を入手でき、セットアップは必要ありません
 - **ストリーミング可能な HTTP** — 標準の HTTP (POST + SSE) ではなく最新の MCP トランスポートを使用します
 - **同じ actions** — エージェント チャットと A2A を強化するまったく同じアクション レジストリ
 - **`ask-agent` ツール** — 複雑なタスクをエージェント ループ全体に委任するメタツール
@@ -41,7 +41,7 @@ MCP は、AI ツールを外部機能に接続するための標準プロトコ�
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel">
-    <span class="diagram-pill accent">POST /_agent-native/mcp</span
+    <span class="diagram-pill accent">POST /mcp</span
     ><small class="diagram-muted">Streamable HTTP</small
     ><small class="diagram-muted"
       >initialize &rarr; tools/list &rarr; tools/call</small
@@ -94,7 +94,7 @@ MCP は、AI ツールを外部機能に接続するための標準プロトコ�
 | **最適な用途**     | アプリを呼び出す外部ツール                                                         | エージェント間のコミュニケーション                   |
 | **プロトコル**     | MCP ストリーミング可能な HTTP                                                      | JSON-RPC 2.0                                         |
 | **ツールの発見**   | `tools/list`                                                                       | `/.well-known/agent-card.json` のエージェント カード |
-| **エンドポイント** | `/_agent-native/mcp`                                                               | `/_agent-native/a2a`                                 |
+| **エンドポイント** | `/mcp`                                                                             | `/_agent-native/a2a`                                 |
 | **サポート対象**   | Claude、ChatGPT、Claude コード、カーソル、Codex、Cowork、およびその他の MCP ホスト | その他のエージェントネイティブ アプリ                |
 | **実行**           | 直接ツール呼び出し (追加の LLM なし)                                               | 完全なエージェント ループ (LLM 推論)                 |
 
@@ -105,7 +105,7 @@ MCP は、AI ツールを外部機能に接続するための標準プロトコ�
 推奨される 1 つのコマンド セットアップでは、[External Agents](/docs/external-agents) を使用します。 OAuth 対応クライアントの MCP 構成を手書きしている場合は、静的ヘッダーのないリモート MCP サーバーとしてアプリを追加します。
 
 ```bash
-claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
+claude mcp add --transport http mail https://mail.example.com/mcp
 ```
 
 または、`.mcp.json` (プロジェクト スコープ) または `~/.claude.json` (ユーザー スコープ) にエントリを手動で書き込みます。
@@ -116,7 +116,7 @@ claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
   "mcpServers": {
     "mail": {
       "type": "http",
-      "url": "https://mail.example.com/_agent-native/mcp",
+      "url": "https://mail.example.com/mcp",
     },
   },
 }
@@ -135,12 +135,12 @@ Claude Code calls: draft-email(to: "john@example.com", subject: "Q3 Report", bod
 ストリーミング可能な HTTP トランスポートをサポートするすべての MCP クライアントが接続できます。エンドポイントは次のとおりです:
 
 ```
-POST https://your-app.example.com/_agent-native/mcp
+POST https://your-app.example.com/mcp
 ```
 
 サーバーは、標準の MCP ハンドシェイク: `initialize` → `initialized` → `tools/list` → `tools/call` をサポートします。
 
-<Endpoint id="doc-block-14spw6g" title={"MCP エンドポイント"} summary={"すべてのエージェント ネイティブ アプリが公開する、自動マウントされる Streamable HTTP エンドポイント。"} method="POST" path="/_agent-native/mcp" summary={"MCP ストリーミング可能な HTTP エンドポイント"} auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
+<Endpoint id="doc-block-14spw6g" title={"MCP エンドポイント"} summary={"すべてのエージェント ネイティブ アプリが公開する、自動マウントされる Streamable HTTP エンドポイント。"} method="POST" path="/mcp" summary={"MCP ストリーミング可能な HTTP エンドポイント"} auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
   {
     "name": "Authorization",
     "in": "header",
@@ -204,18 +204,46 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 
 個々のアクション ツールに加えて、すべての MCP サーバーには `ask-agent` メタツールが含まれています。これにより、アプリの AI エージェントに自然言語メッセージが送信され、応答が返されます。
 
+ホストされている MCP リクエストは境界のあるインライン待機を使用するため、長時間のエージェント ループが 1 つの `tools/call` をクライアントまたはゲートウェイのタイムアウトまで開いたままにすることはありません。オプションの `async` 引数を指定すると、永続的なタスクが開始されすぐに応答が返されます。指定しない場合、サーバーは短時間だけ高速な完了を待ってから、処理が残っている場合はタスク ハンドルを返します。ホストされている待機は 25 秒に制限されています。
+
 エージェントの推論とコンテキストから恩恵を受ける複雑なタスクには、`ask-agent` を使用します。
 
 ```json
 {
   "name": "ask-agent",
   "arguments": {
-    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed"
+    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed",
+    "async": true
   }
 }
 ```
 
-エージェントは対話型チャットと同じループを実行します。エージェントは複数のツールを呼び出し、コンテキストを推論し、思慮深い応答を生成できます。
+エージェントは対話型チャットと同じループを実行します。エージェントは複数のツールを呼び出し、コンテキストを推論し、思慮深い応答を生成できます。完了していないタスクは、`taskId`、`status`、`pollAfterMs` を含む JSON を返します。
+
+```json
+{
+  "poll": {
+    "tool": "ask_app_status",
+    "arguments": {
+      "app": "mail",
+      "taskId": "task_123",
+      "taskHandle": "opaque_handle"
+    }
+  }
+}
+```
+
+タスクが最終状態に達するまで、これらの引数を使用して `ask_app_status` を呼び出してください。Dispatch のアプリ所有の `ask_app` は同じ永続的なタスクとステータスの契約を使用し、選択されたアプリの許可は送信時とポーリング時の両方でチェックされます。
+
+制限された一時的なステータス取得を利用できない場合、`ask_app_status` は
+`status: "unknown"`、`statusRead: "unavailable"`、`retryable: true`、元の
+`app` と `taskId`、および `pollAfterMs` / `poll` を返すことがあります。これは
+ステータス取得が利用できないことを意味し、永続タスクが失敗したことを意味しません。
+返されたものとまったく同じ `poll.arguments`（存在する場合は `taskHandle` を含む）で
+`ask_app_status` を再試行してください。ハンドルのない従来の結果では、同じ `app` と
+`taskId` を再利用します。送信により
+作業が重複する可能性があるため、復旧のために `ask_app` を再送信してはいけません。
+永続的な認証、未検出、プロトコルのエラーは引き続きエラーです。
 
 ## 認証 {#authentication}
 
@@ -233,7 +261,7 @@ MCP エンドポイントは、標準のリモート MCP OAuth に加えて、�
 OAuth 対応の MCP ホストの場合は、静的ヘッダーなしでリモート サーバー URL を構成します。
 
 ```bash
-claude mcp add --transport http agent-native https://dispatch.agent-native.com/_agent-native/mcp
+claude mcp add --transport http agent-native https://dispatch.agent-native.com/mcp
 ```
 
 最初の未認証の MCP リクエストは以下を受け取ります。
@@ -249,9 +277,9 @@ WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.w
 | ----------------------------------------- | --------------------------------------- |
 | `/.well-known/oauth-protected-resource`   | RFC 9728 保護されたリソースのメタデータ |
 | `/.well-known/oauth-authorization-server` | OAuth 認可サーバーのメタデータ          |
-| `/_agent-native/mcp/oauth/register`       | 動的パブリッククライアント登録          |
-| `/_agent-native/mcp/oauth/authorize`      | ブラウザの承認 + 同意                   |
-| `/_agent-native/mcp/oauth/token`          | 認可コードとリフレッシュトークンの付与  |
+| `/mcp/oauth/register`                     | 動的パブリッククライアント登録          |
+| `/mcp/oauth/authorize`                    | ブラウザの承認 + 同意                   |
+| `/mcp/oauth/token`                        | 認可コードとリフレッシュトークンの付与  |
 
 <Diagram id="doc-block-isdrqb" title={"OAuth 検出フロー"} summary={"401 によって検出、登録、PKCE による承認→トークン交換が開始されます。 Bearer トークンは、対象者に限定され、スコープが設定されています。"}>
 
@@ -351,7 +379,7 @@ export default defineNitroPlugin(async (nitro) => {
 `analytics.example.com` に分析アプリがデプロイされています。 Claude コードから:
 
 ```bash
-claude mcp add --transport http analytics https://analytics.example.com/_agent-native/mcp
+claude mcp add --transport http analytics https://analytics.example.com/mcp
 ```
 
 または、`.mcp.json` に手動で追加します。
@@ -362,7 +390,7 @@ claude mcp add --transport http analytics https://analytics.example.com/_agent-n
   "mcpServers": {
     "analytics": {
       "type": "http",
-      "url": "https://analytics.example.com/_agent-native/mcp",
+      "url": "https://analytics.example.com/mcp",
     },
   },
 }

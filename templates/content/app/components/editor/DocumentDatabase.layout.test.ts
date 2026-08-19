@@ -42,7 +42,9 @@ describe("document database layout", () => {
     expect(source).toContain("setPreviewTitleFocusDocumentId");
     expect(source).toContain("titleInputRef.current?.focus()");
     expect(source).toContain("titleInputRef.current?.select()");
-    expect(source).toContain('aria-label={dbText("newDatabaseRow")}');
+    expect(source).toContain("const newDatabaseRowLabel =");
+    expect(source).toContain("newRowLabel={newDatabaseRowLabel}");
+    expect(source).toContain("label={newRowLabel}");
   });
 
   it("selects the current view name when renaming a database view", () => {
@@ -168,13 +170,13 @@ describe("document database layout", () => {
     expect(source.match(/dbText\("refreshSource"\)/g)).toHaveLength(2);
     expect(
       source.match(/onClick=\{\(\) => onRefreshSource\(source\.id\)\}/g),
-    ).toHaveLength(4);
+    ).toHaveLength(2);
     // The independent DatabaseView continuation pump still resumes an already
     // fetching snapshot after a reload; it is not a panel-open freshness read.
     expect(source).toContain(
-      'builderSourceRowFetchStatus(source) !== "fetching"',
+      'builderSourceRowFetchStatus(source) === "fetching"',
     );
-    expect(source).toContain("source.metadata.lastReadHasMore !== true");
+    expect(source).toContain("source.metadata.lastReadHasMore === true");
     expect(source).toContain("const continuationKey");
   });
 
@@ -232,7 +234,8 @@ describe("document database layout", () => {
     expect(source).toContain(
       "if (totalCount === 0 && !constrained) return null",
     );
-    expect(source).toContain('aria-label={dbText("newDatabaseRow")}');
+    expect(source).toContain("newRowLabel={newDatabaseRowLabel}");
+    expect(source).toContain("label={newRowLabel}");
     expect(source).toContain("hover:bg-muted/35 hover:text-foreground");
   });
 
@@ -334,5 +337,22 @@ describe("document database layout", () => {
     );
     expect(source).toContain("group-hover/footer:opacity-100");
     expect(source).toContain("quietUntilHover");
+  });
+
+  it("keeps selection controls visible and hides mutations without permission", () => {
+    const source = readDatabaseSource();
+    const selectionBarIndex = source.indexOf("<DatabaseSelectionBar");
+    const scrollSurfaceIndex = source.indexOf(
+      'data-database-scroll-surface="table"',
+    );
+
+    expect(selectionBarIndex).toBeGreaterThan(-1);
+    expect(scrollSurfaceIndex).toBeGreaterThan(selectionBarIndex);
+    expect(source).toContain(
+      "const effectiveCanEdit = canEdit && document.canEdit === true",
+    );
+    expect(source).toContain("effectiveCanEdit && document.canManage === true");
+    expect(source).toContain("canRemoveSelected={canRemoveSelected}");
+    expect(source).toContain("Clear");
   });
 });

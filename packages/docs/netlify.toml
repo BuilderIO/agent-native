@@ -1,18 +1,90 @@
 [build]
-command = "pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter @agent-native/docs build && if [ \"${CONTEXT:-}\" = \"production\" ]; then pnpm --filter @agent-native/docs migrate:production; fi"
 publish = "packages/docs/dist"
+
+# Netlify's static asset handling sends extensionless Dockerfile requests to
+# the SSR fallback. Rewrite the documented endpoint to the served text asset
+# while keeping the browser/download filename compatible with Compose.
+[[redirects]]
+from = "/examples/self-hosted-chat/Dockerfile"
+to = "/examples/self-hosted-chat/Dockerfile.txt"
+status = 200
+force = true
+
+# Keep legacy template links at the CDN edge instead of running the SSR
+# redirect loader for every request.
+[[redirects]]
+from = "/templates"
+to = "/apps"
+status = 301
+force = true
+
+[[redirects]]
+from = "/templates/"
+to = "/apps/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/templates/*"
+to = "/apps/:splat"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/templates"
+to = "/:locale/apps"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/templates/"
+to = "/:locale/apps/"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/templates/*"
+to = "/:locale/apps/:splat"
+status = 301
+force = true
 
 # Slug redirects for renamed docs — keep in sync with SLUG_REDIRECTS in app/routes/docs.$slug.tsx.
 [[redirects]]
 from = "/docs/resources"
-to = "/docs/workspace"
+to = "/docs/agent-resources"
+status = 301
+force = true
+
+[[redirects]]
+from = "/docs/workspace"
+to = "/docs/agent-resources"
+status = 301
+force = true
+
+[[redirects]]
+from = "/:locale/docs/workspace"
+to = "/:locale/docs/agent-resources"
+status = 301
+force = true
+
+[[redirects]]
+from = "/docs/:locale/workspace"
+to = "/:locale/docs/agent-resources"
 status = 301
 force = true
 
 [build.environment]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+GTM_CONTAINER_ID = "GTM-N3WSTXZ"
 NITRO_PRESET = "netlify"
 AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
 VITE_AGENT_NATIVE_WORKSPACE_APP_AUDIENCE = "public"
+
+[context.production.environment]
+# The docs app owns the framework schema at release time, so production
+# request functions do not spend their cold-start budget on migration probes.
+AGENT_NATIVE_RELEASE_MIGRATIONS = "1"
 
 # Cache headers intentionally live in @agent-native/core instead of this
 # Netlify config. The framework emits SSR HTML/.data SWR headers from the

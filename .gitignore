@@ -5,6 +5,10 @@ dist
 docs/superpowers
 .DS_Store
 
+# Local bridge and data artifacts
+/bridge/
+/data/
+
 .idea/
 
 /*.png
@@ -16,6 +20,7 @@ tmp/
 
 # Screenshot artifacts from design iterations
 packages/docs/*.png
+.artifacts/
 
 # Copied at publish time via prepack
 packages/core/README.md
@@ -82,6 +87,11 @@ templates/*/wrangler.toml
 wrangler.toml
 .claude/scheduled_tasks.lock
 .claude/worktrees/
+# Local editor runtime state.
+.claude/leases/
+# Per-machine permission allow-lists routinely accumulate real connection
+# strings. Only a global core.excludesFile kept these out of history before.
+.claude/settings.local.json
 
 # Agent session scratch / plan draft notes
 .claude/plan-drafts/
@@ -113,3 +123,17 @@ test-reports/
 
 # tsup transient bundled config artifacts
 tsup.config.bundled_*.mjs
+packages/core/corpus.tmp-*/
+
+# Temporary trusted document exports can contain internal workspace content.
+/.tmp-docs-trusted-*/
+
+# Local output of `preview-dashboard-report.ts` — contains real internal
+# analytics data and is meant for local inspection only, never committed.
+.report-preview/
+
+# Local pnpm store (used for cached dependencies)
+.pnpm-store/
+
+# Throwaway PPTX/PDF fidelity verification screenshots (regenerable; kept on disk, not in git)
+.fidelity-shots/

@@ -16,14 +16,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DesignCanvas } from "./DesignCanvas";
 
-vi.mock("@agent-native/core/client", async (importOriginal) => {
-  const original =
-    await importOriginal<typeof import("@agent-native/core/client")>();
-  return {
-    ...original,
-    useT: () => (key: string) => key,
-  };
-});
+vi.mock("@agent-native/core/client/i18n", () => ({
+  useT: () => (key: string) => key,
+}));
 
 const BRIDGE_URL = "http://127.0.0.1:7331";
 const PREVIEW_TOKEN = "preview-token";
@@ -312,7 +307,7 @@ describe("DesignCanvas live-edit bridge restart detection", () => {
     expect(container.textContent ?? "").toContain(
       "Live editor connection failed",
     );
-    expect(container.querySelector("iframe")?.getAttribute("src")).toBeNull();
+    expect(container.querySelector("iframe")).toBeNull();
 
     // Window identity is part of the recovery token: an otherwise well-formed
     // ready packet from another same-origin window cannot revive the key.

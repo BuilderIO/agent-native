@@ -1,54 +1,43 @@
-import { existsSync } from "node:fs";
+import { getAppProductionUrl, sendEmail } from "@agent-native/core/server";
 
-import {
-  getAppProductionUrl,
-  sendEmail,
-  signEmbedSessionToken,
-} from "@agent-native/core/server";
-import {
-  EMBED_MODE_QUERY_PARAM,
-  EMBED_TOKEN_QUERY_PARAM,
-} from "@agent-native/core/shared";
-
+import { listReportablePanelIds } from "../../app/pages/adhoc/sql-dashboard/report-panel-window";
 import type {
   DashboardFilter,
   FilterType,
   SqlDashboardConfig,
 } from "../../app/pages/adhoc/sql-dashboard/types";
 import {
+  fetchReportPanelData,
+  renderReportEmail,
+  type ReportSnapshot,
+} from "./dashboard-report-render";
+import {
   getReportDashboard,
+  normalizeDashboardReportRecipients,
   type AccessCtx,
+  type DashboardReportCaptureOutcome,
   type DashboardReportSubscription,
 } from "./dashboard-report-subscriptions";
-
-type ReportSnapshot = {
-  dashboardId: string;
-  title: string;
-  description?: string;
-  filters: Record<string, string>;
-  dashboardUrl: string;
-  reportSettingsUrl: string;
-  generatedAt: string;
-};
+import { ANALYTICS_DASHBOARD_REPORT_EMAIL_ID } from "./emails";
 
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
   "date",
   "date-range",
   "toggle-date",
 ]);
-const DEFAULT_SERVERLESS_CHROMIUM_PACK_URL =
-  "https://github.com/Sparticuz/chromium/releases/download/v149.0.0/chromium-v149.0.0-pack.x64.tar";
-const DASHBOARD_REPORT_SCREENSHOT_PARAM = "reportScreenshot";
 const DASHBOARD_REPORT_SETTINGS_PARAM = "reportSettings";
-const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
-const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
-const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 90_000;
-const SERVERLESS_SECOND_READY_TIMEOUT_MS = 45_000;
-const SCREENSHOT_VIEWPORT_PADDING = 64;
+const DASHBOARD_REPORT_EMAIL_TIMEOUT_MS = 10_000;
+const DASHBOARD_REPORT_EMAIL_OVERHEAD_RESERVE_MS = 5_000;
 
-type DashboardScreenshotAttempt = {
-  label: "full" | "full-lightweight";
-  viewport: { width: number; height: number };
+export type DashboardReportMode = "complete" | "degraded";
+
+export type DashboardReportResult = {
+  dashboardUrl: string;
+  recipientCount: number;
+  reportMode: DashboardReportMode;
+  degradedPanelIds: string[];
+  reportError?: string;
+  emailsSent: boolean;
 };
 
 function daysAgo(n: number): string {
@@ -112,13 +101,10 @@ function dashboardBaseUrl(): string {
   );
 }
 
-function buildDashboardPath(
+function buildDashboardUrl(
   dashboardId: string,
   filters: Record<string, string>,
-  options?: {
-    reportScreenshot?: boolean;
-    reportSettings?: boolean;
-  },
+  options?: { reportSettings?: boolean },
 ): string {
   const url = new URL(
     `/dashboards/${encodeURIComponent(dashboardId)}`,
@@ -127,38 +113,16 @@ function buildDashboardPath(
   for (const [key, value] of Object.entries(filters)) {
     if (value) url.searchParams.set(key, value);
   }
-  if (options?.reportScreenshot) {
-    url.searchParams.set(DASHBOARD_REPORT_SCREENSHOT_PARAM, "1");
-  }
   if (options?.reportSettings) {
     url.searchParams.set(DASHBOARD_REPORT_SETTINGS_PARAM, "1");
   }
-  return `${url.pathname}${url.search}`;
+  return new URL(
+    `${url.pathname}${url.search}`,
+    `${dashboardBaseUrl()}/`,
+  ).toString();
 }
 
-function buildDashboardUrl(
-  dashboardId: string,
-  filters: Record<string, string>,
-  options?: {
-    reportScreenshot?: boolean;
-    reportSettings?: boolean;
-  },
-): string {
-  const path = buildDashboardPath(dashboardId, filters, options);
-  const url = new URL(path, `${dashboardBaseUrl()}/`);
-  return url.toString();
-}
-
-function escapeHtml(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-async function collectReportSnapshot(
+export async function collectReportSnapshot(
   sub: DashboardReportSubscription,
 ): Promise<ReportSnapshot> {
   const accessCtx: AccessCtx = {
@@ -186,269 +150,44 @@ async function collectReportSnapshot(
       reportSettings: true,
     }),
     generatedAt: new Date().toISOString(),
+    panelIds: listReportablePanelIds(config.panels),
+    panels: config.panels,
+    variables: config.variables,
   };
 }
 
-function isServerlessBrowserRuntime(): boolean {
+function reportDeliveryReserveMs(recipientCount: number): number {
   return (
-    process.env.NETLIFY === "true" ||
-    Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME) ||
-    Boolean(process.env.AWS_EXECUTION_ENV)
+    recipientCount * DASHBOARD_REPORT_EMAIL_TIMEOUT_MS +
+    DASHBOARD_REPORT_EMAIL_OVERHEAD_RESERVE_MS
   );
 }
 
-function localChromiumExecutablePath(): string | null {
-  const configured =
-    process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ||
-    process.env.CHROME_BIN ||
-    process.env.CHROMIUM_PATH;
-  if (configured && existsSync(configured)) return configured;
+async function runWithinReportDeadline<T>(
+  label: string,
+  operation: () => Promise<T>,
+  deadlineAt?: number,
+): Promise<T> {
+  if (!deadlineAt) return operation();
+  const timeoutMs = deadlineAt - Date.now();
+  if (timeoutMs <= 0)
+    throw new Error(`${label} exceeded the report delivery deadline`);
 
-  const candidates = [
-    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
-    "/Applications/Chromium.app/Contents/MacOS/Chromium",
-    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
-    "/usr/bin/google-chrome",
-    "/usr/bin/google-chrome-stable",
-    "/usr/bin/chromium",
-    "/usr/bin/chromium-browser",
-  ];
-  return candidates.find((candidate) => existsSync(candidate)) ?? null;
-}
-
-async function launchScreenshotBrowser() {
-  const { chromium: playwright } = await import("playwright-core");
-  const localExecutablePath = localChromiumExecutablePath();
-  if (localExecutablePath) {
-    return playwright.launch({
-      executablePath: localExecutablePath,
-      headless: true,
-    });
-  }
-
-  if (isServerlessBrowserRuntime()) {
-    const { default: chromium } = await import("@sparticuz/chromium-min");
-    chromium.setGraphicsMode = false;
-    const packUrl =
-      process.env.DASHBOARD_REPORT_CHROMIUM_PACK_URL?.trim() ||
-      DEFAULT_SERVERLESS_CHROMIUM_PACK_URL;
-    return playwright.launch({
-      args: [
-        ...chromium.args,
-        "--disable-dev-shm-usage",
-        "--disable-gpu",
-        "--hide-scrollbars",
-      ],
-      executablePath: await chromium.executablePath(packUrl),
-      headless: true,
-    });
-  }
-
-  return playwright.launch({ headless: true });
-}
-
-function screenshotTimeoutMs(): number {
-  const configured = positiveIntEnv("DASHBOARD_REPORT_SCREENSHOT_TIMEOUT_MS");
-  if (configured) return configured;
-  return isServerlessBrowserRuntime()
-    ? SERVERLESS_SCREENSHOT_TIMEOUT_MS
-    : LOCAL_SCREENSHOT_TIMEOUT_MS;
-}
-
-function secondReadyTimeoutMs(): number {
-  const configured = positiveIntEnv("DASHBOARD_REPORT_SECOND_READY_TIMEOUT_MS");
-  if (configured) return configured;
-  return isServerlessBrowserRuntime()
-    ? SERVERLESS_SECOND_READY_TIMEOUT_MS
-    : screenshotTimeoutMs();
-}
-
-function positiveIntEnv(name: string): number | null {
-  const raw = process.env[name]?.trim();
-  if (!raw) return null;
-  const parsed = Number.parseInt(raw, 10);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-async function waitForDashboardReportReady(
-  page: any,
-  timeout: number,
-): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
-    await page.waitForFunction(
-      `(() => {
-        const root = document.querySelector("[data-dashboard-report-capture]");
-        if (!root) return false;
-        if (root.getAttribute("data-dashboard-report-ready") !== "true") {
-          return false;
-        }
-        return !root.querySelector("[data-dashboard-report-loading='true']");
-      })()`,
-      undefined,
-      { timeout },
-    );
-    await page.evaluate(`(async () => {
-      await document.fonts?.ready;
-    })()`);
-    await page.waitForTimeout(750);
-  } catch (err: any) {
-    const detail = await page
-      .evaluate(`(() => {
-        const root = document.querySelector("[data-dashboard-report-capture]");
-        return {
-          ready: root?.getAttribute("data-dashboard-report-ready") ?? null,
-          loadingCount: root?.querySelectorAll("[data-dashboard-report-loading='true']").length ?? null,
-          text: document.body?.innerText?.slice(0, 1000) ?? "",
-          url: location.href,
-        };
-      })()`)
-      .catch(() => null);
-    const message = detail
-      ? `${err?.message ?? String(err)}; dashboard state: ${JSON.stringify(detail)}`
-      : `${err?.message ?? String(err)}; dashboard page was not inspectable`;
-    throw new Error(message);
-  }
-}
-
-async function scrollDashboardForLazyRendering(page: any): Promise<void> {
-  await page.evaluate(`(async () => {
-    const wait = (ms) =>
-      new Promise((resolve) => window.setTimeout(resolve, ms));
-    const maxY = Math.max(
-      document.body.scrollHeight,
-      document.documentElement.scrollHeight,
-    );
-    const step = Math.max(600, Math.floor(window.innerHeight * 0.75));
-    for (let y = 0; y < maxY; y += step) {
-      window.scrollTo(0, y);
-      await wait(120);
-    }
-    window.scrollTo(0, 0);
-  })()`);
-}
-
-async function fitViewportWidthToDashboardCapture(
-  page: any,
-  capture: any,
-  viewport: { width: number; height: number },
-): Promise<void> {
-  const box = await capture.boundingBox();
-  if (!box) return;
-
-  const width = Math.max(
-    viewport.width,
-    Math.min(1800, Math.ceil(box.width + SCREENSHOT_VIEWPORT_PADDING)),
-  );
-  if (width === viewport.width) return;
-
-  // Keep the render surface bounded. Playwright's locator screenshot captures
-  // the full element beyond the viewport, while growing Chromium to the full
-  // dashboard height can exhaust memory and close the browser on serverless
-  // workers. Width-only fitting preserves the full dashboard without that
-  // oversized render surface.
-  await page.setViewportSize({ width, height: viewport.height });
-  await page.waitForTimeout(250);
-}
-
-async function captureDashboardPng(
-  sub: DashboardReportSubscription,
-  snapshot: ReportSnapshot,
-  attempt: DashboardScreenshotAttempt,
-): Promise<Buffer> {
-  const targetPath = buildDashboardPath(
-    snapshot.dashboardId,
-    snapshot.filters,
-    {
-      reportScreenshot: true,
-    },
-  );
-  const token = signEmbedSessionToken({
-    ownerEmail: sub.ownerEmail,
-    orgId: sub.orgId,
-    targetPath,
-    scope: `dashboard-report-screenshot:${sub.id}`,
-    ttlSeconds: 5 * 60,
-  });
-  const screenshotUrl = new URL(targetPath, `${dashboardBaseUrl()}/`);
-  screenshotUrl.searchParams.set(EMBED_MODE_QUERY_PARAM, "1");
-  screenshotUrl.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
-
-  const browser = await launchScreenshotBrowser();
-  try {
-    const timeout = screenshotTimeoutMs();
-    const page = await browser.newPage({
-      viewport: attempt.viewport,
-      deviceScaleFactor: 1,
-    });
-    page.setDefaultTimeout(timeout);
-    await page.emulateMedia({ media: "screen", colorScheme: "light" });
-    await page.addInitScript(() => {
-      window.localStorage.setItem("theme", "light");
-    });
-    await page.goto(screenshotUrl.toString(), {
-      waitUntil: "domcontentloaded",
-      timeout,
-    });
-
-    const capture = page.locator("[data-dashboard-report-capture]");
-    await capture.waitFor({ state: "visible", timeout });
-    await waitForDashboardReportReady(page, timeout);
-    await scrollDashboardForLazyRendering(page);
-    await waitForDashboardReportReady(page, secondReadyTimeoutMs());
-
-    await fitViewportWidthToDashboardCapture(page, capture, attempt.viewport);
-    await capture.scrollIntoViewIfNeeded();
-    const image = await capture.screenshot({
-      type: "png",
-      animations: "disabled",
-    });
-    if (!image?.length) {
-      throw new Error("Dashboard screenshot was empty");
-    }
-    return Buffer.from(image);
+    return await Promise.race([
+      operation(),
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(new Error(`${label} exceeded the report delivery deadline`)),
+          timeoutMs,
+        );
+      }),
+    ]);
   } finally {
-    await browser.close();
+    if (timeout) clearTimeout(timeout);
   }
-}
-
-function errorMessage(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err);
-  return message.replace(
-    new RegExp(`(${EMBED_TOKEN_QUERY_PARAM}=)[^&\\s]+`, "g"),
-    "$1[REDACTED]",
-  );
-}
-
-async function captureDashboardPngWithFallback(
-  sub: DashboardReportSubscription,
-  snapshot: ReportSnapshot,
-): Promise<{
-  png: Buffer | null;
-  mode: "full" | "full-lightweight" | "none";
-  error?: string;
-}> {
-  const attempts: DashboardScreenshotAttempt[] = [
-    { label: "full", viewport: { width: 1440, height: 1800 } },
-    { label: "full-lightweight", viewport: { width: 1200, height: 1400 } },
-  ];
-  let lastError: string | undefined;
-
-  for (const attempt of attempts) {
-    try {
-      return {
-        png: await captureDashboardPng(sub, snapshot, attempt),
-        mode: attempt.label,
-      };
-    } catch (err) {
-      lastError = errorMessage(err);
-      console.error(
-        `[dashboard-report] ${attempt.label} screenshot failed for subscription ${sub.id}:`,
-        lastError,
-      );
-    }
-  }
-
-  return { png: null, mode: "none", error: lastError };
 }
 
 function reportDate(snapshot: ReportSnapshot): string {
@@ -459,112 +198,145 @@ function reportDate(snapshot: ReportSnapshot): string {
   });
 }
 
-function renderReportEmailHtml(
-  snapshot: ReportSnapshot,
-  options: { screenshotAttached: boolean },
-): string {
-  const title = escapeHtml(snapshot.title);
-  const dashboardUrl = escapeHtml(snapshot.dashboardUrl);
-  const reportSettingsUrl = escapeHtml(snapshot.reportSettingsUrl);
-  const date = escapeHtml(reportDate(snapshot));
-  const screenshotBlock = options.screenshotAttached
-    ? `<a href="${dashboardUrl}" style="display:block;text-decoration:none;">
-      <img src="cid:${DASHBOARD_REPORT_CID}" alt="${title}" width="100%" style="display:block;width:100%;max-width:1280px;height:auto;border:0;outline:0;border-radius:0;" />
-    </a>`
-    : `<div style="margin:18px 0;padding:14px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;color:#374151;font-size:14px;line-height:1.5;">
-      The dashboard image was unavailable for this run. Open the live dashboard to view the latest report.
-    </div>`;
-
-  return `<!doctype html>
-<html>
-  <body style="margin:0;padding:24px;background:#ffffff;color:#171717;font-family:Inter,Arial,sans-serif;">
-    <p style="margin:0 0 12px;font-size:15px;line-height:1.4;font-weight:600;">
-      Here's your report of <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">${title}</a> for ${date}
-    </p>
-    ${screenshotBlock}
-    <p style="margin:18px 0 0;color:#525866;font-size:13px;line-height:1.45;">
-      <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">Open dashboard</a>
-      <span style="color:#9ca3af;"> · </span>
-      <a href="${reportSettingsUrl}" style="color:#2563eb;text-decoration:none;">Edit subscription settings</a>
-    </p>
-  </body>
-</html>`;
-}
-
-function renderReportText(
-  snapshot: ReportSnapshot,
-  options: { screenshotAttached: boolean },
-): string {
-  const lines = [
-    `Daily dashboard report: ${snapshot.title}`,
-    `Date: ${reportDate(snapshot)}`,
-    `Open dashboard: ${snapshot.dashboardUrl}`,
-    `Edit subscription settings: ${snapshot.reportSettingsUrl}`,
-  ];
-  if (!options.screenshotAttached) {
-    lines.push("Dashboard image unavailable for this run.");
-  }
-  return lines.join("\n");
-}
-
-function reportFilename(title: string): string {
-  const slug = title
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "")
-    .slice(0, 64);
-  return `${slug || "dashboard"}-report.png`;
-}
-
+/**
+ * Renders and emails one dashboard report entirely on the server: each panel's
+ * query runs through the same source dispatcher the UI uses, charts are drawn
+ * as SVG and rasterized, and everything else becomes real email HTML.
+ *
+ * There is deliberately no headless browser here. The previous implementation
+ * screenshotted the live React dashboard in 4-panel chunks inside one
+ * serverless invocation, so a single slow panel abandoned every later chunk and
+ * shipped an email full of "image part N was unavailable" placeholders. Do not
+ * reintroduce a browser, a chunk loop, or a mode that emails a report the
+ * caller cannot tell apart from a complete one.
+ */
 export async function sendDashboardReportSubscription(
   sub: DashboardReportSubscription,
-  options: { requireScreenshot?: boolean } = {},
-): Promise<{
-  dashboardUrl: string;
-  recipientCount: number;
-  screenshotAttached: boolean;
-  screenshotMode: "full" | "full-lightweight" | "none";
-  screenshotError?: string;
-}> {
-  const snapshot = await collectReportSnapshot(sub);
-  const capture = await captureDashboardPngWithFallback(sub, snapshot);
-  if (!capture.png && options.requireScreenshot) {
+  options: {
+    skipEmailWhenDegraded?: boolean;
+    deadlineAt?: number;
+    onCaptureOutcome?: (
+      outcome: DashboardReportCaptureOutcome,
+    ) => Promise<void>;
+  } = {},
+): Promise<DashboardReportResult> {
+  const recipients = normalizeDashboardReportRecipients(sub.recipients);
+  const snapshot = await runWithinReportDeadline(
+    "Dashboard report snapshot",
+    () => collectReportSnapshot(sub),
+    options.deadlineAt,
+  );
+
+  const emailReserveMs = reportDeliveryReserveMs(recipients.length);
+  const panelData = await fetchReportPanelData({
+    ownerEmail: sub.ownerEmail,
+    orgId: sub.orgId,
+    snapshot,
+    ...(options.deadlineAt
+      ? { deadlineAt: options.deadlineAt - emailReserveMs }
+      : {}),
+  });
+
+  // Only panels that were actually queried can vote on total failure. Counting
+  // never-queryable panels (extensions) as survivors would let a dashboard of
+  // pure placeholders pass this guard and ship as "complete".
+  const attemptedPanelIds = [...panelData.keys()].filter(
+    (panelId) => panelData.get(panelId)?.status !== "not-emailable",
+  );
+  const failedPanelIds = attemptedPanelIds.filter((panelId) => {
+    const data = panelData.get(panelId);
+    return (
+      data?.status === "query-failed" || data?.status === "missing-credential"
+    );
+  });
+  if (
+    attemptedPanelIds.length > 0 &&
+    failedPanelIds.length === attemptedPanelIds.length
+  ) {
+    const firstError = failedPanelIds
+      .map((panelId) => {
+        const data = panelData.get(panelId);
+        return data && "message" in data ? data.message : "";
+      })
+      .find(Boolean);
+    await options.onCaptureOutcome?.({
+      mode: "none",
+      error: `every dashboard panel failed to load: ${firstError ?? "unknown error"}`,
+    });
     throw new Error(
-      capture.error
-        ? `Dashboard screenshot unavailable: ${capture.error}`
-        : "Dashboard screenshot unavailable",
+      `Dashboard report has no usable data: every one of ${attemptedPanelIds.length} panels failed (${firstError ?? "unknown error"})`,
     );
   }
-  const screenshotAttached = Boolean(capture.png);
-  const html = renderReportEmailHtml(snapshot, { screenshotAttached });
-  const text = renderReportText(snapshot, { screenshotAttached });
-  const subject = `Daily dashboard: ${snapshot.title}`;
 
-  for (const to of sub.recipients) {
+  const rendered = await runWithinReportDeadline(
+    "Dashboard report rendering",
+    () => renderReportEmail({ snapshot, panelData }),
+    options.deadlineAt ? options.deadlineAt - emailReserveMs : undefined,
+  );
+  // A dashboard whose only reportable panels are extensions renders nothing but
+  // "open the dashboard" links. Nothing failed, so degradedPanelIds is empty —
+  // but the report is not backed by data and must not claim to be complete. A
+  // section-only dashboard (panelData empty) has nothing to render and is fine.
+  const noPanelBackedByData =
+    panelData.size > 0 && attemptedPanelIds.length === 0;
+  const reportMode: DashboardReportMode =
+    rendered.degradedPanelIds.length || noPanelBackedByData
+      ? "degraded"
+      : "complete";
+  const reportError = rendered.degradedPanelIds.length
+    ? `${rendered.degradedPanelIds.length} of ${panelData.size} panels could not be rendered: ${rendered.degradedPanelIds.join(", ")}`
+    : noPanelBackedByData
+      ? "No panel in this dashboard can be rendered into an email"
+      : undefined;
+
+  await options.onCaptureOutcome?.({
+    mode: reportMode === "complete" ? "full" : "partial",
+    ...(reportError ? { error: reportError } : {}),
+  });
+
+  if (reportMode === "degraded" && options.skipEmailWhenDegraded) {
+    return {
+      dashboardUrl: snapshot.dashboardUrl,
+      recipientCount: recipients.length,
+      reportMode,
+      degradedPanelIds: rendered.degradedPanelIds,
+      emailsSent: false,
+      ...(reportError ? { reportError } : {}),
+    };
+  }
+
+  const subject = `Daily dashboard: ${snapshot.title} — ${reportDate(snapshot)}`;
+  for (const to of recipients) {
+    const emailTimeoutMs = options.deadlineAt
+      ? Math.min(
+          DASHBOARD_REPORT_EMAIL_TIMEOUT_MS,
+          options.deadlineAt - Date.now(),
+        )
+      : DASHBOARD_REPORT_EMAIL_TIMEOUT_MS;
+    if (emailTimeoutMs <= 0) {
+      throw new Error(
+        "Dashboard email delivery exceeded the report delivery deadline",
+      );
+    }
     await sendEmail({
       to,
       subject,
-      html,
-      text,
-      attachments: capture.png
-        ? [
-            {
-              filename: reportFilename(snapshot.title),
-              content: capture.png,
-              contentType: "image/png",
-              contentId: DASHBOARD_REPORT_CID,
-              disposition: "inline",
-            },
-          ]
-        : undefined,
+      html: rendered.html,
+      text: rendered.text,
+      ...(rendered.attachments.length
+        ? { attachments: rendered.attachments }
+        : {}),
+      timeoutMs: emailTimeoutMs,
+      templateId: ANALYTICS_DASHBOARD_REPORT_EMAIL_ID,
     });
   }
 
   return {
     dashboardUrl: snapshot.dashboardUrl,
-    recipientCount: sub.recipients.length,
-    screenshotAttached,
-    screenshotMode: capture.mode,
-    ...(capture.error ? { screenshotError: capture.error } : {}),
+    recipientCount: recipients.length,
+    reportMode,
+    degradedPanelIds: rendered.degradedPanelIds,
+    emailsSent: true,
+    ...(reportError ? { reportError } : {}),
   };
 }

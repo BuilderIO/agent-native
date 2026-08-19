@@ -1,50 +1,29 @@
+import { Toaster as ToastToaster } from "@agent-native/toolkit/ui/toaster";
 import {
   DESKTOP_DEFAULT_APPS,
-  type AppDefinition,
+  getDesktopVisibleApps,
+  isDesktopAppVisible,
   type AppConfig,
-  type FrameSettings,
-  toAppDefinition,
 } from "@shared/app-registry";
 import {
   CODE_AGENTS_SURFACE_ID,
   MIGRATION_APP_ID,
   getCodeAgentGoal,
 } from "@shared/code-agents";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 
-import AppSettings, {
-  AddAppDialog,
-  AppEditForm,
-} from "./components/AppSettings.js";
-import AppWebview, { type AppWebviewHandle } from "./components/AppWebview.js";
+import type {
+  DesktopPrepareLocalCodeChangeResult,
+  DesktopWorkspaceAppListResult,
+} from "../../shared/ipc-channels.js";
+import AppSettings, { AddAppDialog } from "./components/AppSettings.js";
+import { rememberDesktopIdentityStatus } from "./components/AppWebview.js";
 import CodeAgentsHub from "./components/CodeAgentsHub.js";
-import Sidebar from "./components/Sidebar.js";
-import TabBar from "./components/TabBar.js";
 import UpdatePrompt from "./components/UpdatePrompt.js";
-import { shouldReserveMacOSWindowControlsSpace } from "./lib/platform.js";
-import { getTabDisplayTitle } from "./lib/tab-title.js";
-
-const reserveMacOSWindowControlsSpace = shouldReserveMacOSWindowControlsSpace();
-
-export interface Tab {
-  id: string;
-  appId: string;
-  title: string;
-  urlOpenNonce?: number;
-  urlPath?: string;
-  urlOpenSoft?: boolean;
-}
-
-let nextTabId = 1;
-
-function createTab(app: AppDefinition | AppConfig): Tab {
-  return {
-    id: `tab-${nextTabId++}`,
-    appId: app.id,
-    title: getTabDisplayTitle(undefined, app.name),
-  };
-}
+import WindowControls, {
+  CollapsedMacWindowControls,
+} from "./components/WindowControls.js";
 
 function safeDesktopOpenPath(path: string | undefined): string | undefined {
   if (!path) return undefined;
@@ -56,89 +35,36 @@ function safeDesktopOpenPath(path: string | undefined): string | undefined {
   return trimmed;
 }
 
-// Per-app tab state: appId → { tabs, activeTabId }
-interface AppTabState {
-  tabs: Tab[];
-  activeTabId: string;
-}
-
-function findTabAppId(
-  tabsByApp: Record<string, AppTabState>,
-  tabId: string,
-): string | undefined {
-  for (const [appId, appState] of Object.entries(tabsByApp)) {
-    if (appState.tabs.some((tab) => tab.id === tabId)) return appId;
-  }
-  return undefined;
-}
-
-function markAppMounted(prev: Set<string>, appId: string): Set<string> {
-  if (!appId || appId === CODE_AGENTS_SURFACE_ID || prev.has(appId)) {
-    return prev;
-  }
-  const next = new Set(prev);
-  next.add(appId);
-  return next;
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false;
-  if (target.isContentEditable) return true;
-  return Boolean(target.closest("input, textarea, select, [contenteditable]"));
-}
-
-function isShellShortcut(e: KeyboardEvent): boolean {
-  if (!e.metaKey && !e.ctrlKey) return false;
-
-  // e.key can be undefined on some trusted keydown events (autofill/IME).
-  const key = (e.key ?? "").toLowerCase();
-  if (e.altKey && (key === "arrowup" || key === "arrowdown")) return true;
-  if (isAgentSidebarToggleShortcut(e)) return true;
-  if (isCodeTabShortcut(e)) return true;
-
-  return (
-    key === "f" ||
-    key === "l" ||
-    key === "r" ||
-    key === "t" ||
-    key === "[" ||
-    key === "]" ||
-    (key >= "1" && key <= "9")
-  );
-}
-
-function isAgentSidebarToggleShortcut(e: KeyboardEvent): boolean {
-  return (
-    (e.metaKey || e.ctrlKey) &&
-    !e.altKey &&
-    !e.shiftKey &&
-    (e.key === "\\" || e.code === "Backslash")
-  );
-}
-
-function isCodeTabShortcut(e: KeyboardEvent): boolean {
-  return (
-    e.ctrlKey &&
-    e.altKey &&
-    !e.metaKey &&
-    !e.shiftKey &&
-    (e.key ?? "").toLowerCase() === "x"
-  );
-}
-
 export default function App() {
   const [apps, setApps] = useState<AppConfig[]>([]);
+  const [workspaceAppList, setWorkspaceAppList] =
+    useState<DesktopWorkspaceAppListResult>();
   const [loading, setLoading] = useState(true);
   const [showSettings, setShowSettings] = useState(false);
+  const [settingsTab, setSettingsTab] = useState("general");
   const [showAddApp, setShowAddApp] = useState(false);
-  const [editingSidebarAppId, setEditingSidebarAppId] = useState<string | null>(
-    null,
+  const [refreshKey, setRefreshKey] = useState(0);
+  const runtimeStatusByAppRef = useRef(
+    new Map<string, DesktopAppRuntimeStatus["state"]>(),
   );
-  const [showCodeAgentsTab, setShowCodeAgentsTab] = useState(true);
-  const [hasMountedCodeAgents, setHasMountedCodeAgents] = useState(false);
+  const [activeChatFirstAppId, setActiveChatFirstAppId] = useState("");
   const [codeAgentsOpenRequest, setCodeAgentsOpenRequest] = useState<{
     goalId?: string;
     runId?: string;
+    nonce: number;
+  }>();
+  const [chatFirstPreviewRequest, setChatFirstPreviewRequest] = useState<{
+    appId: string;
+    nonce: number;
+  }>();
+  const [chatFirstPreviewStatus, setChatFirstPreviewStatus] = useState<{
+    appId: string;
+    state: "starting" | "ready" | "error";
+    message?: string;
+  }>();
+  const [chatFirstAppOpenRequest, setChatFirstAppOpenRequest] = useState<{
+    appId: string;
+    path?: string;
     nonce: number;
   }>();
   const [pendingDesktopOpenRequest, setPendingDesktopOpenRequest] =
@@ -148,204 +74,139 @@ export default function App() {
     setPendingDesktopShortcutActivation,
   ] = useState<DesktopShortcutActivationRequest | null>(null);
 
-  // Load apps from persistent store
   useEffect(() => {
     async function load() {
       if (window.electronAPI?.appConfig) {
-        const loaded = await window.electronAPI.appConfig.load();
-        setApps(loaded);
+        setApps(await window.electronAPI.appConfig.load());
       } else {
-        // Fallback for dev without electron — use full config with production URLs
         setApps(DESKTOP_DEFAULT_APPS);
       }
       setLoading(false);
     }
-    load();
+    void load();
+  }, []);
+
+  const refreshWorkspaceAppList = useCallback(async () => {
+    const loader = window.electronAPI?.appConfig?.loadWorkspace;
+    if (!loader) {
+      setWorkspaceAppList(undefined);
+      return;
+    }
+    try {
+      setWorkspaceAppList(await loader());
+    } catch {
+      setWorkspaceAppList({ enabled: false, apps: [] });
+    }
   }, []);
 
   useEffect(() => {
-    if (!window.electronAPI?.frame) return;
-    window.electronAPI.frame
-      .load()
-      .then((settings) => setShowCodeAgentsTab(settings.showCodeTab))
-      .catch(() => setShowCodeAgentsTab(true));
-  }, []);
+    void refreshWorkspaceAppList();
+    const onStatusChange = window.electronAPI?.identity?.onStatusChange;
+    if (!onStatusChange) return;
+    return onStatusChange((status) => {
+      // App is the shell-level subscriber, so sign-out invalidates the
+      // renderer cache even while every individual app webview is inactive.
+      rememberDesktopIdentityStatus(status);
+      void refreshWorkspaceAppList();
+    });
+  }, [refreshWorkspaceAppList]);
 
-  const enabledApps = apps.filter((a) => a.enabled);
-  const enabledAppIdsKey = enabledApps.map((a) => a.id).join(",");
-  const appDefs = enabledApps.map(toAppDefinition);
-
-  const [activeSidebarAppId, setActiveSidebarAppId] = useState("");
-  const [appTabs, setAppTabs] = useState<Record<string, AppTabState>>({});
-  const [mountedAppIds, setMountedAppIds] = useState<Set<string>>(
-    () => new Set(),
+  const visibleEnabledApps = getDesktopVisibleApps(
+    apps.filter((app) => app.enabled),
   );
 
-  // Initialize tabs when apps load
-  useEffect(() => {
-    if (enabledApps.length === 0) return;
-    const enabledIds = new Set(enabledApps.map((app) => app.id));
-    setAppTabs((prev) => {
-      // Only init tabs for apps that don't have tabs yet
-      const next = { ...prev };
-      for (const app of enabledApps) {
-        if (!next[app.id]) {
-          const tab = createTab(app);
-          next[app.id] = { tabs: [tab], activeTabId: tab.id };
-        }
-      }
-      return next;
-    });
-    setMountedAppIds((prev) => {
-      let changed = false;
-      const next = new Set<string>();
-      for (const appId of prev) {
-        if (enabledIds.has(appId)) next.add(appId);
-        else changed = true;
-      }
-      return changed ? next : prev;
-    });
-    setActiveSidebarAppId((prev) => {
-      if (prev && enabledApps.find((a) => a.id === prev)) return prev;
-      // Pick from `appDefs` (AppDefinition) so the placeholder check works —
-      // `enabledApps` is AppConfig[] and has no `placeholder` field, so the
-      // old `"placeholder" in a` check was a no-op.
-      const def = appDefs.find((a) => !a.placeholder) ?? appDefs[0];
-      return def?.id ?? "";
-    });
-  }, [enabledAppIdsKey]);
-
-  useEffect(() => {
-    if (!activeSidebarAppId) return;
-    if (activeSidebarAppId === CODE_AGENTS_SURFACE_ID) return;
-    setMountedAppIds((prev) => {
-      if (prev.has(activeSidebarAppId)) return prev;
-      const next = new Set(prev);
-      next.add(activeSidebarAppId);
-      return next;
-    });
-  }, [activeSidebarAppId]);
-
-  const closedTabsRef = useRef<{ tab: Tab; appId: string }[]>([]);
-  const [refreshKey, setRefreshKey] = useState(0);
-  const [findOpen, setFindOpen] = useState(false);
-  const [findQuery, setFindQuery] = useState("");
-  const findInputRef = useRef<HTMLInputElement>(null);
-  const webviewRefs = useRef(new Map<string, AppWebviewHandle>());
-
-  const currentAppTabs = appTabs[activeSidebarAppId];
-  const activeTabId = currentAppTabs?.activeTabId ?? "";
-  const activeTabIdRef = useRef(activeTabId);
-  activeTabIdRef.current = activeTabId;
-
-  const handleAppsChanged = useCallback((newApps: AppConfig[]) => {
-    setApps(newApps);
+  const handleAppsChanged = useCallback((nextApps: AppConfig[]) => {
+    setApps(nextApps);
   }, []);
 
-  const handleFrameSettingsChanged = useCallback((settings: FrameSettings) => {
-    setShowCodeAgentsTab(settings.showCodeTab);
+  const handleOpenSettings = useCallback((tab?: string) => {
+    setSettingsTab(tab ?? "general");
+    setShowSettings(true);
   }, []);
 
-  const activateApp = useCallback(
-    (appId: string, options: { ensureTab?: boolean } = {}) => {
-      if (!appId) return;
-      const { ensureTab = true } = options;
-      const app = enabledApps.find((candidate) => candidate.id === appId);
-      if (ensureTab && appId !== CODE_AGENTS_SURFACE_ID && app) {
-        setAppTabs((prev) => {
-          const appState = prev[appId];
-          if (appState?.tabs.length) return prev;
-          const tab = createTab(app);
-          return {
-            ...prev,
-            [appId]: { tabs: [tab], activeTabId: tab.id },
-          };
-        });
-      }
-      setMountedAppIds((prev) => markAppMounted(prev, appId));
-      setActiveSidebarAppId(appId);
-    },
-    [enabledApps],
-  );
+  const handleChatFirstAppSelectionChange = useCallback((appId?: string) => {
+    setActiveChatFirstAppId(appId ?? "");
+    if (appId) window.electronAPI?.setActiveApp?.(appId);
+  }, []);
 
-  const handleAddApp = useCallback(
-    async (app: AppConfig) => {
-      if (window.electronAPI?.appConfig) {
-        const updated = await window.electronAPI.appConfig.add(app);
-        setApps(updated);
-      } else {
-        setApps((prev) => [...prev, app]);
-      }
-      activateApp(app.id);
-      setShowAddApp(false);
-    },
-    [activateApp],
-  );
-
-  const handlePromptAppCreated = useCallback(
+  const handleChatFirstAppCreated = useCallback(
     (result: DesktopCreateAppResult) => {
       if (!result.app) return;
       setApps(result.apps);
-      activateApp(result.app.id);
+      setChatFirstPreviewRequest({ appId: result.app.id, nonce: Date.now() });
+      setChatFirstPreviewStatus({
+        appId: result.app.id,
+        state: "starting",
+        message: "The coding agent is preparing the local preview.",
+      });
+      setRefreshKey((current) => current + 1);
+      setShowSettings(false);
       setShowAddApp(false);
+      if (result.run) {
+        setCodeAgentsOpenRequest({
+          goalId: result.run.goalId,
+          runId: result.run.id,
+          nonce: Date.now(),
+        });
+      }
       toast(`Building ${result.app.name}`, {
-        description:
-          "The app is already in your sidebar. Desktop will open it as soon as the agent and dev server are ready.",
+        description: "New chat started. Preview opens on the right.",
         duration: 5000,
       });
     },
-    [activateApp],
+    [],
   );
 
-  const handleSidebarAppContextMenu = useCallback(
+  const handleLocalCodeChangeStarted = useCallback(
+    (result: DesktopPrepareLocalCodeChangeResult) => {
+      if (!result.app) return;
+      setApps(result.apps);
+      setRefreshKey((current) => current + 1);
+      toast(`Preparing ${result.app.name} locally`, {
+        description:
+          "The production app stays unchanged. Desktop will open the local preview when it is ready.",
+        duration: 5000,
+      });
+    },
+    [],
+  );
+
+  const handleAddApp = useCallback(async (app: AppConfig) => {
+    if (window.electronAPI?.appConfig) {
+      setApps(await window.electronAPI.appConfig.add(app));
+    } else {
+      setApps((current) => [...current, app]);
+    }
+    setShowAddApp(false);
+  }, []);
+
+  const handlePromptAppCreated = useCallback(
+    (result: DesktopCreateAppResult) => {
+      handleChatFirstAppCreated(result);
+    },
+    [handleChatFirstAppCreated],
+  );
+
+  const handleAppRemoval = useCallback(
     async (appId: string) => {
       const api = window.electronAPI?.appConfig;
-      if (!api?.showContextMenu) return;
-      const action = await api.showContextMenu(appId);
-      if (!action) return;
-      if (action === "edit") {
-        setEditingSidebarAppId(appId);
-        return;
-      }
-      if (action === "move-up" || action === "move-down") {
-        const updated = await api.reorder(
-          appId,
-          action === "move-up" ? "up" : "down",
-        );
-        setApps(updated);
-        return;
-      }
       const app = apps.find((candidate) => candidate.id === appId);
-      if (!app) return;
+      if (!api || !app) return;
+
       const updated = app.isBuiltIn
         ? await api.update(appId, { enabled: false })
         : await api.remove(appId);
       setApps(updated);
+      setActiveChatFirstAppId((current) => (current === appId ? "" : current));
+      setChatFirstPreviewRequest((current) =>
+        current?.appId === appId ? undefined : current,
+      );
+      setChatFirstPreviewStatus((current) =>
+        current?.appId === appId ? undefined : current,
+      );
     },
     [apps],
   );
-
-  const handleSidebarAppSave = useCallback(async (app: AppConfig) => {
-    const updated = await window.electronAPI?.appConfig?.update(app.id, app);
-    if (updated) setApps(updated);
-    setEditingSidebarAppId(null);
-  }, []);
-
-  const handleSidebarTabChange = useCallback(
-    (appId: string) => {
-      activateApp(appId);
-      setShowSettings(false);
-    },
-    [activateApp],
-  );
-
-  const handleCodeAgentsClick = useCallback(() => {
-    if (!showCodeAgentsTab) return;
-    setHasMountedCodeAgents(true);
-    setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
-    setShowSettings(false);
-    setShowAddApp(false);
-  }, [showCodeAgentsTab]);
 
   const handleDesktopOpenRequest = useCallback(
     (request: DesktopOpenRequest): boolean => {
@@ -355,10 +216,6 @@ export default function App() {
         request.app === MIGRATION_APP_ID ||
         request.app === CODE_AGENTS_SURFACE_ID
       ) {
-        if (!showCodeAgentsTab) {
-          setShowSettings(true);
-          return false;
-        }
         setCodeAgentsOpenRequest({
           goalId:
             goal?.id ??
@@ -366,8 +223,6 @@ export default function App() {
           runId: request.runId,
           nonce: Date.now(),
         });
-        setHasMountedCodeAgents(true);
-        setActiveSidebarAppId(CODE_AGENTS_SURFACE_ID);
         setShowSettings(false);
         setShowAddApp(false);
         return true;
@@ -375,63 +230,40 @@ export default function App() {
 
       const appId = request.app?.trim();
       if (!appId) return true;
-      const targetApp = enabledApps.find((app) => app.id === appId);
-      if (!targetApp) return !loading;
+      const targetApp = visibleEnabledApps.find((app) => app.id === appId);
+      if (!targetApp) {
+        const configuredApp = apps.find((app) => app.id === appId);
+        if (configuredApp && !isDesktopAppVisible(configuredApp)) return false;
+        return !loading;
+      }
 
-      window.electronAPI?.setActiveApp?.(appId);
-      activateApp(appId);
+      const path = safeDesktopOpenPath(request.path);
+      setChatFirstAppOpenRequest({
+        appId,
+        nonce: Date.now(),
+        ...(path ? { path } : {}),
+      });
       setShowSettings(false);
       setShowAddApp(false);
-
-      const urlPath = safeDesktopOpenPath(request.path);
-      if (!urlPath) return true;
-      const urlOpenNonce = Date.now();
-      const urlOpenSoft = request.softOpen === true;
-
-      setAppTabs((prev) => {
-        const appState = prev[appId];
-        const tabs =
-          appState && appState.tabs.length > 0
-            ? appState.tabs
-            : [createTab(targetApp)];
-        const activeTabId =
-          appState?.activeTabId &&
-          tabs.some((tab) => tab.id === appState.activeTabId)
-            ? appState.activeTabId
-            : tabs[0].id;
-
-        return {
-          ...prev,
-          [appId]: {
-            tabs: tabs.map((tab) =>
-              tab.id === activeTabId
-                ? { ...tab, urlOpenNonce, urlPath, urlOpenSoft }
-                : tab,
-            ),
-            activeTabId,
-          },
-        };
-      });
       return true;
     },
-    [activateApp, enabledApps, loading, showCodeAgentsTab],
+    [apps, loading, visibleEnabledApps],
   );
 
   useEffect(() => {
     const bridge = {
-      getActiveAppId: () => activeSidebarAppId,
+      getActiveAppId: () => activeChatFirstAppId || CODE_AGENTS_SURFACE_ID,
       activate: (
         request: DesktopShortcutActivationRequest,
       ): DesktopShortcutActivationResult => {
         const handled = handleDesktopOpenRequest(request);
         const appId = handled ? request.app : undefined;
-        if (appId) {
-          window.electronAPI?.setActiveApp?.(appId);
-        }
+        if (appId) window.electronAPI?.setActiveApp?.(appId);
         return {
           handled,
           appId,
-          activeAppId: appId ?? activeSidebarAppId,
+          activeAppId:
+            (appId ?? activeChatFirstAppId) || CODE_AGENTS_SURFACE_ID,
         };
       },
     };
@@ -441,303 +273,13 @@ export default function App() {
         delete window.__agentNativeDesktopShortcutBridge;
       }
     };
-  }, [activeSidebarAppId, handleDesktopOpenRequest]);
+  }, [activeChatFirstAppId, handleDesktopOpenRequest]);
 
   useEffect(() => {
-    if (showCodeAgentsTab || activeSidebarAppId !== CODE_AGENTS_SURFACE_ID) {
-      return;
-    }
-
-    const nextApp = appDefs.find((app) => !app.placeholder) ?? appDefs[0];
-    if (nextApp) {
-      activateApp(nextApp.id);
-    } else {
-      setActiveSidebarAppId("");
-    }
-  }, [activateApp, activeSidebarAppId, appDefs, showCodeAgentsTab]);
-
-  const handleTabSelect = useCallback(
-    (tabId: string) => {
-      setAppTabs((prev) => {
-        const appState = prev[activeSidebarAppId];
-        if (!appState?.tabs.some((tab) => tab.id === tabId)) return prev;
-
-        return {
-          ...prev,
-          [activeSidebarAppId]: {
-            ...appState,
-            activeTabId: tabId,
-          },
-        };
-      });
-    },
-    [activeSidebarAppId],
-  );
-
-  const handleTabRefresh = useCallback((tabId: string) => {
-    webviewRefs.current.get(tabId)?.reload();
-  }, []);
-
-  const handleTabClose = useCallback(
-    (tabId: string) => {
-      const appState = appTabs[activeSidebarAppId];
-      const closedTab = appState?.tabs.find((t) => t.id === tabId);
-      if (closedTab) {
-        closedTabsRef.current.push({
-          tab: closedTab,
-          appId: activeSidebarAppId,
-        });
-      }
-
-      setAppTabs((prev) => {
-        const prevAppState = prev[activeSidebarAppId];
-        if (!prevAppState) return prev;
-
-        const idx = prevAppState.tabs.findIndex((t) => t.id === tabId);
-        if (idx === -1) return prev;
-
-        const next = prevAppState.tabs.filter((t) => t.id !== tabId);
-
-        if (next.length === 0) {
-          const app = enabledApps.find((a) => a.id === activeSidebarAppId);
-          if (app) {
-            const replacementTab = createTab(app);
-            return {
-              ...prev,
-              [activeSidebarAppId]: {
-                tabs: [replacementTab],
-                activeTabId: replacementTab.id,
-              },
-            };
-          }
-
-          return {
-            ...prev,
-            [activeSidebarAppId]: { tabs: [], activeTabId: "" },
-          };
-        }
-
-        let newActiveId = prevAppState.activeTabId;
-        if (tabId === prevAppState.activeTabId) {
-          const newIdx = Math.min(idx, next.length - 1);
-          newActiveId = next[newIdx].id;
-        }
-
-        return {
-          ...prev,
-          [activeSidebarAppId]: { tabs: next, activeTabId: newActiveId },
-        };
-      });
-    },
-    [activeSidebarAppId, appTabs, enabledApps],
-  );
-
-  const handleTabTitleChange = useCallback(
-    (tabId: string, title: string) => {
-      setAppTabs((prev) => {
-        const appId = findTabAppId(prev, tabId);
-        if (!appId) return prev;
-        const appState = prev[appId];
-        const tab = appState.tabs.find((t) => t.id === tabId);
-        if (!tab) return prev;
-
-        const app = enabledApps.find((candidate) => candidate.id === appId);
-        const nextTitle = getTabDisplayTitle(title, app?.name ?? tab.title);
-        if (tab.title === nextTitle) return prev;
-
-        return {
-          ...prev,
-          [appId]: {
-            ...appState,
-            tabs: appState.tabs.map((t) =>
-              t.id === tabId ? { ...t, title: nextTitle } : t,
-            ),
-          },
-        };
-      });
-    },
-    [enabledApps],
-  );
-
-  const handleReopenTab = useCallback(() => {
-    const entry = closedTabsRef.current.pop();
-    if (!entry) return;
-    if (!enabledApps.some((app) => app.id === entry.appId)) return;
-
-    activateApp(entry.appId, { ensureTab: false });
-    setAppTabs((prev) => {
-      const appState = prev[entry.appId] ?? { tabs: [], activeTabId: "" };
-
-      return {
-        ...prev,
-        [entry.appId]: {
-          tabs: [...appState.tabs, entry.tab],
-          activeTabId: entry.tab.id,
-        },
-      };
-    });
-  }, [activateApp, enabledApps]);
-
-  const handleNewTab = useCallback(() => {
-    const app = enabledApps.find((a) => a.id === activeSidebarAppId);
-    if (!app) return;
-    const tab = createTab(app);
-    activateApp(activeSidebarAppId, { ensureTab: false });
-    setAppTabs((prev) => {
-      const appState = prev[activeSidebarAppId] ?? {
-        tabs: [],
-        activeTabId: "",
-      };
-
-      return {
-        ...prev,
-        [activeSidebarAppId]: {
-          tabs: [...appState.tabs, tab],
-          activeTabId: tab.id,
-        },
-      };
-    });
-  }, [activateApp, activeSidebarAppId, enabledApps]);
-
-  const handleCopyCurrentUrl = useCallback(async () => {
-    const currentUrl = webviewRefs.current
-      .get(activeTabIdRef.current)
-      ?.getUrl();
-    if (!currentUrl) return;
-
-    try {
-      if (window.electronAPI?.clipboard?.writeText) {
-        const copied = await window.electronAPI.clipboard.writeText(currentUrl);
-        if (!copied) return;
-      } else {
-        await navigator.clipboard.writeText(currentUrl);
-      }
-      toast("URL copied", {
-        id: "url-copied",
-        duration: 1600,
-      });
-    } catch {
-      // Clipboard permissions vary in browser-only dev mode; the Electron
-      // bridge is used in the packaged app.
-    }
-  }, []);
-
-  const handleShortcut = useCallback(
-    (
-      key: string,
-      shiftKey: boolean,
-      altKey: boolean = false,
-      ctrlKey: boolean = false,
-    ) => {
-      const k = key.toLowerCase();
-
-      // Cmd+Option+Up/Down — previous/next app
-      if (altKey && (k === "arrowup" || k === "arrowdown")) {
-        if (appDefs.length === 0) return;
-        const idx = appDefs.findIndex((a) => a.id === activeSidebarAppId);
-        const next =
-          k === "arrowdown"
-            ? (idx + 1) % appDefs.length
-            : (idx - 1 + appDefs.length) % appDefs.length;
-        activateApp(appDefs[next].id);
-        return;
-      }
-
-      if (k === "f") {
-        setFindOpen(true);
-        setTimeout(() => {
-          findInputRef.current?.focus();
-          findInputRef.current?.select();
-        }, 0);
-        return;
-      }
-
-      if (k === "l") {
-        void handleCopyCurrentUrl();
-        return;
-      }
-
-      if (k === "\\") {
-        webviewRefs.current.get(activeTabIdRef.current)?.toggleAgentSidebar();
-        return;
-      }
-
-      if (ctrlKey && altKey && k === "x") {
-        handleCodeAgentsClick();
-        return;
-      }
-
-      if (k === "r") {
-        setRefreshKey((n) => n + 1);
-        return;
-      }
-
-      if (k === "t") {
-        if (shiftKey) handleReopenTab();
-        else handleNewTab();
-        return;
-      }
-
-      const digit = parseInt(key, 10);
-      if (digit >= 1 && digit <= 9) {
-        if (digit - 1 < appDefs.length) {
-          activateApp(appDefs[digit - 1].id);
-        }
-        return;
-      }
-
-      if (key === "[" || key === "]") {
-        if (shiftKey) {
-          if (appDefs.length === 0) return;
-          const idx = appDefs.findIndex((a) => a.id === activeSidebarAppId);
-          const next =
-            key === "]"
-              ? (idx + 1) % appDefs.length
-              : (idx - 1 + appDefs.length) % appDefs.length;
-          activateApp(appDefs[next].id);
-        } else {
-          const ref = webviewRefs.current.get(activeTabIdRef.current);
-          if (key === "[") ref?.goBack();
-          else ref?.goForward();
-        }
-      }
-    },
-    [
-      activateApp,
-      activeSidebarAppId,
-      handleCopyCurrentUrl,
-      handleNewTab,
-      handleReopenTab,
-      handleCodeAgentsClick,
-      appDefs,
-    ],
-  );
-
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (!isShellShortcut(e)) return;
-      const isSidebarToggle = isAgentSidebarToggleShortcut(e);
-      if (!isSidebarToggle && isEditableTarget(e.target)) return;
-      e.preventDefault();
-      handleShortcut(
-        e.code === "Backslash" ? "\\" : e.key,
-        e.shiftKey,
-        e.altKey,
-        e.ctrlKey,
-      );
-    };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [handleShortcut]);
-
-  useEffect(() => {
-    if (!window.electronAPI?.shortcuts?.onKeydown) return;
-    return window.electronAPI.shortcuts.onKeydown(
-      ({ key, shiftKey, altKey, ctrlKey }) => {
-        handleShortcut(key, shiftKey, altKey, ctrlKey);
-      },
+    window.electronAPI?.setActiveApp?.(
+      activeChatFirstAppId || CODE_AGENTS_SURFACE_ID,
     );
-  }, [handleShortcut]);
+  }, [activeChatFirstAppId]);
 
   useEffect(() => {
     if (!window.electronAPI?.codeAgents?.onOpenRequest) return;
@@ -766,9 +308,7 @@ export default function App() {
     const handled = handleDesktopOpenRequest(pendingDesktopShortcutActivation);
     if (!handled) return;
     const appId = pendingDesktopShortcutActivation.app;
-    if (appId) {
-      window.electronAPI?.setActiveApp?.(appId);
-    }
+    if (appId) window.electronAPI?.setActiveApp?.(appId);
     window.electronAPI?.shortcuts?.ackActivation(
       pendingDesktopShortcutActivation.requestId,
       appId,
@@ -776,53 +316,45 @@ export default function App() {
     setPendingDesktopShortcutActivation(null);
   }, [handleDesktopOpenRequest, pendingDesktopShortcutActivation]);
 
-  // Report the active app to main process so DevTools targets the right webview
-  useEffect(() => {
-    if (activeSidebarAppId && window.electronAPI?.setActiveApp) {
-      window.electronAPI.setActiveApp(activeSidebarAppId);
-    }
-  }, [activeSidebarAppId]);
-
-  useEffect(() => {
-    if (!window.electronAPI?.shortcuts?.onCloseTab) return;
-    return window.electronAPI.shortcuts.onCloseTab(() => {
-      if (activeTabIdRef.current) {
-        handleTabClose(activeTabIdRef.current);
-      }
-    });
-  }, [handleTabClose]);
-
   useEffect(() => {
     const appConfigApi = window.electronAPI?.appConfig;
     if (!appConfigApi?.onRuntimeStatus) return;
     return appConfigApi.onRuntimeStatus((status) => {
-      if (status.appId === activeSidebarAppId && status.state === "running") {
+      const isPreview = status.appId === chatFirstPreviewRequest?.appId;
+      const previousState = runtimeStatusByAppRef.current.get(status.appId);
+      runtimeStatusByAppRef.current.set(status.appId, status.state);
+      if (
+        status.state === "running" &&
+        previousState !== "running" &&
+        (status.appId === activeChatFirstAppId || isPreview)
+      ) {
         setRefreshKey((key) => key + 1);
       }
+      if (!isPreview) return;
+      if (status.state === "waiting" || status.state === "starting") {
+        setChatFirstPreviewStatus({
+          appId: status.appId,
+          state: "starting",
+          ...(status.message ? { message: status.message } : {}),
+        });
+        return;
+      }
+      if (status.state === "running") {
+        setChatFirstPreviewStatus({
+          appId: status.appId,
+          state: "ready",
+          ...(status.message ? { message: status.message } : {}),
+        });
+        return;
+      }
+      setChatFirstPreviewStatus({
+        appId: status.appId,
+        state: "error",
+        message:
+          status.message ?? "The local preview stopped before it was ready.",
+      });
     });
-  }, [activeSidebarAppId]);
-
-  const runFind = useCallback(
-    (query: string, options?: { findNext?: boolean; forward?: boolean }) => {
-      const ref = webviewRefs.current.get(activeTabId);
-      if (!ref || !query.trim()) return;
-      ref.findInPage(query, options);
-    },
-    [activeTabId],
-  );
-
-  const closeFind = useCallback(() => {
-    if (activeTabId) {
-      webviewRefs.current.get(activeTabId)?.stopFindInPage("clearSelection");
-    }
-    setFindOpen(false);
-    setFindQuery("");
-  }, [activeTabId]);
-
-  useEffect(() => {
-    if (!findOpen || !findQuery.trim()) return;
-    runFind(findQuery, { forward: true });
-  }, [activeTabId, findOpen, findQuery, runFind]);
+  }, [activeChatFirstAppId, chatFirstPreviewRequest?.appId]);
 
   if (loading) {
     return (
@@ -835,219 +367,72 @@ export default function App() {
     );
   }
 
-  const isCodeAgentsActive =
-    showCodeAgentsTab && activeSidebarAppId === CODE_AGENTS_SURFACE_ID;
-  const shouldRenderCodeAgents =
-    showCodeAgentsTab && (isCodeAgentsActive || hasMountedCodeAgents);
-
-  // Keep app webviews warm once visited so switching apps feels like browser
-  // tabs: the guest page remains alive offscreen and keeps its runtime state.
-  const allWebviews: {
-    tab: Tab;
-    app: AppConfig;
-    appDef: AppDefinition;
-    isActive: boolean;
-  }[] = [];
-  for (const app of enabledApps) {
-    if (app.id !== activeSidebarAppId && !mountedAppIds.has(app.id)) {
-      continue;
-    }
-
-    const appState = appTabs[app.id];
-    if (!appState) continue;
-
-    for (const tab of appState.tabs) {
-      allWebviews.push({
-        tab,
-        app,
-        appDef: toAppDefinition(app),
-        isActive:
-          app.id === activeSidebarAppId && tab.id === appState.activeTabId,
-      });
-    }
-  }
-
   return (
     <div className="shell">
-      {findOpen && (
-        <div className="find-overlay">
-          <input
-            ref={findInputRef}
-            value={findQuery}
-            onChange={(e) => setFindQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                runFind(findQuery, {
-                  findNext: true,
-                  forward: !e.shiftKey,
-                });
-                return;
-              }
-              if (e.key === "Escape") {
-                e.preventDefault();
-                closeFind();
-              }
-            }}
-            placeholder="Find in page"
-            className="find-input"
-          />
-          <button
-            type="button"
-            tabIndex={-1}
-            className="find-button"
-            onClick={() =>
-              runFind(findQuery, { findNext: true, forward: false })
-            }
-          >
-            Prev
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            className="find-button"
-            onClick={() =>
-              runFind(findQuery, { findNext: true, forward: true })
-            }
-          >
-            Next
-          </button>
-          <button
-            type="button"
-            tabIndex={-1}
-            className="find-button find-button--close"
-            onClick={closeFind}
-          >
-            Done
-          </button>
-        </div>
-      )}
-      {isCodeAgentsActive ? (
-        <div className="tabbar tabbar--shell">
-          {reserveMacOSWindowControlsSpace && (
-            <div className="tabbar-window-spacer" aria-hidden="true" />
-          )}
-          <div className="tabbar-strip">
-            <div className="tab tab--active tab--locked">
-              <span className="tab-label">Agent</span>
-            </div>
-          </div>
-        </div>
-      ) : (
-        <TabBar
-          tabs={currentAppTabs?.tabs ?? []}
-          activeTabId={currentAppTabs?.activeTabId ?? ""}
-          appName={
-            enabledApps.find((app) => app.id === activeSidebarAppId)?.name ?? ""
-          }
-          onTabSelect={handleTabSelect}
-          onTabClose={handleTabClose}
-          onTabRefresh={handleTabRefresh}
-          onNewTab={handleNewTab}
-        />
-      )}
+      <WindowControls className="win-controls desktop-chat-first-window-controls" />
+      {window.electronAPI?.platform === "darwin" ? (
+        <CollapsedMacWindowControls className="desktop-chat-first-mac-window-controls" />
+      ) : null}
       <div className="shell-body">
-        <Sidebar
-          apps={appDefs}
-          activeAppId={activeSidebarAppId}
-          onTabChange={handleSidebarTabChange}
-          onAppContextMenu={(appId) => void handleSidebarAppContextMenu(appId)}
-          onAddAppClick={() => setShowAddApp(true)}
-          isCodeAgentsActive={isCodeAgentsActive}
-          onCodeAgentsClick={
-            showCodeAgentsTab ? handleCodeAgentsClick : undefined
-          }
-          onSettingsClick={() => setShowSettings(true)}
-        />
-        <div
-          className={`content-area${
-            isCodeAgentsActive ? " content-area--code-agents" : ""
-          }`}
-        >
-          {shouldRenderCodeAgents && (
-            <div
-              className={`code-agents-shell-surface${
-                isCodeAgentsActive ? "" : " code-agents-shell-surface--hidden"
-              }`}
-              aria-hidden={!isCodeAgentsActive}
-            >
-              <CodeAgentsHub
-                apps={apps}
-                isActive={isCodeAgentsActive}
-                openRequest={codeAgentsOpenRequest}
-                refreshKey={refreshKey}
-                onOpenSettings={() => setShowSettings(true)}
-              />
-            </div>
-          )}
-          {!isCodeAgentsActive &&
-            allWebviews.map(({ tab, app, appDef, isActive }) => (
-              <AppWebview
-                key={tab.id}
-                ref={(instance) => {
-                  if (instance) webviewRefs.current.set(tab.id, instance);
-                  else webviewRefs.current.delete(tab.id);
-                }}
-                app={appDef}
-                appConfig={app}
-                isActive={isActive}
-                urlOpenNonce={tab.urlOpenNonce}
-                urlPath={tab.urlPath}
-                urlOpenSoft={tab.urlOpenSoft}
-                refreshKey={isActive ? refreshKey : 0}
-                onTitleChange={(title) => handleTabTitleChange(tab.id, title)}
-                onAppsChanged={handleAppsChanged}
-              />
-            ))}
+        <div className="content-area content-area--chat-first">
+          <div className="code-agents-shell-surface">
+            <CodeAgentsHub
+              apps={apps}
+              workspaceAppList={workspaceAppList}
+              isActive
+              openRequest={codeAgentsOpenRequest}
+              chatFirstAppOpenRequest={chatFirstAppOpenRequest}
+              chatFirstPreviewRequest={chatFirstPreviewRequest}
+              chatFirstPreviewStatus={chatFirstPreviewStatus?.state}
+              chatFirstPreviewStatusMessage={chatFirstPreviewStatus?.message}
+              refreshKey={refreshKey}
+              onOpenSettings={handleOpenSettings}
+              onCreateApp={() => setShowAddApp(true)}
+              onChatFirstAppCreated={handleChatFirstAppCreated}
+              onLocalCodeChangeStarted={handleLocalCodeChangeStarted}
+              onChatFirstAppRemove={(app) => {
+                void handleAppRemoval(app.id);
+              }}
+              onChatFirstAppSelectionChange={handleChatFirstAppSelectionChange}
+            />
+          </div>
         </div>
       </div>
 
-      {showSettings && (
+      {showSettings ? (
         <AppSettings
           apps={apps}
-          onClose={() => setShowSettings(false)}
+          initialTab={settingsTab}
+          onClose={() => {
+            setShowSettings(false);
+            setSettingsTab("general");
+          }}
           onAppsChanged={handleAppsChanged}
-          onFrameSettingsChanged={handleFrameSettingsChanged}
           onCodeAgentProvidersChanged={() => setRefreshKey((n) => n + 1)}
           onAddAppClick={() => {
             setShowSettings(false);
             setShowAddApp(true);
           }}
         />
-      )}
+      ) : null}
 
-      {showAddApp && (
+      {showAddApp ? (
         <AddAppDialog
           onSave={handleAddApp}
           onCreated={handlePromptAppCreated}
           onCancel={() => setShowAddApp(false)}
         />
-      )}
-
-      {editingSidebarAppId && (
-        <AppEditForm
-          app={apps.find((candidate) => candidate.id === editingSidebarAppId)}
-          onSave={(app) => void handleSidebarAppSave(app)}
-          onCancel={() => setEditingSidebarAppId(null)}
-        />
-      )}
+      ) : null}
 
       <UpdatePrompt />
       <Toaster
-        className="shell-snackbar-toaster"
-        theme="dark"
+        theme="system"
         position="bottom-center"
         offset={20}
         closeButton
         visibleToasts={1}
-        toastOptions={{
-          duration: 4000,
-          classNames: {
-            toast: "shell-snackbar",
-            title: "shell-snackbar-title",
-          },
-        }}
       />
+      <ToastToaster />
     </div>
   );
 }

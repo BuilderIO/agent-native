@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { getContentDatabaseSourceAdapter } from "./_content-database-source-adapters.js";
 
 describe("content database source adapter registry", () => {
-  it("registers Builder, local-table, and read-only Notion adapters", () => {
+  it("registers remote, local-table, and bridge-mediated adapters", () => {
     expect(getContentDatabaseSourceAdapter("builder-cms")?.sourceType).toBe(
       "builder-cms",
     );
@@ -12,6 +12,9 @@ describe("content database source adapter registry", () => {
     );
     expect(getContentDatabaseSourceAdapter("notion-database")?.sourceType).toBe(
       "notion-database",
+    );
+    expect(getContentDatabaseSourceAdapter("local-folder")?.sourceType).toBe(
+      "local-folder",
     );
     expect(getContentDatabaseSourceAdapter("mock-local")).toBeNull();
   });

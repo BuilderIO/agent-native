@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   defaultOrgAppLinks,
   dispatchAppsHref,
+  isWorkspaceAppEnvironment,
   parseWorkspaceAppLinks,
   visibleOrgAppLinks,
 } from "./workspace-app-links.js";
@@ -21,6 +22,9 @@ describe("org switcher app links", () => {
     });
     expect(apps.find((app) => app.id === "brain")?.icon).toBe("Brain");
     expect(apps.find((app) => app.id === "analytics")?.icon).toBe("BarChart2");
+    expect(apps.find((app) => app.id === "analytics")?.description).toContain(
+      "connect data sources",
+    );
     expect(apps.map((app) => app.id)).toEqual(
       expect.arrayContaining([
         "analytics",
@@ -61,6 +65,12 @@ describe("org switcher app links", () => {
     expect(dispatchAppsHref(apps ?? [])).toBe(
       "http://127.0.0.1:8080/dispatch/apps",
     );
+  });
+
+  it("accepts boolean-style workspace flags", () => {
+    expect(
+      isWorkspaceAppEnvironment({ VITE_AGENT_NATIVE_WORKSPACE: "true" }),
+    ).toBe(true);
   });
 
   it("caps visible app rows at nine while keeping overflow for Dispatch", () => {

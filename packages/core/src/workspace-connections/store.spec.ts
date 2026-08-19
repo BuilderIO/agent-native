@@ -67,6 +67,16 @@ beforeEach(() => {
     // The first test creates the table through the store initializer.
   }
   try {
+    sqlite.prepare("DELETE FROM workspace_user_groups").run();
+  } catch {
+    // Group tests create the table on demand.
+  }
+  try {
+    sqlite.prepare("DELETE FROM org_members").run();
+  } catch {
+    // Most store tests do not need organization membership rows.
+  }
+  try {
     sqlite.prepare("DELETE FROM app_secrets").run();
   } catch {
     // The first secret-backed test creates the table through the store.
@@ -155,6 +165,7 @@ describe("workspace connection store", () => {
           scopes: [],
           config: {},
           allowedApps: [],
+          allowedUsers: [],
           credentialRefs: [
             {
               key: "SLACK_BOT_TOKEN",
@@ -179,6 +190,7 @@ describe("workspace connection store", () => {
           scopes: [],
           config: {},
           allowedApps: ["dispatch"],
+          allowedUsers: [],
           credentialRefs: [],
           ownerEmail: "alice@example.com",
           orgId: "org-1",
@@ -239,6 +251,7 @@ describe("workspace connection store", () => {
           scopes: [],
           config: {},
           allowedApps: ["brain"],
+          allowedUsers: [],
           credentialRefs: [],
           ownerEmail: "alice@example.com",
           orgId: "org-1",
@@ -311,6 +324,10 @@ describe("workspace connection store", () => {
       listWorkspaceConnections,
       upsertWorkspaceConnection,
     } = await import("./store.js");
+    const { registerWorkspaceConnectionLifecycleListener } =
+      await import("./lifecycle.js");
+    const lifecycle = vi.fn();
+    const unregister = registerWorkspaceConnectionLifecycleListener(lifecycle);
 
     await runWithRequestContext({ userEmail: "alice@example.com" }, () =>
       upsertWorkspaceConnection({
@@ -352,6 +369,20 @@ describe("workspace connection store", () => {
       () => deleteWorkspaceConnection("conn-personal"),
     );
     expect(bobDeleted).toBe(false);
+    expect(lifecycle).not.toHaveBeenCalled();
+
+    const aliceDeleted = await runWithRequestContext(
+      { userEmail: "alice@example.com" },
+      () => deleteWorkspaceConnection("conn-personal"),
+    );
+    expect(aliceDeleted).toBe(true);
+    expect(lifecycle).toHaveBeenCalledWith({
+      type: "connection-deleted",
+      connectionId: "conn-personal",
+      ownerEmail: "alice@example.com",
+      orgId: null,
+    });
+    unregister();
   });
 
   it("uses active org scope when present", async () => {
@@ -401,6 +432,213 @@ describe("workspace connection store", () => {
       () => getWorkspaceConnection("conn-org"),
     );
     expect(otherOrg).toBeNull();
+  });
+
+  it("normalizes and enforces connection-level user allowlists", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const {
+      listWorkspaceConnections,
+      listWorkspaceConnectionsForApp,
+      normalizeWorkspaceConnectionAllowedUsers,
+      resolveWorkspaceConnectionForApp,
+      upsertWorkspaceConnection,
+    } = await import("./store.js");
+
+    expect(
+      normalizeWorkspaceConnectionAllowedUsers([
+        " Alice@Example.com ",
+        "alice@example.com",
+        "BOB@example.com",
+        "",
+      ]),
+    ).toEqual(["alice@example.com", "bob@example.com"]);
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-user-open",
+          provider: "slack",
+          label: "Everyone Slack",
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-user-alice",
+          provider: "slack",
+          label: "Alice Slack",
+          allowedUsers: [" Alice@Example.com ", "alice@example.com"],
+        });
+        await upsertWorkspaceConnection({
+          id: "conn-user-bob",
+          provider: "slack",
+          label: "Bob Slack",
+          allowedUsers: ["BOB@example.com"],
+        });
+
+        const updated = await upsertWorkspaceConnection({
+          id: "conn-user-alice",
+          provider: "slack",
+          label: "Alice Slack renamed",
+        });
+        expect(updated.allowedUsers).toEqual(["alice@example.com"]);
+      },
+    );
+
+    const managementConnections = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () => listWorkspaceConnections({ provider: "slack" }),
+    );
+    expect(
+      managementConnections.map((connection) => connection.id).sort(),
+    ).toEqual(["conn-user-alice", "conn-user-bob", "conn-user-open"]);
+
+    const bobConnections = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () => listWorkspaceConnections({ provider: "slack", appId: "brain" }),
+    );
+    expect(bobConnections.map((connection) => connection.id).sort()).toEqual([
+      "conn-user-bob",
+      "conn-user-open",
+    ]);
+
+    const bobAppConnections = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        listWorkspaceConnectionsForApp({ appId: "brain", provider: "slack" }),
+    );
+    expect(bobAppConnections.map((connection) => connection.id).sort()).toEqual(
+      ["conn-user-bob", "conn-user-open"],
+    );
+
+    const bobCannotResolveAlice = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "brain",
+          provider: "slack",
+          connectionId: "conn-user-alice",
+        }),
+    );
+    expect(bobCannotResolveAlice).toMatchObject({
+      available: false,
+      connection: null,
+      appAccess: null,
+    });
+    expect(bobCannotResolveAlice.reason).toMatch(/not found/i);
+
+    const aliceCanResolve = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "brain",
+          provider: "slack",
+          connectionId: "conn-user-alice",
+        }),
+    );
+    expect(aliceCanResolve).toMatchObject({
+      available: true,
+      connection: {
+        id: "conn-user-alice",
+        allowedUsers: ["alice@example.com"],
+      },
+    });
+  });
+
+  it("resolves connection access through mutable workspace user groups", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { upsertWorkspaceUserGroup } = await import("./groups.js");
+    const { upsertWorkspaceConnection, resolveWorkspaceConnectionForApp } =
+      await import("./store.js");
+
+    sqlite.exec(`
+      CREATE TABLE IF NOT EXISTS org_members (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        email TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'member',
+        joined_at INTEGER NOT NULL DEFAULT 0
+      )
+    `);
+    sqlite
+      .prepare(
+        "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("member-alice", "org-groups", "alice@example.com", "owner", 1);
+    sqlite
+      .prepare(
+        "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("member-bob", "org-groups", "bob@example.com", "member", 2);
+
+    const connectionId = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-groups" },
+      async () => {
+        const group = await upsertWorkspaceUserGroup({
+          name: "Rev Ops",
+          memberEmails: ["bob@example.com"],
+        });
+        const connection = await upsertWorkspaceConnection({
+          id: "conn-rev-ops",
+          provider: "hubspot",
+          label: "Rev Ops HubSpot",
+          allowedUserGroups: [group.id],
+        });
+        return connection.id;
+      },
+    );
+
+    const bobCanResolve = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-groups" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "dispatch",
+          provider: "hubspot",
+          connectionId,
+        }),
+    );
+    expect(bobCanResolve.available).toBe(true);
+
+    sqlite.prepare("DELETE FROM org_members WHERE id = ?").run("member-bob");
+    const bobAfterOrgRemoval = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-groups" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "dispatch",
+          provider: "hubspot",
+          connectionId,
+        }),
+    );
+    expect(bobAfterOrgRemoval.available).toBe(false);
+    sqlite
+      .prepare(
+        "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("member-bob", "org-groups", "bob@example.com", "member", 2);
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-groups" },
+      async () => {
+        const groups = await import("./groups.js");
+        const [group] = await groups.listWorkspaceUserGroups();
+        await groups.upsertWorkspaceUserGroup({
+          id: group.id,
+          name: group.name,
+          memberEmails: [],
+        });
+      },
+    );
+
+    const bobAfterRemoval = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-groups" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "dispatch",
+          provider: "hubspot",
+          connectionId,
+        }),
+    );
+    expect(bobAfterRemoval.available).toBe(false);
   });
 
   it("scopes workspace connection grants to the active org", async () => {
@@ -897,6 +1135,10 @@ describe("workspace connection store", () => {
       upsertWorkspaceConnection,
       upsertWorkspaceConnectionGrant,
     } = await import("./store.js");
+    const { registerWorkspaceConnectionLifecycleListener } =
+      await import("./lifecycle.js");
+    const lifecycle = vi.fn();
+    const unregister = registerWorkspaceConnectionLifecycleListener(lifecycle);
 
     await runWithRequestContext(
       { userEmail: "alice@example.com", orgId: "org-1" },
@@ -931,6 +1173,13 @@ describe("workspace connection store", () => {
       () => revokeWorkspaceConnectionGrant("conn-granted", "dispatch"),
     );
     expect(revoked).toBe(true);
+    expect(lifecycle).toHaveBeenCalledWith({
+      type: "grant-revoked",
+      connectionId: "conn-granted",
+      appId: "dispatch",
+      ownerEmail: "bob@example.com",
+      orgId: "org-1",
+    });
 
     const grants = await runWithRequestContext(
       { userEmail: "bob@example.com", orgId: "org-1" },
@@ -945,6 +1194,7 @@ describe("workspace connection store", () => {
     expect(dispatchConnections.map((connection) => connection.id)).toEqual([
       "conn-legacy",
     ]);
+    unregister();
   });
 
   it("redacts secret-shaped fields during serialization", async () => {
@@ -1238,6 +1488,57 @@ describe("workspace connection store", () => {
         resolvedKey: "HUBSPOT_ACCESS_TOKEN",
         credentialRef: {
           key: "HUBSPOT_PRIVATE_APP_TOKEN",
+          source: "connection",
+        },
+      },
+    });
+  });
+
+  it("resolves an explicitly registered legacy HubSpot secret ref", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { writeAppSecret } = await import("../secrets/index.js");
+    const { resolveWorkspaceConnectionCredentialForApp } =
+      await import("./credentials.js");
+    const { upsertWorkspaceConnection } = await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "conn-hubspot-secret-ref",
+          provider: "hubspot",
+          label: "Team HubSpot (legacy ref)",
+          credentialRefs: [{ key: "HUBSPOT_SECRET_KEY", scope: "org" }],
+        });
+        await writeAppSecret({
+          key: "HUBSPOT_SECRET_KEY",
+          value: "legacy-ref-token",
+          scope: "org",
+          scopeId: "org-1",
+        });
+      },
+    );
+
+    const resolved = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-1" },
+      () =>
+        resolveWorkspaceConnectionCredentialForApp({
+          appId: "analytics",
+          provider: "hubspot",
+          key: "HUBSPOT_PRIVATE_APP_TOKEN",
+        }),
+    );
+
+    expect(resolved).toMatchObject({
+      available: true,
+      status: "resolved",
+      value: "legacy-ref-token",
+      provenance: {
+        requestedKey: "HUBSPOT_PRIVATE_APP_TOKEN",
+        resolvedKey: "HUBSPOT_SECRET_KEY",
+        credentialRef: {
+          key: "HUBSPOT_SECRET_KEY",
           source: "connection",
         },
       },

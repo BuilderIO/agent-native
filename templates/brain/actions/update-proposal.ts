@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertDerivedAudienceAccess,
   nowIso,
   parseJson,
   serializeProposal,
@@ -23,6 +24,7 @@ export default defineAction({
   run: async ({ proposalId, title, body, rationale }) => {
     const access = await assertAccess("brain-proposal", proposalId, "editor");
     const proposal = access.resource;
+    await assertDerivedAudienceAccess(proposal);
     if (proposal.status !== "pending") {
       throw new Error(`Proposal ${proposalId} is already ${proposal.status}`);
     }

@@ -10,7 +10,7 @@ This guide is for development-mode agents editing this app's source code. For ap
 - **Backend**: Nitro (via @agent-native/core) — file-based API routing
 - **UI components**: Radix UI primitives + Lucide icons
 - **Image generation**: Google Gemini via `@google/genai`
-- **State**: SQL-backed via `/api/decks`, in-memory undo/redo, share tokens
+- **State**: SQL-backed via deck actions, in-memory undo/redo, share tokens
 - **Logo lookup**: Logo.dev API (free tier with token) or Google Image Search fallback
 - **Path aliases**: `@/*` → app/, `@shared/*` → shared/
 
@@ -35,7 +35,7 @@ app/                           # React SPA frontend
 │   └── ui/                    # Reusable UI primitives (Radix-based)
 ├── data/                      # Shared data types and utilities
 ├── context/
-│   └── DeckContext.tsx        # Central state: decks, slides, undo/redo (fetches from /api/decks)
+│   └── DeckContext.tsx        # Central state: decks, slides, undo/redo (calls the deck actions)
 ├── lib/
 │   └── utils.ts               # cn() utility
 └── root.tsx               # HTML shell + global providers
@@ -43,7 +43,7 @@ app/                           # React SPA frontend
 server/                        # Nitro API server
 ├── routes/                    # File-based route-only endpoints (auto-discovered by Nitro)
 ├── handlers/                  # Route handler modules
-│   ├── decks.ts               # GET/PUT/POST/DELETE /api/decks (file-based CRUD)
+│   ├── decks.ts               # GET /api/decks/events (SSE) + notifyClients broadcast
 │   ├── image-gen.ts           # POST /api/image-gen/generate (Gemini)
 │   ├── generate-slides.ts     # POST /api/generate-slides (Gemini)
 │   └── share.ts               # POST /api/share, GET /api/share/:token
@@ -59,8 +59,8 @@ actions/                       # Shared app operations (defineAction; UI uses ac
 ├── run.ts                     # Script dispatcher
 ├── generate-image.ts          # Image generation with style references
 ├── image-gen-status.ts        # Check API key status
-├── image-search.ts            # Google Image search
-└── logo-lookup.ts             # Clearbit logo URL lookup
+├── search-images.ts           # Canonical Google image search
+└── search-logos.ts            # Canonical company/logo search
 ```
 
 ## Framework Basics (Nitro + @agent-native/core)
@@ -113,6 +113,23 @@ Real credential values belong only in local `.env` files, deployment configurati
 | --------------------- | ------------------------------- | -------------------------------------------------------------------------- |
 | `DATABASE_URL`        | Production yes, local dev no    | Persistent SQL connection string (local dev default: `file:./data/app.db`) |
 | `DATABASE_AUTH_TOKEN` | Only when the provider needs it | Auth token for providers such as Turso/libSQL                              |
+
+## Private Deck Access Recovery
+
+The editor route intentionally keeps private decks out of the content response
+when the current viewer has no grant. The `get-deck-access-status` action may
+return only existence, visibility, and the current viewer identity so the UI
+can explain the denial without exposing deck data. The private-deck pane uses
+that metadata to show the Google-Docs-style "This deck is private" state.
+
+Signed-in viewers can call `request-deck-access`. That action records a
+`deck.access_requested` event in `deck_events`, adds an owner-scoped in-app
+notification, and emails the deck owner when outbound email is configured.
+Requests are idempotent per deck and requester. In-app and email delivery are
+tracked independently, retried safely after transient failures, and claimed
+atomically so concurrent retries do not fan out duplicate notifications. It
+never grants access; the owner must use the existing Share controls. Anonymous
+viewers are sent through the normal sign-in flow first.
 
 ## Build & Dev Commands
 

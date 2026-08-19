@@ -12,6 +12,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { notifyRecordingReaction } from "../server/lib/activity-notifications.js";
 import { nanoid } from "../server/lib/recordings.js";
 
 export default defineAction({
@@ -29,6 +30,9 @@ export default defineAction({
     viewerName: z.string().optional(),
   }),
   run: async (args) => {
+    // Reacting is open to any signed-in viewer with access to the
+    // recording, not just an explicitly-granted "commenter" role — the
+    // `viewerEmail` check below is what actually requires an account.
     await assertAccess("recording", args.recordingId, "viewer");
 
     const viewerEmail = getRequestUserEmail();
@@ -50,8 +54,16 @@ export default defineAction({
       createdAt: now,
     });
 
+    const notified = await notifyRecordingReaction({
+      recordingId: args.recordingId,
+      emoji: args.emoji,
+      viewerEmail,
+      viewerName: args.viewerName,
+      videoTimestampMs: args.videoTimestampMs,
+    });
+
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return { id };
+    return { id, notified };
   },
 });

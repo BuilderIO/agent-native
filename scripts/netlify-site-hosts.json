@@ -1,0 +1,41 @@
+{
+  "production": [
+    "assets.agent-native.com",
+    "brain.agent-native.com",
+    "design.agent-native.com",
+    "clips.agent-native.com",
+    "chat.agent-native.com",
+    "crm.agent-native.com",
+    "starter.agent-native.com",
+    "slides.agent-native.com",
+    "mail.agent-native.com",
+    "macros.agent-native.com",
+    "forms.agent-native.com",
+    "plan.agent-native.com",
+    "dispatch.agent-native.com",
+    "content.agent-native.com",
+    "calendar.agent-native.com",
+    "analytics.agent-native.com",
+    "factory.agent-native.com",
+    "www.agent-native.com"
+  ],
+  "beta": [
+    "beta.analytics.agent-native.com",
+    "beta.assets.agent-native.com",
+    "beta.brain.agent-native.com",
+    "beta.calendar.agent-native.com",
+    "beta.clips.agent-native.com",
+    "beta.content.agent-native.com",
+    "beta.crm.agent-native.com",
+    "beta.design.agent-native.com",
+    "beta.dispatch.agent-native.com",
+    "beta.factory.agent-native.com",
+    "beta.forms.agent-native.com",
+    "beta.macros.agent-native.com",
+    "beta.mail.agent-native.com",
+    "beta.plan.agent-native.com",
+    "beta.slides.agent-native.com",
+    "beta.chat.agent-native.com"
+  ],
+  "workspace": ["agent-workspace.builder.io", "beta.agent-workspace.builder.io"]
+}

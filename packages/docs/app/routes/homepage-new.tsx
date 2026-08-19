@@ -1,4 +1,4 @@
-import { useLocale } from "@agent-native/core/client";
+import { useLocale } from "@agent-native/core/client/i18n";
 import {
   IconActivity,
   IconAppWindow,
@@ -188,9 +188,9 @@ const moduleCards: ModuleCard[] = [
   {
     name: "Source ownership",
     description:
-      "Framework modules and example app source live where local agents can inspect, fork, eject, and replace them.",
+      "Framework modules and example app source live where local agents can inspect, customize, eject, and replace them.",
     icon: IconPackage,
-    tags: ["node_modules", "forkable", "replaceable"],
+    tags: ["node_modules", "cloneable", "replaceable"],
   },
 ];
 
@@ -226,13 +226,13 @@ const sourceFlow = [
     title: "Example apps",
     body: "Real compositions like Plan, Clips, Design, Analytics, Mail, and Calendar prove how modules work together.",
     detail:
-      "Fork them, mine patterns from them, or replace the pieces that are not your differentiator.",
+      "Start from them, mine patterns from them, or replace the pieces that are not your differentiator.",
   },
   {
     title: "Your app",
     body: "Keep the verified pieces and focus your agent on product logic, workflows, and the thing only you can build.",
     detail:
-      "Start with chat, fork a working app, or run automation-first when no browser UI is needed yet.",
+      "Start with chat, start from a working app, or run automation-first when no browser UI is needed yet.",
   },
 ];
 
@@ -243,7 +243,7 @@ export const meta = () =>
       {
         name: "description",
         content:
-          "A module-first homepage direction for building agentic applications with replaceable Agent-Native modules and forkable example apps.",
+          "A module-first homepage direction for building agentic applications with replaceable Agent-Native modules and cloneable example apps.",
       },
       {
         property: "og:title",
@@ -273,13 +273,13 @@ function ArrowLink({
   const isInternalPath = to.startsWith("/");
   const className =
     variant === "primary"
-      ? "inline-flex min-w-0 items-center justify-center gap-2 rounded-full bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition hover:opacity-85 hover:no-underline"
-      : "inline-flex min-w-0 items-center justify-center gap-2 rounded-full border border-[var(--docs-border)] bg-[var(--bg)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline";
+      ? "inline-flex min-w-0 items-center justify-center gap-2 rounded-xl bg-[var(--fg)] px-5 py-3 text-sm font-medium text-[var(--bg)] no-underline transition hover:opacity-85 hover:no-underline"
+      : "inline-flex min-w-0 items-center justify-center gap-2 rounded-xl border border-[var(--docs-border)] bg-[var(--bg)] px-5 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline";
 
   if (isInternalPath) {
     return (
       <Link
-        data-an-prefetch="render"
+        data-an-prefetch="viewport"
         to={to}
         className={className}
         onClick={() =>
@@ -525,7 +525,7 @@ export default function HomepageNew() {
           <SectionHeading
             eyebrow="Own the source"
             title="Keep the solid parts. Replace anything."
-            body="The framework should be inspectable by local agents: module docs, source, skills, and example apps live in node_modules so your app can fork, eject, patch, or replace a module without losing the map."
+            body="The framework should be inspectable by local agents: module docs, source, skills, and example apps live in node_modules so your app can own, eject, patch, or replace a module without losing the map."
           />
           <div className="grid gap-4 md:grid-cols-3">
             {sourceFlow.map((step, index) => (
@@ -556,7 +556,7 @@ export default function HomepageNew() {
           <SectionHeading
             eyebrow="Example apps, not blank starters"
             title="Real applications show the modules working together"
-            body="Example apps are forkable compositions. They prove the modules in production-shaped software, and they give agents concrete source to copy from before they touch your differentiated product code."
+            body="Example apps are Cloneable SaaS compositions. They prove the modules in production-shaped software, and they give agents concrete source to start from before they touch your differentiated product code."
           />
           <div className="grid gap-5 md:grid-cols-2 lg:grid-cols-3">
             {exampleApps.map((app) => (
@@ -598,7 +598,7 @@ export default function HomepageNew() {
                 Read the framework guide
               </ArrowLink>
               <ArrowLink
-                to={localizedPath("/docs/actions")}
+                to={localizedPath("/docs/actions-overview")}
                 location="homepage_new_agentic_core"
                 variant="secondary"
               >

@@ -4,8 +4,13 @@ import { describe, expect, it } from "vitest";
 
 describe("DesignEditor Figma navigation shortcut wiring", () => {
   const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
+  const rootSource = readFileSync("app/root.tsx", "utf8");
   const layersSource = readFileSync(
     "app/components/design/LayersPanel.tsx",
+    "utf8",
+  );
+  const bottomToolbarSource = readFileSync(
+    "app/components/design/editor/DesignBottomToolbar.tsx",
     "utf8",
   );
 
@@ -31,17 +36,30 @@ describe("DesignEditor Figma navigation shortcut wiring", () => {
       "onShowLayersPanel: initialGenerationChromeLimited\n      ? undefined\n      : handleShowLayersPanel",
     );
     expect(editorSource).toContain(
-      "onShowAssetsPanel: initialGenerationChromeLimited\n      ? undefined\n      : handleShowAssetsPanel",
+      "onShowAssetsPanel:\n      initialGenerationChromeLimited || !SHOW_DESIGN_SECONDARY_LEFT_PANELS\n        ? undefined\n        : handleShowAssetsPanel",
     );
   });
 
-  it("projects the active move-group sub-tool through the toolbar", () => {
-    expect(editorSource).toContain("label: t(activeMoveGroupTool.labelKey)");
-    expect(editorSource).toContain("onClick: handleActiveMoveGroupTool");
-    expect(editorSource).toContain(
-      "shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.hand.shortcut",
+  it("exposes Show/Hide UI through the command menu", () => {
+    expect(rootSource).toContain("onSelect={requestDesignUiToggle}");
+    expect(rootSource).toContain(
+      't("designEditor.keyboardShortcuts.commands.toggleUi")',
     );
     expect(editorSource).toContain(
+      "window.addEventListener(DESIGN_UI_TOGGLE_EVENT, handleToggleUi)",
+    );
+    expect(editorSource).toContain("openCommandMenu();");
+  });
+
+  it("projects the active move-group sub-tool through the toolbar", () => {
+    expect(bottomToolbarSource).toContain(
+      "label: t(activeMoveGroupTool.labelKey)",
+    );
+    expect(bottomToolbarSource).toContain("onClick: handleActiveMoveGroupTool");
+    expect(bottomToolbarSource).toContain(
+      "shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.hand.shortcut",
+    );
+    expect(bottomToolbarSource).toContain(
       "shortcut: MOVE_GROUP_TOOL_PRESENTATIONS.scale.shortcut",
     );
   });

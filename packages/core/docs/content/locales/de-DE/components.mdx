@@ -13,7 +13,7 @@ Komponenten, wenn Sie können, und eine Ebene herunterklappen, wenn Sie ein benu
 Browser UI aus fokussierten Client-Unterpfaden importieren:
 
 ```tsx
-import { AgentSidebar } from "@agent-native/core/client";
+import { AgentSidebar } from "@agent-native/core/client/agent-chat";
 import { PromptComposer } from "@agent-native/core/client/composer";
 import { AgentConversation } from "@agent-native/core/client/conversation";
 import { usePresence } from "@agent-native/core/client/collab";
@@ -179,8 +179,10 @@ für die Connector-Nutzung, den normalisierten Ereignisstrom und wann Sie darauf
 
 ## Chat-Feld und Komponist {#composer}
 
-Verwenden Sie `@agent-native/core/client/composer`, wenn Sie denselben Chat platzieren müssen
-Feld, das von der Seitenleiste im benutzerdefinierten UI verwendet wird.
+Verwenden Sie `@agent-native/core/client/composer`, wenn Sie dasselbe Chat-Feld
+wie die Seitenleiste in einer benutzerdefinierten UI benötigen. `@agent-native/toolkit/composer`
+stellt portable, reine Tiptap- und UI-Bausteine bereit; für Framework-Dienste müssen Sie sie mit
+`ComposerRuntimeAdaptersProvider` umschließen und die Dienste bereitstellen. Core ist der verdrahtete Wrapper für Anhänge, Erwähnungen, Skills, Sprache und Modellauswahl.
 
 | API                               | Verwenden wenn                                                                                                                                                                               |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -211,12 +213,11 @@ selbst. Es ist das Feld, nicht die gesamte Chat-Laufzeit.
 Verwenden Sie `@agent-native/core/client/conversation` für die Wiedergabe im Transkriptstil
 außerhalb der vollständigen Agentenlaufzeit.
 
-| API                                             | Verwenden wenn                                                                  |
-| ----------------------------------------------- | ------------------------------------------------------------------------------- |
-| `<AgentConversation>`                           | Rendern Sie eine Liste normalisierter Agent-Nachrichten.                        |
-| `<AgentConversationMessageView>`                | Eine normalisierte Nachricht rendern.                                           |
-| `normalizeCodeAgentTranscriptForConversation()` | Konvertieren Sie Code-Agent-Transkriptereignisse in Konversationsnachrichten.   |
-| `useNearBottomAutoscroll()`                     | Behalten Sie ein benutzerdefiniertes Transkript beim Streamen unten angeheftet. |
+| API                                             | Verwenden wenn                                                                |
+| ----------------------------------------------- | ----------------------------------------------------------------------------- |
+| `<AgentConversation>`                           | Rendern Sie eine Liste normalisierter Agent-Nachrichten.                      |
+| `<AgentConversationMessageView>`                | Eine normalisierte Nachricht rendern.                                         |
+| `normalizeCodeAgentTranscriptForConversation()` | Konvertieren Sie Code-Agent-Transkriptereignisse in Konversationsnachrichten. |
 
 Diese Ebene ist bewusst datenorientiert: Sie bestimmen, woher die Nachrichten kommen und
 Der Renderer besitzt konsistente Markdowns, Anhänge, Hinweise, Artefakte usw.
@@ -501,6 +502,6 @@ Begründung.
 
 - [**Drop-in Agent**](/docs/drop-in-agent) — `<AgentSidebar>` und `<AgentPanel>` mit einer tutorialorientierten Einführung einbinden
 - [**Native Chat UI**](/docs/native-chat-ui) — der Action-Ergebnisvertrag hinter Daten-Widgets und benutzerdefinierten Renderern
-- [**Actions**](/docs/actions) — `defineAction()`, Schemas und die von diesen Komponenten aufgerufene Action-Oberfläche
+- [**Actions**](/docs/actions-overview) — `defineAction()`, Schemas und die von diesen Komponenten aufgerufene Action-Oberfläche
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — Kollaborations-Hooks und Anwesenheitskomponenten im Detail
 - [**Sharing**](/docs/sharing) — Verdrahtung von `<ShareButton>` und `<ShareDialog>` für besitzbare Ressourcen

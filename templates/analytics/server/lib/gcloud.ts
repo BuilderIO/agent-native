@@ -25,6 +25,122 @@ const MAX_CACHE = 120;
 // Token cache, scoped by caller credential context.
 const tokenCache = new Map<string, { token: string; expiresAt: number }>();
 
+const GOOGLE_REQUEST_MAX_ATTEMPTS = 4;
+const GOOGLE_REQUEST_TIMEOUT_MS = 30_000;
+const GOOGLE_REQUEST_RETRY_DELAY_MS = 100;
+
+function isRetryableGoogleStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
+}
+
+function errorCode(error: unknown): string | null {
+  if (!error || typeof error !== "object") return null;
+  const code = (error as { code?: unknown }).code;
+  return typeof code === "string" ? code : null;
+}
+
+function errorCause(error: unknown): unknown {
+  if (!error || typeof error !== "object") return undefined;
+  return (error as { cause?: unknown }).cause;
+}
+
+function createGoogleError(message: string, cause: unknown): Error {
+  const error = new Error(message);
+  Object.defineProperty(error, "cause", {
+    configurable: true,
+    value: cause,
+  });
+  return error;
+}
+
+function describeGoogleError(error: unknown): string {
+  if (error instanceof Error) {
+    const code = errorCode(error) ?? errorCode(errorCause(error));
+    return `${error.name}: ${error.message}${code ? ` (code ${code})` : ""}`;
+  }
+  return String(error);
+}
+
+function isRetryableGoogleError(error: unknown, timedOut: boolean): boolean {
+  if (timedOut) return true;
+  const code = errorCode(error) ?? errorCode(errorCause(error));
+  if (
+    code &&
+    ["ECONNRESET", "EAI_AGAIN", "ETIMEDOUT", "UND_ERR"].includes(code)
+  ) {
+    return true;
+  }
+  const message = describeGoogleError(error).toLowerCase();
+  return (
+    error instanceof TypeError || /fetch failed|network|socket/.test(message)
+  );
+}
+
+function retryDelayMs(attempt: number): number {
+  return GOOGLE_REQUEST_RETRY_DELAY_MS * 2 ** (attempt - 1);
+}
+
+async function waitForGoogleRetry(attempt: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, retryDelayMs(attempt));
+  });
+}
+
+/**
+ * Keep transient Google network failures from killing long-running jobs while
+ * preserving a hard bound on attempts and request duration.
+ */
+export async function fetchGoogleWithRetry(
+  url: string,
+  init: RequestInit,
+  operation: string,
+): Promise<Response> {
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= GOOGLE_REQUEST_MAX_ATTEMPTS; attempt += 1) {
+    const controller = new AbortController();
+    let timedOut = false;
+    const timeout = setTimeout(() => {
+      timedOut = true;
+      controller.abort();
+    }, GOOGLE_REQUEST_TIMEOUT_MS);
+
+    try {
+      const response = await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+      if (
+        isRetryableGoogleStatus(response.status) &&
+        attempt < GOOGLE_REQUEST_MAX_ATTEMPTS
+      ) {
+        await waitForGoogleRetry(attempt);
+        continue;
+      }
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (
+        attempt >= GOOGLE_REQUEST_MAX_ATTEMPTS ||
+        !isRetryableGoogleError(error, timedOut)
+      ) {
+        throw createGoogleError(
+          `Google ${operation} failed after ${attempt} attempt(s): ${describeGoogleError(error)}`,
+          error,
+        );
+      }
+      await waitForGoogleRetry(attempt);
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  throw createGoogleError(
+    `Google ${operation} failed after ${GOOGLE_REQUEST_MAX_ATTEMPTS} attempt(s): ${describeGoogleError(lastError)}`,
+    lastError,
+  );
+}
+
 async function getServiceAccountCredentials() {
   const ctx = requireRequestCredentialContext(
     "GOOGLE_APPLICATION_CREDENTIALS_JSON",
@@ -101,14 +217,18 @@ export async function getAccessToken(): Promise<string> {
   const jwt = await signRs256Jwt(jwtPayload, creds.private_key);
 
   const tokenUri = creds.token_uri || "https://oauth2.googleapis.com/token";
-  const res = await fetch(tokenUri, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
+  const res = await fetchGoogleWithRetry(
+    tokenUri,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion: jwt,
+      }),
+    },
+    "OAuth token exchange",
+  );
 
   if (!res.ok) {
     const text = await res.text();
@@ -146,12 +266,16 @@ async function apiGet<T>(url: string, cacheKey?: string): Promise<T> {
   }
 
   const token = await getAccessToken();
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+  const res = await fetchGoogleWithRetry(
+    url,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
     },
-  });
+    "Cloud API GET",
+  );
 
   if (!res.ok) {
     const text = await res.text();
@@ -178,14 +302,18 @@ async function apiPost<T>(
   }
 
   const token = await getAccessToken();
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
+  const res = await fetchGoogleWithRetry(
+    url,
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(body),
     },
-    body: JSON.stringify(body),
-  });
+    "Cloud API POST",
+  );
 
   if (!res.ok) {
     const text = await res.text();

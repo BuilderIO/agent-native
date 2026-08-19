@@ -1,4 +1,4 @@
-import { useActionQuery } from "@agent-native/core/client";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 
 type DesignSystemSummary = {
   id: string;
@@ -7,6 +7,8 @@ type DesignSystemSummary = {
   data: string;
   isDefault: boolean;
   visibility?: "private" | "org" | "public" | null;
+  accessRole?: "owner" | "admin" | "editor" | "commenter" | "viewer";
+  canManage?: boolean;
   createdAt: string;
 };
 

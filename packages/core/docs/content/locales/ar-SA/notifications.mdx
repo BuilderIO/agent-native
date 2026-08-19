@@ -14,7 +14,7 @@ import { notify } from "@agent-native/core/notifications";
 
 await notify(
   { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
@@ -235,14 +235,14 @@ import {
   deleteNotification,
 } from "@agent-native/core/notifications";
 
-const rows = await listNotifications("steve@builder.io", {
+const rows = await listNotifications("user@example.com", {
   unreadOnly: true,
   limit: 50,
 });
-const unread = await countUnread("steve@builder.io");
-await markNotificationRead(rows[0].id, "steve@builder.io");
-await markAllNotificationsRead("steve@builder.io");
-await deleteNotification(rows[0].id, "steve@builder.io");
+const unread = await countUnread("user@example.com");
+await markNotificationRead(rows[0].id, "user@example.com");
+await markAllNotificationsRead("user@example.com");
+await deleteNotification(rows[0].id, "user@example.com");
 ```
 
 تقع كل وظيفة على نطاق المالك - لا توجد عمليات قراءة بين المستخدمين، ولا توجد عمليات كتابة بين المستخدمين.
@@ -363,7 +363,7 @@ export function HeaderBar() {
 ## كيفية العمل {#internals}
 
 - **نطاق المالك** — يحتوي كل صف على عمود `owner`؛ يتم تصفية كل استعلام عليه؛ يستخدم كل مسار البريد الإلكتروني للجلسة المصادق عليها. لا يرى المستخدمون أبدًا إشعارات بعضهم البعض.
-- **تكامل الاستقصاء** — تستدعي كل طفرة `recordChange()`, لذا يتم إبطال صحة القوالب التي تستخدم [`useDbSync`](/docs/client) تلقائيًا دون أي أسلاك إضافية.
+- **تكامل الاستقصاء** — تستدعي كل طفرة `recordChange()`, لذا يتم إبطال صحة القوالب التي تستخدم [`useDbSync`](/docs/client-data#usedbsync) تلقائيًا دون أي أسلاك إضافية.
 - **توزيع أفضل جهد** — يتم اكتشاف أخطاء القناة وتسجيلها؛ لا تؤدي إحدى القنوات الفاشلة إلى منع القنوات الأخرى أو الكتابة في البريد الوارد.
 - **أطلق النار وانسى** — يعود `notify()` بعد اكتمال الكتابة في البريد الوارد؛ تعمل القنوات المخصصة في الخلفية.
 
@@ -371,4 +371,4 @@ export function HeaderBar() {
 
 - [**Automations**](/docs/automations) — المتصل الأكثر شيوعًا في `notify()`
 - [**Security**](/docs/security) — استبدال `${keys.NAME}` الذي يعمل على تشغيل قناة الويب هوك
-- [**Server plugins**](/docs/server) — حيث يتم تسجيل القنوات المخصصة عند بدء التشغيل
+- [**Server plugins**](/docs/server-overview) — حيث يتم تسجيل القنوات المخصصة عند بدء التشغيل

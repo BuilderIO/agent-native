@@ -7,6 +7,75 @@ description: "Deploy agent-native apps to any platform with Nitro presets — No
 
 Agent-native apps use [Nitro](https://nitro.build) under the hood, which means you can deploy to any platform with zero config changes — just set a preset.
 
+## Fast path: self-host a Chat app locally {#self-host-quickstart}
+
+There are two good starting points, depending on your role:
+
+- **Building an app?** Start with [Getting Started](/docs/getting-started), then return here when you are ready to put the result somewhere permanent.
+- **Operating an app?** Use the local Docker path below first. It exercises the same Node.js, Postgres, authentication, and environment-variable shape you will use on a small server.
+
+The local stack intentionally uses a fake auth secret, trust authentication, and a local Postgres volume. It is for `localhost`, not an internet-facing deployment. Do not reuse the trust-authentication setting in production.
+
+### 1. Create the app
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+The install step creates the lockfile that the production Dockerfile below copies into its build stage.
+
+### 2. Add the local Docker files
+
+Create `Dockerfile`, `.dockerignore`, and `docker-compose.yml` in the app root. `docker compose up --build` needs the Dockerfile, and `.dockerignore` keeps host-only files such as `node_modules` out of the Linux build context. Compose starts Postgres only on the private Compose network.
+
+You can also download the [Dockerfile](https://www.agent-native.com/examples/self-hosted-chat/Dockerfile), [.dockerignore](https://www.agent-native.com/examples/self-hosted-chat/.dockerignore), [Compose file](https://www.agent-native.com/examples/self-hosted-chat/docker-compose.yml), and [environment template](https://www.agent-native.com/examples/self-hosted-chat/env.example) as a starter fixture. The [Dockerfile](#docker) below matches the fixture.
+
+```yaml filename="docker-compose.yml" maxLines=40
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:3000:3000"
+    environment:
+      DATABASE_URL: postgres://agent_native@postgres:5432/agent_native
+      BETTER_AUTH_SECRET: local-development-secret-change-me-1234567890
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: agent_native
+      POSTGRES_USER: agent_native
+      POSTGRES_HOST_AUTH_METHOD: trust
+    volumes:
+      - postgres-data-v18:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U agent_native -d agent_native"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  postgres-data-v18:
+```
+
+PostgreSQL 18 uses `/var/lib/postgresql` as its volume mount path, unlike PostgreSQL 17 and earlier. The versioned volume name keeps this fresh fixture separate from older local stacks. If you are upgrading an existing PostgreSQL 17 or earlier stack, back up and migrate its data before changing the image or mount path. Do not point this fixture at the old volume without a migration.
+
+### 3. Run it
+
+```bash
+docker compose up --build
+```
+
+Open [http://localhost:3000](http://localhost:3000). The app infers its local auth origin from the browser request. Set `ANTHROPIC_API_KEY` in a local `.env` file if you want to use the embedded agent; leave it empty if you only want to verify that the app and database start. Stop the stack with `docker compose down`; add `-v` when you intentionally want to reset the local database.
+
+Before putting this on the public internet, replace the example secret, configure HTTPS and OAuth callback URLs, use a persistent production database, and complete the [production environment checklist](#env-required-prod).
+
 ## Before You Deploy: Pick a Persistent Database {#persistent-database}
 
 Every deployed app needs a persistent SQL database. In local development, agent-native falls back to a SQLite file at `data/app.db`; that is convenient on your machine, but it is not durable in containers, previews, or serverless environments where the filesystem can be reset.
@@ -233,6 +302,8 @@ receives upstream security updates.
 
 ### Docker {#docker}
 
+This Dockerfile works for the standalone app created above. Run `pnpm install` before building so `pnpm-lock.yaml` exists in the build context. Keep the dependency manifest and lockfile in sync when you update the app.
+
 ```dockerfile filename="Dockerfile"
 FROM node:24-slim AS build
 WORKDIR /app
@@ -247,9 +318,22 @@ COPY --from=build /app/.output .output
 # data/ is a runtime-created SQLite directory — do not copy a dev DB into prod.
 # For production, set DATABASE_URL to a hosted Postgres or Turso instance.
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
+```
+
+Create `.dockerignore` alongside the Dockerfile:
+
+```text filename=".dockerignore"
+node_modules
+.output
+data
+.env
+.env.*
+!.env.example
+.git
 ```
 
 ### Self-hosted workspace with Docker Compose {#workspace-docker-compose}
@@ -433,6 +517,50 @@ npx @agent-native/core@latest deploy --preset netlify
 
 The workspace build writes static assets under `dist/_workspace_static/` and routes each app to its own Netlify function without forced asset redirects, so files like `/mail/assets/...` are served statically before the server function handles app routes.
 
+### Keep-warm and scale-to-zero databases {#netlify-keep-warm}
+
+When enabled, the Netlify build emits a scheduled function that requests `/_agent-native/health` **every minute**. That keeps the server function and its database warm so the next visitor after an idle period doesn't pay a cold start (1–5s on Neon).
+
+Keep-warm is **disabled by default** because a once-a-minute wake prevents autosuspend on metered scale-to-zero databases. On a free-tier Neon this can exhaust the compute quota, and the database then rejects **all** reads mid-session — the symptom is a dead app, not a slow one. Set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` when the lower next-visitor latency is worth the database awake-time.
+
+The keep-warm schedule and background-function warm only apply after the main keep-warm flag is enabled:
+
+| Variable                                    | Effect                                                                                                                                                                       |
+| ------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opts into the scheduled server/database warm. Unset by default.                                                                                                              |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Compatibility kill switch that wins over the opt-in flag when set.                                                                                                           |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Overrides the cadence with a 5-field cron expression, e.g. `*/5 * * * *`. The default cadence when enabled is `* * * * *`; an unparseable value **fails the build**.         |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Drops only the background-function warm, keeping the server warm. Warming `server` is one request; warming `-background` starts a fresh container that re-probes the schema. |
+
+If you are on a free or otherwise quota-limited database tier, leave `AGENT_NATIVE_ENABLE_KEEP_WARM` unset. If you opt in, use a slower cadence or set `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND=1` to drop the more expensive background warm.
+
+### On-demand schema DDL {#skip-ensure-tables}
+
+Each store calls `ensureTable()` on its first database touch, which probes
+`information_schema` / `pg_indexes` and issues `CREATE TABLE` / `ADD COLUMN` /
+`CREATE INDEX` only for what is genuinely missing. On a long-lived Node server
+that cost is paid once per boot and is invisible. On serverless, "first touch" is
+**every cold start**, across ~57 stores — so a cold request can pay a few hundred
+serial round trips before it does any real work.
+
+Two things reduce it:
+
+- The probes are answered from **one batched introspection pass per database**
+  (two queries), instead of one query per table, column, and index. This is
+  automatic and needs no configuration.
+- `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` skips the probe-and-DDL machinery
+  altogether, which is the largest cold-start latency win available.
+
+Set `AGENT_NATIVE_SKIP_ENSURE_TABLES=1` when your database schema is already
+migrated and you do not want application boot creating or altering tables — the
+normal case for a production deployment with a real migration step.
+
+<Callout tone="risk">
+
+**This flag does not and cannot fail closed.** If the schema is in fact missing, the first real query fails loudly rather than being repaired on the fly — which is the point, but it means you own the migration story. Do not set it on a deployment that relies on application boot to provision its tables.
+
+</Callout>
+
 ## Cloudflare Pages {#cloudflare-pages}
 
 ```ts filename="vite.config.ts"
@@ -440,6 +568,29 @@ export default defineConfig({
   plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
 });
 ```
+
+## Cloudflare Workers {#cloudflare-workers}
+
+Use Nitro's native module output for a Cloudflare Worker. This keeps SSR
+enabled and emits the Worker entry point plus static assets under
+`.output/server` and `.output/public`:
+
+```ts filename="vite.config.ts"
+export default defineConfig({
+  plugins: [agentNative({ nitro: { preset: "cloudflare_module" } })],
+});
+```
+
+Build and deploy the generated Worker with Wrangler:
+
+```bash
+npx @agent-native/core@latest build
+npx wrangler deploy --config .output/server/wrangler.json
+```
+
+You can also select the preset explicitly with
+`NITRO_PRESET=cloudflare_module`. Configure a durable external SQL database
+before deploying; a Worker filesystem is not a persistent application store.
 
 ## AWS Lambda {#aws-lambda}
 
@@ -457,31 +608,88 @@ export default defineConfig({
 });
 ```
 
+## SSR Caching {#ssr-caching}
+
+Every SSR HTML response and every React Router `.data` response is one impersonal, public shell: `createH3SSRHandler` strips cookies before rendering, so the same bytes are correct for every visitor and all personalization happens on the client after load. That is what makes it safe to stamp a single hard-cache policy on those responses by default:
+
+```txt
+cache-control: public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600
+```
+
+The same value is mirrored onto `cdn-cache-control` and `netlify-cdn-cache-control`. One shared CDN entry then serves the whole site instead of a per-request render, which is the single biggest lever on first-response latency — leave it on unless one of the cases below applies to your deployment.
+
+### Overriding with `AGENT_NATIVE_SSR_CACHE` {#ssr-cache-env}
+
+Set `AGENT_NATIVE_SSR_CACHE` in the deploy environment to change the policy for the whole deployment:
+
+| Value                                               | Result                                                                               |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------ |
+| unset, `on`, `default`, `true`, `1`                 | The default policy above, unchanged. Recommended — best performance.                 |
+| `off`, `false`, `0`, `none`, `no-store`, `disabled` | `no-store` on `cache-control`, `cdn-cache-control`, and `netlify-cdn-cache-control`. |
+| A duration: `30`, `30s`, `5m`, `2h`                 | `public, max-age=<n>, stale-while-revalidate=<n>, stale-if-error=3600`.              |
+
+Bare numbers are seconds. `stale-while-revalidate` deliberately mirrors `max-age` for a custom duration: a short freshness window paired with the default seven-day stale window would hand back exactly the staleness you opted out of. An unrecognized value logs a warning and falls back to the default, so a typo can never silently disable the CDN.
+
+Turn it down or off when either of these is true:
+
+1. **Your host does not purge its CDN on deploy.** Netlify and Vercel do; some self-managed setups do not. Without a purge, a shipped build can keep serving the previous shell for `max-age` plus `stale-while-revalidate`.
+2. **Your loaders return mutable public data.** After a successful mutation, a `useRevalidator()` or redirect-after-action re-fetch can read the browser's cached `.data` copy instead of fresh loader output.
+
+The setting applies to every public-shell surface: React Router SSR HTML and `.data`, the login HTML shell, the `/_agent-native/speculation-rules.json` route, the docs site, and the public-form SSR in the forms template. The generated Cloudflare Worker resolves it at build time, so set it in the deploy environment before the build runs.
+
+Three things to keep in mind:
+
+- **Turning caching off does not make SSR personalized.** Cookies are still stripped before render and SSR loaders still see the anonymous branch. Per-user data must still be resolved client-side. This variable controls cache _duration_ only.
+- **It is deployment-wide, not per-route, by design.** A per-route or per-request cache override is how one visitor's payload ends up in another visitor's shared CDN entry, so the framework does not offer one — `guard:ssr-cache-shell` enforces it.
+- **For mutation-fresh data, prefer actions over disabling the cache.** App data belongs in [actions](/docs/actions-overview), read from the client with `useActionQuery` / `useActionMutation` and kept live by `useDbSync()` polling; none of that goes through the SSR shell cache. Keep SSR loaders rendering the public shell, and reach for this variable only when you genuinely want loader data fresher.
+
 ## Environment Variables {#environment-variables}
+
+For the repository-wide reference, including template, provider, local, and CI
+variables, see [Environment Variables](/docs/environment-variables). The tables
+below remain the authoritative deployment guide for production values and
+hosting behavior.
 
 ### Build / Runtime {#env-runtime}
 
-| Variable                    | Description                                                                                                                                       |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | Server port (Node.js only)                                                                                                                        |
-| `NITRO_PRESET`              | Override build preset at build time                                                                                                               |
-| `APP_BASE_PATH`             | Mount the app under a prefix (e.g. `/mail`). Set automatically by `npx @agent-native/core@latest deploy`; leave unset for standalone.             |
-| `AGENT_PROD_CODE_EXECUTION` | Optional production code-execution mode: `off` (default), `sandboxed`, or `trusted`. See [Production Code Execution](#production-code-execution). |
+| Variable                                    | Description                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | Server port (Node.js only)                                                                                                                                                                                                                                                                                                                                              |
+| `NITRO_PRESET`                              | Override build preset at build time                                                                                                                                                                                                                                                                                                                                     |
+| `APP_BASE_PATH`                             | Mount the app under a prefix (e.g. `/mail`). Set automatically by `npx @agent-native/core@latest deploy`; leave unset for standalone.                                                                                                                                                                                                                                   |
+| `APP_URL`                                   | Optional canonical public origin. Checked ahead of `BETTER_AUTH_URL` when resolving the A2A JWT audience, the OAuth public origin, self-dispatch webhook targets, and generated resource links. Set it explicitly on preview/staging deploys where the request host is unreliable.                                                                                      |
+| `AGENT_PROD_CODE_EXECUTION`                 | Optional production code-execution mode: `off` (default), `sandboxed`, or `trusted`. See [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                       |
+| `AGENT_NATIVE_SSR_CACHE`                    | Deployment-wide SSR shell cache policy: unset/`on` keeps the default hard-cache, `off` sends `no-store`, or a duration such as `30s` / `5m` sets a shorter freshness. See [SSR Caching](#ssr-caching).                                                                                                                                                                  |
+| `AGENT_NATIVE_ENABLE_KEEP_WARM`             | Opt into the Netlify keep-warm scheduled function. Unset by default; see [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                               |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM`            | Compatibility kill switch for the Netlify keep-warm scheduled function. See [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                            |
+| `AGENT_NATIVE_KEEP_WARM_SCHEDULE`           | Override the keep-warm cadence with a 5-field cron expression (default `* * * * *` when enabled). An unparseable value fails the build. See [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                            |
+| `AGENT_NATIVE_DISABLE_KEEP_WARM_BACKGROUND` | Drop only the background-function warm and keep the server warm. See [Keep-warm](#netlify-keep-warm).                                                                                                                                                                                                                                                                   |
+| `AGENT_NATIVE_DISABLE_INPROCESS_SWEEPS`     | Turn off the in-process backstop sweep timers (automation redispatch, agent-teams reconciliation, sandbox-execution recovery). On serverless these run per warm container, so their query rate scales with instance count. Set it **only** where a durable scheduler already drives the same recovery, or queued work will not be retried.                              |
+| `AGENT_NATIVE_SKIP_ENSURE_TABLES`           | Skip on-demand schema DDL entirely. Removes the schema-probe round trips every cold start pays before doing any work. Requires that your schema is already migrated — see [On-demand schema DDL](#skip-ensure-tables).                                                                                                                                                  |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dedicated 32+ char shared HMAC secret for preview-safe Builder authorization relay. Set the same value on the approved corporate callback deployment and preview deployments only when authorization must land in an isolated preview database.                                                                                                                         |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Corporate callback-only, comma-separated allowlist of exact trusted preview origins (for example, `https://0123456789abcdef01234567--content.netlify.app`). Set it only on the corporate callback deployment. Netlify origins must use an immutable, deploy-specific 24-hex permalink; mutable `deploy-preview-*` aliases, wildcards, and domain suffixes are rejected. |
 
 Database connection variables (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, per-app `<APP_NAME>_DATABASE_URL`) live in [Database](/docs/database#production).
 
-### Required in Production {#env-required-prod}
+### Production-sensitive configuration {#env-required-prod}
 
-These must be set before promoting an app to a real prod deploy. Missing values either fail-closed (the framework refuses to start / refuses to handle requests) or fall back to weaker behavior with a loud warning.
+These settings cover production-sensitive behavior. A standalone app using the
+framework auth needs a stable `BETTER_AUTH_SECRET` and a persistent database;
+the public auth URL is inferred from the request, known template, or hosting
+platform when it is unset. Workspace and A2A settings are conditional on those
+features. Missing values either fail-closed or fall back to weaker behavior
+with a loud warning.
 
-| Variable                 | Description                                                                                                                                                                                                                                       |
-| ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `BETTER_AUTH_SECRET`     | 32+ char random string. Signs session cookies AND is the fallback HMAC for `OAUTH_STATE_SECRET` and `SECRETS_ENCRYPTION_KEY`. Hard-required: the framework throws on startup if missing in production.                                            |
-| `BETTER_AUTH_URL`        | Public origin of this app (e.g. `https://mail.example.com`). Used for cookie domain and OAuth redirect construction.                                                                                                                              |
-| `ANTHROPIC_API_KEY`      | API key for the embedded production agent. **In multi-tenant deploys**, the framework refuses to fall back to this when the user has no per-user key — bring-your-own-key is required. Single-tenant self-hosted installs use it as a global key. |
-| `OAUTH_STATE_SECRET`     | Dedicated HMAC key for OAuth state envelopes (Google, Atlassian, Zoom). Falls back to `BETTER_AUTH_SECRET` when unset, but a dedicated value is recommended so rotating one doesn't invalidate the other. Generate via `openssl rand -hex 32`.    |
-| `A2A_SECRET`             | Shared HMAC for inter-app A2A JSON-RPC. Without it, every A2A endpoint and the `/_agent-native/integrations/process-task` self-fire endpoint return 503 in production.                                                                            |
-| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM key for the encrypted-at-rest secrets vault. Falls back to `BETTER_AUTH_SECRET`. Hard-fails in production when both are unset.                                                                                                        |
+| Variable                                    | Description                                                                                                                                                                                                                                                                                                                                        |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                        | 32+ char random string. Signs session cookies and is the fallback for `OAUTH_STATE_SECRET` and app-local encrypted values. It is also a legacy read candidate for existing shared vault ciphertext. Hard-required: the framework throws on startup if missing in production.                                                                       |
+| `BETTER_AUTH_URL`                           | Optional public origin override for this app (e.g. `https://mail.example.com`). The framework infers it from request, known-template, and hosting-platform context when unset.                                                                                                                                                                     |
+| `ANTHROPIC_API_KEY`                         | API key for the embedded production agent. **In multi-tenant deploys**, the framework refuses to fall back to this when the user has no per-user key — bring-your-own-key is required. Single-tenant self-hosted installs use it as a global key.                                                                                                  |
+| `OAUTH_STATE_SECRET`                        | Dedicated HMAC key for OAuth state envelopes (Google, Atlassian, Zoom). Falls back to `BETTER_AUTH_SECRET` when unset, but a dedicated value is recommended so rotating one doesn't invalidate the other. Generate via `openssl rand -hex 32`.                                                                                                     |
+| `A2A_SECRET`                                | Shared HMAC for inter-app A2A JSON-RPC and signed background handoffs. Required for hosted workspace deploys and A2A features; without it, those endpoints fail closed in production. When no dedicated workspace vault key is set, shared vault ciphertext uses a purpose-derived key from this value, so rotating it also rotates the vault key. |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY`          | Preferred stable AES-256-GCM key for the shared encrypted-at-rest secrets vault. Set the same value in every app that reads the vault. It is separate from app-local OAuth/credential encryption, so A2A trust can rotate without stranding vault rows. Existing A2A-, Better Auth-, and app-key ciphertext is migrated on successful reads.       |
+| `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` | Optional previous workspace vault key used only during a rotation window. Deploy it alongside the new `WORKSPACE_SECRETS_ENCRYPTION_KEY`, let successful reads re-encrypt rows, then remove it after migration.                                                                                                                                    |
+| `SECRETS_ENCRYPTION_KEY`                    | Legacy combined key for app-local encryption and the shared vault. It remains supported, but new multi-app deployments should use `WORKSPACE_SECRETS_ENCRYPTION_KEY` for the shared vault so changing workspace encryption does not change app-local OAuth ciphertext.                                                                             |
 
 ### Auth & Identity {#env-auth}
 
@@ -501,39 +709,80 @@ Inside a workspace, the root `.env` is loaded into every app automatically, so s
 
 ### Generating Strong Secrets {#env-generate-secrets}
 
-For any secret marked "32+ char random" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`), generate fresh values with:
+For any secret marked "32+ char random" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `WORKSPACE_SECRETS_ENCRYPTION_KEY`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), generate fresh values with:
 
 ```bash
 openssl rand -hex 32
 ```
 
-Rotate them by replacing the env var on every instance and redeploying — sessions / OAuth state envelopes signed under the old key become invalid, so users may need to sign in again.
+Rotate signing/session keys by replacing the env var on every instance and redeploying — sessions / OAuth state envelopes signed under the old key become invalid, so users may need to sign in again. Rotate `WORKSPACE_SECRETS_ENCRYPTION_KEY` with the `..._PREVIOUS` window described above so encrypted vault rows remain readable while they migrate.
 
 ## Production Agent Tools {#production-agent-tools}
 
-Production agents get the app's registered actions plus framework tools from
-the agent chat plugin. SQL inspection is enabled by default, while database
-writes go through typed app actions unless the app explicitly opts into raw
-write tools:
+Production agents get the app's registered actions plus the framework's own
+tools. `frameworkTools` selects which of those framework tools this app exposes.
+Every group defaults to today's behavior, so omitting the option changes
+nothing:
 
 ```ts filename="server/plugins/agent-chat.ts"
 export default createAgentChatPlugin({
-  // Default: "read"
-  databaseTools: "read", // "write" | "read" | "off"
-  extensionTools: false,
+  frameworkTools: {
+    database: "read", // "write" | "read" | "off" — default "read"
+    extensions: true, // default false
+    sharing: false, // this app has no share surface
+    review: false,
+  },
 });
 ```
 
-- `databaseTools: "read"` — default. Registers only `db-schema` and `db-query`;
+```ts filename="server/plugins/core-routes.ts"
+export default createCoreRoutesPlugin({
+  extensionTools: true,
+});
+```
+
+`database` and `extensions` accept the values the old top-level flags did:
+
+- `database: "read"` — default. Registers only `db-schema` and `db-query`;
   agents inspect data with SQL but must use typed app actions for writes.
-- `databaseTools: "write"` or `true` — additionally registers `db-exec` and
+- `database: "write"` or `true` — additionally registers `db-exec` and
   `db-patch` for deliberate raw SQL maintenance. Writes are scoped to the
   current user/org and schema changes are blocked.
-- `databaseTools: "off"` or `false` — removes raw database tools from the
+- `database: "off"` or `false` — removes raw database tools from the
   agent surface so the app's actions are the only data access path.
-- `extensionTools: false` — removes framework extension-management actions and
-  prompt guidance (`create-extension`, `update-extension`, etc.) for apps that
-  do not want the agent creating sandboxed mini-apps.
+- `extensions: true` — opts the app into framework extension-management
+  actions and prompt guidance (`create-extension`, `update-extension`, etc.).
+  Set `extensionTools: true` on the core-routes plugin as well to allow
+  authenticated REST creation. Extensions are disabled by default.
+
+The remaining groups are booleans, all on by default: `sharing`, `review`,
+`history`, `featureFlags`, `localization`, `audit`, `contextXray`,
+`userProfile`, `automation`, `docs`, `resources`, `web`, `workspaceApps`,
+`chat`, and `email`. Use `frameworkTools: "minimal"` to turn every group off at
+once for a voice-first or single-purpose app, or
+`frameworkTools: { preset: "minimal", resources: true }` to keep just one — an
+explicit group key always wins over the preset.
+
+Switching a group off removes it from the **agent** surfaces only: interactive
+chat, MCP, A2A, and background runs. The matching HTTP action routes stay
+mounted, because the UI reaches them through client hooks — disabling `sharing`
+must not 404 a share dialog that is still on screen. Weigh that parity cost
+before using it: the framework's contract is that anything the UI can do the
+agent can do, so `sharing: false` alongside a visible share button is a
+deliberate break, and only makes sense when the app has no such surface at all.
+
+Framework tools are no longer promoted into the first model request by default,
+independent of this option. They stay in the searchable registry and load
+through `tool-search`, or immediately if the app names them in
+`initialToolNames`.
+
+<Callout tone="warning">
+  The top-level `databaseTools` and `extensionTools` options are deprecated in
+  favor of `frameworkTools.database` and `frameworkTools.extensions`. They are
+  still honored, but setting a top-level flag and its `frameworkTools`
+  equivalent to conflicting values throws at plugin startup rather than booting
+  with a tool surface nobody chose.
+</Callout>
 
 ## Production Code Execution {#production-code-execution}
 
@@ -559,17 +808,21 @@ The `run-code` sandbox is process-level isolation, not an OS container. It strip
 
 ## Updating UI in Production {#updating-ui-in-production}
 
-One of agent-native's core features is that the agent can modify your app's source code — components, routes, styles, actions. During local development this works seamlessly because the agent has full filesystem access.
+The ordinary deployed app agent works through app tools — actions, database,
+MCP, and configured integrations — rather than receiving ambient access to the
+app's source code. Source changes belong in the repository's development
+workflow. An embedded, local, or Builder frame can edit the repository when
+that frame is intentionally granted workspace and write tooling.
 
 In a standard production deployment with [production code execution](#production-code-execution) left off, the agent has access to app tools (actions, database, MCP) but not the filesystem. This means the agent can read and write data, run actions, and interact with external services — but it can't edit your React components or add new routes on a deployed instance.
 
 ### Builder.io: Visual Editing in Production {#builderio}
 
-[Builder.io](https://www.builder.io) solves this by providing a managed cloud environment where the agent retains the ability to modify your app's UI in production. Connect your repo to Builder.io and prompt for UI changes directly — no redeploy needed.
+[Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) is a separate managed code-capable workflow where an agent can modify your app's UI in production. Connect your repo to Builder.io (free tier available) and prompt for UI changes directly — no redeploy needed.
 
 **How it works:**
 
-1. Connect your agent-native repo to Builder.io
+1. Connect your agent-native repo to Builder.io (free tier available)
 2. Builder.io provides a cloud frame with the agent, visual editing, and real-time collaboration
 3. Prompt the agent to make UI changes — it edits your components, routes, and styles live
 4. Changes are committed back to your repo
@@ -587,3 +840,4 @@ Agent-native apps store all state in SQL via Drizzle and sync the UI via [pollin
 - [**Authentication**](/docs/authentication) — OAuth credentials and env vars for the auth mode you choose
 - [**Multi-App Workspace**](/docs/multi-app-workspace) — the workspace model behind `deploy`'s one-origin build
 - [**Frames**](/docs/frames) — the embedded agent panel vs. Builder.io's cloud frame for production UI edits
+- [**Public Agent Web**](/docs/agent-web-surfaces) — the `robots.txt`, `llms.txt`, and markdown-mirror files a Vite build writes into the deploy output for public routes

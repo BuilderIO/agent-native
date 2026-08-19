@@ -1,4 +1,7 @@
-import { useActionMutation, useActionQuery } from "@agent-native/core/client";
+import {
+  useActionMutation,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import {
   IconAlertCircle,
   IconBook,
@@ -64,7 +67,7 @@ import {
 } from "../../components/workspace-resource-impact-preview";
 
 export function meta() {
-  return [{ title: "Workspace Resources — Dispatch" }];
+  return [{ title: "Resources — Dispatch" }];
 }
 
 const KIND_CONFIG = {
@@ -249,10 +252,10 @@ function EditResourceDialog({
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Edit workspace resource</DialogTitle>
+          <DialogTitle>Edit agent resource</DialogTitle>
           <DialogDescription>
-            Updates apply immediately anywhere this workspace resource is
-            inherited. App shared or personal resources can override it locally.
+            Updates apply immediately anywhere this agent resource is inherited.
+            App shared or personal resources can override it locally.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -361,10 +364,11 @@ function AddResourceDialog() {
       </DialogTrigger>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
-          <DialogTitle>Add workspace resource</DialogTitle>
+          <DialogTitle>Add agent resource</DialogTitle>
           <DialogDescription>
-            Create a skill, instruction, agent profile, reference resource, or
-            MCP server that can be shared across workspace apps.
+            Create an agent resource—a skill, instruction, agent profile,
+            reference resource, or MCP server—that can be shared across
+            workspace apps.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4 py-2">
@@ -596,7 +600,11 @@ function EffectiveContextPreview({ resource }: { resource: any }) {
             organization/app override, then personal override.
           </p>
         </div>
-        <Badge variant="outline">{availabilityLabel(availability)}</Badge>
+        {isLoading ? (
+          <Skeleton className="h-6 w-24 rounded-full" />
+        ) : (
+          <Badge variant="outline">{availabilityLabel(availability)}</Badge>
+        )}
       </div>
 
       <div className="mt-3 grid gap-3 md:grid-cols-2">
@@ -712,7 +720,7 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
   const activeGrants = grants.filter((g) => g.status === "active");
 
   return (
-    <div className="rounded-lg border bg-card">
+    <div className="rounded-lg bg-card">
       <button
         type="button"
         className="flex w-full items-center gap-3 px-4 py-3 text-left cursor-pointer"
@@ -877,14 +885,13 @@ function ResourceRow({ resource, grants }: { resource: any; grants: any[] }) {
   );
 }
 
-function GlobalContextSection({ resources }: { resources: any[] }) {
-  const byPath = new Map(
-    resources.map((resource) => [resource.path, resource]),
-  );
-  const missingPaths = STARTER_GLOBAL_CONTEXT.filter(
-    (item) => !byPath.has(item.path),
-  ).map((item) => item.path);
-  const presentCount = STARTER_GLOBAL_CONTEXT.length - missingPaths.length;
+function GlobalContextSection({
+  resources,
+  isLoading,
+}: {
+  resources: any[];
+  isLoading: boolean;
+}) {
   const restoreStarter = useActionMutation(
     "restore-starter-workspace-resources",
     {
@@ -900,6 +907,44 @@ function GlobalContextSection({ resources }: { resources: any[] }) {
       onError: (err) => toast.error(String(err)),
     },
   );
+
+  if (isLoading && resources.length === 0) {
+    return (
+      <section className="space-y-3">
+        <div>
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="mt-2 h-3 w-full max-w-xl" />
+          <Skeleton className="mt-1.5 h-3 w-2/3 max-w-lg" />
+        </div>
+        <div className="overflow-hidden rounded-lg bg-card">
+          {Array.from({ length: STARTER_GLOBAL_CONTEXT.length }).map(
+            (_, index) => (
+              <div
+                key={index}
+                className="flex items-center gap-3 border-t px-4 py-3 first:border-t-0"
+              >
+                <Skeleton className="size-4 rounded-full" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Skeleton className="h-4 w-28" />
+                  <Skeleton className="h-3 w-64 max-w-full" />
+                  <Skeleton className="h-3 w-40 max-w-full" />
+                </div>
+                <Skeleton className="h-6 w-16 rounded-full" />
+              </div>
+            ),
+          )}
+        </div>
+      </section>
+    );
+  }
+
+  const byPath = new Map(
+    resources.map((resource) => [resource.path, resource]),
+  );
+  const missingPaths = STARTER_GLOBAL_CONTEXT.filter(
+    (item) => !byPath.has(item.path),
+  ).map((item) => item.path);
+  const presentCount = STARTER_GLOBAL_CONTEXT.length - missingPaths.length;
 
   return (
     <section className="space-y-3">
@@ -934,35 +979,44 @@ function GlobalContextSection({ resources }: { resources: any[] }) {
           </Badge>
         </div>
       </div>
-      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+      <div className="overflow-hidden rounded-lg bg-card">
         {STARTER_GLOBAL_CONTEXT.map((item) => {
           const resource = byPath.get(item.path);
           const exists = !!resource;
           const global = resource?.scope === "all";
           return (
-            <div key={item.path} className="rounded-lg border bg-card p-4">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    {exists ? (
-                      <IconCircleCheck
-                        size={15}
-                        className="shrink-0 text-green-600 dark:text-green-400"
-                      />
-                    ) : (
-                      <IconAlertCircle
-                        size={15}
-                        className="shrink-0 text-amber-600 dark:text-amber-400"
-                      />
-                    )}
-                    <h3 className="truncate text-sm font-medium text-foreground">
-                      {item.label}
-                    </h3>
-                  </div>
-                  <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                    {item.description}
-                  </p>
+            <div
+              key={item.path}
+              className="flex flex-wrap items-center gap-3 border-t px-4 py-3 first:border-t-0"
+            >
+              {exists ? (
+                <IconCircleCheck size={16} className="shrink-0 text-primary" />
+              ) : (
+                <IconAlertCircle
+                  size={16}
+                  className="shrink-0 text-amber-600 dark:text-amber-400"
+                />
+              )}
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-sm font-medium text-foreground">
+                  {item.label}
                 </div>
+                <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                  {item.description}
+                </div>
+                <div className="mt-1 truncate font-mono text-[11px] text-muted-foreground/80">
+                  {item.path}
+                </div>
+              </div>
+              <div className="flex items-center gap-1.5">
+                {exists ? (
+                  <Badge variant="outline">
+                    {global ? "All apps" : "Selected"}
+                  </Badge>
+                ) : null}
+                {resource && isAutoLoadedInstruction(resource) ? (
+                  <Badge variant="outline">Auto-loaded</Badge>
+                ) : null}
                 {resource ? (
                   <EditResourceDialog
                     resource={resource}
@@ -987,24 +1041,6 @@ function GlobalContextSection({ resources }: { resources: any[] }) {
                     <IconPlus size={14} />
                   </Button>
                 )}
-              </div>
-              <div className="mt-3 space-y-2">
-                <div className="truncate font-mono text-[11px] text-muted-foreground">
-                  {item.path}
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <Badge variant={exists ? "secondary" : "outline"}>
-                    {exists ? "Present" : "Missing"}
-                  </Badge>
-                  {exists ? (
-                    <Badge variant="outline">
-                      {global ? "All apps" : "Selected"}
-                    </Badge>
-                  ) : null}
-                  {resource && isAutoLoadedInstruction(resource) ? (
-                    <Badge variant="outline">Auto-loaded</Badge>
-                  ) : null}
-                </div>
               </div>
             </div>
           );
@@ -1052,10 +1088,7 @@ export default function WorkspaceRoute() {
       return (
         <div className="space-y-3">
           {Array.from({ length: 3 }).map((_, index) => (
-            <div
-              key={index}
-              className="rounded-lg border bg-card px-5 py-4 space-y-2"
-            >
+            <div key={index} className="rounded-lg bg-card px-5 py-4 space-y-2">
               <Skeleton className="h-4 w-1/3" />
               <Skeleton className="h-3 w-2/3" />
             </div>
@@ -1085,8 +1118,8 @@ export default function WorkspaceRoute() {
 
   return (
     <DispatchShell
-      title="Workspace Resources"
-      description="Manage inherited workspace skills, guardrail instructions, agent profiles, reference resources, and MCP servers. All-app resources are available to every app without syncing."
+      title="Resources"
+      description="Manage inherited skills, guardrail instructions, agent profiles, reference resources, and MCP servers. All-app resources are available to every app without syncing."
     >
       {resourcesQuery.isError || grantsQuery.isError ? (
         <ActionQueryError
@@ -1110,13 +1143,10 @@ export default function WorkspaceRoute() {
         </div>
       </div>
 
-      {!resourcesQuery.isError ? (
-        <GlobalContextSection resources={resources || []} />
-      ) : null}
-
       {!resourcesQuery.isError && !grantsQuery.isError ? (
         <Tabs defaultValue="skills">
           <TabsList>
+            <TabsTrigger value="context">Global context</TabsTrigger>
             <TabsTrigger value="skills">
               Skills {skills.length > 0 && `(${skills.length})`}
             </TabsTrigger>
@@ -1135,24 +1165,31 @@ export default function WorkspaceRoute() {
             </TabsTrigger>
           </TabsList>
 
+          <TabsContent value="context" className="mt-4">
+            <GlobalContextSection
+              resources={resources || []}
+              isLoading={isLoading}
+            />
+          </TabsContent>
+
           <TabsContent value="skills" className="mt-4">
             <ResourceList
               items={skills}
-              emptyText="No workspace skills yet. Add a skill to share agent guidance across apps."
+              emptyText="No skills yet. Add a skill to share agent guidance across apps."
             />
           </TabsContent>
 
           <TabsContent value="instructions" className="mt-4">
             <ResourceList
               items={instructions}
-              emptyText="No workspace instructions yet. Add instructions to set behavioral rules across apps."
+              emptyText="No instructions yet. Add instructions to set behavioral rules across apps."
             />
           </TabsContent>
 
           <TabsContent value="agents" className="mt-4">
             <ResourceList
               items={agents}
-              emptyText="No workspace agents yet. Add a reusable agent profile to share specialist agents across apps."
+              emptyText="No agent profiles yet. Add a reusable profile to share specialist agents across apps."
             />
           </TabsContent>
 
@@ -1166,7 +1203,7 @@ export default function WorkspaceRoute() {
           <TabsContent value="mcp" className="mt-4">
             <ResourceList
               items={mcpServers}
-              emptyText="No workspace MCP servers yet. Add an HTTP MCP server to share external tools across apps."
+              emptyText="No MCP servers yet. Add an HTTP MCP server to share external tools across apps."
             />
           </TabsContent>
         </Tabs>

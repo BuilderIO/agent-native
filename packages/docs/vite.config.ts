@@ -17,9 +17,18 @@ export default defineConfig({
     sitemapPlugin(),
     ...agentNativePlugins({
       tailwind: false,
-      // Warm every internal route's data and matched JS after hydration so
-      // clicks stay instant without adding those modules to the initial HTML.
-      routeWarmup: "render",
+      // Syntax highlighting is hydrated after the document loads. Keeping
+      // Shiki out of the SSR graph avoids loading its language catalog on a
+      // cold docs Function just to render the initial Markdown shell.
+      ssrStubs: ["shiki"],
+      // Warm routes as they enter the real viewport. Render-warming the whole
+      // docs graph stampedes uncached SSR/function calls after every mount.
+      routeWarmup: {
+        strategy: "viewport",
+        data: true,
+        modules: true,
+        maxConcurrent: 8,
+      },
     }),
   ],
 });

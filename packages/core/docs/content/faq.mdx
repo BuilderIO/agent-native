@@ -20,13 +20,13 @@ Agent-native is for people who want a real app and an AI agent to work from the 
 - **Use a hosted app** if you want Mail, Calendar, Forms, Plan, or another finished template with no setup — start at the [template gallery](/templates).
 - **Start with Chat** if you want the default from-scratch path: users can talk to the agent immediately, then you extend with actions, native results, and screens — start with [Getting Started](/docs/getting-started) or [Chat](/docs/template-chat).
 - **Start automation-first** if you are building scheduled jobs, queues, scripts, integration workers, or external-agent workflows with no browser UI yet — start with [Automation-First Apps](/docs/pure-agent-apps).
-- **Fork and customize a template** if you want your own SaaS product with auth, database, UI, and agent actions already wired — see [Templates](/docs/cloneable-saas).
+- **Start from a template and customize it** if you want your own SaaS product with auth, database, UI, and agent actions already wired — see [Templates](/docs/cloneable-saas).
 - **Build from scratch** if you want the framework primitives for a new agent-driven product — start with [Getting Started](/docs/getting-started).
 - **Connect another agent or code tool** if you want Claude, ChatGPT, Codex, Cursor, or GitHub Copilot / VS Code to use an agent-native app — see [External Agents](/docs/external-agents) and [Skills Guide](/docs/skills-guide).
 
 ### How is this different from adding AI to an existing app? {#how-is-this-different}
 
-Most apps bolt AI on as an afterthought that can't actually _do_ things in the app. In an agent-native app the agent is a first-class citizen that shares the same actions, database, and state as the UI, so it can do anything the buttons can — and modify the app's own code. See [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
+Most apps bolt AI on as an afterthought that can't actually _do_ things in the app. In an agent-native app the agent is a first-class citizen that shares the same actions, database, and state as the UI, so it can do anything the buttons can. See [What Is Agent-Native?](/docs/what-is-agent-native#the-ladder).
 
 <Diagram id="doc-block-1s6b04" title="Bolted-on AI vs. agent-native" summary="A bolted-on chat sidebar lives in its own world. An agent-native agent shares the same actions, database, and state as the UI.">
 
@@ -104,7 +104,7 @@ If you'd rather not manage any of this, the hosted version on `agent-native.com`
 
 ### Can I host this myself? {#can-i-self-host}
 
-Yes. Pick any host that runs Node — Netlify, Vercel, Cloudflare, AWS, Deno Deploy, your own server — and any SQL database (Postgres, SQLite, Turso, D1). The framework is built to be portable. See [Deployment](/docs/deployment).
+Yes. Pick any host that runs Node — Netlify, Vercel, Cloudflare, AWS, Deno Deploy, your own server — and any SQL database (Postgres, SQLite, Turso, D1). The framework is built to be portable. Start with the [local Docker quickstart](/docs/deployment#self-host-quickstart), then use [Deployment](/docs/deployment) for production.
 
 ### What AI models does it support? {#what-models}
 
@@ -126,21 +126,21 @@ The framework ships with production-ready templates including [Chat](/docs/templ
 
 ### Can I customize templates? {#can-i-customize-templates}
 
-That's the whole point. Fork a template and customize it by asking the agent. "Add a priority field to forms." "Connect to our Salesforce instance." "Change the color scheme to match our brand." The agent modifies the code, and your app evolves over time.
+That's the whole point. Start from a template and customize it in your own repository and development workflow. "Add a priority field to forms." "Connect to our Salesforce instance." "Change the color scheme to match our brand." An agent can edit the source when its frame is intentionally granted workspace and write tooling; otherwise the embedded agent operates the resulting app through its actions and data surface.
 
 ### Can I build something the templates don't cover? {#build-from-scratch}
 
 Yes. If you want a basic agentic app, run `npx @agent-native/core@latest create my-chat-app --template chat`; you get durable chat threads, actions, auth, SQL-backed runtime state, native inline result rendering, and room to add your own screens. If you are building a no-browser automation, run `npx @agent-native/core@latest create my-agent --headless`. See [Getting Started](/docs/getting-started), [Automation-First Apps](/docs/pure-agent-apps), and [Chat](/docs/template-chat).
 
-### Can I try it without forking a template? {#try-with-a-skill}
+### Can I try it without starting from a template? {#try-with-a-skill}
 
 Yes — install a skill into a coding agent you already use with one command and no scaffold required. See the [Skills Guide](/docs/skills-guide#app-backed-skills) for the walkthrough.
 
 ## Agent capabilities {#agent-capabilities}
 
-### Can the agent really modify the app's own code? {#can-the-agent-modify-code}
+### Does the embedded agent edit the app's source code? {#can-the-agent-modify-code}
 
-Yes, and it's a feature. The agent can safely edit components, routes, styles, and actions. You ask "add a cohort analysis chart" and the agent builds it. You ask "connect to our Stripe account" and the agent writes the integration. Everything is normal Git-tracked code, so bad changes are easy to revert.
+Not by default. The embedded agent normally works through actions, SQL-backed state, and configured integrations. It can edit components, routes, styles, or actions only when its frame is intentionally granted repository workspace and write tooling. Otherwise use your normal development workflow or a separate code-capable development/Builder frame. For runtime customization without source changes, use [Extensions](/docs/extensions).
 
 ### Can users talk to the agent from outside the app? {#external-channels}
 
@@ -158,11 +158,11 @@ The agent always knows what the user is currently viewing. The UI writes navigat
 
 ### Which AI coding tools work with agent-native? {#which-ai-tools-work}
 
-Any AI coding tool that reads project instructions. The framework uses AGENTS.md as the universal standard and auto-creates symlinks for specific tools:
+Any AI coding tool that reads project instructions. The framework uses AGENTS.md as the universal standard:
 
 - **Claude Code** — reads CLAUDE.md (symlinked from AGENTS.md by the CLI setup)
 - **Cursor** — reads AGENTS.md directly, or `.cursorrules` (Cursor's legacy location) if present in your project
-- **Windsurf** — reads .windsurfrules (symlinked from AGENTS.md by the CLI setup)
+- **Windsurf** — reads AGENTS.md directly, or `.windsurfrules` (Windsurf's legacy location) if present in your project
 - **Codex, Gemini, and others** — work via the embedded agent panel
 - **Builder.io** — cloud-hosted agent with visual editing and collaboration
 
@@ -252,6 +252,6 @@ The shared database, live sync, actions system, and application state only work 
 
 - [**Getting Started**](/docs/getting-started) — build your first action and render it inline in chat
 - [**What Is Agent-Native?**](/docs/what-is-agent-native) — the full explanation behind the answers above
-- [**Templates**](/docs/cloneable-saas) — fork a complete SaaS product instead of starting from scratch
+- [**Templates**](/docs/cloneable-saas) — start from a complete SaaS product instead of starting from scratch
 - [**Key Concepts**](/docs/key-concepts) — the architecture: SQL, actions, polling sync, and portability
 - [**Deployment**](/docs/deployment) — host on your own domain or any Nitro-compatible provider

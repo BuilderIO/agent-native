@@ -5,7 +5,11 @@
  * ```ts
  * // server/plugins/collab.ts
  * import { createCollabPlugin } from "@agent-native/core/server";
- * export default createCollabPlugin({ table: "documents", contentColumn: "content" });
+ * export default createCollabPlugin({
+ *   table: "documents",
+ *   contentColumn: "content",
+ *   access: { mode: "resource", resourceType: "document" },
+ * });
  * ```
  */
 
@@ -24,7 +28,7 @@ import {
   postCollabText,
   postCollabSearchReplace,
 } from "../collab/routes.js";
-import { hasCollabState } from "../collab/storage.js";
+import { listCollabDocIds } from "../collab/storage.js";
 import {
   postCollabJson,
   getCollabJson,
@@ -52,12 +56,47 @@ type CollabAwarenessScope = {
   resourceId?: string;
 };
 
+export type CollabResourceIdResolver = (
+  docId: string,
+) => string | null | Promise<string | null>;
+
+export type CollabAccess =
+  | {
+      mode: "resource";
+      /** The shareable resource type registered via `registerShareableResource`. */
+      resourceType: string;
+      /** Map a collab document id to its parent shareable resource id. */
+      resolveResourceId?: CollabResourceIdResolver;
+    }
+  | {
+      /** Deliver collaboration events to every authenticated user. */
+      mode: "all-authenticated";
+    };
+
+type NormalizedCollabAccess =
+  | {
+      mode: "resource";
+      resourceType: string;
+      resolveResourceId?: CollabResourceIdResolver;
+    }
+  | {
+      mode: "all-authenticated";
+      explicit: boolean;
+    };
+
 /**
- * Whether the no-resourceType warning has already been logged once per server
- * process. Avoids flooding logs on every request in templates that deliberately
- * have no sharing model.
+ * Tables whose implicit all-authenticated warning has already been logged in
+ * this process. Avoids duplicate warnings during hot reloads while still
+ * identifying every affected table.
  */
-let _unscoped_warning_logged = false;
+const COLLAB_WARNING_TABLES_KEY =
+  "__agentNativeImplicitCollabAccessWarningTables__";
+const collabWarningGlobal = globalThis as typeof globalThis & {
+  [COLLAB_WARNING_TABLES_KEY]?: Set<string>;
+};
+const _unscoped_warning_tables = (collabWarningGlobal[
+  COLLAB_WARNING_TABLES_KEY
+] ??= new Set<string>());
 
 export interface CollabPluginOptions {
   /** Table name containing document content. Default: "documents" */
@@ -68,6 +107,8 @@ export interface CollabPluginOptions {
   idColumn?: string;
   /** Whether to auto-seed existing documents on startup. Default: true */
   autoSeed?: boolean;
+  /** Map a source-table id to the id used by the collab document store. */
+  resolveCollabDocumentId?: (sourceId: string) => string;
   /**
    * Callback invoked after a collab update to sync the content column.
    * If not provided, the plugin auto-syncs using table/contentColumn/idColumn.
@@ -78,17 +119,24 @@ export interface CollabPluginOptions {
   /** Column name for JSON content (used when contentType is "json"). */
   jsonColumn?: string;
   /**
+   * Access policy for collaboration routes and event delivery.
+   * Use `resource` for registered shareable resources, or explicitly choose
+   * `all-authenticated` for deployment-wide collaboration.
+   */
+  access?: CollabAccess;
+  /**
    * The shareable resource type registered via `registerShareableResource`.
    * Used to enforce access checks on collab routes.
-   * Omit only for resources that are always public (no sharing model).
+   * @deprecated Use `access: { mode: "resource", resourceType }`.
    */
   resourceType?: string;
   /**
    * Map the collab document id to the shareable resource id. Many templates
    * use route-specific collab ids (for example, one doc per slide inside a
    * deck) while sharing is enforced at the parent resource level.
+   * @deprecated Use `access: { mode: "resource", resourceType, resolveResourceId }`.
    */
-  resolveResourceId?: (docId: string) => string | null | Promise<string | null>;
+  resolveResourceId?: CollabResourceIdResolver;
   /**
    * Maximum allowed body size in bytes for write operations
    * (update/text/json/patch). Requests exceeding this are rejected with 413.
@@ -97,18 +145,102 @@ export interface CollabPluginOptions {
   maxPayloadBytes?: number;
 }
 
+export function normalizeCollabAccess(
+  options: Pick<
+    CollabPluginOptions,
+    "access" | "resourceType" | "resolveResourceId"
+  >,
+): NormalizedCollabAccess {
+  const hasLegacyAccess =
+    options.resourceType !== undefined ||
+    options.resolveResourceId !== undefined;
+
+  if (options.access && hasLegacyAccess) {
+    throw new Error(
+      'createCollabPlugin cannot combine "access" with the deprecated root "resourceType" or "resolveResourceId" options. Move those fields into access.',
+    );
+  }
+
+  if (options.access?.mode === "resource") {
+    if (!options.access.resourceType.trim()) {
+      throw new Error(
+        'createCollabPlugin access mode "resource" requires a non-empty resourceType.',
+      );
+    }
+    return options.access;
+  }
+
+  if (options.access?.mode === "all-authenticated") {
+    return { mode: "all-authenticated", explicit: true };
+  }
+
+  if (options.access) {
+    throw new Error(
+      `createCollabPlugin received an unsupported access mode: ${String((options.access as { mode?: unknown }).mode)}`,
+    );
+  }
+
+  if (options.resourceType !== undefined) {
+    if (!options.resourceType.trim()) {
+      throw new Error(
+        'createCollabPlugin "resourceType" must be a non-empty string when provided.',
+      );
+    }
+    return {
+      mode: "resource",
+      resourceType: options.resourceType,
+      resolveResourceId: options.resolveResourceId,
+    };
+  }
+
+  if (options.resolveResourceId !== undefined) {
+    throw new Error(
+      'createCollabPlugin "resolveResourceId" requires a non-empty "resourceType".',
+    );
+  }
+
+  return { mode: "all-authenticated", explicit: false };
+}
+
+function warnForImplicitAllAuthenticatedAccess(table: string): void {
+  if (_unscoped_warning_tables.has(table)) return;
+  _unscoped_warning_tables.add(table);
+  console.warn(
+    `[collab] WARNING: createCollabPlugin for table "${table}" does not declare an access policy. ` +
+      "Collab events will be delivered to ALL authenticated users on this deployment without document-level access scoping. " +
+      'Use access: { mode: "resource", resourceType: "..." } for access-scoped delivery, ' +
+      'or access: { mode: "all-authenticated" } to explicitly acknowledge deployment-wide delivery.',
+  );
+}
+
 export function createCollabPlugin(
   options: CollabPluginOptions = {},
 ): NitroPluginDef {
+  const normalizedAccess = normalizeCollabAccess(options);
   const {
     table = "documents",
     contentColumn = "content",
     idColumn = "id",
     autoSeed = true,
-    resourceType,
-    resolveResourceId,
     maxPayloadBytes = DEFAULT_MAX_PAYLOAD_BYTES,
   } = options;
+  const resolveCollabDocumentId =
+    options.resolveCollabDocumentId ?? ((sourceId: string) => sourceId);
+  const resourceType =
+    normalizedAccess.mode === "resource"
+      ? normalizedAccess.resourceType
+      : undefined;
+  const resolveResourceId =
+    normalizedAccess.mode === "resource"
+      ? normalizedAccess.resolveResourceId
+      : undefined;
+
+  if (
+    normalizedAccess.mode === "all-authenticated" &&
+    !normalizedAccess.explicit
+  ) {
+    warnForImplicitAllAuthenticatedAccess(table);
+  }
 
   return async (nitroApp: any) => {
     await awaitBootstrap(nitroApp);
@@ -129,15 +261,6 @@ export function createCollabPlugin(
     //     who don't match owner/org — instead of only degrading them to the
     //     poll fallback.
     // See also: SECURITY comment in poll.ts on canSeeChangeForUser.
-    if (!resourceType && !_unscoped_warning_logged) {
-      _unscoped_warning_logged = true;
-      console.warn(
-        "[collab] WARNING: createCollabPlugin called without resourceType. " +
-          "Collab events will be delivered to ALL authenticated users on this deployment " +
-          "without document-level access scoping. Set resourceType to enable access-scoped delivery.",
-      );
-    }
-
     const collabEmitter = getCollabEmitter();
     collabEmitter.on("collab", async (event) => {
       if (!resourceType) {
@@ -254,13 +377,19 @@ export function createCollabPlugin(
               (action === "patch" && method === "POST");
 
             if (isWrite) {
-              // assertAccess throws ForbiddenError (→ 403) if no editor access
+              // assertAccess throws ForbiddenError (→ 403) if no editor access.
+              // Projected: only ownerEmail/orgId are read below, and a collab
+              // resource's body is the largest column it has — loading it here
+              // means every keystroke-driven update read the whole document
+              // twice, once for the ACL and once for the edit itself.
               const access = await assertAccess(
                 resourceType,
                 resourceId,
                 "editor",
+                undefined,
+                { skipResourceBody: true },
               );
-              const resource = access.resource as Record<string, unknown>;
+              const resource = access.resource;
               const awarenessScope: CollabAwarenessScope = {
                 resourceType,
                 resourceId,
@@ -275,13 +404,20 @@ export function createCollabPlugin(
                 event.context._collabAwarenessScope = awarenessScope;
               }
             } else {
-              // resolveAccess returns null when no access; return 404 to avoid leaking existence
-              const access = await resolveAccess(resourceType, resourceId);
+              // resolveAccess returns null when no access; return 404 to avoid leaking existence.
+              // Projected: only ownerEmail/orgId are read below, and a collab
+              // resource's body is the largest column it has.
+              const access = await resolveAccess(
+                resourceType,
+                resourceId,
+                undefined,
+                { skipResourceBody: true },
+              );
               if (!access) {
                 setResponseStatus(event, 404);
                 return { error: "Not found" };
               }
-              const resource = access.resource as Record<string, unknown>;
+              const resource = access.resource;
               const awarenessScope: CollabAwarenessScope = {
                 resourceType,
                 resourceId,
@@ -357,14 +493,21 @@ export function createCollabPlugin(
       // Run in background so it doesn't block startup
       setTimeout(async () => {
         try {
+          // Read existing ids once, then apply the plugin's document-id
+          // mapping before filtering. A source-table SQL predicate can use
+          // the wrong id for integrations such as Analytics' dash-* docs.
+          const existingDocIds = await listCollabDocIds();
           const client = getDbExec();
           const { rows } = await client.execute(
             `SELECT ${idColumn}, ${seedColumn} FROM ${table}`,
           );
-          for (const row of rows) {
-            const docId = row[idColumn] as string;
-            const exists = await hasCollabState(docId);
-            if (exists) continue;
+          for (const { row, docId } of selectUnseededCollabRows(
+            rows,
+            idColumn,
+            existingDocIds,
+            resolveCollabDocumentId,
+          )) {
+            let seeded = false;
 
             if (isJson) {
               const raw = (row[seedColumn] as string) ?? "{}";
@@ -374,13 +517,16 @@ export function createCollabPlugin(
                   ? "array"
                   : "map";
                 await seedFromJson(docId, parsed, "data", inferredType);
+                seeded = true;
               } catch {
                 // Invalid JSON — skip
               }
             } else {
               const content = (row[seedColumn] as string) ?? "";
               await seedFromText(docId, content);
+              seeded = true;
             }
+            if (seeded) existingDocIds.add(docId);
           }
         } catch {
           // Table may not exist yet on first boot — that's fine
@@ -388,4 +534,24 @@ export function createCollabPlugin(
       }, 1000);
     }
   };
+}
+
+export function selectUnseededCollabRows(
+  rows: ReadonlyArray<Record<string, unknown>>,
+  idColumn: string,
+  existingDocIds: ReadonlySet<string>,
+  resolveCollabDocumentId: (sourceId: string) => string = (sourceId) =>
+    sourceId,
+): Array<{ row: Record<string, unknown>; docId: string }> {
+  const seenDocIds = new Set(existingDocIds);
+  const unseeded: Array<{ row: Record<string, unknown>; docId: string }> = [];
+  for (const row of rows) {
+    const sourceId = String(row[idColumn] ?? "");
+    if (!sourceId) continue;
+    const docId = resolveCollabDocumentId(sourceId);
+    if (seenDocIds.has(docId)) continue;
+    seenDocIds.add(docId);
+    unseeded.push({ row, docId });
+  }
+  return unseeded;
 }

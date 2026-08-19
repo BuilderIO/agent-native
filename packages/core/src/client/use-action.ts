@@ -27,8 +27,21 @@ import type {
   UseMutationOptions,
 } from "@tanstack/react-query";
 
+import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
+import { getAnalyticsClientPlatform } from "./analytics-platform.js";
+import { getOrCreateAnalyticsSessionId } from "./analytics-session.js";
+import { trackEvent } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
+import {
+  agentNativeApiDisabledReason,
+  assertAgentNativeApiEnabled,
+} from "./api-surface.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
+import {
+  clientBuildId,
+  clientCompatibilityVersion,
+  reloadForClientCompatibilityMismatch,
+} from "./build-compatibility.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 
 const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
@@ -60,6 +73,14 @@ function isActionTimeout(error: unknown): boolean {
   );
 }
 
+function isActionMethodMismatch(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "action_method_mismatch"
+  );
+}
+
 /** @internal exported for tests */
 export function defaultActionQueryRetry(
   failureCount: number,
@@ -69,6 +90,8 @@ export function defaultActionQueryRetry(
   // A timeout already made the user wait the full timeout window once;
   // silently retrying would multiply that wait. Surface it instead.
   if (isActionTimeout(error)) return false;
+  // Wrong verb is deterministic — retrying sends the same wrong verb again.
+  if (isActionMethodMismatch(error)) return false;
   if (isBrowserResourceExhaustion(error)) return false;
   // Network-level failures never carry an HTTP `status` (actionFetch only
   // sets it after a response arrives). Chrome reports connection-pool
@@ -201,6 +224,12 @@ function appendActionQueryParam(
     }
     return;
   }
+  if (typeof value === "object") {
+    // defineAction restores JSON strings when the schema expects an object.
+    // Preserve nested GET params instead of collapsing them to "[object Object]".
+    qs.append(key, JSON.stringify(value));
+    return;
+  }
   qs.append(key, String(value));
 }
 
@@ -220,6 +249,10 @@ export interface ActionFetchOptions {
   /** Omit the tab echo-suppression tag for imperative callers. */
   includeRequestSource?: boolean;
 }
+
+type InternalActionFetchOptions = ActionFetchOptions & {
+  onResponse?: (response: Response) => void;
+};
 
 /**
  * Conservative per-document keepalive body budget. Browsers commonly enforce
@@ -251,11 +284,11 @@ function utf8ByteLength(value: string): number {
   return bytes;
 }
 
-async function actionFetch<T>(
+async function performActionFetch<T>(
   name: string,
   method: string,
   params?: Record<string, any>,
-  options?: ActionFetchOptions,
+  options?: InternalActionFetchOptions,
 ): Promise<T> {
   ensureEmbedAuthFetchInterceptor();
   let url = `${ACTION_PREFIX}/${name}`;
@@ -276,8 +309,24 @@ async function actionFetch<T>(
         }
       : {}),
   };
+  const compatibilityVersion = clientCompatibilityVersion();
+  if (compatibilityVersion) {
+    headers["X-Agent-Native-Client-Compatibility"] = compatibilityVersion;
+  }
+  const buildId = clientBuildId();
+  if (buildId) headers["X-Agent-Native-Build-Id"] = buildId;
   const tz = resolveUserTimezone();
-  if (tz) headers["x-user-timezone"] = tz;
+  if (tz) {
+    headers["x-user-timezone"] = tz;
+  }
+  // Same browser session the agent chat sends on an agent run, so an action
+  // called from the UI and an action the agent calls during that visit land on
+  // one `$session_id` in traces and session replay.
+  const browserSessionId = getOrCreateAnalyticsSessionId();
+  if (browserSessionId) {
+    headers["X-Agent-Native-Session-Id"] = browserSessionId;
+  }
+  headers[ANALYTICS_CLIENT_PLATFORM_HEADER] = getAnalyticsClientPlatform();
   const init: RequestInit = {
     method,
     headers,
@@ -308,22 +357,31 @@ async function actionFetch<T>(
     else outerSignal.addEventListener("abort", onOuterAbort, { once: true });
   }
   let timedOut = false;
-  const timer = controller
-    ? setTimeout(() => {
-        timedOut = true;
-        controller.abort();
-      }, timeoutMs)
-    : null;
-  if (controller) init.signal = controller.signal;
-
-  const throwTimeout = (): never => {
+  const timeoutError = (): Error => {
     const error = new Error(
       `Action ${name} timed out after ${Math.round(timeoutMs / 1000)}s`,
     );
     (error as any).timedOut = true;
     (error as any).status = 408;
-    throw error;
+    return error;
   };
+  const throwTimeout = (): never => {
+    throw timeoutError();
+  };
+  // The timeout rejects the caller directly, not just via `controller.abort()`.
+  // Aborting only works if the transport honors the signal; a patched fetch, a
+  // wedged service worker, or a stalled body stream that never settles would
+  // otherwise leave the request — and the UI's loading state — pending forever.
+  let rejectTimedOut: (error: unknown) => void = () => {};
+  const timedOutSignal = new Promise<never>((_resolve, reject) => {
+    rejectTimedOut = reject;
+  });
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller?.abort();
+    rejectTimedOut(timeoutError());
+  }, timeoutMs);
+  if (controller) init.signal = controller.signal;
 
   let res: Response;
   let raw = "";
@@ -331,7 +389,8 @@ async function actionFetch<T>(
   let readError: unknown;
   try {
     try {
-      res = await fetch(url, init);
+      res = await Promise.race([fetch(url, init), timedOutSignal]);
+      options?.onResponse?.(res);
     } catch (err) {
       if (timedOut) throwTimeout();
       // Caller-initiated cancellation — rethrow untouched so React Query
@@ -341,6 +400,26 @@ async function actionFetch<T>(
       // useful message instead of the opaque "Failed to fetch".
       const cause = err instanceof Error ? err.message : String(err);
       throw new Error(`Action ${name} failed: ${cause}`);
+    }
+
+    if (
+      res.status === 409 &&
+      res.headers.get("X-Agent-Native-Client-Mismatch") === "1"
+    ) {
+      const serverBuildId =
+        res.headers.get("X-Agent-Native-Build-Id") ?? "latest";
+      const requiredCompatibility =
+        res.headers.get("X-Agent-Native-Client-Compatibility") ?? "unknown";
+      reloadForClientCompatibilityMismatch(
+        serverBuildId,
+        requiredCompatibility,
+      );
+      const error = new Error(
+        `Action ${name} requires a refreshed browser client`,
+      );
+      (error as any).status = 409;
+      (error as any).code = "client_build_mismatch";
+      throw error;
     }
 
     // 204 No Content — nothing to parse.
@@ -354,7 +433,7 @@ async function actionFetch<T>(
     // decode failure on a 2xx response should error rather than silently
     // succeed with `null`.
     try {
-      raw = await res.text();
+      raw = await Promise.race([res.text(), timedOutSignal]);
     } catch (err) {
       if (timedOut) throwTimeout();
       if (outerSignal?.aborted) throw err;
@@ -362,7 +441,7 @@ async function actionFetch<T>(
       readError = err;
     }
   } finally {
-    if (timer) clearTimeout(timer);
+    clearTimeout(timer);
     if (outerSignal) outerSignal.removeEventListener("abort", onOuterAbort);
   }
 
@@ -385,6 +464,27 @@ async function actionFetch<T>(
       (raw && raw.slice(0, 200)) ||
       res.statusText ||
       `HTTP ${res.status}`;
+
+    // mountActionRoutes only ever returns 405 for one reason: the verb this
+    // call sent doesn't match the action's declared `http.method`. The client
+    // has no way to look that method up ahead of time (defineAction lives in
+    // server-only modules), so callers routinely default to POST and hit this
+    // blind. Name the action and the required method instead of leaving a
+    // bare 405 for the caller to reverse-engineer from a "Use X" string.
+    if (res.status === 405) {
+      const requiredMethod = /\bUse (GET|POST|PUT|DELETE)\b/.exec(message)?.[1];
+      const error = new Error(
+        `Action ${name} was called with ${method}, but it declares ` +
+          `http: { method: "${requiredMethod ?? "?"}" }. Pass { method: "${requiredMethod ?? "..."}" } ` +
+          `to this call (or use the hook that defaults to it) to match the action's declared method.`,
+      );
+      (error as any).status = 405;
+      (error as any).code = "action_method_mismatch";
+      (error as any).sentMethod = method;
+      if (requiredMethod) (error as any).requiredMethod = requiredMethod;
+      throw error;
+    }
+
     const error = new Error(`Action ${name} failed: ${message}`);
     (error as any).status = res.status;
     throw error;
@@ -418,6 +518,144 @@ async function actionFetch<T>(
   return (data ?? (null as unknown)) as T;
 }
 
+function actionTelemetryNow(): number {
+  return typeof performance !== "undefined" ? performance.now() : Date.now();
+}
+
+function parseServerTiming(
+  response: Response | undefined,
+): Map<string, number> {
+  const timings = new Map<string, number>();
+  const value = response?.headers.get("server-timing");
+  if (!value) return timings;
+
+  for (const entry of value.split(",")) {
+    const [rawName, ...params] = entry.trim().split(";");
+    const name = rawName?.trim();
+    if (!name) continue;
+    const duration = params
+      .map((param) => /^dur=(.+)$/i.exec(param.trim())?.[1])
+      .find(Boolean);
+    const parsed = duration === undefined ? NaN : Number(duration);
+    if (Number.isFinite(parsed)) timings.set(name, parsed);
+  }
+  return timings;
+}
+
+function shouldTrackActionResponse(
+  error: unknown,
+  durationMs: number,
+  response: Response | undefined,
+): boolean {
+  if (error || durationMs >= 1_000) return true;
+  if (response && response.status >= 400 && response.status < 500) return true;
+  if (
+    /\bstartup(?:-db)?\s*;/i.test(response?.headers.get("server-timing") ?? "")
+  ) {
+    return true;
+  }
+  const raw = (import.meta.env as Record<string, string | undefined>)
+    ?.VITE_AGENT_NATIVE_ACTION_TELEMETRY_SAMPLE_RATE;
+  const parsed = raw === undefined ? 0.1 : Number(raw);
+  const rate = Number.isFinite(parsed) ? Math.max(0, Math.min(1, parsed)) : 0.1;
+  return Math.random() < rate;
+}
+
+async function actionFetch<T>(
+  name: string,
+  method: string,
+  params?: Record<string, any>,
+  options?: ActionFetchOptions,
+): Promise<T> {
+  assertAgentNativeApiEnabled(`${method} ${name}`);
+  const startedAt = actionTelemetryNow();
+  let response: Response | undefined;
+  let responseAt: number | undefined;
+  let error: unknown;
+
+  try {
+    return await performActionFetch<T>(name, method, params, {
+      ...options,
+      onResponse: (nextResponse) => {
+        response = nextResponse;
+        responseAt = actionTelemetryNow();
+      },
+    });
+  } catch (caught) {
+    error = caught;
+    throw caught;
+  } finally {
+    try {
+      const completedAt = actionTelemetryNow();
+      const durationMs = Math.max(0, completedAt - startedAt);
+      if (shouldTrackActionResponse(error, durationMs, response)) {
+        const ttfbMs =
+          responseAt === undefined
+            ? undefined
+            : Math.max(0, responseAt - startedAt);
+        const serverTiming = parseServerTiming(response);
+        const serverDurationMs = serverTiming.get("app");
+        const errorStatus = Number(
+          (error as { status?: unknown } | undefined)?.status,
+        );
+        const statusCode =
+          response?.status ??
+          (Number.isFinite(errorStatus) ? errorStatus : undefined);
+        const timedOut =
+          (error as { timedOut?: unknown } | undefined)?.timedOut === true;
+        const cancelled = options?.signal?.aborted === true && !timedOut;
+        const contentLength = Number(response?.headers.get("content-length"));
+
+        trackEvent("action.response", {
+          request_id:
+            response?.headers.get("x-agent-native-request-id") ?? undefined,
+          action: name,
+          method,
+          status_code: statusCode,
+          status_class:
+            statusCode === undefined
+              ? "network"
+              : `${Math.floor(statusCode / 100)}xx`,
+          success: !error,
+          outcome: !error
+            ? "success"
+            : timedOut
+              ? "timeout"
+              : cancelled
+                ? "cancelled"
+                : response
+                  ? "http-error"
+                  : "network-error",
+          duration_ms: Math.round(durationMs),
+          ttfb_ms: ttfbMs === undefined ? undefined : Math.round(ttfbMs),
+          body_ms:
+            ttfbMs === undefined ? undefined : Math.round(durationMs - ttfbMs),
+          server_duration_ms:
+            serverDurationMs === undefined
+              ? undefined
+              : Math.round(serverDurationMs),
+          network_overhead_ms:
+            ttfbMs === undefined || serverDurationMs === undefined
+              ? undefined
+              : Math.max(0, Math.round(ttfbMs - serverDurationMs)),
+          framework_ready_wait_ms: serverTiming.get("startup"),
+          db_operation_wall_ms: serverTiming.get("db"),
+          db_connect_total_ms: serverTiming.get("db-connect"),
+          db_slowest_operation_ms: serverTiming.get("db-slowest"),
+          startup_db_operation_wall_ms: serverTiming.get("startup-db"),
+          startup_db_connect_total_ms: serverTiming.get("startup-db-connect"),
+          response_bytes:
+            Number.isFinite(contentLength) && contentLength >= 0
+              ? contentLength
+              : undefined,
+        });
+      }
+    } catch {
+      // Performance telemetry must never change the action result.
+    }
+  }
+}
+
 /**
  * Imperatively call an action from browser/client code.
  *
@@ -443,7 +681,8 @@ export function callAction<
 
 export type KeepaliveActionCallRejectionReason =
   | "body-too-large"
-  | "budget-exhausted";
+  | "budget-exhausted"
+  | "api-disabled";
 
 export type KeepaliveActionCallResult<TResult> =
   | {
@@ -480,6 +719,17 @@ export function tryCallActionKeepalive<
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   const serializedBody = JSON.stringify(params ?? {});
   const bodyBytes = utf8ByteLength(serializedBody);
+
+  // Reported as a refusal rather than thrown: callers keep the work queued on
+  // `accepted: false`, which is the honest outcome for a surface with no backend.
+  if (agentNativeApiDisabledReason()) {
+    return {
+      accepted: false,
+      bodyBytes,
+      reason: "api-disabled",
+      completion: null,
+    };
+  }
 
   if (bodyBytes > ACTION_KEEPALIVE_BODY_BUDGET_BYTES) {
     return {
@@ -548,6 +798,10 @@ export function useActionQuery<
   >,
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
+  // Not `enabled: false` via options: a disabled surface must win over whatever
+  // the caller asked for, and an unfired query reads as "no data" rather than
+  // as an error the UI has to special-case.
+  const apiDisabled = Boolean(agentNativeApiDisabledReason());
   return useQuery<R>({
     queryKey: ["action", actionName, params],
     // Thread React Query's per-fetch AbortSignal into the network request so
@@ -558,6 +812,7 @@ export function useActionQuery<
     retry: defaultActionQueryRetry,
     retryDelay: defaultActionQueryRetryDelay,
     ...options,
+    ...(apiDisabled ? { enabled: false as const } : {}),
   });
 }
 
@@ -566,7 +821,9 @@ export function useActionQuery<
 // ---------------------------------------------------------------------------
 
 /**
- * Mutate via an action exposed as POST (default), PUT, or DELETE.
+ * Mutate through the framework's frontend action transport. Mutations use
+ * POST by default and do not need to repeat the action's direct HTTP method.
+ * An explicit PUT or DELETE remains supported for compatibility.
  *
  * When the action type registry is generated, the return type and parameter
  * types are inferred automatically.
@@ -617,7 +874,7 @@ export function useActionMutation<
       if (!skipActionQueryInvalidation) {
         queryClient.invalidateQueries({ queryKey: ["action"] });
       }
-      (onSuccess as Function)?.(...args);
+      return (onSuccess as Function)?.(...args);
     },
   });
 }

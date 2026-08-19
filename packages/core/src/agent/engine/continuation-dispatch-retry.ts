@@ -52,7 +52,6 @@ export async function attemptContinuationDispatch(params: {
 }> {
   const {
     event,
-    chainViaDurableBackground,
     backgroundContinuationCount,
     nextRunId,
     nextRowInserted,
@@ -127,14 +126,16 @@ export async function attemptContinuationDispatch(params: {
       dispatched = true;
     } catch (dispatchErr) {
       lastDispatchErr = dispatchErr;
-      // Regular-function targets (foreground self-chain) respond only
-      // after the successor chunk FINISHES, so an await timeout is not
-      // proof of a dead handoff. The successor's ATOMIC CLAIM is: a row
-      // that left `dispatch_mode='background'` (claimed) or is already
-      // terminal proves the handoff landed — stop retrying. A duplicate
-      // delivery would lose the claim and no-op anyway; skipping it saves
-      // wall-clock this close to the invocation deadline.
-      if (!chainViaDurableBackground && nextRowInserted) {
+      // A failed dispatch never proves a dead handoff, on ANY target: the
+      // request can land while the response is lost (observed in prod as a
+      // connection-level `fetch failed` against a background function that
+      // had already started the successor). The successor's ATOMIC CLAIM is
+      // authoritative — a row that left `dispatch_mode='background'`
+      // (claimed) or is already terminal means the handoff landed, so stop
+      // retrying. A duplicate delivery would lose the claim and no-op anyway;
+      // skipping it saves wall-clock this close to the invocation deadline
+      // and keeps the parent chunk from reporting a false `deferred`.
+      if (nextRowInserted) {
         const claim = await d
           .readBackgroundRunClaim(nextRunId)
           .catch(() => null);

@@ -1,3 +1,4 @@
+import { ShareCopyRow, ShareTrigger } from "@agent-native/toolkit/sharing";
 import * as Select from "@radix-ui/react-select";
 import {
   IconLock,
@@ -5,20 +6,15 @@ import {
   IconTrash,
   IconCheck,
   IconChevronDown,
-  IconCopy,
   IconLoader2,
   IconSearch,
   IconSearchOff,
-  IconShare3,
   IconUsersGroup,
 } from "@tabler/icons-react";
-import { useQueryClient } from "@tanstack/react-query";
 import {
-  useCallback,
   type ComponentPropsWithoutRef,
   useEffect,
   useId,
-  useMemo,
   useRef,
   useState,
   type ReactNode,
@@ -28,7 +24,6 @@ import type {
   UIEvent as ReactUIEvent,
 } from "react";
 
-import { agentNativePath } from "../api-path.js";
 import { writeClipboardText } from "../clipboard.js";
 import {
   Popover,
@@ -36,8 +31,19 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
-import { useActionQuery, useActionMutation } from "../use-action.js";
+import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
+import { AgentShareSection } from "./AgentShareSection.js";
+import {
+  useShareButtonController,
+  type ShareButtonController,
+  type ShareButtonGroup,
+  type ShareButtonOrgMember,
+  type ShareButtonOrgMemberSearch,
+  type ShareButtonShare,
+  type ShareButtonRole,
+  type ShareButtonVisibility,
+} from "./useShareButtonController.js";
 
 export interface ShareButtonProps {
   resourceType: string;
@@ -46,11 +52,9 @@ export interface ShareButtonProps {
   /** @deprecated No longer affects rendering — trigger always says
    *  "Share". Kept for callsite compatibility. */
   variant?: "compact" | "label";
-  /** Optional trigger style. Defaults to the Google-Docs-style "Share" label
-   *  with a leading visibility icon. "label-icon" is kept for callsites that
-   *  want to explicitly opt into icon+label parity; "icon" is icon-only. */
+  /** @deprecated Share triggers are standardized as text-only buttons. */
   trigger?: "label" | "icon" | "label-icon";
-  /** @deprecated No longer affects rendering — triggers show visibility state. */
+  /** @deprecated No longer affects rendering — kept for callsite compatibility. */
   hideTriggerIcon?: boolean;
   /** Optional className applied to the trigger button. */
   triggerClassName?: string;
@@ -69,12 +73,12 @@ export interface ShareButtonProps {
   shareUrlLabel?: string;
   /** Optional helper text for the primary copyable link section. */
   shareUrlDescription?: ReactNode;
-  /** Where to render share links in the popover. Defaults to the bottom,
-   *  matching the historical Google-Docs-style share dialog. */
+  /** Where to render share links in the popover. Defaults to the top,
+   *  keeping the copyable link as the primary share action. */
   shareUrlPlacement?: "top" | "bottom";
   /** Whether to render copyable share URL fields. Defaults to true. */
   showShareLinks?: boolean;
-  /** Whether to render the bottom Done button. Defaults to true. */
+  /** @deprecated The Done action was removed; share popovers dismiss directly. */
   showDoneButton?: boolean;
   /** Optional placeholder shown in the share-URL slot when `shareUrl` is
    *  undefined. Use this to explain *why* there's no link yet (e.g. "Publish
@@ -100,6 +104,10 @@ export interface ShareButtonProps {
   visibilityCopy?: Partial<
     Record<Visibility, { label?: string; description?: string }>
   >;
+  /** Optional template-specific labels and descriptions for share roles. */
+  roleCopy?: Partial<Record<Role, { label?: string; description?: string }>>;
+  /** Optional role capability boundary for resources without comment support. */
+  allowedRoles?: readonly Role[];
   /** Optional label for the explicit per-person access list. */
   peopleAccessLabel?: ReactNode;
   /** Optional label for the coarse visibility control. */
@@ -134,43 +142,18 @@ export interface ShareButtonProps {
   popoverClassName?: string;
 }
 
-type Visibility = "private" | "org" | "public";
-type Role = "viewer" | "editor" | "admin";
+type Visibility = ShareButtonVisibility;
+type Role = ShareButtonRole;
 type HideInSearchControl = NonNullable<ShareButtonProps["hideInSearchControl"]>;
+type OrgMember = ShareButtonOrgMember;
+type OrgMemberSearch = ShareButtonOrgMemberSearch;
 
-interface Share {
-  id: string;
-  principalType: "user" | "org";
-  principalId: string;
-  displayName?: string | null;
-  role: Role;
-}
-
-interface SharesPolicy {
-  /** When false, the visibility picker hides "Public". Default: true. */
-  allowPublic: boolean;
-  /** When true, individual user shares must target an org member or pending invitee. Default: false. */
-  requireOrgMemberForUserShares: boolean;
-}
-
-interface SharesResponse {
-  ownerEmail: string | null;
-  orgId: string | null;
-  visibility: Visibility | null;
-  role?: "owner" | Role;
-  shares: Share[];
-  /** Server-declared policy for what visibilities and share targets are allowed. */
-  policy?: SharesPolicy;
-}
+type Share = ShareButtonShare;
 
 // Match shadcn's <Button size="sm" variant="outline"> sizing so the trigger
 // sits flush next to other controls while staying transparent at rest.
 const BUTTON_BASE =
   "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium ring-offset-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0";
-const BUTTON_OUTLINE_SM = cn(
-  BUTTON_BASE,
-  "h-9 px-3 border border-[hsl(var(--sidebar-border,var(--input)))] bg-transparent text-foreground hover:bg-[hsl(var(--sidebar-accent,var(--accent)))] hover:text-[hsl(var(--sidebar-accent-foreground,var(--accent-foreground)))]",
-);
 const BUTTON_PRIMARY_SM = cn(
   BUTTON_BASE,
   "h-9 px-4 bg-primary text-primary-foreground hover:bg-primary/90",
@@ -183,53 +166,112 @@ const SHARE_POPOVER_SURFACE =
   "border border-border bg-popover text-popover-foreground";
 const SHARE_NESTED_OVERLAY_ATTR = "data-agent-native-share-overlay";
 const SHARE_NESTED_OVERLAY_Z = "z-[100020]";
-const MEMBER_SUGGESTION_LIMIT = 25;
-const MEMBER_SEARCH_DEBOUNCE_MS = 140;
-
 const VIS_META: Record<
   Visibility,
-  { label: string; description: string; Icon: typeof IconLock }
+  {
+    labelKey: string;
+    descriptionKey: string;
+    defaultLabel: string;
+    defaultDescription: string;
+    Icon: typeof IconLock;
+  }
 > = {
   private: {
-    label: "Private",
-    description: "Only people with access can view",
+    labelKey: "agentChat.share.private",
+    descriptionKey: "agentChat.share.privateDescription",
+    defaultLabel: "Private",
+    defaultDescription: "Only people with access can view",
     Icon: IconLock,
   },
   org: {
-    label: "Organization",
-    description: "Anyone in your organization can view",
+    labelKey: "agentChat.share.organization",
+    descriptionKey: "agentChat.share.organizationDescription",
+    defaultLabel: "Organization",
+    defaultDescription: "Anyone in your organization can view",
     Icon: IconUsersGroup,
   },
   public: {
-    label: "Public",
-    description: "Anyone with the link can view",
+    labelKey: "agentChat.share.public",
+    descriptionKey: "agentChat.share.publicDescription",
+    defaultLabel: "Public",
+    defaultDescription: "Anyone with the link can view",
     Icon: IconWorld,
   },
 };
 
+type ShareTranslate = ReturnType<typeof useT>;
+
 function visibilityMeta(
   visibility: Visibility,
+  t: ShareTranslate,
   copy?: ShareButtonProps["visibilityCopy"],
-): (typeof VIS_META)[Visibility] {
+): { label: string; description: string; Icon: typeof IconLock } {
   const base = VIS_META[visibility];
   const override = copy?.[visibility];
+  return {
+    Icon: base.Icon,
+    label:
+      override?.label ??
+      t(base.labelKey, {
+        defaultValue: base.defaultLabel,
+      }),
+    description:
+      override?.description ??
+      t(base.descriptionKey, {
+        defaultValue: base.defaultDescription,
+      }),
+  };
+}
+
+function roleOptions(
+  t: ShareTranslate,
+): Array<{ value: Role; label: string; description: string }> {
+  return [
+    {
+      value: "viewer",
+      label: t("agentChat.share.viewer", { defaultValue: "Viewer" }),
+      description: t("agentChat.share.viewerDescription", {
+        defaultValue: "Can view",
+      }),
+    },
+    {
+      value: "commenter",
+      label: t("agentChat.share.commenter", { defaultValue: "Commenter" }),
+      description: t("agentChat.share.commenterDescription", {
+        defaultValue: "Can view and add comments",
+      }),
+    },
+    {
+      value: "editor",
+      label: t("agentChat.share.editor", { defaultValue: "Editor" }),
+      description: t("agentChat.share.editorDescription", {
+        defaultValue: "Can edit",
+      }),
+    },
+    {
+      value: "admin",
+      label: t("agentChat.share.admin", { defaultValue: "Admin" }),
+      description: t("agentChat.share.adminDescription", {
+        defaultValue: "Can edit and manage access",
+      }),
+    },
+  ];
+}
+
+function roleMeta(
+  role: Role,
+  t: ShareTranslate,
+  copy?: ShareButtonProps["roleCopy"],
+): { value: Role; label: string; description: string } {
+  const options = roleOptions(t);
+  const base = options.find((option) => option.value === role) ?? options[0];
+  const override = copy?.[role];
   return {
     ...base,
     label: override?.label ?? base.label,
     description: override?.description ?? base.description,
   };
 }
-
-const ROLE_OPTIONS: Array<{ value: Role; label: string; description: string }> =
-  [
-    { value: "viewer", label: "Viewer", description: "Can view" },
-    { value: "editor", label: "Editor", description: "Can edit" },
-    {
-      value: "admin",
-      label: "Admin",
-      description: "Can edit and manage access",
-    },
-  ];
 
 type SharePopoverInteractOutsideEvent = Parameters<
   NonNullable<
@@ -260,130 +302,27 @@ function handleSharePopoverInteractOutside(
  * dark mode in any shadcn template.
  */
 export function ShareButton(props: ShareButtonProps) {
-  const [open, setOpen] = useState(false);
-  const shareTabDefaultValue = props.shareTabs?.defaultValue ?? "share";
-  const [activeShareTab, setActiveShareTab] = useState(shareTabDefaultValue);
-  const [pendingVisibility, setPendingVisibility] = useState<Visibility | null>(
-    null,
-  );
-  const appliedDefaultOpenRef = useRef(false);
-  const visibilityRequestId = useRef(0);
-  const queryClient = useQueryClient();
-  const shareQueryParams = useMemo(
-    () => ({
-      resourceType: props.resourceType,
-      resourceId: props.resourceId,
-    }),
-    [props.resourceType, props.resourceId],
-  );
-  const shareQueryKey = useMemo(
-    () => ["action", "list-resource-shares", shareQueryParams] as const,
-    [shareQueryParams],
-  );
-  const setVisibility = useActionMutation("set-resource-visibility");
-  const sharesQuery = useActionQuery<SharesResponse>(
-    "list-resource-shares",
-    shareQueryParams,
-  );
-  const handleOpenChange = (v: boolean) => {
-    setOpen(v);
-    props.onOpenChange?.(v);
-    if (v) {
-      setActiveShareTab(shareTabDefaultValue);
-      props.shareTabs?.onValueChange?.(shareTabDefaultValue);
-      if (pendingVisibility === null) sharesQuery.refetch();
-    }
-  };
-
-  const handleShareTabChange = (value: string) => {
-    setActiveShareTab(value);
-    props.shareTabs?.onValueChange?.(value);
-  };
-
-  useEffect(() => {
-    if (!props.defaultOpen || appliedDefaultOpenRef.current) return;
-    appliedDefaultOpenRef.current = true;
-    handleOpenChange(true);
+  const t = useT();
+  const controller = useShareButtonController({
+    resourceType: props.resourceType,
+    resourceId: props.resourceId,
+    defaultOpen: props.defaultOpen,
+    onOpenChange: props.onOpenChange,
+    shareTabs: props.shareTabs,
+    shareUrl: props.shareUrl,
+    allowedRoles: props.allowedRoles,
+    hideInSearchControl: props.hideInSearchControl,
   });
-
-  const updateCachedVisibility = (visibility: Visibility) => {
-    queryClient.setQueryData<SharesResponse>(shareQueryKey, (prev) =>
-      prev ? { ...prev, visibility } : prev,
-    );
-  };
-
-  const handleVisibilityChange = (next: Visibility): Promise<void> => {
-    const requestId = ++visibilityRequestId.current;
-    const previous = queryClient.getQueryData<SharesResponse>(shareQueryKey);
-    setPendingVisibility(next);
-    updateCachedVisibility(next);
-    return new Promise((resolve, reject) => {
-      setVisibility.mutate(
-        {
-          resourceType: props.resourceType,
-          resourceId: props.resourceId,
-          visibility: next,
-        } as any,
-        {
-          onSuccess: (result: any) => {
-            if (requestId === visibilityRequestId.current) {
-              updateCachedVisibility(
-                (result?.visibility as Visibility | undefined) ?? next,
-              );
-            }
-            sharesQuery
-              .refetch()
-              .then(() => resolve())
-              .catch(reject)
-              .finally(() => {
-                if (requestId === visibilityRequestId.current) {
-                  setPendingVisibility(null);
-                }
-              });
-          },
-          onError: (error) => {
-            if (requestId === visibilityRequestId.current) {
-              setPendingVisibility(null);
-              if (previous) {
-                queryClient.setQueryData(shareQueryKey, previous);
-              } else {
-                queryClient.invalidateQueries({ queryKey: shareQueryKey });
-              }
-            }
-            reject(error);
-          },
-        },
-      );
-    });
-  };
-
-  const triggerVisibility =
-    pendingVisibility ??
-    (sharesQuery.data
-      ? ((sharesQuery.data.visibility as Visibility | null) ?? "private")
-      : null);
-  const triggerMeta = triggerVisibility
-    ? visibilityMeta(triggerVisibility, props.visibilityCopy)
-    : null;
-  const TriggerIcon = triggerMeta?.Icon ?? IconShare3;
-  const triggerLabel = triggerMeta ? `Share (${triggerMeta.label})` : "Share";
-  const iconOnly = props.trigger === "icon";
-
+  const triggerLabel = t("agentChat.share.share", { defaultValue: "Share" });
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <Popover open={controller.open} onOpenChange={controller.handleOpenChange}>
       <PopoverTrigger asChild>
-        <button
-          type="button"
-          className={cn(
-            iconOnly ? BUTTON_GHOST_ICON : BUTTON_OUTLINE_SM,
-            props.triggerClassName,
-          )}
+        <ShareTrigger
+          label={triggerLabel}
+          className={props.triggerClassName}
           aria-label={triggerLabel}
           title={triggerLabel}
-        >
-          <TriggerIcon size={16} strokeWidth={1.75} />
-          {!iconOnly && <span>Share</span>}
-        </button>
+        />
       </PopoverTrigger>
       <PopoverContent
         align="end"
@@ -397,248 +336,65 @@ export function ShareButton(props: ShareButtonProps) {
         onOpenAutoFocus={(e) => e.preventDefault()}
         onInteractOutside={handleSharePopoverInteractOutside}
       >
-        <SharePanel
-          {...props}
-          sharesQuery={sharesQuery}
-          visibilityOverride={pendingVisibility}
-          onVisibilityChange={handleVisibilityChange}
-          onClose={() => handleOpenChange(false)}
-          activeTab={activeShareTab}
-          onTabChange={handleShareTabChange}
-        />
+        <SharePanel {...props} controller={controller} />
       </PopoverContent>
     </Popover>
   );
 }
 
-interface OrgMember {
-  email: string;
-  name?: string | null;
-  role?: string | null;
-  joinedAt?: number | null;
-}
-
-interface OrgMembersResponse {
-  members: OrgMember[];
-  hasMore?: boolean;
-  nextOffset?: number | null;
-}
-
-interface OrgMemberSearch {
-  members: OrgMember[];
-  isLoading: boolean;
-  isLoadingMore: boolean;
-  hasMore: boolean;
-  error: boolean;
-  loadMore: () => void;
-}
-
-function useOrgMemberSearch(query: string, enabled: boolean): OrgMemberSearch {
-  const search = query.trim();
-  const [members, setMembers] = useState<OrgMember[]>([]);
-  const [nextOffset, setNextOffset] = useState<number | null>(null);
-  const [hasMore, setHasMore] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  const [error, setError] = useState(false);
-  const requestIdRef = useRef(0);
-  const abortRef = useRef<AbortController | null>(null);
-
-  const fetchPage = useCallback(
-    (offset: number, append: boolean) => {
-      if (!enabled) return;
-      const requestId = ++requestIdRef.current;
-      abortRef.current?.abort();
-      const controller = new AbortController();
-      abortRef.current = controller;
-      if (append) {
-        setIsLoadingMore(true);
-      } else {
-        setIsLoading(true);
-        setMembers([]);
-        setNextOffset(null);
-        setHasMore(false);
-      }
-      setError(false);
-
-      const params = new URLSearchParams();
-      if (search) params.set("search", search);
-      params.set("limit", String(MEMBER_SUGGESTION_LIMIT));
-      params.set("offset", String(offset));
-
-      fetch(`${agentNativePath("/_agent-native/org/members")}?${params}`, {
-        credentials: "include",
-        signal: controller.signal,
-      })
-        .then((response) => {
-          if (!response.ok) throw new Error("Could not load people");
-          return response.json() as Promise<OrgMembersResponse>;
-        })
-        .then((data) => {
-          if (controller.signal.aborted || requestId !== requestIdRef.current)
-            return;
-          const nextMembers = normalizeMembers(data?.members);
-          setMembers((prev) =>
-            append ? mergeMembers(prev, nextMembers) : nextMembers,
-          );
-          setHasMore(data?.hasMore === true);
-          setNextOffset(
-            typeof data?.nextOffset === "number" ? data.nextOffset : null,
-          );
-        })
-        .catch((err) => {
-          if (controller.signal.aborted || requestId !== requestIdRef.current)
-            return;
-          setError(true);
-          setHasMore(false);
-          setNextOffset(null);
-          if (!append) setMembers([]);
-          if (process.env.NODE_ENV === "development") {
-            console.warn("[ShareButton] org member search failed", err);
-          }
-        })
-        .finally(() => {
-          if (controller.signal.aborted || requestId !== requestIdRef.current)
-            return;
-          if (append) setIsLoadingMore(false);
-          else setIsLoading(false);
-        });
-    },
-    [enabled, search],
-  );
-
-  useEffect(() => {
-    if (!enabled) {
-      abortRef.current?.abort();
-      setMembers([]);
-      setNextOffset(null);
-      setHasMore(false);
-      setIsLoading(false);
-      setIsLoadingMore(false);
-      setError(false);
-      return;
-    }
-    const timeout = setTimeout(
-      () => fetchPage(0, false),
-      search ? MEMBER_SEARCH_DEBOUNCE_MS : 0,
-    );
-    return () => {
-      clearTimeout(timeout);
-      abortRef.current?.abort();
-    };
-  }, [enabled, fetchPage, search]);
-
-  const loadMore = useCallback(() => {
-    if (!enabled || !hasMore || nextOffset === null) return;
-    if (isLoading || isLoadingMore) return;
-    fetchPage(nextOffset, true);
-  }, [enabled, fetchPage, hasMore, isLoading, isLoadingMore, nextOffset]);
-
-  return {
-    members,
-    isLoading,
-    isLoadingMore,
-    hasMore,
-    error,
-    loadMore,
-  };
-}
-
-function normalizeMembers(value: unknown): OrgMember[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .map((m: any) => ({
-      email: typeof m?.email === "string" ? m.email : "",
-      name: typeof m?.name === "string" ? m.name : null,
-      role: typeof m?.role === "string" ? m.role : null,
-      joinedAt:
-        typeof m?.joinedAt === "number"
-          ? m.joinedAt
-          : typeof m?.joined_at === "number"
-            ? m.joined_at
-            : null,
-    }))
-    .filter((m) => m.email);
-}
-
-function mergeMembers(existing: OrgMember[], next: OrgMember[]): OrgMember[] {
-  const seen = new Set(existing.map((m) => m.email.toLowerCase()));
-  const merged = [...existing];
-  for (const member of next) {
-    const key = member.email.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    merged.push(member);
-  }
-  return merged;
-}
-
 function SharePanel(
   props: ShareButtonProps & {
-    sharesQuery: ReturnType<typeof useActionQuery<SharesResponse>>;
-    visibilityOverride: Visibility | null;
-    onVisibilityChange: (visibility: Visibility) => Promise<void>;
-    onClose: () => void;
-    activeTab: string;
-    onTabChange: (value: string) => void;
+    controller: ShareButtonController;
   },
 ) {
+  const t = useT();
+  const { controller } = props;
   const {
-    resourceType,
-    resourceId,
-    resourceTitle,
-    sharesQuery,
-    visibilityOverride,
-    onVisibilityChange,
-    onClose,
-  } = props;
+    inviteEmail,
+    setInviteEmail: onInviteEmailChange,
+    activeShareTab,
+    handleShareTabChange,
+    data,
+    policy,
+    visibility,
+    canManage,
+    role,
+    setRole,
+    notifyPeople,
+    setNotifyPeople,
+    shareMessage,
+    setShareMessage,
+    messageOpen,
+    setMessageOpen,
+    shareError,
+    setShareError,
+    suggestionsOpen,
+    setSuggestionsOpen,
+    inFlight,
+    memberSearch,
+    memberSuggestions,
+    groupSuggestions,
+    selectGroup,
+    knownMembers,
+    shares,
+    handleVisibility,
+    handleHideInSearch,
+    handleAdd,
+    handleChangeRole,
+    handleRemove,
+  } = controller;
+  const hasInviteEmail = inviteEmail.trim().length > 0;
 
-  const share = useActionMutation("share-resource");
-  const unshare = useActionMutation("unshare-resource");
-
-  const [email, setEmail] = useState("");
-  const [role, setRole] = useState<Role>("viewer");
-  const [notifyPeople, setNotifyPeople] = useState(true);
-  const [shareError, setShareError] = useState<string | null>(null);
-  const [suggestionsOpen, setSuggestionsOpen] = useState(false);
-  const hasInviteEmail = email.trim().length > 0;
-
-  // Optimistic overlays so clicks feel instant.
-  const [pendingAdds, setPendingAdds] = useState<Share[]>([]);
-  const [pendingRemoves, setPendingRemoves] = useState<Set<string>>(new Set());
-  const [roleOverrides, setRoleOverrides] = useState<Record<string, Role>>({});
-  // Principals with an in-flight share/unshare mutation. We disable the
-  // role dropdown and the trash button for any share in this set so a
-  // user can't race a role-change against a remove (which would otherwise
-  // let the upsert silently re-grant access after the delete landed), and
-  // can't rapid-fire two creates for the same pending add.
-  const [inFlight, setInFlight] = useState<Set<string>>(new Set());
-  const addInFlight = (k: string) =>
-    setInFlight((prev) => new Set(prev).add(k));
-  const clearInFlight = (k: string) =>
-    setInFlight((prev) => {
-      const next = new Set(prev);
-      next.delete(k);
-      return next;
-    });
-
-  useEffect(() => {
-    sharesQuery.refetch();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const data = sharesQuery.data;
   const isLoading = data === undefined;
-  const policy: SharesPolicy = data?.policy ?? {
-    allowPublic: true,
-    requireOrgMemberForUserShares: false,
-  };
-  const visibility: Visibility =
-    visibilityOverride ?? (data?.visibility as Visibility | null) ?? "private";
-  const canManage = data?.role === "owner" || data?.role === "admin";
-  const meta = visibilityMeta(visibility, props.visibilityCopy);
-  const peopleAccessLabel = props.peopleAccessLabel ?? "People with access";
-  const generalAccessLabel = props.generalAccessLabel ?? "General access";
+  const meta = visibilityMeta(visibility, t, props.visibilityCopy);
+  const peopleAccessLabel =
+    props.peopleAccessLabel ??
+    t("agentChat.share.peopleWithAccess", {
+      defaultValue: "People with access",
+    });
+  const generalAccessLabel =
+    props.generalAccessLabel ??
+    t("agentChat.share.generalAccess", { defaultValue: "General access" });
   const shareLinks = (
     <>
       {props.shareUrl ? (
@@ -672,362 +428,246 @@ function SharePanel(
     (Boolean(props.shareUrl) ||
       Boolean(props.shareUrlPlaceholder) ||
       Boolean(props.secondaryShareUrl));
-  const showDoneButton = props.showDoneButton ?? true;
-  const shareUrlPlacement = props.shareUrlPlacement ?? "bottom";
-  const extraTabs = props.shareTabs?.tabs ?? [];
+  const shareUrlPlacement = props.shareUrlPlacement ?? "top";
+  const extraTabs =
+    props.shareTabs?.tabs.filter((tab) => tab.value !== "context") ?? [];
   const hasTabs = extraTabs.length > 0;
-  const shareTabLabel = props.shareTabs?.shareLabel ?? "Share link";
-
-  const serverShares = data?.shares ?? [];
-  const shares: Share[] = [
-    ...serverShares
-      .filter((s) => !pendingRemoves.has(keyOf(s)))
-      .map((s) => ({ ...s, role: roleOverrides[keyOf(s)] ?? s.role })),
-    ...pendingAdds,
-  ];
-  const memberSearch = useOrgMemberSearch(email, canManage && suggestionsOpen);
-  const excludedMemberEmails = new Set<string>();
-  if (data?.ownerEmail) excludedMemberEmails.add(data.ownerEmail.toLowerCase());
-  for (const s of shares) {
-    if (s.principalType === "user") {
-      excludedMemberEmails.add(s.principalId.toLowerCase());
-    }
-  }
-  const memberSuggestions = memberSearch.members.filter(
-    (m) => !excludedMemberEmails.has(m.email.toLowerCase()),
-  );
-  const knownMembers = memberSearch.members;
-
-  const handleVisibility = (next: Visibility) => {
-    if (next === visibility) return;
-    if (!canManage) {
-      setShareError("Only owners and admins can change access.");
-      return;
-    }
-    setShareError(null);
-    void onVisibilityChange(next).catch((err) => {
-      setShareError(extractShareErrorMessage(err));
-    });
-  };
-
-  const handleHideInSearch = () => {
-    const control = props.hideInSearchControl;
-    if (!control || control.pending || !canManage) return;
-    setShareError(null);
-    try {
-      Promise.resolve(control.onCheckedChange(!control.checked)).catch(
-        (err) => {
-          setShareError(extractShareErrorMessage(err));
-        },
-      );
-    } catch (err) {
-      setShareError(extractShareErrorMessage(err));
-    }
-  };
-
-  const handleAdd = () => {
-    const trimmed = email.trim();
-    if (!trimmed) return;
-    const optimistic: Share = {
-      id: `pending-${trimmed}`,
-      principalType: "user",
-      principalId: trimmed,
-      role,
-    };
-    const k = keyOf(optimistic);
-    // Ignore duplicate submits while an add for the same principal is in flight.
-    if (inFlight.has(k)) return;
-    setShareError(null);
-    setPendingAdds((p) => [...p, optimistic]);
-    setEmail("");
-    setSuggestionsOpen(false);
-    addInFlight(k);
-    share.mutate(
-      {
-        resourceType,
-        resourceId,
-        principalType: "user",
-        principalId: trimmed,
-        role,
-        notify: notifyPeople,
-        resourceUrl: getNotificationUrl(props.shareUrl),
-      } as any,
-      {
-        onSuccess: () => {
-          sharesQuery.refetch().then(() => {
-            setPendingAdds((p) => p.filter((s) => s.id !== optimistic.id));
-            clearInFlight(k);
-          });
-        },
-        onError: (err: any) => {
-          setPendingAdds((p) => p.filter((s) => s.id !== optimistic.id));
-          clearInFlight(k);
-          setEmail(trimmed);
-          setShareError(extractShareErrorMessage(err));
-        },
-      },
-    );
-  };
-
-  const handleChangeRole = (s: Share, next: Role) => {
-    if (s.role === next) return;
-    const k = keyOf(s);
-    // Don't stack a role change on top of an in-flight add/remove/role
-    // change for the same principal — it can race with unshare and end up
-    // re-granting access after a delete. UI already disables the control,
-    // but belt-and-suspenders here too.
-    if (inFlight.has(k)) return;
-    setRoleOverrides((prev) => ({ ...prev, [k]: next }));
-    addInFlight(k);
-    // share-resource is upsert: calling with same principal + new role
-    // updates the existing share row. See sharing/actions/share-resource.ts.
-    share.mutate(
-      {
-        resourceType,
-        resourceId,
-        principalType: s.principalType,
-        principalId: s.principalId,
-        role: next,
-        notify: false,
-      } as any,
-      {
-        onSuccess: () => {
-          sharesQuery.refetch().then(() => {
-            setRoleOverrides((prev) => {
-              const { [k]: _, ...rest } = prev;
-              return rest;
-            });
-            clearInFlight(k);
-          });
-        },
-        onError: () => {
-          setRoleOverrides((prev) => {
-            const { [k]: _, ...rest } = prev;
-            return rest;
-          });
-          clearInFlight(k);
-        },
-      },
-    );
-  };
-
-  const handleRemove = (s: Share) => {
-    const k = keyOf(s);
-    // If any other mutation is in flight for this principal, don't start a
-    // remove — it can interleave with an upsert and leave the row in place.
-    // The UI already disables the trash button when inFlight.has(k).
-    if (inFlight.has(k)) return;
-    setPendingRemoves((prev) => new Set(prev).add(k));
-    addInFlight(k);
-    unshare.mutate(
-      {
-        resourceType,
-        resourceId,
-        principalType: s.principalType,
-        principalId: s.principalId,
-      } as any,
-      {
-        onSuccess: () => {
-          sharesQuery.refetch().then(() => {
-            setPendingRemoves((prev) => {
-              const next = new Set(prev);
-              next.delete(k);
-              return next;
-            });
-            clearInFlight(k);
-          });
-        },
-        onError: () => {
-          setPendingRemoves((prev) => {
-            const next = new Set(prev);
-            next.delete(k);
-            return next;
-          });
-          clearInFlight(k);
-        },
-      },
-    );
-  };
-
-  const handleDone = () => {
-    if (canManage && hasInviteEmail) handleAdd();
-    onClose();
-  };
-
-  const titleText = resourceTitle
-    ? `Share "${resourceTitle}"`
-    : `Share ${resourceType}`;
+  const shareTabLabel =
+    props.shareTabs?.shareLabel ??
+    t("agentChat.share.shareLink", { defaultValue: "Share link" });
 
   const sharePanel = isLoading ? (
     <div>
-      {!hasTabs ? (
-        <div
-          className="mb-3 truncate text-base font-semibold"
-          title={titleText}
-        >
-          {titleText}
-        </div>
+      {showShareLinks ? (
+        <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
       ) : null}
+      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
       <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
       <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
       <div className="mb-4 h-7 rounded-md bg-muted animate-pulse" />
-      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
-      <div className="mb-4 h-9 rounded-md bg-muted animate-pulse" />
-      {showDoneButton ? (
-        <div className="mt-2 flex justify-end">
-          <button type="button" onClick={onClose} className={BUTTON_PRIMARY_SM}>
-            Done
-          </button>
-        </div>
-      ) : null}
     </div>
   ) : (
     <div>
-      {!hasTabs ? (
-        <div
-          className="mb-3 truncate text-base font-semibold"
-          title={titleText}
-        >
-          {titleText}
-        </div>
-      ) : null}
-
       {showShareLinks && shareUrlPlacement === "top" ? shareLinks : null}
 
-      {canManage ? (
-        <div className="mb-4 space-y-2">
-          <div className="flex items-stretch gap-2">
-            <MemberAutocomplete
-              value={email}
-              open={suggestionsOpen}
-              onOpenChange={setSuggestionsOpen}
-              onValueChange={(next) => {
-                setEmail(next);
-                if (shareError) setShareError(null);
-              }}
-              onSelectMember={(member) => {
-                setEmail(member.email);
-                setSuggestionsOpen(false);
-                if (shareError) setShareError(null);
-              }}
-              onSubmit={handleAdd}
-              placeholder={
-                policy.requireOrgMemberForUserShares
-                  ? "Add people from your organization"
-                  : "Add people by email"
-              }
-              suggestions={memberSuggestions}
-              search={memberSearch}
-            />
-            <RoleSelect value={role} onChange={setRole} />
-          </div>
-          {shareError ? (
-            <div
-              role="alert"
-              className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
-            >
-              {shareError}
-            </div>
-          ) : null}
-          {hasInviteEmail ? (
-            <label className="inline-flex items-center gap-2 text-xs text-muted-foreground">
-              <input
-                type="checkbox"
-                checked={notifyPeople}
-                onChange={(e) => setNotifyPeople(e.target.checked)}
-                className="h-4 w-4 rounded border-input accent-primary"
-              />
-              Notify people
-            </label>
-          ) : null}
-        </div>
-      ) : null}
-
-      <div className="mb-2 text-sm font-semibold">{peopleAccessLabel}</div>
-      <ul className="mb-4 flex flex-col gap-1 list-none p-0 m-0">
-        {data?.ownerEmail ? (
-          <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
-            <Avatar label={displayName(data.ownerEmail, knownMembers)} />
-            <span className="flex-1 min-w-0 truncate">
-              {displayName(data.ownerEmail, knownMembers)}
-            </span>
-            <span className="text-xs text-muted-foreground">Owner</span>
-          </li>
-        ) : null}
-        {shares.map((s) => (
-          <li
-            key={keyOf(s)}
-            className={cn(
-              "flex items-center gap-3 px-1 py-1.5 text-sm",
-              inFlight.has(keyOf(s)) && "opacity-60",
-            )}
+      <div className="mb-4">
+        <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
+        <div className="flex items-center gap-3">
+          <span
+            aria-hidden
+            className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
           >
-            <Avatar
-              label={principalLabel(s, knownMembers)}
-              org={s.principalType === "org"}
+            <meta.Icon size={16} strokeWidth={1.75} />
+          </span>
+          <div className="min-w-0 flex-1">
+            <VisibilitySelect
+              value={visibility}
+              onChange={handleVisibility}
+              disabled={!canManage}
+              visibilityCopy={props.visibilityCopy}
+              allowPublic={policy.allowPublic}
             />
-            <span className="flex-1 min-w-0 truncate">
-              {principalLabel(s, knownMembers)}
-            </span>
-            {canManage ? (
-              <RoleSelect
-                value={s.role}
-                onChange={(r) => handleChangeRole(s, r)}
-                disabled={inFlight.has(keyOf(s))}
-                plain
+            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
+              <span className="sr-only">{meta.description}</span>
+              {visibility === "org" && props.hideInSearchControl ? (
+                <AdvancedAccessPopover
+                  control={props.hideInSearchControl}
+                  canManage={canManage}
+                  onToggle={handleHideInSearch}
+                />
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="mb-4 space-y-4">
+        <div className="text-sm font-semibold">{peopleAccessLabel}</div>
+        {canManage ? (
+          <div className="space-y-2">
+            <div className="flex items-stretch gap-2">
+              <MemberAutocomplete
+                value={inviteEmail}
+                open={suggestionsOpen}
+                onOpenChange={setSuggestionsOpen}
+                onValueChange={(next) => {
+                  onInviteEmailChange(next);
+                  if (shareError) setShareError(null);
+                }}
+                onSelectSuggestion={(suggestion) => {
+                  if (suggestion.principalType === "group") {
+                    selectGroup(suggestion);
+                  } else {
+                    onInviteEmailChange(suggestion.email);
+                  }
+                  setSuggestionsOpen(false);
+                  if (shareError) setShareError(null);
+                }}
+                onSubmit={handleAdd}
+                placeholder={
+                  policy.requireOrgMemberForUserShares
+                    ? t("agentChat.share.addPeopleOrganization", {
+                        defaultValue: "Add people from your organization",
+                      })
+                    : t("agentChat.share.addPeopleEmail", {
+                        defaultValue: policy.supportsGroupShares
+                          ? "Add people or groups"
+                          : "Add people by email",
+                      })
+                }
+                suggestions={[
+                  ...memberSuggestions.map((member) => ({
+                    ...member,
+                    principalType: "user" as const,
+                  })),
+                  ...(policy.supportsGroupShares
+                    ? groupSuggestions.map((group) => ({
+                        ...group,
+                        principalType: "group" as const,
+                      }))
+                    : []),
+                ]}
+                search={memberSearch}
               />
-            ) : (
-              <span className="text-xs text-muted-foreground">
-                {cap(s.role)}
-              </span>
-            )}
-            {canManage ? (
+              <RoleSelect
+                value={role}
+                onChange={setRole}
+                roleCopy={props.roleCopy}
+                allowedRoles={props.allowedRoles}
+              />
               <button
                 type="button"
-                aria-label="Remove"
-                onClick={() => handleRemove(s)}
-                disabled={inFlight.has(keyOf(s))}
-                className={BUTTON_GHOST_ICON}
+                onClick={handleAdd}
+                disabled={!hasInviteEmail}
+                className={BUTTON_PRIMARY_SM}
               >
-                <IconTrash size={14} />
+                {t("agentChat.share.add", { defaultValue: "Add" })}
               </button>
+            </div>
+            {shareError ? (
+              <div
+                role="alert"
+                className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              >
+                {shareError}
+              </div>
             ) : null}
-          </li>
-        ))}
-        {!shares.length && !data?.ownerEmail ? (
-          <li className="px-1 py-1.5 text-sm text-muted-foreground">
-            No one has access yet.
-          </li>
-        ) : null}
-      </ul>
-
-      <div className="mb-2 text-sm font-semibold">{generalAccessLabel}</div>
-      <div className="mb-4 flex items-center gap-3">
-        <span
-          aria-hidden
-          className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground"
-        >
-          <meta.Icon size={16} strokeWidth={1.75} />
-        </span>
-        <div className="min-w-0 flex-1">
-          <VisibilitySelect
-            value={visibility}
-            onChange={handleVisibility}
-            disabled={!canManage}
-            visibilityCopy={props.visibilityCopy}
-            allowPublic={policy.allowPublic}
-          />
-          <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-            <span>{meta.description}</span>
-            {visibility === "org" && props.hideInSearchControl ? (
-              <AdvancedAccessPopover
-                control={props.hideInSearchControl}
-                canManage={canManage}
-                onToggle={handleHideInSearch}
-              />
+            {hasInviteEmail ? (
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">
+                <label className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={notifyPeople}
+                    onChange={(e) => setNotifyPeople(e.target.checked)}
+                    className="h-4 w-4 rounded border-input accent-primary"
+                  />
+                  {t("agentChat.share.notifyPeople", {
+                    defaultValue: "Notify people",
+                  })}
+                </label>
+                {notifyPeople ? (
+                  <button
+                    type="button"
+                    aria-expanded={messageOpen}
+                    onClick={() => setMessageOpen(!messageOpen)}
+                    className="rounded-sm px-1 py-0.5 font-medium text-foreground underline decoration-border underline-offset-2 transition-colors hover:bg-accent hover:text-accent-foreground"
+                  >
+                    {messageOpen
+                      ? t("agentChat.share.hideMessage", {
+                          defaultValue: "Hide message",
+                        })
+                      : t("agentChat.share.addMessage", {
+                          defaultValue: "Add a message",
+                        })}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+            {hasInviteEmail && notifyPeople && messageOpen ? (
+              <div className="rounded-md border border-border/70 bg-muted/20 p-2.5">
+                <textarea
+                  aria-label={t("agentChat.share.message", {
+                    defaultValue: "Message",
+                  })}
+                  placeholder={t("agentChat.share.messagePlaceholder", {
+                    defaultValue: "Add a short note (optional)",
+                  })}
+                  value={shareMessage}
+                  onChange={(event) => setShareMessage(event.target.value)}
+                  maxLength={500}
+                  rows={3}
+                  className="w-full resize-y rounded-md border border-input bg-card px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background"
+                />
+              </div>
             ) : null}
           </div>
-        </div>
+        ) : null}
+
+        <ul className="flex list-none flex-col gap-1 p-0 m-0">
+          {data?.ownerEmail ? (
+            <li className="flex items-center gap-3 px-1 py-1.5 text-sm">
+              <Avatar label={displayName(data.ownerEmail, knownMembers, t)} />
+              <span className="flex-1 min-w-0 truncate">
+                {displayName(data.ownerEmail, knownMembers, t)}
+              </span>
+              <span className="text-xs text-muted-foreground">
+                {t("agentChat.share.owner", { defaultValue: "Owner" })}
+              </span>
+            </li>
+          ) : null}
+          {shares.map((s) => (
+            <li
+              key={keyOf(s)}
+              className={cn(
+                "flex items-center gap-3 px-1 py-1.5 text-sm",
+                inFlight.has(keyOf(s)) && "opacity-60",
+              )}
+            >
+              <Avatar
+                label={principalLabel(s, knownMembers, t)}
+                org={s.principalType === "org"}
+                group={s.principalType === "group"}
+              />
+              <span className="flex-1 min-w-0 truncate">
+                {principalLabel(s, knownMembers, t)}
+              </span>
+              {canManage ? (
+                <RoleSelect
+                  value={s.role}
+                  onChange={(r) => handleChangeRole(s, r)}
+                  disabled={inFlight.has(keyOf(s))}
+                  plain
+                  roleCopy={props.roleCopy}
+                  allowedRoles={props.allowedRoles}
+                />
+              ) : (
+                <span className="text-xs text-muted-foreground">
+                  {roleMeta(s.role, t, props.roleCopy).label}
+                </span>
+              )}
+              {canManage ? (
+                <button
+                  type="button"
+                  aria-label={t("agentChat.share.remove", {
+                    defaultValue: "Remove",
+                  })}
+                  onClick={() => handleRemove(s)}
+                  disabled={inFlight.has(keyOf(s))}
+                  className={BUTTON_GHOST_ICON}
+                >
+                  <IconTrash size={14} />
+                </button>
+              ) : null}
+            </li>
+          ))}
+          {!shares.length && !data?.ownerEmail ? (
+            <li className="px-1 py-1.5 text-sm text-muted-foreground">
+              {t("agentChat.share.noAccess", {
+                defaultValue: "No one has access yet.",
+              })}
+            </li>
+          ) : null}
+        </ul>
       </div>
 
       {shareError && !canManage ? (
@@ -1039,6 +679,12 @@ function SharePanel(
         </div>
       ) : null}
 
+      <AgentShareSection
+        enabled={data?.agentReadable === true}
+        resourceType={props.resourceType}
+        resourceId={props.resourceId}
+      />
+
       {props.accessNote ? (
         <div className="mb-4 rounded-md border border-border bg-muted/35 p-3 text-xs text-muted-foreground">
           {props.accessNote}
@@ -1048,18 +694,6 @@ function SharePanel(
       {showShareLinks && shareUrlPlacement === "bottom" ? shareLinks : null}
 
       {props.shareFooterContent}
-
-      {showDoneButton ? (
-        <div className="mt-2 flex justify-end">
-          <button
-            type="button"
-            onClick={handleDone}
-            className={BUTTON_PRIMARY_SM}
-          >
-            Done
-          </button>
-        </div>
-      ) : null}
     </div>
   );
 
@@ -1074,15 +708,17 @@ function SharePanel(
     },
     ...extraTabs,
   ];
-  const activeTab = tabs.some((tab) => tab.value === props.activeTab)
-    ? props.activeTab
+  const activeTab = tabs.some((tab) => tab.value === activeShareTab)
+    ? activeShareTab
     : "share";
 
   return (
     <div className="flex flex-col gap-4">
       <div
         role="tablist"
-        aria-label="Share options"
+        aria-label={t("agentChat.share.shareOptions", {
+          defaultValue: "Share options",
+        })}
         className="flex gap-1 rounded-xl bg-muted/70 p-1"
       >
         {tabs.map((tab) => {
@@ -1094,7 +730,7 @@ function SharePanel(
               role="tab"
               aria-selected={active}
               disabled={tab.disabled}
-              onClick={() => props.onTabChange(tab.value)}
+              onClick={() => handleShareTabChange(tab.value)}
               className={cn(
                 "h-11 min-w-0 flex-1 rounded-lg px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-background/70 hover:text-foreground disabled:pointer-events-none disabled:opacity-50",
                 active &&
@@ -1122,6 +758,7 @@ function AdvancedAccessPopover({
   canManage: boolean;
   onToggle: () => void;
 }) {
+  const t = useT();
   return (
     <Popover>
       <PopoverTrigger asChild>
@@ -1130,7 +767,7 @@ function AdvancedAccessPopover({
           disabled={!canManage}
           className="inline-flex items-center gap-1 rounded-sm px-1 py-0.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
         >
-          Advanced
+          {t("agentChat.share.advanced", { defaultValue: "Advanced" })}
           <IconChevronDown size={12} strokeWidth={1.8} />
         </button>
       </PopoverTrigger>
@@ -1148,10 +785,15 @@ function AdvancedAccessPopover({
         <div className="space-y-3">
           <div>
             <div className="text-sm font-medium text-foreground">
-              Advanced access
+              {t("agentChat.share.advancedAccess", {
+                defaultValue: "Advanced access",
+              })}
             </div>
             <div className="mt-1 text-xs leading-5 text-muted-foreground">
-              Control how organization access appears in search.
+              {t("agentChat.share.advancedDescription", {
+                defaultValue:
+                  "Control how organization access appears in search.",
+              })}
             </div>
           </div>
           <button
@@ -1182,11 +824,16 @@ function AdvancedAccessPopover({
             <span className="min-w-0 flex-1">
               <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
                 <IconSearchOff size={14} strokeWidth={1.8} />
-                {control.label ?? "Hide in search"}
+                {control.label ??
+                  t("agentChat.share.hideInSearch", {
+                    defaultValue: "Hide in search",
+                  })}
               </span>
               <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">
                 {control.description ??
-                  "People with the link can still open this."}
+                  t("agentChat.share.linkCanStillOpen", {
+                    defaultValue: "People with the link can still open this.",
+                  })}
               </span>
             </span>
           </button>
@@ -1201,29 +848,34 @@ interface MemberAutocompleteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onValueChange: (value: string) => void;
-  onSelectMember: (member: OrgMember) => void;
+  onSelectSuggestion: (suggestion: ShareSuggestion) => void;
   onSubmit: () => void;
   placeholder: string;
-  suggestions: OrgMember[];
+  suggestions: ShareSuggestion[];
   search: OrgMemberSearch;
 }
+
+type ShareSuggestion =
+  | (OrgMember & { principalType: "user" })
+  | (ShareButtonGroup & { principalType: "group" });
 
 function MemberAutocomplete({
   value,
   open,
   onOpenChange,
   onValueChange,
-  onSelectMember,
+  onSelectSuggestion,
   onSubmit,
   placeholder,
   suggestions,
   search,
 }: MemberAutocompleteProps) {
+  const t = useT();
   const rawListboxId = useId();
   const listboxId = rawListboxId.replace(/:/g, "");
   const inputRef = useRef<HTMLInputElement>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const activeMember =
+  const activeSuggestion =
     activeIndex >= 0 && activeIndex < suggestions.length
       ? suggestions[activeIndex]
       : null;
@@ -1245,8 +897,8 @@ function MemberAutocomplete({
       ?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, listboxId]);
 
-  const chooseMember = (member: OrgMember) => {
-    onSelectMember(member);
+  const chooseSuggestion = (suggestion: ShareSuggestion) => {
+    onSelectSuggestion(suggestion);
     onOpenChange(false);
     inputRef.current?.focus();
   };
@@ -1275,9 +927,9 @@ function MemberAutocomplete({
     }
 
     if (event.key === "Enter") {
-      if (open && activeMember) {
+      if (open && activeSuggestion) {
         event.preventDefault();
-        chooseMember(activeMember);
+        chooseSuggestion(activeSuggestion);
         return;
       }
       if (value.trim()) {
@@ -1318,7 +970,7 @@ function MemberAutocomplete({
           />
           <input
             ref={inputRef}
-            type="email"
+            type="text"
             role="combobox"
             aria-autocomplete="list"
             aria-expanded={open}
@@ -1371,17 +1023,17 @@ function MemberAutocomplete({
           className="max-h-56 overflow-y-auto overflow-x-hidden"
           onScroll={handleScroll}
         >
-          {suggestions.map((member, index) => {
+          {suggestions.map((suggestion, index) => {
             const active = index === activeIndex;
             return (
               <div
-                key={member.email}
+                key={`${suggestion.principalType}:${suggestion.principalType === "group" ? suggestion.id : suggestion.email}`}
                 id={optionId(listboxId, index)}
                 role="option"
                 aria-selected={active}
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => chooseMember(member)}
+                onClick={() => chooseSuggestion(suggestion)}
                 className={cn(
                   "flex cursor-pointer select-none flex-col rounded-sm px-3 py-2 text-sm outline-none",
                   active
@@ -1389,12 +1041,30 @@ function MemberAutocomplete({
                     : "text-foreground hover:bg-accent hover:text-accent-foreground",
                 )}
               >
-                <span className="truncate font-medium">
-                  {member.name?.trim() || member.email}
+                <span className="flex items-center gap-2 truncate font-medium">
+                  {suggestion.principalType === "group" ? (
+                    <IconUsersGroup
+                      aria-hidden
+                      size={14}
+                      strokeWidth={1.8}
+                      className="shrink-0 text-muted-foreground"
+                    />
+                  ) : null}
+                  <span className="truncate">
+                    {suggestion.principalType === "group"
+                      ? suggestion.name
+                      : suggestion.name?.trim() || suggestion.email}
+                  </span>
                 </span>
-                {member.name?.trim() ? (
+                {suggestion.principalType === "group" ? (
                   <span className="truncate text-xs text-muted-foreground">
-                    {member.email}
+                    {t("agentChat.share.userGroup", {
+                      defaultValue: "User group",
+                    })}
+                  </span>
+                ) : suggestion.name?.trim() ? (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {suggestion.email}
                   </span>
                 ) : null}
               </div>
@@ -1403,19 +1073,29 @@ function MemberAutocomplete({
 
           {search.isLoading && suggestions.length === 0 ? (
             <div className="px-3 py-3 text-sm text-muted-foreground">
-              Searching...
+              {t("agentChat.share.searching", {
+                defaultValue: "Searching...",
+              })}
             </div>
           ) : null}
 
           {search.error ? (
             <div className="px-3 py-3 text-sm text-muted-foreground">
-              Could not load people.
+              {t("agentChat.share.loadPeopleFailed", {
+                defaultValue: "Could not load people.",
+              })}
             </div>
           ) : null}
 
           {!search.isLoading && !search.error && suggestions.length === 0 ? (
             <div className="px-3 py-3 text-sm text-muted-foreground">
-              {value.trim() ? "No matches." : "No people found."}
+              {value.trim()
+                ? t("agentChat.share.noMatches", {
+                    defaultValue: "No matches.",
+                  })
+                : t("agentChat.share.noPeopleFound", {
+                    defaultValue: "No people found.",
+                  })}
             </div>
           ) : null}
 
@@ -1427,7 +1107,7 @@ function MemberAutocomplete({
                 strokeWidth={1.8}
                 className="animate-spin"
               />
-              Loading...
+              {t("agentChat.share.loading", { defaultValue: "Loading..." })}
             </div>
           ) : null}
 
@@ -1438,7 +1118,7 @@ function MemberAutocomplete({
               onClick={search.loadMore}
               className="mt-1 flex w-full items-center justify-center rounded-sm px-3 py-2 text-sm font-medium text-muted-foreground hover:bg-accent hover:text-accent-foreground"
             >
-              Load more
+              {t("agentChat.share.loadMore", { defaultValue: "Load more" })}
             </button>
           ) : null}
         </div>
@@ -1453,55 +1133,26 @@ function optionId(baseId: string, index: number): string {
 
 function CopyLinkField({
   value,
-  label = "Share link",
+  label,
   description,
 }: {
   value: string;
   label?: string;
   description?: ReactNode;
 }) {
-  const [copied, setCopied] = useState(false);
-  const resetRef = useRef<ReturnType<typeof setTimeout>>(undefined);
-
-  useEffect(() => {
-    return () => {
-      if (resetRef.current) clearTimeout(resetRef.current);
-    };
-  }, []);
-
-  const handleCopy = async () => {
-    if (await writeClipboardText(value)) {
-      setCopied(true);
-      if (resetRef.current) clearTimeout(resetRef.current);
-      resetRef.current = setTimeout(() => setCopied(false), 1400);
-    } else {
-      setCopied(false);
-    }
-  };
-
+  const t = useT();
   return (
-    <div className="mb-4">
-      <div className="mb-2 text-sm font-semibold">{label}</div>
-      {description ? (
-        <div className="mb-2 text-xs text-muted-foreground">{description}</div>
-      ) : null}
-      <div className="flex min-w-0 items-center gap-2">
-        <input
-          readOnly
-          value={value}
-          className="h-9 min-w-0 flex-1 rounded-md border border-input bg-card px-3 text-sm text-muted-foreground outline-none"
-          onFocus={(event) => event.currentTarget.select()}
-        />
-        <button
-          type="button"
-          onClick={handleCopy}
-          className="inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-input bg-card px-3 text-sm font-medium text-foreground hover:bg-accent"
-        >
-          {copied ? <IconCheck size={15} /> : <IconCopy size={15} />}
-          {copied ? "Copied" : "Copy"}
-        </button>
-      </div>
-    </div>
+    <ShareCopyRow
+      value={value}
+      label={
+        label ?? t("agentChat.share.shareLink", { defaultValue: "Share link" })
+      }
+      description={description}
+      copyLabel={t("agentChat.share.copy", { defaultValue: "Copy" })}
+      copiedLabel={t("agentChat.share.copied", { defaultValue: "Copied" })}
+      onCopy={writeClipboardText}
+      className="mb-4"
+    />
   );
 }
 
@@ -1554,9 +1205,20 @@ function RoleSelect(props: {
   /** When true, render as inline text + chevron (no border / bg) — matches
    *  the per-person role picker in Google Docs. */
   plain?: boolean;
+  roleCopy?: ShareButtonProps["roleCopy"];
+  allowedRoles?: ShareButtonProps["allowedRoles"];
 }) {
-  const current =
-    ROLE_OPTIONS.find((o) => o.value === props.value) ?? ROLE_OPTIONS[0];
+  const t = useT();
+  const allOptions = roleOptions(t);
+  const current = roleMeta(props.value, t, props.roleCopy);
+  const allowedRoles =
+    props.allowedRoles ?? allOptions.map((item) => item.value);
+  const options = allOptions
+    .filter(
+      (option) =>
+        option.value === props.value || allowedRoles.includes(option.value),
+    )
+    .map((option) => roleMeta(option.value, t, props.roleCopy));
   return (
     <Select.Root
       value={props.value}
@@ -1575,7 +1237,7 @@ function RoleSelect(props: {
                 "h-9 px-3 border border-input bg-card hover:bg-accent hover:text-accent-foreground",
               )
         }
-        aria-label="Role"
+        aria-label={t("agentChat.share.role", { defaultValue: "Role" })}
       >
         <Select.Value>{current.label}</Select.Value>
         <Select.Icon>
@@ -1590,7 +1252,7 @@ function RoleSelect(props: {
           sideOffset={4}
         >
           <Select.Viewport>
-            <SelectItems items={ROLE_OPTIONS} />
+            <SelectItems items={options} />
           </Select.Viewport>
         </Select.Content>
       </Select.Portal>
@@ -1608,9 +1270,10 @@ function VisibilitySelect(props: {
   /** When false, the "Public" option is omitted. Default: true. */
   allowPublic?: boolean;
 }) {
+  const t = useT();
   const allowPrivate = props.allowPrivate !== false;
   const allowPublic = props.allowPublic !== false;
-  const current = visibilityMeta(props.value, props.visibilityCopy);
+  const current = visibilityMeta(props.value, t, props.visibilityCopy);
   const options = (Object.keys(VIS_META) as Visibility[]).filter((k) => {
     if (k === props.value) return true;
     if (k === "private" && !allowPrivate) return false;
@@ -1628,7 +1291,9 @@ function VisibilitySelect(props: {
           BUTTON_BASE,
           "h-7 px-1 -ms-1 bg-transparent text-foreground hover:bg-accent hover:text-accent-foreground",
         )}
-        aria-label="General access"
+        aria-label={t("agentChat.share.generalAccess", {
+          defaultValue: "General access",
+        })}
       >
         <Select.Value>{current.label}</Select.Value>
         <Select.Icon>
@@ -1646,8 +1311,8 @@ function VisibilitySelect(props: {
             <SelectItems
               items={options.map((k) => ({
                 value: k,
-                label: visibilityMeta(k, props.visibilityCopy).label,
-                description: visibilityMeta(k, props.visibilityCopy)
+                label: visibilityMeta(k, t, props.visibilityCopy).label,
+                description: visibilityMeta(k, t, props.visibilityCopy)
                   .description,
               }))}
             />
@@ -1658,13 +1323,25 @@ function VisibilitySelect(props: {
   );
 }
 
-function Avatar({ label, org }: { label: string; org?: boolean }) {
+function Avatar({
+  label,
+  org,
+  group,
+}: {
+  label: string;
+  org?: boolean;
+  group?: boolean;
+}) {
   return (
     <span
       aria-hidden
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
     >
-      {org ? <IconUsersGroup size={14} strokeWidth={1.75} /> : initials(label)}
+      {org || group ? (
+        <IconUsersGroup size={14} strokeWidth={1.75} />
+      ) : (
+        initials(label)
+      )}
     </span>
   );
 }
@@ -1673,55 +1350,41 @@ function keyOf(s: Share): string {
   return `${s.principalType}:${s.principalId}`;
 }
 
-/**
- * Pull a user-readable error message out of a failed action call. Action
- * routes surface server-side errors as a JSON `{ error: string }` body that
- * the `useActionMutation` wrapper re-throws as
- * `Error("Action <name> failed: <message>")`. Strip the framework prefix so
- * what reaches the user is the underlying server message.
- */
-function extractShareErrorMessage(err: unknown): string {
-  const fallback = "Could not update sharing — please try again.";
-  const pickRaw = (): string | null => {
-    if (!err) return null;
-    if (err instanceof Error) return err.message?.trim() || null;
-    if (typeof err === "string") return err.trim() || null;
-    if (typeof err === "object") {
-      const any = err as { error?: unknown; message?: unknown };
-      if (typeof any.error === "string" && any.error.trim()) return any.error;
-      if (typeof any.message === "string" && any.message.trim())
-        return any.message;
-    }
-    return null;
-  };
-  const raw = pickRaw();
-  if (!raw || raw.toLowerCase() === "failed to fetch") return fallback;
-  const stripped = raw.replace(/^Action\s+[\w-]+\s+failed:\s*/i, "");
-  return stripped || fallback;
-}
-function getNotificationUrl(explicit?: string): string | undefined {
-  if (explicit) return explicit;
-  if (typeof window === "undefined") return undefined;
-  return window.location.href;
-}
-function cap(s: string): string {
-  return s.charAt(0).toUpperCase() + s.slice(1);
-}
 function initials(s: string): string {
   const name = s.split("@")[0] ?? s;
   return (name[0] ?? "?").toUpperCase();
 }
 
-function principalLabel(share: Share, members: OrgMember[]): string {
+function principalLabel(
+  share: Share,
+  members: OrgMember[],
+  t: ShareTranslate,
+): string {
   const serverLabel = share.displayName?.trim();
   if (serverLabel) return serverLabel;
-  if (share.principalType === "org") return "Organization";
-  return displayName(share.principalId, members);
+  if (share.principalType === "org")
+    return t("agentChat.share.organization", {
+      defaultValue: "Organization",
+    });
+  if (share.principalType === "group")
+    return (
+      serverLabel ||
+      t("agentChat.share.userGroup", { defaultValue: "User group" })
+    );
+  return displayName(share.principalId, members, t);
 }
 
-function displayName(emailOrId: string, members: OrgMember[]): string {
+function displayName(
+  emailOrId: string,
+  members: OrgMember[],
+  t: ShareTranslate,
+): string {
   const normalized = emailOrId.trim().toLowerCase();
   const match = members.find((m) => m.email.toLowerCase() === normalized);
   if (match?.name && match.name.trim()) return match.name;
-  return normalized.includes("@") ? emailOrId : "Unknown person";
+  return normalized.includes("@")
+    ? emailOrId
+    : t("agentChat.share.unknownPerson", {
+        defaultValue: "Unknown person",
+      });
 }

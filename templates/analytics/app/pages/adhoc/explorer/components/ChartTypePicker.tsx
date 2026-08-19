@@ -33,7 +33,7 @@ export function ChartTypePicker({ value, onChange }: ChartTypePickerProps) {
       onValueChange={(v) => {
         if (v) onChange(v as ChartType);
       }}
-      className="border rounded-md p-0.5"
+      className="rounded-md bg-card p-0.5"
     >
       {CHART_TYPES.map((ct) => (
         <ToggleGroupItem

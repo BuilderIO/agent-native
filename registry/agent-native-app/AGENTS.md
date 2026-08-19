@@ -13,9 +13,31 @@ the agent can use.
   Do not add duplicate JSON CRUD routes under `/api/*`, and do not add routes
   whose main job is to wrap, proxy, or re-export an action. Use custom routes
   only for route-only concerns such as uploads, streaming, webhooks, OAuth
-  callbacks, public SEO/OG endpoints, or binary/static asset serving.
-- All AI work goes through the agent chat. Do not call LLMs directly from UI
-  components.
+  callbacks, public SEO/OG endpoints, or binary/static asset serving. If you
+  are about to create a file under `server/routes/api/`, or middleware to guard
+  one, stop and write a `defineAction` instead.
+- All user-facing AI work goes through the agent chat. Do not call model
+  providers or inline LLM APIs from UI or server code, and do not hide
+  AI-shaped multi-step work in one action.
+  Keep actions deterministic and focused; use the AgentSidebar for research,
+  analysis, generation, recommendation, synthesis, and follow-ups in the same
+  thread.
+- Keep domain workflows on named routes and preserve the scaffold's full-page
+  chat route. Use the right AgentSidebar for contextual AI and open it when a
+  domain button hands work to the agent. Keep the first viewport sparse with
+  progressive disclosure; never use sparkle, wand, magic, or robot icons as AI
+  affordances.
+- Page and section data loads use layout-matching `Skeleton` geometry, never a
+  generic "Loading..." label. Reserve `Spinner` for brief mutations, uploads,
+  and progress actions.
+- Use a sans-first SaaS hierarchy with one restrained visual cue; reserve serif
+  type for content previews. Give the AgentSidebar a subtle surface/divider
+  boundary, and stack original/generated review vertically by default.
+- Every AI-labeled button must call `sendToAgentChat()` with
+  `openSidebar: true`; label deterministic local actions as local or preview.
+- Before visual work, read `frontend-design` and `DESIGN.md`. Choose a named
+  product direction and palette family, preserve existing brand tokens, and do
+  not clone a neighboring app's accent by default.
 - Application state belongs in SQL `application_state` so the agent can know the
   current route, selection, and focused object.
 - Keep UIs in sync through `useDbSync()` and `/_agent-native/poll`.
@@ -24,11 +46,22 @@ the agent can use.
 
 ## Implementation Rules
 
+- Scale effort to the task. A small, well-specified change is a short read, the
+  edit, and the app's existing checks — not a codebase survey, unrequested
+  tests, or browser automation.
 - Before using non-trivial Agent Native APIs, read the version-matched package
   docs with `pnpm action docs-search --query "<topic>"` or
   `node_modules/@agent-native/core/docs`. When implementation examples or
   template patterns matter, use `pnpm action source-search --query "<pattern>"`
   or search `node_modules/@agent-native/core/corpus`.
+- Before building common workspace or agent UI, read `agent-native-toolkit` to
+  inventory existing public kits and installed package seams.
+- For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver.
+- Before overriding shared UI or integrations, read `customizing-agent-native`.
+  Use the supported ladder: configure → compose → eject the smallest unit →
+  propose a shared seam. Preview before `--apply`, commit
+  `agent-native.ejections.json`, and never edit `node_modules`, deep-import
+  private source, or eject protected runtime contracts.
 - Use TypeScript for app source.
 - Use shadcn/ui primitives for standard controls and dialogs.
 - Do not use browser `alert`, `confirm`, or `prompt`; use app dialogs.
@@ -47,6 +80,8 @@ Read the relevant `.agents/skills/*/SKILL.md` file before changing that area:
 - `actions` for shared UI and agent operations.
 - `storing-data`, `portability`, `security`, and `sharing` for data work.
 - `frontend-design` and `shadcn-ui` for interface work.
+- `agent-native-toolkit` before building common workspace or agent UI.
+- `customizing-agent-native` for intentional app-owned shared-feature overrides.
 - `client-side-routing`, `context-awareness`, and `real-time-sync` for
   navigation, agent-visible state, and live updates.
 - `delegate-to-agent` when AI work should be handled by the agent chat.

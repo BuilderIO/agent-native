@@ -1,18 +1,25 @@
+import { configureTracking } from "@agent-native/core/client/analytics";
+import { appPath } from "@agent-native/core/client/api-path";
 import {
   AppProviders,
-  CommandMenu,
-  appPath,
   createAgentNativeQueryClient,
-  useCommandMenuShortcut,
   useDbSync,
-  getLocaleInitScript,
-  getThemeInitScript,
   getBrowserTabId,
-  configureTracking,
   useSession,
-  useT,
-} from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+} from "@agent-native/core/client/hooks";
+import { setAgentNativeApiDisabled } from "@agent-native/core/client/host";
+import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
+import {
+  CommandMenu,
+  useCommandMenuShortcut,
+} from "@agent-native/core/client/navigation";
+import { getThemeInitScript } from "@agent-native/core/client/ui";
+import {
+  IconArrowsMaximize,
+  IconHierarchy2,
+  IconSun,
+  IconMoon,
+} from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -23,19 +30,31 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { Layout as AppLayout } from "@/components/layout/Layout";
 import { Toaster } from "@/components/ui/sonner";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
+import { isBuilderHostEmbed } from "@/lib/builder-host-origin";
+import { requestDesignUiToggle } from "@/lib/design-ui-events";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
 
+// Builder frames this canvas with no session of its own, so every
+// `/_agent-native/*` call it makes is an unauthorized one that buries real
+// failures in 401 noise.
+if (isBuilderHostEmbed()) setAgentNativeApiDisabled("builder shell canvas");
+
 configureTracking({
+  llmConnectionStatus:
+    typeof window === "undefined" ||
+    !isPublicDesignAppPath(window.location.pathname),
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "design",
@@ -51,7 +70,7 @@ const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-design-app suppressHydrationWarning>
       <head>
         <meta charSet="utf-8" />
         <meta
@@ -67,7 +86,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
-        <link rel="manifest" href={appPath("/manifest.json")} />
         <meta name="theme-color" content="#71717A" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -122,6 +140,9 @@ function DesignCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const isDesignEditor = location.pathname.startsWith("/design/");
   return (
     <CommandMenu
       open={open}
@@ -130,14 +151,42 @@ function DesignCommandMenu({
       changelogKey="design"
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
+        <CommandMenu.Item onSelect={() => navigate("/settings/agent")}>
+          <IconHierarchy2 size={16} />
+          {t("root.openAgent")}
+        </CommandMenu.Item>
         <CommandMenu.Item onSelect={() => {}}>
           {t("root.commandSearch")}
         </CommandMenu.Item>
       </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.commandAppearance")}>
+        {isDesignEditor ? (
+          <CommandMenu.Item
+            onSelect={requestDesignUiToggle}
+            keywords={["canvas", "focus", "panels", "hide ui", "show ui"]}
+          >
+            <IconArrowsMaximize size={16} />
+            {t("designEditor.keyboardShortcuts.commands.toggleUi")}
+          </CommandMenu.Item>
+        ) : null}
         <ThemeToggleItem />
       </CommandMenu.Group>
     </CommandMenu>
+  );
+}
+
+/**
+ * The one toaster: AppProviders renders its own by default, and a second copy
+ * here made every toast appear twice once the two positions stopped coinciding.
+ * Builder's chat covers the left column when it hosts the editor, which would
+ * hide any toast underneath it.
+ */
+function DesignToaster() {
+  return (
+    <Toaster
+      richColors
+      position={isBuilderHostEmbed() ? "bottom-right" : "bottom-left"}
+    />
   );
 }
 
@@ -164,7 +213,6 @@ function RootContent() {
   return (
     <>
       {hasSession && <DbSyncSetup />}
-      <Toaster richColors position="bottom-left" />
       {hasSession && !isPublicVisualEdit && (
         <DesignCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       )}
@@ -176,16 +224,14 @@ function RootContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
-  const sessionBypass =
-    location.pathname === "/visual-edit" ||
-    location.pathname === "/design" ||
-    location.pathname.startsWith("/design/");
+  const isPublicPath = isPublicDesignAppPath(location.pathname);
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        sessionBypass={sessionBypass}
-        i18n={{ catalog: i18nCatalog }}
+        isPublicPath={isPublicPath}
+        i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
+        toaster={<DesignToaster />}
       >
         <RootContent />
       </AppProviders>
@@ -193,4 +239,4 @@ export default function Root() {
   );
 }
 
-export { ErrorBoundary } from "@agent-native/core/client";
+export { ErrorBoundary } from "@agent-native/core/client/ui";

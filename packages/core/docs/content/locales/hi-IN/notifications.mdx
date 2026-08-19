@@ -14,7 +14,7 @@ import { notify } from "@agent-native/core/notifications";
 
 await notify(
   { severity: "info", title: "Booking confirmed", body: "Jane at 3pm" },
-  { owner: "steve@builder.io" },
+  { owner: "user@example.com" },
 );
 ```
 
@@ -235,14 +235,14 @@ import {
   deleteNotification,
 } from "@agent-native/core/notifications";
 
-const rows = await listNotifications("steve@builder.io", {
+const rows = await listNotifications("user@example.com", {
   unreadOnly: true,
   limit: 50,
 });
-const unread = await countUnread("steve@builder.io");
-await markNotificationRead(rows[0].id, "steve@builder.io");
-await markAllNotificationsRead("steve@builder.io");
-await deleteNotification(rows[0].id, "steve@builder.io");
+const unread = await countUnread("user@example.com");
+await markNotificationRead(rows[0].id, "user@example.com");
+await markAllNotificationsRead("user@example.com");
+await deleteNotification(rows[0].id, "user@example.com");
 ```
 
 प्रत्येक फ़ंक्शन मालिक के दायरे वाला है - कोई क्रॉस-यूज़र नहीं पढ़ता है, कोई क्रॉस-यूज़र लिखता नहीं है।
@@ -363,7 +363,7 @@ export function HeaderBar() {
 ## यह कैसे काम करता है {#internals}
 
 - **मालिक का दायरा** - प्रत्येक पंक्ति में एक `owner` कॉलम होता है; प्रत्येक क्वेरी इस पर फ़िल्टर होती है; प्रत्येक मार्ग प्रमाणित सत्र के ईमेल का उपयोग करता है। उपयोगकर्ता कभी भी एक-दूसरे की सूचनाएं नहीं देखते हैं।
-- **पोल एकीकरण** - प्रत्येक उत्परिवर्तन `recordChange()` को कॉल करता है इसलिए [`useDbSync`](/docs/client) का उपयोग करने वाले टेम्पलेट बिना किसी अतिरिक्त वायरिंग के स्वतः-अमान्य हो जाते हैं।
+- **पोल एकीकरण** - प्रत्येक उत्परिवर्तन `recordChange()` को कॉल करता है इसलिए [`useDbSync`](/docs/client-data#usedbsync) का उपयोग करने वाले टेम्पलेट बिना किसी अतिरिक्त वायरिंग के स्वतः-अमान्य हो जाते हैं।
 - **सर्वोत्तम प्रयास फैन-आउट** - चैनल त्रुटियां पकड़ी जाती हैं और लॉग की जाती हैं; एक असफल चैनल दूसरों को या इनबॉक्स लिखने को ब्लॉक नहीं करता है।
 - **आग लगाओ और भूल जाओ** - `notify()` इनबॉक्स लेखन पूरा होने के बाद वापस आता है; कस्टम चैनल पृष्ठभूमि में चलते हैं।
 
@@ -371,4 +371,4 @@ export function HeaderBar() {
 
 - [**Automations**](/docs/automations) - `notify()` का सबसे आम कॉलर
 - [**Security**](/docs/security) - `${keys.NAME}` प्रतिस्थापन जो वेबहुक चैनल को शक्ति प्रदान करता है
-- [**Server plugins**](/docs/server) - जहां कस्टम चैनल स्टार्टअप पर पंजीकृत होते हैं
+- [**Server plugins**](/docs/server-overview) - जहां कस्टम चैनल स्टार्टअप पर पंजीकृत होते हैं

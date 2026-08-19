@@ -44,6 +44,12 @@ export {
 export { BlockView, blockEditSurface } from "./BlockView.js";
 export { AiEditableFieldLabel } from "./AiEditableField.js";
 export { SchemaBlockEditor } from "./SchemaBlockEditor.js";
+export { RegistryBlockDataProvider } from "./RegistryBlockDataProvider.js";
+export type {
+  RegistryBlockDataChangeMeta,
+  RegistryBlockDataValue,
+  RegistryBlockSideMapBlock,
+} from "@agent-native/toolkit/editor/RegistryBlockContext";
 
 // Schema-form helpers
 export {
@@ -189,6 +195,12 @@ export {
   WireframeBlock,
   WireframeEditor,
 } from "./library/wireframe.js";
+export {
+  sanitizeDiagramHtml,
+  sanitizeWireframeCss,
+  sanitizeWireframeHtml,
+  scopeDesignCss,
+} from "./library/sanitize-html.js";
 export {
   wireframeSchema,
   wireframeMdx,

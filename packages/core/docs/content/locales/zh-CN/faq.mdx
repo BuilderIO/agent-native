@@ -26,7 +26,7 @@ Agent-native 适合那些想要真正的应用程序和 AI 代理使用相同数
 
 ### 这与向现有应用添加 AI 有何不同？ {#how-is-this-different}
 
-大多数应用程序将人工智能作为事后的想法，实际上无法在应用程序中*做*事情。在代理原生应用程序中，代理是一等公民，与 UI 共享相同的 actions、数据库和状态，因此它可以执行按钮可以执行的任何操作 - 并修改应用程序自己的代码。参见[What Is Agent-Native?](/docs/what-is-agent-native#the-ladder)。
+大多数应用程序将人工智能作为事后的想法，实际上无法在应用程序中*做*事情。在代理原生应用程序中，代理是一等公民，与 UI 共享相同的 actions、数据库和状态，因此它可以执行按钮可以执行的任何操作。参见[What Is Agent-Native?](/docs/what-is-agent-native#the-ladder)。
 
 <Diagram id="doc-block-149omhf" title={"附加人工智能与 agent-native"} summary={"螺栓固定的聊天侧边栏有自己的世界。 agent-native 代理与 UI 共享相同的操作、数据库和状态。"}>
 
@@ -102,7 +102,7 @@ Agent-native 适合那些想要真正的应用程序和 AI 代理使用相同数
 
 ### 我可以自己主持吗？ {#can-i-self-host}
 
-是的。选择运行 Node 的任何主机 — Netlify、Vercel、Cloudflare、AWS、Deno Deploy、您自己的服务器 — 以及任何 SQL 数据库（Postgres、SQLite、Turso、D1）。该框架是为了可移植而构建的。参见[Deployment](/docs/deployment)。
+是的。选择运行 Node 的任何主机 — Netlify、Vercel、Cloudflare、AWS、Deno Deploy、您自己的服务器 — 以及任何 SQL 数据库（Postgres、SQLite、Turso、D1）。该框架是为了可移植而构建的。先从[本地 Docker 快速入门](https://www.agent-native.com/docs/deployment#self-host-quickstart)开始，然后参阅[Deployment](/docs/deployment)进行生产部署。
 
 ### 支持哪些AI模型？ {#what-models}
 
@@ -124,7 +124,7 @@ Anthropic Claude、OpenAI（GPT-5 系列）、Google Gemini 以及使用 OpenAI 
 
 ### 我可以自定义模板吗？ {#can-i-customize-templates}
 
-这就是重点。分叉一个模板并通过询问代理来自定义它。 “向表单添加优先级字段。” “连接到我们的 Salesforce 实例。” “更改配色方案以匹配我们的品牌。”代理修改代码，您的应用程序会随着时间的推移而发展。
+这就是重点。从模板开始，在自己的代码库和开发流程中进行定制。嵌入式代理随后通过 actions 和数据操作生成的应用程序。
 
 ### 我可以构建模板未涵盖的内容吗？ {#build-from-scratch}
 
@@ -136,9 +136,9 @@ Anthropic Claude、OpenAI（GPT-5 系列）、Google Gemini 以及使用 OpenAI 
 
 ## 代理能力 {#agent-capabilities}
 
-### 代理真的可以修改应用程序自己的代码吗？ {#can-the-agent-modify-code}
+### 嵌入式代理会编辑应用程序源代码吗？ {#can-the-agent-modify-code}
 
-是的，这是一个功能。代理可以安全地编辑组件、路线、样式和 actions。您要求“添加群组分析图表”，代理就会构建它。您询问“连接到我们的 Stripe 帐户”，然后代理会编写集成。一切都是正常的 Git 跟踪代码，因此不良更改很容易恢复。
+默认不会。只有当主机有意授予 repository/workspace 写入工具时，它才能编辑源代码。否则，嵌入式代理通过 actions、SQL 支持的状态和已配置的集成工作。要修改组件、路由、样式或 actions，请使用代码库的正常开发流程，或使用单独的代码能力开发/Builder frame。
 
 ### 用户可以从应用程序外部与代理交谈吗？ {#external-channels}
 

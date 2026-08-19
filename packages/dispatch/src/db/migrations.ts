@@ -1,4 +1,6 @@
-export const dispatchMigrations: Array<{ version: number; sql: string }> = [
+import type { MigrationEntry } from "@agent-native/core/db";
+
+export const dispatchMigrations: MigrationEntry[] = [
   {
     version: 1,
     sql: `
@@ -219,6 +221,31 @@ export const dispatchMigrations: Array<{ version: number; sql: string }> = [
     version: 4,
     sql: `
       ALTER TABLE dispatch_dreams ADD COLUMN IF NOT EXISTS source_health TEXT;
+    `,
+  },
+  {
+    version: 5,
+    name: "identity-sso-authorization-code-table",
+    sql: `
+      CREATE TABLE IF NOT EXISTS identity_sso_authorization_code (
+        code_hash TEXT PRIMARY KEY,
+        state TEXT NOT NULL,
+        app_id TEXT NOT NULL,
+        client_id TEXT NOT NULL,
+        redirect_uri TEXT NOT NULL,
+        authority TEXT NOT NULL,
+        code_challenge TEXT NOT NULL,
+        email TEXT NOT NULL,
+        name TEXT,
+        org_domain TEXT,
+        jti TEXT NOT NULL,
+        created_at INTEGER NOT NULL,
+        expires_at INTEGER NOT NULL,
+        consumed_at INTEGER
+      );
+
+      CREATE INDEX IF NOT EXISTS identity_sso_authorization_code_expires_idx
+        ON identity_sso_authorization_code (expires_at);
     `,
   },
 ];

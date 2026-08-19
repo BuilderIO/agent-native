@@ -5,8 +5,8 @@
  * 1. Direct ownership — `owner_email = currentUser`.
  * 2. Visibility — `'private' | 'org' | 'public'`. `org` grants read to anyone
  *    in the same org; `public` grants read to any authenticated user.
- * 3. Share rows — per-user or per-org grants in the `{type}_shares` table
- *    with a role (`viewer | editor | admin`).
+ * 3. Share rows — per-user, per-group, or per-org grants in the
+ *    `{type}_shares` table with a role (`viewer | commenter | editor | admin`).
  *
  * Use `applyAccessFilter()` on list/read queries to filter rows the current
  * user can see. Use `assertAccess()` at the top of write actions to reject
@@ -15,10 +15,17 @@
 
 import { and, eq, or, sql, type SQL } from "drizzle-orm";
 
+import { isPostgres } from "../db/client.js";
+import { orgMembers } from "../org/schema.js";
 import {
+  getRequestAuthCapability,
   getRequestUserEmail,
   getRequestOrgId,
 } from "../server/request-context.js";
+import {
+  workspaceUserGroupsIncludeUser,
+  workspaceUserGroupsTable,
+} from "../workspace-connections/groups.js";
 import {
   listShareableResources,
   requireShareableResource,
@@ -54,6 +61,7 @@ export class ForbiddenError extends Error {
 export interface AccessContext {
   userEmail?: string;
   orgId?: string;
+  authCapability?: string;
 }
 
 /** Current request's access context. Pulls from request-context ALS. */
@@ -61,6 +69,7 @@ export function currentAccess(): AccessContext {
   return {
     userEmail: getRequestUserEmail(),
     orgId: getRequestOrgId(),
+    authCapability: getRequestAuthCapability(),
   };
 }
 
@@ -68,7 +77,11 @@ export function resolveRegisteredAccessContext(
   reg: ShareableResourceRegistration | undefined,
   ctx: AccessContext,
 ): AccessContext {
-  return reg?.resolveAccessContext ? reg.resolveAccessContext(ctx) : ctx;
+  if (!reg?.resolveAccessContext) return ctx;
+  const resolved = reg.resolveAccessContext(ctx);
+  return ctx.authCapability
+    ? { ...resolved, authCapability: ctx.authCapability }
+    : resolved;
 }
 
 function normalizeEmailForAccess(email: string | undefined): string | null {
@@ -78,6 +91,35 @@ function normalizeEmailForAccess(email: string | undefined): string | null {
 
 function emailColumnMatches(column: any, email: string): SQL {
   return sql`lower(${column}) = ${email}`;
+}
+
+/**
+ * Real `org_members` membership, independent of the caller's currently
+ * active org (`ctx.orgId`). `org`-visibility access must key off actual
+ * membership — a user's active-org selection is a UI convenience, not a
+ * statement of which orgs they belong to.
+ *
+ * Queries through the resource's own `reg.getDb()` — the same connection
+ * every other lookup in this file uses — not the ambient `getDbExec()`,
+ * since `org_members` lives in that same app database.
+ */
+async function isOrgMember(
+  reg: ShareableResourceRegistration,
+  memberOrgId: string,
+  email: string,
+): Promise<boolean> {
+  const db = reg.getDb() as any;
+  const rows = await db
+    .select({ id: orgMembers.id })
+    .from(orgMembers)
+    .where(
+      and(
+        eq(orgMembers.orgId, memberOrgId),
+        emailColumnMatches(orgMembers.email, email),
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
 }
 
 /**
@@ -161,6 +203,41 @@ export function accessFilter(
     );
   }
 
+  if (reg?.supportsGroupShares && normalizedUserEmail && orgId) {
+    const groupTable = sql.raw(workspaceUserGroupsTable());
+    const groupMemberPredicate = isPostgres()
+      ? sql`exists (
+          select 1
+          from jsonb_array_elements_text(
+            workspace_group.member_emails_json::jsonb
+          ) as group_member(email)
+          where lower(group_member.email) = ${normalizedUserEmail}
+        )`
+      : sql`exists (
+          select 1
+          from json_each(workspace_group.member_emails_json) as group_member
+          where lower(group_member.value) = ${normalizedUserEmail}
+        )`;
+    clauses.push(
+      sql`exists (select 1 from ${sharesTable}
+                  where ${sharesTable.resourceId} = ${resourceTable.id}
+                    and ${sharesTable.principalType} = 'group'
+                    and ${minRoleSql(minRole)}
+                    and exists (
+                      select 1 from ${groupTable} as workspace_group
+                      where workspace_group.id = ${sharesTable.principalId}
+                        and workspace_group.org_id = ${resourceTable.orgId}
+                        and workspace_group.org_id = ${orgId}
+                        and exists (
+                          select 1 from ${orgMembers} as workspace_member
+                          where workspace_member.org_id = workspace_group.org_id
+                            and lower(workspace_member.email) = ${normalizedUserEmail}
+                        )
+                        and ${groupMemberPredicate}
+                    ))`,
+    );
+  }
+
   return or(...clauses) ?? sql`1=0`;
 }
 
@@ -197,6 +274,9 @@ function minRoleSql(minRole: ShareRole): SQL {
   if (minRole === "viewer") {
     // any role satisfies viewer
     return sql`1=1`;
+  }
+  if (minRole === "commenter") {
+    return sql`role in ('commenter','editor','admin')`;
   }
   if (minRole === "editor") {
     return sql`role in ('editor','admin')`;
@@ -463,7 +543,7 @@ async function resolveAccessImpl(
   const resource = await loadResourceForAccess(reg, resourceId, options);
   if (!resource) return null;
 
-  const { userEmail, orgId } = ctx;
+  const { userEmail } = ctx;
   const normalizedUserEmail = normalizeEmailForAccess(userEmail);
 
   if (
@@ -472,6 +552,9 @@ async function resolveAccessImpl(
     ownerMatchesActiveScope(reg, resource, ctx)
   ) {
     return { role: "owner", resource };
+  }
+  if (reg.canManageAccess && (await reg.canManageAccess(resource, ctx))) {
+    return { role: "admin", resource };
   }
   if (resource.visibility === "public" && reg.allowPublic !== false) {
     // No share row needed; default viewer unless the resource registration
@@ -484,7 +567,19 @@ async function resolveAccessImpl(
   // `visibility === "public"` on an `allowPublic: false` resource is treated
   // as private: only owner + explicit shares grant access. Falls through to
   // the explicit-share lookup below.
-  if (resource.visibility === "org" && orgId && resource.orgId === orgId) {
+  //
+  // Membership in the resource's own org, not equality with the caller's
+  // currently active org: a caller can be a genuine member of the
+  // resource's org while a *different* org is their active selection, and
+  // `org` visibility should still admit them. Still requires some active
+  // org to be set at all (`orgId`), matching the pre-existing behavior for
+  // a caller with no active org.
+  if (
+    resource.visibility === "org" &&
+    resource.orgId &&
+    normalizedUserEmail &&
+    (await isOrgMember(reg, resource.orgId, normalizedUserEmail))
+  ) {
     const role = await highestShareRole(reg, resourceId, ctx, resource);
     return { role: role ?? "viewer", resource };
   }
@@ -523,6 +618,39 @@ async function highestShareRole(
     );
   }
 
+  let best: ShareRole | null = null;
+
+  if (reg.supportsGroupShares && normalizedUserEmail && resource.orgId) {
+    const groupRows = await db
+      .select({
+        principalId: reg.sharesTable.principalId,
+        role: reg.sharesTable.role,
+      })
+      .from(reg.sharesTable)
+      .where(
+        and(
+          eq(reg.sharesTable.resourceId, resourceId),
+          eq(reg.sharesTable.principalType, "group"),
+        ),
+      );
+    for (const row of groupRows as Array<{
+      principalId: string;
+      role: ShareRole;
+    }>) {
+      if (
+        await workspaceUserGroupsIncludeUser(
+          resource.orgId,
+          [row.principalId],
+          normalizedUserEmail,
+        )
+      ) {
+        if (!best || ROLE_RANK[row.role] > ROLE_RANK[best]) {
+          best = row.role;
+        }
+      }
+    }
+  }
+
   const rows = await db
     .select({ role: reg.sharesTable.role })
     .from(reg.sharesTable)
@@ -531,7 +659,6 @@ async function highestShareRole(
     )
     .limit(10);
 
-  let best: ShareRole | null = null;
   for (const r of rows as Array<{ role: ShareRole }>) {
     if (!best || ROLE_RANK[r.role] > ROLE_RANK[best]) best = r.role;
   }

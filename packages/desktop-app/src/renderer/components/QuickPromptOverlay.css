@@ -1,0 +1,212 @@
+body.quick-prompt-surface {
+  --background: 0 0% 100%;
+  --foreground: 0 0% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 0 0% 10%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 0 0% 10%;
+  --primary: 0 0% 15%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 0 0% 95%;
+  --secondary-foreground: 0 0% 15%;
+  --muted: 0 0% 95%;
+  --muted-foreground: 0 0% 45%;
+  --accent: 0 0% 95%;
+  --accent-foreground: 0 0% 15%;
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 98%;
+  --border: 0 0% 82%;
+  --input: 0 0% 82%;
+  --ring: 0 0% 40%;
+  --radius: 0.75rem;
+}
+
+:root.dark body.quick-prompt-surface {
+  --background: 0 0% 13%;
+  --foreground: 0 0% 92%;
+  --card: 0 0% 15%;
+  --card-foreground: 0 0% 92%;
+  --popover: 0 0% 15%;
+  --popover-foreground: 0 0% 92%;
+  --primary: 0 0% 82%;
+  --primary-foreground: 0 0% 10%;
+  --secondary: 0 0% 18%;
+  --secondary-foreground: 0 0% 92%;
+  --muted: 0 0% 18%;
+  --muted-foreground: 0 0% 64%;
+  --accent: 0 0% 20%;
+  --accent-foreground: 0 0% 92%;
+  --destructive: 0 91% 71%;
+  --destructive-foreground: 0 0% 10%;
+  --border: 0 0% 27%;
+  --input: 0 0% 27%;
+  --ring: 0 0% 68%;
+  --radius: 0.75rem;
+}
+
+body.quick-prompt-surface,
+body.quick-prompt-surface #root {
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+
+body.quick-prompt-surface #root {
+  min-height: 100vh;
+}
+
+.quick-prompt-overlay {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 100%;
+  overflow: visible;
+  padding: 0;
+  background: transparent;
+}
+
+.quick-prompt-overlay--picker-open {
+  pointer-events: none;
+}
+
+.quick-prompt-overlay--picker-open .quick-prompt-overlay__composer {
+  pointer-events: auto;
+}
+
+.quick-prompt-overlay > * {
+  position: relative;
+  z-index: 1;
+}
+
+.quick-prompt-overlay__composer {
+  width: 460px;
+  flex: 0 0 460px;
+  max-width: 460px;
+  -webkit-app-region: no-drag;
+}
+
+.quick-prompt-overlay .agent-composer-area {
+  padding: 0;
+}
+
+.quick-prompt-overlay .agent-composer-root {
+  box-sizing: border-box;
+  overflow: visible;
+  border: 0 !important;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+.quick-prompt-overlay .agent-composer-root--hero {
+  min-height: 0;
+}
+
+.quick-prompt-overlay
+  .agent-composer-root--hero
+  [data-agent-composer-slot="editor-wrap"] {
+  padding: 8px 8px 4px;
+}
+
+.quick-prompt-overlay
+  .agent-composer-root--hero
+  [data-agent-composer-slot="toolbar"] {
+  border-top: 1px solid hsl(var(--border) / 0.72);
+  box-sizing: border-box;
+  min-height: 40px;
+  padding: 8px;
+}
+
+.quick-prompt-overlay .quick-prompt-overlay__composer {
+  --composer-surface-radius: 14px;
+}
+
+.quick-prompt-overlay--picker-open .agent-composer-root {
+  border: 1px solid hsl(var(--border) / 0.72) !important;
+  border-radius: 14px;
+  background: hsl(var(--muted) / 0.45);
+  box-shadow: 0 12px 32px hsl(var(--foreground) / 0.18);
+}
+
+/* Leave room for the shared picker's nested model list inside this narrow window. */
+body.quick-prompt-surface [data-agent-native-composer-popover="true"] {
+  width: min(16rem, calc(50vw - 24px));
+}
+
+body.quick-prompt-surface
+  [data-radix-popper-content-wrapper]
+  > [class*="z-[320]"] {
+  width: min(16rem, calc(50vw - 24px));
+}
+
+.quick-prompt-overlay .quick-prompt-overlay__composer :is(textarea, input) {
+  font-size: 14px;
+}
+
+.quick-prompt-overlay
+  .agent-composer-root--hero
+  [data-agent-composer-slot="editor-input"] {
+  min-height: 48px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.quick-prompt-overlay .quick-prompt-project-picker__trigger {
+  min-width: 0;
+  max-width: 220px;
+  height: 28px;
+  width: max-content;
+  flex: 0 0 auto;
+  gap: 5px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  padding: 0 8px;
+  color: hsl(var(--muted-foreground));
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  justify-content: flex-start;
+}
+
+.quick-prompt-project-picker__trigger:hover,
+.quick-prompt-project-picker__trigger[data-state="open"] {
+  background: hsl(var(--accent) / 0.5);
+  color: hsl(var(--foreground));
+}
+
+.quick-prompt-project-picker__value {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-prompt-project-picker__content {
+  min-width: 190px;
+}
+
+.quick-prompt-project-picker__item {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  gap: 8px;
+}
+
+.quick-prompt-project-picker__item span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quick-prompt-overlay__error {
+  margin: 8px 4px 0;
+  color: hsl(var(--destructive));
+  font-size: 12px;
+  line-height: 1.4;
+}

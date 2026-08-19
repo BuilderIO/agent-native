@@ -95,9 +95,8 @@ Ao abrir o aplicativo, você verá uma árvore de páginas ao lado do editor. O 
 - **Organize as páginas em uma árvore** — aninhe infinitamente, arraste para reordenar, páginas favoritas que você usa com frequência.
 - **Pesquise tudo** com pesquisa de texto completo em títulos e conteúdo.
 - **Edite arquivos Markdown/MDX locais como Obsidian.** Use a visualização `/local-files`
-  para exportar seu espaço de trabalho para arquivos, edite-os em suas próprias ferramentas, visualize
-  alterações e importe-as de volta. No modo de arquivo local, o conteúdo é gravado diretamente em
-  o arquivo `.md` ou `.mdx` selecionado.
+  para conectar uma pasta ao Files, editar com suas ferramentas, sincronizar
+  mudanças e revisar conflitos dentro do aplicativo SQL.
 - **Gere blocos personalizados interativos avançados.** Registre componentes React locais,
   insira-os como MDX e deixe o agente criar ou atualizar arquivos de componentes para
   seus documentos.
@@ -140,32 +139,19 @@ como superfície de revisão. O aplicativo hospedado continua sendo a fonte da v
 comentários, permissões e colaboração ao vivo; a pasta local é explícita
 superfície de sincronização.
 
-O conteúdo também pode ser executado no **Modo de arquivo local**, onde os arquivos são a origem de
-verdade em vez de documentos SQL. Adicione `agent-native.json` a um repositório, defina
-`mode: "local-files"` e configure raízes como `docs/`, `blog/`,
-`content/` e `resources/`. O editor de conteúdo padrão preenche seu
-barra lateral esquerda dos arquivos `.md`/`.mdx` locais e grava as edições de volta no
-arquivo selecionado através do documento normal actions. Use isto para documentos repo-first,
-blogs, bibliotecas de recursos ou conteúdo pessoal no estilo Obsidian com tecnologia MDX
-componentes; volte para o modo de banco de dados quando desejar colaboração hospedada e
-Compartilhamento apoiado por SQL. Consulte [Local File Mode](/docs/local-file-mode) para
-layout de repositório independente, configuração, componentes MDX personalizados, local
-Widgets `extensions/` e guia de segurança de produção.
+Pastas locais agora usam o mesmo modelo SQL que todas as páginas. Cada página
+pertence a um espaço e ao banco Files; a pasta é um adaptador de fonte. Consulte
+[Fontes de pastas locais](/docs/local-file-mode) para políticas, conflitos,
+componentes MDX e a migração do modo antigo.
 
-Para instalar a habilidade Content local-files em um repositório existente:
+Para abrir Content em um repositório existente:
 
 ```bash
-npx @agent-native/core@latest skills add content --mode local-files --scope project
+npx @agent-native/core@latest content .
 ```
 
-O instalador copia a habilidade `content` para seu agente de codificação e grava ou
-atualiza `agent-native.json` com raízes de conteúdo para `docs/`, `blog/`, `content/`,
-e `resources/`. Quando um aplicativo de conteúdo local, Agent Native Desktop ou confiável
-a ponte local está em execução, os agentes devem usar o Conteúdo actions como
-`list-documents`, `get-document`, `edit-document`, `update-document` e
-`share-local-file-document` em vez de gravações brutas no sistema de arquivos. Sem aquele local
-bridge, a habilidade instalada ainda dá ao agente o contrato de repoediting para
-edições seguras de Markdown/MDX.
+O CLI inicia Content com seu banco normal, registra a pasta como fonte e abre a
+conexão sem definir uma variável de modo.
 
 ## Para desenvolvedores
 

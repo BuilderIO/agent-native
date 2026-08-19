@@ -1,10 +1,11 @@
 import {
   AgentSidebar,
   AgentToggleButton,
-  useAppearanceSync,
-  useT,
-} from "@agent-native/core/client";
+} from "@agent-native/core/client/agent-chat";
+import { usePerAppChatOpen } from "@agent-native/core/client/hooks";
+import { useT } from "@agent-native/core/client/i18n";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { useAppearanceSync } from "@agent-native/core/client/ui";
 import type { CalendarEvent, CalendarEventDraft } from "@shared/api";
 import { IconMenu } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -227,11 +228,14 @@ export function AppLayout({ children }: AppLayoutProps) {
   const queryClient = useQueryClient();
   const googleStatus = useGoogleAuthStatus();
   const hasAccounts = (googleStatus.data?.accounts?.length ?? 0) > 0;
-  const isSettingsPage = location.pathname === "/settings";
+  const isSettingsPage =
+    location.pathname === "/settings" ||
+    location.pathname.startsWith("/settings/");
   const isCalendarPage = location.pathname === "/";
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] =
     useState(readSidebarCollapsed);
+  const perAppChatOpen = usePerAppChatOpen();
   const [selectedDate, setSelectedDate] = useState(new Date());
   const [viewMode, setViewMode] = useState<ViewMode>(isMobile ? "day" : "week");
   const [peopleSearchOpen, setPeopleSearchOpen] = useState(false);
@@ -381,17 +385,21 @@ export function AppLayout({ children }: AppLayoutProps) {
             open={shortcutsHelpOpen}
             onClose={() => setShortcutsHelpOpen(false)}
           />
-          <div className="agent-layout-shell flex h-screen overflow-hidden bg-background">
+          <div
+            className="agent-layout-shell flex h-screen overflow-hidden bg-background"
+            data-agent-native-shell-variant="custom"
+          >
             <Sidebar
               open={sidebarOpen}
               onClose={() => setSidebarOpen(false)}
-              collapsed={!isMobile && sidebarCollapsed}
-              onCollapsedChange={setSidebarCollapsed}
+              collapsed={!isMobile && (sidebarCollapsed || perAppChatOpen)}
+              onCollapsedChange={isMobile ? undefined : setSidebarCollapsed}
             />
             <AgentSidebar
               position="right"
-              defaultOpen
+              defaultOpen={false}
               emptyStateText={t("agentSidebar.emptyState")}
+              agentPageHref="/settings/agent"
               suggestions={[
                 t("agentSidebar.suggestions.today"),
                 t("agentSidebar.suggestions.findSlot"),

@@ -1,9 +1,10 @@
 ---
 name: self-modifying-code
 description: >-
-  How the agent can modify the app's own source code. Use when the agent needs
-  to edit components, routes, styles, or scripts, when designing UI for agent
-  editability, or when deciding what the agent should and shouldn't modify.
+  Tiers, checkpoints, and off-limits paths for an agent editing the app's own
+  source. Use when designing UI for agent editability, deciding whether a file
+  is safe for the agent to change, or when tempted to patch config, `.env`, or
+  an `@agent-native/*` package. Do not load it for ordinary source edits.
 scope: dev
 metadata:
   internal: true
@@ -35,8 +36,18 @@ Tier 4 includes **all** of the following — not only editing package source:
 - Files under `node_modules/@agent-native/*` (core, dispatch, scheduling, …)
 - `pnpm.overrides`, `overrides`, `resolutions`, or `patchedDependencies` that
   target any `@agent-native/*` package
-- Local patches, vendored copies, or invented "dispatch/core behavior"
-  shims meant to paper over a version skew or failed upgrade
+- `pnpm patch`, `pnpm patch-commit`, or local package patch artifacts for any
+  dependency
+- Invented "dispatch/core behavior" shims meant to paper over a version skew
+  or failed upgrade
+
+This does not prohibit intentional app-owned UI customization. When public
+props and composition are insufficient, the `customizing-agent-native` skill
+uses `agent-native eject` to transfer the smallest supported unit from the
+installed package into the app. The ejected unit must keep public runtime
+contracts and must not replace Core auth, DB, actions, agent execution, or
+transport behavior. Manual copying is only the fallback described by an unknown
+third-party package's add-style blueprint.
 
 When an older branch needs current packages, use **`agent-native upgrade`**
 (see the `upgrade-agent-native` skill). If upgrade or typecheck fails, fix
@@ -79,17 +90,22 @@ el.dataset.selectedId = selectedItem?.id || "";
 **Use configuration-driven rendering** — Extract visual decisions (colors, layouts, sizes) into JSON config files in `data/`. The agent can modify the config (Tier 1) instead of the component source (Tier 2).
 
 **Keep localized copy in catalogs** — When editing visible UI copy, labels,
-toasts, empty states, prompts, or formatting, read `internationalization` and
-update `app/i18n/en-US.ts` plus existing locale catalogs instead of leaving new
-inline strings in components.
+toasts, empty states, prompts, or formatting, update the English source catalog.
+Read the optional `internationalization` skill and update additional catalogs
+only when `translations.locales` in `agent-native.config.ts` includes them.
 
 ## Don't
 
 - Don't modify `.env` files or files containing secrets
 - Don't modify `@agent-native/core`, `@agent-native/dispatch`, or other
   `@agent-native/*` package internals (including under `node_modules`)
+- Don't confuse readable package source with app-owned code: use
+  `customizing-agent-native` and `agent-native eject` for supported ownership
+  transfer
+- Don't use `pnpm patch` / `pnpm patch-commit`, commit `patches/` artifacts, or
+  add `pnpm.patchedDependencies` to "make the app run" after a version bump
 - Don't add `pnpm.overrides` / `patchedDependencies` / `resolutions` for
-  `@agent-native/*` to "make the app run" after a version bump
+  `@agent-native/*` to paper over a broken upgrade
 - Don't invent local dispatch/core behavior overrides when upgrade fails —
   run `npx @agent-native/core@latest upgrade`, then fix app-level errors only
 - Don't modify `.agents/skills/` or `AGENTS.md` unless explicitly requested
@@ -99,6 +115,7 @@ inline strings in components.
 ## Related Skills
 
 - **upgrade-agent-native** — supported path to bring an older app/workspace current
+- **customizing-agent-native** — configure, compose, or eject installed features safely
 - **storing-data** — Tier 1 modifications (data files) are the safest and most common
 - **actions** — The agent can create or modify actions to add new capabilities
 - **delegate-to-agent** — Self-modification requests come through the agent chat

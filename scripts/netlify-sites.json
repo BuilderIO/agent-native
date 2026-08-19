@@ -3,7 +3,8 @@
   "brain": "af978d13-aa58-44f3-9b5c-f12568467079",
   "design": "1e6bd63d-2972-4272-86bd-7b33f493606d",
   "clips": "7e3f4fee-258d-4d16-9aaf-154a714e87e2",
-  "chat": "864ab6ba-0889-4265-99c0-7a18d1888585",
+  "crm": "2636c74c-ce64-4dc5-8028-2f45b511e52b",
+  "starter": "864ab6ba-0889-4265-99c0-7a18d1888585",
   "slides": "fd5deb5b-5539-47e1-830c-e5fb5e105efd",
   "mail": "dee98bb0-6143-4205-8c04-afe7bf83d5b5",
   "macros": "0700a8ac-6a9f-4834-80dd-734102228132",
@@ -13,5 +14,6 @@
   "content": "5c2198f5-bee4-41c3-8a6d-4869f400eec2",
   "calendar": "954fe53b-052e-4401-aac2-2e973e498af8",
   "analytics": "ba983662-dac4-478d-a481-5079e67e4d33",
+  "factory": "6bffaa23-ad14-480c-8954-99f53ecabf05",
   "fw": "33249da7-8dca-47f9-b61f-3a5eba3116e2"
 }
