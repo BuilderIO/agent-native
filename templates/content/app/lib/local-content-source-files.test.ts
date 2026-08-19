@@ -5,6 +5,8 @@ import {
   localSourceAbsolutePath,
   readDocumentFromLinkedLocalSource,
   revealLinkedLocalSourceFile,
+  sourceFileContent,
+  watchLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "./local-content-source-files";
 
@@ -45,6 +47,26 @@ describe("local content source files", () => {
     });
   });
 
+  it("preserves source-owned frontmatter while replacing Content-managed fields", () => {
+    const existingSource = `---
+title: "Old title"
+tags: ["acceptance", "local"]
+unchanged_key: preserve-me
+# source-owned comment
+---
+
+Old body`;
+
+    const serialized = sourceFileContent(document, existingSource);
+
+    expect(serialized).toContain('title: "Getting Started"');
+    expect(serialized).not.toContain('title: "Old title"');
+    expect(serialized).toContain('tags: ["acceptance", "local"]');
+    expect(serialized).toContain("unchanged_key: preserve-me");
+    expect(serialized).toContain("# source-owned comment");
+    expect(serialized).toContain("Hello from the editor.");
+  });
+
   it("writes an edited document through the desktop single-file bridge", async () => {
     const folder = {
       id: "folder-repo",
@@ -66,7 +88,15 @@ describe("local content source files", () => {
             chooseFolder: vi.fn(),
             writeFiles,
             writeFile,
-            readFiles: vi.fn(),
+            readFiles: vi.fn().mockResolvedValue({
+              ok: true,
+              folder,
+              sources: {
+                "content/getting-started.mdx":
+                  '---\ntags: "keep-me"\n---\n\nOriginal',
+              },
+              revisions: { "content/getting-started.mdx": "a".repeat(64) },
+            }),
             revealFile: vi.fn(),
             clearFolder: vi.fn(),
           },
@@ -79,21 +109,179 @@ describe("local content source files", () => {
     expect(result).toMatchObject({
       ok: true,
       path: "content/getting-started.mdx",
-      absolutePath: "/Users/steve/repo/content/getting-started.mdx",
       runtime: "desktop",
     });
     expect(writeFile).toHaveBeenCalledWith({
       folderId: "folder-repo",
       path: "content/getting-started.mdx",
       content: expect.stringContaining("Hello from the editor."),
+      expectedRevision: "a".repeat(64),
     });
     expect(writeFile.mock.calls[0]?.[0].content).toContain(
       'title: "Getting Started"',
     );
+    expect(writeFile.mock.calls[0]?.[0].content).toContain('tags: "keep-me"');
     expect(writeFiles).not.toHaveBeenCalled();
   });
 
-  it("resolves absolute paths from a linked desktop content folder", async () => {
+  it("uses source identity to choose the matching Desktop folder", async () => {
+    const selectedFolder = {
+      id: "folder-selected",
+      name: "selected-source",
+      sourcePrefix: "display-prefix",
+    };
+    const writeFile = vi.fn().mockResolvedValue({
+      ok: true,
+      folder: selectedFolder,
+      files: ["notes/roundtrip.md"],
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        agentNativeDesktop: {
+          contentFiles: {
+            getFolder: vi.fn().mockResolvedValue({
+              ok: true,
+              folder: { id: "folder-other", name: "other-source" },
+              folders: [
+                { id: "folder-other", name: "other-source" },
+                selectedFolder,
+              ],
+            }),
+            chooseFolder: vi.fn(),
+            writeFiles: vi.fn(),
+            writeFile,
+            readFiles: vi.fn().mockResolvedValue({
+              ok: true,
+              folder: selectedFolder,
+              sources: { "notes/roundtrip.md": "Original" },
+              revisions: { "notes/roundtrip.md": "b".repeat(64) },
+            }),
+            revealFile: vi.fn(),
+            clearFolder: vi.fn(),
+          },
+        },
+      },
+    });
+    const selectedDocument: Document = {
+      ...document,
+      source: {
+        mode: "local-files",
+        kind: "file",
+        path: "notes/roundtrip.md",
+        rootPath: "folder-selected",
+      },
+    };
+
+    await expect(
+      writeDocumentToLinkedLocalSource(selectedDocument),
+    ).resolves.toMatchObject({ ok: true, runtime: "desktop" });
+    expect(writeFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        folderId: "folder-selected",
+        path: "notes/roundtrip.md",
+      }),
+    );
+  });
+
+  it("passes the observed revision to Desktop and returns a typed stale-write conflict", async () => {
+    const folder = { id: "folder-repo", name: "repo" };
+    const writeFile = vi.fn().mockResolvedValue({
+      ok: false,
+      error: "The local file changed.",
+      code: "conflict",
+      conflict: {
+        path: "content/getting-started.mdx",
+        expectedRevision: "sha256:old",
+        actualRevision: { hash: "sha256:new" },
+      },
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        agentNativeDesktop: {
+          contentFiles: {
+            getFolder: vi.fn().mockResolvedValue({ ok: true, folder }),
+            chooseFolder: vi.fn(),
+            writeFiles: vi.fn(),
+            writeFile,
+            readFiles: vi.fn().mockResolvedValue({
+              ok: true,
+              folder,
+              sources: {
+                "content/getting-started.mdx": "Original",
+              },
+            }),
+            revealFile: vi.fn(),
+            clearFolder: vi.fn(),
+          },
+        },
+      },
+    });
+
+    await expect(
+      writeDocumentToLinkedLocalSource(document, undefined, {
+        expectedRevision: "sha256:old",
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      conflict: {
+        path: "content/getting-started.mdx",
+        expectedRevision: "sha256:old",
+        actualRevision: { hash: "sha256:new" },
+      },
+    });
+    expect(writeFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedRevision: "sha256:old",
+      }),
+    );
+  });
+
+  it("filters Desktop watch events to the linked source file", async () => {
+    const folder = { id: "folder-repo", name: "repo" };
+    let listener:
+      | ((change: { type: "modified"; path: string }) => void)
+      | undefined;
+    const unsubscribe = vi.fn();
+    const watchFiles = vi
+      .fn()
+      .mockImplementation(async (_request, callback) => {
+        listener = callback;
+        return { ok: true, unsubscribe };
+      });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        agentNativeDesktop: {
+          contentFiles: {
+            getFolder: vi.fn().mockResolvedValue({ ok: true, folder }),
+            chooseFolder: vi.fn(),
+            writeFiles: vi.fn(),
+            writeFile: vi.fn(),
+            readFiles: vi.fn(),
+            revealFile: vi.fn(),
+            clearFolder: vi.fn(),
+            watchFiles,
+          },
+        },
+      },
+    });
+    const onChange = vi.fn();
+    const result = await watchLinkedLocalSource(document.source, onChange);
+    listener?.({ type: "modified", path: "content/other.mdx" });
+    listener?.({ type: "modified", path: "content/getting-started.mdx" });
+
+    expect(result).toMatchObject({ ok: true });
+    expect(onChange).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourcePath: "content/getting-started.mdx",
+      }),
+    );
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not expose a linked desktop folder path to the web client", async () => {
     Object.defineProperty(globalThis, "window", {
       configurable: true,
       value: {
@@ -114,9 +302,7 @@ describe("local content source files", () => {
       },
     });
 
-    await expect(localSourceAbsolutePath(document.source)).resolves.toBe(
-      "/Users/steve/repo/content/getting-started.mdx",
-    );
+    await expect(localSourceAbsolutePath(document.source)).resolves.toBeNull();
   });
 
   it("reads linked desktop source files as the document authority", async () => {
@@ -209,7 +395,6 @@ describe("local content source files", () => {
     expect(result).toMatchObject({
       ok: true,
       path: "content/getting-started.mdx",
-      absolutePath: "/Users/steve/repo/content/getting-started.mdx",
       runtime: "desktop",
     });
     expect(revealFile).toHaveBeenCalledWith({

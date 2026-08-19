@@ -24,7 +24,10 @@ function cookieStore(
     if (!url) return true;
     const hostname = new URL(url).hostname;
     const domain = (cookie.domain ?? "").replace(/^\./, "");
-    return hostname === domain || hostname.endsWith(`.${domain}`);
+    return (
+      hostname === domain ||
+      (!cookie.hostOnly && hostname.endsWith(`.${domain}`))
+    );
   };
   return {
     get: vi.fn(async (filter?: Electron.CookiesGetFilter) => {
@@ -1160,6 +1163,30 @@ describe("DesktopIdentityBroker", () => {
     await expect(ceremony).resolves.toBe(false);
   });
 
+  it("reconciles a completed parent session after a stale sign-in status", async () => {
+    const authority = authorityFixture();
+    const identityFetch = vi.fn(async () => sessionResponse());
+    const broker = new DesktopIdentityBroker({
+      identitySession: {
+        cookies: cookieStore([
+          sessionCookie("an_session_dispatch", authority.origin),
+        ]),
+        fetch: identityFetch,
+        clearStorageData: vi.fn(async () => {}),
+      } as unknown as Electron.Session,
+      resolveApp: (id) => (id === authority.id ? authority : null),
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    broker.setStatusForSetting("signing-in");
+    await broker.refreshStatus(authority);
+
+    expect(broker.getStatus()).toBe("signed-in");
+    expect(identityFetch).toHaveBeenCalledOnce();
+  });
+
   it("does not inspect or replace status during workspace sign-out", async () => {
     const authority = authorityFixture();
     const identityCookies = cookieStore([
@@ -1649,6 +1676,7 @@ describe("DesktopIdentityBroker", () => {
   it("uses an isolated identity window and one-time embed sessions for modern fan-out", async () => {
     const authority = authorityFixture();
     const mail = appFixture();
+    mail.alternateOrigins = ["https://beta.mail.agent-native.com"];
     const identityCookies = cookieStore();
     const authorityCookies = cookieStore();
     const mailCookies = cookieStore();
@@ -1784,6 +1812,13 @@ describe("DesktopIdentityBroker", () => {
         value: "mail-session",
       }),
     );
+    expect(mailCookies.set).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: "https://beta.mail.agent-native.com",
+        name: "an_session_mail",
+        value: "mail-session",
+      }),
+    );
     expect(reloadApp).toHaveBeenCalledWith(authority);
     expect(reloadApp).toHaveBeenCalledWith(mail);
     expect(broker.getStatus()).toBe("signed-in");
@@ -1794,6 +1829,7 @@ describe("DesktopIdentityBroker", () => {
         "/_agent-native/actions/create-workspace-app-embed-session",
     );
     const reloadCount = reloadApp.mock.calls.length;
+    const cookieSetCount = mailCookies.set.mock.calls.length;
     await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
     expect(
       identityFetch.mock.calls.filter(
@@ -1803,6 +1839,120 @@ describe("DesktopIdentityBroker", () => {
       ),
     ).toHaveLength(embedSessionRequests.length);
     expect(reloadApp).toHaveBeenCalledTimes(reloadCount);
+    expect(mailCookies.set).toHaveBeenCalledTimes(cookieSetCount);
+
+    // A broker-owned child cookie change must not feed back into adoption and
+    // start another fan-out cycle once the parent and child identities match.
+    await expect(
+      broker.adoptAppSession(mail.id, { fromCookieChange: true }),
+    ).resolves.toBe(true);
+    expect(
+      identityFetch.mock.calls.filter(
+        ([input]) =>
+          new URL(String(input)).pathname ===
+          "/_agent-native/actions/create-workspace-app-embed-session",
+      ),
+    ).toHaveLength(embedSessionRequests.length);
+    expect(reloadApp).toHaveBeenCalledTimes(reloadCount);
+    expect(mailCookies.set).toHaveBeenCalledTimes(cookieSetCount);
+  });
+
+  it("retries an unauthorized embed request through the main-process transport", async () => {
+    const authority = authorityFixture();
+    const mail = appFixture();
+    const identityCookies = cookieStore([
+      sessionCookie("an_session_dispatch", authority.origin, "desktop-session"),
+    ]);
+    const mailCookies = cookieStore();
+    const identityFetch = vi.fn(async (input: string) => {
+      const url = new URL(input);
+      if (url.pathname === "/_agent-native/auth/session") {
+        return sessionResponse("owner@example.com");
+      }
+      if (
+        url.pathname ===
+        "/_agent-native/actions/create-workspace-app-embed-session"
+      ) {
+        return new Response(JSON.stringify({ error: "Not authenticated" }), {
+          status: 401,
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const mainFetch = vi.fn(async (input: string, init?: RequestInit) => {
+      const url = new URL(input);
+      if (
+        url.pathname ===
+        "/_agent-native/actions/create-workspace-app-embed-session"
+      ) {
+        expect(init?.headers).toEqual(
+          expect.objectContaining({
+            Cookie: "an_session_dispatch=desktop-session",
+          }),
+        );
+        return new Response(
+          JSON.stringify({
+            startUrl:
+              "https://mail.agent-native.com/_agent-native/embed/start?ticket=mail-ticket",
+          }),
+          { status: 200 },
+        );
+      }
+      return new Response(null, { status: 404 });
+    });
+    const previousFetch = globalThis.fetch;
+    vi.stubGlobal("fetch", mainFetch);
+    try {
+      mail.session = {
+        cookies: mailCookies,
+        fetch: vi.fn(async (input: string) => {
+          const url = new URL(input);
+          if (url.pathname === "/_agent-native/embed/start") {
+            await mailCookies.set({
+              url: mail.origin,
+              name: "an_session_mail",
+              value: "mail-session",
+            });
+            return new Response("<html></html>", { status: 200 });
+          }
+          return url.pathname === "/_agent-native/auth/session"
+            ? sessionResponse("owner@example.com")
+            : new Response(null, { status: 404 });
+        }),
+      } as unknown as Electron.Session;
+      const broker = new DesktopIdentityBroker({
+        identitySession: {
+          cookies: identityCookies,
+          fetch: identityFetch,
+          clearStorageData: vi.fn(async () => {}),
+        } as unknown as Electron.Session,
+        resolveApp: (id) =>
+          id === authority.id ? authority : id === mail.id ? mail : null,
+        listApps: () => [authority, mail],
+        openExternal: vi.fn(async () => {}),
+        reloadApp: vi.fn(),
+        clearLocalBroker: vi.fn(),
+        createWindow: vi.fn() as never,
+      });
+      broker.setStatusForSetting("signed-in");
+
+      await expect(broker.ensureAppSession(mail.id)).resolves.toBe(true);
+      expect(identityFetch).toHaveBeenCalledWith(
+        expect.stringContaining(
+          "/_agent-native/actions/create-workspace-app-embed-session",
+        ),
+        expect.any(Object),
+      );
+      expect(mainFetch).toHaveBeenCalledOnce();
+      expect(mailCookies.set).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "an_session_mail",
+          value: "mail-session",
+        }),
+      );
+    } finally {
+      vi.stubGlobal("fetch", previousFetch);
+    }
   });
 
   it("does not remint a verified modern child on repeated status notifications", async () => {
@@ -3213,6 +3363,33 @@ describe("DesktopIdentityBroker", () => {
     expect(clearLocalBroker).toHaveBeenCalledOnce();
     expect(reloadApp).toHaveBeenCalledWith(app);
     expect(broker.getStatus()).toBe("sign-in-required");
+  });
+
+  it("clears alternate-lane cookies during workspace sign-out", async () => {
+    const app = appFixture();
+    app.alternateOrigins = ["https://beta.mail.agent-native.com"];
+    app.identityAuthority = true;
+    const identitySession = {
+      cookies: cookieStore(),
+      clearStorageData: vi.fn(async () => {}),
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const broker = new DesktopIdentityBroker({
+      identitySession,
+      resolveApp: () => app,
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await broker.signOut([app]);
+
+    for (const cookieName of app.cookieNamesToClear) {
+      expect(app.session.cookies.remove).toHaveBeenCalledWith(
+        "https://beta.mail.agent-native.com",
+        cookieName,
+      );
+    }
   });
 
   it("attempts every local cleanup and reports failure when central cleanup fails", async () => {

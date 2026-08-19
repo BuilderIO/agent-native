@@ -1,0 +1,153 @@
+name: Deploy Agent Native production sites from GitHub
+
+# Manual production cutover lane. It builds the same repository projects from
+# an exact main commit, uploads their prebuilt output to Netlify, publishes it,
+# and smoke-tests the live host. The existing production manager remains
+# available for rollback and for the workspace site without a local source map.
+on:
+  workflow_dispatch:
+    inputs:
+      sites:
+        description: all repo-backed sites, or comma-separated ids such as clips,design
+        required: true
+        type: string
+        default: all
+      source_ref:
+        description: Optional exact commit SHA; blank uses the latest main commit
+        required: false
+        type: string
+        default: ""
+      smoke:
+        description: Probe each production host after publishing
+        required: true
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-agent-native-production-sites-prebuilt
+  cancel-in-progress: false
+
+jobs:
+  resolve-source:
+    name: Resolve production source commit
+    runs-on: ubuntu-latest
+    outputs:
+      source_ref: ${{ steps.source.outputs.source_ref }}
+    steps:
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        id: source
+        env:
+          REQUESTED_SOURCE_REF: ${{ inputs.source_ref }}
+        with:
+          script: |
+            const requested = process.env.REQUESTED_SOURCE_REF.trim();
+            if (requested && !/^[0-9a-f]{40}$/i.test(requested)) {
+              core.setFailed('source_ref must be a full 40-character commit SHA.');
+              return;
+            }
+            const sourceRef = requested || (await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: 'heads/main',
+            })).data.object.sha;
+            core.info(`production source: ${sourceRef}`);
+            core.setOutput('source_ref', sourceRef);
+
+  discover-sites:
+    name: Discover production sites
+    needs: resolve-source
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.resolve-source.outputs.source_ref }}
+          fetch-depth: 1
+          sparse-checkout: |
+            packages/docs
+            scripts/netlify-production-sites.json
+            templates
+          sparse-checkout-cone-mode: true
+
+      - name: Build the production site matrix
+        id: matrix
+        env:
+          REQUESTED_SITES: ${{ inputs.sites }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const fs = require('node:fs');
+          const path = require('node:path');
+
+          const sites = JSON.parse(
+            fs.readFileSync('scripts/netlify-production-sites.json', 'utf8'),
+          );
+          const requested = process.env.REQUESTED_SITES.trim().toLowerCase();
+          if (!requested) throw new Error('sites must be all or a comma-separated list.');
+
+          const aliases = new Map([
+            ['chat', 'starter'],
+            ['www', 'fw'],
+          ]);
+          const names = requested === 'all'
+            ? Object.keys(sites)
+            : [...new Set(requested.split(',').map((name) => aliases.get(name.trim()) || name.trim()).filter(Boolean))];
+          const unknown = names.filter((name) => !sites[name]);
+          if (unknown.length) throw new Error(`Unknown production site(s): ${unknown.join(', ')}`);
+
+          const projectDirectory = (name) =>
+            name === 'fw' ? 'packages/docs' : `templates/${name === 'starter' ? 'chat' : name}`;
+          const buildable = [];
+          const unsupported = [];
+          for (const name of names) {
+            const directory = projectDirectory(name);
+            if (
+              fs.existsSync(path.join(directory, 'package.json')) &&
+              fs.existsSync(path.join(directory, 'netlify.toml'))
+            ) {
+              buildable.push({ site: name });
+            } else {
+              unsupported.push(`${name} (${directory})`);
+            }
+          }
+
+          if (unsupported.length && requested !== 'all') {
+            throw new Error(`No local Netlify source mapping for: ${unsupported.join(', ')}`);
+          }
+          if (unsupported.length) {
+            console.warn(`Skipping sites without a local source mapping: ${unsupported.join(', ')}`);
+            fs.appendFileSync(
+              process.env.GITHUB_STEP_SUMMARY,
+              `> Skipped sites without a local source mapping: ${unsupported.join(', ')}\n`,
+            );
+          }
+          if (!buildable.length) throw new Error('No buildable production sites selected.');
+
+          fs.appendFileSync(
+            process.env.GITHUB_OUTPUT,
+            `matrix=${JSON.stringify(buildable)}\n`,
+          );
+          console.log(`Discovered ${buildable.length} buildable production sites.`);
+          NODE
+
+  deploy:
+    name: ${{ matrix.site }} production prebuilt deploy
+    needs: [resolve-source, discover-sites]
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.discover-sites.outputs.matrix) }}
+    uses: ./.github/workflows/deploy-netlify-prebuilt.yml
+    with:
+      target: production
+      site: ${{ matrix.site }}
+      source_ref: ${{ needs.resolve-source.outputs.source_ref }}
+      build_context: production
+      deploy: true
+      deploy_mode: production
+      smoke: ${{ inputs.smoke }}
+    secrets: inherit

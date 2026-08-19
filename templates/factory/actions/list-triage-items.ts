@@ -30,7 +30,12 @@ export default defineAction({
       workspaceMemberIdentityFromContext(context),
     );
     const db = getDb();
-    const reviewStatuses = source === "github" ? ["pr_observed"] : ["received"];
+    const reviewStatuses =
+      source === "github"
+        ? ["pr_observed"]
+        : source === "slack"
+          ? ["received", "automation_started", "evidence_ready"]
+          : ["received"];
     const items = await db
       .select()
       .from(triageItems)

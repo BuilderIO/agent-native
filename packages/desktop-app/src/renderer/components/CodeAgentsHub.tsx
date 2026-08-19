@@ -144,6 +144,7 @@ import {
   type MultiFrontierSecondaryActionInput,
 } from "./MultiFrontierWorkspace.js";
 import { UpdateIndicator } from "./UpdateIndicator.js";
+import UpdatePrompt from "./UpdatePrompt.js";
 
 const agentNativeIconUrl = new URL(
   "../assets/agent-native-icon-dark.svg",
@@ -2663,6 +2664,7 @@ export default function CodeAgentsHub({
           }
           railFooterSlot={
             <>
+              <UpdatePrompt />
               <UpdateIndicator />
               <div className="desktop-chat-first-rail-footer-actions">
                 {onOpenSettings ? (

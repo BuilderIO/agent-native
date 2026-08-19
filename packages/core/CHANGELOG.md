@@ -1,5 +1,24 @@
 # @agent-native/core
 
+## 0.164.15
+
+### Patch Changes
+
+- 3f1cf50: Send signed-out users directly to the shared sign-in journey after logout so private app data queries cannot flash before the session gate redirects.
+
+## 0.164.14
+
+### Patch Changes
+
+- 667a1c1: Deliver authenticated Desktop task tools to local code-agent MCP clients.
+- 667a1c1: Add a development-only configuration control for isolated Desktop authentication acceptance runs.
+
+## 0.164.13
+
+### Patch Changes
+
+- 62373a8: Fix Google sign-in callbacks in browsers by keeping the OAuth binding cookie available across the provider redirect.
+
 ## 0.164.12
 
 ### Patch Changes
