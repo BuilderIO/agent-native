@@ -14,6 +14,8 @@ import {
   listCodeAgentTranscriptEvents,
 } from "./code-agent-runs.js";
 import {
+  CodeAgentSchedulesUnreadableError,
+  codeAgentSchedulesPath,
   createCodeAgentSchedule,
   deleteCodeAgentSchedule,
   getCodeAgentSchedule,
@@ -33,6 +35,50 @@ afterEach(() => {
 });
 
 describe("local code-agent schedules", () => {
+  it("refuses to mutate schedules when the existing file is unreadable", () => {
+    useTempCodeAgentsHome();
+    const existing = createCodeAgentSchedule({
+      name: "Nightly sweep",
+      prompt: "Check the latest changes and report blockers.",
+      intervalMinutes: 360,
+      now: new Date("2026-08-19T00:00:00.000Z"),
+    });
+
+    const filePath = codeAgentSchedulesPath();
+    const intact = fs.readFileSync(filePath, "utf8");
+    fs.writeFileSync(filePath, intact.slice(0, Math.floor(intact.length / 2)));
+
+    // A truncated file is unknown, never empty: mutating through it would
+    // rewrite the whole array and drop every stored schedule.
+    expect(() => listCodeAgentSchedules()).toThrow(
+      CodeAgentSchedulesUnreadableError,
+    );
+    expect(() =>
+      createCodeAgentSchedule({
+        name: "Second",
+        prompt: "Another prompt.",
+        intervalMinutes: 60,
+      }),
+    ).toThrow(CodeAgentSchedulesUnreadableError);
+    expect(() => deleteCodeAgentSchedule(existing.id)).toThrow(
+      CodeAgentSchedulesUnreadableError,
+    );
+
+    // The corrupt file is left exactly as found rather than overwritten.
+    expect(fs.readFileSync(filePath, "utf8")).toBe(
+      intact.slice(0, Math.floor(intact.length / 2)),
+    );
+
+    fs.writeFileSync(filePath, intact);
+    expect(listCodeAgentSchedules()).toEqual([existing]);
+  });
+
+  it("still treats a genuinely absent schedules file as empty", () => {
+    useTempCodeAgentsHome();
+    expect(fs.existsSync(codeAgentSchedulesPath())).toBe(false);
+    expect(listCodeAgentSchedules()).toEqual([]);
+  });
+
   it("persists interval schedules and advances the next occurrence", () => {
     useTempCodeAgentsHome();
     const now = new Date("2026-08-19T00:00:00.000Z");

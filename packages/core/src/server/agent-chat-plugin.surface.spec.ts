@@ -200,6 +200,69 @@ describe("request-scoped action surface", () => {
     );
   });
 
+  it("keeps request-scoped action surfaces out of the dev-native tool switch", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const devNativeBlock = source.match(
+      /const devNative =[\s\S]*?const basePrompt = prodPrompt;/,
+    )?.[0];
+
+    expect(source).toMatch(
+      /const devNative =[\s\S]*options\?\.nativeActionsInDev === true \|\| leanPrompt;/,
+    );
+    expect(devNativeBlock).toBeDefined();
+    expect(devNativeBlock).not.toContain("resolveActionSurface");
+  });
+
+  it("keeps request-scoped dev actions available without exposing them natively", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const requestScopedDevActions = options\?\.resolveActionSurface\s+\? Object\.fromEntries\([\s\S]*?discoveredActions, \.\.\.templateScripts[\s\S]*?agentTool: false/s,
+    );
+    expect(source).toMatch(
+      /\.\.\.requestScopedDevActions,\s+\.\.\.resourceScripts,/,
+    );
+  });
+
+  it("keeps local coding tools in every dev handler variant", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const devScriptRegistry = await createDevScriptRegistry\(\{[\s\S]*?databaseTools: databaseToolsMode,[\s\S]*?\}\);/,
+    );
+    expect(source).toMatch(
+      /leanPrompt\s+\? \{ \.\.\.devScriptRegistry, \.\.\.leanActions \}/,
+    );
+    expect(source).toMatch(
+      /devNative\s+\? \{ \.\.\.devScriptRegistry, \.\.\.prodActions \}/,
+    );
+  });
+
+  it("keeps local coding tools available while scoping app actions in dev", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const devSource = readFileSync("src/scripts/dev/index.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const localDevActionNames = new Set\(Object\.keys\(devScriptRegistry\)\);/,
+    );
+    expect(source).toMatch(
+      /availableActionNames: appActionNames,[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.surface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
+    );
+    expect(devSource).toMatch(
+      /unauthorizedActionFromBash\([\s\S]*?getRequestRunContext\(\)\?\.allowedActionNames/s,
+    );
+  });
+
   it("removes denied actions before the actions prompt is generated", () => {
     const actions = {
       allowed: {
@@ -237,7 +300,8 @@ describe("request-scoped action surface", () => {
 
     expect(
       source.match(/resolveActionSurface: options\?\.resolveActionSurface,/g),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
+    expect(source).toContain("resolveActionSurface: resolveDevActionSurface");
   });
 
   it("filters late-bound sandbox bridge registries to the request surface", async () => {

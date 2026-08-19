@@ -3892,7 +3892,6 @@ body {
   grid-template-columns: minmax(0, 1fr);
   margin: 0 48px 36px;
   overflow: hidden;
-  border-top: 1px solid hsl(var(--border));
 }
 
 .desktop-code-agent-schedules__body--selected {
@@ -3907,27 +3906,11 @@ body {
   overflow: auto;
 }
 
-.desktop-code-agent-schedules__list-header,
 .desktop-code-agent-schedules__row {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) minmax(100px, 150px);
+  grid-template-columns: 28px minmax(0, 1fr);
   align-items: center;
   gap: 12px;
-}
-
-.desktop-code-agent-schedules__list-header {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  padding: 12px 16px;
-  border-bottom: 1px solid hsl(var(--border));
-  background: hsl(var(--background));
-  color: hsl(var(--muted-foreground));
-  font-size: 11px;
-}
-
-.desktop-code-agent-schedules__list-header span:last-child {
-  text-align: right;
 }
 
 .desktop-code-agent-schedules__row {
@@ -3981,10 +3964,6 @@ body {
   white-space: nowrap;
 }
 
-.desktop-code-agent-schedules__row-next {
-  text-align: right;
-}
-
 .desktop-code-agent-schedules__empty {
   display: grid;
   min-height: 260px;
@@ -4024,6 +4003,13 @@ body {
 .desktop-code-agent-schedules__detail h2 {
   max-width: 270px;
   font-size: 19px;
+}
+
+.desktop-code-agent-schedules__detail-description {
+  margin: 7px 0 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  line-height: 1.45;
 }
 
 .desktop-code-agent-schedules__status {
@@ -4099,6 +4085,23 @@ body {
 .desktop-code-agent-schedules__field-hint {
   color: hsl(var(--muted-foreground));
   font-size: 10px;
+  font-weight: 400;
+}
+
+.desktop-code-agent-schedules__interval-input {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.desktop-code-agent-schedules__interval-input input {
+  flex: 1 1 auto;
+}
+
+.desktop-code-agent-schedules__interval-input > span {
+  flex: 0 0 auto;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
   font-weight: 400;
 }
 
