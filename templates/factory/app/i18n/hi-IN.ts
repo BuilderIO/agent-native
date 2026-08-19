@@ -228,6 +228,8 @@ const messages = {
     historyRestoreConfirm: "संस्करण पुनर्स्थापित करें",
     historyRestored: "संस्करण पुनर्स्थापित हो गया। नया वर्तमान संस्करण बनाया गया।",
     historyRestoreFailed: "यह Factory संस्करण पुनर्स्थापित नहीं हो सका।",
+    historyRestoreConflict:
+      "पुनर्स्थापना के दौरान Factory बदल गया। दोबारा प्रयास करने से पहले रीफ़्रेश किए गए इतिहास की समीक्षा करें।",
     historyRefreshFailed:
       "संस्करण पुनर्स्थापित हो गया, लेकिन Factory दृश्य रीफ़्रेश नहीं हो सका।",
     historyLoadOlder: "पुराने संस्करण लोड करें",
@@ -345,6 +347,9 @@ const messages = {
     addComment: "टिप्पणी जोड़ें",
     savingGraph: "ग्राफ़ सहेजा जा रहा है...",
     saveGraph: "फ़ैक्टरी बदलाव सहेजें",
+    saveConflictHint:
+      "आपके सहेजे न गए बदलाव सुरक्षित रखे गए हैं। नए Factory संस्करण को लोड करने के लिए उन्हें हटाएँ।",
+    discardLocalChanges: "स्थानीय बदलाव हटाएँ और वर्तमान संस्करण लोड करें",
     savedGraph: "फ़ैक्टरी सहेजी गई",
     saveNote: "नया संस्करण सहेजता है। मौजूदा रन अपना मूल संदर्भ बनाए रखते हैं।",
     factoryName: "फ़ैक्टरी का नाम",

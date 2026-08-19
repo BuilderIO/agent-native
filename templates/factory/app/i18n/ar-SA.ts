@@ -225,6 +225,8 @@ const messages = {
     historyRestoreConfirm: "استعادة الإصدار",
     historyRestored: "تمت استعادة الإصدار. تم إنشاء إصدار حالي جديد.",
     historyRestoreFailed: "تعذر استعادة إصدار Factory هذا.",
+    historyRestoreConflict:
+      "تغيّر Factory أثناء الاستعادة. راجع السجل المحدّث قبل المحاولة مرة أخرى.",
     historyRefreshFailed: "تمت استعادة الإصدار، ولكن تعذر تحديث عرض Factory.",
     historyLoadOlder: "تحميل الإصدارات الأقدم",
     historySnapshotLoadError: "تعذر تحميل معاينة هذا الإصدار.",
@@ -341,6 +343,9 @@ const messages = {
     addComment: "إضافة تعليق",
     savingGraph: "جارٍ حفظ الرسم...",
     saveGraph: "حفظ تغييرات المصنع",
+    saveConflictHint:
+      "تم الاحتفاظ بالتغييرات غير المحفوظة. تجاهلها لتحميل إصدار Factory الأحدث.",
+    discardLocalChanges: "تجاهل التغييرات المحلية وتحميل الإصدار الحالي",
     savedGraph: "تم حفظ المصنع",
     saveNote: "يحفظ إصدارًا جديدًا. تحتفظ عمليات التشغيل الحالية بسياقها الأصلي.",
     factoryName: "اسم المصنع",

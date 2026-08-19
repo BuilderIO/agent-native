@@ -21,7 +21,7 @@ import { stableId } from "../server/triage/ids.js";
 
 export default defineAction({
   description:
-    "Create or update a Factory's versioned visual graph. Use source=ai for an agent-proposed graph and source=manual for a direct editor save. This changes configuration only; it never starts provider work.",
+    "Create or update a Factory's versioned visual graph. Pass expectedGraphVersion from the graph you inspected so stale edits are rejected. Use source=ai for an agent-proposed graph and source=manual for a direct editor save. This changes configuration only; it never starts provider work.",
   schema: z.object({
     factoryId: z
       .string()
@@ -35,6 +35,7 @@ export default defineAction({
     prompt: z.string().trim().max(10_000).default(""),
     source: z.enum(["manual", "ai", "seed"]).default("manual"),
     changeSummary: z.string().trim().max(500).default(""),
+    expectedGraphVersion: z.coerce.number().int().nonnegative(),
     graph: factoryGraphSchema,
   }),
   link: ({ result }) => ({
@@ -46,7 +47,16 @@ export default defineAction({
     label: `Open ${result.name} in Factory`,
   }),
   run: async (
-    { factoryId, name, description, prompt, source, changeSummary, graph },
+    {
+      factoryId,
+      name,
+      description,
+      prompt,
+      source,
+      changeSummary,
+      expectedGraphVersion,
+      graph,
+    },
     context,
   ) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
@@ -67,6 +77,11 @@ export default defineAction({
           )
           .limit(1)
       )[0];
+      if ((existing?.graphVersion ?? 0) !== expectedGraphVersion) {
+        throw new Error(
+          "Factory changed while saving. Refresh the Factory and try again.",
+        );
+      }
       const nextVersion = (existing?.graphVersion ?? 0) + 1;
       const normalizedGraph = normalizeFactoryGraph({
         ...graph,
@@ -98,7 +113,7 @@ export default defineAction({
             and(
               eq(factoryDefinitions.id, factoryId),
               eq(factoryDefinitions.orgId, orgId),
-              eq(factoryDefinitions.graphVersion, existing.graphVersion),
+              eq(factoryDefinitions.graphVersion, expectedGraphVersion),
             ),
           )
           .returning({ id: factoryDefinitions.id });

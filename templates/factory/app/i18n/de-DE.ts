@@ -239,6 +239,8 @@ const messages = {
       "Version wiederhergestellt. Eine neue aktuelle Version wurde erstellt.",
     historyRestoreFailed:
       "Diese Factory-Version konnte nicht wiederhergestellt werden.",
+    historyRestoreConflict:
+      "Factory wurde während der Wiederherstellung geändert. Prüfe den aktualisierten Verlauf, bevor du es erneut versuchst.",
     historyRefreshFailed:
       "Die Version wurde wiederhergestellt, aber die Factory-Ansicht konnte nicht aktualisiert werden.",
     historyLoadOlder: "Ältere Versionen laden",
@@ -365,6 +367,10 @@ const messages = {
     addComment: "Kommentar hinzufügen",
     savingGraph: "Graph wird gespeichert...",
     saveGraph: "Factory-Änderungen speichern",
+    saveConflictHint:
+      "Deine nicht gespeicherten Änderungen bleiben erhalten. Verwirf sie, um die neuere Factory-Version zu laden.",
+    discardLocalChanges:
+      "Lokale Änderungen verwerfen und aktuelle Version laden",
     savedGraph: "Factory ist gespeichert",
     saveNote:
       "Speichert eine neue Version. Bestehende Läufe behalten ihren ursprünglichen Kontext.",

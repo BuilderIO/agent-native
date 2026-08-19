@@ -235,6 +235,8 @@ const messages = {
     historyRestored:
       "バージョンを復元しました。新しい現在のバージョンを作成しました。",
     historyRestoreFailed: "この Factory バージョンを復元できませんでした。",
+    historyRestoreConflict:
+      "復元中に Factory が変更されました。再試行する前に更新された履歴を確認してください。",
     historyRefreshFailed:
       "バージョンは復元されましたが、Factory ビューを更新できませんでした。",
     historyLoadOlder: "以前のバージョンを読み込む",
@@ -359,6 +361,9 @@ const messages = {
     addComment: "コメントを追加",
     savingGraph: "グラフを保存中...",
     saveGraph: "ファクトリーの変更を保存",
+    saveConflictHint:
+      "未保存の変更は保持されています。破棄して新しい Factory バージョンを読み込んでください。",
+    discardLocalChanges: "ローカル変更を破棄して現在のバージョンを読み込む",
     savedGraph: "ファクトリーを保存しました",
     saveNote:
       "新しいバージョンを保存します。既存の実行は元のコンテキストを保持します。",

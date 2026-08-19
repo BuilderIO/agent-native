@@ -239,6 +239,8 @@ const messages = {
     historyRestoreConfirm: "Restaurar versão",
     historyRestored: "Versão restaurada. Uma nova versão atual foi criada.",
     historyRestoreFailed: "Não foi possível restaurar esta versão do Factory.",
+    historyRestoreConflict:
+      "O Factory mudou durante a restauração. Revise o histórico atualizado antes de tentar novamente.",
     historyRefreshFailed:
       "A versão foi restaurada, mas não foi possível atualizar a visualização do Factory.",
     historyLoadOlder: "Carregar versões anteriores",
@@ -363,6 +365,10 @@ const messages = {
     addComment: "Adicionar comentário",
     savingGraph: "Salvando o grafo...",
     saveGraph: "Salvar alterações da fábrica",
+    saveConflictHint:
+      "Suas alterações não salvas foram preservadas. Descarte-as para carregar a versão mais recente do Factory.",
+    discardLocalChanges:
+      "Descartar alterações locais e carregar a versão atual",
     savedGraph: "A fábrica está salva",
     saveNote:
       "Salva uma nova versão. As execuções existentes mantêm o contexto original.",

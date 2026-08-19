@@ -220,6 +220,8 @@ const messages = {
     historyRestoreConfirm: "恢复版本",
     historyRestored: "版本已恢复。新的当前版本已创建。",
     historyRestoreFailed: "无法恢复此 Factory 版本。",
+    historyRestoreConflict:
+      "恢复过程中 Factory 已发生变化。请在重试前查看刷新后的历史记录。",
     historyRefreshFailed: "版本已恢复，但无法刷新 Factory 视图。",
     historyLoadOlder: "加载更早的版本",
     historySnapshotLoadError: "无法加载此版本的预览。",
@@ -333,6 +335,9 @@ const messages = {
     addComment: "添加评论",
     savingGraph: "正在保存图...",
     saveGraph: "保存工厂更改",
+    saveConflictHint:
+      "你的未保存更改已保留。请丢弃它们以加载更新的 Factory 版本。",
+    discardLocalChanges: "丢弃本地更改并加载当前版本",
     savedGraph: "工厂已保存",
     saveNote: "保存新版本。现有运行会保留其原始上下文。",
     factoryName: "工厂名称",

@@ -232,6 +232,8 @@ const messages = {
     historyRestoreConfirm: "버전 복원",
     historyRestored: "버전이 복원되었습니다. 새로운 현재 버전을 만들었습니다.",
     historyRestoreFailed: "이 Factory 버전을 복원하지 못했습니다.",
+    historyRestoreConflict:
+      "복원하는 동안 Factory가 변경되었습니다. 다시 시도하기 전에 새로 고친 기록을 검토하세요.",
     historyRefreshFailed:
       "버전은 복원되었지만 Factory 화면을 새로 고칠 수 없습니다.",
     historyLoadOlder: "이전 버전 불러오기",
@@ -350,6 +352,9 @@ const messages = {
     addComment: "댓글 추가",
     savingGraph: "그래프 저장 중...",
     saveGraph: "팩토리 변경 사항 저장",
+    saveConflictHint:
+      "저장하지 않은 변경 사항은 보존됩니다. 삭제하고 최신 Factory 버전을 불러오세요.",
+    discardLocalChanges: "로컬 변경 사항을 삭제하고 현재 버전 불러오기",
     savedGraph: "팩토리가 저장되었습니다",
     saveNote: "새 버전을 저장합니다. 기존 실행은 원래 맥락을 유지합니다.",
     factoryName: "팩토리 이름",

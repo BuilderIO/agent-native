@@ -159,6 +159,49 @@ describe("Factory graph history actions", () => {
     });
   });
 
+  it("rejects a stale graph save before allocating a new version", async () => {
+    const definition = {
+      id: "product-feedback",
+      graphVersion: 3,
+      orgId: "org-1",
+    };
+    const tx = {
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          where: vi.fn(() => ({
+            limit: vi.fn().mockResolvedValue([definition]),
+          })),
+        })),
+      })),
+      update: vi.fn(),
+      insert: vi.fn(),
+    };
+    getDbMock.mockReturnValue({
+      transaction: vi.fn(async (callback: (value: typeof tx) => unknown) =>
+        callback(tx),
+      ),
+    });
+
+    const { default: action } = await import("./save-factory-graph.js");
+    await expect(
+      action.run(
+        {
+          factoryId: "product-feedback",
+          name: "Stale graph",
+          description: "",
+          prompt: "",
+          source: "manual",
+          changeSummary: "Stale save.",
+          expectedGraphVersion: 2,
+          graph,
+        },
+        { userEmail: "owner@example.com", orgId: "org-1" },
+      ),
+    ).rejects.toThrow("Factory changed while saving");
+    expect(tx.update).not.toHaveBeenCalled();
+    expect(tx.insert).not.toHaveBeenCalled();
+  });
+
   it("restores by appending a new version and updating the current definition atomically", async () => {
     const definition = {
       id: "product-feedback",

@@ -59,7 +59,6 @@ type RestoreResult = {
 
 interface FactoryHistoryViewProps {
   factoryId: string;
-  currentVersion: number;
   hasUnsavedChanges: boolean;
   onRestored: (result?: RestoreResult) => Promise<void>;
 }
@@ -68,7 +67,6 @@ const HISTORY_PAGE_SIZE = 25;
 
 export function FactoryHistoryView({
   factoryId,
-  currentVersion,
   hasUnsavedChanges,
   onRestored,
 }: FactoryHistoryViewProps) {
@@ -155,10 +153,11 @@ export function FactoryHistoryView({
         ? preferredVersionId
         : (page.versions[0]?.id ?? null),
     );
+    return page;
   }
 
   function isCurrent(version: FactoryGraphVersion) {
-    return version.isCurrent || version.version === currentVersion;
+    return version.isCurrent;
   }
 
   function requestRestore(version: FactoryGraphVersion) {
@@ -181,6 +180,7 @@ export function FactoryHistoryView({
     setRestoreError(null);
     setRestoreRefreshError(null);
     setRestoringVersionId(version.id);
+    const expectedCurrentVersion = historyQuery.data?.currentVersion ?? null;
     let rawResult: unknown;
     try {
       rawResult = await restoreMutation.mutateAsync({
@@ -188,11 +188,39 @@ export function FactoryHistoryView({
         versionId: version.id,
       });
     } catch (error) {
-      setRestoreError(
-        error instanceof Error
-          ? error.message
-          : t("factoryRoute.historyRestoreFailed"),
-      );
+      let reconciliation: RestoreReconciliation = "unverified";
+      try {
+        const page = await refreshHistory();
+        reconciliation = reconcileRestoreFailure(
+          page,
+          version,
+          expectedCurrentVersion,
+        );
+      } catch {
+        reconciliation = "unverified";
+      }
+      if (reconciliation === "committed") {
+        setPendingRestore(null);
+        setRestoreError(null);
+        setRestoreStatus(t("factoryRoute.historyRestored"));
+        try {
+          await onRestored();
+        } catch {
+          setRestoreRefreshError(t("factoryRoute.historyRefreshFailed"));
+        }
+      } else if (reconciliation === "conflict") {
+        setPendingRestore(null);
+        setRestoreError(t("factoryRoute.historyRestoreConflict"));
+      } else if (reconciliation === "unverified") {
+        setPendingRestore(null);
+        setRestoreError(t("factoryRoute.historyRestoreUnverified"));
+      } else {
+        setRestoreError(
+          error instanceof Error
+            ? error.message
+            : t("factoryRoute.historyRestoreFailed"),
+        );
+      }
       setRestoringVersionId(null);
       return;
     }
@@ -643,4 +671,39 @@ function isFactoryCanvasGraph(value: unknown): value is FactoryCanvasGraph {
     Array.isArray(graph.nodes) &&
     Array.isArray(graph.edges)
   );
+}
+
+type RestoreReconciliation =
+  | "committed"
+  | "conflict"
+  | "retryable"
+  | "unverified";
+
+function reconcileRestoreFailure(
+  page: FactoryGraphHistoryResponse,
+  target: FactoryGraphVersion,
+  expectedCurrentVersion: number | null,
+): RestoreReconciliation {
+  const latest = page.versions[0];
+  const targetSummary = `Restored version ${target.version}.`;
+  if (
+    page.currentVersion === target.version ||
+    (page.currentVersion !== null &&
+      page.currentVersion > target.version &&
+      latest?.isCurrent === true &&
+      latest.source === "restore" &&
+      latest.changeSummary === targetSummary)
+  ) {
+    return "committed";
+  }
+  if (
+    expectedCurrentVersion !== null &&
+    page.currentVersion !== expectedCurrentVersion
+  ) {
+    return "conflict";
+  }
+  if (expectedCurrentVersion === null && page.currentVersion !== null) {
+    return "conflict";
+  }
+  return "retryable";
 }

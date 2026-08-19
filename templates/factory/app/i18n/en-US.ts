@@ -234,6 +234,8 @@ const messages = {
     historyRestoreConfirm: "Restore version",
     historyRestored: "Version restored. A new current version was created.",
     historyRestoreFailed: "Could not restore this Factory version.",
+    historyRestoreConflict:
+      "Factory changed while restoring. Review the refreshed history before trying again.",
     historyRefreshFailed:
       "The version was restored, but the Factory view could not refresh.",
     historyLoadOlder: "Load older versions",
@@ -350,6 +352,9 @@ const messages = {
     addComment: "Add comment",
     savingGraph: "Saving graph...",
     saveGraph: "Save factory changes",
+    saveConflictHint:
+      "Your unsaved edits are preserved. Discard them to load the newer Factory version.",
+    discardLocalChanges: "Discard local edits and load current version",
     savedGraph: "Factory is saved",
     saveNote: "Saves a new version. Existing runs keep their original context.",
     factoryName: "Factory name",

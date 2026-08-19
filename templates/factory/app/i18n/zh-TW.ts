@@ -220,6 +220,8 @@ const messages = {
     historyRestoreConfirm: "還原版本",
     historyRestored: "版本已還原。新的目前版本已建立。",
     historyRestoreFailed: "無法還原此 Factory 版本。",
+    historyRestoreConflict:
+      "還原期間 Factory 已變更。請在重試前檢視重新整理後的歷史記錄。",
     historyRefreshFailed: "版本已還原，但無法重新整理 Factory 檢視畫面。",
     historyLoadOlder: "載入較早的版本",
     historySnapshotLoadError: "無法載入此版本的預覽。",
@@ -333,6 +335,9 @@ const messages = {
     addComment: "新增留言",
     savingGraph: "正在儲存圖表...",
     saveGraph: "儲存工廠變更",
+    saveConflictHint:
+      "你的未儲存變更已保留。請捨棄它們以載入較新的 Factory 版本。",
+    discardLocalChanges: "捨棄本機變更並載入目前版本",
     savedGraph: "工廠已儲存",
     saveNote: "儲存新版本。現有執行會保留其原始內容。",
     factoryName: "工廠名稱",

@@ -29,10 +29,12 @@ interface FactoryInspectorProps {
   dirty: boolean;
   saving: boolean;
   saveError: string | null;
+  saveConflictNeedsResolution: boolean;
   refreshing: boolean;
   onGraphChange: (graph: FactoryCanvasGraph) => void;
   onSave: () => void;
   onRefresh: () => void;
+  onDiscardLocalChanges: () => void;
   onAddNode: () => void;
   onDeleteNode: (nodeId: string) => void;
   onConnect: (sourceId: string, targetId: string) => void;
@@ -64,10 +66,12 @@ export function FactoryInspector({
   dirty,
   saving,
   saveError,
+  saveConflictNeedsResolution,
   refreshing,
   onGraphChange,
   onSave,
   onRefresh,
+  onDiscardLocalChanges,
   onAddNode,
   onDeleteNode,
   onConnect,
@@ -403,19 +407,38 @@ export function FactoryInspector({
           <IconAlertCircle className="mt-0.5 size-4 shrink-0" />
           <div className="min-w-0 flex-1 space-y-2">
             <p>{saveError}</p>
-            <Button
-              type="button"
-              variant="link"
-              size="sm"
-              className="h-auto p-0 text-destructive"
-              disabled={refreshing}
-              onClick={onRefresh}
-            >
-              {refreshing ? (
-                <IconLoader2 className="size-3.5 animate-spin" />
-              ) : null}
-              {t("triage.refresh")}
-            </Button>
+            {saveConflictNeedsResolution ? (
+              <p className="text-xs leading-5 text-destructive/80">
+                {t("factoryInspector.saveConflictHint")}
+              </p>
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              {!saveConflictNeedsResolution ? (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-destructive"
+                  disabled={refreshing}
+                  onClick={onRefresh}
+                >
+                  {refreshing ? (
+                    <IconLoader2 className="size-3.5 animate-spin" />
+                  ) : null}
+                  {t("triage.refresh")}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="link"
+                  size="sm"
+                  className="h-auto p-0 text-destructive"
+                  onClick={onDiscardLocalChanges}
+                >
+                  {t("factoryInspector.discardLocalChanges")}
+                </Button>
+              )}
+            </div>
           </div>
         </div>
       ) : null}

@@ -187,6 +187,8 @@ export default function FactoryRoute() {
   const [draftGraph, setDraftGraph] = useState<FactoryCanvasGraph | null>(null);
   const [dirty, setDirty] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveConflictRemoteGraph, setSaveConflictRemoteGraph] =
+    useState<FactoryCanvasGraph | null>(null);
   const [refreshingFactory, setRefreshingFactory] = useState(false);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
@@ -268,12 +270,12 @@ export default function FactoryRoute() {
   const factoryList = (factoryListQuery.data ?? []) as FactorySummary[];
 
   useEffect(() => {
-    if (!graphData || creating) return;
+    if (!graphData || creating || dirty) return;
     setDraftGraph(graphData.graph);
     setDirty(false);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
-  }, [creating, graphData]);
+  }, [creating, dirty, graphData]);
 
   useEffect(() => {
     setSelectedNodeId(searchParams.get("node"));
@@ -322,6 +324,7 @@ export default function FactoryRoute() {
 
   function updateGraph(next: FactoryCanvasGraph) {
     setSaveError(null);
+    setSaveConflictRemoteGraph(null);
     setDraftGraph(next);
     setDirty(
       !graphData?.graph ||
@@ -416,10 +419,12 @@ export default function FactoryRoute() {
         changeSummary: creating
           ? "Created from the Factory visual editor."
           : "Updated in the Factory visual editor.",
+        expectedGraphVersion: creating ? 0 : graph.version,
         graph,
       });
       setCreating(false);
       setDirty(false);
+      setSaveConflictRemoteGraph(null);
       await Promise.all([graphQuery.refetch(), factoryListQuery.refetch()]);
     } catch (error) {
       setSaveError(
@@ -440,6 +445,14 @@ export default function FactoryRoute() {
       if (results.some((result) => result.isError)) {
         throw new Error("Factory refresh failed.");
       }
+      const remoteGraph = (results[0].data as FactoryGraphResponse | undefined)
+        ?.graph;
+      if (dirty) {
+        if (!remoteGraph) throw new Error("Factory graph refresh failed.");
+        setSaveConflictRemoteGraph(remoteGraph);
+        setSaveError(t("factoryRoute.saveConflictFallback"));
+        return;
+      }
       setSaveError(null);
     } catch {
       setSaveError(t("factoryRoute.saveConflictFallback"));
@@ -448,12 +461,24 @@ export default function FactoryRoute() {
     }
   }
 
+  function discardLocalFactoryChanges() {
+    if (!saveConflictRemoteGraph) return;
+    setDraftGraph(saveConflictRemoteGraph);
+    setSaveConflictRemoteGraph(null);
+    setSaveError(null);
+    setDirty(false);
+    setCreating(false);
+    setSelectedNodeId(null);
+    setSelectedEdgeId(null);
+  }
+
   async function handleFactoryRestored(result?: { graph: FactoryCanvasGraph }) {
     setCreating(false);
     if (result?.graph) setDraftGraph(result.graph);
     else setDraftGraph(null);
     setDirty(false);
     setSaveError(null);
+    setSaveConflictRemoteGraph(null);
     setSelectedNodeId(null);
     setSelectedEdgeId(null);
     const results = await Promise.all([
@@ -787,10 +812,12 @@ export default function FactoryRoute() {
               dirty={dirty}
               saving={saveGraphMutation.isPending}
               saveError={saveError}
+              saveConflictNeedsResolution={Boolean(saveConflictRemoteGraph)}
               refreshing={refreshingFactory}
               onGraphChange={updateGraph}
               onSave={() => void saveGraph()}
               onRefresh={refreshFactoryAfterSaveConflict}
+              onDiscardLocalChanges={discardLocalFactoryChanges}
               onAddNode={addNode}
               onDeleteNode={deleteNode}
               onConnect={connectNodes}
@@ -813,7 +840,6 @@ export default function FactoryRoute() {
           <FactoryHistoryView
             key={factoryId}
             factoryId={factoryId}
-            currentVersion={graphVersion}
             hasUnsavedChanges={dirty}
             onRestored={handleFactoryRestored}
           />
