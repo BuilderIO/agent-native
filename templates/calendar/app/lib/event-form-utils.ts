@@ -12,6 +12,18 @@ export type RecurrencePreset =
   | "yearly"
   | "custom";
 
+export type RecurrenceUnit = "day" | "week" | "month" | "year";
+export type RecurrenceEndMode = "never" | "date" | "count";
+
+export interface CustomRecurrenceDraft {
+  interval: number;
+  unit: RecurrenceUnit;
+  days: string[];
+  endMode: RecurrenceEndMode;
+  endDate: string;
+  count: number;
+}
+
 export interface ReminderDraft {
   id: string;
   method: ReminderMethod;
@@ -385,6 +397,107 @@ export function getRecurrencePreset(recurrence?: string[]): RecurrencePreset {
   if (freq === "MONTHLY") return "monthly";
   if (freq === "YEARLY") return "yearly";
   return "custom";
+}
+
+function recurrenceFieldValue(rule: string, key: string): string | undefined {
+  return rule.match(new RegExp(`${key}=([^;]+)`, "i"))?.[1];
+}
+
+function recurrenceWeekday(startIso: string, timeZone?: string) {
+  return eventWeekdayCode(startIso, timeZone);
+}
+
+export function createCustomRecurrenceDraft(
+  startIso: string,
+  timeZone?: string,
+): CustomRecurrenceDraft {
+  return {
+    interval: 1,
+    unit: "week",
+    days: [recurrenceWeekday(startIso, timeZone)],
+    endMode: "never",
+    endDate: "",
+    count: 13,
+  };
+}
+
+export function parseCustomRecurrence(
+  recurrence: string[] | undefined,
+  startIso: string,
+  timeZone?: string,
+): CustomRecurrenceDraft {
+  const draft = createCustomRecurrenceDraft(startIso, timeZone);
+  const rule = recurrenceRule(recurrence);
+  if (!rule) return draft;
+
+  const freq = recurrenceFieldValue(rule, "FREQ")?.toLowerCase();
+  const unit: RecurrenceUnit =
+    freq === "daily"
+      ? "day"
+      : freq === "weekly"
+        ? "week"
+        : freq === "monthly"
+          ? "month"
+          : freq === "yearly"
+            ? "year"
+            : draft.unit;
+  const interval = Number.parseInt(
+    recurrenceFieldValue(rule, "INTERVAL") || "1",
+    10,
+  );
+  const count = Number.parseInt(
+    recurrenceFieldValue(rule, "COUNT") || String(draft.count),
+    10,
+  );
+  const until = recurrenceFieldValue(rule, "UNTIL");
+  const byDay = recurrenceFieldValue(rule, "BYDAY")
+    ?.split(",")
+    .map((day) => day.replace(/^[+-]?\d+/, "").toUpperCase())
+    .filter(Boolean);
+
+  return {
+    interval: Number.isFinite(interval) ? Math.max(1, interval) : 1,
+    unit,
+    days: byDay && byDay.length > 0 ? byDay : unit === "week" ? draft.days : [],
+    endMode: until
+      ? "date"
+      : recurrenceFieldValue(rule, "COUNT")
+        ? "count"
+        : "never",
+    endDate:
+      until && /^\d{8}/.test(until)
+        ? `${until.slice(0, 4)}-${until.slice(4, 6)}-${until.slice(6, 8)}`
+        : "",
+    count: Number.isFinite(count) ? Math.max(1, count) : draft.count,
+  };
+}
+
+export function buildCustomRecurrenceRules(
+  draft: CustomRecurrenceDraft,
+): string[] {
+  const interval = Math.max(1, Math.round(draft.interval));
+  const frequency = {
+    day: "DAILY",
+    week: "WEEKLY",
+    month: "MONTHLY",
+    year: "YEARLY",
+  }[draft.unit];
+  const parts = [
+    `FREQ=${frequency}`,
+    ...(interval > 1 ? [`INTERVAL=${interval}`] : []),
+  ];
+  if (draft.unit === "week" && draft.days.length > 0) {
+    parts.push(`BYDAY=${draft.days.join(",")}`);
+  }
+  if (draft.unit === "month" && draft.days.length > 0) {
+    parts.push(`BYDAY=${draft.days.join(",")}`);
+  }
+  if (draft.endMode === "date" && /^\d{4}-\d{2}-\d{2}$/.test(draft.endDate)) {
+    parts.push(`UNTIL=${draft.endDate.replace(/-/g, "")}T235959Z`);
+  } else if (draft.endMode === "count") {
+    parts.push(`COUNT=${Math.max(1, Math.round(draft.count))}`);
+  }
+  return [`RRULE:${parts.join(";")}`];
 }
 
 export function buildRecurrenceRules(

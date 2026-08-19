@@ -63,7 +63,7 @@ decisions, feedback, agent runs, and provider audit records.
 | `evaluate-triage-item` | Append a decision. |
 | `record-triage-feedback` | Capture human correction for learning. |
 | `approve-factory-item` | Explicitly authorize one bounded run. |
-| `start-builder-for-item` | Govern clear-bug dispatch through Slack or Builder API. |
+| `start-builder-for-item` | Govern clear-bug dispatch through Slack or Builder API, or record a skip reason. |
 | `govern-agent-native-pull-request` | Apply PR evidence and ownership gates. |
 | `list-factory-automations` / `save-factory-automation` / `run-factory-automation` | Inspect or edit org-owned automations. |
 | `list-factory-audit` | Inspect automation runs, evidence, decisions, and provider actions. |

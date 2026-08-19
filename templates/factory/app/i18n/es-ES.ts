@@ -71,6 +71,7 @@ const messages = {
     status: "Estado",
     coverage: "Cobertura",
     reason: "Motivo",
+    updatedAt: "Actualizado",
     detailTitle: "Detalle de la decisión",
     selectItem:
       "Selecciona un elemento para inspeccionar sus evidencias y decisiones.",
@@ -269,12 +270,15 @@ const messages = {
     automationSchedulePlaceholder: "Por ejemplo, cada día laborable a las 9:00",
     automationEnabledLabel: "La automatización está activada",
     automationPrompt: "Prompt",
+    automationLastUpdated: "última actualización",
     automationPromptPlaceholder:
       "¿Qué debe hacer la fábrica cuando se ejecute?",
     promptEditorHint: "Edita aquí y guarda la automatización.",
     pastRuns: "Ejecuciones anteriores",
     pastRunsEmpty: "Aún no hay ejecuciones registradas.",
     saveAutomation: "Guardar",
+    automationSaved: "Guardado",
+    automationSaveFailed: "No se pudo guardar la automatización.",
     runNow: "Ejecutar ahora",
     automationHealthTitle: "Estado del programador",
     automationHealthDescription:

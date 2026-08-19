@@ -1,5 +1,6 @@
 import {
   AgentToggleButton,
+  requestAgentChatThreadOpen,
   useChatModels,
 } from "@agent-native/core/client/agent-chat";
 import {
@@ -18,8 +19,9 @@ import {
   IconPlus,
   IconRefresh,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import { FactoryAgentsView } from "@/components/factory/FactoryAgentsView";
 import { FactoryAuditView } from "@/components/factory/FactoryAuditView";
@@ -79,6 +81,7 @@ type TriageDecision = {
 type TriageItem = {
   itemId?: string;
   id?: string;
+  title?: string | null;
   source?: string | null;
   sourceName?: string | null;
   sourceUrl?: string | null;
@@ -88,6 +91,8 @@ type TriageItem = {
   reason?: string | null;
   decisionSummary?: string | null;
   decisions?: TriageDecision[] | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
 };
 
 type TriageRule = {
@@ -161,6 +166,7 @@ type FactoryAutomation = {
   timezone?: string | null;
   condition?: string | null;
   canUpdate?: boolean;
+  updatedAt?: string | number | null;
   runs?: FactoryAutomationRun[] | null;
   pastRuns?: FactoryAutomationRun[] | null;
 };
@@ -1046,7 +1052,8 @@ function AutomationsView({
         current.body === nextDraft.body &&
         current.model === nextDraft.model &&
         current.schedule === nextDraft.schedule &&
-        current.enabled === nextDraft.enabled
+        current.enabled === nextDraft.enabled &&
+        current.updatedAt === nextDraft.updatedAt
       ) {
         return current;
       }
@@ -1056,16 +1063,25 @@ function AutomationsView({
 
   async function saveAutomation() {
     if (!draft) return;
-    await saveMutation.mutateAsync({
-      factoryId,
-      automationId: draft.id,
-      name: draft.name,
-      prompt: draft.prompt ?? draft.body ?? "",
-      model: draft.model ?? "",
-      schedule: draft.schedule ?? "",
-      enabled: draft.enabled,
-    });
-    await automationsQuery.refetch();
+    try {
+      await saveMutation.mutateAsync({
+        factoryId,
+        automationId: draft.id,
+        name: draft.name,
+        prompt: draft.prompt ?? draft.body ?? "",
+        model: draft.model ?? "",
+        schedule: draft.schedule ?? "",
+        enabled: draft.enabled,
+      });
+      await automationsQuery.refetch();
+      toast.success(t("factoryRoute.automationSaved"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("factoryRoute.automationSaveFailed"),
+      );
+    }
   }
 
   async function runAutomation() {
@@ -1101,27 +1117,34 @@ function AutomationsView({
                 role="tablist"
                 aria-label={t("factoryRoute.automationsTitle")}
               >
-                {automations.map((automation) => (
-                  <button
-                    key={automation.id}
-                    type="button"
-                    id={`factory-automation-tab-${automation.id}`}
-                    role="tab"
-                    aria-selected={activeAutomationId === automation.id}
-                    aria-controls="factory-automation-panel"
-                    className={`w-full cursor-pointer rounded-lg bg-muted/20 p-4 text-left transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${activeAutomationId === automation.id ? "bg-muted/60" : ""}`}
-                    onClick={() => selectAutomation(automation.id)}
-                  >
-                    <span className="block truncate text-sm font-medium">
-                      {automation.name}
-                    </span>
-                    <span className="mt-1 block truncate text-xs text-muted-foreground">
-                      {automation.enabled
-                        ? t("factoryRoute.automationEnabled")
-                        : t("factoryRoute.automationDisabled")}
-                    </span>
-                  </button>
-                ))}
+                {automations.map((automation) => {
+                  const selected = activeAutomationId === automation.id;
+                  return (
+                    <button
+                      key={automation.id}
+                      type="button"
+                      id={`factory-automation-tab-${automation.id}`}
+                      role="tab"
+                      aria-selected={selected}
+                      aria-controls="factory-automation-panel"
+                      className={`w-full cursor-pointer rounded-lg p-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring ${
+                        selected
+                          ? "bg-primary/10 ring-1 ring-inset ring-primary/40"
+                          : "bg-muted/20 hover:bg-muted/50"
+                      }`}
+                      onClick={() => selectAutomation(automation.id)}
+                    >
+                      <span className="block truncate text-sm font-medium">
+                        {automation.name}
+                      </span>
+                      <span className="mt-1 block truncate text-xs text-muted-foreground">
+                        {automation.enabled
+                          ? t("factoryRoute.automationEnabled")
+                          : t("factoryRoute.automationDisabled")}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             )}
           </CardContent>
@@ -1259,8 +1282,24 @@ function AutomationsView({
                   </div>
                 </div>
                 <div className="grid gap-1.5">
-                  <Label>{t("factoryRoute.automationPrompt")}</Label>
+                  <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                    <Label htmlFor="factory-automation-prompt">
+                      {t("factoryRoute.automationPrompt")}
+                    </Label>
+                    {draft.updatedAt ? (
+                      <span className="capitalize text-xs text-muted-foreground">
+                        {t("factoryRoute.automationLastUpdated")}{" "}
+                        <time
+                          dateTime={new Date(draft.updatedAt).toISOString()}
+                          title={formatAutomationDate(draft.updatedAt)}
+                        >
+                          {formatInboxDateTime(draft.updatedAt)}
+                        </time>
+                      </span>
+                    ) : null}
+                  </div>
                   <Textarea
+                    id="factory-automation-prompt"
                     value={draft.prompt ?? draft.body ?? ""}
                     onChange={(event) =>
                       setDraft({ ...draft, prompt: event.target.value })
@@ -1296,11 +1335,25 @@ function AutomationsView({
                             </span>
                             {run.threadId && (
                               <a
-                                className="inline-flex items-center gap-1 text-xs text-muted-foreground underline-offset-4 hover:underline"
+                                className="inline-flex items-center text-xs text-muted-foreground underline-offset-4 hover:underline"
                                 href={`/chat/${encodeURIComponent(run.threadId)}`}
+                                onClick={(event) => {
+                                  if (
+                                    event.metaKey ||
+                                    event.ctrlKey ||
+                                    event.shiftKey ||
+                                    event.altKey ||
+                                    event.button !== 0
+                                  ) {
+                                    return;
+                                  }
+                                  event.preventDefault();
+                                  requestAgentChatThreadOpen({
+                                    threadId: run.threadId!,
+                                  });
+                                }}
                               >
                                 {t("factoryRoute.automationOpenThread")}
-                                <IconExternalLink className="size-3" />
                               </a>
                             )}
                             {run.error && (
@@ -1329,6 +1382,52 @@ function formatAutomationDate(value: string | number | null | undefined) {
   return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
 }
 
+function formatInboxDateTime(value: string | number | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatInboxAge(value: string | number | null | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+
+  const elapsedSeconds = Math.max(
+    0,
+    Math.floor((Date.now() - date.getTime()) / 1_000),
+  );
+  if (elapsedSeconds < 60) return "now";
+  const elapsedMinutes = Math.floor(elapsedSeconds / 60);
+  if (elapsedMinutes < 60) return `${elapsedMinutes}m`;
+  const elapsedHours = Math.floor(elapsedMinutes / 60);
+  if (elapsedHours < 24) return `${elapsedHours}h`;
+  const elapsedDays = Math.floor(elapsedHours / 24);
+  if (elapsedDays < 30) return `${elapsedDays}d`;
+  const elapsedMonths = Math.floor(elapsedDays / 30);
+  if (elapsedMonths < 12) return `${elapsedMonths}mo`;
+  return `${Math.floor(elapsedMonths / 12)}y`;
+}
+
+const reviewListColumns =
+  "w-full gap-3 sm:grid-cols-[minmax(0,1.3fr)_minmax(4.75rem,auto)_minmax(5.5rem,auto)_minmax(4.5rem,auto)_minmax(0,1.3fr)] sm:items-start";
+
+function formatInboxSource(source: string | null | undefined) {
+  const normalized = source?.toLowerCase() ?? "";
+  if (normalized.includes("slack")) return "Slack";
+  if (normalized.includes("github")) return "GitHub";
+  if (normalized.includes("sentry")) return "Sentry";
+  const trimmed = source?.trim();
+  return trimmed ? trimmed : "Source";
+}
+
 function formatModelName(model: string | null | undefined) {
   const value = model?.trim();
   if (!value) return "the app default";
@@ -1349,6 +1448,7 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
   );
   const [feedbackNote, setFeedbackNote] = useState("");
   const [verdict, setVerdict] = useState<Verdict | null>(null);
+  const selectedRowRef = useRef<HTMLButtonElement | null>(null);
   const listQuery = useActionQuery("list-triage-items", {
     limit: 50,
     ...(status.trim()
@@ -1381,6 +1481,14 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
   useEffect(() => {
     setSelectedId(searchParams.get("itemId"));
   }, [searchParams]);
+
+  useEffect(() => {
+    if (!selectedId) return;
+    selectedRowRef.current?.scrollIntoView({
+      block: "nearest",
+      inline: "nearest",
+    });
+  }, [selectedId, normalizedItems.length]);
 
   function selectItem(itemId: string) {
     setSelectedId(itemId);
@@ -1441,19 +1549,51 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
             </p>
           ) : (
             <div className="grid gap-1.5 p-2">
+              <div
+                className={`hidden px-4 py-2 text-[11px] uppercase tracking-wide text-muted-foreground sm:grid ${reviewListColumns}`}
+              >
+                <span />
+                <span>{t("triage.risk")}</span>
+                <span>{t("triage.status")}</span>
+                <span>{t("triage.updatedAt")}</span>
+                <span>{t("triage.reason")}</span>
+              </div>
               {normalizedItems.map((item) => {
                 const id = item.itemId ?? item.id ?? "";
+                const selected = selectedId === id;
+                const createdAtLabel = formatInboxDateTime(item.createdAt);
+                const updatedAge = formatInboxAge(item.updatedAt);
                 return (
                   <button
                     key={id}
+                    ref={selected ? selectedRowRef : undefined}
                     type="button"
-                    className={`grid w-full gap-3 rounded-lg bg-muted/20 p-4 text-left transition-colors hover:bg-muted/50 sm:grid-cols-[1.1fr_.7fr_.9fr_1.6fr] ${selectedId === id ? "bg-muted/60" : ""}`}
+                    aria-current={selected ? "true" : undefined}
+                    className={`grid rounded-lg px-4 py-3 text-left transition-colors ${reviewListColumns} ${
+                      selected
+                        ? "bg-primary/10 ring-1 ring-inset ring-primary/40"
+                        : "bg-muted/20 hover:bg-muted/50"
+                    }`}
                     onClick={() => selectItem(id)}
                   >
                     <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">
-                        {item.sourceName ?? item.source ?? "Unknown source"}
+                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
+                        {formatInboxSource(item.source ?? item.sourceName)}
                       </span>
+                      <span className="block truncate text-sm font-medium">
+                        {item.title?.trim() ||
+                          item.sourceName ||
+                          item.source ||
+                          "Untitled"}
+                      </span>
+                      {createdAtLabel && item.createdAt && (
+                        <time
+                          className="mt-0.5 block text-xs text-muted-foreground"
+                          dateTime={item.createdAt}
+                        >
+                          {createdAtLabel}
+                        </time>
+                      )}
                       {item.sourceUrl && (
                         <span className="mt-1 flex max-w-full items-center gap-1 truncate text-xs text-primary">
                           {item.sourceUrl}
@@ -1462,20 +1602,36 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
                       )}
                     </span>
                     <span>
-                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                        Risk
+                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                        {t("triage.risk")}
                       </span>
                       <TriageStatusPill status={item.risk} />
                     </span>
                     <span>
-                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                        Status
+                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                        {t("triage.status")}
                       </span>
                       <TriageStatusPill status={item.status} />
                     </span>
-                    <span className="truncate">
-                      <span className="block text-[11px] uppercase tracking-wide text-muted-foreground">
-                        Reason
+                    <span>
+                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                        {t("triage.updatedAt")}
+                      </span>
+                      {updatedAge && item.updatedAt ? (
+                        <time
+                          className="text-sm tabular-nums text-muted-foreground"
+                          dateTime={item.updatedAt}
+                          title={formatAutomationDate(item.updatedAt)}
+                        >
+                          {updatedAge}
+                        </time>
+                      ) : (
+                        <span className="text-sm text-muted-foreground">-</span>
+                      )}
+                    </span>
+                    <span className="min-w-0 truncate">
+                      <span className="mb-1 block text-[11px] uppercase tracking-wide text-muted-foreground sm:hidden">
+                        {t("triage.reason")}
                       </span>
                       <span className="text-sm">
                         {item.reason ?? item.decisionSummary ?? "-"}
@@ -1501,8 +1657,15 @@ function InboxView({ t }: { t: ReturnType<typeof useT> }) {
             <>
               <div className="flex items-start justify-between gap-3">
                 <div>
+                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                    {formatInboxSource(
+                      selectedItem.source ?? selectedItem.sourceName,
+                    )}
+                  </p>
                   <p className="text-sm font-medium">
-                    {selectedItem.sourceName ?? selectedItem.source}
+                    {selectedItem.title?.trim() ||
+                      selectedItem.sourceName ||
+                      selectedItem.source}
                   </p>
                   {selectedItem.sourceUrl && (
                     <a
