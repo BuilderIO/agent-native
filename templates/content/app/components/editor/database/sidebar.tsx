@@ -14,6 +14,8 @@ import {
   IconDatabase,
   IconDots,
   IconFileText,
+  IconFolder,
+  IconFolderOpen,
   IconPlus,
   IconStar,
   IconTrash,
@@ -266,6 +268,7 @@ export function ContentFilesSidebarView({
     : undefined;
   const manualReorderEnabled =
     Boolean(manualReorder) &&
+    !items.some((item) => item.document.source?.kind === "folder") &&
     (sidebarOrder?.mode ?? "custom") === "custom" &&
     activeView.sorts.length === 0 &&
     activeView.filters.length === 0 &&
@@ -745,6 +748,39 @@ function DatabaseSidebarRow({
   }
 
   const title = item.document.title || untitledLabel;
+
+  if (item.document.source?.kind === "folder") {
+    return (
+      <div className="group relative min-w-0">
+        <button
+          type="button"
+          className="flex h-7 w-full min-w-0 items-center gap-1.5 rounded pe-1.5 text-start text-sm text-foreground/85 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          style={{
+            paddingInlineStart: `${databaseSidebarRowIndent(depth, hasChildren)}px`,
+          }}
+          aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${title}`}
+          aria-expanded={expanded}
+          onClick={() => onToggleExpanded?.(!expanded)}
+          onPointerUp={(event) => event.currentTarget.blur()}
+        >
+          <span className="flex size-7 shrink-0 items-center justify-center text-muted-foreground">
+            <IconChevronRight
+              className={cn(
+                "size-3.5 transition-transform",
+                expanded && "rotate-90",
+              )}
+            />
+          </span>
+          {expanded ? (
+            <IconFolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+          ) : (
+            <IconFolder className="size-3.5 shrink-0 text-muted-foreground" />
+          )}
+          <span className="min-w-0 flex-1 truncate">{title}</span>
+        </button>
+      </div>
+    );
+  }
 
   return (
     <>

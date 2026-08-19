@@ -45,7 +45,12 @@ import {
   syncLocalControlResources,
   type LocalControlResourceFiles,
 } from "@/lib/local-control-resources";
-import { rememberLiveLocalFolderSource } from "@/lib/local-folder-live-sync";
+import {
+  connectTemporaryLocalFolder,
+  rememberLiveLocalFolderSource,
+  requestLiveLocalFolderActivation,
+  syncLiveLocalFolder,
+} from "@/lib/local-folder-live-sync";
 import {
   hasInterruptedNativeFolderPickerAttempt,
   runNativeFolderPickerWithCrashSentinel,
@@ -744,6 +749,7 @@ export default function LocalFilesRoute() {
   const targetDatabaseId = searchParams.get("databaseId") || undefined;
   const manifestConnectionId = searchParams.get("connectionId") || undefined;
   const manifestFile = searchParams.get("file") || undefined;
+  const workingCopyId = searchParams.get("workingCopyId") || undefined;
   const workspacePropertyValues = (
     location.state as {
       workspacePropertyValues?: Record<string, unknown>;
@@ -756,6 +762,7 @@ export default function LocalFilesRoute() {
   const [restoringDirectory, setRestoringDirectory] = useState(false);
   const supported = useMemo(supportsLocalFolderSync, []);
   const manifestBootstrapRef = useRef<string | null>(null);
+  const workingCopyBootstrapRef = useRef<string | null>(null);
   const documentSourceDirectories = useMemo(
     () =>
       directories.length === 0
@@ -838,6 +845,59 @@ export default function LocalFilesRoute() {
     t,
     targetSpaceId,
   ]);
+
+  useEffect(() => {
+    if (!workingCopyId) return;
+    if (workingCopyBootstrapRef.current === workingCopyId) return;
+    workingCopyBootstrapRef.current = workingCopyId;
+    const desktopFiles = getDesktopContentFiles();
+    if (!desktopFiles) return;
+    setBusy("choose");
+    void desktopFiles
+      .getFolder({ folderId: workingCopyId })
+      .then(async (folderResult) => {
+        if (!folderResult.ok || folderResult.folder.kind !== "temporary") {
+          throw new Error(
+            folderResult.ok
+              ? t("localFiles.chooseAnotherFolder")
+              : folderResult.error,
+          );
+        }
+        const sourceId = await connectTemporaryLocalFolder(folderResult.folder);
+        if (!sourceId) throw new Error(t("localFiles.chooseAnotherFolder"));
+        const outcome = await syncLiveLocalFolder(workingCopyId);
+        if (!outcome.synced) {
+          throw new Error(t("localFiles.chooseAnotherFolder"));
+        }
+        const result = outcome.result as ImportContentSourceResult;
+        const firstDocument = [
+          ...result.created,
+          ...result.updated,
+          ...result.unchanged,
+        ][0];
+        if (!firstDocument)
+          throw new Error(t("localFiles.chooseAnotherFolder"));
+        requestLiveLocalFolderActivation(workingCopyId);
+        await Promise.all([
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
+          }),
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-content-database"],
+          }),
+        ]);
+        navigate(`/page/${firstDocument.id}`, { replace: true });
+      })
+      .catch((err) => {
+        workingCopyBootstrapRef.current = null;
+        setStatus({
+          kind: "error",
+          title: t("localFiles.pullFailed"),
+          detail: err instanceof Error ? err.message : t("localFiles.tryAgain"),
+        });
+      })
+      .finally(() => setBusy(null));
+  }, [navigate, queryClient, t, workingCopyId]);
 
   useEffect(() => {
     if (!supported) return;
@@ -1020,7 +1080,7 @@ export default function LocalFilesRoute() {
       throw new Error("The local folder connection was not created");
     }
     if (!dryRun && refreshedDirectory.kind === "desktop") {
-      rememberLiveLocalFolderSource(
+      await rememberLiveLocalFolderSource(
         refreshedDirectory.folder,
         connection.sourceId,
         connection.filesDatabaseId,
@@ -1133,9 +1193,21 @@ export default function LocalFilesRoute() {
         if (!desktopFiles) {
           throw new Error(t("localFiles.desktopFolderUnavailable"));
         }
+        const observed = await desktopFiles.readFiles({
+          folderId: directory.id,
+        });
+        if (!observed.ok) throw new Error(observed.error);
+        const expectedRevisions: Record<string, string | null> = {
+          ...(observed.revisions ?? {}),
+        };
+        for (const filePath of Object.keys(files)) {
+          if (!(filePath in expectedRevisions))
+            expectedRevisions[filePath] = null;
+        }
         const result = await desktopFiles.writeFiles({
           folderId: directory.id,
           files,
+          expectedRevisions,
         });
         if (!result.ok) throw new Error(result.error);
         setDirectories((current) =>

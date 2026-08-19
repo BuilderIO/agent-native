@@ -136,6 +136,12 @@ import {
 } from "@/lib/desktop-content-files";
 import { contentLiveLocalFoldersEnabled } from "@/lib/local-folder-feature";
 import {
+  consumeLiveLocalFolderActivation,
+  liveLocalFolderSourceId,
+  pendingLiveLocalFolderActivation,
+  subscribeLiveLocalFolderActivation,
+} from "@/lib/local-folder-live-sync";
+import {
   markDocumentCreationPending,
   shouldCreateDocumentOptimistically,
 } from "@/lib/optimistic-document";
@@ -146,6 +152,11 @@ import {
   isDirectLocalDocument,
 } from "./document-sidebar-sections";
 import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
+import {
+  firstLocalSourceDocumentId,
+  localSourceItemIdentity,
+  projectLocalSourceHierarchy,
+} from "./local-source-hierarchy";
 import {
   contentSpaceAvailability,
   contentSpaceForStoredSelection,
@@ -471,14 +482,24 @@ function WorkspaceSidebarItem({
             ? current
             : (main?.id ?? related[0]?.id ?? null),
       );
+      if (
+        preferFolderId &&
+        related.some((folder) => folder.id === preferFolderId)
+      ) {
+        consumeLiveLocalFolderActivation(preferFolderId);
+      }
     };
-    void refresh();
+    void refresh(pendingLiveLocalFolderActivation() ?? undefined);
     const remove = desktop.onChange?.((event) => {
       void refresh(event.reason === "attached" ? event.folderId : undefined);
+    });
+    const removeActivation = subscribeLiveLocalFolderActivation((folderId) => {
+      void refresh(folderId);
     });
     return () => {
       active = false;
       remove?.();
+      removeActivation();
     };
   }, []);
   const activeFilesDatabaseId = useDeferredFilesDatabaseId(
@@ -490,38 +511,73 @@ function WorkspaceSidebarItem({
   const filesDatabaseData = isContentDatabaseUnavailable(filesDatabase.data)
     ? undefined
     : filesDatabase.data;
-  const selectedWorkingCopy = localWorkingCopies.find(
-    (folder) => folder.id === selectedWorkingCopyId,
+  const workspaceSourceIds = new Set(
+    filesDatabaseData?.items.flatMap((item) => {
+      const identity = localSourceItemIdentity(item);
+      return identity ? [identity] : [];
+    }) ?? [],
   );
-  const selectedSourceRoot = selectedWorkingCopy
-    ? selectedWorkingCopy.kind === "temporary"
-      ? selectedWorkingCopy.name
-      : (selectedWorkingCopy.sourcePrefix ?? selectedWorkingCopy.name)
-    : undefined;
-  const workingCopyRoots = new Set(
-    localWorkingCopies.map((folder) =>
+  const workspaceRootPaths = new Set(
+    filesDatabaseData?.items.flatMap((item) => {
+      const rootPath = item.document.source?.rootPath;
+      return rootPath ? [rootPath] : [];
+    }) ?? [],
+  );
+  const relatedWorkingCopies = localWorkingCopies.filter((folder) => {
+    const sourceId = folder.id ? liveLocalFolderSourceId(folder.id) : null;
+    const rootPath =
       folder.kind === "temporary"
         ? folder.name
-        : (folder.sourcePrefix ?? folder.name),
-    ),
+        : (folder.sourcePrefix ?? folder.name);
+    return (
+      (typeof sourceId === "string" && workspaceSourceIds.has(sourceId)) ||
+      workspaceRootPaths.has(folder.id ?? rootPath) ||
+      workspaceRootPaths.has(rootPath)
+    );
+  });
+  const selectedWorkingCopy =
+    relatedWorkingCopies.find(
+      (folder) => folder.id === selectedWorkingCopyId,
+    ) ??
+    relatedWorkingCopies.find((folder) => folder.kind !== "temporary") ??
+    relatedWorkingCopies[0];
+  const selectedSourceRoot = selectedWorkingCopy
+    ? (selectedWorkingCopy.id ??
+      (selectedWorkingCopy.kind === "temporary"
+        ? selectedWorkingCopy.name
+        : (selectedWorkingCopy.sourcePrefix ?? selectedWorkingCopy.name)))
+    : undefined;
+  const selectedSourceId = selectedWorkingCopy?.id
+    ? liveLocalFolderSourceId(selectedWorkingCopy.id)
+    : undefined;
+  const workingCopySourceIds = new Set(
+    relatedWorkingCopies.flatMap((folder) => {
+      const sourceId = folder.id ? liveLocalFolderSourceId(folder.id) : null;
+      return sourceId ? [sourceId] : [];
+    }),
   );
   const hasRelatedLocalFiles = filesDatabaseData?.items.some(
     (item) =>
       item.document.source?.mode === "local-files" &&
-      !!item.document.source.rootName &&
-      workingCopyRoots.has(item.document.source.rootName),
+      (workingCopySourceIds.has(localSourceItemIdentity(item) ?? "") ||
+        relatedWorkingCopies.some(
+          (folder) =>
+            item.document.source?.rootPath ===
+            (folder.id ??
+              (folder.kind === "temporary"
+                ? folder.name
+                : (folder.sourcePrefix ?? folder.name))),
+        )),
   );
-  const visibleFilesDatabaseData =
-    selectedSourceRoot && filesDatabaseData
-      ? {
-          ...filesDatabaseData,
-          items: filesDatabaseData.items.filter(
-            (item) =>
-              item.document.source?.mode !== "local-files" ||
-              item.document.source.rootName === selectedSourceRoot,
-          ),
-        }
-      : filesDatabaseData;
+  const visibleFilesDatabaseData = filesDatabaseData
+    ? {
+        ...filesDatabaseData,
+        items: projectLocalSourceHierarchy(filesDatabaseData.items, {
+          sourceId: selectedSourceId,
+          rootPath: selectedSourceRoot,
+        }),
+      }
+    : undefined;
   const openedWorkingCopyIdRef = useRef<string | null>(null);
   useEffect(() => {
     if (
@@ -531,12 +587,12 @@ function WorkspaceSidebarItem({
     ) {
       return;
     }
-    const firstDocument = visibleFilesDatabaseData?.items.find(
-      (item) => item.document.source?.mode === "local-files",
-    )?.document;
-    if (!firstDocument) return;
+    const firstDocumentId = firstLocalSourceDocumentId(
+      visibleFilesDatabaseData?.items ?? [],
+    );
+    if (!firstDocumentId) return;
     openedWorkingCopyIdRef.current = selectedWorkingCopy.id;
-    onActivate(space, firstDocument.id);
+    onActivate(space, firstDocumentId);
   }, [onActivate, selectedWorkingCopy, space, visibleFilesDatabaseData]);
   const resolvedFilesDatabaseId = filesDatabaseData?.database.id ?? null;
   const filesPersonalView = useContentDatabasePersonalView(
@@ -701,7 +757,7 @@ function WorkspaceSidebarItem({
       </div>
       {expanded ? (
         <div className="min-w-0 pb-1 ps-4">
-          {localWorkingCopies.some((folder) => folder.kind === "temporary") &&
+          {relatedWorkingCopies.some((folder) => folder.kind === "temporary") &&
           selectedWorkingCopy &&
           hasRelatedLocalFiles ? (
             <DropdownMenu>
@@ -731,7 +787,7 @@ function WorkspaceSidebarItem({
                 </button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-64">
-                {localWorkingCopies.map((folder) => (
+                {relatedWorkingCopies.map((folder) => (
                   <DropdownMenuItem
                     key={folder.id}
                     onSelect={() => setSelectedWorkingCopyId(folder.id ?? null)}

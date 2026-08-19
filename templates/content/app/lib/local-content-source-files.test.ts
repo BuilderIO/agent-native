@@ -5,6 +5,7 @@ import {
   localSourceAbsolutePath,
   readDocumentFromLinkedLocalSource,
   revealLinkedLocalSourceFile,
+  sourceFileContent,
   watchLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "./local-content-source-files";
@@ -46,6 +47,26 @@ describe("local content source files", () => {
     });
   });
 
+  it("preserves source-owned frontmatter while replacing Content-managed fields", () => {
+    const existingSource = `---
+title: "Old title"
+tags: ["acceptance", "local"]
+unchanged_key: preserve-me
+# source-owned comment
+---
+
+Old body`;
+
+    const serialized = sourceFileContent(document, existingSource);
+
+    expect(serialized).toContain('title: "Getting Started"');
+    expect(serialized).not.toContain('title: "Old title"');
+    expect(serialized).toContain('tags: ["acceptance", "local"]');
+    expect(serialized).toContain("unchanged_key: preserve-me");
+    expect(serialized).toContain("# source-owned comment");
+    expect(serialized).toContain("Hello from the editor.");
+  });
+
   it("writes an edited document through the desktop single-file bridge", async () => {
     const folder = {
       id: "folder-repo",
@@ -67,7 +88,14 @@ describe("local content source files", () => {
             chooseFolder: vi.fn(),
             writeFiles,
             writeFile,
-            readFiles: vi.fn(),
+            readFiles: vi.fn().mockResolvedValue({
+              ok: true,
+              folder,
+              sources: {
+                "content/getting-started.mdx":
+                  '---\ntags: "keep-me"\n---\n\nOriginal',
+              },
+            }),
             revealFile: vi.fn(),
             clearFolder: vi.fn(),
           },
@@ -90,7 +118,67 @@ describe("local content source files", () => {
     expect(writeFile.mock.calls[0]?.[0].content).toContain(
       'title: "Getting Started"',
     );
+    expect(writeFile.mock.calls[0]?.[0].content).toContain('tags: "keep-me"');
     expect(writeFiles).not.toHaveBeenCalled();
+  });
+
+  it("uses source identity to choose the matching Desktop folder", async () => {
+    const selectedFolder = {
+      id: "folder-selected",
+      name: "selected-source",
+      sourcePrefix: "display-prefix",
+    };
+    const writeFile = vi.fn().mockResolvedValue({
+      ok: true,
+      folder: selectedFolder,
+      files: ["notes/roundtrip.md"],
+    });
+    Object.defineProperty(globalThis, "window", {
+      configurable: true,
+      value: {
+        agentNativeDesktop: {
+          contentFiles: {
+            getFolder: vi.fn().mockResolvedValue({
+              ok: true,
+              folder: { id: "folder-other", name: "other-source" },
+              folders: [
+                { id: "folder-other", name: "other-source" },
+                selectedFolder,
+              ],
+            }),
+            chooseFolder: vi.fn(),
+            writeFiles: vi.fn(),
+            writeFile,
+            readFiles: vi.fn().mockResolvedValue({
+              ok: true,
+              folder: selectedFolder,
+              sources: { "notes/roundtrip.md": "Original" },
+            }),
+            revealFile: vi.fn(),
+            clearFolder: vi.fn(),
+          },
+        },
+      },
+    });
+    const selectedDocument: Document = {
+      ...document,
+      source: {
+        mode: "local-files",
+        kind: "file",
+        path: "notes/roundtrip.md",
+        rootPath: "folder-selected",
+      },
+    };
+
+    await expect(
+      writeDocumentToLinkedLocalSource(selectedDocument),
+    ).resolves.toMatchObject({ ok: true, runtime: "desktop" });
+    expect(writeFile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        folderId: "folder-selected",
+        path: "notes/roundtrip.md",
+      }),
+    );
   });
 
   it("passes the observed revision to Desktop and returns a typed stale-write conflict", async () => {
@@ -114,7 +202,13 @@ describe("local content source files", () => {
             chooseFolder: vi.fn(),
             writeFiles: vi.fn(),
             writeFile,
-            readFiles: vi.fn(),
+            readFiles: vi.fn().mockResolvedValue({
+              ok: true,
+              folder,
+              sources: {
+                "content/getting-started.mdx": "Original",
+              },
+            }),
             revealFile: vi.fn(),
             clearFolder: vi.fn(),
           },

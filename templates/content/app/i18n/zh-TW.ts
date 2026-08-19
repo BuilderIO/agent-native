@@ -111,6 +111,7 @@ const messages = {
     couldNotSaveLocalFile: "無法儲存本機檔案",
     localFileChangedWithUnsavedEdits:
       "此頁面有未儲存的編輯時，磁碟上的檔案已變更。",
+    localFileReadOnlySnapshot: "唯讀快照 · 上次由 {{device}} 於 {{date}} 同步",
     copyUnsavedText: "複製我未儲存的文字",
     unsavedTextCopied: "已複製未儲存的文字",
     useDiskVersion: "使用磁碟版本",

@@ -33,6 +33,8 @@ import { buildGuestThemeScript, type RendererTheme } from "../lib/theme.js";
 import DesktopIdentityGate from "./DesktopIdentityGate.js";
 
 const IS_DEV = window.location.protocol !== "file:";
+const DEV_APP_LOAD_TIMEOUT_MS = 60_000;
+const APP_LOAD_TIMEOUT_MS = 15_000;
 export const APP_WEBVIEW_PREFERENCES =
   "contextIsolation=true,nodeIntegration=false,sandbox=true,backgroundThrottling=true";
 
@@ -870,18 +872,21 @@ const AppWebview = forwardRef<AppWebviewHandle, AppWebviewProps>(
     useEffect(() => {
       if (app.placeholder || error || !isLoading) return;
       const slowT = setTimeout(() => setSlowLoad(true), 2500);
-      const failT = setTimeout(() => {
-        if (isLoading) {
-          loadFailureRef.current = true;
-          setError(true);
-          setIsLoading(false);
-        }
-      }, 8000);
+      const failT = setTimeout(
+        () => {
+          if (isLoading) {
+            loadFailureRef.current = true;
+            setError(true);
+            setIsLoading(false);
+          }
+        },
+        isDevMode ? DEV_APP_LOAD_TIMEOUT_MS : APP_LOAD_TIMEOUT_MS,
+      );
       return () => {
         clearTimeout(slowT);
         clearTimeout(failT);
       };
-    }, [app.placeholder, error, isLoading, url]);
+    }, [app.placeholder, error, isDevMode, isLoading, url]);
 
     // Auto-focus the webview when it becomes active so keyboard events
     // (e.g. Tab to cycle mail filters) go to the app, not the shell.

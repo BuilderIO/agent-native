@@ -8,6 +8,10 @@ export interface DesktopContentFilesFolder {
     commit?: string;
     detached?: boolean;
   };
+  contentSource?: {
+    sourceId: string;
+    databaseId?: string;
+  };
   sourcePrefix?: string;
   updatedAt?: string;
 }
@@ -21,7 +25,7 @@ export type DesktopContentFileRevision = string;
 
 export interface DesktopContentFileConflict {
   path: string;
-  expectedRevision?: string;
+  expectedRevision?: string | null;
   actualRevision?: string;
 }
 
@@ -45,6 +49,7 @@ export type DesktopContentFilesResult =
       files?: string[];
       sources?: Record<string, string>;
       revisions?: Record<string, DesktopContentFileRevision>;
+      identities?: Record<string, string>;
       controlResources?: Record<string, string>;
     }
   | {
@@ -62,20 +67,27 @@ export interface DesktopContentFilesApi {
     request?: DesktopContentFilesFolderRequest,
   ): Promise<DesktopContentFilesResult>;
   chooseFolder(): Promise<DesktopContentFilesResult>;
+  associateSource?(request: {
+    folderId: string;
+    sourceId: string;
+    databaseId?: string;
+  }): Promise<DesktopContentFilesResult>;
   writeFiles(request: {
     folderId?: string;
     files: Record<string, string>;
+    expectedRevisions: Record<string, string | null>;
   }): Promise<DesktopContentFilesResult>;
   writeFile(request: {
     folderId?: string;
     path: string;
     content: string;
     /** The revision observed by the editor; a mismatch must not overwrite. */
-    expectedRevision?: string;
+    expectedRevision?: string | null;
   }): Promise<DesktopContentFilesResult>;
   deleteFile?(request: {
     folderId?: string;
     path: string;
+    expectedRevision: string;
   }): Promise<DesktopContentFilesResult>;
   readFiles(
     request?: DesktopContentFilesFolderRequest,

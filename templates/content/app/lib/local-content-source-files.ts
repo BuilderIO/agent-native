@@ -9,6 +9,7 @@ import { getDesktopContentFiles } from "./desktop-content-files";
 import type {
   DesktopContentFileRevision,
   DesktopContentFilesChange,
+  DesktopContentFilesFolder,
 } from "./desktop-content-files";
 
 type PermissionState = "granted" | "denied" | "prompt";
@@ -69,7 +70,7 @@ export type LocalSourceFileResult =
       unavailable?: boolean;
       conflict?: {
         path: string;
-        expectedRevision?: string;
+        expectedRevision?: string | null;
         actualRevision?: DesktopContentFileRevision;
       };
     };
@@ -239,7 +240,10 @@ async function resolveBrowserSourceForPath(filePath: string) {
   };
 }
 
-async function resolveDesktopSourceForPath(filePath: string) {
+async function resolveDesktopSourceForPath(
+  filePath: string,
+  source?: DocumentSourceInfo,
+) {
   const desktopFiles = getDesktopContentFiles();
   if (!desktopFiles) return null;
   const result = await desktopFiles.getFolder();
@@ -248,7 +252,31 @@ async function resolveDesktopSourceForPath(filePath: string) {
     result.folders && result.folders.length > 0
       ? result.folders
       : [result.folder];
+  const sourceFolder = source?.rootPath
+    ? folders.find(
+        (folder) =>
+          folder.id === source.rootPath ||
+          folder.sourcePrefix === source.rootPath ||
+          folder.name === source.rootPath,
+      )
+    : undefined;
+  if (sourceFolder) {
+    return { api: desktopFiles, folder: sourceFolder, path: filePath };
+  }
   const resolved = resolveSourcePathForFolders(filePath, folders);
+  if (!resolved && folders.length > 1) {
+    const matches: DesktopContentFilesFolder[] = [];
+    for (const folder of folders) {
+      if (!folder.id) continue;
+      const read = await desktopFiles.readFiles({ folderId: folder.id });
+      if (read.ok && read.sources?.[filePath] !== undefined) {
+        matches.push(folder);
+      }
+    }
+    if (matches.length === 1) {
+      return { api: desktopFiles, folder: matches[0]!, path: filePath };
+    }
+  }
   if (!resolved) {
     throw new Error(`Local source folder for "${filePath}" was not found.`);
   }
@@ -323,8 +351,24 @@ async function readBrowserFile(root: LocalDirectoryHandle, filePath: string) {
   };
 }
 
-function sourceFileContent(document: Document) {
-  return serializeContentSourceDocument({
+const MANAGED_SOURCE_FRONTMATTER_KEYS = new Set([
+  "id",
+  "title",
+  "description",
+  "parentId",
+  "icon",
+  "position",
+  "isFavorite",
+  "hideFromSearch",
+  "visibility",
+  "updatedAt",
+]);
+
+const SOURCE_FRONTMATTER_RE =
+  /^---\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n\r?\n|\r?\n|$)/;
+
+export function sourceFileContent(document: Document, existingSource?: string) {
+  const serialized = serializeContentSourceDocument({
     id: document.id,
     parentId: document.parentId,
     title: document.title,
@@ -336,6 +380,19 @@ function sourceFileContent(document: Document) {
     visibility: document.visibility,
     updatedAt: document.updatedAt,
   });
+  const existingFrontmatter = existingSource?.match(SOURCE_FRONTMATTER_RE)?.[1];
+  if (!existingFrontmatter) return serialized;
+
+  const preservedLines = existingFrontmatter.split(/\r?\n/).filter((line) => {
+    const key = line.match(/^([A-Za-z][A-Za-z0-9_-]*):/)?.[1];
+    return !key || !MANAGED_SOURCE_FRONTMATTER_KEYS.has(key);
+  });
+  if (preservedLines.length === 0) return serialized;
+
+  return serialized.replace(
+    "\n---\n\n",
+    `\n${preservedLines.join("\n")}\n---\n\n`,
+  );
 }
 
 function documentFromSourceContent(input: {
@@ -409,9 +466,22 @@ export async function writeDocumentToLinkedLocalSource(
     };
   }
 
-  const content = sourceFileContent(document);
-  const desktopSource = await resolveDesktopSourceForPath(filePath);
+  const desktopSource = await resolveDesktopSourceForPath(filePath, source);
   if (desktopSource) {
+    const current = await desktopSource.api.readFiles({
+      folderId: desktopSource.folder.id,
+    });
+    if (!current.ok) {
+      return { ok: false, error: current.error };
+    }
+    const existingSource = current.sources?.[desktopSource.path];
+    if (existingSource === undefined) {
+      return {
+        ok: false,
+        error: `Local file "${filePath}" was not found.`,
+      };
+    }
+    const content = sourceFileContent(document, existingSource);
     const result = await desktopSource.api.writeFile({
       folderId: desktopSource.folder.id,
       path: desktopSource.path,
@@ -456,6 +526,11 @@ export async function writeDocumentToLinkedLocalSource(
       error: "Write permission was not granted for the source folder.",
     };
   }
+  const existingSource = await readBrowserFile(
+    browserSource.handle,
+    browserSource.path,
+  );
+  const content = sourceFileContent(document, existingSource.content);
   await writeBrowserFile(browserSource.handle, browserSource.path, content);
   return { ok: true, path: filePath, runtime: "browser" };
 }
@@ -475,7 +550,7 @@ export async function watchLinkedLocalSource(
       error: "This document is not linked to a source file.",
     };
   }
-  const desktopSource = await resolveDesktopSourceForPath(filePath);
+  const desktopSource = await resolveDesktopSourceForPath(filePath, source);
   if (desktopSource?.api.watchFiles) {
     return desktopSource.api.watchFiles(
       { folderId: desktopSource.folder.id },
@@ -545,7 +620,7 @@ export async function readDocumentFromLinkedLocalSource(
     };
   }
 
-  const desktopSource = await resolveDesktopSourceForPath(filePath);
+  const desktopSource = await resolveDesktopSourceForPath(filePath, source);
   if (desktopSource) {
     const result = await desktopSource.api.readFiles({
       folderId: desktopSource.folder.id,
@@ -633,7 +708,7 @@ export async function revealLinkedLocalSourceFile(
     };
   }
 
-  const desktopSource = await resolveDesktopSourceForPath(filePath);
+  const desktopSource = await resolveDesktopSourceForPath(filePath, source);
   if (!desktopSource) {
     return {
       ok: false,

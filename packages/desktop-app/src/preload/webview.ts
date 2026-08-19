@@ -4,6 +4,7 @@ import type {
 } from "@shared/design-preview-protocol";
 import {
   IPC,
+  type DesktopContentFilesAssociateSourceRequest,
   type DesktopContentFilesClearFolderRequest,
   type DesktopContentFilesChange,
   type DesktopContentFilesChangesRequest,
@@ -80,6 +81,10 @@ const agentNativeDesktop = {
       ipcRenderer.invoke(IPC.CONTENT_FILES_GET_FOLDER, request),
     chooseFolder: (): Promise<DesktopContentFilesResult> =>
       ipcRenderer.invoke(IPC.CONTENT_FILES_CHOOSE_FOLDER),
+    associateSource: (
+      request: DesktopContentFilesAssociateSourceRequest,
+    ): Promise<DesktopContentFilesResult> =>
+      ipcRenderer.invoke(IPC.CONTENT_FILES_ASSOCIATE_SOURCE, request),
     writeFiles: (
       request: DesktopContentFilesWriteRequest,
     ): Promise<DesktopContentFilesResult> =>

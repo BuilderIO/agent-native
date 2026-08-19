@@ -1027,6 +1027,27 @@ function isActiveSlashCommandDraft(editor: CoreEditor): boolean {
   return /^\s*\/[a-zA-Z0-9]*$/.test(textBefore);
 }
 
+export function runPersistableHistoryCommand(
+  editor: CoreEditor,
+  command: "undo" | "redo",
+): boolean {
+  let applied = false;
+  for (let index = 0; index < 20; index += 1) {
+    const changed = editor
+      .chain()
+      .focus()
+      .command(({ tr }) => {
+        tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
+        return true;
+      })
+      [command]()
+      .run();
+    applied ||= changed;
+    if (!changed || !isActiveSlashCommandDraft(editor)) break;
+  }
+  return applied;
+}
+
 interface VisualEditorExtensionOptions {
   documentId?: string;
   ydoc?: YDoc | null;
@@ -2208,6 +2229,7 @@ export function VisualEditor({
     }
   };
 
+  const historyEditorRef = useRef<CoreEditor | null>(null);
   const editor = useEditor({
     extensions,
     // With Collaboration (ydoc) active, content is owned by the Y.XmlFragment —
@@ -2298,8 +2320,22 @@ export function VisualEditor({
           if (view.editable) markUserEditIntent();
           return false;
         },
-        keydown(view) {
+        keydown(view, event) {
           if (view.editable) markUserEditIntent();
+          if (
+            view.editable &&
+            (event.metaKey || event.ctrlKey) &&
+            !event.altKey &&
+            event.key.toLowerCase() === "z" &&
+            historyEditorRef.current
+          ) {
+            event.preventDefault();
+            runPersistableHistoryCommand(
+              historyEditorRef.current,
+              event.shiftKey ? "redo" : "undo",
+            );
+            return true;
+          }
           return false;
         },
         cut(view) {
@@ -2390,25 +2426,16 @@ export function VisualEditor({
       });
     },
   });
+  historyEditorRef.current = editor;
 
   useEffect(() => {
     if (!editor) {
       onHistoryControllerChange?.(null);
       return;
     }
-    const runHistoryCommand = (command: "undo" | "redo") =>
-      editor
-        .chain()
-        .focus()
-        .command(({ tr }) => {
-          tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
-          return true;
-        })
-        [command]()
-        .run();
     onHistoryControllerChange?.({
-      undo: () => runHistoryCommand("undo"),
-      redo: () => runHistoryCommand("redo"),
+      undo: () => runPersistableHistoryCommand(editor, "undo"),
+      redo: () => runPersistableHistoryCommand(editor, "redo"),
     });
     onHistoryStateChange?.({
       canUndo: editor.can().undo(),

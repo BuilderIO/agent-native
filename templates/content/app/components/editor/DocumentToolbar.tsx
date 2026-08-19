@@ -1042,7 +1042,7 @@ export function DocumentToolbar({
                     <span className="truncate">{source?.path}</span>
                   </DropdownMenuItem>
                   <DropdownMenuItem
-                    disabled={revealLocalSource.isPending}
+                    disabled={!canEdit || revealLocalSource.isPending}
                     onSelect={() => void handleRevealLocalPath()}
                   >
                     <IconFolderOpen className="me-2 h-4 w-4" />
@@ -1053,6 +1053,7 @@ export function DocumentToolbar({
                     {t("editor.toolbar.copyRelativePath")}
                   </DropdownMenuItem>
                   <DropdownMenuItem
+                    disabled={!canEdit}
                     onSelect={() => void handleCopyLocalAbsolutePath()}
                   >
                     <IconCopy className="me-2 h-4 w-4" />

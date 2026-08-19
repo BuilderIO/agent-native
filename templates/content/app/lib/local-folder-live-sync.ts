@@ -4,6 +4,9 @@ import type { DesktopContentFilesFolder } from "./desktop-content-files";
 import { getDesktopContentFiles } from "./desktop-content-files";
 
 const REGISTRY_KEY = "content-local-folder-live-sources-v1";
+const ACTIVATION_EVENT = "content-local-folder-working-copy-activation";
+
+let requestedWorkingCopyId: string | null = null;
 
 interface LiveLocalFolderSource {
   folderId: string;
@@ -32,7 +35,7 @@ function readRegistry(): LiveLocalFolderSource[] {
   }
 }
 
-export function rememberLiveLocalFolderSource(
+export async function rememberLiveLocalFolderSource(
   folder: DesktopContentFilesFolder,
   sourceId: string,
   databaseId?: string | null,
@@ -50,6 +53,12 @@ export function rememberLiveLocalFolderSource(
     },
   ];
   window.localStorage.setItem(REGISTRY_KEY, JSON.stringify(next));
+  const persisted = await getDesktopContentFiles()?.associateSource?.({
+    folderId: folder.id,
+    sourceId,
+    ...(databaseId ? { databaseId } : {}),
+  });
+  if (persisted && !persisted.ok) throw new Error(persisted.error);
 }
 
 export function forgetLiveLocalFolderSource(folderId: string) {
@@ -60,6 +69,35 @@ export function forgetLiveLocalFolderSource(folderId: string) {
 
 export function liveLocalFolderSourceId(folderId: string) {
   return readRegistry().find((entry) => entry.folderId === folderId)?.sourceId;
+}
+
+export function requestLiveLocalFolderActivation(folderId: string) {
+  requestedWorkingCopyId = folderId;
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(
+      new CustomEvent(ACTIVATION_EVENT, { detail: folderId }),
+    );
+  }
+}
+
+export function pendingLiveLocalFolderActivation() {
+  return requestedWorkingCopyId;
+}
+
+export function consumeLiveLocalFolderActivation(folderId: string) {
+  if (requestedWorkingCopyId === folderId) requestedWorkingCopyId = null;
+}
+
+export function subscribeLiveLocalFolderActivation(
+  callback: (folderId: string) => void,
+) {
+  if (typeof window === "undefined") return () => {};
+  const listener = (event: Event) => {
+    const folderId = (event as CustomEvent<unknown>).detail;
+    if (typeof folderId === "string") callback(folderId);
+  };
+  window.addEventListener(ACTIVATION_EVENT, listener);
+  return () => window.removeEventListener(ACTIVATION_EVENT, listener);
 }
 
 export async function connectTemporaryLocalFolder(
@@ -104,7 +142,7 @@ export async function connectTemporaryLocalFolder(
     } as never,
   );
   if (!connection.sourceId) return null;
-  rememberLiveLocalFolderSource(
+  await rememberLiveLocalFolderSource(
     folder,
     connection.sourceId,
     connection.filesDatabaseId,
@@ -113,7 +151,20 @@ export async function connectTemporaryLocalFolder(
 }
 
 export async function syncLiveLocalFolder(folderId: string) {
-  const sourceId = liveLocalFolderSourceId(folderId);
+  let sourceId = liveLocalFolderSourceId(folderId);
+  if (!sourceId) {
+    const folderResult = await getDesktopContentFiles()?.getFolder({
+      folderId,
+    });
+    if (folderResult?.ok && folderResult.folder.contentSource?.sourceId) {
+      sourceId = folderResult.folder.contentSource.sourceId;
+      await rememberLiveLocalFolderSource(
+        folderResult.folder,
+        sourceId,
+        folderResult.folder.contentSource.databaseId,
+      );
+    }
+  }
   if (!sourceId) return { synced: false as const, reason: "unregistered" };
 
   const desktop = getDesktopContentFiles();
@@ -125,6 +176,7 @@ export async function syncLiveLocalFolder(folderId: string) {
     {
       sourceId,
       files: read.sources ?? {},
+      fileIdentities: read.identities,
       observedRevisions: read.revisions,
       dryRun: false,
     } as never,

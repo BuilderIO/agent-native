@@ -82,6 +82,7 @@ function sourceValues(args: {
   hash: string;
   metadataHash: string;
   workingCopyId: string;
+  bridgeFileIdentity?: string;
 }) {
   const observedRevision = localFolderObservedRevision({
     contentHash: args.hash,
@@ -99,6 +100,9 @@ function sourceValues(args: {
       relativePath: args.path,
       observedRevision,
     }),
+    ...(args.bridgeFileIdentity
+      ? { bridgeFileIdentity: args.bridgeFileIdentity }
+      : {}),
   });
 }
 
@@ -159,9 +163,10 @@ export default defineAction({
       .refine((value) => Object.keys(value).length <= MAX_SOURCE_FILES, {
         message: `Sync is limited to ${MAX_SOURCE_FILES} files.`,
       }),
+    fileIdentities: z.record(z.string(), z.string().min(1).max(256)).optional(),
     dryRun: z.boolean().optional().default(false),
   }),
-  run: async ({ sourceId, files, dryRun }) => {
+  run: async ({ sourceId, files, fileIdentities = {}, dryRun }) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("no authenticated user");
     const builderPaths = Object.keys(files).filter(isBuilderMdxSourcePath);
@@ -294,9 +299,26 @@ export default defineAction({
     const conflicts: Array<{ id: string; path: string; title: string }> = [];
     const outbound: Array<{ id: string; path: string; title: string }> = [];
 
-    const buildPlans = (snapshot: Awaited<ReturnType<typeof loadSnapshot>>) =>
-      valid.map((file, index) => {
-        const pathRow = snapshot.rowByPath.get(file.path);
+    const buildPlans = (snapshot: Awaited<ReturnType<typeof loadSnapshot>>) => {
+      const rowByBridgeIdentity = new Map<
+        string,
+        (typeof snapshot.storedRows)[number]
+      >();
+      for (const row of snapshot.storedRows) {
+        const values = parseJson(row.sourceValuesJson);
+        if (typeof values.bridgeFileIdentity === "string") {
+          rowByBridgeIdentity.set(values.bridgeFileIdentity, row);
+        }
+      }
+
+      return valid.map((file, index) => {
+        const directPathRow = snapshot.rowByPath.get(file.path);
+        const incomingBridgeFileIdentity = fileIdentities[file.path];
+        const identityRow = incomingBridgeFileIdentity
+          ? rowByBridgeIdentity.get(incomingBridgeFileIdentity)
+          : undefined;
+        const incomingHash = contentHash(file.content);
+        const pathRow = directPathRow ?? identityRow;
         const id =
           file.id ??
           pathRow?.documentId ??
@@ -304,6 +326,11 @@ export default defineAction({
         const existing = snapshot.documentById.get(id);
         const previousRow = snapshot.rowByDocumentId.get(id) ?? pathRow;
         const previousValues = parseJson(previousRow?.sourceValuesJson);
+        const bridgeFileIdentity =
+          incomingBridgeFileIdentity ??
+          (typeof previousValues.bridgeFileIdentity === "string"
+            ? previousValues.bridgeFileIdentity
+            : undefined);
         const previousHash =
           typeof previousValues.contentHash === "string"
             ? previousValues.contentHash
@@ -312,7 +339,6 @@ export default defineAction({
           typeof previousValues.metadataHash === "string"
             ? previousValues.metadataHash
             : null;
-        const incomingHash = contentHash(file.content);
         const incomingMetadataHash = metadataHash(file);
         const localHash = existing ? contentHash(existing.content) : null;
         const localMetadataHash = existing ? metadataHash(existing) : null;
@@ -355,8 +381,10 @@ export default defineAction({
           conflict,
           keepContent,
           applyIncoming,
+          bridgeFileIdentity,
         };
       });
+    };
 
     let plans = buildPlans(initialSnapshot);
     const initialDocumentIds = new Set(plans.map((plan) => plan.id));
@@ -371,7 +399,7 @@ export default defineAction({
       unchanged.length = 0;
       conflicts.length = 0;
       outbound.length = 0;
-      for (const row of missingRows) {
+      for (const row of policy === "source_primary" ? [] : missingRows) {
         const values = parseJson(row.sourceValuesJson);
         const path = String(values.relativePath ?? row.sourceDisplayKey ?? "");
         const document = snapshot.documentById.get(row.documentId);
@@ -398,7 +426,8 @@ export default defineAction({
         } else if (
           plan.applyIncoming ||
           plan.existing.title !== plan.file.title ||
-          plan.existing.sourcePath !== plan.file.path
+          plan.existing.sourcePath !== plan.file.path ||
+          plan.existing.sourceRootPath !== target.source.sourceTable
         ) {
           updated.push({
             id: plan.id,
@@ -541,7 +570,7 @@ export default defineAction({
               sourceMode: "local-files",
               sourceKind: "file",
               sourcePath: plan.file.path,
-              sourceRootPath: target.source.sourceName,
+              sourceRootPath: target.source.sourceTable,
               sourceUpdatedAt: now,
               visibility: target.database.orgId ? "org" : "private",
               createdAt: now,
@@ -549,7 +578,8 @@ export default defineAction({
             });
           } else if (
             plan.applyIncoming ||
-            plan.existing.sourcePath !== plan.file.path
+            plan.existing.sourcePath !== plan.file.path ||
+            plan.existing.sourceRootPath !== target.source.sourceTable
           ) {
             await tx
               .insert(schema.documentVersions)
@@ -580,7 +610,7 @@ export default defineAction({
                 sourceMode: "local-files",
                 sourceKind: "file",
                 sourcePath: plan.file.path,
-                sourceRootPath: target.source.sourceName,
+                sourceRootPath: target.source.sourceTable,
                 sourceUpdatedAt: now,
                 updatedAt: now,
               })
@@ -671,6 +701,7 @@ export default defineAction({
               hash: plan.incomingHash,
               metadataHash: plan.incomingMetadataHash,
               workingCopyId: localIdentity.workingCopy.id,
+              bridgeFileIdentity: plan.bridgeFileIdentity,
             }),
             provenance: "trusted local-folder bridge",
             syncState: "linked",
@@ -694,6 +725,35 @@ export default defineAction({
             .where(eq(schema.contentDatabaseSourceRows.id, rowId));
         }
         for (const row of missingRows) {
+          if (policy === "source_primary") {
+            await tx
+              .delete(schema.contentDatabaseSourceRows)
+              .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+            await tx
+              .delete(schema.contentDatabaseItems)
+              .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
+            await tx
+              .update(schema.documents)
+              .set({
+                sourceMode: null,
+                sourceKind: null,
+                sourcePath: null,
+                sourceRootPath: null,
+                sourceUpdatedAt: now,
+                updatedAt: now,
+              })
+              .where(
+                and(
+                  eq(schema.documents.id, row.documentId),
+                  eq(schema.documents.spaceId, targetSpaceId),
+                  eq(
+                    schema.documents.sourceRootPath,
+                    target.source.sourceTable,
+                  ),
+                ),
+              );
+            continue;
+          }
           const values = parseJson(row.sourceValuesJson);
           const path = String(
             values.relativePath ?? row.sourceDisplayKey ?? row.sourceRowId,

@@ -15,7 +15,7 @@ import {
 import type { AddressInfo } from "node:net";
 import os from "os";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 import { buildChatFirstAppCreationPrompt } from "@agent-native/core/shared";
 import {
@@ -102,6 +102,7 @@ import {
   type DesktopContentFileDeleteRequest,
   type DesktopContentFileRevealRequest,
   type DesktopContentFileWriteRequest,
+  type DesktopContentFilesAssociateSourceRequest,
   type DesktopContentFilesFolderRequest,
   type DesktopContentFilesFolder,
   type DesktopContentFilesRepository,
@@ -203,6 +204,7 @@ import {
   runComputerSetupAction,
   SwiftDesktopHelperClient,
 } from "./computer-control";
+import { contentFilesWebviewDenialReason } from "./content-files-webview-access.js";
 import { deriveContentFilesRepositoryIdentity } from "./content-files/local-identity";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
 import {
@@ -221,6 +223,7 @@ import {
   getLogFilePath,
 } from "./desktop-logger";
 import {
+  desktopRequestedUserDataPath,
   initializeDesktopStartup,
   resolveDesktopSsoBrokerStatePath,
   runDesktopStartupStep,
@@ -265,6 +268,10 @@ initializeDesktopStartup({
   isPackaged: app.isPackaged,
   version: app.getVersion(),
   appDataPath: app.getPath("appData"),
+  requestedUserDataPath: desktopRequestedUserDataPath(
+    app.commandLine.getSwitchValue("user-data-dir"),
+    process.argv,
+  ),
   createDirectory: (directoryPath) =>
     fs.mkdirSync(directoryPath, { recursive: true }),
   setUserDataPath: (directoryPath) => app.setPath("userData", directoryPath),
@@ -305,28 +312,6 @@ const IS_DEV = !app.isPackaged;
 
 function isDesktopSsoEnabled(): boolean {
   return AppStore.loadDesktopAppPreferences().desktopSsoEnabled === true;
-}
-
-if (IS_DEV) {
-  // Keep local electron-vite runs out of the packaged app's Chromium profile.
-  // Sharing the same userData directory lets dev and prod processes fight over
-  // persisted webview storage (notably IndexedDB LevelDB LOCK files).
-  // An explicit Electron --user-data-dir remains authoritative so scripted
-  // desktop smoke tests can isolate state without touching a developer's
-  // normal profile.
-  const requestedUserDataPath = process.argv
-    .find((argument) => argument.startsWith("--user-data-dir="))
-    ?.slice("--user-data-dir=".length)
-    .trim();
-  const devUserDataPath = requestedUserDataPath
-    ? path.resolve(requestedUserDataPath)
-    : path.join(app.getPath("appData"), "Agent Native Dev");
-  try {
-    fs.mkdirSync(devUserDataPath, { recursive: true });
-    app.setPath("userData", devUserDataPath);
-  } catch (err) {
-    console.warn("[main] failed to isolate dev userData directory:", err);
-  }
 }
 
 // ---------- User-Agent marker ----------
@@ -630,6 +615,18 @@ function getAppOrigin(appConfig: AppConfig): string | null {
   } catch {
     return null;
   }
+}
+
+function getConfiguredAppOrigin(appConfig: AppConfig): string | null {
+  const rawUrl =
+    appConfig.mode === "dev"
+      ? appConfig.devUrl ||
+        (appConfig.devPort
+          ? `http://localhost:${appConfig.devPort}`
+          : appConfig.url)
+      : appConfig.url;
+  if (!rawUrl) return null;
+  return new URL(rawUrl).origin;
 }
 
 function withCodeAgentApps(apps: AppConfig[]): AppConfig[] {
@@ -1469,8 +1466,8 @@ function createWindow(): BrowserWindow {
       webviewTag: true,
       webSecurity: true,
       additionalArguments: [
-        `--an-webview-preload=${path.join(__dirname, "../preload/webview.js")}`,
-        `--an-webview-chat-preload=${path.join(__dirname, "../preload/webview-chat.js")}`,
+        `--an-webview-preload=${pathToFileURL(path.join(__dirname, "../preload/webview.js")).href}`,
+        `--an-webview-chat-preload=${pathToFileURL(path.join(__dirname, "../preload/webview-chat.js")).href}`,
       ],
     },
   });
@@ -4245,7 +4242,10 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
       fs.existsSync(extensionPath) ? extensionPath : undefined,
     openContentWorkingCopy: ({ folder, name }) => {
       const grant = attachTemporaryContentFilesWorkingCopy(folder, name);
-      void sendDesktopShortcutActivation({ app: "content" });
+      void sendDesktopShortcutActivation({
+        app: "content",
+        path: `/local-files?workingCopyId=${encodeURIComponent(grant.id)}`,
+      });
       const { path: _path, ...safeFolder } = contentFilesFolderInfo(grant);
       return {
         id: grant.id,
@@ -7319,6 +7319,10 @@ export interface ContentFilesGrant {
   kind: "persistent" | "temporary";
   name?: string;
   repository?: DesktopContentFilesRepository;
+  contentSource?: {
+    sourceId: string;
+    databaseId?: string;
+  };
   createdAt?: string;
   sourcePrefix?: string;
   updatedAt?: string;
@@ -7509,6 +7513,12 @@ function normalizeContentFilesGrant(
   const storedPrefix = firstStringValue(value.sourcePrefix)?.trim();
   const kind = value.kind === "temporary" ? "temporary" : "persistent";
   const name = firstStringValue(value.name)?.trim();
+  const contentSource = isObject(value.contentSource)
+    ? {
+        sourceId: firstStringValue(value.contentSource.sourceId)?.trim(),
+        databaseId: firstStringValue(value.contentSource.databaseId)?.trim(),
+      }
+    : undefined;
   const sourcePrefix =
     storedPrefix && storedPrefix !== "." && storedPrefix !== ".."
       ? storedPrefix
@@ -7530,6 +7540,16 @@ function normalizeContentFilesGrant(
               ? { commit: value.repository.commit }
               : {}),
             ...(value.repository.detached === true ? { detached: true } : {}),
+          },
+        }
+      : {}),
+    ...(contentSource?.sourceId
+      ? {
+          contentSource: {
+            sourceId: contentSource.sourceId,
+            ...(contentSource.databaseId
+              ? { databaseId: contentSource.databaseId }
+              : {}),
           },
         }
       : {}),
@@ -7598,9 +7618,39 @@ function contentFilesFolderInfo(
     name: grant.name ?? (path.basename(grant.path) || grant.path),
     kind: grant.kind,
     repository: grant.repository,
+    contentSource: grant.contentSource,
     sourcePrefix: grant.sourcePrefix,
     updatedAt: grant.updatedAt,
   };
+}
+
+function associateContentFilesSource(
+  request: DesktopContentFilesAssociateSourceRequest,
+): DesktopContentFilesResult {
+  const folderId = request.folderId.trim();
+  const sourceId = request.sourceId.trim();
+  const databaseId = request.databaseId?.trim();
+  if (!folderId || !sourceId) {
+    return {
+      ok: false,
+      code: "invalid-request",
+      error: "A folder and Content source are required.",
+    };
+  }
+  const store = loadContentFilesStore();
+  const grants = { ...(store.grants ?? {}) };
+  const grant = grants[folderId];
+  if (!grant) return { ok: false, error: "No local folder is linked." };
+  const updatedGrant: ContentFilesGrant = {
+    ...grant,
+    contentSource: {
+      sourceId,
+      ...(databaseId ? { databaseId } : {}),
+    },
+  };
+  grants[folderId] = updatedGrant;
+  saveContentFilesStore({ ...store, grants });
+  return { ok: true, folder: contentFilesFolderInfo(updatedGrant) };
 }
 
 function getContentFilesGrants(): ContentFilesGrant[] {
@@ -7653,6 +7703,7 @@ function setContentFilesGrant(folder: string): {
     name: existing?.name,
     repository:
       existing?.repository ?? deriveContentFilesRepositoryIdentity(folder),
+    contentSource: existing?.contentSource,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     sourcePrefix:
       existing?.sourcePrefix ??
@@ -7693,6 +7744,7 @@ export function attachTemporaryContentFilesWorkingCopy(
     kind: "temporary",
     name: displayName,
     repository: deriveContentFilesRepositoryIdentity(resolved),
+    contentSource: existing?.contentSource,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
     sourcePrefix:
       existing?.sourcePrefix ??
@@ -7735,38 +7787,40 @@ function clearContentFilesGrant(folderId?: string): DesktopContentFilesResult {
   };
 }
 
-function isContentFilesWebviewSender(event: IpcMainInvokeEvent): boolean {
+function contentFilesWebviewAccessDenial(
+  event: IpcMainInvokeEvent,
+): ReturnType<typeof contentFilesWebviewDenialReason> {
   const sender = event.sender;
-  if (sender.getType() !== "webview") return false;
-  if (activeAppId !== "content") return false;
-  if (!activeWebviewContentsId || activeWebviewContentsId !== sender.id) {
-    return false;
-  }
   const contentApp = loadAppsForAuthContext().find(
     (candidate) => candidate.id === "content" && candidate.enabled !== false,
   );
-  if (!contentApp) return false;
-
-  let url: URL;
-  try {
-    url = new URL(sender.getURL());
-  } catch {
-    return false;
-  }
-
-  const trustedOrigin = getAppOrigin(contentApp);
-  if (trustedOrigin && url.origin === trustedOrigin) return true;
-  return (
-    IS_DEV &&
-    url.origin === `http://localhost:${FRAME_PORT}` &&
-    url.searchParams.get("app") === "content"
-  );
+  const contentDevPort = getTemplate("content")?.devPort;
+  return contentFilesWebviewDenialReason({
+    senderType: sender.getType(),
+    senderId: sender.id,
+    senderUrl: sender.getURL(),
+    activeAppId,
+    activeWebviewContentsId,
+    contentAppAvailable: Boolean(contentApp),
+    trustedOrigins: contentApp
+      ? [getAppOrigin(contentApp), getConfiguredAppOrigin(contentApp)].filter(
+          (origin): origin is string => Boolean(origin),
+        )
+      : [],
+    developmentOrigins: [
+      `http://localhost:${FRAME_PORT}`,
+      ...(contentDevPort != null ? [`http://localhost:${contentDevPort}`] : []),
+    ],
+    development: IS_DEV,
+  });
 }
 
 function requireContentFilesWebviewAccess(
   event: IpcMainInvokeEvent,
 ): DesktopContentFilesResult | null {
-  if (isContentFilesWebviewSender(event)) return null;
+  const denialReason = contentFilesWebviewAccessDenial(event);
+  if (!denialReason) return null;
+  console.warn("[content-files] rejected webview request", { denialReason });
   return {
     ok: false,
     error: "Content local files are only available to the Content desktop app.",
@@ -7941,14 +7995,19 @@ async function contentWriteRoot(folder: string): Promise<{
     folder,
     path.join(folder, CONTENT_SOURCE_ROOT),
   );
-  await assertNoContentSymlink(contentFolder);
-  await fs.promises.mkdir(contentFolder, { recursive: true });
-  return { folder: contentFolder, prefix: `${CONTENT_SOURCE_ROOT}/` };
+  try {
+    await assertUsableContentFolder(contentFolder);
+    return { folder: contentFolder, prefix: `${CONTENT_SOURCE_ROOT}/` };
+  } catch {
+    return { folder, prefix: "" };
+  }
 }
 
 async function collectContentMarkdownFiles(
   folder: string,
   prefix = "",
+  identities?: Record<string, string>,
+  identitySalt = "",
 ): Promise<Record<string, string>> {
   const files: Record<string, string> = {};
   let entries: fs.Dirent[];
@@ -7977,14 +8036,27 @@ async function collectContentMarkdownFiles(
       }
       Object.assign(
         files,
-        await collectContentMarkdownFiles(filePath, `${sourcePath}/`),
+        await collectContentMarkdownFiles(
+          filePath,
+          `${sourcePath}/`,
+          identities,
+          identitySalt,
+        ),
       );
       continue;
     }
 
     if (!entry.isFile() || !isContentSourceMarkdownPath(sourcePath)) continue;
     const content = readContentMarkdownFileWithoutSymlink(filePath);
-    if (content !== null) files[sourcePath] = content;
+    if (content !== null) {
+      files[sourcePath] = content;
+      if (identities) {
+        const stat = await fs.promises.stat(filePath);
+        identities[sourcePath] = createHash("sha256")
+          .update(`${identitySalt}:${stat.dev}:${stat.ino}`)
+          .digest("hex");
+      }
+    }
   }
 
   return files;
@@ -7994,7 +8066,7 @@ async function writeContentSourceFile(
   root: string,
   filePath: string,
   content: string,
-  expectedRevision?: string,
+  expectedRevision?: string | null,
 ): Promise<string> {
   const { normalized, target } = await resolveContentSourceFilePath(root, {
     createDirectories: true,
@@ -8002,7 +8074,10 @@ async function writeContentSourceFile(
   });
   assertContentSourceTextSize(normalized, content);
   const actualRevision = await contentSourceFileRevision(target);
-  if (expectedRevision !== undefined && actualRevision !== expectedRevision) {
+  if (
+    expectedRevision !== undefined &&
+    (actualRevision ?? null) !== expectedRevision
+  ) {
     throw new ContentFilesRevisionConflict(
       normalized,
       expectedRevision,
@@ -8016,8 +8091,22 @@ async function writeContentSourceFile(
       encoding: "utf-8",
       flag: "wx",
     });
-    if (expectedRevision === undefined || actualRevision === undefined) {
+    if (expectedRevision === undefined) {
       await fs.promises.rename(temporary, target);
+      return normalized;
+    }
+
+    if (expectedRevision === null) {
+      try {
+        await fs.promises.link(temporary, target);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
+        throw new ContentFilesRevisionConflict(
+          normalized,
+          expectedRevision,
+          await contentSourceFileRevision(target),
+        );
+      }
       return normalized;
     }
 
@@ -8085,11 +8174,51 @@ async function waitForContentFileHandlesToClose(filePath: string) {
 class ContentFilesRevisionConflict extends Error {
   constructor(
     readonly filePath: string,
-    readonly expectedRevision: string,
+    readonly expectedRevision: string | null,
     readonly actualRevision?: string,
   ) {
     super("The local file changed before Content could save it.");
   }
+}
+
+async function deleteContentSourceFile(
+  root: string,
+  filePath: string,
+  expectedRevision: string,
+): Promise<string> {
+  const { normalized, target } = await resolveContentSourceFilePath(root, {
+    filePath,
+  });
+  const actualRevision = await contentSourceFileRevision(target);
+  if (actualRevision !== expectedRevision) {
+    throw new ContentFilesRevisionConflict(
+      normalized,
+      expectedRevision,
+      actualRevision,
+    );
+  }
+
+  const claimed = `${target}.${randomUUID()}.delete-claim`;
+  await fs.promises.rename(target, claimed);
+  if (!(await waitForContentFileHandlesToClose(claimed))) {
+    await fs.promises.rename(claimed, target);
+    throw new ContentFilesRevisionConflict(
+      normalized,
+      expectedRevision,
+      await contentSourceFileRevision(target),
+    );
+  }
+  const claimedRevision = await contentSourceFileRevision(claimed);
+  if (claimedRevision !== expectedRevision) {
+    await fs.promises.rename(claimed, target);
+    throw new ContentFilesRevisionConflict(
+      normalized,
+      expectedRevision,
+      claimedRevision,
+    );
+  }
+  await fs.promises.rm(claimed);
+  return normalized;
 }
 
 async function contentSourceFileRevision(
@@ -8145,6 +8274,7 @@ async function removeStaleContentMarkdownFiles(
   folder: string,
   prefix: string,
   expectedPaths: Set<string>,
+  expectedRevisions: Record<string, string | null>,
 ): Promise<void> {
   let entries: fs.Dirent[];
   try {
@@ -8166,6 +8296,7 @@ async function removeStaleContentMarkdownFiles(
         filePath,
         `${sourcePath}/`,
         expectedPaths,
+        expectedRevisions,
       );
       continue;
     }
@@ -8175,16 +8306,32 @@ async function removeStaleContentMarkdownFiles(
       isContentSourceMarkdownPath(sourcePath) &&
       !expectedPaths.has(sourcePath)
     ) {
-      await assertNoContentSymlink(filePath);
-      await fs.promises.rm(filePath, { force: true });
+      const expectedRevision = expectedRevisions[sourcePath];
+      if (!expectedRevision) {
+        throw new ContentFilesRevisionConflict(
+          sourcePath,
+          expectedRevision ?? null,
+          await contentSourceFileRevision(filePath),
+        );
+      }
+      await deleteContentSourceFile(folder, entry.name, expectedRevision);
     }
   }
 }
 
 function normalizeContentFilesWriteRequest(
   request: DesktopContentFilesWriteRequest,
-): Record<string, string> | null {
-  if (!isObject(request) || !isObject(request.files)) return null;
+): {
+  files: Record<string, string>;
+  expectedRevisions: Record<string, string | null>;
+} | null {
+  if (
+    !isObject(request) ||
+    !isObject(request.files) ||
+    !isObject(request.expectedRevisions)
+  ) {
+    return null;
+  }
   const files: Record<string, string> = {};
   for (const [rawPath, content] of Object.entries(request.files)) {
     const filePath = normalizeContentSourcePath(rawPath);
@@ -8193,12 +8340,25 @@ function normalizeContentFilesWriteRequest(
     assertContentSourceTextSize(filePath, content);
     files[filePath] = content;
   }
-  return files;
+  const expectedRevisions: Record<string, string | null> = {};
+  for (const [rawPath, revision] of Object.entries(request.expectedRevisions)) {
+    const filePath = normalizeContentSourcePath(rawPath);
+    if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
+    if (revision !== null && !/^[a-f0-9]{64}$/i.test(String(revision))) {
+      return null;
+    }
+    expectedRevisions[filePath] = revision as string | null;
+  }
+  return { files, expectedRevisions };
 }
 
 function normalizeContentFileWriteRequest(
   request: DesktopContentFileWriteRequest,
-): { path: string; content: string; expectedRevision?: string } | null {
+): {
+  path: string;
+  content: string;
+  expectedRevision?: string | null;
+} | null {
   if (!isObject(request) || typeof request.content !== "string") return null;
   const filePath = normalizeContentSourcePath(
     firstStringValue(request.path) ?? "",
@@ -8208,6 +8368,7 @@ function normalizeContentFileWriteRequest(
   const expectedRevision = request.expectedRevision;
   if (
     expectedRevision !== undefined &&
+    expectedRevision !== null &&
     !/^[a-f0-9]{64}$/i.test(expectedRevision)
   ) {
     return null;
@@ -8228,33 +8389,48 @@ function normalizeContentFileRevealRequest(
 
 function normalizeContentFileDeleteRequest(
   request: DesktopContentFileDeleteRequest,
-): { path: string } | null {
+): { path: string; expectedRevision: string } | null {
   if (!isObject(request)) return null;
   const filePath = normalizeContentSourcePath(
     firstStringValue(request.path) ?? "",
   );
   if (!filePath || !isContentSourceMarkdownPath(filePath)) return null;
-  return { path: filePath };
+  if (!/^[a-f0-9]{64}$/i.test(request.expectedRevision)) return null;
+  return { path: filePath, expectedRevision: request.expectedRevision };
 }
 
 async function writeContentFilesForRequest(
   request: DesktopContentFilesWriteRequest,
 ): Promise<DesktopContentFilesResult> {
   try {
-    const files = normalizeContentFilesWriteRequest(request);
-    if (!files) return { ok: false, error: "Invalid Content source files." };
+    const normalized = normalizeContentFilesWriteRequest(request);
+    if (!normalized) {
+      return { ok: false, error: "Invalid Content source files." };
+    }
+    const { files, expectedRevisions } = normalized;
 
     const grant = getRequiredContentFilesGrant(request.folderId);
     const expectedPaths = new Set(Object.keys(files));
     const written: string[] = [];
     for (const [filePath, content] of Object.entries(files)) {
-      written.push(await writeContentSourceFile(grant.path, filePath, content));
+      if (!(filePath in expectedRevisions)) {
+        return { ok: false, error: `Missing revision for "${filePath}".` };
+      }
+      written.push(
+        await writeContentSourceFile(
+          grant.path,
+          filePath,
+          content,
+          expectedRevisions[filePath],
+        ),
+      );
     }
     const writeRoot = await contentWriteRoot(grant.path);
     await removeStaleContentMarkdownFiles(
       writeRoot.folder,
       writeRoot.prefix,
       expectedPaths,
+      expectedRevisions,
     );
     emitContentFilesChange(grant.id);
     const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
@@ -8266,6 +8442,18 @@ async function writeContentFilesForRequest(
       controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {
+    if (err instanceof ContentFilesRevisionConflict) {
+      return {
+        ok: false,
+        code: "conflict",
+        error: err.message,
+        conflict: {
+          path: err.filePath,
+          expectedRevision: err.expectedRevision,
+          actualRevision: err.actualRevision,
+        },
+      };
+    }
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
@@ -8301,6 +8489,7 @@ async function writeContentFileForRequest(
     if (err instanceof ContentFilesRevisionConflict) {
       return {
         ok: false,
+        code: "conflict",
         error: err.message,
         conflict: {
           path: err.filePath,
@@ -8325,11 +8514,11 @@ async function deleteContentFileForRequest(
 
     const grant = getRequiredContentFilesGrant(request.folderId);
     const readRoot = await contentReadRoot(grant.path);
-    const { target } = await resolveContentSourceFilePath(readRoot.folder, {
-      filePath: file.path,
-    });
-    await assertNoContentSymlink(target);
-    await fs.promises.rm(target, { force: true });
+    await deleteContentSourceFile(
+      readRoot.folder,
+      file.path,
+      file.expectedRevision,
+    );
     emitContentFilesChange(grant.id);
     const { grant: updatedGrant, grants } = setContentFilesGrant(grant.path);
     return {
@@ -8340,6 +8529,18 @@ async function deleteContentFileForRequest(
       controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {
+    if (err instanceof ContentFilesRevisionConflict) {
+      return {
+        ok: false,
+        code: "conflict",
+        error: err.message,
+        conflict: {
+          path: err.filePath,
+          expectedRevision: err.expectedRevision,
+          actualRevision: err.actualRevision,
+        },
+      };
+    }
     return {
       ok: false,
       error: err instanceof Error ? err.message : String(err),
@@ -8383,7 +8584,13 @@ async function readContentFilesForRequest(
   try {
     const grant = getRequiredContentFilesGrant(request.folderId);
     const root = await contentReadRoot(grant.path);
-    const sources = await collectContentMarkdownFiles(root.folder, root.prefix);
+    const identities: Record<string, string> = {};
+    const sources = await collectContentMarkdownFiles(
+      root.folder,
+      root.prefix,
+      identities,
+      grant.id,
+    );
     const revisions = Object.fromEntries(
       Object.entries(sources).map(([filePath, content]) => [
         filePath,
@@ -8397,6 +8604,7 @@ async function readContentFilesForRequest(
       folders: contentFilesFoldersInfo(grants),
       sources,
       revisions,
+      identities,
       controlResources: await collectLocalControlResources(updatedGrant.path),
     };
   } catch (err) {
@@ -10455,6 +10663,7 @@ registerContentFilesIpc({
   contentFilesFolderInfo,
   contentFilesFoldersInfo,
   chooseContentFilesFolder,
+  associateContentFilesSource,
   writeContentFilesForRequest,
   writeContentFileForRequest,
   deleteContentFileForRequest,

@@ -3127,6 +3127,8 @@ const enUS = {
     couldNotSaveLocalFile: "Could not save local file",
     localFileChangedWithUnsavedEdits:
       "The file changed on disk while this page had unsaved edits.",
+    localFileReadOnlySnapshot:
+      "Read-only snapshot · Last synced from {{device}} at {{date}}",
     copyUnsavedText: "Copy my unsaved text",
     unsavedTextCopied: "Unsaved text copied",
     useDiskVersion: "Use disk version",

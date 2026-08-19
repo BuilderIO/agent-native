@@ -706,6 +706,7 @@ async function readDesktopSsoSafely(
   event: H3Event,
 ): Promise<Awaited<ReturnType<typeof readDesktopSso>>> {
   if (process.env.NODE_ENV === "production") return null;
+  if (getAppConfig().auth.disableDesktopSsoFallbackInDevelopment) return null;
   if (!isElectronRequest(event)) return null;
   if (!isLoopbackRequest(event)) return null;
   return await readDesktopSso();

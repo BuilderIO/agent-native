@@ -172,18 +172,15 @@ export function resolveDesktopChildComputerMcpServer(
   const url = environment.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_URL?.trim();
   const token = environment.AGENT_NATIVE_DESKTOP_COMPUTER_MCP_TOKEN?.trim();
   if (!url || !token || !/^[A-Za-z0-9_-]{32,}$/.test(token)) return null;
-  try {
-    const parsed = new URL(url);
-    if (
-      parsed.protocol !== "http:" ||
-      parsed.hostname !== "127.0.0.1" ||
-      parsed.pathname !== "/mcp" ||
-      parsed.username ||
-      parsed.password
-    ) {
-      return null;
-    }
-  } catch {
+  if (!URL.canParse(url)) return null;
+  const parsed = new URL(url);
+  if (
+    parsed.protocol !== "http:" ||
+    parsed.hostname !== "127.0.0.1" ||
+    parsed.pathname !== "/mcp" ||
+    parsed.username ||
+    parsed.password
+  ) {
     return null;
   }
   let serverId = DESKTOP_COMPUTER_SERVER_ID;

@@ -33,6 +33,10 @@ describe("page history menu", () => {
     expect(visualEditorSource).toContain(
       "tr.setMeta(LOCAL_FILE_USER_EDIT_META, true)",
     );
+    expect(visualEditorSource).toContain(
+      "if (!changed || !isActiveSlashCommandDraft(editor)) break",
+    );
+    expect(visualEditorSource).toContain('event.shiftKey ? "redo" : "undo"');
   });
 
   it("keeps stale local title and body edits behind the observed disk revision", () => {
@@ -42,6 +46,7 @@ describe("page history menu", () => {
       "baseline.document.title !== lastSavedTitleRef.current.title",
     );
     expect(editorSource).toContain('t("editor.copyUnsavedText")');
+    expect(editorSource).toContain("writeClipboardText(");
     expect(editorSource).toContain('t("editor.useDiskVersion")');
   });
 });

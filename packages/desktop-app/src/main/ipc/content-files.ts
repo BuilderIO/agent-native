@@ -4,6 +4,7 @@ import {
   type DesktopContentFileRevealRequest,
   type DesktopContentFileWriteRequest,
   type DesktopContentFilesClearFolderRequest,
+  type DesktopContentFilesAssociateSourceRequest,
   type DesktopContentFilesChangesRequest,
   type DesktopContentFilesFolder,
   type DesktopContentFilesFolderRequest,
@@ -28,6 +29,9 @@ export interface ContentFilesIpcDeps {
     grants?: ContentFilesGrant[],
   ) => DesktopContentFilesFolder[];
   chooseContentFilesFolder: () => Promise<DesktopContentFilesResult>;
+  associateContentFilesSource: (
+    request: DesktopContentFilesAssociateSourceRequest,
+  ) => DesktopContentFilesResult;
   writeContentFilesForRequest: (
     request: DesktopContentFilesWriteRequest,
   ) => Promise<DesktopContentFilesResult>;
@@ -67,6 +71,7 @@ export function registerContentFilesIpc(deps: ContentFilesIpcDeps): void {
     contentFilesFolderInfo,
     contentFilesFoldersInfo,
     chooseContentFilesFolder,
+    associateContentFilesSource,
     writeContentFilesForRequest,
     writeContentFileForRequest,
     deleteContentFileForRequest,
@@ -102,6 +107,18 @@ export function registerContentFilesIpc(deps: ContentFilesIpcDeps): void {
       const denied = requireContentFilesWebviewAccess(event);
       if (denied) return Promise.resolve(denied);
       return chooseContentFilesFolder();
+    },
+  );
+
+  ipcMain.handle(
+    IPC.CONTENT_FILES_ASSOCIATE_SOURCE,
+    (
+      event: IpcMainInvokeEvent,
+      request: DesktopContentFilesAssociateSourceRequest,
+    ): DesktopContentFilesResult => {
+      const denied = requireContentFilesWebviewAccess(event);
+      if (denied) return denied;
+      return associateContentFilesSource(request);
     },
   );
 
