@@ -40,12 +40,12 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
         labelKey: "gettingStarted",
         slug: "getting-started",
       },
-      { id: "deployment", labelKey: "deployment", slug: "deployment" },
       {
         id: "what-is-agent-native",
         labelKey: "whatIsAgentNative",
         slug: "what-is-agent-native",
       },
+      { id: "deployment", labelKey: "deployment", slug: "deployment" },
       { id: "key-concepts", labelKey: "keyConcepts", slug: "key-concepts" },
       {
         id: "agent-surfaces",

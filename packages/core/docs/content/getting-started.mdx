@@ -47,22 +47,31 @@ visit that URL in your browser.
 
 <Callout tone="info">
 
-Create a local account if you're asked to sign in. You can use any email
-address; local development doesn't require email verification.
+On the Welcome screen, select **Continue as local dev**. You don't need to
+enter an email or password for local development.
 
 </Callout>
 
-To configure the LLM connection, open **Settings > Manage agent** or use
-**Cmd/Ctrl+K > Manage agent**, then select an option.
+Next, connect an LLM. Select **Connect Builder.io** to use free credits, or
+select **Custom keys**, choose a provider, and enter the requested connection
+details.
 
 ## Run the action from the agent
+
+An action is a typed function that your React UI can call from code and agents
+can use as a tool. The Chat template includes a simple `hello` action so you
+can try the pattern before writing one yourself.
 
 In the app, ask:
 
 > Call the hello action for Alex.
 
-The agent discovers the action from its description and input schema, calls it,
-and returns the same greeting.
+The agent finds `hello` from its description and input schema, passes `Alex` as
+the `name` input, and responds:
+
+```text
+Hello, Alex!
+```
 
 ## Inspect the action
 
@@ -161,16 +170,15 @@ called from:
 | [A2A](/docs/actions-other-surfaces#a2a) | Let another Agent-Native app ask this app to do work.         |
 
 Every caller uses the same action definition. You do not need a separate
-implementation for each one.
+implementation for each one. This shared action model is central to
+Agent-Native: behavior, validation, and permissions stay aligned across the
+UI, agents, and integrations as the app changes.
 
 ## What you built
 
-You created a Chat app, called its `hello` action from the agent, and rendered
-the same result in the UI. When you changed the action, both picked up the new
-behavior.
-
-That is the core Agent-Native pattern: define app functionality once, then make
-it available through the UI and as tools for agents.
+You created an Agent-Native app, called its `hello` action from the agent and a
+React UI, then changed the greeting once and watched both update. Every action
+you write from here follows that same pattern.
 
 ## Next steps
 

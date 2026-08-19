@@ -91,6 +91,11 @@ describe("DocsSidebar", () => {
     );
 
     expect(overview?.items.some((item) => item.id === "deployment")).toBe(true);
+    expect(overview?.items.slice(0, 3).map((item) => item.id)).toEqual([
+      "getting-started",
+      "what-is-agent-native",
+      "deployment",
+    ]);
     expect(architecture?.items.some((item) => item.id === "deployment")).toBe(
       false,
     );
