@@ -220,7 +220,7 @@ export default function ClipsTemplate() {
         description={<p>{t("templateLanding.clips.s008")}</p>}
         media={
           <img
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0b126fb633f34565951702f83d598adf?format=webp&width=800&height=1200"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7a3175abac70485ea9c3a65555702cf3?format=webp&width=800&height=1200"
             crossOrigin="anonymous"
             alt={t("templateLanding.clips.s001")}
             loading="lazy"
