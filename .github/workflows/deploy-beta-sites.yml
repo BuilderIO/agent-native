@@ -19,10 +19,12 @@ jobs:
   deploy:
     name: Build and smoke-test all beta sites
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 1
+          ref: ${{ github.event_name == 'workflow_dispatch' && 'main' || github.sha }}
           sparse-checkout: scripts/netlify-beta-sites.json
           sparse-checkout-cone-mode: false
 
@@ -45,6 +47,19 @@ jobs:
           const sourceSha = process.env.SOURCE_SHA;
           const api = "https://api.netlify.com/api/v1";
           const headers = { Authorization: `Bearer ${token}` };
+          const githubHeaders = {
+            Accept: "application/vnd.github+json",
+            Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+            "X-GitHub-Api-Version": "2022-11-28",
+          };
+          const requestTimeoutMs = 30_000;
+
+          function request(url, options = {}) {
+            return fetch(url, {
+              ...options,
+              signal: AbortSignal.timeout(requestTimeoutMs),
+            });
+          }
 
           async function readJson(response, label) {
             const text = await response.text();
@@ -62,35 +77,45 @@ jobs:
             return body;
           }
 
-          async function waitForBetaRef() {
+          async function waitForBetaRef(expectedSha) {
             const deadline = Date.now() + 10 * 60 * 1000;
             while (Date.now() < deadline) {
-              const response = await fetch(
+              const response = await request(
                 `https://api.github.com/repos/${process.env.REPOSITORY}/git/ref/heads/beta`,
-                {
-                  headers: {
-                    Accept: "application/vnd.github+json",
-                    Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
-                    "X-GitHub-Api-Version": "2022-11-28",
-                  },
-                },
+                { headers: githubHeaders },
               );
               if (response.ok) {
                 const ref = await response.json();
                 const betaSha = ref.object?.sha;
-                if (betaSha === sourceSha) return betaSha;
-                console.log(`Waiting for beta branch ${betaSha} to reach ${sourceSha}.`);
+                if (betaSha === expectedSha) return betaSha;
+                console.log(`Waiting for beta branch ${betaSha} to reach ${expectedSha}.`);
               } else {
                 console.log(`Waiting for beta branch; GitHub returned HTTP ${response.status}.`);
               }
               await new Promise((resolve) => setTimeout(resolve, 10_000));
             }
-            throw new Error(`beta branch did not reach ${sourceSha} within 10 minutes`);
+            throw new Error(`beta branch did not reach ${expectedSha} within 10 minutes`);
+          }
+
+          async function resolveSourceSha() {
+            if (process.env.GITHUB_EVENT_NAME !== "workflow_dispatch") {
+              return sourceSha;
+            }
+
+            const response = await request(
+              `https://api.github.com/repos/${process.env.REPOSITORY}/git/ref/heads/main`,
+              { headers: githubHeaders },
+            );
+            const ref = await readJson(response, "main ref");
+            if (typeof ref?.object?.sha !== "string" || !ref.object.sha) {
+              throw new Error("GitHub main ref did not include a commit SHA.");
+            }
+            return ref.object.sha;
           }
 
           async function trigger(site) {
             const build = await readJson(
-              await fetch(`${api}/sites/${site.siteId}/builds?branch=beta`, {
+              await request(`${api}/sites/${site.siteId}/builds?branch=beta`, {
                 method: "POST",
                 headers,
               }),
@@ -107,8 +132,8 @@ jobs:
             const deadline = Date.now() + 30 * 60 * 1000;
             while (Date.now() < deadline) {
               const [build, deploy] = await Promise.all([
-                readJson(await fetch(`${api}/builds/${site.buildId}`, { headers }), `[${site.id}] build status`),
-                readJson(await fetch(`${api}/deploys/${site.deployId}`, { headers }), `[${site.id}] deploy status`),
+                readJson(await request(`${api}/builds/${site.buildId}`, { headers }), `[${site.id}] build status`),
+                readJson(await request(`${api}/deploys/${site.deployId}`, { headers }), `[${site.id}] deploy status`),
               ]);
               if (build.error || deploy.state === "error") {
                 throw new Error(`[${site.id}] deploy failed: ${build.error || deploy.error_message || deploy.state}`);
@@ -126,7 +151,7 @@ jobs:
           }
 
           async function smoke(site) {
-            const response = await fetch(`https://${site.host}/`, { redirect: "manual" });
+            const response = await request(`https://${site.host}/`, { redirect: "manual" });
             if (response.status < 200 || response.status >= 400) {
               throw new Error(`[${site.id}] https://${site.host}/ returned HTTP ${response.status}`);
             }
@@ -134,7 +159,8 @@ jobs:
           }
 
           (async () => {
-            const betaSha = await waitForBetaRef();
+            const sourceSha = await resolveSourceSha();
+            const betaSha = await waitForBetaRef(sourceSha);
             const triggered = await Promise.all(sites.map(trigger));
             await Promise.all(triggered.map((site) => waitForReady(site, betaSha)));
             await Promise.all(triggered.map(smoke));

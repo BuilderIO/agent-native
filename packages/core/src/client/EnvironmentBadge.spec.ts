@@ -20,6 +20,12 @@ describe("EnvironmentBadge", () => {
       betaHost: "beta.agent-workspace.builder.io",
       productionHost: "agent-workspace.builder.io",
     });
+    expect(resolveEnvironmentTargets("chat.agent-native.com")).toEqual({
+      betaHost: "beta.chat.agent-native.com",
+      productionHost: "chat.agent-native.com",
+    });
+    expect(resolveEnvironmentTargets("starter.agent-native.com")).toBeNull();
+    expect(resolveEnvironmentTargets("www.agent-native.com")).toBeNull();
     expect(resolveEnvironmentTargets("example.com")).toBeNull();
   });
 
