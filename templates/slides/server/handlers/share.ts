@@ -116,7 +116,7 @@ async function createShareLink(event: any, deckId: string) {
   }
 
   const slides = storedDeck.slides.map((slide: unknown, index: number) =>
-    toSharedDeckSlide(slide, index),
+    toSharedDeckSlide(slide, index, { includeNotes: false }),
   );
 
   await db.insert(schema.deckShareLinks).values({

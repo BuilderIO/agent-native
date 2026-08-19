@@ -4099,7 +4099,12 @@ export function DesignCanvas({
       if (externalPreviewUrl) return false;
       return replacePreviewContent(
         getEmbeddedFrameDocumentContent({
-          content: nextContent,
+          // The initial srcdoc is normalized through withLocalRuntimes below.
+          // Keep the in-place overview replacement on that same local runtime
+          // path, otherwise a saved CDN script is reintroduced after the
+          // iframe has mounted and can leave the design unstyled when the
+          // browser cannot reach the provider.
+          content: withLocalRuntimes(nextContent),
           embeddedFrameBackground,
           transparentBackground,
           contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,

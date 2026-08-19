@@ -294,7 +294,12 @@ jobs:
     needs: change-scope
     if: needs.change-scope.outputs.fast_tests == 'true' && needs.change-scope.outputs.full != 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # A core change expands to its dependent workspace graph (currently 38
+    # projects) and runs those packages serially to keep runner memory bounded.
+    # Keep the bounded execution, but allow the graph to finish before treating
+    # a passing test run as a failure. The current serial graph needs more than
+    # 30 minutes on the hosted runner; retain a finite bound for true hangs.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 

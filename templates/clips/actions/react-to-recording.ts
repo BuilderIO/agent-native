@@ -30,7 +30,10 @@ export default defineAction({
     viewerName: z.string().optional(),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "commenter");
+    // Reacting is open to any signed-in viewer with access to the
+    // recording, not just an explicitly-granted "commenter" role — the
+    // `viewerEmail` check below is what actually requires an account.
+    await assertAccess("recording", args.recordingId, "viewer");
 
     const viewerEmail = getRequestUserEmail();
     if (!viewerEmail) {

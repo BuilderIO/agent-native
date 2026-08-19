@@ -66,7 +66,14 @@ async function readApps() {
   // registry and therefore in no monitor. It went permanently cold behind a
   // hanging health route — cache misses cost ~10x — and every check we owned
   // stayed green because nothing was checking it at all.
-  apps.push({ name: "docs", prodUrl: "https://www.agent-native.com" });
+  // The docs site is a static shell and does not expose the app health route.
+  // Keep its public shell in the fleet audit without turning that expected
+  // 502 into a false outage.
+  apps.push({
+    name: "docs",
+    prodUrl: "https://www.agent-native.com",
+    healthPath: null,
+  });
   return apps;
 }
 
@@ -92,14 +99,22 @@ async function pingOnce(url) {
   return { status: res.status, ok: res.ok, db, ready, pressure, ms };
 }
 
-async function pingApp({ name, prodUrl }, strict) {
+async function pingApp({ name, prodUrl, healthPath = HEALTH_PATH }, strict) {
+  if (healthPath === null) {
+    const shell = await checkShell({ name, prodUrl });
+    return {
+      name,
+      ok: shell.ok,
+      shellOnly: true,
+      ms: shell.ms,
+      error: shell.error,
+    };
+  }
   // ?pressure=1 asks the app to read its own pg_stat_activity. Requested only
   // in --strict runs: ordinary runs exist to warm the function, and an extra
   // stats query every minute per app buys nothing.
-  const healthPath = strict
-    ? `${HEALTH_PATH}?strict=1&pressure=1`
-    : HEALTH_PATH;
-  const url = `${prodUrl.replace(/\/$/, "")}${healthPath}`;
+  const requestPath = strict ? `${healthPath}?strict=1&pressure=1` : healthPath;
+  const url = `${prodUrl.replace(/\/$/, "")}${requestPath}`;
   let lastErr;
   for (let attempt = 1; attempt <= ATTEMPTS; attempt++) {
     try {
@@ -209,7 +224,11 @@ async function main() {
   // warm the function, not to monitor, and shouldn't pay for the extra
   // request.
   const shellResults = strict
-    ? await Promise.all(apps.map((app) => checkShell(app)))
+    ? await Promise.all(
+        apps
+          .filter((app) => app.healthPath !== null)
+          .map((app) => checkShell(app)),
+      )
     : [];
   const shellByName = new Map(shellResults.map((r) => [r.name, r]));
 
@@ -224,7 +243,11 @@ async function main() {
       warmed++;
       const dbState =
         r.db === true ? "db:warm" : r.db === false ? "db:none" : "db:?";
-      const shellState = shell ? ` shell:${shell.ms}ms` : "";
+      const shellState = shell
+        ? ` shell:${shell.ms}ms`
+        : r.shellOnly
+          ? ` shell:${r.ms}ms`
+          : "";
       const pressure = strict ? describePressure(r.pressure) : null;
       const slow =
         r.ms > SLOW_HEALTH_MS || (shell && shell.ms > SLOW_HEALTH_MS);
@@ -238,7 +261,7 @@ async function main() {
       if (pressured) pressuredApps.push({ name: r.name, ...pressure });
       if (pressure?.measured) measuredPressureApps.push(r.name);
     } else {
-      const reason = !r.ok ? r.error : `shell: ${shell.error}`;
+      const reason = !r.ok ? r.error : `shell: ${shell?.error}`;
       console.log(`  ✗ ${r.name.padEnd(12)} ${reason}`);
     }
   }

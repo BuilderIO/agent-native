@@ -578,7 +578,19 @@ const messages = {
       "Este enlace apunta a una presentación de equipo. Únete al equipo indicado arriba y el deck se abrirá aquí automáticamente.",
     deckUnavailableDescription:
       "Este deck puede haberse eliminado o tu cuenta no tiene acceso.",
-    backToDecks: "Volver a decks",
+    privateDeckTitle: "هذا العرض خاص",
+    privateDeckDescription:
+      "اطلب الوصول من المالك لفتح هذا العرض. سيتلقى المالك إشعارًا عند إرسال الطلب.",
+    signedInAs: "تم تسجيل الدخول باسم",
+    accessRequestSentDescription:
+      "تم إشعار المالك. يمكنك فتح هذا العرض بعد منحك الوصول.",
+    accessRequestRecordedDescription:
+      "تم تسجيل طلبك. يمكنك فتح هذا العرض بعد منحك الوصول.",
+    requestAccessPending: "جارٍ إرسال الطلب…",
+    accessRequestSent: "تم إرسال الطلب",
+    requestAccess: "طلب الوصول",
+    signInToRequestAccess: "سجّل الدخول لطلب الوصول",
+    backToDecks: "العودة إلى العروض",
     tryAgain: "Intentar de nuevo",
     imageUploadFailed: "Error al subir imagen",
     imageUploadNeedsBuilder:

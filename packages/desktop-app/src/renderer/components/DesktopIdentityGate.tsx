@@ -75,6 +75,7 @@ export default function DesktopIdentityGate({
     "magic-link",
   );
   const [submitting, setSubmitting] = useState(false);
+  const [googleSubmitting, setGoogleSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [magicLinkSentEmail, setMagicLinkSentEmail] = useState<string | null>(
     null,
@@ -138,6 +139,7 @@ export default function DesktopIdentityGate({
   const startGoogleSignIn = async () => {
     if (submitting) return;
     setSubmitting(true);
+    setGoogleSubmitting(true);
     setError(null);
     try {
       if (!(await onSignIn())) {
@@ -149,6 +151,7 @@ export default function DesktopIdentityGate({
       );
     } finally {
       setSubmitting(false);
+      setGoogleSubmitting(false);
     }
   };
 
@@ -269,7 +272,7 @@ export default function DesktopIdentityGate({
             </p>
           ) : null}
 
-          {busy || canSubmit ? (
+          {!googleSubmitting && (busy || canSubmit) ? (
             <button
               type="submit"
               className="desktop-identity-gate__submit desktop-identity-gate__submit--primary"

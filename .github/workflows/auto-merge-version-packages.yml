@@ -1,0 +1,96 @@
+name: Auto-merge Version Packages PR
+
+# The "Version Packages" PR is opened by `changesets/action` (see
+# auto-publish.yml) and contains nothing but version bumps + CHANGELOG
+# updates + .changeset/*.md removals. It needs no human review and no
+# heavy CI — but it sits behind the same required checks as every other
+# PR (Lint & format, Test, Build, Header rules, Redirect rules, Pages
+# changed), so it lingers until Build (~10 min) and the Netlify deploys
+# finish. That delays publish-to-npm by the same amount.
+#
+# This workflow auto-merges the PR with admin bypass as soon as it's
+# opened or updated. The `builder-io-integration` GitHub App
+# (BUILDER_BOT_FOR_LINT_APP_ID — same identity that creates the PR) is
+# in `bypass_actors` of the "Require CI checks on PRs to main" ruleset
+# with `bypass_mode: always`, so `gh pr merge --admin` skips the
+# in-progress required checks.
+#
+# The merge to main then fires auto-publish.yml, which runs
+# `changeset publish` and pushes the new versions to npm.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: {}
+
+# Cancel earlier runs if the bot pushes another update to the same PR
+# while we're mid-merge.
+concurrency:
+  group: auto-merge-version-packages-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  auto-merge:
+    name: Force-merge changeset-release/main
+    # The webhook sender is the GitHub-recorded actor that caused this event;
+    # unlike commit author fields, it cannot be forged inside a commit object.
+    if: |
+      github.event.pull_request.head.ref == 'changeset-release/main' &&
+      github.event.pull_request.user.login == 'builder-io-integration[bot]' &&
+      github.event.sender.login == 'builder-io-integration[bot]' &&
+      !github.event.pull_request.draft
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@d72941d797fd3113feb6b93fd0dec494b13a2547 # v1
+        with:
+          app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
+          private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
+
+      # `synchronize` can fire for a later push to the same branch. The job
+      # gate above binds this run to the actor recorded on the webhook before
+      # this step checks the head.
+      - name: Verify event-bound head
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          actual_head=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
+          if [ "$actual_head" != "$HEAD_SHA" ]; then
+            echo "::error::PR head moved from verified event SHA $HEAD_SHA to $actual_head — refusing admin-merge." >&2
+            exit 1
+          fi
+
+      - name: Verify release-only diff
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename')
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              .changeset/*.md|package.json|pnpm-lock.yaml|*/package.json|*/CHANGELOG.md)
+                ;;
+              *)
+                echo "::error::Refusing admin-merge for unexpected release PR path: $file" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$files"
+
+      - name: Force-merge with admin bypass
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"

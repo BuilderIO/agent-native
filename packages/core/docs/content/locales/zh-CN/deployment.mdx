@@ -14,7 +14,7 @@ description: "将代理原生应用部署到具有 Nitro 预设的任何平台 -
 - **正在构建应用？** 从 [Getting Started](/docs/getting-started) 开始，准备好将应用放到持久环境中时再回到这里。
 - **正在运行应用？** 先使用本地 Docker 路径。它会验证你在小型服务器上将使用的 Node.js、Postgres、身份验证和环境变量配置。
 
-本地堆栈特意使用示例身份验证密钥和本地 Postgres 卷，仅适用于 `localhost`，不适合直接暴露到互联网。完整的 Compose 文件和可复制步骤请参阅[英文快速入门](https://www.agent-native.com/docs/deployment#self-host-quickstart)。
+本地堆栈特意使用示例身份验证密钥和本地 Postgres 卷，仅适用于 `localhost`，不适合直接暴露到互联网。完整的 Compose 文件和可复制步骤请参阅[英文快速入门](https://www.agent-native.com/docs/deployment#self-host-quickstart)。此快速入门使用 PostgreSQL 18 的卷布局。不要重新使用由 PostgreSQL 17 或更早版本创建的卷。更改镜像或挂载路径前，请先备份并迁移现有数据。
 
 ### 1. 创建应用
 

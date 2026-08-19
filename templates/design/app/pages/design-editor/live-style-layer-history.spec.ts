@@ -83,11 +83,15 @@ describe("live style runtime history", () => {
   });
 
   it("routes localhost forward styles and undo/redo through the shared targeted helper", () => {
-    const forwardSection = editorSource.slice(
-      editorSource.indexOf(
+    const commitVisualStylesSource = readFileSync(
+      new URL("./commands/commit-visual-styles.ts", import.meta.url),
+      "utf8",
+    );
+    const forwardSection = commitVisualStylesSource.slice(
+      commitVisualStylesSource.indexOf(
         "if (isRunningAppSourceType(activeCanvasSourceType))",
       ),
-      editorSource.indexOf(
+      commitVisualStylesSource.indexOf(
         "// Base every patch off the freshest known content",
       ),
     );
@@ -206,13 +210,14 @@ describe("pending live layer state history", () => {
   });
 
   it("queues localhost layer state before any snapshot-document write", () => {
-    const section = editorSource.slice(
-      editorSource.indexOf("const handleToggleLayerLocked"),
-      editorSource.indexOf("const handleToggleLayerHidden"),
+    const section = readFileSync(
+      new URL("./commands/toggle-layer-locked.ts", import.meta.url),
+      "utf8",
     );
-    const localhostBranch = section.slice(
-      section.indexOf("resolveOverviewScreenSourceType"),
-      section.indexOf("if (owner?.runtimeOnly)"),
+    const body = section.slice(section.indexOf("export function"));
+    const localhostBranch = body.slice(
+      body.indexOf("resolveOverviewScreenSourceType"),
+      body.indexOf("if (owner?.runtimeOnly)"),
     );
 
     expect(localhostBranch).toContain("recordPendingLiveLayerStateEdit(");

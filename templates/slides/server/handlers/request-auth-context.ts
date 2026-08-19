@@ -21,6 +21,7 @@ export interface SlidesRequestAuthContext {
  */
 export class SlidesSessionLookupError extends Error {
   readonly statusCode = 503;
+  readonly cause: unknown;
   constructor(cause: unknown) {
     super("Could not verify your session. Please try again.");
     this.name = "SlidesSessionLookupError";

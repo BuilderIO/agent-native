@@ -45,6 +45,8 @@ interface TimestampedCommentBarProps {
   onClose: () => void;
   onAdded?: () => void;
   className?: string;
+  draft?: string;
+  onDraftChange?: (value: string) => void;
 }
 
 /**
@@ -57,9 +59,13 @@ export function TimestampedCommentBar({
   onClose,
   onAdded,
   className,
+  draft: controlledDraft,
+  onDraftChange,
 }: TimestampedCommentBarProps) {
   const t = useT();
-  const [draft, setDraft] = useState("");
+  const [uncontrolledDraft, setUncontrolledDraft] = useState("");
+  const draft = controlledDraft ?? uncontrolledDraft;
+  const setDraft = onDraftChange ?? setUncontrolledDraft;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const addComment = useActionMutation("add-comment");
@@ -71,7 +77,7 @@ export function TimestampedCommentBar({
   const insertAtCursor = (text: string) => {
     const el = textareaRef.current;
     if (!el) {
-      setDraft((d) => d + text);
+      setDraft(draft + text);
       return;
     }
     const start = el.selectionStart ?? draft.length;
@@ -101,7 +107,10 @@ export function TimestampedCommentBar({
   };
 
   return (
-    <div className={cn("absolute inset-x-0 bottom-0 z-30 p-3", className)}>
+    <div
+      data-player-ui
+      className={cn("absolute inset-x-0 bottom-0 z-30 p-3", className)}
+    >
       <div className="rounded-xl border border-border bg-background/95 p-3 shadow-lg backdrop-blur">
         <Textarea
           ref={textareaRef}

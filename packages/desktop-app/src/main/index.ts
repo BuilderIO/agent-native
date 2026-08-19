@@ -232,6 +232,7 @@ import {
   runDesktopStartupStep,
 } from "./desktop-startup.js";
 import { HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT } from "./embedded-auth-ui";
+import { isAllowedEnvironmentNavigation } from "./environment-navigation";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
@@ -244,7 +245,10 @@ import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
+  isPreparingDownloadedUpdate,
+  isInstallingDownloadedUpdate,
   installDownloadedUpdate,
+  requestQuitAfterUpdatePreparation,
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
@@ -1270,7 +1274,16 @@ async function closeDesktopComputerMcpBridge(): Promise<void> {
 registerUpdatesIpc({
   refreshApplicationMenu,
   focusMainWindow,
-  prepareForUpdate: closeDesktopComputerMcpBridge,
+  prepareForUpdate: async () => {
+    await closeDesktopComputerMcpBridge();
+    await disposeMultiFrontierAppIntegration();
+  },
+  restoreAfterUpdateFailure: async () => {
+    await initializeDesktopComputerMcpBridge();
+    if (multiFrontierDisposePromise) {
+      initializeMultiFrontierAppIntegrationForRuntime();
+    }
+  },
 });
 
 function isShellIdentityIpc(event: IpcMainInvokeEvent): boolean {
@@ -2102,6 +2115,9 @@ let multiFrontierDisposePromise: Promise<void> | undefined;
 const multiFrontierQuitGuard = createMultiFrontierQuitGuard({
   dispose: () => disposeMultiFrontierAppIntegration(),
   reissueQuit: () => app.quit(),
+  shouldAllowQuit: () => isInstallingDownloadedUpdate(),
+  shouldDeferQuit: () => isPreparingDownloadedUpdate(),
+  onDeferredQuit: requestQuitAfterUpdatePreparation,
 });
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
@@ -6622,6 +6638,17 @@ function disposeMultiFrontierAppIntegration(): Promise<void> {
       multiFrontierAppIntegration?.dispose() ?? Promise.resolve();
   }
   return multiFrontierDisposePromise;
+}
+
+function initializeMultiFrontierAppIntegrationForRuntime(): void {
+  multiFrontierDisposePromise = undefined;
+  multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
+    ipcMain,
+    storeRoot: codeAgentStoreRoot(),
+    loginCwd: resolveCodeAgentsTerminalCwd({}),
+    listWorkspaces: listMultiFrontierWorkspaces,
+    resolveDirectory: resolveUsableDirectory,
+  });
 }
 
 async function chooseCodeAgentProject(): Promise<CodeAgentProjectSelectResult> {
@@ -11225,6 +11252,7 @@ function navigationPort(url: URL): string {
 
 function isSameWebviewAppOrigin(current: URL, next: URL): boolean {
   if (current.origin === next.origin) return true;
+  if (isAllowedEnvironmentNavigation(current, next)) return true;
   if (current.protocol !== next.protocol) return false;
   return (
     normalizedNavigationHost(current.hostname) ===
@@ -12031,13 +12059,7 @@ app.whenReady().then(async () => {
   console.info("[main] log file:", getLogFilePath());
 
   reconcileInterruptedCodeAgentRuns("startup");
-  multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
-    ipcMain,
-    storeRoot: codeAgentStoreRoot(),
-    loginCwd: resolveCodeAgentsTerminalCwd({}),
-    listWorkspaces: listMultiFrontierWorkspaces,
-    resolveDirectory: resolveUsableDirectory,
-  });
+  initializeMultiFrontierAppIntegrationForRuntime();
   registerDesktopShortcutBindings();
 
   const win = createWindow();
@@ -12145,6 +12167,7 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  if (multiFrontierQuitGuard(event)) return;
   if (!appIsQuitting) {
     appIsQuitting = true;
     for (const appId of managedDesktopAppProcesses.keys()) {
@@ -12164,7 +12187,6 @@ app.on("before-quit", (event) => {
       );
     });
   }
-  if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });
 
 app.on("will-quit", () => {

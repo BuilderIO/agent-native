@@ -83,6 +83,7 @@ values from `.env` files, and use placeholders such as `<API_KEY>` in examples.
 | `AGENT_NATIVE_SSR_CACHE`                                           | Deployment-wide SSR shell cache policy.                                                                                                                                     |
 | `NODE_ENV`                                                         | Node runtime mode.                                                                                                                                                          |
 | `CI`                                                               | Continuous-integration marker used by test/build behavior.                                                                                                                  |
+| `REPOSITORY`                                                       | GitHub repository slug supplied to the beta deployment workflow for checking the mirrored branch.                                                                           |
 | `DOCS_ONLY`                                                        | Internal CI marker emitted by the change-scope job when a change contains documentation only; do not set manually.                                                          |
 | `DEBUG`                                                            | General debug logging switch used by local tooling and selected runtime paths.                                                                                              |
 | `COOKIE_DOMAIN` / `CORS_ALLOWED_ORIGINS`                           | Optional cookie-domain and cross-origin request policy.                                                                                                                     |
@@ -239,13 +240,14 @@ production deployment:
 
 ## CI-only variables
 
-| Variable                      | Purpose                                                                                      |
-| ----------------------------- | -------------------------------------------------------------------------------------------- |
-| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane. |
-| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.         |
-| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.    |
-| `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.         |
-| `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                |
+| Variable                      | Purpose                                                                                                                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_DB`                 | Database name for the ephemeral Postgres service container used by the Content DB test lane.                                                                            |
+| `POSTGRES_HOST_AUTH_METHOD`   | Auth method for that same throwaway container; `trust` keeps the lane password-free.                                                                                    |
+| `S2573_PGLITE_INSTALL_PREFIX` | Install prefix for the PGlite build used by the Content database row-migration lock test.                                                                               |
+| `CI_FULL`                     | Change-scope classifier output selecting the full CI suite instead of targeted jobs.                                                                                    |
+| `CI_WORKSPACE_FILTERS`        | JSON-encoded pnpm workspace selectors emitted by the change-scope classifier.                                                                                           |
+| `PAGERDUTY_ROUTING_KEY`       | Optional GitHub Actions secret used to page the production health on-call when the keep-warm audit fails; GitHub issue reporting remains the fallback when it is unset. |
 
 GitHub Actions also creates short-lived step handoff variables such as
 `HEAD_SHA`, `MATRIX`, `PLAN_JSON`, `PLAN_URL`, `PR_NUMBER`, `RUN_URL`,
@@ -327,6 +329,7 @@ no alias are settable only in code.
 | `workspace.isWorkspace`                | `AGENT_NATIVE_WORKSPACE`, `VITE_AGENT_NATIVE_WORKSPACE`                     | boolean | —       | Whether this app is mounted inside a shared workspace gateway.                                                                                |
 | `workspace.appsJson`                   | `AGENT_NATIVE_WORKSPACE_APPS_JSON`, `VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON` | string  | —       | Serialized workspace app manifest used by mounted app runtimes.                                                                               |
 | `workspace.gatewayUrl`                 | `WORKSPACE_GATEWAY_URL`, `VITE_WORKSPACE_GATEWAY_URL`                       | string  | —       | URL of the workspace gateway fronting this app.                                                                                               |
+| `workspace.orgDirectoryUrl`            | `AGENT_NATIVE_ORG_DIRECTORY_URL`                                            | string  | —       | URL of the authoritative organization Dispatch directory.                                                                                     |
 | `workspace.oauthOrigin`                | `WORKSPACE_OAUTH_ORIGIN`, `VITE_WORKSPACE_OAUTH_ORIGIN`                     | string  | —       | Shared origin workspace apps complete OAuth against.                                                                                          |
 
 <!-- END GENERATED: declared-app-config -->

@@ -37,6 +37,7 @@ import { AgentShareSection } from "./AgentShareSection.js";
 import {
   useShareButtonController,
   type ShareButtonController,
+  type ShareButtonGroup,
   type ShareButtonOrgMember,
   type ShareButtonOrgMemberSearch,
   type ShareButtonShare,
@@ -372,6 +373,8 @@ function SharePanel(
     inFlight,
     memberSearch,
     memberSuggestions,
+    groupSuggestions,
+    selectGroup,
     knownMembers,
     shares,
     handleVisibility,
@@ -491,8 +494,12 @@ function SharePanel(
                   onInviteEmailChange(next);
                   if (shareError) setShareError(null);
                 }}
-                onSelectMember={(member) => {
-                  onInviteEmailChange(member.email);
+                onSelectSuggestion={(suggestion) => {
+                  if (suggestion.principalType === "group") {
+                    selectGroup(suggestion);
+                  } else {
+                    onInviteEmailChange(suggestion.email);
+                  }
                   setSuggestionsOpen(false);
                   if (shareError) setShareError(null);
                 }}
@@ -503,10 +510,23 @@ function SharePanel(
                         defaultValue: "Add people from your organization",
                       })
                     : t("agentChat.share.addPeopleEmail", {
-                        defaultValue: "Add people by email",
+                        defaultValue: policy.supportsGroupShares
+                          ? "Add people or groups"
+                          : "Add people by email",
                       })
                 }
-                suggestions={memberSuggestions}
+                suggestions={[
+                  ...memberSuggestions.map((member) => ({
+                    ...member,
+                    principalType: "user" as const,
+                  })),
+                  ...(policy.supportsGroupShares
+                    ? groupSuggestions.map((group) => ({
+                        ...group,
+                        principalType: "group" as const,
+                      }))
+                    : []),
+                ]}
                 search={memberSearch}
               />
               <RoleSelect
@@ -606,6 +626,7 @@ function SharePanel(
               <Avatar
                 label={principalLabel(s, knownMembers, t)}
                 org={s.principalType === "org"}
+                group={s.principalType === "group"}
               />
               <span className="flex-1 min-w-0 truncate">
                 {principalLabel(s, knownMembers, t)}
@@ -827,19 +848,23 @@ interface MemberAutocompleteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onValueChange: (value: string) => void;
-  onSelectMember: (member: OrgMember) => void;
+  onSelectSuggestion: (suggestion: ShareSuggestion) => void;
   onSubmit: () => void;
   placeholder: string;
-  suggestions: OrgMember[];
+  suggestions: ShareSuggestion[];
   search: OrgMemberSearch;
 }
+
+type ShareSuggestion =
+  | (OrgMember & { principalType: "user" })
+  | (ShareButtonGroup & { principalType: "group" });
 
 function MemberAutocomplete({
   value,
   open,
   onOpenChange,
   onValueChange,
-  onSelectMember,
+  onSelectSuggestion,
   onSubmit,
   placeholder,
   suggestions,
@@ -850,7 +875,7 @@ function MemberAutocomplete({
   const listboxId = rawListboxId.replace(/:/g, "");
   const inputRef = useRef<HTMLInputElement>(null);
   const [activeIndex, setActiveIndex] = useState(-1);
-  const activeMember =
+  const activeSuggestion =
     activeIndex >= 0 && activeIndex < suggestions.length
       ? suggestions[activeIndex]
       : null;
@@ -872,8 +897,8 @@ function MemberAutocomplete({
       ?.scrollIntoView({ block: "nearest" });
   }, [activeIndex, listboxId]);
 
-  const chooseMember = (member: OrgMember) => {
-    onSelectMember(member);
+  const chooseSuggestion = (suggestion: ShareSuggestion) => {
+    onSelectSuggestion(suggestion);
     onOpenChange(false);
     inputRef.current?.focus();
   };
@@ -902,9 +927,9 @@ function MemberAutocomplete({
     }
 
     if (event.key === "Enter") {
-      if (open && activeMember) {
+      if (open && activeSuggestion) {
         event.preventDefault();
-        chooseMember(activeMember);
+        chooseSuggestion(activeSuggestion);
         return;
       }
       if (value.trim()) {
@@ -945,7 +970,7 @@ function MemberAutocomplete({
           />
           <input
             ref={inputRef}
-            type="email"
+            type="text"
             role="combobox"
             aria-autocomplete="list"
             aria-expanded={open}
@@ -998,17 +1023,17 @@ function MemberAutocomplete({
           className="max-h-56 overflow-y-auto overflow-x-hidden"
           onScroll={handleScroll}
         >
-          {suggestions.map((member, index) => {
+          {suggestions.map((suggestion, index) => {
             const active = index === activeIndex;
             return (
               <div
-                key={member.email}
+                key={`${suggestion.principalType}:${suggestion.principalType === "group" ? suggestion.id : suggestion.email}`}
                 id={optionId(listboxId, index)}
                 role="option"
                 aria-selected={active}
                 onMouseDown={(event) => event.preventDefault()}
                 onMouseEnter={() => setActiveIndex(index)}
-                onClick={() => chooseMember(member)}
+                onClick={() => chooseSuggestion(suggestion)}
                 className={cn(
                   "flex cursor-pointer select-none flex-col rounded-sm px-3 py-2 text-sm outline-none",
                   active
@@ -1016,12 +1041,30 @@ function MemberAutocomplete({
                     : "text-foreground hover:bg-accent hover:text-accent-foreground",
                 )}
               >
-                <span className="truncate font-medium">
-                  {member.name?.trim() || member.email}
+                <span className="flex items-center gap-2 truncate font-medium">
+                  {suggestion.principalType === "group" ? (
+                    <IconUsersGroup
+                      aria-hidden
+                      size={14}
+                      strokeWidth={1.8}
+                      className="shrink-0 text-muted-foreground"
+                    />
+                  ) : null}
+                  <span className="truncate">
+                    {suggestion.principalType === "group"
+                      ? suggestion.name
+                      : suggestion.name?.trim() || suggestion.email}
+                  </span>
                 </span>
-                {member.name?.trim() ? (
+                {suggestion.principalType === "group" ? (
                   <span className="truncate text-xs text-muted-foreground">
-                    {member.email}
+                    {t("agentChat.share.userGroup", {
+                      defaultValue: "User group",
+                    })}
+                  </span>
+                ) : suggestion.name?.trim() ? (
+                  <span className="truncate text-xs text-muted-foreground">
+                    {suggestion.email}
                   </span>
                 ) : null}
               </div>
@@ -1280,13 +1323,25 @@ function VisibilitySelect(props: {
   );
 }
 
-function Avatar({ label, org }: { label: string; org?: boolean }) {
+function Avatar({
+  label,
+  org,
+  group,
+}: {
+  label: string;
+  org?: boolean;
+  group?: boolean;
+}) {
   return (
     <span
       aria-hidden
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
     >
-      {org ? <IconUsersGroup size={14} strokeWidth={1.75} /> : initials(label)}
+      {org || group ? (
+        <IconUsersGroup size={14} strokeWidth={1.75} />
+      ) : (
+        initials(label)
+      )}
     </span>
   );
 }
@@ -1311,6 +1366,11 @@ function principalLabel(
     return t("agentChat.share.organization", {
       defaultValue: "Organization",
     });
+  if (share.principalType === "group")
+    return (
+      serverLabel ||
+      t("agentChat.share.userGroup", { defaultValue: "User group" })
+    );
   return displayName(share.principalId, members, t);
 }
 

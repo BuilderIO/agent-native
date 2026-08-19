@@ -325,7 +325,7 @@ function stripPlaceholderZws(root: Element): void {
   }
   for (const textNode of textNodes) {
     if (!textNode.data.includes(ZERO_WIDTH_SPACE)) continue;
-    const withoutZws = textNode.data.replaceAll(ZERO_WIDTH_SPACE, "");
+    const withoutZws = textNode.data.split(ZERO_WIDTH_SPACE).join("");
     if (withoutZws.length > 0) {
       textNode.data = withoutZws;
     } else if (textNode.parentNode?.childNodes.length !== 1) {

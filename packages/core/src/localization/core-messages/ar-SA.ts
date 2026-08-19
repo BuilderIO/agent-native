@@ -540,6 +540,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "شخص غير معروف",
   "share.viewer": "مشاهد",
   "share.viewerDescription": "يمكنه العرض",
+  "share.userGroup": "مجموعة مستخدمين",
   "status.resuming": "جارٍ الاستئناف",
   "status.stillWorking": "لا يزال قيد العمل",
   "status.thinking": "يفكّر",

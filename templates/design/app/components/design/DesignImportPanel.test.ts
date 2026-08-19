@@ -77,10 +77,14 @@ describe("DesignImportPanel", () => {
 
   it("supports canvas-level Figma paste through the editor paste handler", () => {
     expect(editorSource).toContain("const handleEditorPaste");
-    expect(editorSource).toContain(
+    const pasteCommand = readFileSync(
+      "app/pages/design-editor/commands/editor-paste.ts",
+      "utf8",
+    );
+    expect(pasteCommand).toContain(
       "getFigmaClipboardContent(event.clipboardData)",
     );
-    expect(editorSource).toContain(
+    expect(pasteCommand).toContain(
       "void importFigmaClipboardIntoDesign(figmaContent)",
     );
     expect(editorSource).toContain(
