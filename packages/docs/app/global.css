@@ -2120,7 +2120,7 @@ html.dark .shiki span {
   border-radius: 6px;
   padding: 0 20px;
   font-family: var(--font-mono);
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   line-height: 1.2;
   letter-spacing: 0.28px;
@@ -2151,7 +2151,6 @@ html.dark .shiki span {
   background-color: transparent;
   padding: 0 12px;
   color: var(--fg-secondary);
-  font-size: 14px;
   font-weight: 500;
 }
 
