@@ -1072,14 +1072,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         seek: seekToVisibleMs,
         getCurrentOriginalMs: () => {
           const v = videoRef.current;
-          const liveVisibleMs =
+          const liveOriginalMs =
             v &&
             Number.isFinite(v.currentTime) &&
             v.currentTime >= 0 &&
             v.currentTime < 1e7
               ? Math.floor(v.currentTime * 1000)
-              : currentMs;
-          return editedToOriginal(liveVisibleMs, edits);
+              : currentMsRef.current;
+          return liveOriginalMs;
         },
         setSpeed: applySpeed,
         toggleMute: () => {

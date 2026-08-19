@@ -86,7 +86,7 @@ vi.mock("../../shared/gmail-signature.js", () => ({
   htmlSignatureToMarkdown: mocks.htmlSignatureToMarkdown,
 }));
 
-const { getGoogleAddAccountUrl, getGoogleAuthUrl } =
+const { getGoogleAddAccountUrl, getGoogleAuthUrl, handleGoogleCallback } =
   await import("./google-auth.js");
 
 function createEvent(query: Record<string, string> = {}) {
@@ -153,6 +153,35 @@ describe("Mail Google auth-url handlers", () => {
       "https://accounts.google.com/o/oauth2/v2/auth?state=encoded-state",
     );
     await expect(response.text()).resolves.toBe("");
+  });
+
+  it("does not disclose which login owns a conflicting Google account", async () => {
+    mocks.decodeOAuthState.mockReturnValue({
+      redirectUri:
+        "https://mail.agent-native.com/_agent-native/google/callback",
+      owner: "second-login@example.com",
+    });
+    mocks.resolveOAuthOwner.mockResolvedValue({
+      owner: "second-login@example.com",
+      hasProductionSession: true,
+    });
+    const conflict = Object.assign(new Error("owned by another user"), {
+      name: "OAuthAccountOwnedByOtherUserError",
+      accountId: "shared-account@gmail.com",
+      existingOwner: "first-login@example.com",
+      attemptedOwner: "second-login@example.com",
+    });
+    mocks.exchangeCode.mockRejectedValue(conflict);
+
+    await handleGoogleCallback(
+      createEvent({ code: "google-code", state: "encoded-state" }) as any,
+    );
+
+    expect(mocks.oauthErrorPage).toHaveBeenCalledTimes(1);
+    const [message] = mocks.oauthErrorPage.mock.calls[0];
+    expect(message).toContain("connected to another login");
+    expect(message).not.toContain("first-login@example.com");
+    expect(message).not.toContain("second-login@example.com");
   });
 
   it("treats 403 scope failures as missing Google permissions", async () => {

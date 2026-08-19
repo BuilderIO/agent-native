@@ -7,7 +7,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
-import { BackToLibraryButton, mergeRecordingReactions } from "./r.$recordingId";
+import {
+  BackToLibraryButton,
+  mergeRecordingReactions,
+  removePendingReaction,
+} from "./r.$recordingId";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -101,5 +105,19 @@ describe("mergeRecordingReactions", () => {
       { id: "reaction-1", emoji: "🔥", videoTimestampMs: 42_000 },
       { id: "pending-1", emoji: "🔥", videoTimestampMs: 42_000 },
     ]);
+  });
+});
+
+describe("removePendingReaction", () => {
+  it("removes the client-only entry after the server refetch succeeds", () => {
+    expect(
+      removePendingReaction(
+        [
+          { id: "pending-1", emoji: "🔥", videoTimestampMs: 42_000 },
+          { id: "pending-2", emoji: "👏", videoTimestampMs: 42_000 },
+        ],
+        "pending-1",
+      ),
+    ).toEqual([{ id: "pending-2", emoji: "👏", videoTimestampMs: 42_000 }]);
   });
 });

@@ -58,23 +58,17 @@ function googleOAuthErrorPayload(
   message: string;
   code?: string;
   accountId?: string;
-  existingOwner?: string;
-  attemptedOwner?: string;
 } {
   if (
     error instanceof OAuthAccountOwnedByOtherUserError ||
     error?.name === "OAuthAccountOwnedByOtherUserError"
   ) {
     const account = error.accountId || "This Google account";
-    const existingOwner = error.existingOwner || undefined;
-    const attemptedOwner = error.attemptedOwner || undefined;
     const message = `${account} is connected to another login. Sign out, then sign in with ${account}.`;
     return {
       message,
       code: "account_owner_mismatch",
       accountId: error.accountId,
-      existingOwner,
-      attemptedOwner,
     };
   }
 

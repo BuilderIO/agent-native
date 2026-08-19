@@ -133,6 +133,13 @@ export function mergeRecordingReactions(
   return merged;
 }
 
+export function removePendingReaction(
+  pendingReactions: RecordingReaction[],
+  pendingId: string,
+) {
+  return pendingReactions.filter((reaction) => reaction.id !== pendingId);
+}
+
 export function meta() {
   return [{ title: enMessages.recordingRoute.pageTitle }];
 }
@@ -467,22 +474,6 @@ export default function RecordingPage() {
       setPanel(panelParam);
     }
   }, [canEdit, panelParam]);
-
-  useEffect(() => {
-    if (pendingReactions.length === 0) return;
-    const serverReactions = playerDataQ.data?.reactions ?? [];
-    setPendingReactions((current) =>
-      current.filter(
-        (pending) =>
-          !serverReactions.some(
-            (reaction: RecordingReaction) =>
-              reaction.id === pending.id &&
-              reaction.emoji === pending.emoji &&
-              reaction.videoTimestampMs === pending.videoTimestampMs,
-          ),
-      ),
-    );
-  }, [pendingReactions.length, playerDataQ.data?.reactions]);
 
   const builderCredits =
     (playerDataQ.data?.builderCredits as BuilderCreditsStatus | null) ?? null;
@@ -1814,11 +1805,19 @@ export default function RecordingPage() {
                               });
                               return playerDataQ.refetch();
                             })
+                            .then(() => {
+                              setPendingReactions((current) =>
+                                removePendingReaction(
+                                  current,
+                                  pendingReaction.id,
+                                ),
+                              );
+                            })
                             .catch((err) => {
                               setPendingReactions((current) =>
-                                current.filter(
-                                  (reaction) =>
-                                    reaction.id !== pendingReaction.id,
+                                removePendingReaction(
+                                  current,
+                                  pendingReaction.id,
                                 ),
                               );
                               console.warn("[clips] react failed", err);

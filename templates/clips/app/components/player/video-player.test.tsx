@@ -321,6 +321,60 @@ describe("VideoPlayer playback", () => {
     expect(container.textContent).not.toContain("10 sec");
   });
 
+  it("reports native playback time directly on the original timeline", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://cdn.example.com/clip.webm"
+            durationMs={10_000}
+            editsJson={JSON.stringify({
+              version: 1,
+              trims: [{ startMs: 2_000, endMs: 4_000, excluded: true }],
+              blurs: [],
+            })}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    const video = getVideo();
+    Object.defineProperty(video, "currentTime", {
+      configurable: true,
+      value: 6,
+    });
+
+    expect(handleRef.current?.getCurrentOriginalMs()).toBe(6_000);
+  });
+
+  it("reads the latest Loom position from the imperative handle", () => {
+    act(() => {
+      root.render(
+        <TooltipProvider>
+          <VideoPlayer
+            ref={(instance) => {
+              handleRef.current = instance;
+            }}
+            recordingId="recording-1"
+            videoUrl="https://www.loom.com/share/loom-recording"
+            embedProvider="loom"
+            durationMs={10_000}
+          />
+        </TooltipProvider>,
+      );
+    });
+
+    act(() => {
+      handleRef.current?.seek(4_000);
+    });
+
+    expect(handleRef.current?.getCurrentOriginalMs()).toBe(4_000);
+  });
+
   it("stops a hung play attempt and leaves playback retryable", () => {
     const video = getVideo();
     const playSpy = vi
