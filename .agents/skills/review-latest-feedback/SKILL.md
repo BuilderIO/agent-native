@@ -22,13 +22,19 @@ cluster, with the representative report as its cursor anchor.
 
 This is a reply-producing workflow, not a reaction-only workflow. Apply the
 reply rules in `address-feedback-with-replies` to every actionable Slack item.
-The moment this skill adds `👀` to a Slack parent, that parent enters a
-mandatory reply ledger. Before the run ends, re-read every ledger item and
-confirm that Steve has posted either a concise **Fixed** reply or a concise
-**Clarification needed** question. A bot acknowledgement, another person's
-reply, or the `👀` reaction alone never satisfies the ledger. Do not finish the
-sweep or report success while an actionable parent that this run marked has
-only `👀` or an unrelated reply.
+Reaction state is part of triage. Before a Slack parent enters this workflow,
+inspect the parent's reactions. If any `👀` reaction is already present, do not
+add another one or treat the parent as a new candidate for automatic
+investigation; record it as already marked or owned. A reporter reply to a
+clarification this workflow previously asked is a continuation of that
+existing ledger item, not a new candidate, so re-read and resume it without
+adding another reaction. The moment this skill adds `👀` to a Slack parent,
+that parent enters a mandatory reply ledger. Before the run ends, re-read every
+ledger item and confirm that Steve has posted either a concise **Fixed** reply
+or a concise **Clarification needed** question. A bot acknowledgement, another
+person's reply, or the `👀` reaction alone never satisfies the ledger. Do not
+finish the sweep or report success while an actionable parent that this run
+marked has only `👀` or an unrelated reply.
 
 ## Start cursor
 
@@ -38,12 +44,15 @@ if the invocation names another channel, use that channel instead.
 
 Scan the channel newest to oldest and choose the most recent parent message
 without a final disposition reply from Steve, `agent-native`, or another person
-clearly investigating or owning the report. An `👀` reaction is only an
-investigation marker and never suppresses the scan. A thread with only that
-reaction, including a fix waiting for internal verification, remains the next
-work item until it receives a final **Fixed** reply or an open
-**Clarification needed** question. Do not treat a generic acknowledgement, bot
-reply, or vague status update as a terminal ownership marker.
+clearly investigating or owning the report, and without an existing `👀`
+reaction. Check the parent reaction list before selecting it. An `👀` reaction
+from anyone is an ownership/investigation marker for this automation: do not
+add a duplicate reaction, investigate the item as new work, or post a new
+reply. Record it as skipped because it is already marked or owned. The only
+exception is a reporter reply to a clarification this workflow previously
+asked; re-enter that existing ledger item, but never add another `👀`. Do not
+treat a generic acknowledgement, bot reply, or vague status update as a final
+disposition when no `👀` marker is present.
 
 That message is the start cursor. Classify it, record it if it is not
 actionable, then continue toward older messages, processing each actionable
@@ -61,6 +70,26 @@ Keep the cursor at the first unhandled parent, but fold older messages that are
 clearly the same symptom into that cluster instead of reopening a new thread for
 each duplicate. Continue to older messages only after the cluster is recorded
 and every grouped report has an auditable disposition.
+
+## Ownership routing
+
+Classify the app surface and ownership before adding a reaction or doing any
+investigation:
+
+- A UX or interaction bug in the Design app belongs to Sid. Do not
+  automatically add `👀`, investigate, edit code, ask for clarification, post a
+  reply, or dispatch work for it. Record the source link as **Already owned -
+  Sid / Design**.
+- Any feedback about the Content app belongs to Alice. Do not automatically
+  add `👀`, investigate, edit code, ask for clarification, post a reply, or
+  dispatch work for it. Record the source link as **Already owned - Alice /
+  Content**.
+
+These ownership routes apply even when the report is concrete or appears to
+need more evidence. Only an invocation that explicitly assigns the item to
+this workflow can override the route. A pre-existing `👀` on an owner-routed
+item is still only a marker to preserve in the recap; never add another one or
+post a reply merely because it is present.
 
 ## Full-thread evidence gate
 
@@ -142,15 +171,19 @@ Do not infer a Sentry “no results” state from an unavailable API.
 Build one checklist per item with its source link, symptom, expected behavior,
 evidence, likely owner, and disposition. Use this order:
 
-1. **React first for actionable Slack feedback** - once a Slack item is
-   classified as a concrete repo-owned bug or missing-reporter-evidence case,
-   add `👀` to its parent immediately. This must be the first external action
-   for that Slack item: do it before reading linked evidence, delegating,
-   editing code, or asking a clarification. GitHub and Sentry items have no
-   Slack parent, so apply the same evidence-first triage without a reaction.
-   Do not react to status-only, subjective, duplicate, external, or non-repo-
-   owned items. A duplicate reaction is safe and should still be attempted
-   when the marker is not visible in the thread.
+1. **Check ownership and reaction state before any Slack write** - classify
+   the app surface first, then read the parent's reaction list. For a Design
+   UX/interaction report or any Content report, use the ownership route above
+   and do not react. If any `👀` is already present, skip new automatic work
+   and do not react. Only a concrete repo-owned bug or missing-reporter-
+   evidence case with no existing `👀` may receive one `👀` reaction, and that
+   reaction must be the first external action for the Slack item - before
+   reading linked evidence, delegating, editing code, or asking a
+   clarification. Never attempt a duplicate reaction when reaction state is
+   unavailable; record the item as unavailable/unverified and refresh the
+   thread before writing. GitHub and Sentry items have no Slack parent, so
+   apply the same evidence-first triage without a reaction. Do not react to
+   status-only, subjective, duplicate, external, or non-repo-owned items.
 2. **Concrete repo-owned bug** - after the `👀` marker, reproduce or establish
    it from source, tests, logs, a stack trace, or a linked run. Fix it and keep
    working until the smallest meaningful verification is green.
@@ -224,9 +257,11 @@ failure modes, surfaces, or owners.
    generic acknowledgement, or a vague progress update. If internal
    verification is unavailable, keep investigating or run the missing check; do
    not turn an internal blocker into a reporter question or claim **Fixed**.
-   If a later classification discovers that an eye-marked item is a duplicate,
-   external, or informational, still clear the ledger with a concise honest
-   disposition rather than leaving the eye unexplained.
+   If a later classification discovers that an item this run marked is a
+   duplicate, external, or informational, still clear this run's ledger with a
+   concise honest disposition rather than leaving the eye unexplained. A
+   pre-existing `👀` belongs to the person or workflow that added it and does
+   not create a reply obligation for this run.
    Before posting **Clarification needed**, run the full-thread evidence gate
    again against the latest thread body. Confirm that the requested field is
    absent from the parent, every reply, and every accessible linked artifact;
@@ -278,7 +313,9 @@ an unavailable connector. Include direct links to the Slack message or thread,
 GitHub issue, Sentry event, PR, commit, and verification result when present.
 For Slack, include the reply-ledger result for every parent this run marked
 `👀`: Steve reply timestamp and disposition, or the exact reason the item was
-not marked. Never call a sweep complete while an actionable Slack parent in the
+not marked. Also record every pre-existing `👀` skip and every owner route to
+Sid or Alice; those items do not require a new reaction or reply from this run.
+Never call a sweep complete while an actionable Slack parent in this run's
 ledger has no Steve reply.
 
 Use this shape:
@@ -289,7 +326,7 @@ Start cursor: [Slack message](...)
 
 | Source / item | Disposition | Action | Why and evidence |
 | --- | --- | --- | --- |
-| [Slack thread](...) | Fixed / Awaiting reply / Clarification needed / Skipped / In progress | ... | ... |
+| [Slack thread](...) | Fixed / Awaiting reply / Clarification needed / Already owned / Skipped / In progress | ... | ... |
 | [GitHub issue](...) | ... | ... | ... |
 | [Sentry event](...) | ... | ... | ... |
 
