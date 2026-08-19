@@ -4,6 +4,7 @@ import {
   isAllowedHostedTemplateEnvKey,
   isForbiddenHostedTemplateEnvKey,
   normalizeProductionUrlEntry,
+  resolveNetlifyApiContext,
   resolveNetlifyTemplateName,
 } from "./sync-template-netlify-env";
 
@@ -88,6 +89,18 @@ describe("normalizeProductionUrlEntry", () => {
       value: "https://beta.clips.agent-native.com",
       normalized: true,
     });
+  });
+});
+
+describe("resolveNetlifyApiContext", () => {
+  it("uses production scope for the dedicated beta projects", () => {
+    expect(resolveNetlifyApiContext("branch:beta")).toBe("production");
+    expect(resolveNetlifyApiContext("beta")).toBe("production");
+  });
+
+  it("preserves ordinary Netlify contexts", () => {
+    expect(resolveNetlifyApiContext("deploy-preview")).toBe("deploy-preview");
+    expect(resolveNetlifyApiContext("production")).toBe("production");
   });
 });
 

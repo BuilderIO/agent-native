@@ -67,9 +67,18 @@ describe("LanguagePicker", () => {
   let container: HTMLDivElement;
   let root: Root;
   let localStorageDescriptor: PropertyDescriptor | undefined;
+  let navigatorLanguagesDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    navigatorLanguagesDescriptor = Object.getOwnPropertyDescriptor(
+      window.navigator,
+      "languages",
+    );
+    Object.defineProperty(window.navigator, "languages", {
+      configurable: true,
+      value: ["en-US"],
+    });
     localStorageDescriptor = Object.getOwnPropertyDescriptor(
       window,
       "localStorage",
@@ -106,6 +115,15 @@ describe("LanguagePicker", () => {
     window.localStorage.clear();
     if (localStorageDescriptor) {
       Object.defineProperty(window, "localStorage", localStorageDescriptor);
+    }
+    if (navigatorLanguagesDescriptor) {
+      Object.defineProperty(
+        window.navigator,
+        "languages",
+        navigatorLanguagesDescriptor,
+      );
+    } else {
+      delete (window.navigator as { languages?: string[] }).languages;
     }
     vi.unstubAllGlobals();
   });
@@ -153,7 +171,7 @@ describe("LanguagePicker", () => {
     expect(trigger?.tagName).toBe("BUTTON");
     expect(trigger?.getAttribute("role")).not.toBe("combobox");
     expect(trigger?.getAttribute("aria-label")).toBe(
-      "Interface language: English (en-US)",
+      "Interface language: English",
     );
 
     await click(trigger!);
@@ -219,6 +237,8 @@ describe("LanguagePicker", () => {
           "languages",
           languagesDescriptor,
         );
+      } else {
+        delete (window.navigator as { languages?: string[] }).languages;
       }
     }
   });
@@ -269,7 +289,7 @@ describe("LanguagePicker", () => {
       document
         .querySelector("[data-language-picker-trigger]")
         ?.getAttribute("aria-label"),
-    ).toBe("Interface language: English (en-US)");
+    ).toBe("Interface language: English");
   });
 
   it("only lists locales the app catalog declares support for", async () => {

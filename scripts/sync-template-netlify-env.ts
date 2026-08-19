@@ -501,11 +501,11 @@ function isBetaContext(context: string): boolean {
   return context === "beta" || context === "branch:beta";
 }
 
-function netlifyApiContext(context: string): string {
-  // The API stores branch-specific values under branch-deploy. Netlify's CLI
-  // resolves that scope for `branch:beta` when the dedicated beta project
-  // builds its beta branch.
-  return isBetaContext(context) ? "branch-deploy" : context;
+export function resolveNetlifyApiContext(context: string): string {
+  // The dedicated beta projects promote their beta branch as the project's
+  // production branch. Their beta runtime therefore reads production-scoped
+  // values, not generic branch-deploy values.
+  return isBetaContext(context) ? "production" : context;
 }
 
 function siteIdForContext(site: TemplateSite, context: string): string {
@@ -593,7 +593,7 @@ async function syncKey({
   value: string;
 }): Promise<"created" | "updated"> {
   const is_secret = isSecretKey(key);
-  const apiContext = netlifyApiContext(context);
+  const apiContext = resolveNetlifyApiContext(context);
   const create = await requestNetlifyEnv(
     token,
     "POST",

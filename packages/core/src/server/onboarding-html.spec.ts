@@ -542,7 +542,7 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
 
     expect(html).toContain('data-marketing-field="tagline"');
     expect(html).toContain('data-marketing-feature-index="0"');
-    expect(html).toContain("你的 AI 代理与你一起构建、发布和分析表单。");
+    expect(html).toContain("你的 AI 代理会与你一起构建、发布和分析表单。");
     expect(html).toContain("用一句话创建完整表单");
     expect(html).toContain("function __anApplyAuthMarketingCopy");
     expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "forms"');
