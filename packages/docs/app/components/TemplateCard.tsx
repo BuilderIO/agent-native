@@ -358,7 +358,10 @@ export function TemplateCard({ template }: { template: Template }) {
         }
       : template.slug === "slides"
         ? {
-            replaces: t("templateLanding.slides.s006"),
+            replaces: [
+              t("templateLanding.slides.s006Primary"),
+              t("templateLanding.slides.s006Secondary"),
+            ].join(" "),
             description: t("templateLanding.slides.s007"),
           }
         : null;
