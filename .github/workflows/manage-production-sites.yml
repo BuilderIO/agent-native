@@ -249,7 +249,7 @@ jobs:
             }
 
             async function deployMain(name, site, sourceSha) {
-              const query = new URLSearchParams({ branch: 'main' });
+              const query = new URLSearchParams({ branch: 'main', clear_cache: 'true' });
               const build = await readJson(
                 await request(`${API}/sites/${site.siteId}/builds?${query}`, {
                   method: 'POST',
