@@ -185,7 +185,7 @@ export default function DispatchTemplate() {
               [1, 2].includes(index)
                 ? "!border !border-[var(--docs-border)] sm:!border"
                 : ""
-            }`}
+            } ${index === 1 ? "sm:!border-e-0" : ""}`}
           >
             <div
               className="inline-flex size-9 items-center justify-center rounded-md border border-[var(--docs-border)]"
