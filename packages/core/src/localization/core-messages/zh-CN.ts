@@ -262,6 +262,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "此模型背后的提供商拒绝了请求。请选择其他模型后重试。",
   "errorMessages.errorPrefix": "错误：{{message}}",
+  "errorMessages.gatewayInternalError":
+    "模型网关在智能体作答前发生内部错误。请稍后重试；如果持续出现，请提供下方的错误 ID。",
   "errorMessages.gatewayNoDetails":
     "模型网关未返回错误详情，聊天无法恢复。请稍等片刻后重试；如果问题持续出现，请开始新聊天。",
   "errorMessages.inactivityTimeout":
@@ -499,6 +501,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "未知人员",
   "share.viewer": "查看者",
   "share.viewerDescription": "可以查看",
+  "share.userGroup": "用户组",
   "status.resuming": "正在恢复",
   "status.stillWorking": "仍在处理",
   "status.thinking": "正在思考",

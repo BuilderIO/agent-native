@@ -69,13 +69,30 @@ describe("DesktopIdentityGate", () => {
     const { onSignIn } = renderGate();
 
     expect(container.textContent).toContain("Sign in with Google");
-    expect(container.textContent).toContain("Continue");
-    expect(container.textContent).not.toContain("Welcome");
-    expect(container.textContent).not.toContain("Create account");
+    expect(container.textContent).toContain("Welcome");
+    expect(container.textContent).toContain("Create an account or sign in");
+    expect(container.textContent).toContain("Email");
+    expect(container.textContent).toContain(
+      "By signing up, you accept our Terms and Privacy Policy.",
+    );
+    expect(container.textContent).not.toContain("Continue");
     expect(
       container.querySelector('input[placeholder="you@example.com"]'),
     ).not.toBeNull();
     expect(container.querySelector('input[type="password"]')).toBeNull();
+
+    const email = container.querySelector(
+      'input[placeholder="you@example.com"]',
+    ) as HTMLInputElement;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(email, "owner@example.com");
+      email.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("Continue");
 
     await act(async () => {
       container
@@ -83,6 +100,44 @@ describe("DesktopIdentityGate", () => {
         ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(onSignIn).toHaveBeenCalledOnce();
+  });
+
+  it("does not show the email submit button while Google sign-in is pending", async () => {
+    let resolveSignIn: ((result: boolean) => void) | undefined;
+    const onSignIn = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSignIn = resolve;
+        }),
+    );
+    renderGate("sign-in-required", { onSignIn });
+    const email = container.querySelector(
+      'input[placeholder="you@example.com"]',
+    ) as HTMLInputElement;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(email, "owner@example.com");
+      email.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("Continue");
+
+    await act(async () => {
+      container
+        .querySelector(".desktop-identity-gate__provider")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).not.toContain("Sending...");
+    expect(
+      container.querySelector(".desktop-identity-gate__submit"),
+    ).toBeNull();
+
+    await act(async () => {
+      resolveSignIn?.(true);
+    });
   });
 
   it("reveals only the password fallback when selected", () => {

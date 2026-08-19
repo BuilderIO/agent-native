@@ -199,6 +199,16 @@ export interface AgentChatRequest {
      */
     continuationCount?: number;
     /**
+     * Terminal error code the previous chunk failed with, plus how many chunks
+     * in a row have now ended on that same code having emitted no assistant
+     * text and no tool activity. Carried on the marker because each chunk is a
+     * separate invocation with no memory of the last one — without it the
+     * no-progress circuit breaker in `shouldChainBackgroundContinuation`
+     * cannot see a repeat at all.
+     */
+    noProgressErrorCode?: string;
+    noProgressCount?: number;
+    /**
      * True when the dispatcher expects the self-POST to land in a real
      * Netlify `-background` function rather than the ~60s synchronous function.
      * This is diagnostic only; the 15-minute budget is unlocked by the worker's
@@ -305,6 +315,15 @@ export type AgentChatEvent =
       approvalKey: string;
       /** The model-side tool-call id for this paused call, when available. */
       toolCallId?: string;
+      /**
+       * Identifies THIS gate hit, distinct from any earlier ask carrying the
+       * same `approvalKey`/`toolCallId`. A failed resume (expired grant,
+       * turn-id mismatch) re-emits `approval_required` for the same call with
+       * a fresh `askId`; the client uses the change to tell that apart from
+       * the same ask simply re-rendering, so a stale "approved" mark can't
+       * permanently hide Approve/Deny with no way to retry.
+       */
+      askId?: string;
     }
   | {
       type: "agent_call";

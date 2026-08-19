@@ -71,6 +71,8 @@ import {
   type CodeAgentRerunResult,
   type CodeAgentRun,
   type CodeAgentRunListResult,
+  type CodeAgentScheduleListResult,
+  type CodeAgentScheduleResult,
   type CodeAgentQueueMetadata,
   type CodeAgentSteeringMetadata,
   type CodeAgentTranscriptEvent,
@@ -150,6 +152,7 @@ import {
   withFileLockSync,
   writeJsonFileAtomically,
 } from "../../../core/src/cli/atomic-json-file.js";
+import { listCodeAgentSchedules } from "../../../core/src/cli/code-agent-schedules.js";
 import {
   createPortalTransferContext,
   portalTransferContinuationPrompt,
@@ -187,6 +190,7 @@ import {
   isCodeAgentRunnerInFlight,
   resolveCodeAgentRunnerInvocation,
 } from "./code-agent-runner.js";
+import { DesktopCodeAgentScheduler } from "./code-agent-scheduler.js";
 import {
   CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
   CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL,
@@ -232,6 +236,7 @@ import {
   runDesktopStartupStep,
 } from "./desktop-startup.js";
 import { HIDE_EMBEDDED_IDENTITY_SSO_SCRIPT } from "./embedded-auth-ui";
+import { isAllowedEnvironmentNavigation } from "./environment-navigation";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerChatFirstMcpIpc } from "./ipc/chat-first-mcp.js";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
@@ -244,7 +249,10 @@ import { isDesktopSsoCanaryVersion } from "./ipc/update-policy.js";
 import {
   checkForAppUpdates,
   getCurrentUpdateStatus,
+  isPreparingDownloadedUpdate,
+  isInstallingDownloadedUpdate,
   installDownloadedUpdate,
+  requestQuitAfterUpdatePreparation,
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
@@ -253,6 +261,7 @@ import {
   initializeMultiFrontierAppIntegration,
   type MultiFrontierAppIntegration,
 } from "./multi-frontier-app-integration.js";
+import { createOAuthPopupCloser } from "./oauth-popup-close";
 import {
   isQuickPromptActive,
   registerQuickPromptIpc,
@@ -772,9 +781,11 @@ function resolveDesktopIdentityApp(
     `${betterAuthPrefix}.session_data`,
     `__Secure-${betterAuthPrefix}.session_data`,
   ];
+  const workspaceSso = isCanonical || configured?.workspaceSso === true;
   const cookieNames = [
     primaryCookieName,
     ...(primaryCookieName === "an_session" ? [] : ["an_session"]),
+    ...(workspaceSso ? ["an_session_workspace", "an_embed_session"] : []),
     ...betterAuthCookieNames,
   ];
   return {
@@ -792,7 +803,7 @@ function resolveDesktopIdentityApp(
       ]),
     ],
     identityAuthority: appId === "dispatch",
-    workspaceSso: isCanonical || configured?.workspaceSso === true,
+    workspaceSso,
   };
 }
 
@@ -1267,7 +1278,16 @@ async function closeDesktopComputerMcpBridge(): Promise<void> {
 registerUpdatesIpc({
   refreshApplicationMenu,
   focusMainWindow,
-  prepareForUpdate: closeDesktopComputerMcpBridge,
+  prepareForUpdate: async () => {
+    await closeDesktopComputerMcpBridge();
+    await disposeMultiFrontierAppIntegration();
+  },
+  restoreAfterUpdateFailure: async () => {
+    await initializeDesktopComputerMcpBridge();
+    if (multiFrontierDisposePromise) {
+      initializeMultiFrontierAppIntegrationForRuntime();
+    }
+  },
 });
 
 function isShellIdentityIpc(event: IpcMainInvokeEvent): boolean {
@@ -2099,6 +2119,9 @@ let multiFrontierDisposePromise: Promise<void> | undefined;
 const multiFrontierQuitGuard = createMultiFrontierQuitGuard({
   dispose: () => disposeMultiFrontierAppIntegration(),
   reissueQuit: () => app.quit(),
+  shouldAllowQuit: () => isInstallingDownloadedUpdate(),
+  shouldDeferQuit: () => isPreparingDownloadedUpdate(),
+  onDeferredQuit: requestQuitAfterUpdatePreparation,
 });
 const permissionConfiguredSessions = new WeakSet<Electron.Session>();
 const ALLOWED_WEBVIEW_PERMISSIONS = new Set([
@@ -3561,7 +3584,23 @@ function listDesktopCodeAgentRuns(goalId?: string): CodeAgentRun[] {
   const runs = desktopCodeBackgroundAgentController.list({
     goalId,
   }) as BackgroundAgentRun[];
-  return runs.map(backgroundRunToDesktopRun);
+  const scheduledRunIds = new Set(
+    listCodeAgentSchedules()
+      .map((schedule) => schedule.targetRunId)
+      .filter((runId): runId is string => Boolean(runId)),
+  );
+  return runs.map((run) => {
+    const desktopRun = backgroundRunToDesktopRun(run);
+    return scheduledRunIds.has(desktopRun.id)
+      ? {
+          ...desktopRun,
+          metadata: {
+            ...(desktopRun.metadata ?? {}),
+            hasSchedule: true,
+          },
+        }
+      : desktopRun;
+  });
 }
 
 function readDesktopCodeAgentRun(runId: string): CodeAgentRun | null {
@@ -4621,6 +4660,15 @@ const activeCodeAgentProcesses = new Map<
   }
 >();
 const startingCodeAgentRuns = new Set<string>();
+
+const desktopCodeAgentScheduler = new DesktopCodeAgentScheduler({
+  defaultCwd: () => resolveCodeAgentsTerminalCwd({}),
+  isRunActive: (runId) =>
+    activeCodeAgentProcesses.has(runId) || startingCodeAgentRuns.has(runId),
+  startRun: (runId, cwd, permissionMode) => {
+    void spawnCodeAgentRunner(runId, cwd, permissionMode);
+  },
+});
 
 function desktopComputerHelperPath(): string {
   return app.isPackaged
@@ -6619,6 +6667,17 @@ function disposeMultiFrontierAppIntegration(): Promise<void> {
       multiFrontierAppIntegration?.dispose() ?? Promise.resolve();
   }
   return multiFrontierDisposePromise;
+}
+
+function initializeMultiFrontierAppIntegrationForRuntime(): void {
+  multiFrontierDisposePromise = undefined;
+  multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
+    ipcMain,
+    storeRoot: codeAgentStoreRoot(),
+    loginCwd: resolveCodeAgentsTerminalCwd({}),
+    listWorkspaces: listMultiFrontierWorkspaces,
+    resolveDirectory: resolveUsableDirectory,
+  });
 }
 
 async function chooseCodeAgentProject(): Promise<CodeAgentProjectSelectResult> {
@@ -10229,6 +10288,11 @@ registerCodeAgentsIpc({
   timestampSlug,
   normalizeCodeAgentRunId,
   listDesktopCodeAgentRuns,
+  listCodeAgentSchedules: () => desktopCodeAgentScheduler.list(),
+  createCodeAgentSchedule: (input) => desktopCodeAgentScheduler.create(input),
+  updateCodeAgentSchedule: (input) => desktopCodeAgentScheduler.update(input),
+  deleteCodeAgentSchedule: (input) => desktopCodeAgentScheduler.delete(input),
+  runCodeAgentScheduleNow: (input) => desktopCodeAgentScheduler.runNow(input),
   createCodeAgentRun,
   submitCodeAgentRemoteWaitlist,
   getCodeAgentModelList,
@@ -11074,17 +11138,8 @@ function openOAuthWindow(
   // The Builder callback HTML also calls window.close() itself; this
   // close-path is the Electron-side safety net if the page's script
   // hasn't fired yet (or doesn't, e.g. on future callback redesigns).
-  let closeScheduled = false;
-
-  function scheduleClose() {
-    if (closeScheduled) return;
-    closeScheduled = true;
-    oauthWin.webContents.once("did-finish-load", () => {
-      setTimeout(() => {
-        if (!oauthWin.isDestroyed()) oauthWin.close();
-      }, 600);
-    });
-  }
+  const popupCloser = createOAuthPopupCloser(oauthWin);
+  const scheduleClose = () => popupCloser.scheduleCloseAfterFinishLoad();
 
   const onNavigate = (_event: Electron.Event, navUrl: string) => {
     try {
@@ -11125,8 +11180,12 @@ function openOAuthWindow(
     },
   );
 
-  oauthWin.webContents.on("did-fail-load", () => {
-    scheduleClose();
+  // A genuine load failure (DNS, connection refused, timeout, etc.) means
+  // nothing else is going to load in this popup — close it directly instead
+  // of waiting for a did-finish-load that will never fire, which otherwise
+  // strands the user on a permanently blank popup after clicking "Allow".
+  oauthWin.webContents.on("did-fail-load", (_event, errorCode) => {
+    popupCloser.onLoadFailed(errorCode);
   });
 
   // Builder credentials now land in SQL-backed app_secrets and the webview
@@ -11227,6 +11286,7 @@ function navigationPort(url: URL): string {
 
 function isSameWebviewAppOrigin(current: URL, next: URL): boolean {
   if (current.origin === next.origin) return true;
+  if (isAllowedEnvironmentNavigation(current, next)) return true;
   if (current.protocol !== next.protocol) return false;
   return (
     normalizedNavigationHost(current.hostname) ===
@@ -11745,6 +11805,7 @@ app.whenReady().then(async () => {
     abort: closeDesktopComputerMcpBridge,
   });
   if (!shouldContinueStartup) return;
+  desktopCodeAgentScheduler.start();
   // Process any deep link that arrived before the app was ready
   if (pendingDeepLink) {
     handleDeepLink(pendingDeepLink);
@@ -12033,13 +12094,7 @@ app.whenReady().then(async () => {
   console.info("[main] log file:", getLogFilePath());
 
   reconcileInterruptedCodeAgentRuns("startup");
-  multiFrontierAppIntegration = initializeMultiFrontierAppIntegration({
-    ipcMain,
-    storeRoot: codeAgentStoreRoot(),
-    loginCwd: resolveCodeAgentsTerminalCwd({}),
-    listWorkspaces: listMultiFrontierWorkspaces,
-    resolveDirectory: resolveUsableDirectory,
-  });
+  initializeMultiFrontierAppIntegrationForRuntime();
   registerDesktopShortcutBindings();
 
   const win = createWindow();
@@ -12147,8 +12202,10 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", (event) => {
+  if (multiFrontierQuitGuard(event)) return;
   if (!appIsQuitting) {
     appIsQuitting = true;
+    desktopCodeAgentScheduler.stop();
     for (const appId of managedDesktopAppProcesses.keys()) {
       stopManagedDesktopApp(appId);
     }
@@ -12166,7 +12223,6 @@ app.on("before-quit", (event) => {
       );
     });
   }
-  if (multiFrontierAppIntegration) multiFrontierQuitGuard(event);
 });
 
 app.on("will-quit", () => {

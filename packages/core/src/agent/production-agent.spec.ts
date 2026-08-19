@@ -45,8 +45,13 @@ import {
   filterInitialEngineTools,
   findApprovedStructuredToolCall,
   MAX_BACKGROUND_RUN_CONTINUATIONS,
+  MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS,
+  backgroundNoProgressTerminalEvent,
+  installBackgroundNoProgressTerminalEvent,
+  resolveBackgroundNoProgressRepeat,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
+  resolveAgentModelSelection,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
   resolveFinalResponseGuardRequestText,
@@ -162,6 +167,40 @@ describe("resolveAgentRequestReasoningEffort", () => {
         configuredEffort: "high",
       }),
     ).toBe("none");
+  });
+});
+
+describe("resolveAgentModelSelection", () => {
+  const defaultModel = "gpt-5-6-luna";
+
+  it("uses a manually selected request model first", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "gpt-5-6-terra",
+        storedModel: "gpt-5-6-sol",
+        defaultModel,
+      }),
+    ).toEqual({ model: "gpt-5-6-terra", source: "request" });
+  });
+
+  it("treats auto as a sentinel and uses the stored AN default", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "auto",
+        storedModel: "gpt-5-6-terra",
+        defaultModel,
+      }),
+    ).toEqual({ model: "gpt-5-6-terra", source: "stored" });
+  });
+
+  it("uses the single configured global default when no override exists", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "auto",
+        storedModel: "auto",
+        defaultModel,
+      }),
+    ).toEqual({ model: defaultModel, source: "default" });
   });
 });
 
@@ -463,6 +502,62 @@ describe("buildUserContentWithAttachments", () => {
       { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
       { type: "text", text: "Describe this" },
     ]);
+  });
+
+  // Binary attachments were never capped, so a large screenshot or PDF went out
+  // as unbounded inline base64. OpenAI rejects the whole request over 1,048,576
+  // chars in one file_url ("string too long", measured at 4,149,128) and the
+  // turn dies -- 64 events in 7 days, all on the gateway path.
+  it("does not inline an oversized image, and points at the uploaded URL instead", () => {
+    const att: any = {
+      type: "image",
+      name: "huge.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${"A".repeat(1_000_001)}`,
+      url: "https://cdn.example.com/huge.png",
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "Describe this",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("https://cdn.example.com/huge.png");
+    expect(text).toContain("too large to send inline");
+  });
+
+  it("still inlines an image that fits", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Describe this",
+      attachments: [
+        {
+          type: "image",
+          name: "small.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,aW1hZ2U=",
+        } as any,
+      ],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(true);
+  });
+
+  // Without a URL the bytes are unreachable, so say so rather than dropping the
+  // attachment and leaving the model to answer as if nothing was sent.
+  it("says an oversized file is unavailable when there is no upload URL", () => {
+    const att: any = {
+      type: "file",
+      name: "huge.pdf",
+      contentType: "application/pdf",
+      data: `data:application/pdf;base64,${"A".repeat(1_000_001)}`,
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "Summarize",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "file")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("huge.pdf");
+    expect(text).toContain("no upload URL");
   });
 
   it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {
@@ -3136,6 +3231,59 @@ describe("runAgentLoop", () => {
     // Retryable, but 2s+ of backoff plus the minimum continuation budget does
     // not fit in a 1s run budget — burning it here leaves nothing to resume with.
     expect(streamCalls).toBe(1);
+  });
+
+  // End-to-end shape of the Analytics outage: the gateway answered 200, emitted
+  // its unhandled-500 envelope in-stream, and the turn ended on the first
+  // attempt — 14 turns, every one at exactly 1.00 runs/turn. The envelope now
+  // carries a code and a retry verdict, so the same turn finishes.
+  it("recovers a turn from the Builder gateway internal-error envelope", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new EngineError(
+            "Sorry, we ran into an issue processing your request. " +
+              "ERROR ID: bebaeb5da13441539790834b63ff955a",
+            { errorCode: "builder_gateway_internal_error" },
+          );
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "recovered" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+
+    const events: AgentChatEvent[] = [];
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(streamCalls).toBe(2);
+    expect(JSON.stringify(events)).toContain("recovered");
+    // The turn must not end on the envelope: no terminal error reaches the user.
+    expect(events.filter((event) => event.type === "error")).toEqual([]);
   });
 
   it("resumes a resumable engine error in-process on the foreground while budget remains", async () => {
@@ -11450,6 +11598,148 @@ describe("shouldChainBackgroundContinuation (server-driven background chain)", (
         continuationCount: MAX_BACKGROUND_RUN_CONTINUATIONS - 1,
       }),
     ).toBe(true);
+  });
+
+  // ── No-progress circuit breaker ──────────────────────────────────────────
+  // The measured incident: one message, 27 background runs, 15 minutes. Every
+  // chunk failed with the same gateway 500 after the engine's own 3 internal
+  // retries, and a recoverable error is also a continuation boundary, so the
+  // two recovery layers multiplied instead of stopping each other.
+  const gatewayFailure = (): AgentChatEvent => ({
+    type: "error",
+    error:
+      "Sorry, we ran into an issue processing your request. ERROR ID: 0f3c9ab21d7e",
+    errorCode: "builder_gateway_internal_error",
+    recoverable: true,
+  });
+
+  it("chains the FIRST identical no-progress failure and stops at the second", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([gatewayFailure()], "errored"),
+        continuationCount: 0,
+      }),
+    ).toBe(true);
+
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun([gatewayFailure()], "errored"),
+        continuationCount: 1,
+        priorNoProgressErrorCode: "builder_gateway_internal_error",
+        priorNoProgressCount: 1,
+      }),
+    ).toBe(false);
+    expect(MAX_CONSECUTIVE_NO_PROGRESS_CONTINUATIONS).toBe(2);
+  });
+
+  it("keeps chaining when a DIFFERENT error follows the failed one", () => {
+    expect(
+      shouldChainBackgroundContinuation({
+        isBackgroundWorker: true,
+        run: makeRun(
+          [
+            {
+              type: "error",
+              error: "The model stream ended without a stop event.",
+              errorCode: "builder_gateway_stream_ended",
+              recoverable: true,
+            },
+          ],
+          "errored",
+        ),
+        continuationCount: 1,
+        priorNoProgressErrorCode: "builder_gateway_internal_error",
+        priorNoProgressCount: 1,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps chaining the same error after real forward progress", () => {
+    // A truncated stream that produced partial text or ran a tool IS advancing;
+    // cutting that off is what would weaken the recovery this path exists for.
+    for (const progress of [
+      { type: "text", text: "Rewriting the migration…" } as AgentChatEvent,
+      {
+        type: "tool_done",
+        tool: "edit-design",
+        result: '{"ok":true}',
+        completedSideEffect: true,
+      } as AgentChatEvent,
+    ]) {
+      expect(
+        shouldChainBackgroundContinuation({
+          isBackgroundWorker: true,
+          run: makeRun([progress, gatewayFailure()], "errored"),
+          continuationCount: 1,
+          priorNoProgressErrorCode: "builder_gateway_internal_error",
+          priorNoProgressCount: 1,
+        }),
+      ).toBe(true);
+    }
+  });
+
+  it("resets the streak after progress instead of carrying it forward", () => {
+    const advanced = resolveBackgroundNoProgressRepeat({
+      run: makeRun(
+        [{ type: "text", text: "Working on it." }, gatewayFailure()],
+        "errored",
+      ),
+      priorErrorCode: "builder_gateway_internal_error",
+      priorCount: 1,
+    });
+    expect(advanced).toEqual({ count: 0, tripped: false });
+  });
+
+  it("ends a tripped chain with one non-recoverable error keeping the code and gateway reference", () => {
+    const run = makeRun([gatewayFailure()], "errored");
+    const repeat = resolveBackgroundNoProgressRepeat({
+      run,
+      priorErrorCode: "builder_gateway_internal_error",
+      priorCount: 1,
+    });
+    expect(repeat).toEqual({
+      errorCode: "builder_gateway_internal_error",
+      count: 2,
+      tripped: true,
+    });
+
+    const terminal = backgroundNoProgressTerminalEvent(run, repeat);
+    expect(terminal?.errorCode).toBe("builder_gateway_internal_error");
+    expect(terminal?.recoverable).toBe(false);
+    expect(terminal?.error).toContain("ERROR ID: 0f3c9ab21d7e");
+    expect(terminal?.error).toContain("2 times in a row");
+  });
+
+  it("replaces the persisted recoverable error before completion callbacks run", () => {
+    const run = makeRun([gatewayFailure()], "errored");
+    const repeat = resolveBackgroundNoProgressRepeat({
+      run,
+      priorErrorCode: "builder_gateway_internal_error",
+      priorCount: 1,
+    });
+
+    expect(installBackgroundNoProgressTerminalEvent(run, repeat)).toBe(true);
+    expect(run.events.at(-1)?.event).toMatchObject({
+      type: "error",
+      errorCode: "builder_gateway_internal_error",
+      recoverable: false,
+    });
+    expect(run.events.at(-1)?.event).toEqual(run.continuationTerminalEvent);
+  });
+
+  it("leaves a soft-timeout boundary to the run-manager's own backstop", () => {
+    // No error code to repeat — an empty auto_continue chunk is not this
+    // breaker's business, and treating it as one would cap legitimate long
+    // turns at two chunks.
+    expect(
+      resolveBackgroundNoProgressRepeat({
+        run: makeRun([{ type: "auto_continue", reason: "run_timeout" }]),
+        priorErrorCode: "builder_gateway_internal_error",
+        priorCount: 1,
+      }),
+    ).toEqual({ count: 0, tripped: false });
   });
 
   it("marks a successfully chained background chunk terminal before the worker returns", async () => {

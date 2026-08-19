@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { ShareButton } from "@agent-native/core/client/sharing";
 import {
   IconChevronDown,
   IconChevronRight,
@@ -26,6 +27,10 @@ import { toast } from "sonner";
 
 import { cn } from "../lib/utils";
 import {
+  isPathMountedWorkspaceApp,
+  isWorkspaceSsoApp,
+  navigateToWorkspaceApp,
+  workspaceAppDirectHref,
   workspaceAppHref,
   workspaceAppRoute,
   type WorkspaceAppSummary,
@@ -75,6 +80,12 @@ export function WorkspaceAppCard({
 }) {
   const t = useT();
   const href = workspaceAppHref(app);
+  const directHref =
+    app.status !== "pending" &&
+    !isWorkspaceSsoApp(app) &&
+    isPathMountedWorkspaceApp(app)
+      ? workspaceAppDirectHref(app, "/")
+      : null;
   const isPending = app.status === "pending";
   const pendingLabel = app.statusLabel || "Builder branch";
   const pendingOpenLabel = t("dispatch.pages.openBuilderBranch", {
@@ -146,7 +157,7 @@ export function WorkspaceAppCard({
     isPinned ? "dispatch.pages.unpinApp" : "dispatch.pages.pinApp",
     {
       name: app.name,
-      defaultValue: `${isPinned ? "Unpin" : "Pin"} ${app.name}`,
+      defaultValue: isPinned ? "Unpin this app" : "Pin this app",
     },
   );
 
@@ -193,12 +204,24 @@ export function WorkspaceAppCard({
         <div className="flex shrink-0 items-center gap-2">
           <WorkspaceAppOpenActions
             app={app}
-            href={href}
+            href={directHref ?? href}
+            openDirectly={Boolean(directHref)}
             isPinned={isPinned}
             pinLabel={pinLabel}
             pendingOpenLabel={pendingOpenLabel}
             onTogglePinned={onTogglePinned}
           />
+          {!isPending ? (
+            <div className="pointer-events-auto">
+              <ShareButton
+                resourceType="workspace-app"
+                resourceId={app.id}
+                resourceTitle={app.name}
+                trigger="icon"
+                triggerClassName={APP_CARD_ACTION_CLASS}
+              />
+            </div>
+          ) : null}
           <WorkspaceAppSettings
             app={app}
             isArchived={isArchived}
@@ -285,6 +308,7 @@ export function WorkspaceAppCard({
 function WorkspaceAppOpenActions({
   app,
   href,
+  openDirectly,
   isPinned,
   pinLabel,
   pendingOpenLabel,
@@ -292,6 +316,7 @@ function WorkspaceAppOpenActions({
 }: {
   app: WorkspaceAppSummary;
   href: string | null;
+  openDirectly: boolean;
   isPinned: boolean;
   pinLabel: string;
   pendingOpenLabel: string;
@@ -328,9 +353,9 @@ function WorkspaceAppOpenActions({
       name={app.name}
       href={href}
       showNewTabOption
-      onOpen={() => {
-        navigate(appRoute);
-      }}
+      onOpen={() =>
+        openDirectly ? navigateToWorkspaceApp(href) : navigate(appRoute)
+      }
       menuItems={
         onTogglePinned
           ? [
@@ -396,7 +421,7 @@ function WorkspaceAppSettings({
       </Tooltip>
       <DropdownMenuContent
         align="end"
-        className={APP_ACTION_MENU_CONTENT_CLASS}
+        className={cn(APP_ACTION_MENU_CONTENT_CLASS, "min-w-max")}
       >
         <DropdownMenuItem onSelect={onEdit}>
           <IconEdit size={14} aria-hidden="true" />

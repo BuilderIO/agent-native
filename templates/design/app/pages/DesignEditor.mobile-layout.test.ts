@@ -5,6 +5,14 @@ import { describe, expect, it } from "vitest";
 describe("Design editor mobile layout", () => {
   const editorSource = readFileSync("app/pages/DesignEditor.tsx", "utf8");
   const layoutSource = readFileSync("app/components/layout/Layout.tsx", "utf8");
+  const bottomToolbarSource = readFileSync(
+    "app/components/design/editor/DesignBottomToolbar.tsx",
+    "utf8",
+  );
+  const workspaceRailSource = readFileSync(
+    "app/components/design/editor/DesignWorkspaceRail.tsx",
+    "utf8",
+  );
 
   it("uses the dynamic viewport height for the app shell", () => {
     expect(layoutSource).toContain(
@@ -16,10 +24,10 @@ describe("Design editor mobile layout", () => {
   });
 
   it("keeps wide rails out while preserving mobile editor controls", () => {
-    expect(editorSource).toContain(
+    expect(bottomToolbarSource).toContain(
       "flex max-w-[calc(100%-1rem)] -translate-x-1/2",
     );
-    expect(editorSource).toContain("overflow-x-auto rounded-xl");
+    expect(bottomToolbarSource).toContain("overflow-x-auto rounded-xl");
     expect(editorSource).toContain(
       "relative hidden h-full min-h-0 shrink-0 flex-col",
     );
@@ -33,7 +41,7 @@ describe("Design editor mobile layout", () => {
   });
 
   it("lets the compact workspace rail scroll on short screens", () => {
-    expect(editorSource).toContain(
+    expect(workspaceRailSource).toContain(
       "items-center overflow-y-auto overscroll-contain",
     );
   });

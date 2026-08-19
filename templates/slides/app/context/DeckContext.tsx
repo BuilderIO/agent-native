@@ -112,6 +112,8 @@ export interface Slide {
   animations?: SlideAnimation[];
   /** @deprecated Use animations instead */
   splitByParagraph?: boolean;
+  /** Excluded from Present/Presenter mode playback, but stays in the deck. */
+  skipped?: boolean;
 }
 
 export type AnimationType = "appear" | "fade" | "slide-up" | "zoom";
@@ -237,6 +239,14 @@ interface DeckContextType {
   ) => void;
   deleteSlide: (deckId: string, slideId: string) => void;
   duplicateSlide: (deckId: string, slideId: string) => string | undefined;
+  /** Inserts a copy of arbitrary slide data after `afterSlideId`. Used for
+   *  slide cut/paste, where the original may already be deleted so there is
+   *  no live slide id left to duplicate from. */
+  pasteSlide: (
+    deckId: string,
+    afterSlideId: string,
+    slideFields: Omit<Slide, "id">,
+  ) => string | undefined;
   reorderSlides: (deckId: string, oldIndex: number, newIndex: number) => void;
   setDeckSlides: (deckId: string, slides: Slide[]) => void;
   /**
@@ -287,13 +297,54 @@ type DuplicateDeckActionResult = {
   url?: string;
 };
 
+/** Per-slide fields `get-deck` computes for the agent (slide position/hash
+ *  hints) that aren't part of the client's own `Slide` shape. Left on the
+ *  fetched deck, they make every server refetch look "changed" relative to
+ *  the client's slim optimistic copy — see `normalizeActionDeck`. */
+const GET_DECK_ONLY_SLIDE_FIELDS = [
+  "slideNumber",
+  "zeroBasedIndex",
+  "contentHash",
+] as const;
+
+/** Deck-level fields `get-deck` computes for the agent (counts, deep links,
+ *  the currently-selected slide) that aren't part of the client's own `Deck`
+ *  shape. See `normalizeActionDeck`. */
+const GET_DECK_ONLY_DECK_FIELDS = [
+  "slideCount",
+  "slideNumbering",
+  "deepLink",
+  "selectedSlideId",
+] as const;
+
 function normalizeActionDeck(value: unknown): Deck | null {
   if (!value || typeof value !== "object") return null;
   const deck = value as Partial<Deck>;
   if (typeof deck.id !== "string") return null;
 
+  const deckRecord = deck as unknown as Record<string, unknown>;
+  const cleanedDeck = { ...deckRecord };
+  for (const field of GET_DECK_ONLY_DECK_FIELDS) delete cleanedDeck[field];
+
+  // Strip the same decorative fields from every slide, so a deck fetched from
+  // `get-deck` is structurally identical to one built by local mutations —
+  // otherwise `deckContentSignature` sees a "change" on every refetch of the
+  // open deck and spams the undo stack with no-op `replace-deck` entries.
+  const slides = Array.isArray(deck.slides)
+    ? deck.slides.map((slide) => {
+        if (!slide || typeof slide !== "object") return slide;
+        const cleanedSlide = {
+          ...(slide as unknown as Record<string, unknown>),
+        };
+        for (const field of GET_DECK_ONLY_SLIDE_FIELDS) {
+          delete cleanedSlide[field];
+        }
+        return cleanedSlide as unknown as Slide;
+      })
+    : [];
+
   return {
-    ...deck,
+    ...cleanedDeck,
     id: deck.id,
     title: typeof deck.title === "string" ? deck.title : "Untitled",
     createdAt:
@@ -304,7 +355,7 @@ function normalizeActionDeck(value: unknown): Deck | null {
       typeof deck.updatedAt === "string"
         ? deck.updatedAt
         : deck.createdAt || "",
-    slides: Array.isArray(deck.slides) ? deck.slides : [],
+    slides,
   } as Deck;
 }
 
@@ -327,6 +378,35 @@ const DECK_SAVE_RETRY_BASE_MS = 250;
 // Per-deck queue of granular ops waiting to be flushed. Keys are deck IDs.
 // Ops are appended by enqueueDeckOp and drained when the debounce fires.
 const pendingOpsQueue = new Map<string, GranularOp[]>();
+
+// The ops a deck's current in-flight save actually sent, so a slide-scoped
+// check can tell "this slide's save is in flight" from "some other slide in
+// this deck has a save in flight" — `inFlightSaves` alone can't, since it is
+// deck-wide and previously made every slide in the deck look pending for the
+// whole request duration, starving unrelated agent writes of live sync.
+const inFlightOpSlides = new Map<string, GranularOp[]>();
+
+// Slides currently mid inline-edit (contentEditable open, keystrokes not yet
+// committed to a "patch-slide" op). `onInlineEditStart`/`onInlineEditEnd`
+// keep this current; a slide only reaches `pendingOpsQueue` when editing
+// ends, so this is the only signal that catches live, uncommitted typing.
+const activeInlineEditSlides = new Map<string, Set<string>>();
+
+/** Mark `slideId` as mid inline-edit so a concurrent agent write to the same
+ *  slide is not adopted over the user's uncommitted keystrokes. */
+export function markSlideEditingActive(deckId: string, slideId: string) {
+  const set = activeInlineEditSlides.get(deckId) ?? new Set<string>();
+  set.add(slideId);
+  activeInlineEditSlides.set(deckId, set);
+}
+
+/** Clear the mid-edit mark once inline editing ends (committed or discarded). */
+export function clearSlideEditingActive(deckId: string, slideId: string) {
+  const set = activeInlineEditSlides.get(deckId);
+  if (!set) return;
+  set.delete(slideId);
+  if (set.size === 0) activeInlineEditSlides.delete(deckId);
+}
 
 // Cached snapshot for useSyncExternalStore. MUST be stable when either value
 // is unchanged or React will infinite-loop (it compares snapshots with
@@ -477,6 +557,7 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
     typeof AbortController === "undefined" ? null : new AbortController();
   if (controller) inFlightSaveControllers.set(deckId, controller);
   inFlightSaves.add(deckId);
+  inFlightOpSlides.set(deckId, ops);
   const isCurrentGeneration = () =>
     (deckSaveGenerations.get(deckId) ?? 0) === generation;
   const next = persistDeckOps(deckId, ops, controller?.signal)
@@ -517,6 +598,7 @@ function drainPendingDeckOps(deckId: string): Promise<void> {
           inFlightSaveControllers.delete(deckId);
         }
         inFlightSaves.delete(deckId);
+        inFlightOpSlides.delete(deckId);
         const flushImmediately = immediateFlushRequests.delete(deckId);
         notifySaveListeners();
         if (flushImmediately) {
@@ -873,7 +955,14 @@ export function deriveInverseOp(
         // restores exactly what changed (including clearing fields back to
         // undefined).
         if (!equalDeckValue(prior[key], op.fields[key])) {
-          (priorFields as Record<string, unknown>)[key] = prior[key];
+          let priorValue: unknown = prior[key];
+          // `skipped` is undefined on a slide that was never skipped, but
+          // `undefined` doesn't survive JSON transport to the server — its
+          // `patch-slide` handler treats an absent field as "don't touch",
+          // so the persisted deck would stay skipped after undo. `false` is
+          // equivalent for this boolean field and does survive.
+          if (key === "skipped" && priorValue === undefined) priorValue = false;
+          (priorFields as Record<string, unknown>)[key] = priorValue;
         }
       }
       if (Object.keys(priorFields).length === 0) return null;
@@ -940,7 +1029,7 @@ export function deriveInverseOp(
 }
 
 /**
- * Fetch the deck list. Returns `null` on any failure (network error, non-2xx
+ * Fetch the deck metadata list. Returns `null` on any failure (network error, non-2xx
  * response) so callers can distinguish "authoritative empty list" from
  * "couldn't reach the server" — wiping local state on a transient failure
  * kicks the user out of the editor and shows the "Create your first deck"
@@ -951,7 +1040,7 @@ async function fetchDecksFromAPI(): Promise<Deck[] | null> {
   try {
     const result = await callAction<DeckListActionResult>(
       "list-decks",
-      { includeSlides: "true" },
+      { light: "true" },
       { method: "GET" },
     );
     if (!Array.isArray(result?.decks)) {
@@ -1076,12 +1165,23 @@ export async function includeOpenDeckIfMissing(
 async function fetchDecksForCurrentRoute(): Promise<Deck[] | null> {
   const currentOpenDeckId = currentOpenDeckIdFromWindow();
   const loaded = await fetchDecksFromAPI();
-  if (loaded !== null) {
-    return includeOpenDeckIfMissing(loaded, currentOpenDeckId);
+  if (loaded === null) {
+    if (!currentOpenDeckId) return null;
+    const directDeck = await fetchDeckFromAPI(currentOpenDeckId);
+    return directDeck ? [directDeck] : null;
   }
-  if (!currentOpenDeckId) return null;
+  if (!currentOpenDeckId) return loaded;
+
+  // The list is intentionally metadata-only. Hydrate just the deck the user
+  // opened so the editor gets full slide content without making the home page
+  // download every deck body.
   const directDeck = await fetchDeckFromAPI(currentOpenDeckId);
-  return directDeck ? [directDeck] : null;
+  if (!directDeck) return loaded;
+  const index = loaded.findIndex((deck) => deck.id === currentOpenDeckId);
+  if (index < 0) return [...loaded, directDeck];
+  const next = [...loaded];
+  next[index] = directDeck;
+  return next;
 }
 
 async function deleteDeckFromAPI(id: string): Promise<void> {
@@ -1179,6 +1279,61 @@ export function mergeServerAddedSlides(local: Deck, server: Deck): Deck {
   // Keep local scalar fields (title/tweaks/etc. may be locally edited); only
   // the slide set is reconciled here.
   return { ...local, slides: merged };
+}
+
+/** True when `op` is a deck-wide write (touches every slide) or targets
+ *  `slideId` specifically. */
+function opTargetsSlide(op: GranularOp, slideId: string): boolean {
+  return (
+    op.op === "full-replace" ||
+    op.op === "reorder-slides" ||
+    ("slideId" in op && op.slideId === slideId)
+  );
+}
+
+/**
+ * True when some queued-or-in-flight write for `deckId` could still touch
+ * `slideId`, so adopting the server's copy of that slide would race a local
+ * write instead of reflecting it. Checking the actual ops (queued or
+ * in-flight) rather than a deck-wide "a save is running" flag matters: an
+ * in-flight save for slide B must not block slide A's live update for the
+ * whole request duration. The slide being mid inline-edit (typing not yet
+ * committed to any op) also counts as a pending write.
+ */
+function hasPendingWriteForSlide(deckId: string, slideId: string): boolean {
+  if (activeInlineEditSlides.get(deckId)?.has(slideId)) return true;
+  const inFlightOps = inFlightOpSlides.get(deckId);
+  if (inFlightOps?.some((op) => opTargetsSlide(op, slideId))) return true;
+  const queue = pendingOpsQueue.get(deckId);
+  if (!queue) return false;
+  return queue.some((op) => opTargetsSlide(op, slideId));
+}
+
+/**
+ * Same additive merge as `mergeServerAddedSlides`, but additionally adopts
+ * the server's content for `changedSlideId` when no local write is pending
+ * for that specific slide. This closes the gap where an agent edit to a
+ * slide that already exists locally (e.g. removing a table row) was
+ * otherwise invisible until the deck went fully clean or the page reloaded —
+ * see the module doc on `refetchOpenDeckIfChanged`.
+ */
+export function mergeServerSlideUpdate(
+  local: Deck,
+  server: Deck,
+  changedSlideId: string | undefined,
+  deckId: string,
+): Deck {
+  const merged = mergeServerAddedSlides(local, server);
+  if (!changedSlideId || hasPendingWriteForSlide(deckId, changedSlideId)) {
+    return merged;
+  }
+  const serverSlide = server.slides.find((s) => s.id === changedSlideId);
+  if (!serverSlide) return merged;
+  const idx = merged.slides.findIndex((s) => s.id === changedSlideId);
+  if (idx < 0 || merged.slides[idx] === serverSlide) return merged;
+  const nextSlides = [...merged.slides];
+  nextSlides[idx] = serverSlide;
+  return { ...merged, slides: nextSlides };
 }
 
 export const defaultSlideContent: Record<SlideLayout, string> = {
@@ -1488,7 +1643,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
   const refetchOpenDeckIfChanged = useCallback(
     async (
       currentOpenId: string,
-      options?: { clearPendingWrites?: boolean },
+      options?: { clearPendingWrites?: boolean; changedSlideId?: string },
     ): Promise<Deck | null> => {
       const requestId =
         (openDeckRequestIdByDeckRef.current.get(currentOpenId) ?? 0) + 1;
@@ -1515,7 +1670,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
 
       if (hasLocalEdits && clientDeck) {
         // Content-preserving: only ADD server slides missing locally.
-        const merged = mergeServerAddedSlides(clientDeck, serverDeck);
+        const merged = mergeServerSlideUpdate(
+          clientDeck,
+          serverDeck,
+          options?.changedSlideId,
+          currentOpenId,
+        );
         if (merged === clientDeck) return serverDeck; // nothing new to surface
         lastExternalUpdateRef.current = Date.now();
         setDecks((prev) => {
@@ -1805,7 +1965,12 @@ export function DeckProvider({ children }: { children: ReactNode }) {
             // write that arrived during the same local edit. The reconciler
             // preserves local slide bodies and local-only slides while still
             // surfacing server-added slides immediately.
-            void refetchOpenDeckIfChanged(data.deckId).catch((error) => {
+            const changedSlideId =
+              typeof data.slideId === "string" ? data.slideId : undefined;
+            const refetchPromise = refetchOpenDeckIfChanged(data.deckId, {
+              changedSlideId,
+            });
+            void refetchPromise.catch((error) => {
               console.error(
                 `Failed to refresh deck ${data.deckId} after sync event:`,
                 error,
@@ -2335,6 +2500,38 @@ export function DeckProvider({ children }: { children: ReactNode }) {
     [markDeckDirty, recordUndo, setDecksLocal],
   );
 
+  const pasteSlide = useCallback(
+    (deckId: string, afterSlideId: string, slideFields: Omit<Slide, "id">) => {
+      const before = decksRef.current.find((d) => d.id === deckId);
+      if (!before) return undefined;
+
+      markDeckDirty(deckId);
+      const newSlide: Slide = { ...slideFields, id: nanoid(8) };
+      setDecksLocal((prev) =>
+        prev.map((d) => {
+          if (d.id !== deckId) return d;
+          const idx = d.slides.findIndex((s) => s.id === afterSlideId);
+          const insertAt = idx === -1 ? d.slides.length : idx + 1;
+          const slides = [...d.slides];
+          slides.splice(insertAt, 0, newSlide);
+          return { ...d, slides, updatedAt: new Date().toISOString() };
+        }),
+      );
+      // Granular add-slide op, same as duplicateSlide — inserts after
+      // afterSlideId regardless of whether that id is also the copy source.
+      const op: PatchDeckOp = {
+        op: "add-slide",
+        slideId: newSlide.id,
+        afterSlideId,
+        fields: addSlideFields(newSlide),
+      };
+      enqueueDeckOp(deckId, op);
+      recordUndo(before, op, { label: "Paste slide" });
+      return newSlide.id;
+    },
+    [markDeckDirty, recordUndo, setDecksLocal],
+  );
+
   const reorderSlides = useCallback(
     (deckId: string, oldIndex: number, newIndex: number) => {
       markDeckDirty(deckId);
@@ -2421,6 +2618,7 @@ export function DeckProvider({ children }: { children: ReactNode }) {
         updateSlide,
         deleteSlide,
         duplicateSlide,
+        pasteSlide,
         reorderSlides,
         setDeckSlides,
         markDeckDirty,

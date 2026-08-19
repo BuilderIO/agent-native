@@ -900,6 +900,7 @@ const messages = {
       applyButton: "套用樣式",
       previewLabel: "待處理的視覺預覽",
       applyDesignUpdates: "套用設計更新",
+      applying: "正在套用…",
       verifying: "正在驗證來源與執行階段…",
       retryWithAgent: "重試來源驗證",
       copyPrompt: "將提示複製給您的代理",
@@ -1048,6 +1049,7 @@ const messages = {
     },
   },
   multiScreenCanvas: {
+    preparingLiveEditor: "正在準備即時編輯器…",
     addBreakpointToAllScreens: "為所有畫面新增 {{label}} 中斷點（{{width}}px）",
     duplicate: "複製",
     fork: "分支",

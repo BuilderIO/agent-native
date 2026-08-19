@@ -235,6 +235,23 @@ export const runSlidesMigrations = runMigrations(
       name: "slides-share-design-system-snapshot",
       sql: `ALTER TABLE deck_share_links ADD COLUMN IF NOT EXISTS design_system_data TEXT`,
     },
+    // v22: durable access-request events for private deck links. The request
+    // action also sends the owner an email when outbound email is configured,
+    // but the event remains the source of truth when it is not.
+    {
+      version: 22,
+      name: "slides-deck-access-requests",
+      sql: `CREATE TABLE IF NOT EXISTS deck_events (
+    id TEXT PRIMARY KEY,
+    deck_id TEXT NOT NULL,
+    type TEXT NOT NULL,
+    message TEXT NOT NULL,
+    payload TEXT,
+    created_by TEXT NOT NULL DEFAULT 'human',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+  CREATE INDEX IF NOT EXISTS deck_events_deck_created_idx ON deck_events (deck_id, created_at)`,
+    },
   ],
   { table: "slides_migrations" },
 );

@@ -116,6 +116,12 @@ export const LOCALE_METADATA: Record<LocaleCode, LocaleMetadata> = {
   },
 };
 
+/** Return the short native language name used in compact locale pickers. */
+export function localeDisplayName(locale: LocaleCode): string {
+  const nativeName = LOCALE_METADATA[locale]?.nativeName ?? locale;
+  return nativeName.split("(", 1)[0]?.trim() || nativeName;
+}
+
 const SUPPORTED_LOCALE_SET = new Set<string>(SUPPORTED_LOCALES);
 
 const CHINESE_LOCALE_ALIASES: Record<string, LocaleCode> = {

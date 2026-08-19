@@ -157,6 +157,27 @@ describe("run recovery surfaces", () => {
     expect(document.body.textContent).toContain("Ollama");
   });
 
+  it("keeps sidebar provider actions in a horizontal row", async () => {
+    await act(async () => {
+      root.render(
+        <AgentNativeI18nProvider
+          initialLocale="en-US"
+          initialPreference="en-US"
+          persistPreference={false}
+        >
+          <BuilderSetupContent layout="sidebar" />
+        </AgentNativeI18nProvider>,
+      );
+    });
+
+    const actions = container.querySelector(
+      ".agent-builder-setup-card__actions",
+    );
+    expect(actions).not.toBeNull();
+    expect(actions?.className).toContain("flex-row");
+    expect(actions?.className).not.toContain("flex-col");
+  });
+
   it("formats the step limit with the selected locale", async () => {
     vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("offline")));
 
@@ -210,6 +231,7 @@ describe("run recovery surfaces", () => {
 
   it("dismisses the recovery card after saving a provider key", async () => {
     const onDismiss = vi.fn();
+    const onRetry = vi.fn();
 
     await act(async () => {
       root.render(
@@ -225,7 +247,7 @@ describe("run recovery surfaces", () => {
               errorCode: "authentication_error",
             }}
             onContinue={vi.fn()}
-            onRetry={vi.fn()}
+            onRetry={onRetry}
             onDismiss={onDismiss}
           />
         </AgentNativeI18nProvider>,
@@ -271,6 +293,7 @@ describe("run recovery surfaces", () => {
       provider: "anthropic",
       model: expect.any(String),
     });
+    expect(onRetry).toHaveBeenCalledTimes(1);
     expect(onDismiss).toHaveBeenCalledTimes(1);
   });
 });

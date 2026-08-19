@@ -149,6 +149,13 @@ export function clampToMaxDimension(
   };
 }
 
+export function cameraBubbleStrokeRadius(
+  size: number,
+  lineWidth: number,
+): number {
+  return Math.max(0, size / 2 - lineWidth / 2);
+}
+
 function resizeCanvasToDisplay(
   canvas: HTMLCanvasElement,
   displayVideo: HTMLVideoElement,
@@ -225,6 +232,7 @@ function drawCameraBubble(
       maxSize,
     ),
   );
+  if (size <= 0) return;
   const margin = Math.round(
     clamp(minDimension * options.bubbleMarginRatio, 24, 80),
   );
@@ -255,7 +263,13 @@ function drawCameraBubble(
   ctx.strokeStyle = "rgba(255, 255, 255, 0.86)";
   ctx.lineWidth = Math.max(4, Math.round(size * 0.025));
   ctx.beginPath();
-  ctx.arc(centerX, centerY, radius - ctx.lineWidth / 2, 0, Math.PI * 2);
+  ctx.arc(
+    centerX,
+    centerY,
+    cameraBubbleStrokeRadius(size, ctx.lineWidth),
+    0,
+    Math.PI * 2,
+  );
   ctx.stroke();
   ctx.restore();
 }

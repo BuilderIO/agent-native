@@ -56,11 +56,14 @@ export function MessagesList({
   chat,
   bottomInset,
   onMessageActions,
+  onSignIn,
 }: {
   chat: AgentChatController;
   /** Height of the floating composer + keyboard area to pad the scroll end. */
   bottomInset: number;
   onMessageActions?: (message: ChatMessage) => void;
+  /** Opens the sign-in sheet when a run failed because the session expired. */
+  onSignIn?: () => void;
 }) {
   const { foreground } = useMobileThemeColors();
   const listRef = useRef<LegendListRef>(null);
@@ -90,6 +93,7 @@ export function MessagesList({
             error={item.error}
             errorCode={item.errorCode}
             onRetry={chat.retry}
+            onSignIn={onSignIn}
           />
         );
       }
@@ -118,6 +122,7 @@ export function MessagesList({
       lastMessageId,
       rows.length,
       onMessageActions,
+      onSignIn,
     ],
   );
 

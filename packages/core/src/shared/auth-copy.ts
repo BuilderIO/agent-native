@@ -12,8 +12,15 @@ import {
 export interface NativeAuthCopy {
   googleButton: string;
   dividerOr: string;
+  welcomeTitle: string;
+  welcomeSubtitle: string;
   email: string;
   emailPlaceholder: string;
+  legalPrefix: string;
+  legalTerms: string;
+  legalConnector: string;
+  legalPrivacy: string;
+  legalSuffix: string;
   password: string;
   confirmPassword: string;
   enterPasswordPlaceholder: string;
@@ -40,8 +47,15 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "en-US": {
     googleButton: "Sign in with Google",
     dividerOr: "or",
+    welcomeTitle: "Welcome",
+    welcomeSubtitle: "Create an account or sign in",
     email: "Email",
     emailPlaceholder: "you@example.com",
+    legalPrefix: "By signing up, you accept our",
+    legalTerms: "Terms",
+    legalConnector: "and",
+    legalPrivacy: "Privacy Policy",
+    legalSuffix: ".",
     password: "Password",
     confirmPassword: "Confirm password",
     enterPasswordPlaceholder: "Enter password",
@@ -68,8 +82,15 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "zh-CN": {
     googleButton: "使用 Google 登录",
     dividerOr: "或",
+    welcomeTitle: "欢迎",
+    welcomeSubtitle: "创建账户或登录",
     email: "电子邮箱",
     emailPlaceholder: "you@example.com",
+    legalPrefix: "注册即表示你接受我们的",
+    legalTerms: "条款",
+    legalConnector: "和",
+    legalPrivacy: "隐私政策",
+    legalSuffix: "。",
     password: "密码",
     confirmPassword: "确认密码",
     enterPasswordPlaceholder: "输入密码",
@@ -95,8 +116,15 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "zh-TW": {
     googleButton: "使用 Google 登入",
     dividerOr: "或",
+    welcomeTitle: "歡迎",
+    welcomeSubtitle: "建立帳戶或登入",
     email: "電子郵件",
     emailPlaceholder: "you@example.com",
+    legalPrefix: "註冊即表示你接受我們的",
+    legalTerms: "條款",
+    legalConnector: "和",
+    legalPrivacy: "隱私權政策",
+    legalSuffix: "。",
     password: "密碼",
     confirmPassword: "確認密碼",
     enterPasswordPlaceholder: "輸入密碼",
@@ -122,8 +150,15 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "es-ES": {
     googleButton: "Iniciar sesión con Google",
     dividerOr: "o",
+    welcomeTitle: "Bienvenido",
+    welcomeSubtitle: "Crea una cuenta o inicia sesión",
     email: "Email",
     emailPlaceholder: "you@example.com",
+    legalPrefix: "Al registrarte, aceptas nuestros",
+    legalTerms: "Términos",
+    legalConnector: "y",
+    legalPrivacy: "Política de privacidad",
+    legalSuffix: ".",
     password: "Contraseña",
     confirmPassword: "Confirmar contraseña",
     enterPasswordPlaceholder: "Introduce la contraseña",
@@ -149,8 +184,15 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "fr-FR": {
     googleButton: "Se connecter avec Google",
     dividerOr: "ou",
+    welcomeTitle: "Bienvenue",
+    welcomeSubtitle: "Créez un compte ou connectez-vous",
     email: "E-mail",
     emailPlaceholder: "you@example.com",
+    legalPrefix: "En vous inscrivant, vous acceptez nos",
+    legalTerms: "Conditions",
+    legalConnector: "et",
+    legalPrivacy: "Politique de confidentialité",
+    legalSuffix: ".",
     password: "Mot de passe",
     confirmPassword: "Confirmer le mot de passe",
     enterPasswordPlaceholder: "Saisir le mot de passe",
@@ -176,8 +218,15 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "de-DE": {
     googleButton: "Mit Google anmelden",
     dividerOr: "oder",
+    welcomeTitle: "Willkommen",
+    welcomeSubtitle: "Konto erstellen oder anmelden",
     email: "E-Mail",
     emailPlaceholder: "you@example.com",
+    legalPrefix: "Mit der Registrierung akzeptierst du unsere",
+    legalTerms: "Bedingungen",
+    legalConnector: "und",
+    legalPrivacy: "Datenschutzrichtlinie",
+    legalSuffix: ".",
     password: "Passwort",
     confirmPassword: "Passwort bestätigen",
     enterPasswordPlaceholder: "Passwort eingeben",
@@ -203,8 +252,15 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "ja-JP": {
     googleButton: "Google でサインイン",
     dividerOr: "または",
+    welcomeTitle: "ようこそ",
+    welcomeSubtitle: "アカウントを作成するかサインインしてください",
     email: "メール",
     emailPlaceholder: "you@example.com",
+    legalPrefix: "登録すると、以下に同意したものとみなされます:",
+    legalTerms: "利用規約",
+    legalConnector: "および",
+    legalPrivacy: "プライバシーポリシー",
+    legalSuffix: "。",
     password: "パスワード",
     confirmPassword: "パスワードを確認",
     enterPasswordPlaceholder: "パスワードを入力",
@@ -231,8 +287,15 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "ko-KR": {
     googleButton: "Google로 로그인",
     dividerOr: "또는",
+    welcomeTitle: "환영합니다",
+    welcomeSubtitle: "계정을 만들거나 로그인하세요",
     email: "이메일",
     emailPlaceholder: "you@example.com",
+    legalPrefix: "가입하면 다음에 동의하게 됩니다:",
+    legalTerms: "약관",
+    legalConnector: "및",
+    legalPrivacy: "개인정보 처리방침",
+    legalSuffix: ".",
     password: "비밀번호",
     confirmPassword: "비밀번호 확인",
     enterPasswordPlaceholder: "비밀번호 입력",
@@ -258,8 +321,15 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "pt-BR": {
     googleButton: "Entrar com Google",
     dividerOr: "ou",
+    welcomeTitle: "Bem-vindo",
+    welcomeSubtitle: "Crie uma conta ou entre",
     email: "Email",
     emailPlaceholder: "you@example.com",
+    legalPrefix: "Ao se cadastrar, você aceita nossos",
+    legalTerms: "Termos",
+    legalConnector: "e",
+    legalPrivacy: "Política de Privacidade",
+    legalSuffix: ".",
     password: "Senha",
     confirmPassword: "Confirmar senha",
     enterPasswordPlaceholder: "Digite a senha",
@@ -285,8 +355,15 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "hi-IN": {
     googleButton: "Google से साइन इन करें",
     dividerOr: "या",
+    welcomeTitle: "स्वागत है",
+    welcomeSubtitle: "खाता बनाएं या साइन इन करें",
     email: "ईमेल",
     emailPlaceholder: "you@example.com",
+    legalPrefix: "साइन अप करके, आप हमारी",
+    legalTerms: "शर्तें",
+    legalConnector: "और",
+    legalPrivacy: "गोपनीयता नीति",
+    legalSuffix: "स्वीकार करते हैं।",
     password: "पासवर्ड",
     confirmPassword: "पासवर्ड की पुष्टि करें",
     enterPasswordPlaceholder: "पासवर्ड दर्ज करें",
@@ -312,8 +389,15 @@ export const NATIVE_AUTH_COPY: Record<LocaleCode, NativeAuthCopy> = {
   "ar-SA": {
     googleButton: "تسجيل الدخول باستخدام Google",
     dividerOr: "أو",
+    welcomeTitle: "مرحبًا",
+    welcomeSubtitle: "أنشئ حسابًا أو سجّل الدخول",
     email: "البريد الإلكتروني",
     emailPlaceholder: "you@example.com",
+    legalPrefix: "بالتسجيل، فإنك توافق على",
+    legalTerms: "الشروط",
+    legalConnector: "و",
+    legalPrivacy: "سياسة الخصوصية",
+    legalSuffix: ".",
     password: "كلمة المرور",
     confirmPassword: "تأكيد كلمة المرور",
     enterPasswordPlaceholder: "أدخل كلمة المرور",

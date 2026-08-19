@@ -4,6 +4,7 @@ import {
   getLocaleInitScript,
   useT,
 } from "@agent-native/core/client/i18n";
+import { recoverFromStaleChunkError } from "@agent-native/core/client/route-chunk-recovery";
 import { ErrorReportActions } from "@agent-native/core/client/ui";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { lazy, Suspense, useState, useEffect, useRef } from "react";
@@ -36,6 +37,7 @@ import {
 } from "./components/docs-seo";
 import Footer from "./components/Footer";
 import Header from "./components/Header";
+import { isStaleDocsChunkError } from "./docs-error-classification.js";
 import { docsI18nCatalog, loadDocsMessages } from "./i18n";
 import { defaultSocialImageMeta } from "./seo";
 
@@ -498,11 +500,47 @@ function RootShell({ mounted }: { mounted: boolean }) {
   );
 }
 
+// Mirrors core's ErrorBoundary.tsx useStaleChunkRecovery: reload once on a
+// stale chunk instead of stranding the user on the generic error screen.
+function useStaleChunkRecovery(error: unknown): boolean {
+  const [recovering, setRecovering] = useState(() =>
+    isStaleDocsChunkError(error),
+  );
+  useEffect(() => {
+    if (!isStaleDocsChunkError(error)) {
+      setRecovering(false);
+      return;
+    }
+    if (!recoverFromStaleChunkError(error)) setRecovering(false);
+  }, [error]);
+  return recovering;
+}
+
 function LocalizedError({ error }: { error: unknown }) {
   const t = useT();
   const localeData = useRootLocaleData();
+  const recovering = useStaleChunkRecovery(error);
   const localizedPath = (path: string) =>
     sitePathForLocale(path, localeData.locale);
+
+  // Always surface the underlying error to devtools/Sentry — a generic
+  // "Something went wrong" screen with nothing logged is how a root cause
+  // stays unknown (see the incident this recovery path was added for).
+  if (typeof console !== "undefined" && error && !recovering) {
+    console.error("[DocsErrorBoundary]", error);
+  }
+
+  if (recovering) {
+    return (
+      <DocsChrome>
+        <main className="mx-auto flex min-h-[60vh] max-w-[600px] flex-col items-center justify-center px-6 text-center">
+          <p className="text-base text-[var(--fg-secondary)]">
+            {t("errors.loadingLatest")}
+          </p>
+        </main>
+      </DocsChrome>
+    );
+  }
 
   if (isRouteErrorResponse(error) && error.status === 404) {
     return (

@@ -466,6 +466,8 @@ const messages: AgentChatTranslation = {
   "errorMessages.builderModelUnauthorized":
     "Le fournisseur de ce modèle a rejeté la demande. Choisissez un autre modèle, puis réessayez.",
   "errorMessages.errorPrefix": "Erreur : {{message}}",
+  "errorMessages.gatewayInternalError":
+    "La passerelle du modèle a rencontré une erreur interne avant que l'agent puisse répondre. Réessayez dans un instant et indiquez l'identifiant d'erreur ci-dessous si cela persiste.",
   "errorMessages.gatewayNoDetails":
     "La passerelle du modèle n’a fourni aucun détail sur l’erreur et la discussion n’a pas pu reprendre. Patientez un instant et réessayez. Si le problème persiste, démarrez une nouvelle discussion.",
   "errorMessages.inactivityTimeout":
@@ -616,6 +618,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "Personne inconnue",
   "share.viewer": "Lecteur",
   "share.viewerDescription": "Peut consulter",
+  "share.userGroup": "Groupe d’utilisateurs",
 };
 
 export default messages;

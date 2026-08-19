@@ -13,6 +13,7 @@ export interface UsePlaybackPositionOptions {
   recordingId: string;
   videoEl: HTMLVideoElement | null;
   durationMs: number;
+  enabled?: boolean;
   explicitStartMs?: number;
   allowRestoreWhilePlaying?: boolean;
   onRestore?: (positionMs: number) => void;
@@ -27,6 +28,7 @@ export function usePlaybackPosition({
   recordingId,
   videoEl,
   durationMs,
+  enabled = true,
   explicitStartMs,
   allowRestoreWhilePlaying = false,
   onRestore,
@@ -38,7 +40,7 @@ export function usePlaybackPosition({
   onRestoreRef.current = onRestore;
 
   useEffect(() => {
-    if (!videoEl || !recordingId) return;
+    if (!enabled || !videoEl || !recordingId) return;
 
     const controller = new AbortController();
     let cancelled = false;
@@ -184,5 +186,11 @@ export function usePlaybackPosition({
       window.removeEventListener("pagehide", onPageHide);
       document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [allowRestoreWhilePlaying, explicitStartMs, recordingId, videoEl]);
+  }, [
+    allowRestoreWhilePlaying,
+    enabled,
+    explicitStartMs,
+    recordingId,
+    videoEl,
+  ]);
 }

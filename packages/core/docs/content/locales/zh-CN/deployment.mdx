@@ -7,6 +7,31 @@ description: "将代理原生应用部署到具有 Nitro 预设的任何平台 -
 
 代理本机应用程序在底层使用 [Nitro](https://nitro.build)，这意味着您可以部署到任何平台，无需进行零配置更改 - 只需设置预设即可。
 
+## 快速路径：在本地自行托管 Chat 应用 {#self-host-quickstart}
+
+有两种适合的起点：
+
+- **正在构建应用？** 从 [Getting Started](/docs/getting-started) 开始，准备好将应用放到持久环境中时再回到这里。
+- **正在运行应用？** 先使用本地 Docker 路径。它会验证你在小型服务器上将使用的 Node.js、Postgres、身份验证和环境变量配置。
+
+本地堆栈特意使用示例身份验证密钥和本地 Postgres 卷，仅适用于 `localhost`，不适合直接暴露到互联网。完整的 Compose 文件和可复制步骤请参阅[英文快速入门](https://www.agent-native.com/docs/deployment#self-host-quickstart)。此快速入门使用 PostgreSQL 18 的卷布局。不要重新使用由 PostgreSQL 17 或更早版本创建的卷。更改镜像或挂载路径前，请先备份并迁移现有数据。
+
+### 1. 创建应用
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. 启动本地堆栈
+
+```bash
+docker compose up --build
+```
+
+打开 [http://localhost:3000](http://localhost:3000)。如果要使用内置代理，请将 `ANTHROPIC_API_KEY` 添加到本地 `.env` 文件中。
+
 ## 部署之前：选择持久数据库 {#persistent-database}
 
 每个部署的应用程序都需要一个持久的 SQL 数据库。在本地开发中，agent-native 回退到 `data/app.db` 处的 SQLite 文件；这在您的计算机上很方便，但在可以重置文件系统的容器、预览或无服务器环境中并不持久。
@@ -247,6 +272,7 @@ COPY --from=build /app/.output .output
 # data/ 是运行时创建的 SQLite 目录 - 不要将开发数据库复制到产品中。
 # 对于生产，将 DATABASE_URL 设置为托管的 Postgres 或 Turso 实例。
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
@@ -557,6 +583,8 @@ export default createAgentChatPlugin({
 ### Builder.io：制作中的可视化编辑 {#builderio}
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) 是一个独立的托管代码工作流，代理可在其中修改生产应用的 UI。将仓库连接到 Builder.io（提供免费套餐）后即可直接请求 UI 更改，无需重新部署。
+
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
 
 **工作原理：**
 

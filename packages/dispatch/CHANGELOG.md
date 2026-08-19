@@ -1,5 +1,69 @@
 # @agent-native/dispatch
 
+## 0.30.1
+
+### Patch Changes
+
+- a2f21dc: Keep workspace apps inline outside Builder.io embeds.
+- Updated dependencies [a2f21dc]
+  - @agent-native/toolkit@0.16.6
+
+## 0.30.0
+
+### Minor Changes
+
+- a688849: Add organization groups and privacy controls for workspace apps. New apps use the organization default (organization-wide by default), while creators and organization admins can manage individual, group, and organization access from the shared popover.
+
+## 0.29.5
+
+### Patch Changes
+
+- Updated dependencies [0b57293]
+  - @agent-native/toolkit@0.16.5
+
+## 0.29.4
+
+### Patch Changes
+
+- 0b0085f: Fix workspace app sign-in continuation and mounted-app launches.
+
+## 0.29.3
+
+### Patch Changes
+
+- 8cab236: Speed up workspace app opens in Dispatch by reusing the app catalog cache and deferring granted-app discovery until needed.
+
+## 0.29.2
+
+### Patch Changes
+
+- 66b2a1c: Navigate workspace apps in the top window when Dispatch runs in Builder or an iframe.
+
+## 0.29.1
+
+### Patch Changes
+
+- 96ecc13: Use compact app search and pin labels that stay on one line.
+
+## 0.29.0
+
+### Minor Changes
+
+- 772f59a: Point the chat beside an open workspace app at that app's own agent. Dispatch now proxies `/_agent-native/workspace-app-chat/<appId>/**` to the app's `/_agent-native/agent-chat`, authenticated with the app's own embed session, so the rail has the app's tools, AGENTS.md, skills, app-scoped resources, and dev-mode surface instead of Dispatch's. When the proxy cannot be established the rail shows a retryable error rather than silently answering from Dispatch's agent, and workspace-level chat with no app open is unchanged.
+
+### Patch Changes
+
+- 772f59a: Allow workspace members to update mounted app names and descriptions from Dispatch.
+- 772f59a: Report the embedded workspace app to the Dispatch agent as structured context. `/apps/<id>` now resolves to a `workspace-app` navigation view that keeps the app id and in-app path instead of collapsing to the apps list, and `view-screen` emits an `embeddedApp` block for both that route and chat-first mode, where the route stays on `/chat` and the open app is named only by `chat-first-pane` state. An app that is open but cannot be identified reports `status: "unknown"` rather than a default or an omitted field.
+- 772f59a: Share the canonical localized authentication copy with native sign-in surfaces
+  and allow authenticated packaged callers to mint workspace embed sessions.
+
+## 0.28.1
+
+### Patch Changes
+
+- 2107a36: Retry cross-app embed session authentication with the shared A2A secret when a workspace target rejects an unsynchronized organization secret.
+
 ## 0.28.0
 
 ### Minor Changes

@@ -21,6 +21,15 @@ const credentialState = vi.hoisted(() => ({
   recordBuilderGatewayAuthFailure: vi.fn(async () => {}),
 }));
 
+const oauthState = vi.hoisted(() => ({
+  ownerEmail: undefined as string | undefined,
+  accessToken: null as string | null,
+  stored: false,
+  resolveAccess: vi.fn(),
+  hasSession: vi.fn(),
+  markReconnect: vi.fn(async () => {}),
+}));
+
 const AGENT_NATIVE_UPGRADE_URL =
   "https://builder.io/account/subscription?signupSource=agent-native&agentNativeConnectSource=gateway_quota_upgrade&agentNativeFlow=connect_llm&framework=agent-native&utm_source=agent-native&utm_medium=product&utm_campaign=onboarding&utm_content=gateway_quota_upgrade";
 
@@ -63,6 +72,17 @@ vi.mock("../../server/credential-provider.js", async (importOriginal) => {
     getBuilderGatewayBaseUrl: original.getBuilderGatewayBaseUrl,
   };
 });
+
+vi.mock("../../server/builder-oauth.js", () => ({
+  BUILDER_OAUTH_SCOPE: "builder:ai:invoke",
+  resolveBuilderOAuthRequestAccess: oauthState.resolveAccess,
+  hasBuilderOAuthSession: oauthState.hasSession,
+  markBuilderOAuthReconnectRequired: oauthState.markReconnect,
+}));
+
+vi.mock("../../server/request-context.js", () => ({
+  getRequestUserEmail: vi.fn(() => oauthState.ownerEmail),
+}));
 
 async function collectEvents(iterable: AsyncIterable<any>) {
   const events: any[] = [];
@@ -108,6 +128,22 @@ describe("createBuilderEngine", () => {
     credentialState.builderOrgName = null;
     credentialState.lane = "identity";
     credentialState.recordBuilderGatewayAuthFailure.mockClear();
+    oauthState.ownerEmail = undefined;
+    oauthState.accessToken = null;
+    oauthState.stored = false;
+    oauthState.resolveAccess.mockReset().mockImplementation(async () =>
+      oauthState.accessToken
+        ? {
+            accessToken: oauthState.accessToken,
+            ownerEmail: oauthState.ownerEmail,
+            scopes: ["builder:ai:invoke"],
+          }
+        : null,
+    );
+    oauthState.hasSession
+      .mockReset()
+      .mockImplementation(async () => oauthState.stored);
+    oauthState.markReconnect.mockClear();
     vi.stubEnv("BUILDER_PRIVATE_KEY", "bpk-test");
     vi.stubEnv("BUILDER_PUBLIC_KEY", "space-test");
     vi.stubEnv("BUILDER_USER_ID", "builder-user-123");
@@ -150,6 +186,46 @@ describe("createBuilderEngine", () => {
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(stop?.error).toContain("Manage agent > LLM");
     expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
+  });
+
+  it("uses per-user Builder OAuth without legacy space credentials", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(jsonlResponse([{ type: "stop", reason: "end_turn" }]));
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(oauthState.resolveAccess).toHaveBeenCalledWith({
+      ownerEmail: "person@example.com",
+      requiredScope: "builder:ai:invoke",
+    });
+    const [url, init] = fetchSpy.mock.calls[0];
+    expect(url).toBe("https://test.example/gateway/v1/messages");
+    expect(init.headers.Authorization).toBe("Bearer oauth-access-token");
+    expect(init.headers["x-builder-api-key"]).toBeUndefined();
+    expect(init.headers["x-builder-user-id"]).toBeUndefined();
+  });
+
+  it("does not fall back to legacy credentials when Builder OAuth custody exists", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.stored = true;
+    const fetchSpy = vi.fn();
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "stop",
+        reason: "error",
+        errorCode: "missing_credentials",
+      }),
+    );
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it("short-circuits with missing-credentials when resolved Builder credentials are incomplete", async () => {
@@ -232,6 +308,34 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("keeps the gateway requestId on an error stop that also carries a message", async () => {
+    // The gateway's opaque "ERROR ID: <hex>" sentence is not a diagnostic, so
+    // the requestId has to survive alongside it — an outage where every failure
+    // reads as its own one-off is exactly what dropping it produced.
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: a3f9c2d1e4b78065",
+            requestId: "req_outage_1",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.error).toContain("ERROR ID:");
+    expect(stop?.requestId).toBe("req_outage_1");
+  });
+
   it("POSTs to the gateway /messages endpoint with bearer auth and owner headers", async () => {
     const fetchSpy = vi.fn().mockResolvedValue(
       jsonlResponse([
@@ -280,6 +384,24 @@ describe("createBuilderEngine", () => {
         ],
       },
     ]);
+  });
+
+  it("resolves auto to the Agent Native default before posting to the gateway", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream({ ...BASE_OPTS, model: "auto" }));
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.model).toBe(BUILDER_DEFAULT_MODEL);
+    expect(body.model).not.toBe("auto");
   });
 
   it("splits the system prompt at the cache sentinel, keeping the breakpoint on the stable prefix", async () => {
@@ -682,6 +804,32 @@ describe("createBuilderEngine", () => {
       code: "unauthorized",
       message: "Invalid key",
     });
+    expect(oauthState.markReconnect).not.toHaveBeenCalled();
+  });
+
+  it("marks OAuth custody for reconnect on gateway 401 instead of the legacy key fingerprint", async () => {
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.accessToken = "oauth-access-token";
+    oauthState.stored = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonErrorResponse(401, {
+          code: "unauthorized",
+          message: "Invalid token",
+        }),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    expect(events.find((e) => e.type === "stop")?.errorCode).toBe(
+      "builder_auth_error",
+    );
+    expect(
+      credentialState.recordBuilderGatewayAuthFailure,
+    ).not.toHaveBeenCalled();
+    expect(oauthState.markReconnect).toHaveBeenCalledWith("person@example.com");
   });
 
   it("maps 403 invalid token to Builder auth stop-error", async () => {
@@ -1548,6 +1696,76 @@ describe("createBuilderEngine", () => {
     expect(capturedCtx?.contexts?.builderGateway?.requestId).toBe(
       "req_no_detail",
     );
+  });
+
+  // A gateway 500 says nothing about the request behind it. Without these
+  // counts on the stop event, an oversized payload and an upstream outage are
+  // the same capture — which is exactly how one analytics turn burned a night.
+  it("carries the request shape on a gateway 500", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "error",
+            requestId: "req_shape",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: 044be17f44d546c7875a4df879e6749f",
+          },
+        ]),
+      ),
+    );
+
+    const engine = createBuilderEngine();
+    const events = await collectEvents(
+      engine.stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: "list-dashboards",
+            description: "List dashboards",
+            inputSchema: { type: "object", properties: {}, required: [] },
+          },
+        ],
+        messages: [
+          { role: "user", content: [{ type: "text", text: "Hi" }] },
+          { role: "assistant", content: [{ type: "text", text: "Hello" }] },
+        ],
+      }),
+    );
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    // The raw envelope rides through untouched: `normalizeChatError` names the
+    // layer from the CODE and keeps this sentence as the `details` line, which
+    // is the only place the error id reaches the reader.
+    expect(stop?.error).toBe(
+      "Sorry, we ran into an issue processing your request. ERROR ID: 044be17f44d546c7875a4df879e6749f",
+    );
+    expect(stop?.requestShape).toMatchObject({
+      model: BASE_OPTS.model,
+      toolCount: 1,
+      messageCount: 2,
+    });
+    // Measured against the string actually sent, not re-derived here.
+    const sentBody = (globalThis.fetch as any).mock.calls[0][1].body as string;
+    expect(stop?.requestShape?.payloadBytes).toBe(
+      new TextEncoder().encode(sentBody).length,
+    );
+  });
+
+  // Nothing was sent, so there is no shape to report. A zero-byte payload here
+  // would read as "we sent an empty request", which is a different failure.
+  it("omits the request shape when the run failed before the request", async () => {
+    credentialState.builderPrivateKey = null;
+    vi.unstubAllEnvs();
+    const engine = createBuilderEngine();
+    const events = await collectEvents(engine.stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(stop?.requestShape).toBeUndefined();
   });
 
   it("does not capture to Sentry when the gateway provides an explicit error detail", async () => {

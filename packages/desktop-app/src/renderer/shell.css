@@ -238,6 +238,7 @@ body {
   --sidebar-accent: 0 0% 95%;
   --sidebar-accent-foreground: 0 0% 15%;
   --sidebar-border: 0 0% 90%;
+  --desktop-chat-composer-background: 0 0% 100%;
   --agent-native-lower-surface: hsl(var(--sidebar-background));
   position: relative;
   display: grid;
@@ -246,6 +247,16 @@ body {
   min-width: 0;
   min-height: 0;
   background: var(--shell-bg);
+}
+
+/* The light desktop chat shell needs more contrast between the composer and
+   its surrounding surface; leave the shared card treatment unchanged. */
+.light
+  .desktop-chat-first-hub
+  [data-chat-first-app-pane]
+  .agent-sidebar-panel
+  .agent-composer-root {
+  background: hsl(var(--desktop-chat-composer-background));
 }
 
 @supports (background: color-mix(in srgb, white, black)) {
@@ -598,6 +609,14 @@ body {
   width: min(100%, var(--code-agents-chat-max));
   max-width: var(--code-agents-chat-max);
   box-sizing: border-box;
+  /* The composer frame has an 8px bottom inset; offset the shared 12px flex
+     gap so the visible chat-to-picker spacing is about 10px. */
+  margin-top: -10px;
+}
+
+.desktop-chat-first-hub .code-agents-start .code-agents-overview-footer {
+  /* Keep the Apps section a little more distinct from the picker row. */
+  margin-top: 10px;
 }
 
 .desktop-chat-first-hub--no-chats [data-chat-first-chat-history] {
@@ -1125,7 +1144,7 @@ body {
 }
 
 .desktop-identity-gate__panel {
-  width: min(360px, 100%);
+  width: min(350px, 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1139,9 +1158,28 @@ body {
   text-align: left;
 }
 
+.desktop-identity-gate__heading {
+  margin-bottom: 24px;
+}
+
+.desktop-identity-gate__heading h1 {
+  margin: 0;
+  color: var(--shell-fg);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: normal;
+  line-height: 1.2;
+}
+
+.desktop-identity-gate__heading p {
+  margin: 4px 0 0;
+  color: var(--label-inactive);
+  font-size: 13px;
+  line-height: 1.35;
+}
+
 .desktop-identity-gate__tabs button,
-.desktop-identity-gate__form button,
-.desktop-identity-gate__provider {
+.desktop-identity-gate__form button {
   border: 0;
   color: var(--label-inactive);
   background: transparent;
@@ -1150,20 +1188,20 @@ body {
   -webkit-app-region: no-drag;
 }
 
-.desktop-identity-gate__provider {
+.desktop-identity-gate__form .desktop-identity-gate__provider {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
   width: 100%;
-  min-height: 42px;
-  padding: 9px 14px;
-  border: 1px solid var(--separator);
+  min-height: 34px;
+  padding: 8px 12px;
+  border: 1px solid var(--shell-fg);
   border-radius: 8px;
-  color: var(--shell-fg);
-  background: var(--surface-active-bg);
-  font-size: 13px;
-  font-weight: 600;
+  color: var(--shell-bg);
+  background: var(--shell-fg);
+  font-size: 14px;
+  font-weight: 500;
   transition:
     background var(--ease),
     border-color var(--ease);
@@ -1171,7 +1209,7 @@ body {
 
 .desktop-identity-gate__provider:hover:not(:disabled) {
   border-color: var(--label-inactive);
-  background: var(--separator);
+  opacity: 0.86;
 }
 
 .desktop-identity-gate__provider:disabled,
@@ -1184,10 +1222,10 @@ body {
 .desktop-identity-gate__divider {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin: 14px 0;
+  gap: 12px;
+  margin: 20px 0;
   color: var(--label-inactive);
-  font-size: 11px;
+  font-size: 12px;
 }
 
 .desktop-identity-gate__divider::before,
@@ -1201,26 +1239,34 @@ body {
 .desktop-identity-gate__form {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 8px;
   width: 100%;
   text-align: left;
+}
+
+.desktop-identity-gate__form label {
+  margin-top: 0;
+  color: var(--label-inactive);
+  font-size: 13px;
+  font-weight: 400;
 }
 
 .desktop-identity-gate__form input {
   width: 100%;
   box-sizing: border-box;
-  padding: 9px 10px;
+  min-height: 36px;
+  padding: 8px 12px;
   border: 1px solid var(--separator);
-  border-radius: 7px;
+  border-radius: 6px;
   color: var(--shell-fg);
   background: var(--shell-bg);
   font: inherit;
-  font-size: 13px;
+  font-size: 14px;
   outline: none;
 }
 
 .desktop-identity-gate__form input + input {
-  margin-top: 9px;
+  margin-top: 0;
 }
 
 .desktop-identity-gate__form input:focus {
@@ -1229,24 +1275,24 @@ body {
 
 .desktop-identity-gate__error {
   max-width: none;
-  margin: 9px 0 0;
+  margin: 0;
   color: hsl(var(--destructive));
   font-size: 11px;
   line-height: 1.45;
 }
 
-.desktop-identity-gate__submit {
+.desktop-identity-gate__form .desktop-identity-gate__submit {
   width: 100%;
-  min-height: 42px;
-  margin-top: 10px;
-  padding: 8px 14px;
+  min-height: 36px;
+  margin-top: 4px;
+  padding: 8px 12px;
   border: 1px solid var(--separator);
-  border-radius: 8px;
+  border-radius: 6px;
   color: var(--shell-fg);
   background: var(--surface-active-bg);
   font: inherit;
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 14px;
+  font-weight: 500;
   cursor: pointer;
   transition:
     background var(--ease),
@@ -1254,7 +1300,7 @@ body {
   -webkit-app-region: no-drag;
 }
 
-.desktop-identity-gate__submit--primary {
+.desktop-identity-gate__form .desktop-identity-gate__submit--primary {
   border-color: var(--label-active);
   color: var(--shell-bg);
   background: var(--label-active);
@@ -1278,15 +1324,28 @@ body {
   outline-offset: 2px;
 }
 
-.desktop-identity-gate__mode-link {
-  align-self: center;
-  margin-top: 12px;
-  padding: 2px 4px;
+.desktop-identity-gate__form .desktop-identity-gate__mode-link {
+  align-self: flex-start;
+  margin-top: 4px;
+  padding: 2px 0;
   color: var(--label-inactive);
   background: transparent;
   font: inherit;
   font-size: 12px;
+  font-weight: 400;
   text-decoration: underline;
+}
+
+.desktop-identity-gate__legal {
+  margin: 0;
+  color: var(--label-inactive);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.desktop-identity-gate__legal a {
+  color: inherit;
+  text-underline-offset: 2px;
 }
 
 .desktop-identity-gate__spinner {
@@ -2052,6 +2111,14 @@ body {
 }
 
 .settings-provider-actions .settings-btn {
+  width: auto;
+  margin-bottom: 0;
+  white-space: nowrap;
+}
+
+/* Shared settings rows use compact action controls instead of the legacy
+   overlay's full-width button treatment. */
+.settings-page-tabs-content .agent-native-settings-row__control .settings-btn {
   width: auto;
   margin-bottom: 0;
   white-space: nowrap;
@@ -3128,8 +3195,8 @@ body {
   flex-direction: column;
   gap: 14px;
   padding: 16px 18px 14px;
-  background: #161616;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
   border-radius: 12px;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
   -webkit-app-region: no-drag;
@@ -3176,13 +3243,13 @@ body {
 .update-prompt-title {
   font-size: 13px;
   font-weight: 600;
-  color: #fff;
+  color: hsl(var(--card-foreground));
 }
 
 .update-prompt-subtitle {
   font-size: 12px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, 0.55);
+  color: hsl(var(--muted-foreground));
 }
 
 .update-prompt-actions {
@@ -3206,12 +3273,12 @@ body {
 
 .update-prompt-btn--ghost {
   background: transparent;
-  color: rgba(255, 255, 255, 0.6);
+  color: hsl(var(--muted-foreground));
 }
 
 .update-prompt-btn--ghost:hover {
-  background: rgba(255, 255, 255, 0.06);
-  color: #fff;
+  background: hsl(var(--foreground) / 0.06);
+  color: hsl(var(--foreground));
 }
 
 .update-prompt-btn--primary {
@@ -3236,14 +3303,14 @@ body {
   justify-content: center;
   border: none;
   background: transparent;
-  color: rgba(255, 255, 255, 0.4);
+  color: hsl(var(--muted-foreground) / 0.8);
   border-radius: 5px;
   cursor: pointer;
 }
 
 .update-prompt-close:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.85);
+  background: hsl(var(--foreground) / 0.08);
+  color: hsl(var(--foreground) / 0.85);
 }
 
 /* ─── Full-page settings ──────────────────────────────────────
@@ -3736,4 +3803,346 @@ body {
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   padding: 0 9px;
+}
+
+.desktop-code-agent-schedules {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex-direction: column;
+  overflow: hidden;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+}
+
+.desktop-code-agent-schedules__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 36px 48px 22px;
+}
+
+.desktop-code-agent-schedules__header h1,
+.desktop-code-agent-schedules__detail h2 {
+  margin: 0;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.desktop-code-agent-schedules__header h1 {
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.desktop-code-agent-schedules__header p:last-child {
+  margin: 7px 0 0;
+  color: hsl(var(--muted-foreground));
+  font-size: 13px;
+}
+
+.desktop-code-agent-schedules__eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.desktop-code-agent-schedules__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 48px 16px;
+  padding: 0 10px;
+  border: 1px solid hsl(var(--input));
+  border-radius: calc(var(--radius) + 2px);
+  background: hsl(var(--card));
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-code-agent-schedules__toolbar input {
+  height: 40px;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.desktop-code-agent-schedules__toolbar input:focus-visible {
+  box-shadow: none;
+}
+
+.desktop-code-agent-schedules__error {
+  margin: 0 48px 12px;
+  padding: 9px 11px;
+  border: 1px solid hsl(var(--destructive) / 0.35);
+  border-radius: var(--radius);
+  color: hsl(var(--destructive));
+  font-size: 12px;
+}
+
+.desktop-code-agent-schedules__body {
+  display: grid;
+  min-height: 0;
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr);
+  margin: 0 48px 36px;
+  overflow: hidden;
+  border-top: 1px solid hsl(var(--border));
+}
+
+.desktop-code-agent-schedules__body--selected {
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 390px);
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) + 2px);
+}
+
+.desktop-code-agent-schedules__list {
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+}
+
+.desktop-code-agent-schedules__list-header,
+.desktop-code-agent-schedules__row {
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr) minmax(100px, 150px);
+  align-items: center;
+  gap: 12px;
+}
+
+.desktop-code-agent-schedules__list-header {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px 16px;
+  border-bottom: 1px solid hsl(var(--border));
+  background: hsl(var(--background));
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+
+.desktop-code-agent-schedules__list-header span:last-child {
+  text-align: right;
+}
+
+.desktop-code-agent-schedules__row {
+  width: 100%;
+  min-height: 70px;
+  padding: 13px 16px;
+  border: 0;
+  border-bottom: 1px solid hsl(var(--border) / 0.75);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.desktop-code-agent-schedules__row:hover,
+.desktop-code-agent-schedules__row--selected {
+  background: hsl(var(--accent) / 0.58);
+}
+
+.desktop-code-agent-schedules__row-icon {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border: 1px solid hsl(var(--border));
+  border-radius: 50%;
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-code-agent-schedules__row-copy {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.desktop-code-agent-schedules__row-copy strong {
+  overflow: hidden;
+  font-size: 13px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-code-agent-schedules__row-copy span,
+.desktop-code-agent-schedules__row-next {
+  overflow: hidden;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.desktop-code-agent-schedules__row-next {
+  text-align: right;
+}
+
+.desktop-code-agent-schedules__empty {
+  display: grid;
+  min-height: 260px;
+  place-content: center;
+  justify-items: center;
+  gap: 9px;
+  padding: 40px;
+  color: hsl(var(--muted-foreground));
+  font-size: 12px;
+  text-align: center;
+}
+
+.desktop-code-agent-schedules__empty strong {
+  color: hsl(var(--foreground));
+  font-size: 14px;
+}
+
+.desktop-code-agent-schedules__detail {
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  flex-direction: column;
+  gap: 18px;
+  overflow: auto;
+  padding: 24px;
+  border-left: 1px solid hsl(var(--border));
+  background: hsl(var(--card) / 0.45);
+}
+
+.desktop-code-agent-schedules__detail-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.desktop-code-agent-schedules__detail h2 {
+  max-width: 270px;
+  font-size: 19px;
+}
+
+.desktop-code-agent-schedules__status {
+  flex: 0 0 auto;
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: hsl(var(--primary) / 0.1);
+  color: hsl(var(--primary));
+  font-size: 10px;
+  font-weight: 600;
+}
+
+.desktop-code-agent-schedules__status--paused {
+  background: hsl(var(--muted));
+  color: hsl(var(--muted-foreground));
+}
+
+.desktop-code-agent-schedules__detail > label {
+  display: grid;
+  gap: 6px;
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.desktop-code-agent-schedules__detail > label input,
+.desktop-code-agent-schedules__detail > label textarea,
+.desktop-code-agent-schedules__detail > label button {
+  font-weight: 400;
+}
+
+.desktop-code-agent-schedules__prompt {
+  padding: 12px;
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  background: hsl(var(--background));
+  color: hsl(var(--foreground) / 0.86);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.desktop-code-agent-schedules__metadata {
+  display: grid;
+  gap: 12px;
+  margin: 0;
+}
+
+.desktop-code-agent-schedules__metadata > div {
+  display: grid;
+  gap: 3px;
+}
+
+.desktop-code-agent-schedules__metadata dt,
+.desktop-code-agent-schedules__metadata dd {
+  margin: 0;
+}
+
+.desktop-code-agent-schedules__metadata dt {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.desktop-code-agent-schedules__metadata dd {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: hsl(var(--foreground));
+  font-size: 12px;
+}
+
+.desktop-code-agent-schedules__field-hint {
+  color: hsl(var(--muted-foreground));
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.desktop-code-agent-schedules__detail-actions,
+.desktop-code-agent-schedules__danger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.desktop-code-agent-schedules__danger {
+  margin-top: auto;
+  padding-top: 16px;
+  border-top: 1px solid hsl(var(--border));
+  color: hsl(var(--muted-foreground));
+  font-size: 11px;
+}
+
+.desktop-code-agent-schedules__last-error {
+  margin: 0;
+  color: hsl(var(--destructive));
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+@media (max-width: 860px) {
+  .desktop-code-agent-schedules__header,
+  .desktop-code-agent-schedules__toolbar,
+  .desktop-code-agent-schedules__body {
+    margin-inline: 20px;
+  }
+
+  .desktop-code-agent-schedules__header {
+    padding-inline: 0;
+  }
+
+  .desktop-code-agent-schedules__body--selected {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: auto;
+  }
+
+  .desktop-code-agent-schedules__detail {
+    border-top: 1px solid hsl(var(--border));
+    border-left: 0;
+  }
 }

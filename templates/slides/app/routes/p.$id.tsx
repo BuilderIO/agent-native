@@ -81,7 +81,9 @@ function toSharedDeck(row: {
   return {
     title: row.title || data.title || "Untitled",
     slides: Array.isArray(data.slides)
-      ? data.slides.map((slide, index) => toSharedDeckSlide(slide, index))
+      ? data.slides.map((slide, index) =>
+          toSharedDeckSlide(slide, index, { includeNotes: false }),
+        )
       : [],
     aspectRatio: data.aspectRatio,
   };

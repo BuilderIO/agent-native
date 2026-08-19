@@ -12,8 +12,10 @@ import { extractA2APersistedMutationReceipts } from "../a2a/artifact-response.js
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   assembleA2AFinalResponse,
+  buildSelectedA2AReceiverContext,
   buildPublicAgentA2ASkills,
   createA2AEngineToolSurface,
+  isSelectedA2AReceiver,
   createSerializedA2ATaskStatusWriter,
   DEFAULT_DELEGATED_MAX_ITERATIONS,
   DEFAULT_DELEGATED_MAX_RUN_INPUT_TOKENS,
@@ -465,6 +467,44 @@ describe("delegated A2A tool surface", () => {
       "tool-search",
       "rare-analytics-action",
     ]);
+  });
+
+  it("prioritizes a selected receiver's bounded local catalog before cross-app tools", () => {
+    const availableTools = [
+      tool("starter"),
+      tool("list-content-databases"),
+      tool("describe-content-database"),
+      tool("describe-workspace-apps"),
+      tool("call-agent"),
+      tool("tool-search"),
+      tool("rare-action"),
+    ];
+
+    const surface = createA2AEngineToolSurface(availableTools, ["starter"], {
+      receiverOwnsObjective: true,
+      localCapabilityNames: [
+        "list-content-databases",
+        "describe-content-database",
+      ],
+    });
+
+    expect(surface.tools.map((entry) => entry.name)).toEqual([
+      "starter",
+      "list-content-databases",
+      "describe-content-database",
+      "tool-search",
+    ]);
+    expect(surface.availableTools).toBe(availableTools);
+  });
+
+  it("matches only the receiver app selected by bounded A2A metadata", () => {
+    expect(isSelectedA2AReceiver("content", "content")).toBe(true);
+    expect(isSelectedA2AReceiver("agent-native-content", "CONTENT")).toBe(true);
+    expect(isSelectedA2AReceiver("design", "content")).toBe(false);
+    expect(isSelectedA2AReceiver(undefined, "content")).toBe(false);
+    expect(buildSelectedA2AReceiverContext("content")).toContain(
+      "The caller already selected this app",
+    );
   });
 
   it("keeps the existing full A2A tool surface without an initial allow-list", () => {

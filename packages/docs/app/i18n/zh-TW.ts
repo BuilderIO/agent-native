@@ -74,6 +74,7 @@ const messages = {
     suggestionDeploy: "如何部署到正式環境環境？",
   },
   errors: {
+    loadingLatest: "正在載入最新版本...",
     notFoundTitle: "頁面未找到",
     notFoundBody: "你要尋找的頁面不存在或已移動。",
     goHome: "返回首頁",

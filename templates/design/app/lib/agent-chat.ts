@@ -5,6 +5,13 @@ import {
   type AgentChatMessage,
   type SendToAgentChatAndConfirmResult,
 } from "@agent-native/core/client/agent-chat";
+import { sendToBuilderChat } from "@agent-native/core/client/host";
+
+import {
+  getVerifiedBuilderHostOrigin,
+  isBuilderHostEmbed,
+} from "./builder-host-origin";
+import { isEmbedChromeRequested } from "./embed-chrome";
 
 export const DESIGN_CHAT_STORAGE_KEY = "design";
 
@@ -39,6 +46,12 @@ export function sendToDesignAgentChatAndConfirm(
 export interface DesignSourceHandoffResult {
   target: "host" | "local";
   delivered: boolean;
+  /**
+   * The host accepted the handoff and owns the turn from here. Callers must not
+   * treat this as applied: the edits stay pending until that turn settles, or a
+   * failed run would silently discard them.
+   */
+  awaitingHostTurn?: boolean;
   reason?: string;
   tabId?: string;
 }
@@ -58,6 +71,24 @@ export async function sendDesignSourceHandoffAndConfirm(
   opts: AgentChatMessage,
   options?: { timeoutMs?: number },
 ): Promise<DesignSourceHandoffResult> {
+  // `embedChrome` alone is a display preference any embedder can ask for, so the
+  // shell route is what decides who receives source-edit context.
+  if (isEmbedChromeRequested() && isBuilderHostEmbed()) {
+    const posted = sendToBuilderChat({
+      message: opts.message,
+      context: opts.context,
+      // Runs the turn rather than prefilling: the prompt is generated from the
+      // pending edits, so there is nothing for the user to write or review.
+      submit: true,
+      targetOrigin: getVerifiedBuilderHostOrigin() ?? undefined,
+    });
+    return {
+      target: "host",
+      delivered: posted,
+      ...(posted ? { awaitingHostTurn: true } : { reason: "host-post-failed" }),
+    };
+  }
+
   const hostDelivery = sendMcpAppHostMessage({
     message: opts.message,
     context: opts.context,

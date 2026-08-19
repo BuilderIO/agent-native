@@ -113,6 +113,12 @@ const SlideFieldsSchema = z.object({
     .describe(
       "Complete ordered on-click reveal list. Include every intended target in order; unlisted elements remain visible. Use elementPath from the final HTML and 0-based indexes.",
     ),
+  skipped: z
+    .boolean()
+    .optional()
+    .describe(
+      "Exclude this slide from Present/Presenter playback without deleting it.",
+    ),
 });
 
 /** Update fields on a single existing slide */
@@ -165,6 +171,7 @@ const AddSlideOp = z.object({
         .optional(),
       animations: z.array(z.unknown()).optional(),
       splitByParagraph: z.boolean().optional(),
+      skipped: z.boolean().optional(),
     })
     .passthrough(),
 });
@@ -346,6 +353,7 @@ export function applyOperation(deck: any, op: Operation): void {
         slide.excalidrawData = fields.excalidrawData;
       if (fields.transition !== undefined) slide.transition = fields.transition;
       if (fields.animations !== undefined) slide.animations = fields.animations;
+      if (fields.skipped !== undefined) slide.skipped = fields.skipped;
       break;
     }
 

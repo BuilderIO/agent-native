@@ -7,12 +7,14 @@
  * After first account exists, this page acts as a normal login page.
  */
 
+import { getAppConfig } from "../app-config/index.js";
 import { getLocaleInitScript } from "../localization/server.js";
 import {
   DEFAULT_LOCALE,
   LOCALE_METADATA,
   LOCALE_STORAGE_KEY,
   SUPPORTED_LOCALES,
+  localeDisplayName,
   type LocaleCode,
 } from "../localization/shared.js";
 import { NATIVE_AUTH_COPY } from "../shared/auth-copy.js";
@@ -32,8 +34,13 @@ import {
 } from "../shared/social-meta.js";
 import { normalizeAppBasePath } from "./app-base-path.js";
 import {
+  AUTH_MARKETING_LOCALE_COPY,
+  type AuthMarketingLocaleCopy,
+} from "./auth-marketing-locales.js";
+import {
   BUILT_IN_AUTH_MARKETING,
   resolveBuiltInAuthMarketing,
+  resolveBuiltInAuthMarketingSlug,
   type AuthMarketingContent,
 } from "./auth-marketing.js";
 import {
@@ -61,6 +68,30 @@ function getConnectionLabel(): string {
   if (url.startsWith("file:")) return "SQLite (local file)";
   if (url.startsWith("libsql://") || url.includes("turso.io")) return "Turso";
   return "SQL database";
+}
+
+function isWorkspaceRuntime(): boolean {
+  const workspace = getAppConfig().workspace;
+  return (
+    workspace.isWorkspace === true || typeof workspace.appsJson === "string"
+  );
+}
+
+function workspaceBasePathFromRequest(requestPath: string | undefined): string {
+  if (!isWorkspaceRuntime() || !requestPath) return "";
+  const pathname = requestPath.split(/[?#]/, 1)[0] || "/";
+  const firstSegment = pathname.split("/").find(Boolean);
+  if (
+    !firstSegment ||
+    firstSegment === "_agent-native" ||
+    firstSegment === "api" ||
+    firstSegment === "sign-in" ||
+    firstSegment === "login" ||
+    firstSegment === "signup"
+  ) {
+    return "";
+  }
+  return normalizeAppBasePath(`/${firstSegment}`);
 }
 
 function withAppBasePath(path: string): string {
@@ -110,8 +141,8 @@ const EN_AUTH_COPY = {
   createAccount: "Create account",
   passwordMinPlaceholder: `At least ${PASSWORD_MIN_LENGTH} characters`,
   confirmPasswordPlaceholder: "Confirm password",
-  magicLinkTitle: "Welcome",
-  magicLinkSubtitle: "Create an account or sign in",
+  magicLinkTitle: NATIVE_AUTH_COPY["en-US"].welcomeTitle,
+  magicLinkSubtitle: NATIVE_AUTH_COPY["en-US"].welcomeSubtitle,
   signupProgress: "Signup progress",
   progressAccount: "Account",
   progressVerify: "Verify",
@@ -139,11 +170,6 @@ const EN_AUTH_COPY = {
   copyCommand: "Copy command",
   copied: "Copied",
   closeGoogleChoices: "Close Google sign-in choices",
-  legalPrefix: "By signing up, you accept our",
-  legalTerms: "Terms",
-  legalConnector: "and",
-  legalPrivacy: "Privacy Policy",
-  legalSuffix: ".",
   signInToContinue: "Sign in to continue.",
   finishSignInFailed:
     "We couldn't finish signing you in. Please sign in manually.",
@@ -202,8 +228,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     createAccount: "创建账户",
     passwordMinPlaceholder: `至少 ${PASSWORD_MIN_LENGTH} 个字符`,
     confirmPasswordPlaceholder: "确认密码",
-    magicLinkTitle: "欢迎",
-    magicLinkSubtitle: "创建账户或登录",
+    magicLinkTitle: NATIVE_AUTH_COPY["zh-CN"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["zh-CN"].welcomeSubtitle,
     signupProgress: "注册进度",
     progressAccount: "账户",
     progressVerify: "验证",
@@ -230,11 +256,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     copyCommand: "复制命令",
     copied: "已复制",
     closeGoogleChoices: "关闭 Google 登录选项",
-    legalPrefix: "注册即表示你接受我们的",
-    legalTerms: "条款",
-    legalConnector: "和",
-    legalPrivacy: "隐私政策",
-    legalSuffix: "。",
     signInToContinue: "登录以继续。",
     finishSignInFailed: "无法自动完成登录。",
     enterPasswordAfterVerification: "验证邮箱后请输入密码。",
@@ -281,8 +302,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     createAccount: "建立帳號",
     passwordMinPlaceholder: `至少 ${PASSWORD_MIN_LENGTH} 個字元`,
     confirmPasswordPlaceholder: "確認密碼",
-    magicLinkTitle: "歡迎",
-    magicLinkSubtitle: "建立帳戶或登入",
+    magicLinkTitle: NATIVE_AUTH_COPY["zh-TW"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["zh-TW"].welcomeSubtitle,
     signupProgress: "註冊進度",
     progressAccount: "帳號",
     progressVerify: "驗證",
@@ -309,11 +330,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     copyCommand: "複製指令",
     copied: "已複製",
     closeGoogleChoices: "關閉 Google 登入選項",
-    legalPrefix: "註冊即表示你接受我們的",
-    legalTerms: "條款",
-    legalConnector: "和",
-    legalPrivacy: "隱私權政策",
-    legalSuffix: "。",
     signInToContinue: "登入以繼續。",
     finishSignInFailed: "無法自動完成登入。",
     enterPasswordAfterVerification: "驗證電子郵件後請輸入密碼。",
@@ -361,8 +377,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     createAccount: "Crear cuenta",
     passwordMinPlaceholder: `Al menos ${PASSWORD_MIN_LENGTH} caracteres`,
     confirmPasswordPlaceholder: "Confirmar contraseña",
-    magicLinkTitle: "Bienvenido",
-    magicLinkSubtitle: "Crea una cuenta o inicia sesión",
+    magicLinkTitle: NATIVE_AUTH_COPY["es-ES"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["es-ES"].welcomeSubtitle,
     signupProgress: "Progreso de registro",
     progressAccount: "Cuenta",
     progressVerify: "Verificar",
@@ -392,11 +408,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     copyCommand: "Copiar comando",
     copied: "Copiado",
     closeGoogleChoices: "Cerrar opciones de inicio con Google",
-    legalPrefix: "Al registrarte, aceptas nuestros",
-    legalTerms: "Términos",
-    legalConnector: "y",
-    legalPrivacy: "Política de privacidad",
-    legalSuffix: ".",
     signInToContinue: "Inicia sesión para continuar.",
     finishSignInFailed: "No se pudo completar el inicio automáticamente.",
     enterPasswordAfterVerification:
@@ -450,8 +461,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     createAccount: "Créer un compte",
     passwordMinPlaceholder: `Au moins ${PASSWORD_MIN_LENGTH} caractères`,
     confirmPasswordPlaceholder: "Confirmer le mot de passe",
-    magicLinkTitle: "Bienvenue",
-    magicLinkSubtitle: "Créez un compte ou connectez-vous",
+    magicLinkTitle: NATIVE_AUTH_COPY["fr-FR"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["fr-FR"].welcomeSubtitle,
     signupProgress: "Progression de l'inscription",
     progressAccount: "Compte",
     progressVerify: "Vérifier",
@@ -481,11 +492,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     copyCommand: "Copier la commande",
     copied: "Copié",
     closeGoogleChoices: "Fermer les choix de connexion Google",
-    legalPrefix: "En vous inscrivant, vous acceptez nos",
-    legalTerms: "Conditions",
-    legalConnector: "et",
-    legalPrivacy: "Politique de confidentialité",
-    legalSuffix: ".",
     signInToContinue: "Connectez-vous pour continuer.",
     finishSignInFailed: "Impossible de terminer la connexion automatiquement.",
     enterPasswordAfterVerification:
@@ -540,8 +546,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     createAccount: "Konto erstellen",
     passwordMinPlaceholder: `Mindestens ${PASSWORD_MIN_LENGTH} Zeichen`,
     confirmPasswordPlaceholder: "Passwort bestätigen",
-    magicLinkTitle: "Willkommen",
-    magicLinkSubtitle: "Konto erstellen oder anmelden",
+    magicLinkTitle: NATIVE_AUTH_COPY["de-DE"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["de-DE"].welcomeSubtitle,
     signupProgress: "Registrierungsfortschritt",
     progressAccount: "Konto",
     progressVerify: "Prüfen",
@@ -571,11 +577,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     copyCommand: "Befehl kopieren",
     copied: "Kopiert",
     closeGoogleChoices: "Google-Anmeldeoptionen schließen",
-    legalPrefix: "Mit der Registrierung akzeptierst du unsere",
-    legalTerms: "Bedingungen",
-    legalConnector: "und",
-    legalPrivacy: "Datenschutzrichtlinie",
-    legalSuffix: ".",
     signInToContinue: "Melde dich an, um fortzufahren.",
     finishSignInFailed:
       "Die Anmeldung konnte nicht automatisch abgeschlossen werden.",
@@ -630,8 +631,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     createAccount: "アカウントを作成",
     passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH} 文字以上`,
     confirmPasswordPlaceholder: "パスワードを確認",
-    magicLinkTitle: "ようこそ",
-    magicLinkSubtitle: "アカウントを作成するかサインインしてください",
+    magicLinkTitle: NATIVE_AUTH_COPY["ja-JP"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["ja-JP"].welcomeSubtitle,
     signupProgress: "登録の進行状況",
     progressAccount: "アカウント",
     progressVerify: "確認",
@@ -659,11 +660,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     copyCommand: "コマンドをコピー",
     copied: "コピーしました",
     closeGoogleChoices: "Google サインインの選択肢を閉じる",
-    legalPrefix: "登録すると、以下に同意したものとみなされます:",
-    legalTerms: "利用規約",
-    legalConnector: "および",
-    legalPrivacy: "プライバシーポリシー",
-    legalSuffix: "。",
     signInToContinue: "続行するにはサインインしてください。",
     finishSignInFailed: "サインインを自動で完了できませんでした。",
     enterPasswordAfterVerification:
@@ -717,8 +713,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     createAccount: "계정 만들기",
     passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH}자 이상`,
     confirmPasswordPlaceholder: "비밀번호 확인",
-    magicLinkTitle: "환영합니다",
-    magicLinkSubtitle: "계정을 만들거나 로그인하세요",
+    magicLinkTitle: NATIVE_AUTH_COPY["ko-KR"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["ko-KR"].welcomeSubtitle,
     signupProgress: "가입 진행 상황",
     progressAccount: "계정",
     progressVerify: "확인",
@@ -746,11 +742,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     copyCommand: "명령 복사",
     copied: "복사됨",
     closeGoogleChoices: "Google 로그인 선택 닫기",
-    legalPrefix: "가입하면 다음에 동의하게 됩니다:",
-    legalTerms: "약관",
-    legalConnector: "및",
-    legalPrivacy: "개인정보 처리방침",
-    legalSuffix: ".",
     signInToContinue: "계속하려면 로그인하세요.",
     finishSignInFailed: "자동으로 로그인을 완료할 수 없습니다.",
     enterPasswordAfterVerification: "이메일을 확인한 후 비밀번호를 입력하세요.",
@@ -800,8 +791,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     createAccount: "Criar conta",
     passwordMinPlaceholder: `Pelo menos ${PASSWORD_MIN_LENGTH} caracteres`,
     confirmPasswordPlaceholder: "Confirmar senha",
-    magicLinkTitle: "Bem-vindo",
-    magicLinkSubtitle: "Crie uma conta ou entre",
+    magicLinkTitle: NATIVE_AUTH_COPY["pt-BR"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["pt-BR"].welcomeSubtitle,
     signupProgress: "Progresso do cadastro",
     progressAccount: "Conta",
     progressVerify: "Verificar",
@@ -831,11 +822,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     copyCommand: "Copiar comando",
     copied: "Copiado",
     closeGoogleChoices: "Fechar opções de login com Google",
-    legalPrefix: "Ao se cadastrar, você aceita nossos",
-    legalTerms: "Termos",
-    legalConnector: "e",
-    legalPrivacy: "Política de Privacidade",
-    legalSuffix: ".",
     signInToContinue: "Entre para continuar.",
     finishSignInFailed: "Não foi possível concluir o login automaticamente.",
     enterPasswordAfterVerification:
@@ -888,8 +874,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     createAccount: "खाता बनाएं",
     passwordMinPlaceholder: `कम से कम ${PASSWORD_MIN_LENGTH} अक्षर`,
     confirmPasswordPlaceholder: "पासवर्ड की पुष्टि करें",
-    magicLinkTitle: "स्वागत है",
-    magicLinkSubtitle: "खाता बनाएं या साइन इन करें",
+    magicLinkTitle: NATIVE_AUTH_COPY["hi-IN"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["hi-IN"].welcomeSubtitle,
     signupProgress: "साइनअप प्रगति",
     progressAccount: "खाता",
     progressVerify: "सत्यापित करें",
@@ -917,11 +903,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     copyCommand: "कमांड कॉपी करें",
     copied: "कॉपी हो गया",
     closeGoogleChoices: "Google साइन-इन विकल्प बंद करें",
-    legalPrefix: "साइन अप करके, आप हमारी",
-    legalTerms: "शर्तें",
-    legalConnector: "और",
-    legalPrivacy: "गोपनीयता नीति",
-    legalSuffix: "स्वीकार करते हैं।",
     signInToContinue: "जारी रखने के लिए साइन इन करें।",
     finishSignInFailed: "साइन इन अपने आप पूरा नहीं हो सका।",
     enterPasswordAfterVerification: "ईमेल सत्यापित करने के बाद अपना पासवर्ड दर्ज करें।",
@@ -971,8 +952,8 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     createAccount: "إنشاء حساب",
     passwordMinPlaceholder: `${PASSWORD_MIN_LENGTH} أحرف على الأقل`,
     confirmPasswordPlaceholder: "تأكيد كلمة المرور",
-    magicLinkTitle: "مرحبًا",
-    magicLinkSubtitle: "أنشئ حسابًا أو سجّل الدخول",
+    magicLinkTitle: NATIVE_AUTH_COPY["ar-SA"].welcomeTitle,
+    magicLinkSubtitle: NATIVE_AUTH_COPY["ar-SA"].welcomeSubtitle,
     signupProgress: "تقدم التسجيل",
     progressAccount: "الحساب",
     progressVerify: "التحقق",
@@ -1000,11 +981,6 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
     copyCommand: "نسخ الأمر",
     copied: "تم النسخ",
     closeGoogleChoices: "إغلاق خيارات تسجيل الدخول عبر Google",
-    legalPrefix: "بالتسجيل، فإنك توافق على",
-    legalTerms: "الشروط",
-    legalConnector: "و",
-    legalPrivacy: "سياسة الخصوصية",
-    legalSuffix: ".",
     signInToContinue: "سجّل الدخول للمتابعة.",
     finishSignInFailed: "تعذر إكمال تسجيل الدخول تلقائيًا.",
     enterPasswordAfterVerification:
@@ -1038,129 +1014,32 @@ const AUTH_LOCALE_COPY: Record<LocaleCode, typeof EN_AUTH_COPY> = {
 
 const defaultAuthCopy = AUTH_LOCALE_COPY[DEFAULT_LOCALE];
 
-type AuthMarketingLocalization = Pick<
-  AuthMarketingContent,
-  "tagline" | "description" | "features"
->;
-
-const AUTH_MARKETING_LOCALE_COPY: Partial<
-  Record<LocaleCode, Record<string, Partial<AuthMarketingLocalization>>>
-> = {
-  "zh-CN": {
-    forms: {
-      tagline: "你的 AI 代理与你一起构建、发布和分析表单。",
-      features: [
-        "用一句话创建完整表单",
-        "即时发布，生成可分享链接和验证码",
-        "按需获取回复摘要、导出和趋势分析",
-      ],
-    },
-  },
-  "zh-TW": {
-    forms: {
-      tagline: "你的 AI 代理會和你一起建立、發布與分析表單。",
-      features: [
-        "用一句話建立完整表單",
-        "立即發布，產生可分享連結與驗證碼",
-        "依需求取得回覆摘要、匯出與趨勢分析",
-      ],
-    },
-  },
-  "es-ES": {
-    forms: {
-      tagline: "Tu agente de IA crea, publica y analiza formularios contigo.",
-      features: [
-        "Crea formularios completos con una sola frase",
-        "Publicación instantánea con enlaces compartibles y captcha",
-        "Resúmenes de respuestas, exportaciones y análisis de tendencias al instante",
-      ],
-    },
-  },
-  "fr-FR": {
-    forms: {
-      tagline:
-        "Votre agent IA crée, publie et analyse des formulaires avec vous.",
-      features: [
-        "Créez des formulaires complets à partir d'une seule phrase",
-        "Publication instantanée avec liens partageables et captcha",
-        "Résumés de réponses, exports et analyse des tendances à la demande",
-      ],
-    },
-  },
-  "de-DE": {
-    forms: {
-      tagline:
-        "Dein KI-Agent erstellt, veröffentlicht und analysiert Formulare mit dir.",
-      features: [
-        "Erstelle vollständige Formulare aus einem einzigen Satz",
-        "Sofortige Veröffentlichung mit teilbaren Links und Captcha",
-        "Antwortzusammenfassungen, Exporte und Trendanalysen auf Abruf",
-      ],
-    },
-  },
-  "ja-JP": {
-    forms: {
-      tagline: "AI エージェントがフォームの作成、公開、分析を一緒に進めます。",
-      features: [
-        "一文から完全なフォームを作成",
-        "共有リンクと CAPTCHA 付きで即時公開",
-        "回答の要約、エクスポート、トレンド分析を必要なときに実行",
-      ],
-    },
-  },
-  "ko-KR": {
-    forms: {
-      tagline: "AI 에이전트가 양식 생성, 게시, 분석을 함께 도와줍니다.",
-      features: [
-        "한 문장으로 완성된 양식 만들기",
-        "공유 링크와 captcha로 즉시 게시",
-        "응답 요약, 내보내기, 추세 분석을 필요할 때 실행",
-      ],
-    },
-  },
-  "pt-BR": {
-    forms: {
-      tagline:
-        "Seu agente de IA cria, publica e analisa formulários junto com você.",
-      features: [
-        "Crie formulários completos a partir de uma única frase",
-        "Publicação instantânea com links compartilháveis e captcha",
-        "Resumos de respostas, exportações e análise de tendências sob demanda",
-      ],
-    },
-  },
-  "hi-IN": {
-    forms: {
-      tagline:
-        "आपका AI एजेंट आपके साथ फ़ॉर्म बनाता, प्रकाशित करता और उनका विश्लेषण करता है।",
-      features: [
-        "एक वाक्य से पूरे फ़ॉर्म बनाएं",
-        "शेयर करने योग्य लिंक और captcha के साथ तुरंत प्रकाशित करें",
-        "ज़रूरत पड़ने पर प्रतिक्रिया सारांश, exports और trend analysis पाएं",
-      ],
-    },
-  },
-  "ar-SA": {
-    forms: {
-      tagline: "يساعدك وكيل الذكاء الاصطناعي على إنشاء النماذج ونشرها وتحليلها.",
-      features: [
-        "أنشئ نماذج كاملة من جملة واحدة",
-        "نشر فوري مع روابط قابلة للمشاركة وcaptcha",
-        "ملخصات للإجابات وتصدير وتحليل اتجاهات عند الطلب",
-      ],
-    },
-  },
-};
-
 function resolveBuiltInMarketingSlug(
   marketing: AuthMarketingContent | undefined,
+  opts: { requestHost?: string; requestPath?: string } = {},
 ): string | undefined {
   if (!marketing) return undefined;
+
+  const matchesBuiltInMarketing = (builtIn: AuthMarketingContent) =>
+    marketing.appName === builtIn.appName &&
+    marketing.tagline === builtIn.tagline &&
+    marketing.description === builtIn.description &&
+    JSON.stringify(marketing.features ?? []) ===
+      JSON.stringify(builtIn.features ?? []) &&
+    JSON.stringify(marketing.signupLocalModeNote ?? null) ===
+      JSON.stringify(builtIn.signupLocalModeNote ?? null);
+
+  const requestSlug = resolveBuiltInAuthMarketingSlug(opts);
+  if (requestSlug) {
+    const builtIn = BUILT_IN_AUTH_MARKETING[requestSlug];
+    if (builtIn && matchesBuiltInMarketing(builtIn)) return requestSlug;
+  }
+
   for (const [slug, builtIn] of Object.entries(BUILT_IN_AUTH_MARKETING)) {
-    if (
-      marketing.appName === builtIn.appName &&
-      marketing.tagline === builtIn.tagline
-    ) {
+    // Caller-supplied marketing can reuse a built-in app name. Only an exact
+    // content match may claim a slug, or localized copy would overwrite the
+    // custom description/features.
+    if (matchesBuiltInMarketing(builtIn)) {
       return slug;
     }
   }
@@ -1253,9 +1132,12 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   // for every visitor. A genuinely misconfigured server instead surfaces a
   // clear error at click time via the auth API.
   const renderGoogleButton = showGoogle || googleOnly;
-  const appBasePath = normalizeAppBasePath(
+  const configuredAppBasePath = normalizeAppBasePath(
     process.env.VITE_APP_BASE_PATH || process.env.APP_BASE_PATH,
   );
+  const appBasePath =
+    configuredAppBasePath || workspaceBasePathFromRequest(opts.requestPath);
+  const workspaceRuntime = isWorkspaceRuntime();
   const publicOAuthOrigin = getPublicOAuthOrigin();
   const workspaceGatewayReturnOrigin = getWorkspaceGatewayReturnOrigin();
   const googleAuthMode = resolveGoogleAuthMode(opts.googleAuthMode);
@@ -1279,15 +1161,26 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
       requestPath: opts.requestPath,
     });
   const hasMarketing = !!marketing && !simplifiedAuth;
-  const marketingSlug = resolveBuiltInMarketingSlug(marketing);
-  const defaultMarketingCopy: Partial<AuthMarketingLocalization> | undefined =
-    marketing
-      ? {
-          tagline: marketing.tagline,
-          description: marketing.description,
-          features: marketing.features,
-        }
-      : undefined;
+  const marketingSlug = resolveBuiltInMarketingSlug(marketing, {
+    requestHost: opts.requestHost,
+    requestPath: opts.requestPath,
+  });
+  const defaultMarketingCopy: AuthMarketingLocaleCopy | undefined = marketing
+    ? {
+        tagline: marketing.tagline,
+        description: marketing.description,
+        features: marketing.features,
+      }
+    : undefined;
+  const localizedMarketingCopy: Record<string, AuthMarketingLocaleCopy> = {};
+  if (marketingSlug) {
+    for (const [locale, copyBySlug] of Object.entries(
+      AUTH_MARKETING_LOCALE_COPY,
+    )) {
+      const copy = copyBySlug?.[marketingSlug];
+      if (copy) localizedMarketingCopy[locale] = copy;
+    }
+  }
   const signupLocalModeNote =
     isAgentNativeHostedHost(opts.requestHost) &&
     marketing?.signupLocalModeNote?.command.trim()
@@ -1333,14 +1226,10 @@ export function getOnboardingHtml(opts: OnboardingHtmlOptions = {}): string {
   const localeMenuItemsHtml = [
     `    <button type="button" class="locale-menu-item" role="menuitemradio" aria-checked="false" data-locale-value="system">
       <span class="locale-menu-check" aria-hidden="true">✓</span>
-      <span${i18nAttr("systemLanguage")}>${esc(t("systemLanguage"))}</span>
+      <span data-system-language>${esc(t("systemLanguage"))}</span>
     </button>`,
     ...SUPPORTED_LOCALES.map((locale) => {
-      const metadata = LOCALE_METADATA[locale];
-      const label =
-        metadata.nativeName === metadata.englishName
-          ? `${metadata.nativeName} (${metadata.code})`
-          : `${metadata.nativeName} (${metadata.englishName})`;
+      const label = localeDisplayName(locale);
       return `    <button type="button" class="locale-menu-item" role="menuitemradio" aria-checked="false" data-locale-value="${esc(locale)}">
       <span class="locale-menu-check" aria-hidden="true">✓</span>
       <span>${esc(label)}</span>
@@ -2421,7 +2310,17 @@ ${signupLocalModeNoteHtml}
     if (configured) return configured;
     var marker = '/_agent-native';
     var idx = window.location.pathname.indexOf(marker);
-    return idx > 0 ? window.location.pathname.slice(0, idx) : '';
+    if (idx > 0) return window.location.pathname.slice(0, idx);
+    if (${JSON.stringify(workspaceRuntime)}) {
+      var segments = window.location.pathname.split('/');
+      for (var i = 0; i < segments.length; i++) {
+        var segment = segments[i];
+        if (segment && segment !== '_agent-native' && segment !== 'api' && segment !== 'sign-in' && segment !== 'login' && segment !== 'signup') {
+          return '/' + segment;
+        }
+      }
+    }
+    return '';
   }
     function __anPath(path) {
       return __anBasePath() + path;
@@ -2447,7 +2346,7 @@ ${signInJourneyInlineScript()}
     var __AN_AUTH_HAS_MARKETING = ${JSON.stringify(hasMarketing)};
     var __AN_AUTH_MARKETING_SLUG = ${JSON.stringify(marketingSlug ?? "")};
     var __AN_AUTH_MARKETING_DEFAULT = ${JSON.stringify(defaultMarketingCopy ?? {})};
-    var __AN_AUTH_MARKETING_LOCALES = ${JSON.stringify(AUTH_MARKETING_LOCALE_COPY)};
+    var __AN_AUTH_MARKETING_LOCALES = ${JSON.stringify(localizedMarketingCopy)};
     var __anAuthLocale = __AN_AUTH_DEFAULT_LOCALE;
     var __anAuthLocalePreference = 'system';
     var __AN_AUTH_MODE = ${JSON.stringify(authMode)};
@@ -2492,17 +2391,26 @@ ${signInJourneyInlineScript()}
       } catch(e) {}
       return [];
     }
-    function __anResolveAuthLocale(preference) {
-      var normalizedPreference = __anNormalizeAuthLocalePreference(preference) || 'system';
-      if (normalizedPreference !== 'system') return normalizedPreference;
-      var rootLocale = __anNormalizeAuthLocale(document.documentElement.getAttribute('data-locale'));
-      if (rootLocale) return rootLocale;
+    function __anResolveAuthSystemLocale() {
       var locales = __anBrowserAuthLocales();
       for (var i = 0; i < locales.length; i++) {
         var match = __anNormalizeAuthLocale(locales[i]);
         if (match) return match;
       }
       return __AN_AUTH_DEFAULT_LOCALE;
+    }
+    function __anResolveAuthLocale(preference) {
+      var normalizedPreference = __anNormalizeAuthLocalePreference(preference) || 'system';
+      return normalizedPreference === 'system'
+        ? __anResolveAuthSystemLocale()
+        : normalizedPreference;
+    }
+    function __anApplyAuthSystemLanguage() {
+      var systemLanguage = document.querySelector('[data-system-language]');
+      if (!systemLanguage) return;
+      var systemLocale = __anResolveAuthSystemLocale();
+      var localized = __AN_AUTH_LOCALES[systemLocale] || __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
+      systemLanguage.textContent = localized.systemLanguage || 'System';
     }
     function __anT(key) {
       var localized = __AN_AUTH_LOCALES[__anAuthLocale] || __AN_AUTH_LOCALES[__AN_AUTH_DEFAULT_LOCALE] || {};
@@ -2556,7 +2464,7 @@ ${signInJourneyInlineScript()}
     }
     function __anMarketingCopy() {
       if (!__AN_AUTH_MARKETING_SLUG) return __AN_AUTH_MARKETING_DEFAULT || {};
-      var localeMarketing = (__AN_AUTH_MARKETING_LOCALES[__anAuthLocale] || {})[__AN_AUTH_MARKETING_SLUG] || {};
+      var localeMarketing = __AN_AUTH_MARKETING_LOCALES[__anAuthLocale] || {};
       return {
         tagline: localeMarketing.tagline || __AN_AUTH_MARKETING_DEFAULT.tagline,
         description: localeMarketing.description || __AN_AUTH_MARKETING_DEFAULT.description,
@@ -2605,6 +2513,7 @@ ${signInJourneyInlineScript()}
       document.title = __AN_AUTH_HAS_MARKETING && __AN_AUTH_MARKETING_APP_NAME
         ? __AN_AUTH_MARKETING_APP_NAME + ' — ' + __anT('pageTitleSignIn')
         : __anT('pageTitleWelcome');
+      __anApplyAuthSystemLanguage();
       __anApplyAuthMarketingCopy();
       __anRefreshAuthViewCopy();
     }

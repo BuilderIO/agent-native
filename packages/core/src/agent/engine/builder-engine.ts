@@ -8,12 +8,20 @@
  * concurrency) into structured stop events that carry an upgrade URL when
  * the chat UI needs to prompt the user to upgrade.
  *
- * Credentials come from the gateway lane (`resolveBuilderGatewayCredentials`):
- * the user's own Builder connection when they have one, otherwise the
- * deployment's Builder-credits pair. Base URL is overridable via
- * BUILDER_GATEWAY_BASE_URL.
+ * Interactive users authenticate with Builder OAuth. Existing connections may
+ * keep using BUILDER_PRIVATE_KEY + BUILDER_PUBLIC_KEY until they reconnect.
+ * When neither is present, credentials come from the gateway lane
+ * (`resolveBuilderGatewayCredentials`): the user's own Builder connection,
+ * otherwise the deployment's Builder-credits pair. Base URL is overridable
+ * via BUILDER_GATEWAY_BASE_URL.
  */
 
+import {
+  BUILDER_OAUTH_SCOPE,
+  hasBuilderOAuthSession,
+  markBuilderOAuthReconnectRequired,
+  resolveBuilderOAuthRequestAccess,
+} from "../../server/builder-oauth.js";
 import { captureError } from "../../server/capture-error.js";
 import {
   clearBuilderGatewayAuthFailure,
@@ -23,6 +31,7 @@ import {
   recordBuilderGatewayAuthFailure,
   type BuilderGatewayLane,
 } from "../../server/credential-provider.js";
+import { getRequestUserEmail } from "../../server/request-context.js";
 import { applyBuilderUtmTrackingParams } from "../../shared/builder-link-tracking.js";
 import {
   isGPTReasoningModel,
@@ -40,6 +49,7 @@ import {
 import {
   classifyTerminalErrorCode,
   describeErrorWithCauses,
+  isBuilderGatewayInternalErrorMessage,
   isContextOverflowCode,
   isContextOverflowMessage,
   isProviderConnectionErrorMessage,
@@ -62,6 +72,7 @@ import type {
   EngineCapabilities,
   EngineContentPart,
   EngineEvent,
+  EngineRequestShape,
   EngineStreamOptions,
 } from "./types.js";
 
@@ -198,11 +209,36 @@ class BuilderEngine implements AgentEngine {
     const creds =
       this.configuredCredentials ??
       (await resolveBuilderGatewayCredentialsDetailed());
-    const creditsLane = isBuilderCreditsLane(creds);
-    const authHeader = creds.privateKey ? `Bearer ${creds.privateKey}` : null;
+    const ownerEmail = getRequestUserEmail();
+    let oauthAccess: Awaited<
+      ReturnType<typeof resolveBuilderOAuthRequestAccess>
+    > = null;
+    let hasStoredOAuth = false;
+    if (ownerEmail) {
+      hasStoredOAuth = await hasBuilderOAuthSession(ownerEmail);
+      if (hasStoredOAuth) {
+        try {
+          oauthAccess = await resolveBuilderOAuthRequestAccess({
+            ownerEmail,
+            requiredScope: BUILDER_OAUTH_SCOPE,
+          });
+        } catch {
+          // coercion-ok: unusable OAuth custody must not fall back to legacy keys.
+          oauthAccess = null;
+        }
+      }
+    }
+    // Prefer OAuth when present. If OAuth custody exists but is unusable,
+    // do not silently fall back to a legacy private key for the same user.
+    const authHeader = oauthAccess
+      ? `Bearer ${oauthAccess.accessToken}`
+      : !hasStoredOAuth && creds.privateKey
+        ? `Bearer ${creds.privateKey}`
+        : null;
     const spaceId = creds.publicKey;
-    const builderUserId = creds.userId;
-    if (!authHeader || !spaceId) {
+    const builderUserId = oauthAccess ? undefined : creds.userId;
+    const creditsLane = oauthAccess ? false : isBuilderCreditsLane(creds);
+    if (!authHeader || (!oauthAccess && !spaceId)) {
       yield gatewayErrorStop(
         {
           error: LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -213,12 +249,20 @@ class BuilderEngine implements AgentEngine {
       return;
     }
 
+    // The Builder gateway has an "auto" fallback mode, but Agent Native owns
+    // model selection. Always send a concrete model so the gateway cannot
+    // select an organization-level override or another fallback model.
+    const requestedModel = opts.model.trim();
+    const model =
+      requestedModel.length === 0 || requestedModel === "auto"
+        ? BUILDER_DEFAULT_MODEL
+        : requestedModel;
     const messages = engineMessagesToBuilderGatewayAnthropic(opts.messages);
     const tools = engineToolsToAnthropic(opts.tools);
     const thinkingBudget =
       opts.providerOptions?.anthropic?.thinking?.budgetTokens;
     const reasoningEffort = normalizeReasoningEffortForModel(
-      opts.model,
+      model,
       opts.reasoningEffort ??
         (typeof thinkingBudget === "number"
           ? mapReasoningEffort(thinkingBudget)
@@ -288,16 +332,16 @@ class BuilderEngine implements AgentEngine {
     }
 
     const gptToolsRequireExplicitNoReasoning =
-      cachedTools.length > 0 && isGPTReasoningModel(opts.model);
+      cachedTools.length > 0 && isGPTReasoningModel(model);
     const body: Record<string, unknown> = {
-      model: opts.model,
+      model,
       messages: cachedMessages,
       ...(systemValue !== undefined ? { system: systemValue } : {}),
       ...(cachedTools.length > 0 ? { tools: cachedTools } : {}),
       max_tokens: resolveMaxOutputTokensForEngine(
         this.name,
         opts.maxOutputTokens,
-        opts.model,
+        model,
       ),
       ...(typeof opts.temperature === "number"
         ? { temperature: opts.temperature }
@@ -319,16 +363,30 @@ class BuilderEngine implements AgentEngine {
         : {}),
     };
 
+    // Measured once, from the exact string that goes on the wire, and carried
+    // on every error stop below. A gateway rejection tells us nothing about
+    // what we sent, so without this an oversized or malformed request and a
+    // gateway outage are the same capture.
+    const payload = JSON.stringify(body);
+    const requestShape: EngineRequestShape = {
+      model,
+      payloadBytes: new TextEncoder().encode(payload).length,
+      toolCount: cachedTools.length,
+      messageCount: cachedMessages.length,
+    };
+
     const gatewayBaseUrl = getBuilderGatewayBaseUrl();
     const gatewayUrl = new URL(
       "messages",
       gatewayBaseUrl.endsWith("/") ? gatewayBaseUrl : `${gatewayBaseUrl}/`,
     );
-    gatewayUrl.searchParams.set("apiKey", spaceId);
+    // OAuth tokens carry Space identity in the JWT `org` claim. Sending a
+    // client-supplied apiKey/public key is legacy private-key behavior only.
+    if (spaceId && !oauthAccess) gatewayUrl.searchParams.set("apiKey", spaceId);
     const orgLabel = creds.orgName || "unknown-org";
     const tStart = Date.now();
     console.log(
-      `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${opts.model} tools=${tools.length} org=${orgLabel}`,
+      `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${model} tools=${tools.length} org=${orgLabel}`,
     );
 
     const gatewayTimeoutMs = getBuilderGatewayTimeoutMs();
@@ -344,11 +402,13 @@ class BuilderEngine implements AgentEngine {
           headers: {
             "Content-Type": "application/json",
             Authorization: authHeader,
-            "x-builder-api-key": spaceId,
+            ...(spaceId && !oauthAccess
+              ? { "x-builder-api-key": spaceId }
+              : {}),
             ...getBuilderGatewayRequestHeaders(),
             ...(builderUserId ? { "x-builder-user-id": builderUserId } : {}),
           },
-          body: JSON.stringify(body),
+          body: payload,
           signal: gatewayAbort.signal,
         });
       } catch (err) {
@@ -361,7 +421,7 @@ class BuilderEngine implements AgentEngine {
         if (timedOut || isBuilderGatewayNetworkError(err)) {
           captureBuilderGatewayTransportError(err, {
             phase: "request",
-            model: opts.model,
+            model,
             gatewayUrl,
             timeoutMs: gatewayAbort.effectiveTimeoutMs(),
             timedOut,
@@ -373,6 +433,7 @@ class BuilderEngine implements AgentEngine {
           timedOut,
           gatewayAbort.effectiveTimeoutMs(),
           creditsLane,
+          requestShape,
         );
         return;
       }
@@ -382,7 +443,11 @@ class BuilderEngine implements AgentEngine {
       );
 
       if (!response.ok) {
-        yield* emitHttpError(response, { creditsLane });
+        yield* emitHttpError(response, {
+          creditsLane,
+          requestShape,
+          recordLegacyCredentialFailure: !oauthAccess,
+        });
         return;
       }
 
@@ -390,18 +455,21 @@ class BuilderEngine implements AgentEngine {
       // again. Clear any prior auth-failure marker so status / chat-card
       // surfaces stop flagging the connection as broken. This is the only
       // self-healing path for workspace/env-managed credentials, which never
-      // flow through writeBuilderCredentials.
-      try {
-        const creds =
-          this.configuredCredentials ??
-          (await resolveBuilderGatewayCredentialsDetailed());
-        await clearBuilderGatewayAuthFailure({
-          privateKey: creds.privateKey,
-          publicKey: creds.publicKey,
-        });
-      } catch {
-        // Marker clearing is best-effort; a stale marker just means the user
-        // sees "reconnect Builder" until the next successful call clears it.
+      // flow through writeBuilderCredentials. OAuth failures are not tracked
+      // with the legacy private-key fingerprint marker.
+      if (!oauthAccess) {
+        try {
+          const legacyCreds =
+            this.configuredCredentials ??
+            (await resolveBuilderGatewayCredentialsDetailed());
+          await clearBuilderGatewayAuthFailure({
+            privateKey: legacyCreds.privateKey,
+            publicKey: legacyCreds.publicKey,
+          });
+        } catch {
+          // coercion-ok: clearing the legacy auth-failure marker is best-effort;
+          // a stale marker only keeps the reconnect CTA until the next success.
+        }
       }
 
       const contentType = response.headers.get("content-type") ?? "";
@@ -419,6 +487,7 @@ class BuilderEngine implements AgentEngine {
               : {}),
           },
           creditsLane,
+          requestShape,
         );
         return;
       }
@@ -432,11 +501,12 @@ class BuilderEngine implements AgentEngine {
             statusCode: response.status,
           },
           creditsLane,
+          requestShape,
         );
         return;
       }
 
-      yield* parseJsonlStream(reader, opts.model, {
+      yield* parseJsonlStream(reader, model, {
         creditsLane,
         abortSignal: gatewayAbort.signal,
         didGatewayTimeout: gatewayAbort.didTimeout,
@@ -444,6 +514,8 @@ class BuilderEngine implements AgentEngine {
         onFirstEvent: gatewayAbort.markFirstEvent,
         gatewayUrl,
         requestStartedAt: tStart,
+        requestShape,
+        recordLegacyCredentialFailure: !oauthAccess,
       });
     } finally {
       gatewayAbort.cleanup();
@@ -478,6 +550,10 @@ function isTransientGatewayFailure(
   if (status !== undefined && RETRYABLE_GATEWAY_STATUSES.has(status)) {
     return true;
   }
+  // The gateway's unhandled-500 envelope, which reaches the in-stream error
+  // frame with no status at all. Without this it read as terminal there while
+  // the identical body read as retryable when it arrived as an HTTP 500.
+  if (isBuilderGatewayInternalErrorMessage(rawMessage)) return true;
   return TRANSIENT_UPSTREAM_PATTERN.test(rawMessage);
 }
 
@@ -495,6 +571,7 @@ function isTransientGatewayFailure(
 function gatewayErrorStop(
   details: GatewayErrorStopDetails,
   creditsLane: boolean | undefined,
+  requestShape?: EngineRequestShape,
 ): EngineEvent {
   const { error, errorCode, upgradeUrl, ...retry } = details;
   return {
@@ -510,13 +587,38 @@ function gatewayErrorStop(
     ...(isContextOverflowMessage(error) || isContextOverflowCode(errorCode)
       ? { contextOverflow: true }
       : {}),
+    // Absent before the request is built (missing credentials): a stop with no
+    // shape means nothing was sent, not that the payload measured zero.
+    ...(requestShape ? { requestShape } : {}),
     ...retry,
   };
 }
 
+async function recordAuthFailureForCurrentLane(opts: {
+  recordLegacyCredentialFailure?: boolean;
+  status?: number;
+  code?: string;
+  message?: string;
+}): Promise<void> {
+  if (opts.recordLegacyCredentialFailure !== false) {
+    await recordBuilderGatewayAuthFailure({
+      status: opts.status,
+      code: opts.code,
+      message: opts.message,
+    });
+    return;
+  }
+  const ownerEmail = getRequestUserEmail();
+  if (ownerEmail) await markBuilderOAuthReconnectRequired(ownerEmail);
+}
+
 async function* emitHttpError(
   response: Response,
-  opts: { creditsLane: boolean },
+  opts: {
+    creditsLane: boolean;
+    requestShape?: EngineRequestShape;
+    recordLegacyCredentialFailure?: boolean;
+  },
 ): AsyncIterable<EngineEvent> {
   const status = response.status;
   // Read the body once as text and then try to parse — calling `.json()`
@@ -535,7 +637,7 @@ async function* emitHttpError(
   const code = errBody.code ?? `http_${status}`;
   const message = errBody.message ?? `Builder gateway returned ${status}`;
   const stop = (details: GatewayErrorStopDetails): EngineEvent =>
-    gatewayErrorStop(details, opts.creditsLane);
+    gatewayErrorStop(details, opts.creditsLane, opts.requestShape);
 
   // Belt-and-suspenders: 402 without a structured `credits-limit` code
   // (e.g. bare proxy response) still means quota → show upgrade CTA.
@@ -552,7 +654,12 @@ async function* emitHttpError(
     return;
   }
   if (status === 401 || code === "unauthorized") {
-    await recordBuilderGatewayAuthFailure({ status, code, message });
+    await recordAuthFailureForCurrentLane({
+      recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      status,
+      code,
+      message,
+    });
     yield stop({
       error:
         "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
@@ -561,7 +668,12 @@ async function* emitHttpError(
     return;
   }
   if (status === 403 && isBuilderCredentialAuthError(message)) {
-    await recordBuilderGatewayAuthFailure({ status, code, message });
+    await recordAuthFailureForCurrentLane({
+      recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      status,
+      code,
+      message,
+    });
     yield stop({
       error:
         "Builder authentication failed. Reconnect Builder (free tier available) via Settings.",
@@ -642,6 +754,8 @@ async function* parseJsonlStream(
     gatewayUrl?: URL;
     requestStartedAt?: number;
     creditsLane?: boolean;
+    requestShape?: EngineRequestShape;
+    recordLegacyCredentialFailure?: boolean;
   } = {},
 ): AsyncIterable<EngineEvent> {
   const parts: EngineContentPart[] = [];
@@ -715,6 +829,7 @@ async function* parseJsonlStream(
             providerRetryable: true,
           },
           captureContext.creditsLane,
+          captureContext.requestShape,
         );
         return;
       }
@@ -806,7 +921,11 @@ async function* parseJsonlStream(
 
           const reason = event.reason ?? "end_turn";
           const stop = (details: GatewayErrorStopDetails): EngineEvent =>
-            gatewayErrorStop(details, captureContext.creditsLane);
+            gatewayErrorStop(
+              details,
+              captureContext.creditsLane,
+              captureContext.requestShape,
+            );
           if (reason === "rate_limited") {
             yield stop({
               error: `rate_limit exceeded: ${event.error ?? "upstream provider rate limited"}`,
@@ -840,6 +959,8 @@ async function* parseJsonlStream(
             const errMsg =
               explicitErrMsg ??
               `Gateway error (no detail; raw event: ${JSON.stringify(event)})`;
+            const gatewayRequestId =
+              typeof event.requestId === "string" ? event.requestId : undefined;
             const gatewayErrCode = event.errorCode ?? event.code;
             // The gateway already authenticated this request before streaming,
             // so a bare "Unauthorized" here means the account cannot use this
@@ -873,10 +994,12 @@ async function* parseJsonlStream(
                         // record `unknown` on the credits lane alone.
                         classifyTerminalErrorCode(String(errMsg))));
             console.error(
-              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} error=${errMsg}`,
+              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} error=${errMsg}`,
             );
             if (isCredentialAuthError) {
-              await recordBuilderGatewayAuthFailure({
+              await recordAuthFailureForCurrentLane({
+                recordLegacyCredentialFailure:
+                  captureContext.recordLegacyCredentialFailure,
                 code:
                   typeof gatewayErrCode === "string" ? gatewayErrCode : errCode,
                 message: String(errMsg),
@@ -890,10 +1013,7 @@ async function* parseJsonlStream(
             // it's thrown, but without these tags.
             if (!explicitErrMsg) {
               captureBuilderGatewayNoDetailError({
-                requestId:
-                  typeof event.requestId === "string"
-                    ? event.requestId
-                    : undefined,
+                requestId: gatewayRequestId,
                 model,
                 gatewayUrl: captureContext.gatewayUrl,
                 rawEvent: event,
@@ -908,6 +1028,10 @@ async function* parseJsonlStream(
               ...(isTransientGatewayFailure(String(errMsg))
                 ? { providerRetryable: true }
                 : {}),
+              // requestId rides the stop event whether or not the gateway sent a
+              // message: a message like "...ERROR ID: <hex>" is as opaque as no
+              // message at all, and this is the only key that reaches upstream.
+              ...(gatewayRequestId ? { requestId: gatewayRequestId } : {}),
             });
           } else if (
             reason === "end_turn" ||
@@ -938,6 +1062,7 @@ async function* parseJsonlStream(
         errorCode: BUILDER_GATEWAY_STREAM_ENDED_ERROR_CODE,
       },
       captureContext.creditsLane,
+      captureContext.requestShape,
     );
   } catch (err) {
     const timedOut = captureContext.didGatewayTimeout?.() ?? false;
@@ -962,6 +1087,7 @@ async function* parseJsonlStream(
       timedOut,
       gatewayTimeoutMs,
       captureContext.creditsLane,
+      captureContext.requestShape,
     );
   } finally {
     // Release the reader on every exit path — early returns (invalid JSONL,
@@ -1234,6 +1360,7 @@ function createBuilderGatewayTimeoutStop(
   timedOut: boolean,
   timeoutMs: number,
   creditsLane: boolean | undefined,
+  requestShape?: EngineRequestShape,
 ): EngineEvent {
   const error = normalizeBuilderGatewayFetchError(err, timedOut, timeoutMs);
   if (timedOut) {
@@ -1243,6 +1370,7 @@ function createBuilderGatewayTimeoutStop(
     return gatewayErrorStop(
       { error, errorCode: "builder_gateway_timeout" },
       creditsLane,
+      requestShape,
     );
   }
   if (isBuilderGatewayNetworkError(err)) {
@@ -1253,6 +1381,7 @@ function createBuilderGatewayTimeoutStop(
         providerRetryable: true,
       },
       creditsLane,
+      requestShape,
     );
   }
   const errorCode = classifyTerminalErrorCode(error);
@@ -1263,6 +1392,7 @@ function createBuilderGatewayTimeoutStop(
       ...(isTransientGatewayFailure(error) ? { providerRetryable: true } : {}),
     },
     creditsLane,
+    requestShape,
   );
 }
 

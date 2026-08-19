@@ -57,6 +57,7 @@ describe("server/auth", () => {
     vi.doUnmock("../db/client.js");
     vi.doUnmock("../org/context.js");
     vi.doUnmock("./embed-session.js");
+    vi.doUnmock("./sentry.js");
     vi.resetModules();
   });
 
@@ -398,6 +399,127 @@ describe("server/auth", () => {
         /\/_agent-native\/auth\/magic-link\/new-user$/,
       );
       expect(newUserCallbackURL.searchParams.get("return")).toBe(callbackPath);
+    });
+
+    it("produces callback URLs Better Auth's own origin-check actually accepts (regression: CBRE + UTM INVALID_CALLBACK_URL reports)", async () => {
+      // Reproduces the exact flow from Slack C0ATH3CCZT4 (2026-08-11): a CBRE
+      // signup retried after a prior "?error=INVALID_TOKEN" redirect, and a
+      // UTM-tagged signup link clicked fresh, both landed on
+      // {"message":"Invalid callbackURL","code":"INVALID_CALLBACK_URL"}.
+      //
+      // Better Auth's magic-link plugin embeds our callbackURL /
+      // newUserCallbackURL as query values via `url.searchParams.set()` (one
+      // encode pass) when it builds the emailed verify link. Its own
+      // `originCheck` middleware then runs an EXTRA `decodeURIComponent` on
+      // top of the automatic single decode a browser/HTTP layer already did —
+      // so a *relative* callback path that itself carries a `?query` (a stale
+      // `error=` param, raw UTM params) comes back out with an unescaped
+      // second `?` that fails Better Auth's strict relative-path regex.
+      // `betterAuthCallbackURL` sidesteps this by always promoting these to an
+      // absolute, same-origin URL, which Better Auth validates by origin only.
+      //
+      // The other tests in this file only assert the *shape* of the
+      // constructed URLs. This one replays Better Auth's actual encode/decode
+      // passes and validates the result with Better Auth's real
+      // `matchesOriginPattern` (imported straight from the installed
+      // `better-auth` package, not reimplemented), so a future change that
+      // silently drops the absolute-URL promotion is caught here even if it
+      // still "looks" like a valid URL.
+      const { createRequire } = await import("node:module");
+      const path = await import("node:path");
+      const req = createRequire(import.meta.url);
+      const betterAuthMain = req.resolve("better-auth");
+      const trustedOriginsPath = path.join(
+        path.dirname(betterAuthMain),
+        "auth",
+        "trusted-origins.mjs",
+      );
+      const { matchesOriginPattern } = (await import(
+        /* @vite-ignore */ trustedOriginsPath
+      )) as {
+        matchesOriginPattern: (
+          url: string,
+          pattern: string,
+          opts?: { allowRelativePaths?: boolean },
+        ) => boolean;
+      };
+
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("RESEND_API_KEY", "resend-example-key");
+      const signInMagicLink = vi.fn(async () => ({ status: true }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signInMagicLink,
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: vi.fn(async () => ({ rows: [] })) }),
+        isLocalDatabase: () => true,
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (error: unknown) => String(error),
+      }));
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const handler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/magic-link",
+      )?.[1];
+
+      const origin = "https://clips.agent-native.com";
+
+      // Step 1: Better Auth's own `url.searchParams.set(name, value)` when it
+      // builds the emailed verify link (one encode pass).
+      // Step 2: the automatic single decode a browser/HTTP layer performs
+      // reading that query value back out.
+      // Step 3: Better Auth's own EXTRA `decodeURIComponent` inside its
+      // `originCheck` middleware (see node_modules better-auth
+      // dist/api/middlewares/origin-check.mjs).
+      function betterAuthRoundTrip(value: string): string {
+        const outer = new URL("https://example.test/verify");
+        outer.searchParams.set("v", value);
+        const single = new URL(outer.toString()).searchParams.get("v")!;
+        return decodeURIComponent(single);
+      }
+
+      for (const callbackPath of [
+        "/library?error=INVALID_TOKEN",
+        "/?utm_source=friend&utm_campaign=launch",
+      ]) {
+        await expect(
+          handler(
+            createJsonPostEvent(
+              "/_agent-native/auth/magic-link",
+              { email: "owner@example.com", callbackURL: callbackPath },
+              undefined,
+              origin,
+            ),
+          ),
+        ).resolves.toEqual({ ok: true });
+
+        const call = signInMagicLink.mock.calls.at(-1)?.[0];
+        for (const field of ["callbackURL", "newUserCallbackURL"] as const) {
+          const sent = call.body[field] as string;
+          const roundTripped = betterAuthRoundTrip(sent);
+          const accepted = matchesOriginPattern(roundTripped, origin, {
+            allowRelativePaths: true,
+          });
+          expect(
+            accepted,
+            `Better Auth's originCheck must accept ${field}=${sent} ` +
+              `(round-tripped: ${roundTripped}) for callbackPath ${callbackPath}`,
+          ).toBe(true);
+        }
+      }
     });
 
     it("bridges a verified magic-link callback to a native desktop exchange", async () => {
@@ -1787,7 +1909,7 @@ describe("server/auth", () => {
       ).resolves.toEqual({ error: "Unauthorized" });
     });
 
-    it("lets Builder connect callbacks with owner cookies bypass the global auth guard", async () => {
+    it("does not let Builder connect callbacks with owner cookies bypass the global auth guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
@@ -1815,10 +1937,10 @@ describe("server/auth", () => {
             },
           }),
         ),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ error: "Unauthorized" });
     });
 
-    it("lets Builder connect callbacks with signed callback state bypass the global auth guard", async () => {
+    it("does not let Builder connect callbacks with legacy CLI state bypass the global auth guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
@@ -1844,10 +1966,10 @@ describe("server/auth", () => {
             query: { [BUILDER_STATE_PARAM]: state },
           }),
         ),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ error: "Unauthorized" });
     });
 
-    it("lets Builder connect callbacks with signed callback state bypass stale session cookies", async () => {
+    it("does not let legacy CLI callback state bypass when a stale session cookie is present", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
       vi.stubEnv("BETTER_AUTH_SECRET", "builder-connect-secret");
@@ -1876,7 +1998,7 @@ describe("server/auth", () => {
             },
           }),
         ),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ error: "Unauthorized" });
     });
 
     it("lets signed integration processor routes bypass the global auth guard", async () => {
@@ -2602,6 +2724,46 @@ describe("server/auth", () => {
       expect(result).toBe("");
       expect(event.res.status).toBe(403);
       expect(event.res.headers.get("access-control-allow-origin")).toBeNull();
+    });
+
+    it("allows explicitly configured public ingest preflights without credentials", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("CORS_ALLOWED_ORIGINS", "");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app, {
+        publicPaths: ["/api/public-ingest"],
+        publicCorsPaths: ["/api/public-ingest"],
+      });
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const event = createMockEvent({
+        path: "/api/public-ingest",
+        headers: {
+          origin: "https://clips.agent-native.com",
+          "access-control-request-method": "POST",
+          "access-control-request-headers": "content-type",
+        },
+      });
+      event.req.method = "OPTIONS";
+      event.node.req.method = "OPTIONS";
+
+      const result = await guard(event);
+
+      expect(result).toBe("");
+      expect(event.res.status).toBe(204);
+      expect(event.res.headers.get("access-control-allow-origin")).toBe(
+        "https://clips.agent-native.com",
+      );
+      expect(event.res.headers.get("access-control-allow-credentials")).toBe(
+        null,
+      );
     });
 
     it.each([
@@ -3612,6 +3774,125 @@ describe("server/auth", () => {
         sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? AND (email_verified = FALSE OR email_verified IS NULL)',
         args: ["sessionuser@example.com"],
       });
+    });
+
+    it("reports (never silently swallows) a failure repairing the verified-email row", async () => {
+      // Regression for Slack C0ATH3CCZT4 (Urvi Naik, 2026-07-31 / repeated
+      // 2026-08-05): "clicking the verify link works, but logging in still
+      // says the email is not verified." The best-effort UPDATE above is the
+      // one place that would show whether the emailVerified write ever landed
+      // — a bare `catch {}` here means a genuine DB failure on this repair
+      // path is indistinguishable from "nothing needed repairing," which is
+      // exactly this bug's symptom. This test proves the failure is reported,
+      // not swallowed.
+      vi.stubEnv("NODE_ENV", "production");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      const repairError = new Error("connection terminated unexpectedly");
+      const mockExecute = vi.fn(async (query: { sql: string }) => {
+        if (query.sql.includes('FROM "session"')) {
+          return { rows: [{ email: "SessionUser@Example.COM" }] };
+        }
+        if (query.sql.startsWith('UPDATE "user"')) {
+          throw repairError;
+        }
+        return { rows: [] };
+      });
+      vi.doMock("../db/client.js", () => ({
+        getDbExec: () => ({ execute: mockExecute }),
+        isPostgres: () => false,
+        intType: () => "INTEGER",
+        retryOnDdlRace: (fn: () => Promise<unknown>) => fn(),
+        describeDbError: (err: unknown) => String(err),
+      }));
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: async () =>
+            new Response(null, {
+              status: 302,
+              headers: {
+                location: "/_agent-native/sign-in#done",
+                "set-cookie":
+                  "better-auth.session_token=session_123; Path=/; HttpOnly",
+              },
+            }),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+      const captureAuthError = vi.fn();
+      vi.doMock("./sentry.js", () => ({
+        captureAuthError,
+        pinAuthErrorContext: vi.fn(),
+        initSentry: vi.fn(),
+        withRouteErrorContext: (_ctx: unknown, fn: () => unknown) => fn(),
+      }));
+
+      const token = [
+        "header",
+        Buffer.from(JSON.stringify({ email: "User@Example.COM" })).toString(
+          "base64url",
+        ),
+        "signature",
+      ].join(".");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const baHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/auth/ba",
+      )?.[1];
+      expect(baHandler).toBeTypeOf("function");
+
+      const fullPath =
+        "/_agent-native/auth/ba/verify-email?token=" +
+        encodeURIComponent(token) +
+        "&callbackURL=%2F_agent-native%2Fsign-in";
+      const request = new Request(`http://localhost${fullPath}`, {
+        method: "GET",
+      });
+      const event = {
+        req: request,
+        url: new URL(`http://localhost/verify-email?token=${token}`),
+        res: { headers: new Headers(), status: 200 },
+        node: {
+          req: { headers: {}, url: fullPath, method: "GET" },
+          res: {
+            setHeader: vi.fn(),
+            getHeader: vi.fn(),
+            appendHeader: vi.fn(),
+          },
+        },
+        headers: request.headers,
+        context: {
+          _mountedPathname: fullPath,
+          _mountPrefix: "/_agent-native/auth/ba",
+        },
+        path: "/verify-email",
+      };
+
+      // The repair failing must never break the redirect the user actually
+      // needs — best-effort stays best-effort.
+      const response = await baHandler(event);
+      expect(response.headers.get("location")).toBe(
+        "/_agent-native/sign-in?verified=1#done",
+      );
+
+      // But the failure itself must be reported, not swallowed.
+      expect(captureAuthError).toHaveBeenCalledWith(
+        repairError,
+        expect.objectContaining({
+          route: "verify-email",
+          email: "sessionuser@example.com",
+        }),
+      );
     });
 
     it("does not enable token-only browser auth when ACCESS_TOKENS is set", async () => {

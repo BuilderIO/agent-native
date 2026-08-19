@@ -677,6 +677,7 @@ describe("browser analytics pageviews", () => {
     (window as any).__AGENT_NATIVE_CONFIG__ = {
       sentryDsn: "https://public@example/4511270423822336",
       sentryEnvironment: "production",
+      deploymentEnvironment: "beta",
     };
     const { configureTracking } = await freshAnalytics();
 
@@ -686,10 +687,32 @@ describe("browser analytics pageviews", () => {
     expect(sentryMock.init).toHaveBeenCalledWith(
       expect.objectContaining({
         dsn: "https://public@example/4511270423822336",
-        environment: "production",
+        environment: "beta",
       }),
     );
     expect(sentryMock.setTag).toHaveBeenCalledWith("runtime", "browser");
+    expect(sentryMock.setTag).toHaveBeenCalledWith(
+      "deployment_environment",
+      "beta",
+    );
+  });
+
+  it("labels first-party analytics events with the deployment environment", async () => {
+    installBrowser("https://beta.mail.agent-native.com/inbox");
+    const { analyticsCalls } = installFetch();
+    (window as any).__AGENT_NATIVE_CONFIG__ = {
+      deploymentEnvironment: "beta",
+    };
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    const { configureTracking, trackEvent } = await freshAnalytics();
+
+    configureTracking({ pageviewTracking: false });
+    trackEvent("beta smoke test", { deployment_environment: "production" });
+
+    const body = JSON.parse(String(analyticsCalls[0]?.[1].body));
+    expect(body.properties).toMatchObject({
+      deployment_environment: "beta",
+    });
   });
 
   it("initializes browser Sentry from Vite key/project/host env vars", async () => {

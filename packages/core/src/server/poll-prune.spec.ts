@@ -22,6 +22,18 @@ function makeDb(
     const args = typeof query === "string" ? [] : (query.args ?? []);
     if (sql.includes("pg_try_advisory_xact_lock")) {
       locks.push({ sql, args });
+      if (sql.includes("DELETE")) {
+        if (options.failDeletes) throw new Error("deadlock detected");
+        const n =
+          options.advisoryLock === false
+            ? 0
+            : (options.deletedPerBatch?.[batch] ?? 0);
+        if (options.advisoryLock !== false) {
+          deletes.push({ sql, args });
+          batch++;
+        }
+        return { rows: [] as any[], rowsAffected: n };
+      }
       return {
         rows: [{ acquired: options.advisoryLock ?? true }],
         rowsAffected: 0,
@@ -51,11 +63,20 @@ function makeDb(
   };
 }
 
-function stateWith(db: { exec: { execute: unknown } }, postgres = false) {
-  return new AppSyncState({
+function stateWith(
+  db: { exec: { execute: unknown } },
+  postgres = false,
+  pruneImmediately = true,
+) {
+  const state = new AppSyncState({
     getDb: () => db.exec as never,
     isPostgres: () => postgres,
   });
+  if (pruneImmediately) {
+    (state as unknown as { lastDurablePrune: number }).lastDurablePrune =
+      Date.now() - 5 * 60 * 1000 - 1;
+  }
+  return state;
 }
 
 async function prune(state: AppSyncState, db: { exec: unknown }) {
@@ -96,6 +117,27 @@ describe("sync_events prune", () => {
     expect(first.sql).not.toContain("version <");
     // Bounded: a LIMIT argument, and a cutoff 24h behind the clock.
     expect(first.args).toEqual([1_800_000_000_000 - 86_400_000, 10_000]);
+  });
+
+  it("defers the first prune on a cold process until its throttle window", async () => {
+    const db = makeDb({ deletedPerBatch: [1] });
+    const state = stateWith(db, false, false);
+    await state.persistSyncEvent({
+      version: 1,
+      source: "action",
+      type: "change",
+      key: "k",
+    });
+    expect(db.deletes).toHaveLength(0);
+
+    vi.setSystemTime(1_800_000_000_000 + 5 * 60 * 1000 + 1);
+    await state.persistSyncEvent({
+      version: 2,
+      source: "action",
+      type: "change",
+      key: "k",
+    });
+    expect(db.deletes).toHaveLength(1);
   });
 
   it("stops as soon as a batch comes back short, instead of spinning", async () => {
@@ -171,7 +213,7 @@ describe("sync_events prune", () => {
     expect(db.deletes).toHaveLength(2);
   });
 
-  it("serializes Postgres batches with a transaction-scoped advisory lease", async () => {
+  it("serializes Postgres batches with a transaction-scoped advisory lease in autocommit statements", async () => {
     const db = makeDb({
       postgres: true,
       deletedPerBatch: [10_000, 3],
@@ -180,9 +222,18 @@ describe("sync_events prune", () => {
 
     expect(db.locks).toHaveLength(2);
     expect(db.locks[0].sql).toContain("pg_try_advisory_xact_lock");
-    expect(db.locks[0].args).toEqual(["agent-native:sync-events-prune"]);
-    expect(db.exec.transaction).toHaveBeenCalledTimes(2);
+    expect(db.locks[0].args).toEqual([
+      "agent-native:sync-events-prune",
+      1_800_000_000_000 - 86_400_000,
+      10_000,
+    ]);
+    expect(db.exec.transaction).not.toHaveBeenCalled();
     expect(db.deletes).toHaveLength(2);
+    expect(db.deletes[0].args).toEqual([
+      "agent-native:sync-events-prune",
+      1_800_000_000_000 - 86_400_000,
+      10_000,
+    ]);
   });
 
   it("skips a Postgres prune when another worker owns the lease", async () => {

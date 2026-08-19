@@ -196,9 +196,108 @@ describe("resolveCleanupSegmentsJson", () => {
   ]);
 
   it("keeps measured timings rather than re-synthesizing them", () => {
-    expect(
+    const cleaned = JSON.parse(
       resolveCleanupSegmentsJson(measured, "Hello there. Second cue.", 120_000),
-    ).toBe(measured);
+    );
+    expect(cleaned).toEqual([
+      { startMs: 0, endMs: 1_200, text: "Hello there." },
+      { startMs: 1_200, endMs: 2_400, text: "Second cue." },
+    ]);
+  });
+
+  it("rewrites sequence-preserving cleanup while retaining attribution", () => {
+    const attributed = JSON.stringify([
+      {
+        startMs: 0,
+        endMs: 900,
+        text: "old mic words",
+        source: "mic",
+        speaker: "Me",
+      },
+      {
+        startMs: 900,
+        endMs: 1_800,
+        text: "old system words",
+        source: "system",
+        speaker: "Them",
+      },
+    ]);
+    const cleaned = JSON.parse(
+      resolveCleanupSegmentsJson(
+        attributed,
+        "Old mic words. Old system words.",
+        120_000,
+      ),
+    );
+
+    expect(cleaned).toEqual([
+      {
+        startMs: 0,
+        endMs: 900,
+        text: "Old mic words.",
+        source: "mic",
+        speaker: "Me",
+      },
+      {
+        startMs: 900,
+        endMs: 1_800,
+        text: "Old system words.",
+        source: "system",
+        speaker: "Them",
+      },
+    ]);
+  });
+
+  it("keeps the original when cleanup cannot preserve speaker boundaries", () => {
+    const attributed = JSON.stringify([
+      {
+        startMs: 0,
+        endMs: 900,
+        text: "old mic words",
+        source: "mic",
+        speaker: "Me",
+      },
+      {
+        startMs: 900,
+        endMs: 1_800,
+        text: "old system words",
+        source: "system",
+        speaker: "Them",
+      },
+    ]);
+
+    expect(
+      resolveCleanupSegmentsJson(
+        attributed,
+        "Cleaned transcript text",
+        120_000,
+      ),
+    ).toBeNull();
+  });
+
+  it("applies shorter cleanup output to unattributed measured cues", () => {
+    const measured = JSON.stringify([
+      { startMs: 0, endMs: 900, text: "filler one" },
+      { startMs: 900, endMs: 1_800, text: "filler two" },
+      { startMs: 1_800, endMs: 2_700, text: "keep this" },
+    ]);
+    const cleaned = JSON.parse(
+      resolveCleanupSegmentsJson(measured, "keep this", 120_000),
+    );
+
+    expect(cleaned.map((segment: { text: string }) => segment.text)).toEqual([
+      "keep",
+      "this",
+    ]);
+    expect(
+      cleaned.map((segment: { startMs: number; endMs: number }) => [
+        segment.startMs,
+        segment.endMs,
+      ]),
+    ).toEqual([
+      [900, 1_800],
+      [1_800, 2_700],
+    ]);
   });
 
   it("synthesizes cues only when no measured timings exist", () => {
@@ -222,6 +321,33 @@ describe("resolveCleanupSegmentsJson", () => {
       resolveCleanupSegmentsJson(sparse, "cleaned up text here", 135_000),
     );
     expect(kept[kept.length - 1].endMs).toBe(1_800);
+    expect(kept.map((segment: { text: string }) => segment.text)).toEqual([
+      "cleaned up",
+      "text here",
+    ]);
+  });
+
+  it("does not rewrite no-space speaker cues without a safe alignment", () => {
+    const measured = JSON.stringify([
+      {
+        startMs: 0,
+        endMs: 900,
+        text: "古い字幕",
+        source: "system",
+        speaker: "Them",
+      },
+      {
+        startMs: 900,
+        endMs: 1_800,
+        text: "を確認",
+        source: "mic",
+        speaker: "Me",
+      },
+    ]);
+    const cleanedText = "新しい日本語の字幕です";
+    expect(
+      resolveCleanupSegmentsJson(measured, cleanedText, 120_000),
+    ).toBeNull();
   });
 });
 

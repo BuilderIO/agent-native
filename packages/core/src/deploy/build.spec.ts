@@ -112,6 +112,14 @@ describe("resolveNitroBuildReplacements", () => {
       JSON.stringify("1"),
     );
   });
+
+  it("embeds the configured deployment lane into the Nitro server bundle", () => {
+    const replacements = resolveNitroBuildReplacements({}, " beta ");
+
+    expect(
+      replacements["process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT"],
+    ).toBe(JSON.stringify("beta"));
+  });
 });
 
 describe("isCloudflareModulePreset", () => {
@@ -207,6 +215,9 @@ describe("cloudflareWorkerStubAliasArgs", () => {
     const workerAlias = aliases.find((alias) =>
       alias.startsWith("--alias:pdf-parse/worker="),
     );
+    const pdfJsAlias = aliases.find((alias) =>
+      alias.startsWith("--alias:pdfjs-dist/legacy/build/pdf.mjs="),
+    );
     const packageAlias = aliases.find((alias) =>
       alias.startsWith("--alias:pdf-parse="),
     );
@@ -217,8 +228,17 @@ describe("cloudflareWorkerStubAliasArgs", () => {
     expect(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES).toHaveProperty(
       "pdf-parse/worker",
     );
+    expect(CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES).toHaveProperty(
+      "pdfjs-dist/legacy/build/pdf.mjs",
+    );
     expect(workerAlias).toBe(
       `--alias:pdf-parse/worker=${path.join(stubDir, "pdf-parse__worker.js")}`,
+    );
+    expect(pdfJsAlias).toBe(
+      `--alias:pdfjs-dist/legacy/build/pdf.mjs=${path.join(
+        stubDir,
+        "pdfjs-dist__legacy__build__pdf.mjs.js",
+      )}`,
     );
     expect(packageAlias).toBe(
       `--alias:pdf-parse=${path.join(stubDir, "pdf-parse", "index.js")}`,
@@ -958,6 +978,81 @@ export default (event) =>
     expect(html).toContain("https://public@example/4511270423822336");
   });
 
+  it("normalizes explicit deployment environment in generated browser telemetry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", " BETA ");
+    vi.stubEnv("SENTRY_DSN", "https://public@example/4511270423822336");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain('"sentryEnvironment":"beta"');
+    expect(html).toContain('"deploymentEnvironment":"beta"');
+  });
+
+  it("rejects unsupported explicit deployment environment in generated workers", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "staging");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    expect(response.status).toBe(500);
+  });
+
+  it("uses Netlify CONTEXT for generated preview browser telemetry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
+    vi.stubEnv("SENTRY_ENVIRONMENT", "production");
+    vi.stubEnv("CONTEXT", "deploy-preview");
+    vi.stubEnv("NETLIFY_CONTEXT", "production");
+    vi.stubEnv("BRANCH", "feature/auth");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("SENTRY_DSN", "https://public@example/4511270423822336");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain('"sentryEnvironment":"preview"');
+    expect(html).toContain('"deploymentEnvironment":"preview"');
+  });
+
+  it("injects deployment attribution without browser Sentry", async () => {
+    vi.stubEnv("AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT", "");
+    vi.stubEnv("CONTEXT", "deploy-preview");
+    vi.stubEnv("NETLIFY_CONTEXT", "production");
+    vi.stubEnv("BRANCH", "feature/auth");
+    vi.stubEnv("VERCEL_ENV", "");
+    vi.stubEnv("SENTRY_CLIENT_DSN", "");
+    vi.stubEnv("SENTRY_DSN", "");
+    vi.stubEnv("VITE_SENTRY_DSN", "");
+    vi.stubEnv("NODE_ENV", "production");
+
+    const worker = await importGeneratedWorker(generateWorkerEntry([], []));
+    const response = await worker.fetch(
+      new Request("https://app.test/inbox", { method: "GET" }),
+      {},
+      {},
+    );
+    const html = await response.text();
+
+    expect(html).toContain("data-agent-native-sentry-config");
+    expect(html).toContain('"deploymentEnvironment":"preview"');
+    expect(html).not.toContain("sentryDsn");
+  });
+
   it("keeps mounted SSR HEAD responses bodyless and leaves missing API paths as 404", async () => {
     const worker = await importGeneratedWorker(generateWorkerEntry([], []));
 
@@ -1203,6 +1298,12 @@ describe("CLOUDFLARE_WORKER_ESBUILD_EXTERNALS", () => {
     expect(CLOUDFLARE_WORKER_STUB_MODULES["playwright-core"]).toContain(
       "chromium",
     );
+
+    const pdfJsStub =
+      CLOUDFLARE_WORKER_STUB_SUBPATH_MODULES["pdfjs-dist/legacy/build/pdf.mjs"];
+    expect(pdfJsStub).toContain("export const OPS = new Proxy");
+    expect(pdfJsStub).toContain("export const Util = new Proxy");
+    expect(pdfJsStub).toContain("export const getDocument = unavailable");
   });
 
   it("stubs node builtins that Cloudflare Pages rejects at upload time", () => {

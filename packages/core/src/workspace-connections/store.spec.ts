@@ -599,6 +599,23 @@ describe("workspace connection store", () => {
     );
     expect(bobCanResolve.available).toBe(true);
 
+    sqlite.prepare("DELETE FROM org_members WHERE id = ?").run("member-bob");
+    const bobAfterOrgRemoval = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-groups" },
+      () =>
+        resolveWorkspaceConnectionForApp({
+          appId: "dispatch",
+          provider: "hubspot",
+          connectionId,
+        }),
+    );
+    expect(bobAfterOrgRemoval.available).toBe(false);
+    sqlite
+      .prepare(
+        "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      )
+      .run("member-bob", "org-groups", "bob@example.com", "member", 2);
+
     await runWithRequestContext(
       { userEmail: "alice@example.com", orgId: "org-groups" },
       async () => {
