@@ -113,7 +113,7 @@ const TABLE = "sandbox_executions";
 
 let _initPromise: Promise<void> | undefined;
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = _doEnsureTable().catch((err) => {
       // Don't cache the rejection — let the next caller retry a fresh init.

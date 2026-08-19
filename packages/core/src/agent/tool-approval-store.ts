@@ -20,7 +20,7 @@ const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
 
 let initPromise: Promise<void> | undefined;
 
-async function ensureAgentToolApprovalTable(): Promise<void> {
+export async function ensureAgentToolApprovalTable(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const createSql =

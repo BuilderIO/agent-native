@@ -110,6 +110,9 @@ export function assertPgVectorAvailable(postgres = isPostgres()): void {
   if (!postgres) throw new Error(PGVECTOR_REQUIRED_MESSAGE);
 }
 
+// guard:allow-unreleased-schema - the table name is derived at call time from
+// the search namespace and embedding dimensions (`${namespace}_vectors${suffix}`),
+// so the set of tables is not known at release time and cannot be pre-created.
 export async function ensurePgVectorIndex(
   db: DbExec,
   dimensions: number,

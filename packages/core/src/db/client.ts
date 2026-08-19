@@ -1,3 +1,5 @@
+import path from "path";
+
 /**
  * Central database client abstraction.
  *
@@ -8,8 +10,7 @@
  * (dynamic import) so this module can be loaded in any runtime (Node.js,
  * Cloudflare Workers, edge) without failing on missing native deps.
  */
-import path from "path";
-
+import { isMigrationAuthorizedRuntime } from "./migration-runtime.js";
 import {
   beginDatabaseOperation,
   recordDatabaseRetry,
@@ -1001,15 +1002,9 @@ export function isSchemaMutationStatement(statement: DbExecStatement): boolean {
  * is the only supported production opt-in.
  */
 export function assertSchemaMutationAllowed(statement: DbExecStatement): void {
-  const migrationRuntime =
-    (
-      globalThis as typeof globalThis & {
-        __AGENT_NATIVE_MIGRATION_RUNTIME__?: boolean;
-      }
-    ).__AGENT_NATIVE_MIGRATION_RUNTIME__ === true;
   if (
     isProductionServerlessFunctionRuntime() &&
-    !migrationRuntime &&
+    !isMigrationAuthorizedRuntime() &&
     isSchemaMutationStatement(statement)
   ) {
     throw new Error(

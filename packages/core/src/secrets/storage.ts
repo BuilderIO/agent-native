@@ -33,7 +33,7 @@ import { APP_SECRETS_CREATE_SQL } from "./schema.js";
 
 let _initPromise: Promise<void> | undefined;
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

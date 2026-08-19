@@ -62,7 +62,7 @@ function isDuplicateColumnError(err: unknown): boolean {
   );
 }
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!_initPromise) {
     _initPromise = (async () => {
       const client = getDbExec();

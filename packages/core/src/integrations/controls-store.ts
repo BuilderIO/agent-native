@@ -30,7 +30,7 @@ export interface IntegrationControl {
   expiresAt: number;
 }
 
-async function ensureTable(): Promise<void> {
+export async function ensureTable(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       const sql = `CREATE TABLE IF NOT EXISTS integration_controls (
