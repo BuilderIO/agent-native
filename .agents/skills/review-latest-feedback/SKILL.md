@@ -28,7 +28,8 @@ add another one or treat the parent as a new candidate for automatic
 investigation; record it as already marked or owned. A reporter reply to a
 clarification this workflow previously asked is a continuation of that
 existing ledger item, not a new candidate, so re-read and resume it without
-adding another reaction. The moment this skill adds `👀` to a Slack parent,
+adding another reaction, subject to the ownership routes below. The moment
+this skill adds `👀` to a Slack parent,
 that parent enters a mandatory reply ledger. Before the run ends, re-read every
 ledger item and confirm that Steve has posted either a concise **Fixed** reply
 or a concise **Clarification needed** question. A bot acknowledgement, another
@@ -52,7 +53,8 @@ reply. Record it as skipped because it is already marked or owned. The only
 exception is a reporter reply to a clarification this workflow previously
 asked; re-enter that existing ledger item, but never add another `👀`. Do not
 treat a generic acknowledgement, bot reply, or vague status update as a final
-disposition when no `👀` marker is present.
+disposition when no `👀` marker is present. Apply the ownership routes below
+before re-entering any existing ledger item.
 
 That message is the start cursor. Classify it, record it if it is not
 actionable, then continue toward older messages, processing each actionable
