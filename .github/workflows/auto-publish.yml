@@ -63,6 +63,11 @@ on:
         required: false
         type: boolean
         default: false
+      publishBeta:
+        description: "Also publish a beta snapshot and rebuild builder-workspace beta"
+        required: false
+        type: boolean
+        default: false
 
 permissions: {}
 
@@ -73,7 +78,7 @@ concurrency:
 jobs:
   publish-beta:
     name: Publish beta snapshot
-    if: ${{ !inputs.redispatchDownstream }}
+    if: ${{ (github.event_name == 'push' || inputs.publishBeta) && !inputs.redispatchDownstream }}
     runs-on: ubuntu-latest
     environment: npm-publish
     permissions:
