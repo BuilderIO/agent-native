@@ -2106,7 +2106,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               menuPortalContainer={fullscreenMenuContainer}
               showReactionsAndComment={isFullscreen}
               enableReactions={enableReactions}
-              onReact={onReact}
+              onReact={handleReact}
               enableComments={enableComments}
               onAddComment={onAddComment}
             />
