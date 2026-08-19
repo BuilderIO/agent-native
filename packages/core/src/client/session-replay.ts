@@ -94,6 +94,8 @@ interface SessionReplayState {
   pendingReplayStart: PendingReplayStart | null;
   /** Prevents a late upload settlement from racing BFCache recovery. */
   recoveringPendingReplayUpload: boolean;
+  /** Keeps a post-BFCache timeout connected to the old upload's recovery. */
+  bfcacheRestored: boolean;
   /** Drop incremental events until a new FullSnapshot can re-anchor the DOM. */
   awaitingFullSnapshot: boolean;
   stopRecorder: ReplayStopFn | null;
@@ -486,6 +488,7 @@ function getState(): SessionReplayState {
       pendingReplayUpload: null,
       pendingReplayStart: null,
       recoveringPendingReplayUpload: false,
+      bfcacheRestored: false,
       awaitingFullSnapshot: false,
       stopRecorder: null,
       restoreUrlMonitor: null,
@@ -510,6 +513,7 @@ function getState(): SessionReplayState {
   state.pendingReplayUpload ??= null;
   state.pendingReplayStart ??= null;
   state.recoveringPendingReplayUpload ??= false;
+  state.bfcacheRestored ??= false;
   state.awaitingFullSnapshot ??= false;
   state.startGeneration ??= 0;
   state.replayLinkBaseUrl ??= null;
@@ -1919,6 +1923,7 @@ async function recoverAfterPendingReplayUpload(
   if (state.pendingReplayUpload !== pending) return;
   if (state.recoveringPendingReplayUpload) return;
   state.recoveringPendingReplayUpload = true;
+  state.bfcacheRestored = false;
   try {
     if (state.replayId !== pending.payload.replayId) {
       state.pendingReplayUpload = null;
@@ -1940,18 +1945,30 @@ async function recoverAfterPendingReplayUpload(
     state.awaitingFullSnapshot = false;
     removeStoredReplaySession(pending.payload.replayId);
 
-    if (wasActive) await stopSessionReplay("upload-timeout");
+    let stopCancelledRecovery = false;
+    if (wasActive) {
+      // stopSessionReplay increments startGeneration synchronously. If a
+      // caller explicitly stops during its teardown await, that extra
+      // generation change must cancel the implicit timeout restart rather
+      // than allowing the captured old recorder options to start again.
+      const expectedStopGeneration = state.startGeneration + 1;
+      await stopSessionReplay("upload-timeout");
+      stopCancelledRecovery =
+        state.startGeneration !== expectedStopGeneration &&
+        !state.pendingReplayStart;
+    }
 
     // Teardown yields while it flushes the final capture restoration. A caller
     // can request a different replay configuration during that gap, so select
     // the pending request only after teardown has finished instead of restarting
     // with the stale request captured above.
-    const restartRequest = suppressRestart
-      ? null
-      : (state.pendingReplayStart ??
-        (wasActive && state.options
-          ? { options: state.options, sessionId: pending.payload.sessionId }
-          : null));
+    const restartRequest =
+      suppressRestart || stopCancelledRecovery
+        ? null
+        : (state.pendingReplayStart ??
+          (wasActive && state.options
+            ? { options: state.options, sessionId: pending.payload.sessionId }
+            : null));
 
     // Capture restoration during stop can emit one last event. Keep it bounded
     // and discard it before the fresh recorder emits its own Meta + FullSnapshot.
@@ -2098,6 +2115,12 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       state.awaitingFullSnapshot = true;
       fencedTimedOutUpload = true;
       fenceTimedOutReplayUpload(state, pending);
+      if (state.bfcacheRestored) {
+        // If pageshow happened before this timeout fired, there was no
+        // pending upload for the pageshow handler to recover. Connect this
+        // post-restore timeout directly to the same fresh-identity path.
+        void recoverAfterPendingReplayUpload(state, pending);
+      }
     } else {
       if (reservedSequence) rollbackReplaySequenceReservation(state, payload);
       // A definitive 4xx (e.g. a 409 chunk-sequence/checksum conflict) can
@@ -2191,6 +2214,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     }
   } finally {
     state.flushing = false;
+  }
+  if (reason === "pagehide-persisted" && !fencedTimedOutUpload) {
+    state.bfcacheRestored = false;
   }
   if (fencedTimedOutUpload) return;
   const coalescedReason = state.pendingFlushReason;
@@ -2386,14 +2412,17 @@ function installLifecycleListeners(state: SessionReplayState): void {
     // expected to resume capture on pageshow, so keep the timeout fence's
     // restart behavior for persisted pagehide while retaining terminal
     // unload semantics for an actual document teardown.
+    state.bfcacheRestored = false;
     void flushSessionReplay(
       event.persisted ? "pagehide-persisted" : "pagehide",
     );
   };
   const resumeFromBfcache = (event: PageTransitionEvent) => {
     if (!event.persisted) return;
+    state.bfcacheRestored = true;
     const pending = state.pendingReplayUpload;
     if (pending) void recoverAfterPendingReplayUpload(state, pending);
+    else if (!state.flushing) state.bfcacheRestored = false;
   };
   document.addEventListener("visibilitychange", flushOnHidden);
   window.addEventListener("pagehide", flushOnUnload);
@@ -3530,6 +3559,9 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
   // an uncertain upload. Recovery uses its private reason to preserve that
   // request while it tears down the old recorder.
   if (reason !== "upload-timeout") state.pendingReplayStart = null;
+  if (reason !== "pagehide-persisted") {
+    state.bfcacheRestored = false;
+  }
   if (!state.active) return;
   // Restore console/fetch/XHR before tearing down the recorder: the restore
   // flushes any pending collapsed console duplicate, which must still be able
