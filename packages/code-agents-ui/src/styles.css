@@ -364,7 +364,6 @@
   flex: 0 0 auto;
   width: auto;
   max-width: 112px;
-  min-width: 96px;
   padding-left: 6px;
 }
 
@@ -609,6 +608,14 @@
   height: 7px;
   background: #3b82f6;
   box-shadow: 0 0 0 2.5px rgba(59, 130, 246, 0.18);
+}
+
+.code-agents-run-status-scheduled {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  color: hsl(var(--muted-foreground) / 0.82);
 }
 
 .code-agents-source-label {

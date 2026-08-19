@@ -14,7 +14,7 @@ import {
   IconAlertTriangle,
   IconExternalLink,
 } from "@tabler/icons-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 
 import { AgentViewCount } from "@/components/player/recording-views-badge";
@@ -94,6 +94,8 @@ export function RecordingCard({
   const t = useT();
   const { formatDate, formatRelativeTime } = useFormatters();
   const [hovered, setHovered] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const pendingTrashRef = useRef(false);
 
   const duration = useMemo(
     () => formatDuration(recording.durationMs),
@@ -183,6 +185,11 @@ export function RecordingCard({
   const handleOpenDesktopApp = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     attemptOpenDesktopApp();
+  }, []);
+
+  const requestTrash = useCallback(() => {
+    pendingTrashRef.current = true;
+    setMenuOpen(false);
   }, []);
 
   return (
@@ -378,7 +385,7 @@ export function RecordingCard({
           </div>
 
           {showActions && (
-            <DropdownMenu>
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                 <button
                   className="pointer-events-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -390,6 +397,12 @@ export function RecordingCard({
               <DropdownMenuContent
                 align="end"
                 onClick={(e) => e.stopPropagation()}
+                onCloseAutoFocus={(event) => {
+                  if (!pendingTrashRef.current) return;
+                  event.preventDefault();
+                  pendingTrashRef.current = false;
+                  setTimeout(() => onTrash?.(recording), 0);
+                }}
               >
                 {onShare && (
                   <DropdownMenuItem onSelect={() => onShare(recording)}>
@@ -453,7 +466,10 @@ export function RecordingCard({
                   ))}
                 {onTrash && (
                   <DropdownMenuItem
-                    onSelect={() => onTrash(recording)}
+                    onSelect={(event) => {
+                      event.preventDefault();
+                      requestTrash();
+                    }}
                     className="text-destructive focus:text-destructive"
                   >
                     <IconTrash className="h-4 w-4 me-2" />{" "}

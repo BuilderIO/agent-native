@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import type { CalendarEvent } from "@shared/api";
-import { parseISO } from "date-fns";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -184,18 +183,6 @@ function baseEvent(overrides: Partial<CalendarEvent> = {}): CalendarEvent {
   };
 }
 
-/** Mirrors the component's private `formatTimeShort` so the test can locate
- * the read-only time summary without asserting on any source string. */
-function shortTimeLabel(iso: string): string {
-  const d = parseISO(iso);
-  const h = d.getHours();
-  const m = d.getMinutes();
-  const period = h >= 12 ? "PM" : "AM";
-  const hour12 = h % 12 || 12;
-  if (m === 0) return `${hour12} ${period}`;
-  return `${hour12}:${m.toString().padStart(2, "0")} ${period}`;
-}
-
 function setNativeInputValue(input: HTMLInputElement, value: string): void {
   const setter = Object.getOwnPropertyDescriptor(
     window.HTMLInputElement.prototype,
@@ -241,6 +228,7 @@ describe("EventDetailPopover characterization", () => {
     if (!unmounted) act(() => root.unmount());
     container.remove();
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
@@ -626,6 +614,56 @@ describe("EventDetailPopover characterization", () => {
       'input[placeholder="eventForm.addLocation"]',
     );
     expect(locationInputAfterUpdate!.value).toBe("Room A (typing)");
+  });
+
+  it("uses the event timezone when seeding the time editor", () => {
+    // Keep the assertion independent from the machine running Vitest. Without
+    // the explicit event timezone conversion, UTC would render these values
+    // as 4:00 PM and 5:00 PM.
+    vi.stubEnv("TZ", "UTC");
+    const event = baseEvent({
+      start: "2026-07-10T16:00:00.000Z",
+      end: "2026-07-10T17:00:00.000Z",
+      startTimeZone: "America/New_York",
+      endTimeZone: "America/New_York",
+    });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const openPopoverButtons = () =>
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter(
+        (button) => button.textContent === "Mock open popover",
+      );
+
+    // The outer detail popover is first; the start and end time pickers are
+    // the next two nested popovers in the rendered event form.
+    const startTimePopoverButton = openPopoverButtons()[1];
+    const endTimePopoverButton = openPopoverButtons()[2];
+    expect(startTimePopoverButton).toBeTruthy();
+    expect(endTimePopoverButton).toBeTruthy();
+    act(() => {
+      startTimePopoverButton!.click();
+      endTimePopoverButton!.click();
+    });
+
+    const startTimeTrigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.start"]',
+    );
+    const endTimeTrigger = document.querySelector<HTMLButtonElement>(
+      'button[aria-label="eventForm.end"]',
+    );
+    expect(startTimeTrigger?.textContent).toBe("12:00 PM");
+    expect(endTimeTrigger?.textContent).toBe("1:00 PM");
   });
 
   it("prompts for guest notification before saving when the event has guests, and only mutates after the user confirms", async () => {

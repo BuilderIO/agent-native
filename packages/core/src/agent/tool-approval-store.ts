@@ -9,7 +9,13 @@ import {
   AGENT_TOOL_APPROVAL_TABLE_SQL,
 } from "./tool-approval-migrations.js";
 
-const APPROVAL_TTL_MS = 15 * 60_000;
+// 15 minutes was too short in practice: a user who steps away mid-approval
+// (switching tabs to update their client, checking something else) comes back
+// to a silently expired grant with no visible error — clicking Approve just
+// does nothing, because `consumeAgentToolApproval`'s `expires_at > ?` no
+// longer matches. An hour gives real human latency room while still bounding
+// how long a stale grant can be replayed.
+const APPROVAL_TTL_MS = 60 * 60_000;
 const APPROVAL_CLEANUP_AGE_MS = 24 * 60 * 60_000;
 
 let initPromise: Promise<void> | undefined;
@@ -119,19 +125,29 @@ export async function resolveAgentToolApprovalTurnId(binding: {
   return turnIds.size === 1 ? [...turnIds][0]! : null;
 }
 
+/**
+ * Creates the durable pending-approval row and returns its id as the "ask"
+ * identity for this specific gate hit. Every call is a fresh row (a fresh
+ * id), including a second gate hit for the same `approvalKey` after a prior
+ * grant failed to be consumed — so the id doubles as the signal the client
+ * needs to tell "this approval_required is the one I already approved,
+ * re-rendered" apart from "this is a NEW ask for the same tool call". See
+ * `ApprovalAffordance` in client/chat/tool-call-display.tsx.
+ */
 export async function createAgentToolApproval(
   binding: AgentToolApprovalBinding,
-): Promise<void> {
+): Promise<string> {
   await ensureAgentToolApprovalTable();
   const now = Date.now();
   const expiresAt = binding.expiresAt ?? now + APPROVAL_TTL_MS;
+  const id = `agent-tool-approval-${randomUUID()}`;
   await getDbExec().execute({
     sql: `INSERT INTO agent_tool_approvals
       (id, owner_email, org_id, thread_id, turn_id, tool_name, call_id,
        approval_key_hash, status, expires_at, consumed_at, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?)`,
     args: [
-      `agent-tool-approval-${randomUUID()}`,
+      id,
       binding.ownerEmail,
       binding.orgId ?? null,
       binding.threadId ?? null,
@@ -160,6 +176,8 @@ export async function createAgentToolApproval(
       error,
     );
   }
+
+  return id;
 }
 
 /**

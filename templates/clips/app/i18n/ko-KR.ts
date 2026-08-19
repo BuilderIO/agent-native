@@ -388,6 +388,9 @@ const messages = {
     aiNotes: "AI 노트",
     summary: "요약",
     actionItems: "조치사항",
+    addActionItem: "액션 아이템 추가",
+    removeActionItem: "액션 아이템 삭제",
+    actionItemPlaceholder: "무엇을 해야 하나요?",
     working: "일하고 있는…",
     noActionItems:
       "아직 작업 항목이 없습니다. 성적표에서 메모가 생성된 후에 여기에 표시됩니다.",
@@ -977,7 +980,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
   commentsPanel: {
     disabled: "이 녹화에서는 댓글이 비활성화되어 있습니다.",
     beFirst: "첫 댓글을 남겨보세요",
-    leaveNotePanel: "이 패널 상단에 메모를 남기세요.",
+    leaveNotePanel: "이 패널 하단에 메모를 남기세요.",
     leaveNoteTimestamp: "현재 타임스탬프에 메모를 남기세요.",
     leaveComment: "댓글 남기기...",
     signInToComment: "댓글을 남기려면 로그인하세요.",
@@ -1122,6 +1125,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "노트가 시작되면 실시간 기록이 여기에 표시됩니다.",
     me: "나",
     them: "상대",
+    unknownSpeaker: "화자",
     searchTranscript: "기록 검색",
     searchPlaceholder: "기록 검색…",
     searchMatchCount: "{{total}}개 중 {{current}}번째",
@@ -1336,10 +1340,11 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     cameraOff: "Camera off (현지화됨)",
     includeCameraAria: "Include camera in this recording (현지화됨)",
     startRecording: "Start recording (현지화됨)",
-    micOffConfirmTitle: "Record without a microphone? (현지화됨)",
+    micOffConfirmTitle: "마이크가 음소거되었습니다",
     micOffConfirmDescription:
-      "Your mic is off, so this recording won't capture any audio. Turn it on before starting if you want narration. (현지화됨)",
-    startWithoutMic: "Start anyway (현지화됨)",
+      "동영상에 소리를 넣으려면 마이크 음소거를 해제하세요.",
+    startWithoutMic: "계속",
+    unmuteMicrophone: "음소거 해제",
     uploadVideo: "Upload video (현지화됨)",
     importLoom: "Import Loom (현지화됨)",
     importing: "Importing... (현지화됨)",
@@ -1422,6 +1427,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 저장을 완료합니다.",
     connectStorageToRetryLoom:
       "다음 화면에서 스토리지를 연결하세요: Builder.io(무료 티어 스토리지 + AI) 또는 S3 호환 스토리지. Clips가 가져오기를 다시 시도합니다.",
+    leaveConfirmTitle: "나가서 이 녹화를 삭제하시겠습니까?",
+    leaveConfirmDescription:
+      "진행 중인 녹화가 아직 저장되지 않았습니다. 지금 이 페이지를 나가면 삭제됩니다.",
+    leaveAndDiscard: "나가서 삭제",
   },
   importRoute: {
     pageTitle: "Loom 가져오기 — Clips",

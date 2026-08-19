@@ -102,6 +102,44 @@ describe("DesktopIdentityGate", () => {
     expect(onSignIn).toHaveBeenCalledOnce();
   });
 
+  it("does not show the email submit button while Google sign-in is pending", async () => {
+    let resolveSignIn: ((result: boolean) => void) | undefined;
+    const onSignIn = vi.fn(
+      () =>
+        new Promise<boolean>((resolve) => {
+          resolveSignIn = resolve;
+        }),
+    );
+    renderGate("sign-in-required", { onSignIn });
+    const email = container.querySelector(
+      'input[placeholder="you@example.com"]',
+    ) as HTMLInputElement;
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set;
+      setter?.call(email, "owner@example.com");
+      email.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(container.textContent).toContain("Continue");
+
+    await act(async () => {
+      container
+        .querySelector(".desktop-identity-gate__provider")
+        ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+
+    expect(container.textContent).not.toContain("Sending...");
+    expect(
+      container.querySelector(".desktop-identity-gate__submit"),
+    ).toBeNull();
+
+    await act(async () => {
+      resolveSignIn?.(true);
+    });
+  });
+
   it("reveals only the password fallback when selected", () => {
     const { onAuthenticate } = renderGate();
     const modeLink = container.querySelector(

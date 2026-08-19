@@ -202,6 +202,33 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("__anPath('/_agent-native/google/auth-url')");
   });
 
+  it("derives the workspace mount for request-specific and cached login HTML", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+
+    const requestHtml = getOnboardingHtml({
+      requestPath: "/dispatch/sign-in?c=continuation",
+    });
+    expect(requestHtml).toContain('var configured = "/dispatch";');
+
+    const cachedHtml = getOnboardingHtml();
+    expect(cachedHtml).toContain('var configured = "";');
+    const start = cachedHtml.indexOf("function __anBasePath()");
+    const end = cachedHtml.indexOf("function __anPath", start);
+    const basePath = new Function(
+      "window",
+      `${cachedHtml.slice(start, end)} return __anBasePath();`,
+    )({ location: { pathname: "/dispatch/sign-in" } });
+    expect(basePath).toBe("/dispatch");
+
+    const rootBasePath = new Function(
+      "window",
+      `${cachedHtml.slice(start, end)} return __anBasePath();`,
+    )({ location: { pathname: "/sign-in" } });
+    expect(rootBasePath).toBe("");
+  });
+
   it("validates email/password auth emails before submitting forms", () => {
     const html = getOnboardingHtml();
 
@@ -497,7 +524,10 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
       `var __AN_AUTH_LOCALE_STORAGE_KEY = "${LOCALE_STORAGE_KEY}"`,
     );
     expect(html).toContain('data-locale-value="es-ES"');
-    expect(html).toContain("Español (Spanish)");
+    expect(html).toContain("Español");
+    expect(html).not.toContain("Español (Spanish)");
+    expect(html).not.toContain("English (en-US)");
+    expect(html).toContain("<span data-system-language>System</span>");
     expect(html).toContain('data-i18n="createAccount"');
     expect(html).toContain("Crear cuenta");
     expect(html).toContain("function __anApplyAuthLocale");
@@ -512,10 +542,51 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
 
     expect(html).toContain('data-marketing-field="tagline"');
     expect(html).toContain('data-marketing-feature-index="0"');
-    expect(html).toContain("你的 AI 代理与你一起构建、发布和分析表单。");
+    expect(html).toContain("你的 AI 代理会与你一起构建、发布和分析表单。");
     expect(html).toContain("用一句话创建完整表单");
     expect(html).toContain("function __anApplyAuthMarketingCopy");
     expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "forms"');
+  });
+
+  it("keeps custom Clips auth marketing copy out of built-in localization", () => {
+    const html = getOnboardingHtml({
+      requestHost: "clips.agent-native.com",
+      marketing: {
+        appName: "Clips",
+        tagline:
+          "Your AI agent transcribes, summarizes, and searches everything you record alongside you.",
+        features: [
+          "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
+          "Calendar-synced meeting notes (Granola-style) with live transcripts and AI action items",
+          "Push-to-talk voice dictation (Wisprflow-style) — hold Fn anywhere, get clean text back",
+          "One searchable library across recordings, meetings, and dictations",
+        ],
+      },
+    });
+
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "";');
+    expect(html).toContain(
+      "One-click screen recording (Loom-style) with auto titles, summaries, and chapters",
+    );
+    expect(html).toContain("var __AN_AUTH_MARKETING_LOCALES = {};");
+    expect(html).toContain("function __anResolveAuthSystemLocale()");
+    expect(html).not.toContain("var rootLocale =");
+  });
+
+  it("keeps custom marketing that reuses a built-in app name out of built-in localized copy", () => {
+    const html = getOnboardingHtml({
+      requestHost: "app.example.com",
+      marketing: {
+        appName: "Dispatch",
+        tagline: BUILT_IN_AUTH_MARKETING.dispatch.tagline,
+        description: "Route parcels across your own fleet.",
+        features: ["Track every van on one map"],
+      },
+    });
+
+    expect(html).not.toContain('var __AN_AUTH_MARKETING_SLUG = "dispatch"');
+    expect(html).toContain("Route parcels across your own fleet.");
+    expect(html).toContain("Track every van on one map");
   });
 
   it("shows configured terms and privacy links on custom email signup", () => {
@@ -603,6 +674,25 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
         legacyReturn: "/inbox#x",
       }).resumeHref,
     ).toBe("/inbox#x");
+
+    const mountedJourney = new Function(
+      `${script} return __anCreateSignInJourney("/dispatch");`,
+    )() as {
+      encodeContinuation: (path: string) => string;
+      signInJourney: (input: {
+        at: string;
+        continuation?: string | null;
+        legacyReturn?: string | null;
+      }) => { resumeHref: string };
+    };
+    const mountedTarget = "/dispatch/apps/feedback-leaderboard";
+    const mountedToken = mountedJourney.encodeContinuation(mountedTarget);
+    expect(
+      mountedJourney.signInJourney({
+        at: `/dispatch/sign-in?c=${mountedToken}`,
+        continuation: mountedToken,
+      }).resumeHref,
+    ).toBe(mountedTarget);
   });
 
   it("uses branded first-party marketing from the request host", () => {
@@ -667,6 +757,33 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
     });
 
     expect(html).not.toContain('class="marketing-panel"');
+  });
+
+  it("does not localize custom marketing that reuses a built-in app name", () => {
+    const html = getOnboardingHtml({
+      marketing: {
+        appName: "Calendar",
+        tagline: "Plan your team's work with a custom calendar.",
+      },
+    });
+
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "";');
+    expect(html).toContain("Plan your team's work with a custom calendar.");
+    expect(html).toContain("var __AN_AUTH_MARKETING_LOCALES = {};");
+  });
+
+  it("does not localize custom marketing from a built-in request host", () => {
+    const html = getOnboardingHtml({
+      requestHost: "dispatch.agent-native.com",
+      marketing: {
+        appName: "Custom Dispatch",
+        tagline: "Route your own work with a custom dispatch flow.",
+      },
+    });
+
+    expect(html).toContain('var __AN_AUTH_MARKETING_SLUG = "";');
+    expect(html).toContain("Route your own work with a custom dispatch flow.");
+    expect(html).toContain("var __AN_AUTH_MARKETING_LOCALES = {};");
   });
 
   it("embeds the public OAuth origin for Builder desktop redirects", () => {

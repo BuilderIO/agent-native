@@ -444,6 +444,12 @@ const messages = {
     pasteStyle: "스타일 붙여넣기",
     copy: "복사",
     paste: "붙여넣기",
+    insertRowAbove: "위에 행 삽입",
+    insertRowBelow: "아래에 행 삽입",
+    deleteRow: "행 삭제",
+    insertColumnLeft: "왼쪽에 열 삽입",
+    insertColumnRight: "오른쪽에 열 삽입",
+    deleteColumn: "열 삭제",
   },
   animations: {
     appear: "出现",
@@ -552,7 +558,19 @@ const messages = {
     joinTeamDescription:
       "此链接指向团队演示文稿。加入上方显示的团队后，幻灯片会自动在此打开。",
     deckUnavailableDescription: "此幻灯片可能已被移除，或你的账户无权访问。",
-    backToDecks: "返回幻灯片",
+    privateDeckTitle: "이 덱은 비공개입니다",
+    privateDeckDescription:
+      "이 덱을 열려면 소유자에게 액세스를 요청하세요. 요청을 보내면 소유자에게 알림이 전송됩니다.",
+    signedInAs: "로그인한 계정",
+    accessRequestSentDescription:
+      "소유자에게 알림을 보냈습니다. 액세스가 허용되면 이 덱을 열 수 있습니다.",
+    accessRequestRecordedDescription:
+      "요청을 기록했습니다. 액세스가 허용되면 이 덱을 열 수 있습니다.",
+    requestAccessPending: "요청 보내는 중…",
+    accessRequestSent: "요청을 보냈습니다",
+    requestAccess: "액세스 요청",
+    signInToRequestAccess: "로그인하여 액세스 요청",
+    backToDecks: "덱으로 돌아가기",
     tryAgain: "重试",
     imageUploadFailed: "图片上传失败",
     imageUploadNeedsBuilder:

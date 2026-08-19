@@ -7,6 +7,31 @@ description: "Nitro プリセット (Node.js、Vercel、Netlify、Cloudflare、A
 
 エージェント ネイティブ アプリは内部で [Nitro](https://nitro.build) を使用します。つまり、プリセットを設定するだけで、設定を変更することなくあらゆるプラットフォームに展開できます。
 
+## クイックスタート: Chat アプリをローカルでセルフホストする {#self-host-quickstart}
+
+始め方は次の 2 つです。
+
+- **アプリを作成する場合:** [Getting Started](/docs/getting-started) から始め、アプリを永続的な環境に置くときにここへ戻ります。
+- **アプリを運用する場合:** まずローカル Docker パスを試します。小さなサーバーで使う Node.js、Postgres、認証、環境変数の構成を同じ形で確認できます。
+
+ローカル スタックは意図的にサンプル認証シークレットとローカル Postgres ボリュームを使用します。`localhost` 用であり、インターネットに公開するためのものではありません。完全な Compose ファイルとコピー可能な手順は [英語のクイックスタート](https://www.agent-native.com/docs/deployment#self-host-quickstart) を参照してください。このクイックスタートでは PostgreSQL 18 のボリューム構成を使用します。PostgreSQL 17 以前で作成したボリュームを再利用しないでください。イメージやマウントパスを変更する前に、既存データをバックアップして移行してください。
+
+### 1. アプリを作成する
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. ローカル スタックを起動する
+
+```bash
+docker compose up --build
+```
+
+[http://localhost:3000](http://localhost:3000) を開きます。組み込みエージェントを使用する場合は、ローカルの `.env` ファイルに `ANTHROPIC_API_KEY` を追加してください。
+
 ## 展開する前に: 永続データベースを選択する {#persistent-database}
 
 デプロイされたすべてのアプリには、永続的な SQL データベースが必要です。ローカル開発では、エージェントネイティブは `data/app.db` の SQLite ファイルにフォールバックします。これはマシンでは便利ですが、ファイルシステムがリセットされる可能性のあるコンテナ、プレビュー、またはサーバーレス環境では耐久性がありません。
@@ -247,6 +272,7 @@ COPY --from=build /app/.output .output
 # data/ はランタイムで作成される SQLite ディレクトリです。dev DB を prod にコピーしないでください。
 # 運用環境の場合、DATABASE_URL をホストされた Postgres インスタンスまたは Turso インスタンスに設定します。
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
@@ -565,6 +591,8 @@ export default createAgentChatPlugin({
 ### Builder.io: 本番環境でのビジュアル編集 {#builderio}
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) は独立したマネージドなコード対応ワークフローで、エージェントが本番環境のアプリ UI を変更できます。リポジトリを Builder.io（無料プランあり）に接続して UI の変更を直接依頼でき、再デプロイは不要です。
+
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
 
 **仕組み:**
 

@@ -7,7 +7,7 @@
  * directly. That way the same feature can work in three modes:
  *
  *   1. User set their own key in .env              → use it directly
- *   2. User connected Builder via `/cli-auth`      → route through Builder proxy
+ *   2. User connected Builder via OAuth            → authorize managed Builder requests
  *   3. Neither                                      → throw FeatureNotConfigured
  *
  * Templates catch FeatureNotConfigured and show a "Connect Builder (1 click) /
@@ -31,6 +31,7 @@ import {
   isTransientDatabaseError,
 } from "../db/client.js";
 import { getOrgSetting } from "../settings/org-settings.js";
+import { isTruthyRuntimeValue } from "../shared/runtime-config.js";
 import { getRequestUserEmail, getRequestOrgId } from "./request-context.js";
 
 const DISPATCH_VAULT_ACCESS_SETTINGS_KEY = "dispatch-vault-access-settings";
@@ -266,8 +267,10 @@ function isHostedWorkspaceRuntime(): boolean {
     process.env.VITE_FUSION_ENV_ORIGIN,
   );
   return (
-    /^(1|true)$/i.test(process.env.AGENT_NATIVE_WORKSPACE ?? "") ||
-    /^(1|true)$/i.test(process.env.VITE_AGENT_NATIVE_WORKSPACE ?? "") ||
+    isTruthyRuntimeValue(process.env.AGENT_NATIVE_WORKSPACE) ||
+    isTruthyRuntimeValue(process.env.VITE_AGENT_NATIVE_WORKSPACE) ||
+    Boolean(process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
+    Boolean(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
     hasFusionPreview
   );
 }

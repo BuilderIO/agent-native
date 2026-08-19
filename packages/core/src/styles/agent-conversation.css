@@ -332,16 +332,37 @@
 }
 
 .agent-mcp-app__error {
+  pointer-events: none;
+  background: transparent;
+}
+
+.agent-mcp-app__error-box {
+  display: flex;
+  max-width: min(100%, 540px);
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 14px;
+  border: 1px solid hsl(var(--destructive) / 0.35);
+  border-radius: calc(var(--radius) - 2px);
+  background: hsl(var(--background) / 0.96);
+  box-shadow: 0 8px 24px hsl(var(--foreground) / 0.12);
+  color: hsl(var(--destructive));
+  text-align: center;
+  pointer-events: auto;
+}
+
+.agent-mcp-app__error {
   flex-direction: column;
   text-align: center;
 }
 
 .agent-mcp-app__open {
   min-height: 28px;
-  border: 1px solid hsl(var(--destructive) / 0.35);
+  border: 1px solid hsl(var(--foreground));
   border-radius: calc(var(--radius) - 2px);
-  background: hsl(var(--background));
-  color: hsl(var(--foreground));
+  background: hsl(var(--foreground));
+  color: hsl(var(--background));
   cursor: pointer;
   font: inherit;
   font-weight: 600;
@@ -349,7 +370,7 @@
 }
 
 .agent-mcp-app__open:hover {
-  background: hsl(var(--muted));
+  opacity: 0.86;
 }
 
 .agent-mcp-app__error,

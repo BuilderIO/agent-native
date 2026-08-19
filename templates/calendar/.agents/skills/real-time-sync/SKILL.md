@@ -50,7 +50,7 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 
    For list/sidebar queries, use the same pattern — pass the counter into the queryKey of every list query you want to keep fresh.
 
-4. **Fallback** polling calls `/_agent-native/poll?since=N`. It runs every 2 seconds until SSE is connected, then relaxes to 15 seconds (`SSE_FALLBACK_INTERVAL_MS`). If SSE is disabled or unavailable (e.g., edge/serverless deployments), polling continues at the 2 s cadence. Polling is the universal serverless fallback: new framework writes are read from the durable `sync_events` log, while the older DB timestamp scan remains as a slower safety net for direct SQL writes and older processes.
+4. **Fallback** polling calls `/_agent-native/poll?since=N`. It polls every 2 seconds only while an agent run is in flight; otherwise it idles at 60 seconds whether or not SSE is connected (`SSE_FALLBACK_INTERVAL_MS` and `IDLE_POLL_INTERVAL_MS`, both 60 s). A hidden tab polls no faster than every 10 seconds (`HIDDEN_POLL_INTERVAL_MS`). Polling is the universal serverless fallback: new framework writes are read from the durable `sync_events` log, while the older DB timestamp scan remains as a slower safety net for direct SQL writes and older processes.
 
 5. When the agent writes to the database, the version increments, SSE/polling detects it, and React Query refetches the affected queries.
 

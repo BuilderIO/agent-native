@@ -227,6 +227,12 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toMatch(
       /\.desktop-apps-grid\s*\{[\s\S]*?max-width: 1000px;/,
     );
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-hub \.code-agents-start \.code-agents-project-picker--bar\s*\{[\s\S]*?margin-top: -10px;/,
+    );
+    expect(shellCss).toMatch(
+      /\.desktop-chat-first-hub \.code-agents-start \.code-agents-overview-footer\s*\{[\s\S]*?margin-top: 10px;/,
+    );
   });
 
   it("keeps all visible chat-first app surfaces mounted in the main view", () => {
@@ -374,7 +380,8 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(hubSource).toContain("AppOpenActions");
     expect(hubSource).toContain("desktop-app-card__actions");
     expect(hubSource).toContain("Open in browser");
-    expect(hubSource).toContain("Pin to top");
+    expect(hubSource).toContain("Pin this app");
+    expect(hubSource).toContain("Unpin this app");
     expect(hubSource).toContain("desktop-apps-grid--full-page");
     expect(hubSource).toContain("chatFirstAllAppsOpen");
     expect(hubSource).toContain("onOpenAllApps={openChatFirstAllApps}");

@@ -40,7 +40,7 @@ export interface UpdateWorkspaceUserGroupMembersInput {
   orgId?: string | null;
 }
 
-function workspaceUserGroupsTable(): string {
+export function workspaceUserGroupsTable(): string {
   return isPostgres()
     ? "public.workspace_user_groups"
     : "workspace_user_groups";
@@ -261,10 +261,19 @@ export async function assertWorkspaceUserGroupManager(
   orgId: string | null | undefined,
   userEmail: string | undefined,
 ): Promise<void> {
+  const role = await workspaceUserGroupRole(orgId, userEmail);
+  if (role === "owner" || role === "admin") return;
+  throw new Error("Only workspace admins can manage user groups.");
+}
+
+export async function workspaceUserGroupRole(
+  orgId: string | null | undefined,
+  userEmail: string | undefined,
+): Promise<"owner" | "admin" | "member" | null> {
   const normalizedOrgId = orgId?.trim();
   const normalizedEmail = userEmail?.trim().toLowerCase();
   if (!normalizedOrgId || !normalizedEmail) {
-    throw new Error("Only workspace admins can manage user groups.");
+    return null;
   }
   const { rows } = await getDbExec().execute({
     sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
@@ -273,9 +282,9 @@ export async function assertWorkspaceUserGroupManager(
   const role = String(
     (rows[0] as Record<string, unknown> | undefined)?.role ?? "",
   );
-  if (role !== "owner" && role !== "admin") {
-    throw new Error("Only workspace admins can manage user groups.");
-  }
+  return role === "owner" || role === "admin" || role === "member"
+    ? role
+    : null;
 }
 
 export async function upsertWorkspaceUserGroup(
@@ -410,6 +419,10 @@ export async function workspaceUserGroupsIncludeUser(
   if (!normalizedOrgId || !normalizedEmail || normalizedIds.length === 0) {
     return false;
   }
+  // Group rows can outlive roster membership. A stale email in the JSON
+  // member list must not keep granting access after that person leaves the
+  // organization.
+  if (!(await isOrgMember(normalizedOrgId, normalizedEmail))) return false;
   const groups = await listWorkspaceUserGroupsForOrg(
     normalizedOrgId,
     normalizedIds,

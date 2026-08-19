@@ -7,6 +7,31 @@ description: "Stellen Sie agentennative Apps auf jeder Plattform mit Nitro-Vorei
 
 Agent-native Apps verwenden unter der Haube [Nitro](https://nitro.build), was bedeutet, dass Sie sie ohne Konfigurationsänderungen auf jeder Plattform bereitstellen können – legen Sie einfach eine Voreinstellung fest.
 
+## Schnellstart: eine Chat-App lokal selbst hosten {#self-host-quickstart}
+
+Es gibt zwei gute Einstiegspunkte:
+
+- **Sie bauen eine App?** Beginnen Sie mit [Getting Started](/docs/getting-started) und kehren Sie hierher zurück, wenn Sie die App dauerhaft bereitstellen möchten.
+- **Sie betreiben eine App?** Verwenden Sie zuerst den lokalen Docker-Pfad. Er nutzt dieselbe Form aus Node.js, Postgres, Authentifizierung und Umgebungsvariablen wie ein kleiner Server.
+
+Der lokale Stack verwendet absichtlich ein Beispiel-Auth-Secret und ein lokales Postgres-Volume. Er ist für `localhost`, nicht für eine Bereitstellung im Internet gedacht. Die vollständige Compose-Datei und kopierbaren Schritte finden Sie im [englischen Schnellstart](https://www.agent-native.com/docs/deployment#self-host-quickstart). Dieser Schnellstart verwendet das Volume-Layout von PostgreSQL 18. Verwenden Sie kein Volume wieder, das von PostgreSQL 17 oder älter erstellt wurde. Sichern und migrieren Sie vorhandene Daten, bevor Sie Image oder Mount-Pfad ändern.
+
+### 1. App erstellen
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. Lokalen Stack starten
+
+```bash
+docker compose up --build
+```
+
+Öffnen Sie [http://localhost:3000](http://localhost:3000). Fügen Sie `ANTHROPIC_API_KEY` zu einer lokalen `.env`-Datei hinzu, wenn Sie den eingebetteten Agenten verwenden möchten.
+
 ## Vor der Bereitstellung: Wählen Sie eine persistente Datenbank {#persistent-database}
 
 Jede bereitgestellte App benötigt eine persistente SQL-Datenbank. Bei der lokalen Entwicklung greift Agent-nativ auf eine SQLite-Datei unter `data/app.db` zurück; Das ist praktisch auf Ihrem Computer, aber in Containern, Vorschauen oder serverlosen Umgebungen, in denen das Dateisystem zurückgesetzt werden kann, ist es nicht dauerhaft.
@@ -247,6 +272,7 @@ COPY --from=build /app/.output .output
 # data/ ist ein zur Laufzeit erstelltes SQLite-Verzeichnis – kopieren Sie keine Entwicklungsdatenbank in prod.
 # Legen Sie für die Produktion DATABASE_URL auf eine gehostete Postgres- oder Turso-Instanz fest.
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]
@@ -569,6 +595,8 @@ In einer standardmäßigen Produktionsbereitstellung mit weggelassenem [producti
 ### Builder.io: Visuelle Bearbeitung in der Produktion {#builderio}
 
 [Builder.io](https://www.builder.io?utm_source=agent-native&utm_medium=docs&utm_campaign=framework&utm_content=deployment) ist ein separater verwalteter codefähiger Workflow, in dem ein Agent die UI Ihrer App in Produktion ändern kann. Verbinden Sie Ihr Repository mit Builder.io (kostenloser Tarif verfügbar) und fordern Sie UI-Änderungen direkt an – keine erneute Bereitstellung erforderlich.
+
+**Connect Builder** in Settings uses Builder OAuth (`builder:ai:invoke`) with a same-origin HTTPS callback under `/_agent-native/builder/callback`, so hosted origins such as Railway work without a domain allowlist. Legacy `BUILDER_*` private keys remain a runtime fallback for existing connections.
 
 **So funktioniert es:**
 

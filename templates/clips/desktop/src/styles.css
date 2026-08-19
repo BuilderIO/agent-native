@@ -3151,6 +3151,116 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* ------------------------------------------------------------------------- */
+/* Microphone-off confirmation                                                */
+/* ------------------------------------------------------------------------- */
+
+.mic-off-confirmation {
+  min-height: 430px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+}
+
+.mic-off-confirmation-header {
+  display: flex;
+  align-items: center;
+  padding: 16px 18px 8px;
+}
+
+.mic-off-confirmation-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 4px 6px 4px 2px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font-size: 15px;
+  font-weight: 650;
+  transition:
+    background 120ms,
+    color 120ms;
+}
+
+.mic-off-confirmation-back:hover {
+  background: var(--surface-hover);
+}
+
+.mic-off-confirmation-back:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--brand-ring);
+}
+
+.mic-off-confirmation-body {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 28px 30px;
+  text-align: center;
+}
+
+.mic-off-confirmation-visual {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  background: var(--surface-strong);
+  color: var(--status-warn);
+}
+
+.mic-off-confirmation-slash {
+  position: absolute;
+  width: 58px;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--status-warn);
+  transform: rotate(45deg);
+}
+
+.mic-off-confirmation-body h2 {
+  margin: 24px 0 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.mic-off-confirmation-body p {
+  max-width: 300px;
+  margin: 8px 0 0;
+  color: var(--fg-muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.mic-off-confirmation-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 16px 18px 18px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+.mic-off-confirmation-actions .primary,
+.mic-off-confirmation-actions .secondary {
+  width: auto;
+  min-width: 0;
+  height: 42px;
+  padding: 0 12px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------------------- */
 /* Alert dialog                                                              */
 /* ------------------------------------------------------------------------- */
 
@@ -5264,124 +5374,6 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 /* ------------------------------------------------------------------------- */
-/* Overlay: onboarding                                                        */
-/* ------------------------------------------------------------------------- */
-
-.onboarding-root {
-  position: fixed;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: #212121;
-  color: #f5f5f5;
-}
-
-.onboarding-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 20px;
-  padding: 40px 36px;
-  max-width: 380px;
-  width: 100%;
-}
-
-.onboarding-title {
-  font-size: 22px;
-  font-weight: 700;
-  color: white;
-  margin: 0;
-  letter-spacing: -0.3px;
-}
-
-.onboarding-subtitle {
-  font-size: 14px;
-  color: #a3a3a3;
-  margin: -8px 0 0;
-}
-
-.onboarding-features {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  width: 100%;
-}
-
-.onboarding-feature {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  padding: 14px 16px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 12px;
-  cursor: pointer;
-  user-select: none;
-}
-
-.onboarding-feature:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-.onboarding-checkbox {
-  width: 18px;
-  height: 18px;
-  margin: 1px 0 0;
-  accent-color: #16a34a;
-  cursor: pointer;
-  flex-shrink: 0;
-}
-
-.onboarding-feature-text {
-  display: flex;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.onboarding-feature-name {
-  font-size: 14px;
-  font-weight: 600;
-  color: white;
-}
-
-.onboarding-feature-desc {
-  font-size: 12px;
-  color: #a3a3a3;
-  line-height: 1.4;
-}
-
-.onboarding-cta {
-  width: 100%;
-  border: none;
-  border-radius: 12px;
-  padding: 12px 16px;
-  background: #f5f5f5;
-  color: #212121;
-  font-size: 14px;
-  font-weight: 600;
-  cursor: pointer;
-  height: 44px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  margin-top: 4px;
-}
-
-.onboarding-cta:hover {
-  background: #e5e5e5;
-}
-
-.onboarding-cta:active {
-  transform: translateY(1px);
-}
-
-.onboarding-cta:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-/* ------------------------------------------------------------------------- */
 /* Overlay: meeting notification                                              */
 /* ------------------------------------------------------------------------- */
 
@@ -5412,24 +5404,6 @@ body[data-clips-route="recording-pill"] #root {
   pointer-events: auto;
   min-width: 320px;
   max-width: 440px;
-}
-
-.meeting-notification-bar {
-  width: 3px;
-  height: 36px;
-  border-radius: 999px;
-  flex-shrink: 0;
-}
-
-.meeting-notification-bar-calendar {
-  background: #7dd3fc;
-}
-
-.meeting-notification-bar-adhoc {
-  background: transparent;
-  border-left: 3px dashed #a3a3a3;
-  width: 3px;
-  border-radius: 0;
 }
 
 .meeting-notification-content {

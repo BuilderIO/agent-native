@@ -315,6 +315,15 @@ export type AgentChatEvent =
       approvalKey: string;
       /** The model-side tool-call id for this paused call, when available. */
       toolCallId?: string;
+      /**
+       * Identifies THIS gate hit, distinct from any earlier ask carrying the
+       * same `approvalKey`/`toolCallId`. A failed resume (expired grant,
+       * turn-id mismatch) re-emits `approval_required` for the same call with
+       * a fresh `askId`; the client uses the change to tell that apart from
+       * the same ask simply re-rendering, so a stale "approved" mark can't
+       * permanently hide Approve/Deny with no way to retry.
+       */
+      askId?: string;
     }
   | {
       type: "agent_call";

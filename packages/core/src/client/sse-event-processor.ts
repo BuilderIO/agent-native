@@ -54,8 +54,12 @@ export type ContentPart =
        * call (opt-in `needsApproval` actions). The action did NOT run; the UI
        * renders an Approve/Deny affordance. `approvalKey` is echoed back in
        * `approvedToolCalls` to approve, `dismissed` records a local Deny.
+       * `askId` identifies THIS gate hit; it changes when a failed resume
+       * re-emits `approval_required` for the same call, which is how the UI
+       * tells that apart from the same ask simply re-rendering (see
+       * `ApprovalAffordance` in chat/tool-call-display.tsx).
        */
-      approval?: { approvalKey: string; dismissed?: boolean };
+      approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
       /**
        * Structured metadata from the coding-tools executor side-channel.
        * Present only on code-agent tool calls from executors new enough to
@@ -83,6 +87,8 @@ export interface SSEEvent {
   approvalKey?: string;
   /** Model-side tool-call id for `approval_required` (mirrors AgentChatEvent). */
   toolCallId?: string;
+  /** Identifies this `approval_required` gate hit (mirrors AgentChatEvent). */
+  askId?: string;
   error?: string;
   seq?: number;
   agent?: string;
@@ -1628,7 +1634,10 @@ export function processEvent(
       if (idx >= 0) {
         const part = content[idx];
         if (part.type === "tool-call") {
-          part.approval = { approvalKey };
+          part.approval = {
+            approvalKey,
+            ...(ev.askId ? { askId: ev.askId } : {}),
+          };
         }
       }
     }

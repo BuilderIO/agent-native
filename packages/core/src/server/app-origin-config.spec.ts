@@ -16,6 +16,10 @@ const KEYS = [
   "VITE_WORKSPACE_GATEWAY_URL",
   "WORKSPACE_OAUTH_ORIGIN",
   "VITE_WORKSPACE_OAUTH_ORIGIN",
+  "AGENT_NATIVE_WORKSPACE",
+  "VITE_AGENT_NATIVE_WORKSPACE",
+  "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+  "VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON",
 ];
 
 describe("app origin client config", () => {
@@ -56,6 +60,14 @@ describe("app origin client config", () => {
     expect(resolvePublicAppOriginConfig()).toEqual({
       appUrl: "https://vite.example.com",
       workspaceGatewayUrl: "https://vite-gw.example.com",
+    });
+  });
+
+  it("projects workspace runtime state for browser-only consumers", () => {
+    process.env.AGENT_NATIVE_WORKSPACE = "true";
+
+    expect(resolvePublicAppOriginConfig()).toEqual({
+      workspaceRuntime: true,
     });
   });
 
