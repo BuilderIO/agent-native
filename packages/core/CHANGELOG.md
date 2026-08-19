@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.164.17
+
+### Patch Changes
+
+- d492462: Support TipTap mark rule helpers in generated SSR stubs.
+
 ## 0.164.16
 
 ### Patch Changes
