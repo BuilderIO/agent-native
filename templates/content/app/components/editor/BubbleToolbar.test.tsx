@@ -10,6 +10,7 @@ import {
   BubbleToolbar,
   getSelectionNotionSpanAttribute,
   selectionHasColorableText,
+  setSelectionNotionSpanAttribute,
   shouldShowBubbleToolbar,
 } from "./BubbleToolbar";
 import {
@@ -562,6 +563,30 @@ describe("BubbleToolbar", () => {
     });
 
     expect(getSelectionNotionSpanAttribute(editor, "color")).toBe("red");
+  });
+
+  it("skips unmarkable code-block text when applying a color", () => {
+    editorElement = document.createElement("div");
+    document.body.append(editorElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, NotionSpanMark],
+      content: "<p>Text</p><pre><code>Code</code></pre>",
+    });
+    editor.commands.setTextSelection({
+      from: 1,
+      to: editor.state.doc.content.size,
+    });
+
+    expect(setSelectionNotionSpanAttribute(editor, "color", "red")).toBe(true);
+    expect(editor.state.doc.nodeAt(1)?.marks[0]?.attrs.color).toBe("red");
+    let codeMarkCount: number | undefined;
+    editor.state.doc.descendants((node, _position, parent) => {
+      if (node.isText && parent?.type.name === "codeBlock") {
+        codeMarkCount = node.marks.length;
+      }
+    });
+    expect(codeMarkCount).toBe(0);
   });
 
   it("hides the color control when a selection contains no text", () => {

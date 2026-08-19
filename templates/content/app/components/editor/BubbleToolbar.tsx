@@ -138,8 +138,8 @@ export function setSelectionNotionSpanAttribute(
   if (!markType || from === to) return false;
 
   const transaction = state.tr;
-  state.doc.nodesBetween(from, to, (node, position) => {
-    if (!node.isText) return;
+  state.doc.nodesBetween(from, to, (node, position, parent) => {
+    if (!node.isText || !parent?.type.allowsMarkType(markType)) return;
     const start = Math.max(from, position);
     const end = Math.min(to, position + node.nodeSize);
     if (start >= end) return;
