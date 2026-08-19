@@ -475,16 +475,16 @@ export default function ClipsTemplate() {
       <SectionDivider showOnSmallScreens={false} />
 
       {/* Library + Search split */}
-      <section className="border border-[#1a1a1a]">
+      <section className="border border-[var(--docs-border)]">
         <div className="grid lg:grid-cols-2">
-          <div className="flex flex-col border-b border-[#1a1a1a] lg:border-b-0 lg:border-e">
+          <div className="flex flex-col border-b border-[var(--docs-border)] lg:border-b-0 lg:border-e">
             <h3 className="m-0 px-6 pt-10 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)] sm:px-8 lg:px-10 lg:pt-16">
               {t("templateLanding.clips.s016")}
             </h3>
-            <p className="m-0 px-6 pb-6 pt-6 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[#9a9997] sm:px-8 lg:px-10 lg:pb-10">
+            <p className="m-0 px-6 pb-6 pt-6 text-lg font-medium leading-[1.15] tracking-[-0.36px] text-[var(--fg-secondary)] sm:px-8 lg:px-10 lg:pb-10">
               {t("templateLanding.clips.s017")}
             </p>
-            <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[#e0e0d7] sm:px-8 lg:mt-auto lg:px-10">
+            <ul className="m-0 list-none px-6 py-8 text-lg leading-[1.3] text-[var(--fg)] sm:px-8 lg:mt-auto lg:px-10">
               <li className="flex items-center gap-4 py-3">
                 <svg
                   className="shrink-0"
@@ -611,13 +611,13 @@ export default function ClipsTemplate() {
       <SectionDivider showOnSmallScreens={false} />
 
       {/* Agent actions */}
-      <section className="border-t border-[#1a1a1a]">
+      <section className="border-t border-[var(--docs-border)]">
         <div className="flex flex-col lg:flex-row lg:items-stretch">
-          <div className="flex flex-col justify-center gap-4 border-b border-[#1a1a1a] px-6 py-10 sm:px-10 lg:w-1/3 lg:shrink-0 lg:border-b-0 lg:border-e lg:py-16 lg:ps-8 lg:pe-16">
+          <div className="flex flex-col justify-center gap-4 border-b border-[var(--docs-border)] px-6 py-10 sm:px-10 lg:w-1/3 lg:shrink-0 lg:border-b-0 lg:border-e lg:py-16 lg:ps-8 lg:pe-16">
             <h2 className="m-0 text-[1.75rem] font-medium leading-[1.15] tracking-[-0.56px] text-[var(--fg)]">
               {t("templateLanding.clips.s026")}
             </h2>
-            <p className="m-0 text-lg leading-[1.3] text-[#9a9997]">
+            <p className="m-0 text-lg leading-[1.3] text-[var(--fg-secondary)]">
               {t("templateLanding.clips.s027")}
             </p>
           </div>
@@ -637,9 +637,9 @@ export default function ClipsTemplate() {
       {/* Comparison table */}
       <section
         id="comparison"
-        className="scroll-mt-24 border-t border-[#1a1a1a]"
+        className="scroll-mt-24 border-t border-[var(--docs-border)]"
       >
-        <div className="border-x border-[#1a1a1a] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
+        <div className="border-x border-[var(--docs-border)] px-6 pb-10 pt-16 sm:px-8 sm:pb-14 sm:pt-24 lg:pb-20 lg:pt-32">
           <h2 className="m-0 text-[1.75rem] font-medium leading-[1.05] tracking-[-0.56px] text-[var(--fg)] sm:text-4xl lg:text-[2.875rem] lg:tracking-[-0.92px]">
             {t("templateLanding.clips.s032")}
           </h2>
@@ -791,7 +791,7 @@ export default function ClipsTemplate() {
             >
               <path
                 d="M13.3125 12C13.3125 12.3107 13.0606 12.5625 12.75 12.5625C12.4393 12.5625 12.1875 12.3107 12.1875 12V6.60791L5.64766 13.1477C5.42799 13.3674 5.07192 13.3674 4.85225 13.1477C4.63258 12.928 4.63258 12.572 4.85225 12.3523L11.392 5.8125H5.99996C5.6893 5.8125 5.43746 5.56066 5.43746 5.25C5.43746 4.93934 5.6893 4.6875 5.99996 4.6875H12.75C13.0606 4.6875 13.3125 4.93934 13.3125 5.25V12Z"
-                fill="#FAF9F5"
+                fill="currentColor"
               />
             </svg>
           </TemplateDocsLink>

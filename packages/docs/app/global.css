@@ -2159,7 +2159,7 @@ html.dark .shiki span {
 
 .secondary-button:hover {
   border-color: var(--fg-secondary);
-  color: white;
+  color: var(--fg);
   text-decoration: none;
 }
 
