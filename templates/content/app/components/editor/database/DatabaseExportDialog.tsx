@@ -244,7 +244,7 @@ export function DatabaseExportDialog({
             onClick={() => onOpenChange(false)}
             disabled={exportDocument.isPending}
           >
-            {t("editor.toolbar.cancel")}
+            {t("comments.cancel")}
           </Button>
           <Button
             type="button"
