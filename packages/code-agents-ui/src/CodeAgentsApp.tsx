@@ -1498,12 +1498,18 @@ export default function CodeAgentsApp({
       if (typeof prompt !== "string" || !prompt.trim()) return;
 
       let attempts = 0;
-      let frame = 0;
+      let frame: number | undefined;
       const insertPrompt = () => {
         const editor = document.querySelector<HTMLElement>(
           '[contenteditable="true"]',
         );
-        if (!editor || !editor.isConnected) {
+        const newChatSurface = editor?.closest(".code-agents-start");
+        if (
+          !editor ||
+          !editor.isConnected ||
+          !newChatSurface ||
+          document.querySelector(".desktop-code-agent-schedules")
+        ) {
           attempts += 1;
           if (attempts < 30) {
             frame = window.requestAnimationFrame(insertPrompt);
@@ -1512,7 +1518,7 @@ export default function CodeAgentsApp({
           return;
         }
 
-        pendingFrames.delete(frame);
+        if (frame !== undefined) pendingFrames.delete(frame);
         editor.focus();
         const selection = window.getSelection();
         const range = document.createRange();

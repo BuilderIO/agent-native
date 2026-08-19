@@ -935,7 +935,7 @@ export default function CodeAgentsHub({
             detail: { prompt },
           }),
         );
-      }, 0);
+      }, 250);
     },
     [returnToChatFirstChats],
   );
