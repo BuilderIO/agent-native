@@ -2378,8 +2378,7 @@ export function createAgentChatPlugin(
       // `nativeActionsInDev` or `leanPrompt`), the dev prompt's "invoke
       // template actions via bash" guidance is wrong — use the prod prompt
       // + tool-format action list instead, same as production.
-      const devNative =
-        options?.nativeActionsInDev === true || leanPrompt;
+      const devNative = options?.nativeActionsInDev === true || leanPrompt;
       // Keep legacy names for the composition below
       const basePrompt = prodPrompt;
       const getFrameworkPromptActions = (): Record<string, ActionEntry> =>

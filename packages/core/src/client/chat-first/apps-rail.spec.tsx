@@ -12,9 +12,42 @@ import {
 describe("ChatFirstAppsRail", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let localStorageDescriptor: PropertyDescriptor | undefined;
+
+  function createMemoryStorage(): Storage {
+    const values = new Map<string, string>();
+    return {
+      get length() {
+        return values.size;
+      },
+      clear() {
+        values.clear();
+      },
+      getItem(key) {
+        return values.get(key) ?? null;
+      },
+      key(index) {
+        return [...values.keys()][index] ?? null;
+      },
+      removeItem(key) {
+        values.delete(key);
+      },
+      setItem(key, value) {
+        values.set(String(key), String(value));
+      },
+    };
+  }
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    localStorageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "localStorage",
+    );
+    Object.defineProperty(window, "localStorage", {
+      configurable: true,
+      value: createMemoryStorage(),
+    });
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -24,6 +57,11 @@ describe("ChatFirstAppsRail", () => {
     act(() => root.unmount());
     window.localStorage.removeItem(CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY);
     container.remove();
+    if (localStorageDescriptor) {
+      Object.defineProperty(window, "localStorage", localStorageDescriptor);
+    } else {
+      Reflect.deleteProperty(window, "localStorage");
+    }
   });
 
   it("grays non-selected app icons while keeping the selected icon in color", () => {

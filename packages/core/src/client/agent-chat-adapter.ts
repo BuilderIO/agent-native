@@ -2146,6 +2146,18 @@ export function createAgentChatAdapter(
           preemptRunStream(threadId, runId, streamOwnershipToken);
         }
       };
+      let terminalChatUiStopped = false;
+      const publishTerminalChatUiStopped = () => {
+        if (terminalChatUiStopped) return;
+        terminalChatUiStopped = true;
+        if (typeof window === "undefined") return;
+        dispatchTerminalChatUiCleanup(tabId);
+        window.dispatchEvent(
+          new CustomEvent("agentNative.chatRunning", {
+            detail: { isRunning: false, tabId },
+          }),
+        );
+      };
       const settleTerminalChatRun = () => {
         if (threadId && runId) {
           releaseRunStream(threadId, runId, streamOwnershipToken);
@@ -2156,13 +2168,7 @@ export function createAgentChatAdapter(
         } else {
           clearActiveRun();
         }
-        if (typeof window === "undefined") return;
-        dispatchTerminalChatUiCleanup(tabId);
-        window.dispatchEvent(
-          new CustomEvent("agentNative.chatRunning", {
-            detail: { isRunning: false, tabId },
-          }),
-        );
+        publishTerminalChatUiStopped();
       };
       const seenRunSeqs = new Map<string, number>();
       const preparingActionStatesByRun = new Map<
@@ -4619,14 +4625,7 @@ export function createAgentChatAdapter(
           }
         }
       } finally {
-        if (typeof window !== "undefined" && ownsActiveRunState()) {
-          dispatchTerminalChatUiCleanup(tabId);
-          window.dispatchEvent(
-            new CustomEvent("agentNative.chatRunning", {
-              detail: { isRunning: false, tabId },
-            }),
-          );
-        }
+        publishTerminalChatUiStopped();
       }
     },
   };

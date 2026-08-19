@@ -8,6 +8,7 @@ import ChatRoute from "./chat";
 
 const clientState = vi.hoisted(() => ({
   surfaceProps: null as Record<string, unknown> | null,
+  writeClipboardText: vi.fn(),
   agents: [] as Array<{
     id: string;
     name: string;
@@ -32,6 +33,10 @@ vi.mock("@agent-native/core/client/agent-chat", () => ({
     path: string,
   ) => navigate(path),
   sendToAgentChat: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/clipboard", () => ({
+  writeClipboardText: clientState.writeClipboardText,
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
@@ -179,5 +184,29 @@ describe("Dispatch ChatRoute", () => {
         }
       ).getPath("thread-1"),
     ).toBe("/chat/thread-1?agent=agents%2Fresearch-partner.md");
+  });
+
+  it("exposes a copyable request ID affordance on threaded chats", async () => {
+    clientState.writeClipboardText.mockResolvedValue(true);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/chat/chat-123"]}>
+          <ChatRoute />
+        </MemoryRouter>,
+      );
+    });
+
+    const button = Array.from(container.querySelectorAll("button")).find((el) =>
+      el.textContent?.includes("Copy request ID"),
+    );
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await Promise.resolve();
+    });
+
+    expect(clientState.writeClipboardText).toHaveBeenCalledWith("chat-123");
   });
 });

@@ -35,15 +35,16 @@ import type {
   ChatFirstCopy,
 } from "./types.js";
 
-const CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY =
+export const CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY =
   "agent-native:chat-first-app-rail-show-all:v1";
 
 function readChatFirstAppRailShowAll(): boolean {
   if (typeof window === "undefined") return false;
   try {
-    return window.localStorage.getItem(
-      CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY,
-    ) === "true";
+    return (
+      window.localStorage.getItem(CHAT_FIRST_APP_RAIL_SHOW_ALL_STORAGE_KEY) ===
+      "true"
+    );
   } catch {
     return false;
   }

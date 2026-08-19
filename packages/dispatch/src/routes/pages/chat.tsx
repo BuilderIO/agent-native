@@ -5,13 +5,16 @@ import {
   readChatFirstMode,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
+import { writeClipboardText } from "@agent-native/core/client/clipboard";
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { IconCheck, IconCopy } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
   useMemo,
   useRef,
+  useState,
   type ComponentProps,
 } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -19,6 +22,7 @@ import { useLocation, useNavigate } from "react-router";
 import { ActionQueryError } from "../../components/action-query-error";
 import { useDispatchExtensions } from "../../components/layout/Layout";
 import { Skeleton } from "../../components/ui/skeleton";
+import { Button } from "../../components/ui/button";
 import { submitOverviewPrompt } from "../../lib/overview-chat";
 
 interface WorkspaceAgentResource {
@@ -84,6 +88,42 @@ type DispatchAgentChatSurfaceProps = ComponentProps<typeof AgentChatSurface> & {
 
 function DispatchAgentChatSurface(props: DispatchAgentChatSurfaceProps) {
   return <AgentChatSurface {...props} />;
+}
+
+function DispatchRequestIdButton({ requestId }: { requestId: string }) {
+  const t = useT();
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = useCallback(() => {
+    void writeClipboardText(requestId).then((ok) => {
+      if (!ok) return;
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1000);
+    });
+  }, [requestId]);
+
+  return (
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      onClick={handleCopy}
+      aria-label={t("dispatch.pages.copyRequestId", {
+        defaultValue: "Copy request ID",
+      })}
+    >
+      {copied ? (
+        <IconCheck aria-hidden="true" />
+      ) : (
+        <IconCopy aria-hidden="true" />
+      )}
+      {copied
+        ? t("dispatch.pages.copied", { defaultValue: "Copied" })
+        : t("dispatch.pages.copyRequestId", {
+            defaultValue: "Copy request ID",
+          })}
+    </Button>
+  );
 }
 
 interface DispatchChatLocationState {
@@ -275,6 +315,11 @@ export default function ChatRoute() {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
+      {threadUrlSync.routeThreadId ? (
+        <div className="flex justify-end px-4 pt-4 sm:px-6">
+          <DispatchRequestIdButton requestId={threadUrlSync.routeThreadId} />
+        </div>
+      ) : null}
       <DispatchAgentChatSurface
         key={agent ? `agent-${agent.id}` : "dispatch"}
         mode="page"
