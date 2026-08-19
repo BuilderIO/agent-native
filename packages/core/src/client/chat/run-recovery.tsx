@@ -534,8 +534,9 @@ export function RunErrorRecoveryCard({
 
   const handleProviderConnected = useCallback(() => {
     onProviderConnected?.();
+    onRetry();
     onDismiss();
-  }, [onDismiss, onProviderConnected]);
+  }, [onDismiss, onProviderConnected, onRetry]);
 
   const handleFork = useCallback(async () => {
     if (!onFork || forking) return;
