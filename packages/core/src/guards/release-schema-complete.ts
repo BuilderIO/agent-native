@@ -20,7 +20,34 @@ import path from "node:path";
 import { readFileSafe, relPosix, walk } from "./scan-utils.js";
 import type { GuardFinding, GuardResult, GuardScanOptions } from "./types.js";
 
-const ENSURE_CALL_RE = /\bensureTableExists\s*\(/;
+/**
+ * What counts as "this module creates a table". `ensureTableExists` is the
+ * intended helper, but a store that executes its DDL through the raw client
+ * creates schema just as much, and needs the release pass just as much. Missing
+ * that second form is how `extensions/slots/store.ts` stayed invisible to the
+ * first version of this guard.
+ *
+ * Keyed on EXECUTING the DDL, not on containing it. A `schema.ts` that exports
+ * `CREATE TABLE` strings and a migration list that stores them both mention the
+ * SQL without ever running it: the first is executed by its own store, which is
+ * on the list, and the second is applied by `runMigrations`.
+ */
+const ENSURE_CALL_RES = [
+  /\bensureTableExists\s*\(/,
+  /\.execute\(\s*`[^`]*\bCREATE\s+TABLE\b/i,
+];
+/**
+ * A store that runs DDL held in a named constant, the way `extensions/slots`
+ * does. Keyed on the `_CREATE_SQL` / `_TABLE_SQL` / `_INDEX_SQL` naming rather
+ * than on any executed constant, so a plain `execute(DB_PRESSURE_SQL)` SELECT
+ * is not mistaken for schema.
+ */
+const EXECUTES_RE = /\.execute\s*\(/;
+const DDL_CONST_RE =
+  /\b[A-Z][A-Z0-9_]*_(?:CREATE|TABLE|INDEX)_SQL(?:_[A-Z0-9]+)?\b/;
+const definesSchema = (code: string) =>
+  ENSURE_CALL_RES.some((re) => re.test(code)) ||
+  (EXECUTES_RE.test(code) && DDL_CONST_RE.test(code));
 const ALLOW_MARKER_RE = /guard:allow-unreleased-schema\s*[—-]\s*\S/;
 const SOURCE_EXTENSIONS = /\.(?:ts|tsx|mts|cts)$/i;
 const TEST_FILE = /\.(?:spec|test)\.(?:ts|tsx|mts|cts)$/i;
@@ -28,6 +55,8 @@ const TEST_FILE = /\.(?:spec|test)\.(?:ts|tsx|mts|cts)$/i;
 /** The list under audit, plus the helper that implements the probe itself. */
 const RELEASE_LIST = "src/server/release-schema.ts";
 const DDL_GUARD = "src/db/ddl-guard.ts";
+/** The migration runner executes migration-list DDL; `runMigrations` owns it. */
+const MIGRATION_RUNNER = "src/db/migrations.ts";
 /** Guards describe this rule in prose; they never own schema. */
 const GUARDS_DIR = "src/guards/";
 
@@ -52,7 +81,8 @@ export interface ReleaseSchemaScanOptions extends GuardScanOptions {
  */
 function coveredModules(coreDir: string, listSource: string): Set<string> {
   const covered = new Set<string>();
-  const importRe = /from\s+"([^"]+)"/g;
+  // Static `from "..."` and dynamic `import("...")`; the list uses the latter.
+  const importRe = /(?:from\s+|import\s*\(\s*)"([^"]+)"/g;
   for (const match of listSource.matchAll(importRe)) {
     const spec = match[1];
     if (!spec.startsWith(".")) continue;
@@ -89,22 +119,23 @@ export function scanReleaseSchemaCoverage(
     if (!SOURCE_EXTENSIONS.test(file) || TEST_FILE.test(file)) continue;
     const rel = relPosix(coreDir, file);
     if (rel === RELEASE_LIST || rel === DDL_GUARD) continue;
+    if (rel === MIGRATION_RUNNER) continue;
     if (rel.startsWith(GUARDS_DIR)) continue;
 
     const source = readFileSafe(file);
     if (source === null) continue;
     const code = stripComments(source);
-    if (!ENSURE_CALL_RE.test(code)) continue;
+    if (!definesSchema(code)) continue;
     if (covered.has(rel)) continue;
     if (ALLOW_MARKER_RE.test(source)) continue;
 
     const lines = code.split("\n");
-    const line = lines.findIndex((text) => ENSURE_CALL_RE.test(text)) + 1;
+    const line = lines.findIndex((text) => definesSchema(text)) + 1;
     findings.push({
       file: rel,
       line: line > 0 ? line : 1,
       message:
-        "calls ensureTableExists() but is not imported by src/server/release-schema.ts, so its tables are never created on a hosted deploy.",
+        "creates tables but is not imported by src/server/release-schema.ts, so they are never created on a hosted deploy.",
     });
   }
 

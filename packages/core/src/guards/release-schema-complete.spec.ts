@@ -65,6 +65,56 @@ describe("scanReleaseSchemaCoverage", () => {
     });
   });
 
+  // extensions/slots/store.ts creates its tables by executing named SQL
+  // constants, so the ensureTableExists check alone could not see it.
+  it("flags a store that runs DDL held in a named constant", () => {
+    const root = makeCore({
+      "src/server/release-schema.ts": listWith([]),
+      "src/slots/store.ts": `
+        import { SLOT_CREATE_SQL, SLOT_BY_KEY_INDEX_SQL } from "./schema.js";
+        export async function ensureSlotTables(): Promise<void> {
+          const client = getDbExec();
+          await client.execute(SLOT_CREATE_SQL);
+          await client.execute(SLOT_BY_KEY_INDEX_SQL);
+        }
+      `,
+    });
+
+    const { findings } = scanReleaseSchemaCoverage({ root });
+
+    expect(findings).toHaveLength(1);
+    expect(findings[0].file).toBe("src/slots/store.ts");
+  });
+
+  // A `schema.ts` holding the SQL is not the thing that runs it, and a migration
+  // list is applied by runMigrations. Flagging either is pure noise.
+  it("ignores modules that hold DDL without executing it", () => {
+    const root = makeCore({
+      "src/server/release-schema.ts": listWith([]),
+      "src/slots/schema.ts":
+        'export const SLOT_CREATE_SQL = "CREATE TABLE IF NOT EXISTS slots (id TEXT)";',
+      "src/slots/migrations.ts":
+        'export const SLOT_MIGRATIONS = [{ version: 1, sql: "CREATE TABLE slots (id TEXT)" }];',
+    });
+
+    expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
+  });
+
+  // A plain SELECT held in a constant is not schema.
+  it("ignores a non-DDL constant that happens to be executed", () => {
+    const root = makeCore({
+      "src/server/release-schema.ts": listWith([]),
+      "src/server/db-pressure.ts": `
+        import { DB_PRESSURE_SQL } from "./sql.js";
+        export async function probe(exec) {
+          return exec.execute(DB_PRESSURE_SQL);
+        }
+      `,
+    });
+
+    expect(scanReleaseSchemaCoverage({ root }).findings).toEqual([]);
+  });
+
   it("ignores files that only name ensureTableExists in a comment", () => {
     const root = makeCore({
       "src/server/release-schema.ts": listWith([]),

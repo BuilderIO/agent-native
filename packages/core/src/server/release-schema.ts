@@ -16,140 +16,356 @@
  * bundler is entitled to drop — and the symptom would be a missing table in
  * production, months later.
  *
- * `guard:release-schema-complete` fails the build when a module calls
- * `ensureTableExists` and is not listed here.
+ * The imports are dynamic on purpose. `server/index.ts` and `server/edge.ts`
+ * re-export `runFrameworkReleaseMigrations`, so a static list here would pull
+ * all 60 store modules into the graph of every server boot to serve a path
+ * that runs once, at release. Loading them inside the step keeps request cold
+ * starts unchanged.
+ *
+ * `guard:release-schema-complete` fails the build when a module defines schema
+ * and is not listed here.
  */
-
-import { ensureTable as ensureA2aTaskStore } from "../a2a/task-store.js";
-import { ensureAgentHarnessSessionTables as ensureAgentHarnessSessions } from "../agent/harness/store.js";
-import { ensureTable as ensureObservationalMemory } from "../agent/observational-memory/store.js";
-import { ensureRunTables as ensureAgentRuns } from "../agent/run-store.js";
-import { ensureAgentToolApprovalTable as ensureAgentToolApprovals } from "../agent/tool-approval-store.js";
-import { ensureTable as ensureApplicationState } from "../application-state/store.js";
-import { ensureAuditTables as ensureAudit } from "../audit/store.js";
-import { ensureTables as ensureBrowserSessions } from "../browser-sessions/store.js";
-import { ensureChatThreadTables as ensureChatThreads } from "../chat-threads/store.js";
-import { ensureCheckpointTable as ensureCheckpoints } from "../checkpoints/store.js";
-import { ensureTable as ensureSandboxExecutions } from "../coding-tools/sandbox/executions-store.js";
-import { ensureTable as ensureCollabAwareness } from "../collab/awareness-store.js";
-import { ensureTable as ensureCollabDocs } from "../collab/storage.js";
-import { ensureDataProgramTables as ensureDataPrograms } from "../data-programs/store.js";
-import { ensureTable as ensureEmailLog } from "../email-catalog/log.js";
-import { ensureExtensionsTables as ensureExtensions } from "../extensions/store.js";
-import { ensureResourceVersionsTable as ensureResourceVersions } from "../history/store.js";
-import { ensureTable as ensureA2aContinuations } from "../integrations/a2a-continuations-store.js";
-import { ensureTable as ensureAwaitingInputs } from "../integrations/awaiting-input-store.js";
-import { ensureComputerApprovalStore as ensureComputerApprovals } from "../integrations/computer-supervision-store.js";
-import { ensureTable as ensureIntegrationConfigs } from "../integrations/config-store.js";
-import { ensureTable as ensureIntegrationControls } from "../integrations/controls-store.js";
-import { ensureTable as ensureIdentityLinks } from "../integrations/identity-links-store.js";
-import { ensureTable as ensureInstallations } from "../integrations/installations-store.js";
-import { ensureIntegrationCampaignsTable as ensureIntegrationCampaigns } from "../integrations/integration-campaigns-store.js";
-import { ensurePendingTasksTable as ensurePendingTasks } from "../integrations/pending-tasks-store.js";
-import { ensureTable as ensureRemoteCommands } from "../integrations/remote-commands-store.js";
-import { ensureTable as ensureRemoteDevices } from "../integrations/remote-devices-store.js";
-import { ensureTables as ensureRemotePush } from "../integrations/remote-push-store.js";
-import { ensureTable as ensureRemoteRunEvents } from "../integrations/remote-run-events-store.js";
-import { ensureTable as ensureConversationScopes } from "../integrations/scope-store.js";
-import { ensureTable as ensureThreadMappings } from "../integrations/thread-mapping-store.js";
-import { ensureTables as ensureUsageBudgets } from "../integrations/usage-budget-store.js";
-import { ensureTable as ensureAutomationRunHistory } from "../jobs/run-history.js";
-import { ensureHealthTable as ensureSchedulerHealth } from "../jobs/scheduler-health.js";
-import { ensureApprovalTable as ensureMcpApprovals } from "../mcp/approval-store.js";
-import { ensureTable as ensureMcpConnect } from "../mcp/connect-store.js";
-import { ensureTable as ensureMcpOauth } from "../mcp/oauth-store.js";
-import { ensureTable as ensureNotifications } from "../notifications/store.js";
-import { ensureTable as ensureOauthTokens } from "../oauth-tokens/store.js";
-import { ensureObservabilityTables as ensureObservability } from "../observability/store.js";
-import { ensureTable as ensureProgress } from "../progress/store.js";
-import { ensureTables as ensureProviderCorpusJobs } from "../provider-api/corpus-jobs-store.js";
-import { ensureTable as ensureCustomApiProviders } from "../provider-api/custom-registry.js";
-import { ensureCooldownTable as ensureProviderQuotaCooldowns } from "../provider-api/quota-governor.js";
-import { ensureTables as ensureStagedDatasets } from "../provider-api/staged-datasets-store.js";
-import { ensureTable as ensureResources } from "../resources/store.js";
-import { ensureReviewTables as ensureReview } from "../review/store.js";
-import { ensureTable as ensureAppSecrets } from "../secrets/storage.js";
-import { ensureTable as ensureSettings } from "../settings/store.js";
-import { ensureTables as ensureUsageAlerts } from "../usage/alerts-store.js";
-import { ensureUsageTable as ensureUsage } from "../usage/store.js";
-import { ensureWorkspaceUserGroupsTable as ensureWorkspaceUserGroups } from "../workspace-connections/groups.js";
-import { ensureWorkspaceConnectionsTable as ensureWorkspaceConnections } from "../workspace-connections/store.js";
-import { ensureTable as ensureAgentTeamRunQueue } from "./agent-teams-run-queue.js";
-import { ensureSessionTable as ensureAuthSessions } from "./auth.js";
-import { ensureTable as ensureEmbedSessions } from "./embed-session.js";
-import { ensureTable as ensureIdentitySso } from "./identity-sso-store.js";
-import { getDefaultAppSyncState } from "./poll.js";
-import { ensureRecapImageTable as ensureRecapImages } from "./recap-image-store.js";
 
 type SchemaEnsure = readonly [name: string, run: () => Promise<void>];
 
 const FRAMEWORK_SCHEMA_ENSURES: readonly SchemaEnsure[] = [
-  ["A2aContinuations", ensureA2aContinuations],
-  ["A2aTaskStore", ensureA2aTaskStore],
-  ["AgentHarnessSessions", ensureAgentHarnessSessions],
-  ["AgentRuns", ensureAgentRuns],
-  ["AgentTeamRunQueue", ensureAgentTeamRunQueue],
-  ["AgentToolApprovals", ensureAgentToolApprovals],
-  ["AppSecrets", ensureAppSecrets],
-  ["ApplicationState", ensureApplicationState],
-  ["Audit", ensureAudit],
-  ["AuthSessions", ensureAuthSessions],
-  ["AutomationRunHistory", ensureAutomationRunHistory],
-  ["AwaitingInputs", ensureAwaitingInputs],
-  ["BrowserSessions", ensureBrowserSessions],
-  ["ChatThreads", ensureChatThreads],
-  ["Checkpoints", ensureCheckpoints],
-  ["CollabAwareness", ensureCollabAwareness],
-  ["CollabDocs", ensureCollabDocs],
-  ["ComputerApprovals", ensureComputerApprovals],
-  ["ConversationScopes", ensureConversationScopes],
-  ["CustomApiProviders", ensureCustomApiProviders],
-  ["DataPrograms", ensureDataPrograms],
-  ["EmailLog", ensureEmailLog],
-  ["EmbedSessions", ensureEmbedSessions],
-  ["Extensions", ensureExtensions],
-  ["IdentityLinks", ensureIdentityLinks],
-  ["IdentitySso", ensureIdentitySso],
-  ["Installations", ensureInstallations],
-  ["IntegrationCampaigns", ensureIntegrationCampaigns],
-  ["IntegrationConfigs", ensureIntegrationConfigs],
-  ["IntegrationControls", ensureIntegrationControls],
-  ["McpApprovals", ensureMcpApprovals],
-  ["McpConnect", ensureMcpConnect],
-  ["McpOauth", ensureMcpOauth],
-  ["Notifications", ensureNotifications],
-  ["OauthTokens", ensureOauthTokens],
-  ["Observability", ensureObservability],
-  ["ObservationalMemory", ensureObservationalMemory],
-  ["PendingTasks", ensurePendingTasks],
-  ["Progress", ensureProgress],
-  ["ProviderCorpusJobs", ensureProviderCorpusJobs],
-  ["ProviderQuotaCooldowns", ensureProviderQuotaCooldowns],
-  ["RecapImages", ensureRecapImages],
-  ["RemoteCommands", ensureRemoteCommands],
-  ["RemoteDevices", ensureRemoteDevices],
-  ["RemotePush", ensureRemotePush],
-  ["RemoteRunEvents", ensureRemoteRunEvents],
-  ["ResourceVersions", ensureResourceVersions],
-  ["Resources", ensureResources],
-  ["Review", ensureReview],
-  ["SandboxExecutions", ensureSandboxExecutions],
-  ["SchedulerHealth", ensureSchedulerHealth],
-  ["Settings", ensureSettings],
-  ["StagedDatasets", ensureStagedDatasets],
+  [
+    "A2aContinuations",
+    () =>
+      import("../integrations/a2a-continuations-store.js").then((m) =>
+        m.ensureTable(),
+      ),
+  ],
+  [
+    "A2aTaskStore",
+    () => import("../a2a/task-store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "AgentHarnessSessions",
+    () =>
+      import("../agent/harness/store.js").then((m) =>
+        m.ensureAgentHarnessSessionTables(),
+      ),
+  ],
+  [
+    "AgentRuns",
+    () => import("../agent/run-store.js").then((m) => m.ensureRunTables()),
+  ],
+  [
+    "AgentTeamRunQueue",
+    () => import("./agent-teams-run-queue.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "AgentToolApprovals",
+    () =>
+      import("../agent/tool-approval-store.js").then((m) =>
+        m.ensureAgentToolApprovalTable(),
+      ),
+  ],
+  [
+    "AppSecrets",
+    () => import("../secrets/storage.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "ApplicationState",
+    () => import("../application-state/store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "Audit",
+    () => import("../audit/store.js").then((m) => m.ensureAuditTables()),
+  ],
+  [
+    "AuthSessions",
+    () => import("./auth.js").then((m) => m.ensureSessionTable()),
+  ],
+  [
+    "AutomationRunHistory",
+    () => import("../jobs/run-history.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "AwaitingInputs",
+    () =>
+      import("../integrations/awaiting-input-store.js").then((m) =>
+        m.ensureTable(),
+      ),
+  ],
+  [
+    "BrowserSessions",
+    () => import("../browser-sessions/store.js").then((m) => m.ensureTables()),
+  ],
+  [
+    "ChatThreads",
+    () =>
+      import("../chat-threads/store.js").then((m) =>
+        m.ensureChatThreadTables(),
+      ),
+  ],
+  [
+    "Checkpoints",
+    () =>
+      import("../checkpoints/store.js").then((m) => m.ensureCheckpointTable()),
+  ],
+  [
+    "CollabAwareness",
+    () => import("../collab/awareness-store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "CollabDocs",
+    () => import("../collab/storage.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "ComputerApprovals",
+    () =>
+      import("../integrations/computer-supervision-store.js").then((m) =>
+        m.ensureComputerApprovalStore(),
+      ),
+  ],
+  [
+    "ConversationScopes",
+    () => import("../integrations/scope-store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "CustomApiProviders",
+    () =>
+      import("../provider-api/custom-registry.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "DataPrograms",
+    () =>
+      import("../data-programs/store.js").then((m) =>
+        m.ensureDataProgramTables(),
+      ),
+  ],
+  [
+    "EmailLog",
+    () => import("../email-catalog/log.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "EmbedSessions",
+    () => import("./embed-session.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "ExtensionSlots",
+    () =>
+      import("../extensions/slots/store.js").then((m) => m.ensureSlotTables()),
+  ],
+  [
+    "Extensions",
+    () =>
+      import("../extensions/store.js").then((m) => m.ensureExtensionsTables()),
+  ],
+  [
+    "IdentityLinks",
+    () =>
+      import("../integrations/identity-links-store.js").then((m) =>
+        m.ensureTable(),
+      ),
+  ],
+  [
+    "IdentitySso",
+    () => import("./identity-sso-store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "Installations",
+    () =>
+      import("../integrations/installations-store.js").then((m) =>
+        m.ensureTable(),
+      ),
+  ],
+  [
+    "IntegrationCampaigns",
+    () =>
+      import("../integrations/integration-campaigns-store.js").then((m) =>
+        m.ensureIntegrationCampaignsTable(),
+      ),
+  ],
+  [
+    "IntegrationConfigs",
+    () =>
+      import("../integrations/config-store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "IntegrationControls",
+    () =>
+      import("../integrations/controls-store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "McpApprovals",
+    () =>
+      import("../mcp/approval-store.js").then((m) => m.ensureApprovalTable()),
+  ],
+  [
+    "McpConnect",
+    () => import("../mcp/connect-store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "McpOauth",
+    () => import("../mcp/oauth-store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "Notifications",
+    () => import("../notifications/store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "OauthTokens",
+    () => import("../oauth-tokens/store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "Observability",
+    () =>
+      import("../observability/store.js").then((m) =>
+        m.ensureObservabilityTables(),
+      ),
+  ],
+  [
+    "ObservationalMemory",
+    () =>
+      import("../agent/observational-memory/store.js").then((m) =>
+        m.ensureTable(),
+      ),
+  ],
+  [
+    "PendingTasks",
+    () =>
+      import("../integrations/pending-tasks-store.js").then((m) =>
+        m.ensurePendingTasksTable(),
+      ),
+  ],
+  [
+    "Progress",
+    () => import("../progress/store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "ProviderCorpusJobs",
+    () =>
+      import("../provider-api/corpus-jobs-store.js").then((m) =>
+        m.ensureTables(),
+      ),
+  ],
+  [
+    "ProviderQuotaCooldowns",
+    () =>
+      import("../provider-api/quota-governor.js").then((m) =>
+        m.ensureCooldownTable(),
+      ),
+  ],
+  [
+    "RecapImages",
+    () =>
+      import("./recap-image-store.js").then((m) => m.ensureRecapImageTable()),
+  ],
+  [
+    "RemoteCommands",
+    () =>
+      import("../integrations/remote-commands-store.js").then((m) =>
+        m.ensureTable(),
+      ),
+  ],
+  [
+    "RemoteDevices",
+    () =>
+      import("../integrations/remote-devices-store.js").then((m) =>
+        m.ensureTable(),
+      ),
+  ],
+  [
+    "RemotePush",
+    () =>
+      import("../integrations/remote-push-store.js").then((m) =>
+        m.ensureTables(),
+      ),
+  ],
+  [
+    "RemoteRunEvents",
+    () =>
+      import("../integrations/remote-run-events-store.js").then((m) =>
+        m.ensureTable(),
+      ),
+  ],
+  [
+    "ResourceVersions",
+    () =>
+      import("../history/store.js").then((m) =>
+        m.ensureResourceVersionsTable(),
+      ),
+  ],
+  [
+    "Resources",
+    () => import("../resources/store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "Review",
+    () => import("../review/store.js").then((m) => m.ensureReviewTables()),
+  ],
+  [
+    "SandboxExecutions",
+    () =>
+      import("../coding-tools/sandbox/executions-store.js").then((m) =>
+        m.ensureTable(),
+      ),
+  ],
+  [
+    "SchedulerHealth",
+    () =>
+      import("../jobs/scheduler-health.js").then((m) => m.ensureHealthTable()),
+  ],
+  [
+    "Settings",
+    () => import("../settings/store.js").then((m) => m.ensureTable()),
+  ],
+  [
+    "StagedDatasets",
+    () =>
+      import("../provider-api/staged-datasets-store.js").then((m) =>
+        m.ensureTables(),
+      ),
+  ],
   [
     "SyncEvents",
     () =>
-      getDefaultAppSyncState()
-        .ensureSyncEventsTable()
-        .then(() => {}),
+      import("./poll.js").then((m) =>
+        m
+          .getDefaultAppSyncState()
+          .ensureSyncEventsTable()
+          .then(() => {}),
+      ),
   ],
-  ["ThreadMappings", ensureThreadMappings],
-  ["Usage", ensureUsage],
-  ["UsageAlerts", ensureUsageAlerts],
-  ["UsageBudgets", ensureUsageBudgets],
-  ["WorkspaceConnections", ensureWorkspaceConnections],
-  ["WorkspaceUserGroups", ensureWorkspaceUserGroups],
+  [
+    "ThreadMappings",
+    () =>
+      import("../integrations/thread-mapping-store.js").then((m) =>
+        m.ensureTable(),
+      ),
+  ],
+  [
+    "Usage",
+    () => import("../usage/store.js").then((m) => m.ensureUsageTable()),
+  ],
+  [
+    "UsageAlerts",
+    () => import("../usage/alerts-store.js").then((m) => m.ensureTables()),
+  ],
+  [
+    "UsageBudgets",
+    () =>
+      import("../integrations/usage-budget-store.js").then((m) =>
+        m.ensureTables(),
+      ),
+  ],
+  [
+    "WorkspaceConnections",
+    () =>
+      import("../workspace-connections/store.js").then((m) =>
+        m.ensureWorkspaceConnectionsTable(),
+      ),
+  ],
+  [
+    "WorkspaceUserGroups",
+    () =>
+      import("../workspace-connections/groups.js").then((m) =>
+        m.ensureWorkspaceUserGroupsTable(),
+      ),
+  ],
 ];
 
 /** Store names in release order. Exported for the guard and its tests. */

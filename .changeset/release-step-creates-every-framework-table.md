@@ -8,6 +8,8 @@ Most framework tables are defined by their owning store's `ensureTable()`, not b
 
 `runFrameworkReleaseMigrations` now runs those stores' own ensure paths first, from an explicit list in `server/release-schema.ts`, and `schemaEnsureDisabled()` no longer applies to a caller holding migration duty — the release step was subject to its own skip, because the Netlify build environment also sets `NETLIFY=true`.
 
-A new `guard:release-schema-complete` fails the build when a module calls `ensureTableExists` and is not in that list, so a new store cannot repeat this. The migration-duty check moved to `db/migration-runtime.ts` to keep it off `db/client.js`, which stores mock.
+The list loads each store with a dynamic import, so re-exporting `runFrameworkReleaseMigrations` from `server/index.ts` does not pull 60 store modules into every server boot to serve a path that runs once.
+
+A new `guard:release-schema-complete` fails the build when a module creates tables and is not in that list, so a new store cannot repeat this. It recognises both `ensureTableExists` and stores that execute DDL held in a named constant, which is how `extensions/slots` created its tables without the first version of the guard seeing it. The migration-duty check moved to `db/migration-runtime.ts` to keep it off `db/client.js`, which stores mock.
 
 Already-published sites need one redeploy to pick up the missing tables.
