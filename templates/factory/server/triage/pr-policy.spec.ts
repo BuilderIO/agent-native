@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   decidePullRequestGovernance,
   detectOwnerOwnedArea,
+  hasCurrentPullRequestApproval,
 } from "./pr-policy.js";
 
 const cleanInternalBug = {
@@ -19,7 +20,7 @@ const cleanInternalBug = {
 };
 
 describe("pull-request governance", () => {
-  it("approves and merges a clean internal Factory bug fix", () => {
+  it("approves but never merges a clean internal Factory bug fix", () => {
     expect(decidePullRequestGovernance(cleanInternalBug)).toMatchObject({
       ownerOwnedArea: null,
       ownerException: null,
@@ -147,5 +148,31 @@ describe("pull-request governance", () => {
     expect(detectOwnerOwnedArea(["apps/content/src/routes/index.tsx"])).toBe(
       "content",
     );
+  });
+
+  it("recognizes a current approval but not a later dismissal", () => {
+    expect(
+      hasCurrentPullRequestApproval([
+        {
+          author: "reviewer",
+          state: "approved",
+          observedAt: "2026-08-19T10:00:00Z",
+        },
+      ]),
+    ).toBe(true);
+    expect(
+      hasCurrentPullRequestApproval([
+        {
+          author: "reviewer",
+          state: "approved",
+          observedAt: "2026-08-19T10:00:00Z",
+        },
+        {
+          author: "reviewer",
+          state: "dismissed",
+          observedAt: "2026-08-19T11:00:00Z",
+        },
+      ]),
+    ).toBe(false);
   });
 });

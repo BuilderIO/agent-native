@@ -26,7 +26,7 @@ import { detectOwnerOwnedArea } from "../server/triage/pr-policy.js";
 import { createSlackReader } from "../server/triage/slack-client.js";
 
 const replyTextPrefix =
-  "@builder.io please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the full thread and linked evidence, and fix the owning boundary. Please send a PR when ready.";
+  "@builder.io please run /address-feedback in the repo to address this feedback. Read the address-feedback, address-feedback-with-replies, review-latest-feedback, and review-prs skills as relevant, inspect the full thread and linked evidence, and fix the owning boundary. Please send a PR when ready, then have the @agent-native bot post a concise Fixed, In progress, or Clarification needed disposition in this same thread; an 👀 reaction or this handoff alone is not completion.";
 const legacyReplyTextPrefix = "@builderio please fix this in a reply.";
 
 type RelatedFeedbackItem = {
@@ -474,30 +474,51 @@ export default defineAction({
         const workspace =
           config?.slackWorkspace === "secondary" ? "secondary" : "primary";
         const slack = createSlackReader({ ownerEmail: userEmail, orgId });
-        for (const feedbackItem of [item, ...relatedItems]) {
-          const feedbackMetadata =
-            feedbackItem.id === itemId
-              ? metadata
-              : parseTriageMetadata(feedbackItem.metadataJson);
-          if (metadataBoolean(feedbackMetadata, "slackEyesReactedAt")) {
-            continue;
+        const thread = await slack.getCompleteThread(
+          workspace,
+          item.channelId,
+          item.threadTs,
+        );
+        if (thread.hasMore) {
+          throw new Error(
+            "Slack thread is truncated; refusing to dispatch without complete evidence.",
+          );
+        }
+        for (const related of relatedItems) {
+          if (!related.channelId || !related.threadTs) {
+            throw new Error(
+              "Grouped Slack feedback is missing a channel or thread identity.",
+            );
           }
-          const reaction = await slack.addEyesReaction(
+          const relatedThread = await slack.getCompleteThread(
+            workspace,
+            related.channelId,
+            related.threadTs,
+          );
+          if (relatedThread.hasMore) {
+            throw new Error(
+              "A grouped Slack thread is truncated; refusing to dispatch without complete evidence.",
+            );
+          }
+        }
+        for (const feedbackItem of [item, ...relatedItems]) {
+          const reactionState = await slack.getEyesReaction(
             workspace,
             feedbackItem.channelId!,
             feedbackItem.threadTs!,
           );
+          const reaction = reactionState.eyesPresent
+            ? { added: false, already_present: true }
+            : await slack.addEyesReaction(
+                workspace,
+                feedbackItem.channelId!,
+                feedbackItem.threadTs!,
+              );
           await writeMetadata(feedbackItem.id, orgId, {
             slackEyesReactedAt: new Date().toISOString(),
             slackEyesReactionAlreadyPresent: reaction.already_present,
           });
         }
-        const thread = await slack.getThread(
-          workspace,
-          item.channelId,
-          item.threadTs,
-          100,
-        );
         const hasCurrentBuilderReply = thread.messages.some((message) =>
           message.text.includes(replyTextPrefix),
         );
@@ -510,7 +531,7 @@ export default defineAction({
           ),
         );
         if (
-          thread.has_more &&
+          thread.hasMore &&
           !hasCurrentBuilderReply &&
           !hasLegacyBuilderReply
         ) {
