@@ -339,6 +339,12 @@ function SortableSlideThumb({
                   designSystem={designSystem}
                   onOverflowChange={onOverflowChange}
                 />
+                {showAiMarker && (
+                  <div
+                    aria-hidden="true"
+                    className="slide-thumbnail-ai-shimmer pointer-events-none absolute inset-0 z-10"
+                  />
+                )}
                 {slide.skipped && (
                   // guard:allow-raw-color — dims an arbitrary-colored slide render, not app chrome; must stay black regardless of theme
                   <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/40">

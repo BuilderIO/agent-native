@@ -105,11 +105,19 @@ describe("EditorSidebar AI-active slide", () => {
 
     const markers = screen.getAllByTestId("ai-marker");
     expect(markers).toHaveLength(1);
+    const activeThumbnail = markers[0].closest("[data-slide-thumbnail-id]");
+    expect(activeThumbnail?.getAttribute("data-slide-thumbnail-id")).toBe(
+      "slide-2",
+    );
     expect(
-      markers[0]
-        .closest("[data-slide-thumbnail-id]")
-        ?.getAttribute("data-slide-thumbnail-id"),
-    ).toBe("slide-2");
+      activeThumbnail?.querySelector(".slide-thumbnail-ai-shimmer"),
+    ).not.toBeNull();
+    const otherThumbnail = document.querySelector(
+      '[data-slide-thumbnail-id="slide-1"]',
+    );
+    expect(
+      otherThumbnail?.querySelector(".slide-thumbnail-ai-shimmer"),
+    ).toBeFalsy();
   });
 
   it("renders no generating row while a placeholder is filled in place", () => {
