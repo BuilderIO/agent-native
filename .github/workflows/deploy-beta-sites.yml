@@ -153,6 +153,17 @@ jobs:
             );
           }
 
+          async function reuseMatchingDeploy(site, betaSha) {
+            const matchingDeploy = await findMatchingDeploy(site, betaSha);
+            if (!matchingDeploy) return false;
+            if (matchingDeploy.state === "ready") {
+              console.log(`[${site.id}] sibling deploy ready at ${matchingDeploy.commit_ref}.`);
+            } else {
+              console.log(`[${site.id}] sibling deploy had no content change; reusing the existing beta deploy.`);
+            }
+            return true;
+          }
+
           async function waitForReady(site, betaSha) {
             const deadline = Date.now() + 30 * 60 * 1000;
             while (Date.now() < deadline) {
@@ -161,21 +172,11 @@ jobs:
                 readJson(await request(`${api}/deploys/${site.deployId}`, { headers }), `[${site.id}] deploy status`),
               ]);
               const noContentChange = [build.error, deploy.error_message].some(isNoContentChange);
-              if (noContentChange) {
-                console.log(`[${site.id}] no content change; reusing the existing beta deploy.`);
-                return;
-              }
               const skipped = [build.error, deploy.error_message].some(
                 (value) => value === "Skipped",
               );
-              if (skipped) {
-                const matchingDeploy = await findMatchingDeploy(site, betaSha);
-                if (matchingDeploy) {
-                  if (matchingDeploy.state === "ready") {
-                    console.log(`[${site.id}] sibling deploy ready at ${matchingDeploy.commit_ref}.`);
-                  } else {
-                    console.log(`[${site.id}] sibling deploy had no content change; reusing the existing beta deploy.`);
-                  }
+              if (noContentChange || skipped) {
+                if (await reuseMatchingDeploy(site, betaSha)) {
                   return;
                 }
                 await new Promise((resolve) => setTimeout(resolve, 15_000));
