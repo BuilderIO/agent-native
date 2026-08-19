@@ -22,7 +22,7 @@ on:
           - production
           - nightly
       version:
-        description: "Version (e.g. 0.2.0). Leave empty to use package.json version."
+        description: "Stable version to release (e.g. 0.2.0). Required for production; Nightly may use the package.json version."
         required: false
         type: string
 
@@ -125,6 +125,13 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Require production version
+        if: env.RELEASE_CHANNEL == 'production' && inputs.version == ''
+        shell: bash
+        run: |
+          echo "::error::Production releases require an explicit stable version input."
+          exit 1
 
       - name: Auto-bump Nightly version
         if: env.RELEASE_CHANNEL == 'nightly' && (github.event_name == 'push' || inputs.version == '')
