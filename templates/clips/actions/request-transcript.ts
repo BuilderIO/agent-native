@@ -1526,18 +1526,22 @@ const requestTranscriptAction = defineAction({
             transcribeWithBuilderModelFallback({
               audioBytes: audioMedia.audioBytes,
               mimeType: audioMedia.mimeType,
-              diarize: false,
+              diarize: true,
               instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
               timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
             }),
         );
 
         const segments = (builderResult.segments ?? [])
-          .map((s) => ({
-            startMs: s.startMs,
-            endMs: s.endMs,
-            text: s.text.trim(),
-          }))
+          .map((s) => {
+            const speaker = s.speakerLabel?.trim();
+            return {
+              startMs: s.startMs,
+              endMs: s.endMs,
+              text: s.text.trim(),
+              ...(speaker ? { speaker } : {}),
+            };
+          })
           .filter((segment) => segment.text);
         const normalizedTranscript = normalizeProviderTranscript(
           builderResult.text,

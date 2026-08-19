@@ -37,6 +37,7 @@ export default function UpdatePrompt() {
       className="update-prompt"
       role="alertdialog"
       aria-labelledby="update-prompt-title"
+      data-update-prompt
     >
       <div className="update-prompt-body">
         <div id="update-prompt-title" className="update-prompt-title">
@@ -50,7 +51,6 @@ export default function UpdatePrompt() {
       <div className="update-prompt-actions">
         <button
           type="button"
-          tabIndex={-1}
           className="update-prompt-btn update-prompt-btn--ghost"
           onClick={dismiss}
         >
@@ -58,7 +58,6 @@ export default function UpdatePrompt() {
         </button>
         <button
           type="button"
-          tabIndex={-1}
           className="update-prompt-btn update-prompt-btn--primary"
           onClick={installNow}
         >
@@ -68,7 +67,6 @@ export default function UpdatePrompt() {
       </div>
       <button
         type="button"
-        tabIndex={-1}
         className="update-prompt-close"
         onClick={dismiss}
         aria-label="Dismiss update prompt"
