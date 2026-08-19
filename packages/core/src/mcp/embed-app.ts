@@ -762,7 +762,7 @@ export function embedApp(
 
     function stripDevOnlyModuleImports(code) {
       return String(code).replace(
-        /\\bimport\\s+(?:[^"']+\\s+from\\s+)?["'][^"']*(?:virtual:react-router\\/inject-hmr-runtime|__x00__virtual:react-router\\/inject-hmr-runtime)[^"']*["']\\s*;?/g,
+        /\\bimport\\s+(?:[^"']+\\s+from\\s+)?["'][^"']*(?:virtual:react-router\\/(?:inject-)?hmr-runtime|__x00__virtual:react-router\\/(?:inject-)?hmr-runtime)[^"']*["']\\s*;?/g,
         ""
       );
     }

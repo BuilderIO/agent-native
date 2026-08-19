@@ -4,7 +4,7 @@ export function sanitizeDocSlug(slug: string): string {
   return slug.replace(/[^a-z0-9-]/gi, "");
 }
 
-export function listDocFiles(): string[] {
+export async function listDocFiles(): Promise<string[]> {
   return listDocSourceFiles();
 }
 

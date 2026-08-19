@@ -22,3 +22,4 @@ todos.json
 
 # Generated at build time
 public/source-index.json
+public/docs-source-index.json

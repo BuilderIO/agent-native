@@ -4,6 +4,7 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { describe, expect, it, vi } from "vitest";
 
+import { localRuntimeUrls } from "./design-canvas/local-runtime";
 import { DesignCanvas } from "./DesignCanvas";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -408,6 +409,66 @@ describe("DesignCanvas live embedded-frame offset", () => {
         "iframe[data-design-preview-iframe]",
       );
       expect(refreshedEditIframe?.srcdoc).toContain('data-test="state-latest"');
+    } finally {
+      await act(async () => root.unmount());
+      container.remove();
+    }
+  });
+
+  it("keeps bundled runtimes in overview in-place replacements", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const runtimeScript =
+      '<script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>';
+    const initial = `<!doctype html><html><head>${runtimeScript}</head><body class="flex"><main>Initial</main></body></html>`;
+    const updated = initial.replace("Initial", "Updated");
+    const render = (content: string, revision: string) => (
+      <DesignCanvas
+        content={content}
+        contentKey="overview-runtime-replacement"
+        runtimeReplacementContent={content}
+        runtimeReplacementKey={revision}
+        screenId="screen-a"
+        zoom={100}
+        deviceFrame="none"
+        interactMode={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+        editMode
+      />
+    );
+
+    try {
+      await act(async () => root.render(render(initial, "revision-1")));
+      const iframe = container.querySelector<HTMLIFrameElement>(
+        "iframe[data-design-preview-iframe]",
+      );
+      expect(iframe?.srcdoc).toContain(`src="${localRuntimeUrls().tailwind}"`);
+      const postMessage = vi.spyOn(iframe!.contentWindow!, "postMessage");
+
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type: "agent-native:editor-chrome-ready" },
+            origin: window.location.origin,
+            source: iframe!.contentWindow,
+          }),
+        );
+      });
+
+      await act(async () => root.render(render(updated, "revision-2")));
+
+      const replacement = postMessage.mock.calls
+        .map(([message]) => message as { type?: string; content?: string })
+        .find((message) => message.type === "replace-document-content");
+      expect(replacement?.content).toContain(
+        `src="${localRuntimeUrls().tailwind}"`,
+      );
+      expect(replacement?.content).not.toContain(
+        "cdn.jsdelivr.net/npm/@tailwindcss/browser@4",
+      );
     } finally {
       await act(async () => root.unmount());
       container.remove();

@@ -324,6 +324,11 @@ function extensionTargetsForRow(
       addExtensionTarget(targets, { owner: principalId });
     } else if (principalType === "org" && principalId) {
       addExtensionTarget(targets, { orgId: principalId });
+    } else if (principalType === "group" && orgId) {
+      // Group membership is org-scoped. Invalidating the org target is a
+      // conservative fallback that keeps group-share changes fresh for every
+      // member without making the poll layer own group-directory queries.
+      addExtensionTarget(targets, { orgId });
     }
   }
 
@@ -1935,13 +1940,15 @@ export class AppSyncState {
       // marker rows back into extension-source events for targeted client
       // invalidation while preserving user/org scope.
       if (extensionMarkerTs > this.lastExtensionMarkerTs) {
+        // Bound the scan by the watermark instead of reading every marker row
+        // ever written and filtering in memory: this table keeps one row per
+        // session that has ever mutated an extension, so the unbounded read
+        // grows with lifetime users rather than with pending work.
         const extensionMarkerResult = await db.execute({
-          sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? ORDER BY updated_at ASC",
-          args: [EXTENSION_CHANGE_MARKER_KEY],
+          sql: "SELECT session_id, value, updated_at FROM application_state WHERE key = ? AND updated_at > ? ORDER BY updated_at ASC",
+          args: [EXTENSION_CHANGE_MARKER_KEY, this.lastExtensionMarkerTs],
         });
-        const changedExtensionMarkers = extensionMarkerResult.rows.filter(
-          (row) => timestampValue(row.updated_at) > this.lastExtensionMarkerTs,
-        );
+        const changedExtensionMarkers = extensionMarkerResult.rows;
         if (this.lastExtensionMarkerTs > 0) {
           this.recordExtensionChanges(
             changedExtensionMarkers

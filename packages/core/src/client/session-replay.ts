@@ -1543,6 +1543,37 @@ function isDefinitiveReplayUploadClientError(status: number): boolean {
 }
 
 const MAX_TRANSIENT_REPLAY_CLIENT_FAILURES = 3;
+// A hung upload never settles, so `state.flushing` stays set, every later flush
+// early-returns while still queueing rrweb events, and the queue grows until the
+// session ends. Time the request out so the failure is observable and the lock
+// is released.
+const REPLAY_UPLOAD_TIMEOUT_MS = 15_000;
+
+function startReplayUploadTimeout(): {
+  signal: AbortSignal | undefined;
+  promise: Promise<never>;
+  done: () => void;
+} {
+  // Use an explicit controller/timer pair instead of relying only on
+  // AbortSignal.timeout: the controller is available in older supported
+  // browsers, and the timer can always be cleared when a normal upload
+  // settles so completed uploads do not leave timeout work behind.
+  const controller =
+    typeof AbortController === "undefined" ? undefined : new AbortController();
+  let rejectTimeout!: (error: Error) => void;
+  const promise = new Promise<never>((_, reject) => {
+    rejectTimeout = reject;
+  });
+  const timer = setTimeout(() => {
+    controller?.abort();
+    rejectTimeout(new Error("Session replay upload timed out"));
+  }, REPLAY_UPLOAD_TIMEOUT_MS);
+  return {
+    signal: controller?.signal,
+    promise,
+    done: () => clearTimeout(timer),
+  };
+}
 
 function isTransientReplayUploadClientError(status: number): boolean {
   return status === 401 || status === 403 || status === 404;
@@ -1556,12 +1587,20 @@ async function sendReplayUpload(
   if (isCrossOriginReplayEndpoint(options.endpoint)) {
     const canUseKeepalive = canUseReplayKeepalive(body);
     if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
-    const response = await fetch(options.endpoint, {
-      method: "POST",
-      body,
-      keepalive: canUseKeepalive,
-      headers: { "Content-Type": "text/plain;charset=UTF-8" },
-    });
+    const timeout = startReplayUploadTimeout();
+    let response: Response;
+    try {
+      const request = fetch(options.endpoint, {
+        method: "POST",
+        body,
+        keepalive: canUseKeepalive,
+        headers: { "Content-Type": "text/plain;charset=UTF-8" },
+        signal: timeout.signal,
+      });
+      response = await Promise.race([request, timeout.promise]);
+    } finally {
+      timeout.done();
+    }
     if (!response.ok) {
       throw new ReplayUploadHttpError(response.status);
     }
@@ -1571,15 +1610,23 @@ async function sendReplayUpload(
   const upload = await buildReplayUploadBody(body);
   const canUseKeepalive = canUseReplayKeepalive(upload.body);
   if (canUseKeepalive) callbacks.beforeKeepaliveUpload?.();
-  const response = await fetch(options.endpoint, {
-    method: "POST",
-    body: upload.body,
-    keepalive: canUseKeepalive,
-    headers: {
-      ...upload.headers,
-      "X-Agent-Native-Analytics-Key": options.publicKey,
-    },
-  });
+  const timeout = startReplayUploadTimeout();
+  let response: Response;
+  try {
+    const request = fetch(options.endpoint, {
+      method: "POST",
+      body: upload.body,
+      keepalive: canUseKeepalive,
+      headers: {
+        ...upload.headers,
+        "X-Agent-Native-Analytics-Key": options.publicKey,
+      },
+      signal: timeout.signal,
+    });
+    response = await Promise.race([request, timeout.promise]);
+  } finally {
+    timeout.done();
+  }
   if (!response.ok) {
     throw new ReplayUploadHttpError(response.status);
   }

@@ -4,6 +4,7 @@ const mockExecute = vi.fn();
 const mockGetOrgContext = vi.fn();
 const mockGetSession = vi.fn();
 const mockPutUserSetting = vi.fn();
+const mockGetOrgSetting = vi.fn();
 const mockReadBody = vi.fn();
 const mockDiscoverAgents = vi.fn();
 const mockSignA2AToken = vi.fn();
@@ -33,6 +34,11 @@ vi.mock("../server/auth.js", () => ({
 
 vi.mock("../settings/user-settings.js", () => ({
   putUserSetting: (...args: any[]) => mockPutUserSetting(...args),
+}));
+
+vi.mock("../settings/org-settings.js", () => ({
+  getOrgSetting: (...args: any[]) => mockGetOrgSetting(...args),
+  putOrgSetting: vi.fn(),
 }));
 
 vi.mock("../db/client.js", () => ({
@@ -82,6 +88,7 @@ import {
 describe("syncA2ASecretHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetOrgSetting.mockResolvedValue(null);
     vi.stubGlobal("fetch", mockFetch);
     mockReadBody.mockResolvedValue({});
     mockGetOrgContext.mockResolvedValue({
@@ -173,6 +180,7 @@ describe("syncA2ASecretHandler", () => {
 describe("getMyOrgHandler", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockGetOrgSetting.mockResolvedValue(null);
     mockGetOrgContext.mockResolvedValue({
       email: "owner@example.test",
       orgId: "org_1",
@@ -218,6 +226,16 @@ describe("getMyOrgHandler", () => {
     >;
 
     expect(result.a2aSecretSet).toBeUndefined();
+  });
+
+  it("fails instead of reporting org visibility when the default cannot be read", async () => {
+    mockGetOrgSetting.mockRejectedValueOnce(
+      new Error("settings database unavailable"),
+    );
+
+    await expect(getMyOrgHandler({} as any)).rejects.toThrow(
+      "settings database unavailable",
+    );
   });
 });
 

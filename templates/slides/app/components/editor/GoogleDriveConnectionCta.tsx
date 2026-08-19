@@ -35,11 +35,11 @@ async function readJson<T>(response: Response): Promise<JsonReadResult<T>> {
   try {
     return { ok: true, data: (await response.json()) as T };
   } catch (caught) {
+    const error = new Error("The server returned an unreadable response.");
+    (error as Error & { cause?: unknown }).cause = caught;
     return {
       ok: false,
-      error: new Error("The server returned an unreadable response.", {
-        cause: caught,
-      }),
+      error,
     };
   }
 }

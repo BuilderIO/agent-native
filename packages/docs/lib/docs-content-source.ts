@@ -1,51 +1,97 @@
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
+
+import { readPublicJsonAsset } from "../actions/public-assets";
 import {
   docSourceSlugFromFilename,
+  isDocSourceFile,
   preferMdxDocSourceFiles,
 } from "./docs-source";
 
-type DocSourceLoader = () => Promise<string>;
+const LOCAL_DOCS_ROOT = join(import.meta.dirname, "../../core/docs/content");
+const GENERATED_DOCS_ASSET = "docs-source-index.json";
 
-const docSourceLoaders = {
-  ...import.meta.glob("../../core/docs/content/*.md", {
-    query: "?raw",
-    import: "default",
-  }),
-  ...import.meta.glob("../../core/docs/content/*.mdx", {
-    query: "?raw",
-    import: "default",
-  }),
-} as Record<string, DocSourceLoader>;
+interface DocSourceAsset {
+  filename: string;
+  content: string;
+}
 
 interface DocSource {
   filename: string;
   slug: string;
-  load: DocSourceLoader;
+  content: string;
 }
 
-const docSources: DocSource[] = preferMdxDocSourceFiles(
-  Object.keys(docSourceLoaders),
-).flatMap((path) => {
-  const load = docSourceLoaders[path];
-  if (!load) return [];
+function buildDocSources(entries: DocSourceAsset[]): DocSource[] {
+  const entriesByFilename = new Map(
+    entries
+      .filter(
+        (entry) =>
+          typeof entry?.filename === "string" &&
+          typeof entry?.content === "string" &&
+          isDocSourceFile(entry.filename),
+      )
+      .map((entry) => [entry.filename, entry]),
+  );
 
-  return [
-    {
-      filename: path.split("/").pop() ?? path,
-      slug: docSourceSlugFromFilename(path),
-      load,
+  return preferMdxDocSourceFiles(Array.from(entriesByFilename.keys())).flatMap(
+    (filename) => {
+      const entry = entriesByFilename.get(filename);
+      if (!entry) return [];
+
+      return [
+        {
+          filename,
+          slug: docSourceSlugFromFilename(filename),
+          content: entry.content,
+        },
+      ];
     },
-  ];
-});
+  );
+}
 
-const docSourcesBySlug = new Map(
-  docSources.map((source) => [source.slug, source]),
-);
+async function loadLocalDocSources(): Promise<DocSource[]> {
+  const entries = await readdir(LOCAL_DOCS_ROOT, { withFileTypes: true });
+  const files = entries
+    .filter((entry) => entry.isFile() && isDocSourceFile(entry.name))
+    .map((entry) => entry.name);
+  const sources = await Promise.all(
+    files.map(async (filename) => ({
+      filename,
+      content: await readFile(join(LOCAL_DOCS_ROOT, filename), "utf-8"),
+    })),
+  );
+  return buildDocSources(sources);
+}
 
-export function listDocSourceFiles(): string[] {
-  return docSources.map((source) => source.filename);
+let docSourcesPromise: Promise<DocSource[]> | undefined;
+
+async function loadDocSources(): Promise<DocSource[]> {
+  // A source checkout may retain the ignored generated asset after a build.
+  // Keep local actions aligned with edits to core docs until the next build.
+  if (process.env.NODE_ENV !== "production") return loadLocalDocSources();
+
+  const generated =
+    await readPublicJsonAsset<DocSourceAsset[]>(GENERATED_DOCS_ASSET);
+  if (Array.isArray(generated)) return buildDocSources(generated);
+  return loadLocalDocSources();
+}
+
+function cachedDocSources(): Promise<DocSource[]> {
+  docSourcesPromise ??= loadDocSources().catch((error) => {
+    docSourcesPromise = undefined;
+    throw error;
+  });
+  return docSourcesPromise;
+}
+
+export async function listDocSourceFiles(): Promise<string[]> {
+  return (await cachedDocSources()).map((source) => source.filename);
 }
 
 export async function readDocSource(slug: string): Promise<string | undefined> {
-  const source = docSourcesBySlug.get(slug);
-  return source ? source.load() : undefined;
+  const source = (await cachedDocSources()).find(
+    (candidate) => candidate.slug === slug,
+  );
+  return source?.content;
 }
