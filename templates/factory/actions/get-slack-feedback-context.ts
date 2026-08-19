@@ -77,10 +77,13 @@ export default defineAction({
       coverage: hasMore ? "partial" : "complete",
       messages: messages.map((message) => ({
         user: message.user ?? message.username ?? message.bot_id ?? null,
+        username: message.username ?? null,
+        botId: message.bot_id ?? null,
         text: message.text,
         ts: message.ts,
         threadTs: message.thread_ts ?? item.threadTs,
         replyCount: message.reply_count ?? 0,
+        reactions: message.reactions ?? [],
       })),
     };
   },
