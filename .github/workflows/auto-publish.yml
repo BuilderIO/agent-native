@@ -15,9 +15,9 @@ name: Publish packages
 #      and runs the `publish` script, which builds + `pnpm publish`es
 #      every package whose version isn't already on npm.
 #
-# Desktop-app publishing is OUT of changesets — it ships binaries via
-# electron-builder, not npm. Its publish jobs stay path-triggered on
-# `packages/desktop-app/package.json` version changes (see bottom).
+# Desktop-app publishing is OUT of changesets - it ships binaries via
+# electron-builder, not npm. Production desktop releases are dispatched from
+# `desktop-release.yml`; pushes to main only feed the Nightly desktop train.
 # Beta snapshots intentionally live in this workflow too: npm trusted
 # publishers are registered against this workflow file, and the beta lane must
 # use the same OIDC identity as stable publishing.
@@ -49,15 +49,8 @@ on:
       - "scripts/changeset-publish-sequential.ts"
       - "scripts/guard-public-packages.ts"
       - "scripts/prebuild-workspace-packages.ts"
-      # desktop-app stays version-triggered (not changesets-managed).
-      - "packages/desktop-app/package.json"
   workflow_dispatch:
     inputs:
-      publishDesktop:
-        description: "Also publish desktop binaries"
-        required: false
-        type: boolean
-        default: false
       redispatchDownstream:
         description: "Recovery: re-notify downstream repos for the versions already on npm (no build, no publish)"
         required: false
@@ -444,100 +437,3 @@ jobs:
           fi
 
           exit "$rc"
-
-  publish-desktop:
-    name: Publish desktop app
-    if: |
-      (github.event_name == 'workflow_dispatch' && inputs.publishDesktop) ||
-      contains(github.event.head_commit.modified, 'packages/desktop-app/package.json') ||
-      contains(github.event.head_commit.added, 'packages/desktop-app/package.json')
-    # electron-builder --publish always creates/updates a GitHub release.
-    permissions:
-      contents: write
-    strategy:
-      matrix:
-        include:
-          - os: macos-latest
-            platform: mac
-          - os: windows-latest
-            platform: win
-          - os: ubuntu-latest
-            platform: linux
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6.0.10
-
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Import signing certificate
-        if: matrix.platform == 'mac'
-        env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-        run: |
-          echo "$APPLE_CERTIFICATE" | base64 --decode > certificate.p12
-          security create-keychain -p "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          security import certificate.p12 -k build.keychain -P "$APPLE_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "" build.keychain
-          rm certificate.p12
-
-      - name: Build macOS assets
-        if: matrix.platform == 'mac'
-        working-directory: packages/desktop-app
-        run: pnpm build:mac-assets
-
-      - name: Build Chrome extension assets
-        if: matrix.platform != 'mac'
-        working-directory: packages/desktop-app
-        run: pnpm build:chrome-extension
-
-      - name: Build and publish
-        working-directory: packages/desktop-app
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: W3PMF2T3MW
-          SENTRY_DESKTOP_DSN: ${{ secrets.SENTRY_DESKTOP_DSN || secrets.SENTRY_ELECTRON_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
-          SENTRY_DESKTOP_CLIENT_KEY: ${{ secrets.SENTRY_DESKTOP_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
-          SENTRY_DESKTOP_PROJECT_ID: ${{ secrets.SENTRY_DESKTOP_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
-          SENTRY_DESKTOP_INGEST_HOST: ${{ secrets.SENTRY_DESKTOP_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
-          SENTRY_DESKTOP_ENVIRONMENT: production
-        run: |
-          pnpm build
-          npx electron-builder --${{ matrix.platform }} --config --publish always
-
-  publish-desktop-release:
-    name: Publish desktop release
-    needs: [publish-desktop]
-    if: |
-      github.event_name == 'workflow_dispatch' ||
-      contains(github.event.head_commit.modified, 'packages/desktop-app/package.json') ||
-      contains(github.event.head_commit.added, 'packages/desktop-app/package.json')
-    # gh release edit requires contents:write; workflow default is {}.
-    permissions:
-      contents: write
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Get version
-        id: version
-        run: |
-          version="$(node -p "require('./packages/desktop-app/package.json').version")"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-
-      - name: Publish draft release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "v${{ steps.version.outputs.version }}" --draft=false --latest

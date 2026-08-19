@@ -1236,6 +1236,7 @@ const koKR = {
     loadError:
       "최신 데스크톱 릴리스를 불러올 수 없습니다. releases 페이지에 모든 설치 프로그램이 있습니다.",
     checkingRelease: "최신 데스크톱 릴리스를 확인하는 중...",
+    nightlyBuilds: "Nightly 빌드를 찾고 계신가요?",
     runFromSource: "또는 소스에서 실행",
     runFromSourceBody:
       "아직 해당 플랫폼용 설치 프로그램이 없거나 CLI를 선호하시나요? npm으로 새 앱을 스캐폴드하고 로컬에서 실행하세요. macOS, Windows, Linux에서 작동합니다.",

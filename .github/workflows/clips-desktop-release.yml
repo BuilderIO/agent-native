@@ -1,10 +1,9 @@
 name: Clips Desktop Release
 
-# Release channel for the Clips Tauri menu-bar app, SEPARATE from the main
-# Electron desktop app. Uses tag prefix `clips-v*` so the two release trains
-# don't collide on GitHub Releases. The in-app updater fetches its manifest
-# from the `clips-latest` stable-pointer release (assets overwritten each run),
-# which is what `endpoints` in tauri.conf.json points at.
+# Release channels for the Clips Tauri menu-bar app are separate from the main
+# Electron desktop app and from each other. Pushes to main build Nightly;
+# production is released deliberately through workflow_dispatch. Each channel
+# has its own app identifier, release tag namespace, and updater pointer.
 
 on:
   push:
@@ -14,16 +13,33 @@ on:
       - "packages/shared-app-config/**"
   workflow_dispatch:
     inputs:
+      channel:
+        description: "Release channel"
+        required: true
+        default: production
+        type: choice
+        options:
+          - production
+          - nightly
       version:
-        description: "Version (e.g. 0.2.0). Leave empty to use package.json version."
+        description: "Stable version to release (e.g. 0.2.0). Required for production; Nightly may use the package.json version."
         required: false
         type: string
 
 permissions:
   contents: write
 
+concurrency:
+  group: clips-desktop-release-${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  cancel-in-progress: false
+
 env:
   TAURI_APP_PATH: templates/clips/desktop
+  RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  RELEASE_TAG_PREFIX: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-v' || 'clips-v' }}
+  RELEASE_POINTER_TAG: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-latest' || 'clips-latest' }}
+  RELEASE_MANIFEST_NAME: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-latest.json' || 'clips-latest.json' }}
+  RELEASE_NAME_PREFIX: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'Clips Nightly' || 'Clips Desktop' }}
 
 jobs:
   build-tauri:
@@ -110,15 +126,22 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Auto-bump version (push trigger only)
-        if: github.event_name == 'push'
+      - name: Require production version
+        if: env.RELEASE_CHANNEL == 'production' && inputs.version == ''
+        shell: bash
+        run: |
+          echo "::error::Production releases require an explicit stable version input."
+          exit 1
+
+      - name: Auto-bump Nightly version
+        if: env.RELEASE_CHANNEL == 'nightly' && (github.event_name == 'push' || inputs.version == '')
         working-directory: ${{ env.TAURI_APP_PATH }}
         shell: bash
         run: |
           CURRENT=$(node -p "require('./package.json').version")
-          # Use major.minor from package.json + run_number as patch for
-          # guaranteed uniqueness without committing version bumps back.
-          NEXT=$(node -e "const [ma,mi]=process.argv[1].split('.'); console.log(ma+'.'+mi+'.${{ github.run_number }}')" "$CURRENT")
+          # Use the run number for monotonic uniqueness, and keep Nightly
+          # versions prerelease so they cannot enter the production feed.
+          NEXT=$(node -e "const [ma,mi]=process.argv[1].split('.'); console.log(ma+'.'+mi+'.${{ github.run_number }}-nightly.0')" "$CURRENT")
           npm version "$NEXT" --no-git-tag-version
           node -e "
             const fs = require('fs');
@@ -135,8 +158,24 @@ jobs:
         working-directory: ${{ env.TAURI_APP_PATH }}
         shell: bash
         env:
-          RELEASE_VERSION: ${{ inputs.version }}
+          RELEASE_VERSION_INPUT: ${{ inputs.version }}
         run: |
+          if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+            if [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              RELEASE_VERSION="${RELEASE_VERSION_INPUT}-nightly.${GITHUB_RUN_NUMBER}.0"
+            elif [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]+$ ]]; then
+              RELEASE_VERSION="$RELEASE_VERSION_INPUT"
+            else
+              echo "::error::Nightly versions must be semver or include the -nightly prerelease marker."
+              exit 1
+            fi
+          else
+            if [[ ! "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Production versions must be an exact stable major.minor.patch version."
+              exit 1
+            fi
+            RELEASE_VERSION="$RELEASE_VERSION_INPUT"
+          fi
           npm version "$RELEASE_VERSION" --no-git-tag-version
           node -e "
             const fs = require('fs');
@@ -153,6 +192,47 @@ jobs:
         run: |
           V=$(node -p "require('./${{ env.TAURI_APP_PATH }}/package.json').version")
           echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Configure release channel
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        shell: bash
+        env:
+          RELEASE_CHANNEL: ${{ env.RELEASE_CHANNEL }}
+        run: |
+          node <<'NODE'
+          const fs = require("node:fs");
+          const channel = process.env.RELEASE_CHANNEL;
+          const configPath = "src-tauri/tauri.conf.json";
+          const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
+          const nightly = channel === "nightly";
+          const binaryName = nightly ? "Clips-Nightly" : "Clips";
+          config.productName = nightly ? "Clips Nightly" : "Clips";
+          config.mainBinaryName = binaryName;
+          config.identifier = nightly ? "com.clips.tray.nightly" : "com.clips.tray";
+          config.plugins ??= {};
+          config.plugins["deep-link"] ??= {};
+          config.plugins["deep-link"].desktop ??= {};
+          config.plugins["deep-link"].desktop.schemes = [
+            nightly ? "clips-nightly" : "clips",
+          ];
+          config.plugins.updater ??= {};
+          config.plugins.updater.endpoints = [
+            nightly
+              ? "https://clips.agent-native.com/api/clips-updater.json?channel=nightly"
+              : "https://clips.agent-native.com/api/clips-updater.json",
+          ];
+          fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+          const cargoPath = "src-tauri/Cargo.toml";
+          const cargo = fs.readFileSync(cargoPath, "utf8");
+          if (!/^name = "Clips"$/m.test(cargo)) {
+            throw new Error("Could not find the Clips Cargo binary target.");
+          }
+          const updatedCargo = cargo.replace(
+            /^name = "Clips"$/m,
+            `name = "${binaryName}"`,
+          );
+          fs.writeFileSync(cargoPath, updatedCargo);
+          NODE
 
       - name: Build and release (tauri-action)
         uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
@@ -174,19 +254,19 @@ jobs:
           CLIPS_DESKTOP_SENTRY_CLIENT_KEY: ${{ secrets.CLIPS_DESKTOP_SENTRY_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           CLIPS_DESKTOP_SENTRY_PROJECT_ID: ${{ secrets.CLIPS_DESKTOP_SENTRY_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           CLIPS_DESKTOP_SENTRY_INGEST_HOST: ${{ secrets.CLIPS_DESKTOP_SENTRY_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
-          CLIPS_DESKTOP_SENTRY_ENVIRONMENT: production
+          CLIPS_DESKTOP_SENTRY_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
         with:
           projectPath: ${{ env.TAURI_APP_PATH }}
-          tagName: clips-v__VERSION__
-          releaseName: "Clips Desktop v__VERSION__"
+          tagName: ${{ env.RELEASE_TAG_PREFIX }}__VERSION__
+          releaseName: "${{ env.RELEASE_NAME_PREFIX }} v__VERSION__"
           releaseBody: |
-            Auto-updating build of the Clips menu-bar app.
+            Auto-updating ${{ env.RELEASE_CHANNEL }} build of the Clips menu-bar app.
 
-            The in-app updater fetches its manifest from the `clips-latest`
+            The in-app updater fetches its manifest from the `${{ env.RELEASE_POINTER_TAG }}`
             release — this versioned release is the immutable source of the
             signed bundles it downloads.
           releaseDraft: true
-          prerelease: false
+          prerelease: ${{ env.RELEASE_CHANNEL == 'nightly' }}
           args: ${{ matrix.args }}
 
       - name: Verify macOS permission metadata
@@ -194,9 +274,17 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          APP_PATH=$(find "$TAURI_APP_PATH/src-tauri/target" -path '*/bundle/macos/Clips.app' -type d | head -n 1)
+          APP_NAME="Clips"
+          EXPECTED_EXECUTABLE="Clips"
+          EXPECTED_IDENTIFIER="com.clips.tray"
+          if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+            APP_NAME="Clips Nightly"
+            EXPECTED_EXECUTABLE="Clips-Nightly"
+            EXPECTED_IDENTIFIER="com.clips.tray.nightly"
+          fi
+          APP_PATH=$(find "$TAURI_APP_PATH/src-tauri/target" -path "*/bundle/macos/$APP_NAME.app" -type d | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            echo "::error::Could not find built Clips.app bundle"
+            echo "::error::Could not find built $APP_NAME.app bundle"
             exit 1
           fi
 
@@ -207,8 +295,8 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :NSCalendarsUsageDescription" "$INFO" >/dev/null
           /usr/libexec/PlistBuddy -c "Print :NSCalendarsFullAccessUsageDescription" "$INFO" >/dev/null
           /usr/libexec/PlistBuddy -c "Print :NSSpeechRecognitionUsageDescription" "$INFO" >/dev/null
-          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO" | grep -qx 'com.clips.tray'
-          /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO" | grep -qx 'Clips'
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$INFO" | grep -qx "$EXPECTED_IDENTIFIER"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleExecutable" "$INFO" | grep -qx "$EXPECTED_EXECUTABLE"
           VERSION=$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$INFO")
           [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-].*)?$ ]]
           /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$INFO" >/dev/null
@@ -248,7 +336,7 @@ jobs:
             done
           }
 
-          retry 5 gh release edit "clips-v${{ steps.v.outputs.version }}" \
+          retry 5 gh release edit "${{ env.RELEASE_TAG_PREFIX }}${{ steps.v.outputs.version }}" \
             --draft=false \
             --latest=false
 
@@ -272,7 +360,9 @@ jobs:
             done
           }
 
-          RELEASE_TAG="clips-v${{ steps.v.outputs.version }}"
+          RELEASE_TAG="${{ env.RELEASE_TAG_PREFIX }}${{ steps.v.outputs.version }}"
+          POINTER_TAG="${{ env.RELEASE_POINTER_TAG }}"
+          MANIFEST_NAME="${{ env.RELEASE_MANIFEST_NAME }}"
           mkdir -p manifest
 
           # latest.json is only produced when TAURI_SIGNING_PRIVATE_KEY is set.
@@ -285,24 +375,29 @@ jobs:
 
           if [ "$HAS_MANIFEST" = "true" ]; then
             retry 5 gh release download "$RELEASE_TAG" --pattern 'latest.json' --dir manifest
-            mv manifest/latest.json manifest/clips-latest.json
+            mv manifest/latest.json "manifest/$MANIFEST_NAME"
 
-            MANIFEST_TITLE="Clips Desktop — latest (updater manifest)"
-            MANIFEST_NOTES="Stable URL for the Clips auto-updater. Overwritten on every release. Versioned bundles live in clips-v* releases."
+            if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+              MANIFEST_TITLE="Clips Nightly — latest (updater manifest)"
+              MANIFEST_NOTES="Nightly URL for the Clips auto-updater. Overwritten on every release. Versioned bundles live in clips-nightly-v* releases."
+            else
+              MANIFEST_TITLE="Clips Desktop — latest (updater manifest)"
+              MANIFEST_NOTES="Stable URL for the Clips auto-updater. Overwritten on every release. Versioned bundles live in clips-v* releases."
+            fi
 
-            if gh release view clips-latest --json tagName -q .tagName >/dev/null 2>&1; then
-              retry 5 gh release delete-asset clips-latest clips-latest.json --yes || true
-              retry 5 gh release upload clips-latest manifest/clips-latest.json
-              retry 5 gh release edit clips-latest \
+            if gh release view "$POINTER_TAG" --json tagName -q .tagName >/dev/null 2>&1; then
+              retry 5 gh release delete-asset "$POINTER_TAG" "$MANIFEST_NAME" --yes || true
+              retry 5 gh release upload "$POINTER_TAG" "manifest/$MANIFEST_NAME"
+              retry 5 gh release edit "$POINTER_TAG" \
                 --title "$MANIFEST_TITLE" \
                 --notes "$MANIFEST_NOTES"
             else
-              retry 5 gh release create clips-latest manifest/clips-latest.json \
+              retry 5 gh release create "$POINTER_TAG" "manifest/$MANIFEST_NAME" \
                 --title "$MANIFEST_TITLE" \
                 --notes "$MANIFEST_NOTES" \
                 --latest=false
             fi
-            echo "✅ Updater manifest published to clips-latest release"
+            echo "✅ Updater manifest published to $POINTER_TAG release"
           else
             echo "⚠️ No latest.json in $RELEASE_TAG — TAURI_SIGNING_PRIVATE_KEY may not be configured."
             echo "⚠️ Release published without auto-update support. Users can still download manually."

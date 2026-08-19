@@ -1222,6 +1222,7 @@ const zhCN = {
     latestRelease: "Latest desktop release: {{version}}",
     loadError: "无法加载最新桌面版。releases 页面包含所有安装程序。",
     checkingRelease: "正在检查最新桌面版...",
+    nightlyBuilds: "想要 Nightly 版本？",
     runFromSource: "或从源码运行",
     runFromSourceBody:
       "还没有适用于你平台的安装程序，或更喜欢 CLI？使用 npm 创建新应用并在本地运行；支持 macOS、Windows 和 Linux。",
