@@ -70,7 +70,7 @@ disabled document-wide by default. Camera and microphone are already open.
    middleware, so its value wins. Do not "simplify" this into a bootstrap-time
    `.use()`.
 4. **Typecheck.** Editing server source is a Tier 2 change — run `pnpm typecheck`
-   afterward (see `self-modifying-code`).
+   once after the batch of related edits (see `self-modifying-code`).
 
 Reference implementation (`server/plugins/permission-policy.ts`):
 

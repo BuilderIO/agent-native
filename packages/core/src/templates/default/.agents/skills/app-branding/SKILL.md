@@ -151,7 +151,8 @@ These are stable identifiers or template-internal files, not user-facing brand:
 
 ## Verification
 
-- `pnpm typecheck` passes.
+- `pnpm typecheck` passes once at the end of the branding batch (skip if only
+  CSS/copy tokens changed with no type/import edits).
 - Grep for the old title/slug across `app/`, `server/`, `package.json`, and
   `public/` — no unintended leftovers remain (except the intentional
   "do not change" identifiers above).

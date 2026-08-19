@@ -2,7 +2,6 @@ import {
   AgentChatSurface,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client/agent-chat";
-import { useT } from "@agent-native/core/client/i18n";
 import { useEffect } from "react";
 import { useNavigate, useParams } from "react-router";
 
@@ -35,7 +34,6 @@ function chatThreadPath(threadId: string | null) {
 export default function ChatRoute() {
   const { threadId } = useParams();
   const navigate = useNavigate();
-  const t = useT();
   const threadUrlSync = threadId
     ? {
         routeThreadId: threadId,
@@ -69,22 +67,22 @@ export default function ChatRoute() {
         showTabBar={false}
         dynamicSuggestions={false}
         suggestions={[
-          t("chat.suggestionCapabilities"),
-          t("chat.suggestionCustomize"),
-          t("chat.suggestionActions"),
+          "What can this app do?",
+          "Help me customize this app",
+          "Show me the available actions",
         ]}
-        emptyStateText={t("chat.emptyState")}
+        emptyStateText="Ask me anything"
         emptyStateDisplay="hidden"
         centerComposerWhenEmpty
         composerLayoutVariant="hero"
-        composerPlaceholder={t("chat.composerPlaceholder")}
+        composerPlaceholder="Ask the agent..."
         composerSlot={
           <div className="mx-auto mb-5 max-w-xl px-4 text-center">
             <h1 className="text-2xl font-semibold tracking-normal text-foreground sm:text-3xl">
-              {t("chat.heroTitle")}
+              How can I help?
             </h1>
             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-              {t("chat.heroDescription")}
+              Ask the agent to inspect, explain, or change this app.
             </p>
           </div>
         }

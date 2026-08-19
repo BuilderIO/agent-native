@@ -5,7 +5,6 @@ import {
   AppProviders,
   createAgentNativeQueryClient,
 } from "@agent-native/core/client/hooks";
-import { getLocaleInitScript, useT } from "@agent-native/core/client/i18n";
 import {
   CommandMenu,
   useCommandMenuShortcut,
@@ -31,9 +30,6 @@ import { useNavigationState } from "@/hooks/use-navigation-state";
 import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
 
-import changelog from "../CHANGELOG.md?raw";
-import { i18nCatalog } from "./i18n";
-
 import stylesheet from "./global.css?url";
 
 configureTracking({
@@ -48,7 +44,6 @@ export const links: LinksFunction = () => [
 ];
 
 const THEME_INIT_SCRIPT = getThemeInitScript();
-const LOCALE_INIT_SCRIPT = getLocaleInitScript();
 
 export function Layout({ children }: { children: React.ReactNode }) {
   return (
@@ -62,11 +57,6 @@ export function Layout({ children }: { children: React.ReactNode }) {
         <script
           suppressHydrationWarning
           dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }}
-        />
-        <script
-          data-agent-native-locale-init
-          suppressHydrationWarning
-          dangerouslySetInnerHTML={{ __html: LOCALE_INIT_SCRIPT }}
         />
         <meta name="theme-color" content="#18181B" />
         <meta name="mobile-web-app-capable" content="yes" />
@@ -101,7 +91,6 @@ function DbSyncSetup() {
 
 function ThemeToggleItem() {
   const { resolvedTheme, setTheme } = useTheme();
-  const t = useT();
   const isDark = resolvedTheme === "dark";
   return (
     <CommandMenu.Item
@@ -109,7 +98,7 @@ function ThemeToggleItem() {
       keywords={["theme", "dark", "light", "mode"]}
     >
       {isDark ? <IconSun size={16} /> : <IconMoon size={16} />}
-      {t("root.toggleTheme")}
+      Toggle theme
     </CommandMenu.Item>
   );
 }
@@ -117,20 +106,12 @@ function ThemeToggleItem() {
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const navigate = useNavigate();
-  const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
     <>
-      <CommandMenu
-        open={cmdkOpen}
-        onOpenChange={setCmdkOpen}
-        changelog={changelog}
-        changelogKey="chat"
-      >
-        <CommandMenu.Group heading={t("root.commandActions")}>
-          <CommandMenu.Item onSelect={() => {}}>
-            {t("root.commandSearch")}
-          </CommandMenu.Item>
+      <CommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen}>
+        <CommandMenu.Group heading="Actions">
+          <CommandMenu.Item onSelect={() => {}}>Search</CommandMenu.Item>
           <CommandMenu.Item
             onSelect={() => navigate("/settings/agent")}
             keywords={[
@@ -143,10 +124,10 @@ function AppContent() {
             ]}
           >
             <IconHierarchy2 size={16} />
-            {t("settings.openAgentSettings")}
+            Manage agent
           </CommandMenu.Item>
         </CommandMenu.Group>
-        <CommandMenu.Group heading={t("root.commandAppearance")}>
+        <CommandMenu.Group heading="Appearance">
           <ThemeToggleItem />
         </CommandMenu.Group>
       </CommandMenu>
@@ -161,7 +142,7 @@ export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
     <AppToolkitProvider>
-      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+      <AppProviders queryClient={queryClient}>
         <DbSyncSetup />
         <AppContent />
       </AppProviders>

@@ -7,9 +7,16 @@ needs durable UI around the conversation.
 ## Skills
 
 The default app skill surface is intentionally small. Promotion, learning,
-translation, changelog, provider, and release workflows are optional; enable
-the matching skill only when this app actually uses that workflow. The
-`docs-search` action reads the version-matched framework docs bundled with
+provider, and release workflows are optional; enable the matching skill only
+when this app actually uses that workflow.
+
+**Do not add internationalization or changelog support unless the user
+explicitly asks for them.** This template ships English-only UI copy inline —
+no `app/i18n/`, LanguagePicker, `CHANGELOG.md`, or What's New surfaces. If the
+user requests i18n or changelogs, load the matching skill and add only what they
+asked for.
+
+The `docs-search` action reads the version-matched framework docs bundled with
   `@agent-native/core`; `source-search` reads core and first-party template
   implementations. Prefer both over memory when package APIs, actions, or agent
   surfaces are involved.
@@ -47,7 +54,23 @@ the matching skill only when this app actually uses that workflow. The
 - `view-screen` is the first tool to call when the user's visible context
   matters.
 
+## Data & actions (read these first)
+
+When adding SQL-backed features, do **not** start with `find` / `cat` over
+`node_modules`. Read these two files first:
+
+1. `server/db/schema.ts` — table definitions, migrate commands, path map
+2. `drizzle/crud-action-example.ts` — copy-paste list/create/update/delete
+
+Then use `getDb` / `schema` from `server/db/index.ts`. After a batch of related
+schema/action edits: one smoke test, one `pnpm typecheck` (see
+`self-modifying-code`).
+
 ## Source Changes
 
 Before building common workspace or agent UI, read `agent-native-toolkit`; read
 `customizing-agent-native` before adapting shared UI.
+
+- Guarded verification: run `pnpm agent-native:doctor`; fix findings before done.
+- For ordinary source edits, follow `self-modifying-code`: verify once per batch,
+  not after every file; smoke-test new CRUD once, don't CLI-test every action.

@@ -179,9 +179,10 @@ than duplicating their storage or transport.
 ## Reusable Kits
 
 - **Settings kit**: a searchable settings page with account, workspace, AI
-  models, LLM keys, connections, secrets, usage, notifications, changelog, and
-  app-specific panels. Search is on by default; register a `SettingsSearchEntry`
-  per control so users find settings by name across tabs.
+  models, LLM keys, connections, secrets, usage, notifications, and
+  app-specific panels. Changelog / What's New is optional — only add it when
+  the user explicitly asks. Search is on by default; register a
+  `SettingsSearchEntry` per control so users find settings by name across tabs.
 - **Collaboration kit**: Yjs docs, presence, agent presence, live cursors,
   remote selections, recent edit highlights, real-time sync indicators, and
   undo/redo grouping.

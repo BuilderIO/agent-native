@@ -24,12 +24,12 @@ An agent-native app isn't just an app the agent can _use_ — it's an app the ag
 
 Not all modifications are equal. Use this to decide what level of care is needed:
 
-| Tier          | What                  | Examples                                         | After modifying                   |
-| ------------- | --------------------- | ------------------------------------------------ | --------------------------------- |
-| 1: Data       | Files in `data/`      | JSON state, generated content, markdown          | Nothing — these are routine       |
-| 2: Source     | App code              | Components, routes, styles, scripts              | Run `pnpm typecheck && pnpm lint` |
-| 3: Config     | Project config        | `package.json`, `tsconfig.json`, `vite.config.*` | Ask for explicit approval first   |
-| 4: Off limits | Secrets and framework | `.env`, `@agent-native/*` packages & overrides   | Never modify these                |
+| Tier          | What                  | Examples                                         | After modifying                                      |
+| ------------- | --------------------- | ------------------------------------------------ | ---------------------------------------------------- |
+| 1: Data       | Files in `data/`      | JSON state, generated content, markdown          | Nothing — these are routine                          |
+| 2: Source     | App code              | Components, routes, styles, scripts              | Verify **once per batch** (see Verification below) |
+| 3: Config     | Project config        | `package.json`, `tsconfig.json`, `vite.config.*` | Ask for explicit approval first                        |
+| 4: Off limits | Secrets and framework | `.env`, `@agent-native/*` packages & overrides   | Never modify these                                   |
 
 Tier 4 includes **all** of the following — not only editing package source:
 
@@ -58,12 +58,29 @@ When an older branch needs current packages, use **`agent-native upgrade`**
 Before modifying source code (Tier 2+), create a rollback point:
 
 1. Commit or stash current state
-2. Make the edit
-3. Run `pnpm typecheck && pnpm lint`
+2. Make the full batch of related edits
+3. Verify once (see Verification)
 4. If verification fails → revert with `git checkout -- <file>`
 5. If verification passes → continue
 
 This ensures the agent can experiment without breaking the app.
+
+## Verification
+
+Run checks **once at the end of a batch of related edits**, not after every
+file, action, or small UI tweak. Dev already runs route/action typegen while
+`pnpm dev` is up — do not treat that as a reason to also run full typecheck
+after each write.
+
+| Change shape | Verify with |
+| ------------- | ----------- |
+| UI / copy / layout only | Formatter if the app has one; preview or `DevServerLogs` if something looks wrong. Skip full typecheck unless the edit touched types or imports. |
+| New/changed actions, schema, server, or shared types | One `pnpm typecheck` (and lint if the app has it) after the batch. |
+| New DB-backed CRUD | One smoke path only (e.g. create + list via `pnpm action …` or a single HTTP call). Do **not** CLI-test every action method. |
+
+Do not re-run typecheck to "confirm" after a clean pass. If typecheck fails on
+unrelated pre-existing errors, fix or note them — do not thrash with repeated
+full runs and greps.
 
 ## Designing for Agent Editability
 
@@ -89,10 +106,12 @@ el.dataset.selectedId = selectedItem?.id || "";
 
 **Use configuration-driven rendering** — Extract visual decisions (colors, layouts, sizes) into JSON config files in `data/`. The agent can modify the config (Tier 1) instead of the component source (Tier 2).
 
-**Keep localized copy in catalogs** — When editing visible UI copy, labels,
-toasts, empty states, prompts, or formatting, update the English source catalog.
-Read the optional `internationalization` skill and update additional catalogs
-only when `translations.locales` in `agent-native.config.ts` includes them.
+**Keep UI copy English-first** — If the app has no `app/i18n/` catalogs, edit
+visible labels, toasts, empty states, and prompts as plain strings in
+components. Do **not** introduce i18n catalogs, `useT()`, or a LanguagePicker
+unless the user explicitly asks for localization. If catalogs already exist,
+update the English source catalog and locales listed in `translations.locales`.
+If the user asks for i18n, read the `internationalization` skill.
 
 ## Don't
 
@@ -109,7 +128,9 @@ only when `translations.locales` in `agent-native.config.ts` includes them.
 - Don't invent local dispatch/core behavior overrides when upgrade fails —
   run `npx @agent-native/core@latest upgrade`, then fix app-level errors only
 - Don't modify `.agents/skills/` or `AGENTS.md` unless explicitly requested
-- Don't skip the typecheck/lint step after editing source code
+- Don't skip end-of-batch verification for Tier 2 changes that touch types,
+  actions, schema, or server code
+- Don't run `pnpm typecheck` or smoke-test every action after each file write
 - Don't make source changes without a git checkpoint to roll back to
 
 ## Related Skills
