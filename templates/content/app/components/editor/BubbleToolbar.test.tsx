@@ -578,4 +578,23 @@ describe("BubbleToolbar", () => {
       toolbarElement.querySelector('button[aria-label="editor.color.label"]'),
     ).toBeNull();
   });
+
+  it("hides the color control for text in a code block", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, NotionSpanMark],
+      content: "<pre><code>const answer = 42;</code></pre>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 19 });
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+
+    expect(selectionHasColorableText(editor.state, 1, 19)).toBe(false);
+    expect(
+      toolbarElement.querySelector('button[aria-label="editor.color.label"]'),
+    ).toBeNull();
+  });
 });

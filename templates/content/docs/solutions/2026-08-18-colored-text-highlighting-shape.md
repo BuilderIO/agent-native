@@ -488,7 +488,7 @@ risk strategy invalidates implementation authority and returns to Shape.
 - Exact implementation revision: working tree based on
   `3132ab1bd8206dabd0b5cff92a0f5c5bb56bd4e8`, ledger
   `content-inline-color-work-v1-approved-dual-color`.
-- Automated proof: 170 focused editor/NFM tests passed; Content typecheck exited
+- Automated proof: 171 focused editor/NFM tests passed; Content typecheck exited
   0; all 55 repository guards passed; all 30 Content product-impact tests passed.
 - Successful-user-story proof: real Chromium created a disposable Content Page,
   selected text, used the rendered floating toolbar, and restored bold, red text,
@@ -504,7 +504,10 @@ both colors.`
   disposition: finding resolved, no blocking implementation or artifact finding.
 - Repository review repair: Builder's exact-head review found that an atom-only
   selection exposed an inert color control. The control now appears only when
-  the selection contains compatible text, with a focused regression test. A new
+  the selection contains compatible text, with a focused regression test. Its
+  incremental review then found the same inert state for fenced code-block text,
+  whose parent schema rejects marks. The predicate now checks whether the text's
+  parent permits `notionSpan`, with a focused code-block regression test. A new
   exact-head repository review and CI run are required after push.
 - Changelog: the template's `agent-native changelog add` command reported that
   changelog capture is disabled, so no manual entry was created.
@@ -654,7 +657,7 @@ product-boundary-gates:
   bowerbird-product-boundary: Bowerbird supplies only the durable private task identity for this Shape. The shipping product behavior is Content; the feature adds no Bowerbird deterministic state validation agent process retry deployment or scheduling policy.
 acceptance-state:
   status: pending
-  summary: The accepted behavior and same-context real-interface story remain satisfied, but exact-head repository review and CI are pending after the inline-atom repair; merge is explicitly prohibited in this Land invocation.
+  summary: The accepted behavior and same-context real-interface story remain satisfied, but exact-head repository review and CI are pending after the inert-control repairs; merge is explicitly prohibited in this Land invocation.
   blockers:
     - exact-head repository review pending after repair
     - exact-head CI pending after repair

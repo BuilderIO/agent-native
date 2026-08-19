@@ -115,9 +115,12 @@ export function selectionHasColorableText(
   from: number,
   to: number,
 ) {
+  const markType = state.schema.marks.notionSpan;
+  if (!markType) return false;
+
   let hasText = false;
-  state.doc.nodesBetween(from, to, (node) => {
-    if (node.isText) hasText = true;
+  state.doc.nodesBetween(from, to, (node, _position, parent) => {
+    if (node.isText && parent?.type.allowsMarkType(markType)) hasText = true;
     return !hasText;
   });
   return hasText;
