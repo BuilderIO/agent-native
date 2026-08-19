@@ -1200,6 +1200,56 @@ describe("server/auth", () => {
       ).toBe(true);
     });
 
+    it("rejects unbound desktop flow ids and URL verifiers", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
+      vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-secret");
+      delete process.env.ACCESS_TOKEN;
+      delete process.env.ACCESS_TOKENS;
+
+      vi.doMock("./better-auth-instance.js", () => ({
+        getBetterAuth: vi.fn(async () => ({
+          handler: vi.fn(async () => new Response("{}")),
+          api: {
+            getSession: vi.fn(async () => null),
+            signInEmail: vi.fn(),
+            signUpEmail: vi.fn(),
+            signOut: vi.fn(),
+          },
+        })),
+        getBetterAuthSync: vi.fn(() => undefined),
+      }));
+
+      const { autoMountAuth } = await import("./auth.js");
+      const app = createMockApp();
+      await autoMountAuth(app);
+      const authUrlHandler = app.use.mock.calls.find(
+        (call: any[]) => call[0] === "/_agent-native/google/auth-url",
+      )?.[1];
+
+      const withoutHeader = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        query: { desktop: "1", flow_id: "known-flow" },
+      });
+      await expect(authUrlHandler(withoutHeader)).resolves.toEqual({
+        error: "Invalid desktop exchange challenge.",
+      });
+      expect(withoutHeader.res.status).toBe(400);
+
+      const leakedQueryVerifier = createMockEvent({
+        path: "/_agent-native/google/auth-url",
+        query: {
+          desktop: "1",
+          flow_id: "known-flow",
+          verifier: "v".repeat(32),
+        },
+      });
+      await expect(authUrlHandler(leakedQueryVerifier)).resolves.toEqual({
+        error: "Invalid desktop exchange challenge.",
+      });
+      expect(leakedQueryVerifier.res.status).toBe(400);
+    });
+
     it("lets templates own Google OAuth routes when opted out", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("GOOGLE_CLIENT_ID", "google-client");
