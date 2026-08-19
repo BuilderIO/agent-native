@@ -2439,11 +2439,14 @@ export class DesktopIdentityBroker {
     }
 
     for (const app of apps) {
-      for (const cookieName of app.cookieNamesToClear) {
-        try {
-          await app.session.cookies.remove(app.origin, cookieName);
-        } catch (error) {
-          errors.push(error);
+      const origins = [app.origin, ...(app.alternateOrigins ?? [])];
+      for (const origin of origins) {
+        for (const cookieName of app.cookieNamesToClear) {
+          try {
+            await app.session.cookies.remove(origin, cookieName);
+          } catch (error) {
+            errors.push(error);
+          }
         }
       }
       try {

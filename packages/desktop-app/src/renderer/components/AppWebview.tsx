@@ -46,8 +46,6 @@ export const APP_WEBVIEW_PREFERENCES =
 // supplied. The query is consumed by the hosted app and removed from history.
 const DESKTOP_BETA_OPT_OUT_QUERY_PARAM = "agentNativeBetaOptOut";
 const DESKTOP_BETA_OPT_OUT_DURATION_MS = 24 * 60 * 60 * 1000;
-const DESKTOP_BETA_OPT_OUT_UNTIL =
-  Date.now() + DESKTOP_BETA_OPT_OUT_DURATION_MS;
 
 type WebviewTitleUpdatedEvent = Event & { title?: string };
 type WebviewLoadFailedEvent = Event & {
@@ -335,7 +333,7 @@ export function withDesktopEnvironmentOptOut(rawUrl: string): string {
     const target = new URL(rawUrl);
     target.searchParams.set(
       DESKTOP_BETA_OPT_OUT_QUERY_PARAM,
-      String(DESKTOP_BETA_OPT_OUT_UNTIL),
+      String(Date.now() + DESKTOP_BETA_OPT_OUT_DURATION_MS),
     );
     return target.toString();
   } catch {

@@ -659,6 +659,25 @@ describe("AppWebview URL resolution", () => {
     expect(parsed.searchParams.has("agentNativeBetaOptOut")).toBe(true);
   });
 
+  it("refreshes the beta opt-out expiry for each navigation", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+    try {
+      const first = new URL(
+        withDesktopEnvironmentOptOut("https://mail.agent-native.com/inbox"),
+      );
+      now.mockReturnValue(2_000_000);
+      const second = new URL(
+        withDesktopEnvironmentOptOut("https://mail.agent-native.com/inbox"),
+      );
+
+      expect(Number(second.searchParams.get("agentNativeBetaOptOut"))).toBe(
+        Number(first.searchParams.get("agentNativeBetaOptOut")) + 1_000_000,
+      );
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("does not rewrite custom or explicitly beta webviews", () => {
     expect(
       withDesktopEnvironmentOptOut("https://workspace.example/reports"),

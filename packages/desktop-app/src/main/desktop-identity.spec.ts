@@ -3365,6 +3365,33 @@ describe("DesktopIdentityBroker", () => {
     expect(broker.getStatus()).toBe("sign-in-required");
   });
 
+  it("clears alternate-lane cookies during workspace sign-out", async () => {
+    const app = appFixture();
+    app.alternateOrigins = ["https://beta.mail.agent-native.com"];
+    app.identityAuthority = true;
+    const identitySession = {
+      cookies: cookieStore(),
+      clearStorageData: vi.fn(async () => {}),
+      fetch: vi.fn(async () => new Response(null, { status: 200 })),
+    } as unknown as Electron.Session;
+    const broker = new DesktopIdentityBroker({
+      identitySession,
+      resolveApp: () => app,
+      createWindow: vi.fn() as never,
+      reloadApp: vi.fn(),
+      clearLocalBroker: vi.fn(),
+    });
+
+    await broker.signOut([app]);
+
+    for (const cookieName of app.cookieNamesToClear) {
+      expect(app.session.cookies.remove).toHaveBeenCalledWith(
+        "https://beta.mail.agent-native.com",
+        cookieName,
+      );
+    }
+  });
+
   it("attempts every local cleanup and reports failure when central cleanup fails", async () => {
     const app = appFixture();
     const identitySession = {

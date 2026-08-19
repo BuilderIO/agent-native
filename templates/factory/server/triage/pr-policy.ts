@@ -77,10 +77,10 @@ export function decidePullRequestGovernance(
     input.summary,
     ...input.changedFiles,
   ]);
+  const ultraScary = isUltraScaryChange(input.changedFiles);
   const ownerException = detectPullRequestOwnerException(input);
-  const verifiedOwnerException = input.internalBuilderMember
-    ? ownerException
-    : null;
+  const verifiedOwnerException =
+    input.internalBuilderMember && !ultraScary ? ownerException : null;
   const internalEvidenceException = input.internalBuilderMember;
   const gates: GuardResult[] = [
     {
@@ -97,6 +97,13 @@ export function decidePullRequestGovernance(
         input.clearBug || verifiedOwnerException !== null
           ? "The automation classified this as a clear bug with a concrete failure signal."
           : "The automation did not establish a clear bug; product requests and guesses stay manual.",
+    },
+    {
+      code: "security",
+      passed: !ultraScary,
+      reason: ultraScary
+        ? "Security-sensitive auth, tenant-isolation, execution, payment, or deployment changes always require manual review."
+        : "The changed paths do not match the ultra-scary manual-review categories.",
     },
     {
       code: "security",
@@ -239,10 +246,25 @@ export function isDocsOnly(changedFiles: readonly string[]): boolean {
         normalized === "agents.md" ||
         normalized === "claude.md" ||
         (normalized.startsWith(".changeset/") && normalized.endsWith(".md")) ||
-        normalized.endsWith(".mdx")
+        (normalized.endsWith(".mdx") &&
+          (normalized.startsWith("docs/") ||
+            normalized.startsWith(".agents/skills/") ||
+            normalized.includes("/docs/")))
       );
     })
   );
+}
+
+export function isUltraScaryChange(changedFiles: readonly string[]): boolean {
+  return changedFiles.some((file) => {
+    const normalized = normalizePath(file);
+    return (
+      normalized.startsWith(".github/workflows/") ||
+      /(^|\/)(auth|authentication|identity|credentials?|secrets?|sessions?|permissions?|tenant|tenants|isolation|security|payments?|billing|deploy|deployment|netlify|publish|release|migrations?)(\/|[-_.]|$)/.test(
+        normalized,
+      )
+    );
+  });
 }
 
 function ownerExceptionCoversArea(

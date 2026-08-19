@@ -4,6 +4,7 @@ import {
   decidePullRequestGovernance,
   detectOwnerOwnedArea,
   hasCurrentPullRequestApproval,
+  isDocsOnly,
 } from "./pr-policy.js";
 
 const cleanInternalBug = {
@@ -143,6 +144,32 @@ describe("pull-request governance", () => {
     ).toMatchObject({
       ownerException: "docs-only",
       autoApprove: true,
+      autoMerge: false,
+    });
+  });
+
+  it("does not treat source artifacts as docs-only MDX", () => {
+    expect(isDocsOnly(["templates/plan/plan.mdx"])).toBe(false);
+    expect(isDocsOnly(["templates/tasks/docs/features/f1-tasks.mdx"])).toBe(
+      true,
+    );
+  });
+
+  it("keeps ultra-scary paths manual despite a verified owner", () => {
+    expect(
+      decidePullRequestGovernance({
+        ...cleanInternalBug,
+        author: "3mdistal",
+        changedFiles: [
+          "templates/content/app/routes/index.tsx",
+          "packages/core/src/auth/session.ts",
+        ],
+        clearBug: false,
+        productUxImplications: false,
+      }),
+    ).toMatchObject({
+      ownerException: null,
+      autoApprove: false,
       autoMerge: false,
     });
   });
