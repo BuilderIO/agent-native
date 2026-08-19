@@ -215,6 +215,20 @@ describe("CodeAgentsHub multi-frontier event boundary", () => {
     expect(shellCss).toContain('@import "@agent-native/toolkit/styles.css";');
   });
 
+  it("lightens only the Electron light-mode chat composer", () => {
+    const shellCss = readFileSync("src/renderer/shell.css", "utf8");
+
+    expect(shellCss).toContain(
+      "--desktop-chat-composer-background: 0 0% 100%;",
+    );
+    expect(shellCss).toMatch(
+      /\.light\s+\.desktop-chat-first-hub\s+\[data-chat-first-app-pane\]\s+\.agent-sidebar-panel\s+\.agent-composer-root\s*\{[\s\S]*?background: hsl\(var\(--desktop-chat-composer-background\)\);/,
+    );
+    expect(shellCss).not.toMatch(
+      /\.dark\s+\.desktop-chat-first-hub\s+\[data-chat-first-app-pane\]\s+\.agent-sidebar-panel\s+\.agent-composer-root/,
+    );
+  });
+
   it("keeps the chat-first chat column aligned and narrower than its apps grid", () => {
     const shellCss = readFileSync("src/renderer/shell.css", "utf8");
 
