@@ -13,7 +13,7 @@ import {
 import {
   renderDeckAccessRequestEmail,
   SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID,
-} from "../../actions/request-deck-access.js";
+} from "./access-request-email.js";
 import { renderDeckCommentEmail } from "./comment-notifications.js";
 
 export const SLIDES_DECK_COMMENT_EMAIL_ID = "slides.deck-comment";

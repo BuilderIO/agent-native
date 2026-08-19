@@ -59,7 +59,7 @@ describe("get-deck-access-status", () => {
   it("returns safe private-deck metadata without deck content", async () => {
     const result = await action.run({ deckId: "deck-1" });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       exists: true,
       hasAccess: false,
       signedIn: true,
@@ -68,6 +68,7 @@ describe("get-deck-access-status", () => {
       role: null,
       visibility: "private",
     });
+    expect(result.accessRequestToken).toEqual(expect.any(String));
     expect(result).not.toHaveProperty("data");
   });
 

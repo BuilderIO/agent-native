@@ -3,9 +3,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { defineAction } from "@agent-native/core";
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import {
-  emailStrong,
   isEmailConfigured,
-  renderEmail,
   sendEmail,
   signScopedAgentAccessToken,
   verifyScopedAgentAccessToken,
@@ -20,14 +18,16 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  renderDeckAccessRequestEmail,
+  SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID,
+} from "../server/lib/access-request-email.js";
+import {
   SLIDES_ACCESS_REQUEST_TOKEN_PREFIX,
   deckAccessApprovalPath,
   SLIDES_ACCESS_APPROVAL_TOKEN_PREFIX,
   SLIDES_ACCESS_APPROVAL_TOKEN_TTL_SECONDS,
 } from "../shared/deck-access.js";
 import { getDeckUrl, getSlidesAppUrl } from "./_app-url.js";
-
-export const SLIDES_DECK_ACCESS_REQUEST_EMAIL_ID = "slides.deck-access-request";
 
 const ANONYMOUS_ACCESS_REQUEST_WINDOW_MS = 10 * 60 * 1000;
 const ANONYMOUS_ACCESS_REQUEST_MAX = 5;
@@ -88,44 +88,11 @@ function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
-function cleanSubjectPart(value: string): string {
-  return value.replace(/[\r\n]+/g, " ").trim();
-}
-
 function absoluteDeckAccessApprovalUrl(
   deckId: string,
   approvalToken: string,
 ): string {
   return `${getSlidesAppUrl().replace(/\/+$/, "")}${deckAccessApprovalPath(deckId, approvalToken)}`;
-}
-
-export function renderDeckAccessRequestEmail(input: {
-  requesterName: string;
-  requesterEmail: string;
-  deckTitle: string;
-  url: string;
-  allowAccessUrl: string;
-}) {
-  const subject = `Access request for "${cleanSubjectPart(input.deckTitle)}"`;
-  return {
-    subject,
-    ...renderEmail({
-      brandName: "Slides",
-      preheader: subject,
-      heading: "Access requested",
-      paragraphs: [
-        `${emailStrong(input.requesterName)} (${emailStrong(input.requesterEmail)}) requested access to ${emailStrong(input.deckTitle)}.`,
-        "Select Allow access to add them to this deck's sharing list. You can also open the deck to review sharing first.",
-      ],
-      cta: { label: "Allow access", url: input.allowAccessUrl },
-      secondaryCta: { label: "Open deck", url: input.url },
-      closingParagraphs: [
-        "This approval link expires in 7 days and requires you to be signed in as a deck owner or admin.",
-      ],
-      footer:
-        "You received this because you own this deck. If you do not recognize the requester, you can ignore this email.",
-    }),
-  };
 }
 
 function accessRequestEventId(deckId: string, requesterEmail: string): string {
