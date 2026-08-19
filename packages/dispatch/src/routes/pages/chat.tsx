@@ -21,8 +21,8 @@ import { useLocation, useNavigate } from "react-router";
 
 import { ActionQueryError } from "../../components/action-query-error";
 import { useDispatchExtensions } from "../../components/layout/Layout";
-import { Skeleton } from "../../components/ui/skeleton";
 import { Button } from "../../components/ui/button";
+import { Skeleton } from "../../components/ui/skeleton";
 import { submitOverviewPrompt } from "../../lib/overview-chat";
 
 interface WorkspaceAgentResource {
