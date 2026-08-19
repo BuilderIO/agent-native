@@ -2365,8 +2365,7 @@ ${signInJourneyInlineScript()}
           var locale = __AN_AUTH_SUPPORTED_LOCALES[i];
           if (locale.split('-')[0].toLowerCase() === language) return locale;
         }
-      } catch(e) { // coercion-ok: invalid locale input falls back to the default locale.
-      }
+      } catch(e) {}
       return null;
     }
     function __anNormalizeAuthLocalePreference(value) {
