@@ -148,7 +148,7 @@ export default function SlidesTemplate() {
         description={<p className="m-0">{t("templateLanding.slides.s007")}</p>}
         media={
           <img
-            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc8a7c9f4fd94491681127dab6f01bd33?format=webp&width=2200"
+            src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb03fd93e270145e2a4e09a54ac0a549f?format=webp&width=2200"
             crossOrigin="anonymous"
             alt={t("templateLanding.slides.s001")}
             loading="lazy"
