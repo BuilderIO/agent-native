@@ -68,6 +68,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
+import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
@@ -236,7 +237,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
 function AppSetup() {
   useDbSync();
   useNavigationState();
-  return null;
+  return <LocalFolderLiveSync />;
 }
 
 function ThemeToggleItem() {

@@ -1,10 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  desktopRequestedUserDataPath,
   initializeDesktopStartup,
   resolveDesktopSsoBrokerStatePath,
   runDesktopStartupStep,
 } from "./desktop-startup.js";
+
+describe("desktopRequestedUserDataPath", () => {
+  it("uses Electron's switch when Chromium strips it from argv", () => {
+    expect(
+      desktopRequestedUserDataPath("/tmp/electron-profile", ["Agent Native"]),
+    ).toBe("/tmp/electron-profile");
+  });
+
+  it("keeps the argv fallback for ordinary launches", () => {
+    expect(
+      desktopRequestedUserDataPath("", [
+        "Agent Native",
+        "--user-data-dir=/tmp/argv-profile",
+      ]),
+    ).toBe("/tmp/argv-profile");
+  });
+});
 
 function createDependencies(
   overrides: Partial<Parameters<typeof initializeDesktopStartup>[0]> = {},
@@ -114,6 +132,43 @@ describe("initializeDesktopStartup", () => {
     expect(dependencies.createDirectory).not.toHaveBeenCalled();
     expect(dependencies.setUserDataPath).not.toHaveBeenCalled();
     expect(events).toEqual(["sentry", "logger"]);
+  });
+
+  it("uses an explicit profile for packaged Desktop before profile consumers", () => {
+    const { dependencies, events } = createDependencies({
+      requestedUserDataPath: "/tmp/acceptance-profile",
+    });
+
+    initializeDesktopStartup(dependencies);
+
+    expect(dependencies.createDirectory).toHaveBeenCalledWith(
+      "/tmp/acceptance-profile",
+    );
+    expect(dependencies.setUserDataPath).toHaveBeenCalledWith(
+      "/tmp/acceptance-profile",
+    );
+    expect(events).toEqual([
+      "create-directory",
+      "set-user-data",
+      "sentry",
+      "logger",
+    ]);
+  });
+
+  it("uses an explicit profile instead of the packaged canary profile", () => {
+    const { dependencies } = createDependencies({
+      version: "0.1.150-desktop-sso-canary.30",
+      requestedUserDataPath: "/tmp/acceptance-profile",
+    });
+
+    initializeDesktopStartup(dependencies);
+
+    expect(dependencies.createDirectory).toHaveBeenCalledWith(
+      "/tmp/acceptance-profile",
+    );
+    expect(dependencies.setUserDataPath).toHaveBeenCalledWith(
+      "/tmp/acceptance-profile",
+    );
   });
 
   it("keeps development startup recoverable when profile isolation fails", () => {

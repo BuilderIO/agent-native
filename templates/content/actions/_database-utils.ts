@@ -50,6 +50,7 @@ import {
   getDatabaseMutationContract,
 } from "./_database-row-mutation.js";
 import { getAllContentDatabaseSourceSnapshots } from "./_database-source-utils.js";
+import { serializeDocumentSource } from "./_document-source.js";
 import {
   applyFederatedOverlayValues,
   federateSources,
@@ -443,6 +444,7 @@ function serializeDocument(
     databaseMembership: membership
       ? serializeDatabaseMembership(membership)
       : undefined,
+    source: serializeDocumentSource(doc),
     createdAt: doc.createdAt,
     updatedAt: doc.updatedAt,
   };
