@@ -36,7 +36,7 @@ const ANONYMOUS_ACCESS_REQUEST_MAX = 5;
 async function claimAnonymousAccessRequestSlot(
   db: ReturnType<typeof getDb>,
   deckId: string,
-): Promise<void> {
+): Promise<{ windowStartedAt: string }> {
   const now = new Date();
   const windowStartedAt = now.toISOString();
   const resetBefore = new Date(
@@ -58,7 +58,10 @@ async function claimAnonymousAccessRequestSlot(
       },
       where: sql`${limits.windowStartedAt} <= ${resetBefore} OR ${limits.requestCount} < ${ANONYMOUS_ACCESS_REQUEST_MAX}`,
     })
-    .returning({ requestCount: limits.requestCount });
+    .returning({
+      requestCount: limits.requestCount,
+      windowStartedAt: limits.windowStartedAt,
+    });
 
   if (!bucket) {
     throw httpError(
@@ -66,6 +69,28 @@ async function claimAnonymousAccessRequestSlot(
       429,
     );
   }
+  return { windowStartedAt: bucket.windowStartedAt };
+}
+
+async function refundAnonymousAccessRequestSlot(
+  db: ReturnType<typeof getDb>,
+  deckId: string,
+  windowStartedAt: string,
+): Promise<void> {
+  const limits = schema.deckAccessRequestLimits;
+  await db
+    .update(limits)
+    .set({
+      requestCount: sql`${limits.requestCount} - 1`,
+    })
+    .where(
+      and(
+        eq(limits.deckId, deckId),
+        eq(limits.windowStartedAt, windowStartedAt),
+        sql`${limits.requestCount} > 0`,
+      ),
+    )
+    .returning({ deckId: limits.deckId });
 }
 
 function httpError(message: string, statusCode: number): Error {
@@ -629,9 +654,9 @@ export default defineAction({
       };
     }
 
-    if (!sessionEmail) {
-      await claimAnonymousAccessRequestSlot(db, deckId);
-    }
+    const anonymousSlot = sessionEmail
+      ? null
+      : await claimAnonymousAccessRequestSlot(db, deckId);
 
     const requestId = accessRequestEventId(deckId, requesterEmail);
     const requestedAt = new Date().toISOString();
@@ -663,6 +688,13 @@ export default defineAction({
       .returning({ id: schema.deckEvents.id });
 
     if (!insertedRequest) {
+      if (anonymousSlot) {
+        await refundAnonymousAccessRequestSlot(
+          db,
+          deckId,
+          anonymousSlot.windowStartedAt,
+        );
+      }
       return {
         ok: true as const,
         alreadyHasAccess: false,

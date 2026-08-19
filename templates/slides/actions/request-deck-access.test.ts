@@ -55,6 +55,17 @@ const insertValues = vi.hoisted(() =>
 );
 const updateSet = vi.hoisted(() =>
   vi.fn((values: Record<string, unknown>) => {
+    if ("requestCount" in values) {
+      return {
+        where: vi.fn(() => ({
+          returning: async () => {
+            if (state.rateLimitCount === 0) return [];
+            state.rateLimitCount -= 1;
+            return [{ deckId: "deck-1" }];
+          },
+        })),
+      };
+    }
     return {
       where: vi.fn((conditions: unknown) => ({
         returning: async () => {
@@ -553,6 +564,23 @@ describe("request-deck-access", () => {
       message: "Your access request is already with the deck owner.",
     });
     expect(notifyWithDelivery).not.toHaveBeenCalled();
+  });
+
+  it("refunds anonymous quota when a concurrent request loses the insert race", async () => {
+    state.requesterEmail = null;
+    state.insertConflict = true;
+
+    await expect(
+      action.run({
+        deckId: "deck-1",
+        accessRequestToken: "request-token",
+        requesterEmail: "guest@example.com",
+      }),
+    ).resolves.toMatchObject({
+      alreadyRequested: true,
+      notifiedOwner: false,
+    });
+    expect(state.rateLimitCount).toBe(0);
   });
 
   it("does not create a request for a viewer who already has access", async () => {

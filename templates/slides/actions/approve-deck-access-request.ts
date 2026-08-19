@@ -78,7 +78,7 @@ export default defineAction({
       .from(schema.decks)
       .where(eq(schema.decks.id, deckId))
       .limit(1);
-    if (!deck || deck.visibility === "public") {
+    if (!deck || deck.visibility !== "private") {
       throw httpError(`Deck ${deckId} not found`, 404);
     }
 

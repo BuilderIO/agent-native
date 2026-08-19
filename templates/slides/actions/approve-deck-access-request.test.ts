@@ -199,4 +199,21 @@ describe("approve-deck-access-request", () => {
     ).rejects.toMatchObject({ statusCode: 403 });
     expect(db.select).not.toHaveBeenCalled();
   });
+
+  it("rejects approval after a private deck becomes organization-visible", async () => {
+    const db = createDb(
+      [{ ...privateDeck(), visibility: "org" }],
+      [accessRequest()],
+      [],
+    );
+    mocks.getDb.mockReturnValue(db);
+
+    await expect(
+      (approveDeckAccessRequest as any).run({
+        deckId: "deck-1",
+        approvalToken: "approval-token",
+      }),
+    ).rejects.toMatchObject({ statusCode: 404 });
+    expect(db.insert).not.toHaveBeenCalled();
+  });
 });
