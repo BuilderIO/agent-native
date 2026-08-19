@@ -788,7 +788,7 @@ const enUS = {
       s058: "Free & open source",
       s059: "Need to see more first?",
       s060: "Choose what to capture, then start recording in Clips.",
-      s061: "Read the docs",
+      s061: "View more apps",
       s062: "View all apps",
       quickStart: {
         recordingMode: "Recording mode",
