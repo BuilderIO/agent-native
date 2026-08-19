@@ -458,7 +458,11 @@ export function releaseCodeAgentWorktree(input: {
     removeRunId(worktree, input.runId);
     worktree.updatedAt = now;
     worktree.lastUsedAt = now;
-    if (worktree.policy === "ephemeral" && input.cleanupAfter) {
+    if (
+      worktree.policy === "ephemeral" &&
+      input.cleanupAfter &&
+      !worktree.cleanupAfter
+    ) {
       worktree.cleanupAfter = input.cleanupAfter.toISOString();
     }
     updateRuntimeState(worktree, now);

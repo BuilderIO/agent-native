@@ -59,6 +59,25 @@ function normalizedWorktreeName(value: string): string {
     .slice(0, 56);
 }
 
+function worktreeNameIdentity(value: string): string {
+  return value
+    .normalize("NFKC")
+    .trim()
+    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .toLocaleLowerCase();
+}
+
+function worktreeNameFilesystemSlug(value: string): string {
+  const identity = worktreeNameIdentity(value);
+  if (identity.length <= 56) return identity;
+  const suffix = createHash("sha256")
+    .update(identity)
+    .digest("hex")
+    .slice(0, 8);
+  return `${identity.slice(0, 47)}-${suffix}`;
+}
+
 export function normalizeCodeAgentWorktreeName(value: unknown): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.normalize("NFKC").trim();
@@ -77,9 +96,7 @@ export function normalizeCodeAgentWorktreeName(value: unknown): string | null {
 
 export function codeAgentWorktreeNameKey(value: unknown): string | null {
   const normalized = normalizeCodeAgentWorktreeName(value);
-  return normalized
-    ? normalizedWorktreeName(normalized).toLocaleLowerCase()
-    : null;
+  return normalized ? worktreeNameIdentity(normalized) : null;
 }
 
 function repositoryRoot(
@@ -204,7 +221,7 @@ export function createNamedCodeAgentWorktree(input: {
     );
   }
   const repository = repositoryRoot(input.sourcePath, executeGit);
-  const slug = normalizedWorktreeName(name);
+  const slug = worktreeNameFilesystemSlug(name);
   const namespace = repositoryNamespace(repository.sourcePath);
   const worktreePath = path.join(
     path.resolve(input.worktreeRoot),

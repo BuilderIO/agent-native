@@ -99,6 +99,33 @@ describe("code-agent-worktree-registry", () => {
     });
   });
 
+  it("keeps distinct names that only differ after the filesystem prefix", () => {
+    withRepository((root) => {
+      const registryPath = worktreeRegistryPath(root);
+      const worktreeRoot = path.join(root, "managed-worktrees");
+      const first = createOrAttachCodeAgentWorktree({
+        registryPath,
+        sourcePath: root,
+        worktreeRoot,
+        runId: "long-name-one",
+        policy: "named",
+        name: `${"a".repeat(56)}-one`,
+      });
+      const second = createOrAttachCodeAgentWorktree({
+        registryPath,
+        sourcePath: root,
+        worktreeRoot,
+        runId: "long-name-two",
+        policy: "named",
+        name: `${"a".repeat(56)}-two`,
+      });
+
+      expect(second.id).not.toBe(first.id);
+      expect(second.path).not.toBe(first.path);
+      expect(second.branch).not.toBe(first.branch);
+    });
+  });
+
   it("waits two days before cleaning an empty ephemeral worktree", () => {
     withRepository((root) => {
       const registryPath = worktreeRegistryPath(root);
@@ -135,6 +162,38 @@ describe("code-agent-worktree-registry", () => {
         getManagedCodeAgentWorktree(registryPath, worktree.id)?.state,
       ).toBe("removed");
       expect(fs.existsSync(worktree.path)).toBe(false);
+    });
+  });
+
+  it("does not refresh an ephemeral cleanup deadline during repeated release", () => {
+    withRepository((root) => {
+      const registryPath = worktreeRegistryPath(root);
+      const worktree = createOrAttachCodeAgentWorktree({
+        registryPath,
+        sourcePath: root,
+        worktreeRoot: path.join(root, "managed-worktrees"),
+        runId: "repeated-release",
+        policy: "ephemeral",
+        now: new Date("2026-08-19T00:00:00.000Z"),
+      });
+      releaseCodeAgentWorktree({
+        registryPath,
+        worktreeId: worktree.id,
+        runId: "repeated-release",
+        cleanupAfter: new Date("2026-08-21T00:00:00.000Z"),
+        now: new Date("2026-08-19T00:00:00.000Z"),
+      });
+      releaseCodeAgentWorktree({
+        registryPath,
+        worktreeId: worktree.id,
+        runId: "repeated-release",
+        cleanupAfter: new Date("2026-08-30T00:00:00.000Z"),
+        now: new Date("2026-08-20T00:00:00.000Z"),
+      });
+
+      expect(
+        getManagedCodeAgentWorktree(registryPath, worktree.id)?.cleanupAfter,
+      ).toBe("2026-08-21T00:00:00.000Z");
     });
   });
 

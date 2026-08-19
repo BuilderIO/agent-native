@@ -5790,7 +5790,7 @@ async function sendDesktopCodeBackgroundAgentFollowUp(
     activeCodeAgentProcesses.has(input.runId) ||
     isActiveDesktopCodeAgentRun(currentRunRecord);
   const worktreeBusy = Boolean(
-    attachedWorktree?.policy === "named" &&
+    attachedWorktree &&
     hasActiveCodeAgentWorktreeRun(attachedWorktree.id, input.runId),
   );
   const mode = input.mode ?? "immediate";
@@ -6336,9 +6336,7 @@ async function createCodeAgentRun(
       });
       cwd = worktree.path;
       worktreeMetadata = worktree;
-      worktreeRunQueued =
-        worktree.policy === "named" &&
-        hasActiveCodeAgentWorktreeRun(worktree.id, runId);
+      worktreeRunQueued = hasActiveCodeAgentWorktreeRun(worktree.id, runId);
     } catch (error) {
       return {
         ok: false,
