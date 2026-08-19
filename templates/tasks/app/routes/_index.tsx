@@ -1,3 +1,4 @@
+import { withSsrHtmlContentType } from "@agent-native/core/shared";
 import { redirect } from "react-router";
 
 import { APP_TITLE } from "@/lib/app-config";
@@ -14,7 +15,7 @@ export function meta() {
 }
 
 export function loader() {
-  return redirect("/tasks");
+  return withSsrHtmlContentType(redirect("/tasks"));
 }
 
 export default function IndexRedirect() {

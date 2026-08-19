@@ -17,6 +17,7 @@ import {
 
 import { buildMarkdownResponseHeaders } from "../../../core/src/agent-web/index";
 import { wrapDocumentResponse } from "../../lib/analytics";
+import { applyDocsSsrCacheKeyHeaders } from "../../lib/ssr-cache";
 
 const SITE_URL = "https://www.agent-native.com";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -100,9 +101,10 @@ function appendVary(headers: Headers, value: string) {
       headers.set("vary", `${existing}, ${value}`);
     }
   }
-  for (const [k, v] of Object.entries(resolveSsrCacheKeyHeaders())) {
-    headers.set(k, v);
-  }
+  // Core has already promoted query-preserving HTML redirects to a full
+  // query cache key. Keep that stronger key when adding Docs' Accept variant;
+  // replacing it here would collapse distinct redirect targets again.
+  applyDocsSsrCacheKeyHeaders(headers);
 }
 
 function readAgentWebAssetForRequest(
