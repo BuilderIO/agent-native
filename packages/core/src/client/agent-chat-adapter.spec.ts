@@ -394,7 +394,7 @@ describe("createAgentChatAdapter", () => {
     );
   });
 
-  it("publishes the terminal stop signal even when another active run exists", async () => {
+  it("does not publish terminal cleanup after another run claims active state", async () => {
     vi.stubGlobal("sessionStorage", createMemoryStorage());
     const dispatchEvent = vi.fn();
     vi.stubGlobal("window", { dispatchEvent });
@@ -436,7 +436,7 @@ describe("createAgentChatAdapter", () => {
       } as any),
     );
 
-    expect(dispatchEvent).toHaveBeenCalledWith(
+    expect(dispatchEvent).not.toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
         detail: { isRunning: false, tabId: "chat-terminal-stop" },

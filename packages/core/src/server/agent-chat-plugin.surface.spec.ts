@@ -244,6 +244,25 @@ describe("request-scoped action surface", () => {
     );
   });
 
+  it("keeps local coding tools available while scoping app actions in dev", () => {
+    const source = readFileSync("src/server/agent-chat-plugin.ts", {
+      encoding: "utf-8",
+    });
+    const devSource = readFileSync("src/scripts/dev/index.ts", {
+      encoding: "utf-8",
+    });
+
+    expect(source).toMatch(
+      /const localDevActionNames = new Set\(Object\.keys\(devScriptRegistry\)\);/,
+    );
+    expect(source).toMatch(
+      /availableActionNames: appActionNames,[\s\S]*?allowedActionNames: \[[\s\S]*?\.\.\.surface\.allowedActionNames,[\s\S]*?\.\.\.localActionNames,/s,
+    );
+    expect(devSource).toMatch(
+      /unauthorizedActionFromBash\([\s\S]*?getRequestRunContext\(\)\?\.allowedActionNames/s,
+    );
+  });
+
   it("removes denied actions before the actions prompt is generated", () => {
     const actions = {
       allowed: {
@@ -281,7 +300,8 @@ describe("request-scoped action surface", () => {
 
     expect(
       source.match(/resolveActionSurface: options\?\.resolveActionSurface,/g),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
+    expect(source).toContain("resolveActionSurface: resolveDevActionSurface");
   });
 
   it("filters late-bound sandbox bridge registries to the request surface", async () => {

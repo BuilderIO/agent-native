@@ -81,6 +81,7 @@ import {
   abortTurnDurably,
   subscribeToRun,
   type ActionEntry,
+  type AgentActionSurfaceDetails,
   type AgentLoopOutcome,
   type ResolvedOwnerApiKey,
 } from "../agent/production-agent.js";
@@ -3782,6 +3783,29 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         const devScriptRegistry = await createDevScriptRegistry({
           databaseTools: databaseToolsMode,
         });
+        const localDevActionNames = new Set(Object.keys(devScriptRegistry));
+        const resolveDevActionSurface = options?.resolveActionSurface
+          ? async (details: AgentActionSurfaceDetails) => {
+              const appActionNames = details.availableActionNames.filter(
+                (name) => !localDevActionNames.has(name),
+              );
+              const surface = await options.resolveActionSurface!({
+                ...details,
+                availableActionNames: appActionNames,
+              });
+              const localActionNames = details.availableActionNames.filter(
+                (name) => localDevActionNames.has(name),
+              );
+              return {
+                allowedActionNames: [
+                  ...new Set([
+                    ...surface.allowedActionNames,
+                    ...localActionNames,
+                  ]),
+                ],
+              };
+            }
+          : undefined;
         const devActions = attachToolSearch(
           leanPrompt
             ? { ...devScriptRegistry, ...leanActions }
@@ -3937,7 +3961,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             }
             return options?.prepareRequest?.(details);
           },
-          resolveActionSurface: options?.resolveActionSurface,
+          resolveActionSurface: resolveDevActionSurface,
           skipFilesContext,
           initialToolNames: effectiveInitialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
