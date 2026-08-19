@@ -153,6 +153,13 @@ type WebkitFullscreenVideo = HTMLVideoElement & {
 
 export interface VideoPlayerHandle {
   video: HTMLVideoElement | null;
+  /**
+   * The player's own root element — the element the browser Fullscreen API
+   * actually paints when fullscreen. Callers portal fullscreen-only overlays
+   * (e.g. a comment composer) into this so they stay visible instead of
+   * exiting fullscreen.
+   */
+  container: HTMLDivElement | null;
   play: () => Promise<void> | void;
   pause: () => void;
   seek: (ms: number) => void;
@@ -183,6 +190,8 @@ export interface VideoPlayerProps {
   defaultSpeed?: number;
   /** Autoplay on mount. */
   autoPlay?: boolean;
+  /** Persist resume position for an authenticated viewer. */
+  persistPlaybackPosition?: boolean;
   /** Start time in ms. */
   startMs?: number;
   /** Comment + chapter overlays for the scrubber. */
@@ -233,6 +242,25 @@ export interface VideoPlayerProps {
   onVideoElementChange?: (video: HTMLVideoElement | null) => void;
   /** Called when the viewer clicks the timestamped-comment overlay. */
   onCommentClick?: () => void;
+  /**
+   * Reaction tray + comment-composer trigger to surface while fullscreen.
+   * The real Fullscreen API only paints this component's own subtree, so
+   * the parent route's normal reaction/comment row (rendered as a sibling of
+   * `VideoPlayer`) disappears on entering fullscreen. When these are
+   * provided, an equivalent control row renders inside the player itself,
+   * visible only while `isFullscreen` is true.
+   */
+  enableReactions?: boolean;
+  onReact?: (emoji: string) => void;
+  enableComments?: boolean;
+  /**
+   * Opens the existing comment composer/panel. While fullscreen, the caller
+   * should portal that composer into `VideoPlayerHandle.container` (via the
+   * player ref) instead of exiting fullscreen, so it stays visible.
+   */
+  onAddComment?: () => void;
+  /** Fires whenever the player enters or exits fullscreen. */
+  onFullscreenChange?: (isFullscreen: boolean) => void;
 }
 
 export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
@@ -247,6 +275,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       thumbnailUrl,
       defaultSpeed = 1.2,
       autoPlay,
+      persistPlaybackPosition = true,
       startMs,
       editsJson,
       comments,
@@ -272,6 +301,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       role,
       onVideoElementChange,
       onCommentClick,
+      enableReactions,
+      onReact,
+      enableComments,
+      onAddComment,
+      onFullscreenChange,
     } = props;
 
     const resolvedVideoSrc = useMemo(() => {
@@ -520,6 +554,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       recordingId,
       videoEl: playbackVideoEl,
       durationMs,
+      enabled: persistPlaybackPosition,
       explicitStartMs: startMs,
       allowRestoreWhilePlaying: autoPlay,
       onRestore: restorePlaybackPosition,
@@ -1028,6 +1063,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         get video() {
           return videoRef.current;
         },
+        get container() {
+          return containerRef.current;
+        },
         play: requestPlay,
         pause: pauseVideo,
         seek: seekToVisibleMs,
@@ -1044,6 +1082,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }),
       [applySpeed, pauseVideo, requestPlay, seekToVisibleMs],
     );
+
+    useEffect(() => {
+      onFullscreenChange?.(isFullscreen);
+    }, [isFullscreen, onFullscreenChange]);
 
     // Apply initial playbackRate and start position.
     useEffect(() => {
@@ -1972,6 +2014,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onToggleFullscreen={() => void toggleFullscreenInternal()}
               onToggleTheater={onTheaterToggle}
               menuPortalContainer={fullscreenMenuContainer}
+              showReactionsAndComment={isFullscreen}
+              enableReactions={enableReactions}
+              onReact={onReact}
+              enableComments={enableComments}
+              onAddComment={onAddComment}
             />
           </div>
         ) : null}
@@ -2031,7 +2078,7 @@ function CenterPlaybackOverlay({
               }}
               className="pointer-events-auto flex h-[clamp(3rem,13cqw,6rem)] w-[clamp(3rem,13cqw,6rem)] items-center justify-center rounded-full bg-white text-black shadow-2xl ring-1 ring-white/35 transition-transform duration-150 hover:scale-105 hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white focus-visible:ring-offset-2 focus-visible:ring-offset-black"
             >
-              <IconPlayerPlay className="ml-[6%] h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
+              <IconPlayerPlay className="h-[clamp(1.5rem,6.5cqw,3rem)] w-[clamp(1.5rem,6.5cqw,3rem)] fill-current" />
             </button>
 
             <div

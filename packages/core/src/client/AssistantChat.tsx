@@ -2363,8 +2363,16 @@ export function useAutoResumeStatus(
 function approvalResolutionIdentity(
   approvalKey: string,
   toolCallId?: string,
+  // Included so a NEW `approval_required` ask for the same toolCallId/
+  // approvalKey (the server re-emitting after a failed resume never
+  // consumed the earlier grant) looks up as unresolved instead of
+  // inheriting the earlier ask's retained "approved" mark forever. Two
+  // asks sharing no askId (older events, non-production-agent approval
+  // sources) still collapse onto the same identity, preserving the
+  // existing remount-survives-as-approved behavior for them.
+  askId?: string,
 ): string {
-  return `${toolCallId ?? ""}\u0000${approvalKey}`;
+  return `${toolCallId ?? ""}\u0000${approvalKey}\u0000${askId ?? ""}`;
 }
 
 const AssistantChatInner = forwardRef<
@@ -3865,6 +3873,7 @@ const AssistantChatInner = forwardRef<
     // A restored tab can be reclassified as client-only after the thread list
     // loads. Once that happens, there is no server row to restore, so show the
     // empty composer instead of leaving the per-thread restore skeleton up.
+    setThreadRestoreError(null);
     setIsRestoring(false);
   }, [isNewThread, threadId]);
 
@@ -5653,13 +5662,13 @@ const AssistantChatInner = forwardRef<
     byIdentity: new Map(),
   }));
   const getApprovalResolution = useCallback(
-    (approvalKey: string, toolCallId?: string) => {
+    (approvalKey: string, toolCallId?: string, askId?: string) => {
       if (approvalResolutionState.scope !== approvalResolutionScope) {
         return null;
       }
       return (
         approvalResolutionState.byIdentity.get(
-          approvalResolutionIdentity(approvalKey, toolCallId),
+          approvalResolutionIdentity(approvalKey, toolCallId, askId),
         ) ?? null
       );
     },
@@ -5670,6 +5679,7 @@ const AssistantChatInner = forwardRef<
       approvalKey: string,
       resolution: ApprovalResolution,
       toolCallId?: string,
+      askId?: string,
     ) => {
       setApprovalResolutionState((previous) => {
         const byIdentity =
@@ -5678,7 +5688,7 @@ const AssistantChatInner = forwardRef<
             : new Map<string, ApprovalResolution>();
         const next = new Map(byIdentity);
         next.set(
-          approvalResolutionIdentity(approvalKey, toolCallId),
+          approvalResolutionIdentity(approvalKey, toolCallId, askId),
           resolution,
         );
         return { scope: approvalResolutionScope, byIdentity: next };

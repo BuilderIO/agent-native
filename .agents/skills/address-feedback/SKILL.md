@@ -167,30 +167,61 @@ evidence:
    - For resource visibility or lifecycle changes, verify both the screen and
      shared action/tool behavior, including owner versus non-owner access when
      relevant.
-   - If you cannot run a useful verification, say why.
+   - If you cannot run a useful verification, record the reason internally. In
+     the user-facing reply, use only "[plain-language item] - Verification
+     pending. Timing not confirmed yet." unless the user explicitly asks why.
 
-## Report Format
+## User-Facing Reply
 
-Keep the final report short:
+Keep the outward reply to a status update, not an implementation report. The
+technical investigation, reproduction details, test results, file names, and
+internal reasoning stay internal unless the user explicitly asks for them.
+
+For every actionable item, use a plain-language label and one short status:
+
+- For a requested change: **Fixed** or **Not fixed yet**.
+- For an unclear request: **Needs clarification**.
+- For a declined, skipped, or out-of-scope request: **Not planned** or **Not in
+  scope**.
+- For any item that still needs verification: **Verification pending**.
+
+Add one timing phrase to every status. If the current ship is expected to
+finish that day and the completed fix is confirmed to be included in that
+ship, use "Expected live by EOD." Otherwise use "Timing not confirmed yet."
+For items that are not planned or out of scope, use "No live date." Do not
+invent a release date.
+
+If a requested change is implemented but not yet verified, use
+"[plain-language item] - Verification pending. Timing not confirmed yet."
+instead of **Fixed** until verification is complete.
+
+When this skill is used by `address-feedback-with-replies`, that skill's Slack
+reply states take precedence: a completed Slack thread must end as **Fixed** or
+**Clarification needed**. Do not post **Not fixed yet**, **Needs clarification**,
+or a bare **Verification pending** status in Slack. Ask one concrete,
+plain-language clarification question only when reporter or product input is
+missing. **Clarification needed** is the one timing exception: do not give a
+live estimate until the question is answered and the fix is complete. If only
+internal test, deployment, or tooling verification is unavailable, keep that
+blocker internal, do not post an external Slack status yet, and resume the
+thread after verification is available. Do not turn it into a reporter
+question. Keep the no-technical-details rule in all cases.
+
+Use this format:
 
 ```md
-## Repeat Reports
-- [defect] - reported [N] times since [date] by [reporters]; [what now fails if it regresses]
-
-## Bugs Fixed
-- [feedback item] - [what changed, file:line]
-
-## Bugs Flagged But Not Fixed
-- [feedback item] - [why]
-
-## UX Suggestions
-- [feedback item] -> [proposed change]
-
-## Skipped
-- [feedback item] - [reason]
+## Feedback Status
+- [plain-language item] - Fixed. Expected live by EOD.
+- [plain-language item] - Not fixed yet. Timing not confirmed yet.
+- [plain-language item] - Needs clarification. Timing not confirmed yet.
+- [plain-language item] - Not planned. No live date.
 ```
 
-Only include sections that have content. The user can read the diff; do not write a second feedback document.
+Do not include implementation details, technical explanations, file paths,
+line numbers, test counts, PR numbers, worktree names, stack traces, or
+internal labels in the user-facing reply. Do not add separate sections for
+bugs, UX suggestions, skipped items, or technical evidence. Keep each item to
+one short sentence.
 
 ## Avoid
 
@@ -199,6 +230,7 @@ Only include sections that have content. The user can read the diff; do not writ
 - Do not implement UX changes that make an important screen busier without explicit user approval.
 - Do not claim a UI change is done without browser verification when a local app can be run.
 - Do not invent Sentry matches, affected users, or reproduction steps.
+- Do not expose the technical details used to verify or implement the work unless the user asks for them.
 
 ## Related Skills
 

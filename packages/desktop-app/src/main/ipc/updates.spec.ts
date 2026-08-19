@@ -21,6 +21,7 @@ const electronState = vi.hoisted(() => {
       on: vi.fn(),
       relaunch: vi.fn(),
       exit: vi.fn(),
+      quit: vi.fn(),
     },
     browserWindow: {
       getAllWindows: vi.fn(() => []),
@@ -68,6 +69,9 @@ import { IPC } from "@shared/ipc-channels";
 
 let checkForAppUpdates: typeof import("./updates.js").checkForAppUpdates;
 let getCurrentUpdateStatus: typeof import("./updates.js").getCurrentUpdateStatus;
+let isInstallingDownloadedUpdate: typeof import("./updates.js").isInstallingDownloadedUpdate;
+let isPreparingDownloadedUpdate: typeof import("./updates.js").isPreparingDownloadedUpdate;
+let requestQuitAfterUpdatePreparation: typeof import("./updates.js").requestQuitAfterUpdatePreparation;
 let registerUpdatesIpc: typeof import("./updates.js").registerUpdatesIpc;
 
 describe("desktop updates", () => {
@@ -85,8 +89,14 @@ describe("desktop updates", () => {
     updaterState.quitAndInstall.mockReset();
     electronState.notification.isSupported.mockReturnValue(false);
     vi.resetModules();
-    ({ checkForAppUpdates, getCurrentUpdateStatus, registerUpdatesIpc } =
-      await import("./updates.js"));
+    ({
+      checkForAppUpdates,
+      getCurrentUpdateStatus,
+      isInstallingDownloadedUpdate,
+      isPreparingDownloadedUpdate,
+      requestQuitAfterUpdatePreparation,
+      registerUpdatesIpc,
+    } = await import("./updates.js"));
   });
 
   it("shows a clear result when a manual check finds no update", async () => {
@@ -114,6 +124,58 @@ describe("desktop updates", () => {
       body: "You're running the latest version (1.0.0).",
     });
     expect(focusMainWindow).not.toHaveBeenCalled();
+  });
+
+  it("redacts transport details from a failed update check", async () => {
+    const error = new Error(
+      '502 "method: GET url: https://www.agent-native.com/api/desktop-updates/latest-mac.yml"',
+    );
+    updaterState.checkForUpdates.mockRejectedValue(error);
+    const refreshApplicationMenu = vi.fn();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    registerUpdatesIpc({
+      refreshApplicationMenu,
+      focusMainWindow: vi.fn(),
+    });
+
+    await expect(checkForAppUpdates()).resolves.toEqual({
+      state: "error",
+      message: "Couldn't check for updates. Please try again.",
+    });
+
+    expect(getCurrentUpdateStatus()).toEqual({
+      state: "error",
+      message: "Couldn't check for updates. Please try again.",
+    });
+    expect(refreshApplicationMenu).toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(
+      "[updates] update operation failed:",
+      error.message,
+    );
+  });
+
+  it("uses the download retry message when automatic staging fails", async () => {
+    const error = new Error("download failed");
+    updaterState.checkForUpdates.mockResolvedValue({
+      downloadPromise: Promise.reject(error),
+    });
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+    });
+
+    await expect(checkForAppUpdates()).resolves.toEqual({
+      state: "error",
+      message: "Couldn't download the update. Please try again.",
+    });
+
+    expect(warn).toHaveBeenCalledWith(
+      "[updates] update operation failed:",
+      error.message,
+    );
   });
 
   it("does not advertise a macOS update until native staging finishes", async () => {
@@ -204,13 +266,47 @@ describe("desktop updates", () => {
     await installHandler?.();
 
     expect(prepareForUpdate).toHaveBeenCalledOnce();
+    expect(isInstallingDownloadedUpdate()).toBe(true);
+    expect(updaterState.quitAndInstall).toHaveBeenCalledWith(false, true);
+  });
+
+  it("does not own user quits while helper preparation is still pending", async () => {
+    let resolvePreparation!: () => void;
+    const prepareForUpdate = vi.fn(
+      () => new Promise<void>((resolve) => (resolvePreparation = resolve)),
+    );
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+      prepareForUpdate,
+    });
+    updaterState.handlers.get("update-downloaded")?.({
+      version: "1.1.0",
+    });
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    const install = installHandler?.();
+    await vi.waitFor(() => expect(prepareForUpdate).toHaveBeenCalledOnce());
+    expect(isPreparingDownloadedUpdate()).toBe(true);
+    expect(isInstallingDownloadedUpdate()).toBe(false);
+
+    resolvePreparation();
+    await install;
+    expect(isPreparingDownloadedUpdate()).toBe(false);
+    expect(isInstallingDownloadedUpdate()).toBe(true);
     expect(updaterState.quitAndInstall).toHaveBeenCalledWith(false, true);
   });
 
   it("keeps a downloaded update retryable after an asynchronous install error", async () => {
+    const prepareForUpdate = vi.fn(async () => undefined);
+    const restoreAfterUpdateFailure = vi.fn(async () => undefined);
     registerUpdatesIpc({
       refreshApplicationMenu: vi.fn(),
       focusMainWindow: vi.fn(),
+      prepareForUpdate,
+      restoreAfterUpdateFailure,
     });
     updaterState.handlers.get("update-downloaded")?.({
       version: "1.1.0",
@@ -220,16 +316,55 @@ describe("desktop updates", () => {
       IPC.UPDATE_INSTALL,
     );
     await installHandler?.();
+    expect(prepareForUpdate).toHaveBeenCalledOnce();
     expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(1);
 
-    updaterState.handlers.get("error")?.(new Error("installer failed"));
+    await updaterState.handlers.get("error")?.(new Error("installer failed"));
+
+    expect(restoreAfterUpdateFailure).toHaveBeenCalledOnce();
+    expect(getCurrentUpdateStatus()).toEqual({
+      state: "downloaded",
+      version: "1.1.0",
+    });
+    expect(isPreparingDownloadedUpdate()).toBe(false);
+    expect(isInstallingDownloadedUpdate()).toBe(false);
+    await installHandler?.();
+    expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(2);
+
+    await updaterState.handlers.get("error")?.(new Error("retry failed"));
+    expect(restoreAfterUpdateFailure).toHaveBeenCalledTimes(2);
+  });
+
+  it("completes a deferred quit after helper preparation fails and restores retry state", async () => {
+    const restoreAfterUpdateFailure = vi.fn(async () => undefined);
+    const prepareForUpdate = vi.fn(async () => {
+      requestQuitAfterUpdatePreparation();
+      throw new Error("helper close failed");
+    });
+    registerUpdatesIpc({
+      refreshApplicationMenu: vi.fn(),
+      focusMainWindow: vi.fn(),
+      prepareForUpdate,
+      restoreAfterUpdateFailure,
+    });
+    updaterState.handlers.get("update-downloaded")?.({
+      version: "1.1.0",
+    });
+
+    const installHandler = electronState.ipcMain.handlers.get(
+      IPC.UPDATE_INSTALL,
+    );
+    await installHandler?.();
 
     expect(getCurrentUpdateStatus()).toEqual({
       state: "downloaded",
       version: "1.1.0",
     });
-    await installHandler?.();
-    expect(updaterState.quitAndInstall).toHaveBeenCalledTimes(2);
+    expect(isPreparingDownloadedUpdate()).toBe(false);
+    expect(isInstallingDownloadedUpdate()).toBe(false);
+    expect(electronState.app.quit).toHaveBeenCalledOnce();
+    expect(updaterState.quitAndInstall).not.toHaveBeenCalled();
+    expect(restoreAfterUpdateFailure).toHaveBeenCalledOnce();
   });
 
   it("keeps un-packaged development updates explicitly unsupported", async () => {

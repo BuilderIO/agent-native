@@ -7,6 +7,31 @@ description: "將 Agent-Native 應用部署到具有 Nitro 預設的任何平台
 
 Agent-Native 應用程式在底層使用 [Nitro](https://nitro.build)，這意味著您可以部署到任何平台，無需進行零設定更改 - 只需設定預設即可。
 
+## 快速路徑：在本機自行託管 Chat 應用程式 {#self-host-quickstart}
+
+有兩個適合的起點：
+
+- **正在建立應用程式？** 從 [Getting Started](/docs/getting-started) 開始，準備好將應用程式放到持久環境時再回到這裡。
+- **正在執行應用程式？** 先使用本機 Docker 路徑。它會驗證你在小型伺服器上將使用的 Node.js、Postgres、驗證和環境變數設定。
+
+本機堆疊特意使用範例驗證密鑰和本機 Postgres 卷，只適用於 `localhost`，不適合直接暴露到網際網路。完整的 Compose 檔案和可複製步驟請參閱[英文快速入門](https://www.agent-native.com/docs/deployment#self-host-quickstart)。此快速入門使用 PostgreSQL 18 的磁碟區配置。不要重新使用由 PostgreSQL 17 或更早版本建立的磁碟區。變更映像或掛載路徑前，請先備份並遷移現有資料。
+
+### 1. 建立應用程式
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. 啟動本機堆疊
+
+```bash
+docker compose up --build
+```
+
+開啟 [http://localhost:3000](http://localhost:3000)。如果要使用內建代理，請將 `ANTHROPIC_API_KEY` 加入本機 `.env` 檔案。
+
 ## 部署之前：選取持久資料庫 {#persistent-database}
 
 每個部署的應用程式都需要一個持久的 SQL 資料庫。在本機開發中，agent-native 回退到 `data/app.db` 處的 SQLite 檔案；這在您的電腦上很方便，但在可以重設檔案系統的容器、預覽或無伺服器環境中並不持久。
@@ -247,6 +272,7 @@ COPY --from=build /app/.output .output
 # data/ 是執行時建立的 SQLite 目錄 - 不要將開發資料庫複製到產品中。
 # 對於正式環境，將 DATABASE_URL 設定為託管的 Postgres 或 Turso 執行個體。
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]

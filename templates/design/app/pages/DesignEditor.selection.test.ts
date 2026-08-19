@@ -1537,7 +1537,7 @@ describe("DesignEditor URL state", () => {
     ).toBe("?view=overview&screen=screen-123&zoom=33.33");
   });
 
-  it("round-trips code panel state now that the Code rail tab ships", () => {
+  it("drops gated Code panel state from the editor URL", () => {
     expect(
       getDesignEditorStateUrlSearch({
         currentSearch:
@@ -1548,9 +1548,7 @@ describe("DesignEditor URL state", () => {
         codeFileId: "code-file",
         codeFilename: "app/routes/home.tsx",
       }),
-    ).toBe(
-      "?view=single&panel=code&fileId=code-file&screen=screen-123&mode=interact",
-    );
+    ).toBe("?view=single&screen=screen-123&mode=interact");
   });
 
   it("tracks the live non-default tool and removes a stale tool after returning to move", () => {

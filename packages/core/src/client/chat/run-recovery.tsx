@@ -373,7 +373,7 @@ export function BuilderSetupContent({
           className={cn(
             "agent-builder-setup-card__actions flex shrink-0",
             sidebarLayout
-              ? "flex-col items-start gap-1 sm:items-center"
+              ? "flex-row items-center gap-1"
               : "flex-nowrap items-center gap-2",
           )}
         >

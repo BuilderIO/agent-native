@@ -3,8 +3,8 @@ name: secrets
 description: >-
   Declaratively register API keys and service credentials a template needs so
   they appear in the agent sidebar settings UI and the onboarding checklist.
-  Use for any third-party API key (OpenAI, Stripe, Twilio, etc.) and for
-  surfacing OAuth connections in the unified settings UI.
+  Use before adding any third-party credential or setup UI so API keys, OAuth
+  connections, and scoped configuration use the correct shared primitive.
 scope: dev
 metadata:
   internal: true
@@ -23,6 +23,33 @@ Secret values are supplied at runtime through deployment configuration, the
 encrypted `app_secrets` vault, `saveCredential` / `resolveCredential`, OAuth, or
 `${keys.NAME}` substitution. Examples must use obvious placeholders such as
 `<OPENAI_API_KEY>` or `${keys.SLACK_WEBHOOK}`, not real-looking copied values.
+
+## Credential Modeling Preflight
+
+Before registering a provider's fields, inspect the workspace/provider connection
+catalog first. If a reusable connection exists, use its app grant and scoped
+`resolveWorkspaceConnectionCredential(s)ForApp` path instead of registering a
+parallel secret. Only classify fields for app-local setup when no reusable
+connection exists:
+
+- **API or service key** - register it as `kind: "api-key"` with the narrowest
+  correct `scope`, a human label, a description, a docs link, and a validator.
+- **OAuth authorization or refresh token** - use the OAuth token store and
+  register a `kind: "oauth"` entry so the shared UI renders Connect and the
+  runtime owns status, refresh, and reauthorization.
+- **Deploy- or app-level configuration** - use deployment/runtime
+  configuration, not a per-user secret row.
+- **Account, customer, manager, or other non-secret identifier** - store it as
+  scoped connection metadata or app data, not as a masked secret field.
+
+`required: true` is for a logical setup requirement. If a provider needs
+several values, do not automatically create one required checklist item per
+field; use one composite onboarding step or a registered connection readiness
+check.
+
+Custom setup UI is allowed for provider-specific prerequisites, ordering, or
+health checks, but it must delegate credential storage and connection state to
+the shared vault/OAuth/settings surfaces.
 
 ## When to use
 

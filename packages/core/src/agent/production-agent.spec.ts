@@ -51,6 +51,7 @@ import {
   resolveBackgroundNoProgressRepeat,
   lastUnfinishedPreparingActionToolFromEvents,
   markBackgroundContinuationChunkTerminal,
+  resolveAgentModelSelection,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
   resolveFinalResponseGuardRequestText,
@@ -166,6 +167,40 @@ describe("resolveAgentRequestReasoningEffort", () => {
         configuredEffort: "high",
       }),
     ).toBe("none");
+  });
+});
+
+describe("resolveAgentModelSelection", () => {
+  const defaultModel = "gpt-5-6-luna";
+
+  it("uses a manually selected request model first", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "gpt-5-6-terra",
+        storedModel: "gpt-5-6-sol",
+        defaultModel,
+      }),
+    ).toEqual({ model: "gpt-5-6-terra", source: "request" });
+  });
+
+  it("treats auto as a sentinel and uses the stored AN default", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "auto",
+        storedModel: "gpt-5-6-terra",
+        defaultModel,
+      }),
+    ).toEqual({ model: "gpt-5-6-terra", source: "stored" });
+  });
+
+  it("uses the single configured global default when no override exists", () => {
+    expect(
+      resolveAgentModelSelection({
+        requestModel: "auto",
+        storedModel: "auto",
+        defaultModel,
+      }),
+    ).toEqual({ model: defaultModel, source: "default" });
   });
 });
 
@@ -467,6 +502,62 @@ describe("buildUserContentWithAttachments", () => {
       { type: "image", mediaType: "image/png", data: "aW1hZ2U=" },
       { type: "text", text: "Describe this" },
     ]);
+  });
+
+  // Binary attachments were never capped, so a large screenshot or PDF went out
+  // as unbounded inline base64. OpenAI rejects the whole request over 1,048,576
+  // chars in one file_url ("string too long", measured at 4,149,128) and the
+  // turn dies -- 64 events in 7 days, all on the gateway path.
+  it("does not inline an oversized image, and points at the uploaded URL instead", () => {
+    const att: any = {
+      type: "image",
+      name: "huge.png",
+      contentType: "image/png",
+      data: `data:image/png;base64,${"A".repeat(1_000_001)}`,
+      url: "https://cdn.example.com/huge.png",
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "Describe this",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("https://cdn.example.com/huge.png");
+    expect(text).toContain("too large to send inline");
+  });
+
+  it("still inlines an image that fits", () => {
+    const parts = buildUserContentWithAttachments({
+      text: "Describe this",
+      attachments: [
+        {
+          type: "image",
+          name: "small.png",
+          contentType: "image/png",
+          data: "data:image/png;base64,aW1hZ2U=",
+        } as any,
+      ],
+    });
+    expect(parts.some((p: any) => p.type === "image")).toBe(true);
+  });
+
+  // Without a URL the bytes are unreachable, so say so rather than dropping the
+  // attachment and leaving the model to answer as if nothing was sent.
+  it("says an oversized file is unavailable when there is no upload URL", () => {
+    const att: any = {
+      type: "file",
+      name: "huge.pdf",
+      contentType: "application/pdf",
+      data: `data:application/pdf;base64,${"A".repeat(1_000_001)}`,
+    };
+    const parts = buildUserContentWithAttachments({
+      text: "Summarize",
+      attachments: [att],
+    });
+    expect(parts.some((p: any) => p.type === "file")).toBe(false);
+    const text = parts.map((p: any) => p.text ?? "").join("\n");
+    expect(text).toContain("huge.pdf");
+    expect(text).toContain("no upload URL");
   });
 
   it("keeps hosted image URLs in text context instead of sending malformed URL image parts", () => {

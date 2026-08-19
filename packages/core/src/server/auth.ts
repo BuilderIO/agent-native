@@ -15,6 +15,7 @@ import {
 import type { H3Event } from "h3";
 
 import { getAppConfig } from "../app-config/index.js";
+import { isWorkspaceAppAccessAllowed } from "../org/workspace-app-access.js";
 import { EMBED_START_PATH } from "../shared/embed-auth.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -240,6 +241,12 @@ export interface AuthOptions {
    * Both page routes and API routes can be made public.
    */
   publicPaths?: string[];
+  /**
+   * Public, unauthenticated ingest paths that may receive cross-origin
+   * requests when CORS_ALLOWED_ORIGINS is unset. These routes must perform
+   * their own request validation and must not rely on cookies for auth.
+   */
+  publicCorsPaths?: string[];
   /**
    * Workspace-level audience for the app.
    *
@@ -964,9 +971,16 @@ async function ensureEmailVerifiedForRedirect(
       sql: 'UPDATE "user" SET email_verified = TRUE WHERE email = ? AND (email_verified = FALSE OR email_verified IS NULL)',
       args: [email],
     });
-  } catch {
-    // Better Auth already handled the verification route. This repair is
-    // best-effort so response cookies/redirects are never lost to DB noise.
+  } catch (error) {
+    // Better Auth already handled the verification route, so this repair
+    // staying best-effort (never blocking the response) is correct. But a
+    // failure here must never be silent: "repair didn't run" and "there was
+    // nothing to repair" are the same observable outcome to a caller unless
+    // this is logged, which is exactly the shape of "clicked the verify
+    // link, login still says not verified" (Slack C0ATH3CCZT4, reported
+    // 2026-07-31 and 2026-08-05) — this UPDATE is the only place that would
+    // show whether Better Auth's own write is failing too.
+    captureAuthError(error, { route: "verify-email", email });
   }
 }
 
@@ -1394,6 +1408,7 @@ interface AuthGuardConfig {
   getLoginHtml?: (event: H3Event, rawPath: string) => string;
   authMode?: OnboardingHtmlOptions["authMode"];
   publicPaths: string[];
+  publicCorsPaths: string[];
   workspaceAppAudience: WorkspaceAppAudience;
   workspaceAppPublicPaths: string[];
   workspaceAppProtectedPaths: string[];
@@ -1966,11 +1981,15 @@ export async function runAuthGuard(
  * unauthenticated requests. Returns the login HTML for page routes
  * or a 401 JSON response for API routes.
  *
- * Reads loginHtml and publicPaths from _authGuardConfig on every request
+ * Reads loginHtml and public paths from _authGuardConfig on every request
  * so that a custom plugin can update them after the default has already
  * installed this middleware (the production race condition fix).
  */
-function applyCorsHeaders(event: H3Event): {
+function applyCorsHeaders(
+  event: H3Event,
+  publicCorsPaths: string[] = [],
+  requestPath?: string,
+): {
   hasOrigin: boolean;
   allowed: boolean;
 } {
@@ -1995,14 +2014,25 @@ function applyCorsHeaders(event: H3Event): {
       Boolean(getHeader(event, EMBED_TARGET_HEADER)) ||
       Boolean(getHeader(event, EMBED_TRANSPLANT_HEADER)) ||
       Boolean(getHeader(event, "authorization")));
+  const isPublicCorsPath = Boolean(
+    requestPath && matchesPathList(requestPath, publicCorsPaths),
+  );
   const allowedOrigin = getAllowedCorsOrigin(origin, {
     allowedOrigins: readCorsAllowedOrigins(),
+    // Public ingestion endpoints such as analytics replay are intentionally
+    // callable by browser apps on arbitrary origins. The endpoint still owns
+    // its public-key, payload, quota, and origin checks; this only lets the
+    // browser complete the preflight when no deployment-wide allowlist exists.
+    allowAnyOriginWhenNoAllowlist: isPublicCorsPath,
   });
   const responseOrigin = mcpEmbedCorsRequest ? origin : allowedOrigin;
   if (!responseOrigin) return { hasOrigin: true, allowed: false };
   setResponseHeader(event, "Access-Control-Allow-Origin", responseOrigin);
   setResponseHeader(event, "Vary", "Origin");
-  if (!mcpEmbedCorsRequest || shouldAllowMcpEmbedCredentials(responseOrigin)) {
+  if (
+    !isPublicCorsPath &&
+    (!mcpEmbedCorsRequest || shouldAllowMcpEmbedCredentials(responseOrigin))
+  ) {
     setResponseHeader(event, "Access-Control-Allow-Credentials", "true");
   }
   setResponseHeader(
@@ -2030,7 +2060,7 @@ function applyCorsHeaders(event: H3Event): {
 
 function createAuthCorsHandler() {
   return defineEventHandler((event) => {
-    const cors = applyCorsHeaders(event);
+    const cors = applyCorsHeaders(event, _authGuardConfig?.publicCorsPaths);
     if (getMethod(event) !== "OPTIONS") return;
 
     if (cors.hasOrigin && !cors.allowed) {
@@ -2546,7 +2576,7 @@ function createAuthGuardFn(
 
     // Emit CORS headers on every request the guard sees so that even
     // error responses (401) reach the browser.
-    const cors = applyCorsHeaders(event);
+    const cors = applyCorsHeaders(event, config.publicCorsPaths, p);
     // Preflight short-circuit: the browser sends OPTIONS before the real
     // credentialed request. Must return success without invoking auth.
     if (getMethod(event) === "OPTIONS") {
@@ -2909,7 +2939,22 @@ function createAuthGuardFn(
     }
 
     const session = await getSession(event);
-    if (session) return;
+    if (session) {
+      const workspaceAppId = getAppConfig().app.workspaceId?.trim() || "";
+      if (
+        workspaceAppId &&
+        workspaceAppId !== "dispatch" &&
+        (p.startsWith("/api/") || p.startsWith("/_agent-native/")) &&
+        !(await isWorkspaceAppAccessAllowed(workspaceAppId, {
+          email: session.email,
+          orgId: session.orgId,
+        }))
+      ) {
+        setResponseStatus(event, 403);
+        return { error: "You do not have access to this workspace app." };
+      }
+      return;
+    }
 
     if (p.startsWith("/api/") || p.startsWith("/_agent-native/")) {
       setResponseStatus(event, 401);
@@ -3826,8 +3871,8 @@ async function mountBetterAuthRoutes(
           returnUrl,
           redirect: q.redirect === "1",
           workspace:
-            process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-            process.env.VITE_AGENT_NATIVE_WORKSPACE === "1",
+            getAppConfig().workspace.isWorkspace === true ||
+            typeof getAppConfig().workspace.appsJson === "string",
         });
         const params = new URLSearchParams({
           client_id: googleSignInCredentials.clientId,
@@ -5124,6 +5169,7 @@ async function mountBetterAuthRoutes(
   _authGuardConfig = {
     ...loginHtmlConfig,
     publicPaths,
+    publicCorsPaths: options.publicCorsPaths ?? [],
     workspaceAppAudience,
     workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
     workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
@@ -5353,6 +5399,14 @@ export async function autoMountAuth(
           ...options.publicPaths,
         ];
       }
+      if (options.publicCorsPaths) {
+        _authGuardConfig.publicCorsPaths = [
+          ...new Set([
+            ...(_authGuardConfig.publicCorsPaths ?? []),
+            ...options.publicCorsPaths,
+          ]),
+        ];
+      }
       if (options.workspaceAppAudience) {
         _authGuardConfig.workspaceAppAudience =
           resolveWorkspaceAppAudience(options);
@@ -5440,6 +5494,7 @@ export async function autoMountAuth(
             getLoginHtml: () => getCustomAuthRequiredHtml(),
           }),
       publicPaths,
+      publicCorsPaths: options.publicCorsPaths ?? [],
       workspaceAppAudience,
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
       workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,
@@ -5470,6 +5525,7 @@ export async function autoMountAuth(
     _authGuardConfig = {
       ...loginHtmlConfig,
       publicPaths,
+      publicCorsPaths: options.publicCorsPaths ?? [],
       workspaceAppAudience,
       workspaceAppPublicPaths: workspaceAppRouteAccess.publicPaths,
       workspaceAppProtectedPaths: workspaceAppRouteAccess.protectedPaths,

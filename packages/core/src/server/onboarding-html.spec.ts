@@ -202,6 +202,33 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("__anPath('/_agent-native/google/auth-url')");
   });
 
+  it("derives the workspace mount for request-specific and cached login HTML", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    delete process.env.APP_BASE_PATH;
+    delete process.env.VITE_APP_BASE_PATH;
+
+    const requestHtml = getOnboardingHtml({
+      requestPath: "/dispatch/sign-in?c=continuation",
+    });
+    expect(requestHtml).toContain('var configured = "/dispatch";');
+
+    const cachedHtml = getOnboardingHtml();
+    expect(cachedHtml).toContain('var configured = "";');
+    const start = cachedHtml.indexOf("function __anBasePath()");
+    const end = cachedHtml.indexOf("function __anPath", start);
+    const basePath = new Function(
+      "window",
+      `${cachedHtml.slice(start, end)} return __anBasePath();`,
+    )({ location: { pathname: "/dispatch/sign-in" } });
+    expect(basePath).toBe("/dispatch");
+
+    const rootBasePath = new Function(
+      "window",
+      `${cachedHtml.slice(start, end)} return __anBasePath();`,
+    )({ location: { pathname: "/sign-in" } });
+    expect(rootBasePath).toBe("");
+  });
+
   it("validates email/password auth emails before submitting forms", () => {
     const html = getOnboardingHtml();
 
@@ -603,6 +630,25 @@ return { rememberPendingSignupEmail, readRememberedPendingSignupEmail };`,
         legacyReturn: "/inbox#x",
       }).resumeHref,
     ).toBe("/inbox#x");
+
+    const mountedJourney = new Function(
+      `${script} return __anCreateSignInJourney("/dispatch");`,
+    )() as {
+      encodeContinuation: (path: string) => string;
+      signInJourney: (input: {
+        at: string;
+        continuation?: string | null;
+        legacyReturn?: string | null;
+      }) => { resumeHref: string };
+    };
+    const mountedTarget = "/dispatch/apps/feedback-leaderboard";
+    const mountedToken = mountedJourney.encodeContinuation(mountedTarget);
+    expect(
+      mountedJourney.signInJourney({
+        at: `/dispatch/sign-in?c=${mountedToken}`,
+        continuation: mountedToken,
+      }).resumeHref,
+    ).toBe(mountedTarget);
   });
 
   it("uses branded first-party marketing from the request host", () => {

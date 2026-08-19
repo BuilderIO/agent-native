@@ -526,6 +526,7 @@ const messages = {
   "share.unknownPerson": "Unknown person",
   "share.viewer": "Viewer",
   "share.viewerDescription": "Can view",
+  "share.userGroup": "User group",
   "status.resuming": "Resuming",
   "status.stillWorking": "Still working",
   "status.thinking": "Thinking",

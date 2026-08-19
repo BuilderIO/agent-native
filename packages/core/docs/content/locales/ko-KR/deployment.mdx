@@ -7,6 +7,31 @@ description: "Nitro 사전 설정(Node.js, Vercel, Netlify, Cloudflare, AWS 등)
 
 에이전트 네이티브 앱은 내부적으로 [Nitro](https://nitro.build)를 사용합니다. 즉, 구성 변경 없이 모든 플랫폼에 배포할 수 있습니다. 사전 설정만 하면 됩니다.
 
+## 빠른 시작: Chat 앱을 로컬에서 셀프 호스팅하기 {#self-host-quickstart}
+
+시작하는 방법은 두 가지입니다.
+
+- **앱을 만들고 있나요?** [Getting Started](/docs/getting-started)에서 시작하고 앱을 영구적인 곳에 배포할 때 여기로 돌아오세요.
+- **앱을 운영하고 있나요?** 먼저 로컬 Docker 경로를 사용하세요. 작은 서버에서 사용할 Node.js, Postgres, 인증 및 환경 변수 구성을 같은 형태로 확인할 수 있습니다.
+
+로컬 스택은 의도적으로 예시 인증 시크릿과 로컬 Postgres 볼륨을 사용합니다. `localhost`용이며 인터넷에 공개하기 위한 것이 아닙니다. 전체 Compose 파일과 복사 가능한 단계는 [영문 빠른 시작](https://www.agent-native.com/docs/deployment#self-host-quickstart)을 참조하세요. 이 빠른 시작은 PostgreSQL 18의 볼륨 레이아웃을 사용합니다. PostgreSQL 17 이하에서 만든 볼륨을 재사용하지 마세요. 이미지 또는 마운트 경로를 변경하기 전에 기존 데이터를 백업하고 마이그레이션하세요.
+
+### 1. 앱 만들기
+
+```bash
+npx @agent-native/core@latest create my-app --standalone --template chat
+cd my-app
+pnpm install
+```
+
+### 2. 로컬 스택 시작하기
+
+```bash
+docker compose up --build
+```
+
+[http://localhost:3000](http://localhost:3000)을 여세요. 포함된 에이전트를 사용하려면 로컬 `.env` 파일에 `ANTHROPIC_API_KEY`를 추가하세요.
+
 ## 배포 전: 영구 데이터베이스 선택 {#persistent-database}
 
 배포된 모든 앱에는 영구 SQL 데이터베이스가 필요합니다. 로컬 개발에서 에이전트 네이티브는 `data/app.db`의 SQLite 파일로 대체됩니다. 이는 컴퓨터에서는 편리하지만 파일 시스템을 재설정할 수 있는 컨테이너, 미리 보기 또는 서버리스 환경에서는 내구성이 없습니다.
@@ -247,6 +272,7 @@ COPY --from=build /app/.output .output
 # data/는 런타임에 생성된 SQLite 디렉터리입니다. dev DB를 prod에 복사하지 마세요.
 # 프로덕션의 경우 DATABASE_URL를 호스팅된 Postgres 또는 Turso 인스턴스로 설정합니다.
 RUN mkdir -p /app/data
+ENV NODE_ENV=production
 ENV PORT=3000
 EXPOSE 3000
 CMD ["node", ".output/server/index.mjs"]

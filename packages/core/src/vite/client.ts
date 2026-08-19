@@ -24,6 +24,7 @@ import {
 } from "../changelog/parse.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
+  inferAgentNativeDeploymentEnvironment,
   mergeAgentNativeConfigs,
   resolveAgentNativeConfig,
   type AgentNativeConfig,
@@ -56,6 +57,7 @@ import {
 import {
   formatRuntimeConfigReport,
   getRuntimeConfigReport,
+  isTruthyRuntimeValue,
 } from "../shared/runtime-config.js";
 import { actionTypesPlugin } from "./action-types-plugin.js";
 import {
@@ -1937,6 +1939,42 @@ function baseRedirectGuard(): Plugin {
   };
 }
 
+/**
+ * Force Nitro's dev middleware to treat extension-bearing framework endpoints
+ * as dynamic so they reach the h3 server instead of Vite's static pipeline.
+ *
+ * Nitro's Vite dev middleware routes paths with asset-like extensions through
+ * Vite unless a Nitro route matches them. Framework endpoints are registered
+ * as h3 middleware, so mounted `/_agent-native/*` and `/.well-known/*` paths
+ * can otherwise become dev-only 404s before reaching the framework handler.
+ */
+function frameworkDevDynamicForwarder(): Plugin {
+  return {
+    name: "agent-native-framework-dev-dynamic-forwarder",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((req, _res, next) => {
+        const url = req.url;
+        if (url && isFrameworkDynamicDevPath(url, server.config.base)) {
+          const accept = req.headers["accept"];
+          if (typeof accept !== "string" || !/\btext\/html\b/.test(accept)) {
+            req.headers["accept"] = accept
+              ? `text/html,${accept}`
+              : "text/html";
+          }
+          // Embed-start uses document/iframe to select its transplant response.
+          // Only supply the classifier hint when the browser did not provide a
+          // destination; never overwrite the request's original intent.
+          if (req.headers["sec-fetch-dest"] === undefined) {
+            req.headers["sec-fetch-dest"] = "empty";
+          }
+        }
+        next();
+      });
+    },
+  };
+}
+
 const VITE_RUNTIME_PATH_PREFIXES = [
   "/@fs/",
   "/@id/",
@@ -2442,6 +2480,24 @@ export function isFrameworkDevPath(
 }
 
 /**
+ * Framework-owned dynamic dev paths whose responses are served by the h3 app:
+ * the `/_agent-native/*` API surface plus framework `/.well-known/*` documents.
+ */
+export function isFrameworkDynamicDevPath(
+  reqUrl: string,
+  base: string | undefined,
+): boolean {
+  if (isFrameworkDevPath(reqUrl, base)) return true;
+  const pathname = devPathname(reqUrl);
+  if (pathname.startsWith("/.well-known/")) return true;
+  if (base && base !== "/") {
+    const normalizedBase = base.endsWith("/") ? base.slice(0, -1) : base;
+    if (pathname.startsWith(`${normalizedBase}/.well-known/`)) return true;
+  }
+  return false;
+}
+
+/**
  * Work around a Rolldown bug where Nitro passes service entries as objects
  * ({index: "path"}) but Rolldown expects strings. This plugin normalizes
  * rollupOptions.input entries in the SSR environment.
@@ -2780,10 +2836,9 @@ type NitroModuleGraph = {
 
 const NITRO_STARTUP_SETTLE_MS = 1_000;
 const NITRO_STARTUP_TIMEOUT_MS = 30_000;
-const NITRO_STARTUP_RETRY_KEY = "__agent_native_nitro_startup_retry";
-const NITRO_STARTUP_RETRY_MAX = 5;
 const NITRO_STARTUP_RETRY_DELAY_MS = 1_000;
-const NITRO_STARTUP_RETRY_RESET_MS = 15_000;
+const NITRO_STARTUP_RETRY_MAX_DELAY_MS = 3_000;
+const NITRO_STARTUP_SLOW_HINT_MS = 8_000;
 
 function nitroModuleGraphSignature(environment: unknown): string | null {
   const graph = (environment as { moduleGraph?: NitroModuleGraph } | undefined)
@@ -2818,6 +2873,9 @@ function sendNitroStartingResponse(
   req: IncomingMessage,
   res: ServerResponse,
 ): void {
+  // Fetch-poll this URL instead of location.reload(). Reloading after the
+  // startup gate opens stacks Nitro SSR compiles, and a 5-reload cap left
+  // the tab stuck on this page for the rest of a multi-minute first boot.
   res.statusCode = 503;
   res.setHeader("cache-control", "no-store");
   res.setHeader("content-type", "text/html; charset=utf-8");
@@ -2846,42 +2904,38 @@ function sendNitroStartingResponse(
     </main>
     <script>
       (() => {
-        const key = ${JSON.stringify(NITRO_STARTUP_RETRY_KEY)};
-        const maxRetries = ${NITRO_STARTUP_RETRY_MAX};
-        const resetAfterMs = ${NITRO_STARTUP_RETRY_RESET_MS};
-        const retryDelayMs = ${NITRO_STARTUP_RETRY_DELAY_MS};
         const status = document.getElementById("agent-native-nitro-retry-status");
-        const now = Date.now();
-        let count = 0;
-        let lastAttemptAt = 0;
-
-        try {
-          const stored = JSON.parse(sessionStorage.getItem(key) || "null");
-          if (stored && typeof stored === "object") {
-            count = Number.isFinite(stored.count) ? stored.count : 0;
-            lastAttemptAt = Number.isFinite(stored.at) ? stored.at : 0;
+        const startedAt = Date.now();
+        let delayMs = ${NITRO_STARTUP_RETRY_DELAY_MS};
+        const maxDelayMs = ${NITRO_STARTUP_RETRY_MAX_DELAY_MS};
+        const slowHintMs = ${NITRO_STARTUP_SLOW_HINT_MS};
+        const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+        const setStatus = (text) => {
+          if (status) status.textContent = text;
+        };
+        const poll = async () => {
+          setStatus("Waiting for the dev server…");
+          while (true) {
+            if (Date.now() - startedAt >= slowHintMs) {
+              setStatus("Still starting… first boot can take a couple of minutes.");
+            }
+            try {
+              const res = await fetch(location.href, {
+                cache: "no-store",
+                headers: { Accept: "text/html" },
+              });
+              if (res.status !== 503) {
+                location.reload();
+                return;
+              }
+            } catch {
+              // Connection reset mid-boot; keep polling.
+            }
+            await wait(delayMs);
+            delayMs = Math.min(delayMs + 500, maxDelayMs);
           }
-        } catch (error) {
-          // A blocked session store is handled below by showing a manual retry.
-        }
-
-        if (now - lastAttemptAt > resetAfterMs) count = 0;
-        if (count >= maxRetries) {
-          if (status) status.textContent = "The server is still unavailable. Refresh when it is ready.";
-          return;
-        }
-
-        const nextState = JSON.stringify({ count: count + 1, at: now });
-        try {
-          sessionStorage.setItem(key, nextState);
-          if (sessionStorage.getItem(key) !== nextState) throw new Error("unavailable");
-        } catch (error) {
-          if (status) status.textContent = "Refresh manually when the server is ready.";
-          return;
-        }
-
-        if (status) status.textContent = "Retrying in one second…";
-        setTimeout(() => window.location.reload(), retryDelayMs);
+        };
+        void poll();
       })();
     </script>
   </body>
@@ -3383,6 +3437,7 @@ function createAgentNativePlugins(
     fullReloadOnOptimizeDep504(),
     embedDevFrameHeaders(),
     baseRedirectGuard(),
+    frameworkDevDynamicForwarder(),
     portExposer(),
     nitroStartupGate(),
     reactRouterVirtualInvalidationMirrorPlugin(),
@@ -3485,6 +3540,17 @@ function createAgentNativeConfig(
     ),
     configContext,
   );
+  const inferredDeploymentEnvironment =
+    appConfig.deployment?.environment ??
+    inferAgentNativeDeploymentEnvironment(process.env, mode);
+  const resolvedAppConfig =
+    appConfig.deployment?.environment === undefined &&
+    inferredDeploymentEnvironment !== undefined
+      ? {
+          ...appConfig,
+          deployment: { environment: inferredDeploymentEnvironment },
+        }
+      : appConfig;
   const buildId =
     process.env.DEPLOY_ID?.trim() ||
     process.env.COMMIT_REF?.trim() ||
@@ -3525,7 +3591,11 @@ function createAgentNativeConfig(
   reportRuntimeConfigDiagnostics(appConfig, configContext, mode, runtimeEnv);
 
   const { base } = getConfiguredAppBasePath();
-  const isWorkspaceChild = process.env.AGENT_NATIVE_WORKSPACE === "1";
+  const isWorkspaceChild =
+    isTruthyRuntimeValue(process.env.AGENT_NATIVE_WORKSPACE) ||
+    isTruthyRuntimeValue(process.env.VITE_AGENT_NATIVE_WORKSPACE) ||
+    Boolean(process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim()) ||
+    Boolean(process.env.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON?.trim());
   const monorepoPackageAllow = [
     path.resolve(cwd, "../../packages/core"),
     path.resolve(cwd, "../core"),
@@ -3589,7 +3659,7 @@ function createAgentNativeConfig(
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",
       ),
-      __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(appConfig),
+      __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(resolvedAppConfig),
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),
@@ -3602,6 +3672,13 @@ function createAgentNativeConfig(
       "process.env.AGENT_NATIVE_RELEASE_MIGRATIONS": JSON.stringify(
         process.env.AGENT_NATIVE_RELEASE_MIGRATIONS?.trim() || "",
       ),
+      ...(resolvedAppConfig.deployment?.environment
+        ? {
+            "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(
+              resolvedAppConfig.deployment.environment,
+            ),
+          }
+        : {}),
       __AGENT_NATIVE_BUILD_GTM_CONTAINER_ID__: JSON.stringify(
         process.env.GTM_CONTAINER_ID?.trim() || "",
       ),

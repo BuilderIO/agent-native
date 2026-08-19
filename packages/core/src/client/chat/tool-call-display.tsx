@@ -66,6 +66,7 @@ import {
 import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
   isBuiltinDataWidgetActionRenderer,
+  isBuiltinWorkspaceFileResult,
   resolveBuiltinActionChatRenderer,
   resolveBuiltinFallbackToolRenderer,
 } from "./widgets/builtin-tool-renderers.js";
@@ -116,11 +117,20 @@ export type ApprovalContextValue = {
     approvalKey: string,
     resolution: ApprovalResolution,
     toolCallId?: string,
+    /**
+     * Identifies the specific `approval_required` ask being resolved. A
+     * remount that replays the SAME ask (e.g. a chat repository refresh)
+     * omits nothing new here, so the retained resolution still matches; a
+     * fresh ask after a failed resume carries a different `askId` and so
+     * looks up as unresolved. See `ApprovalAffordance` below.
+     */
+    askId?: string,
   ) => void;
   /** Read a resolution retained by the owning chat surface. */
   getApprovalResolution?: (
     approvalKey: string,
     toolCallId?: string,
+    askId?: string,
   ) => ApprovalResolution | null;
   /**
    * Optional host hook invoked in addition to the local "denied" state, e.g.
@@ -551,14 +561,18 @@ function ApprovalAffordance({
 }: {
   toolName: string;
   toolCallId?: string;
-  approval: { approvalKey: string; dismissed?: boolean };
+  approval: { approvalKey: string; dismissed?: boolean; askId?: string };
 }) {
   const t = useT();
   const ctx = React.useContext(ApprovalContext);
   const [localResolution, setLocalResolution] =
     useState<ApprovalResolution | null>(null);
   const retainedResolution =
-    ctx?.getApprovalResolution?.(approval.approvalKey, toolCallId) ?? null;
+    ctx?.getApprovalResolution?.(
+      approval.approvalKey,
+      toolCallId,
+      approval.askId,
+    ) ?? null;
   const resolution =
     retainedResolution ??
     localResolution ??
@@ -598,6 +612,7 @@ function ApprovalAffordance({
               approval.approvalKey,
               "approved",
               toolCallId,
+              approval.askId,
             );
             ctx.onApprove(approval.approvalKey);
           }}
@@ -619,6 +634,7 @@ function ApprovalAffordance({
               approval.approvalKey,
               "approved",
               toolCallId,
+              approval.askId,
             );
             ctx.onAlwaysAllow?.(approval.approvalKey);
           }}
@@ -636,7 +652,12 @@ function ApprovalAffordance({
         type="button"
         onClick={() => {
           setLocalResolution("denied");
-          ctx?.onApprovalResolved?.(approval.approvalKey, "denied", toolCallId);
+          ctx?.onApprovalResolved?.(
+            approval.approvalKey,
+            "denied",
+            toolCallId,
+            approval.askId,
+          );
           ctx?.onDeny?.(approval.approvalKey);
         }}
         className={cn(
@@ -682,7 +703,7 @@ export function ToolCallDisplay({
   outcome?: "unknown";
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
-  approval?: { approvalKey: string; dismissed?: boolean };
+  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
   repeatCount?: number;
   /** The latest tool shown while the overall chat turn is still active. */
   isActiveTail?: boolean;
@@ -795,7 +816,7 @@ function ToolCallDisplayGeneric({
   outcome?: "unknown";
   isActiveTail: boolean;
   structuredMeta?: Record<string, unknown>;
-  approval?: { approvalKey: string; dismissed?: boolean };
+  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
   repeatCount?: number;
 }) {
   const t = useT();
@@ -921,9 +942,10 @@ function ToolCallDisplayGeneric({
     return (
       <ActionChatUiSurface
         context={nativeToolContext}
-        isBuiltinDataWidget={isBuiltinDataWidgetActionRenderer(
-          nativeToolContext,
-        )}
+        isBuiltinDataWidget={
+          isBuiltinDataWidgetActionRenderer(nativeToolContext) ||
+          isBuiltinWorkspaceFileResult(nativeToolContext)
+        }
       >
         <NativeToolRenderer context={nativeToolContext} />
       </ActionChatUiSurface>
@@ -1067,6 +1089,15 @@ function ToolCallDisplayGeneric({
       )}
       {approval && (
         <ApprovalAffordance
+          // A changed `askId` means the server re-emitted approval_required
+          // for this same call (e.g. a failed resume never consumed the
+          // prior grant) rather than the same ask re-rendering. Keying on it
+          // forces a fresh mount so a stale local "approved" state from the
+          // earlier ask can't linger and hide Approve/Deny with no way to
+          // retry. Falls back to approvalKey when askId is absent (older
+          // events, non-production-agent approval sources) to keep the
+          // existing remount-safe behavior unchanged there.
+          key={approval.askId ?? approval.approvalKey}
           toolName={toolName}
           toolCallId={toolCallId}
           approval={approval}
@@ -1292,7 +1323,7 @@ export function ToolCallFallback({
   structuredMeta?: Record<string, unknown>;
   activity?: boolean;
   outcome?: "unknown";
-  approval?: { approvalKey: string; dismissed?: boolean };
+  approval?: { approvalKey: string; dismissed?: boolean; askId?: string };
   repeatCount?: number;
   isLatestRunning?: boolean;
   isActiveTail?: boolean;

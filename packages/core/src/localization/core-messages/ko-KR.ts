@@ -521,6 +521,7 @@ const messages: AgentChatTranslation = {
   "share.unknownPerson": "알 수 없는 사용자",
   "share.viewer": "뷰어",
   "share.viewerDescription": "보기 가능",
+  "share.userGroup": "사용자 그룹",
   "status.resuming": "재개 중",
   "status.stillWorking": "계속 작업 중",
   "status.thinking": "생각 중",

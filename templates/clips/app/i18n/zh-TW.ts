@@ -369,6 +369,9 @@ const messages = {
     aiNotes: "AI 筆記",
     summary: "摘要",
     actionItems: "行動項目",
+    addActionItem: "新增行動項",
+    removeActionItem: "刪除行動項",
+    actionItemPlaceholder: "需要完成什麼？",
     working: "處理中…",
     noActionItems: "還沒有行動項目。從逐字稿產生筆記後，它們會出現在此處。",
     transcript: "逐字稿",
@@ -927,7 +930,7 @@ const messages = {
   commentsPanel: {
     disabled: "此錄製已停用評論。",
     beFirst: "成為第一個評論的人",
-    leaveNotePanel: "在此面板頂部留下備註。",
+    leaveNotePanel: "在此面板底部留下備註。",
     leaveNoteTimestamp: "在目前時間戳留下備註。",
     leaveComment: "留下評論...",
     signInToComment: "登入以發表評論。",
@@ -1069,6 +1072,7 @@ const messages = {
     liveTranscriptDescription: "開始紀錄後，即時轉錄會顯示在這裡。",
     me: "我",
     them: "對方",
+    unknownSpeaker: "說話者",
     searchTranscript: "搜尋逐字稿",
     searchPlaceholder: "搜尋逐字稿…",
     searchMatchCount: "第 {{current}} 項，共 {{total}} 項",
@@ -1273,10 +1277,10 @@ const messages = {
     cameraOff: "攝影機已關閉",
     includeCameraAria: "在此錄製中包含攝影機",
     startRecording: "開始錄製",
-    micOffConfirmTitle: "要在沒有麥克風的情況下錄製嗎？",
-    micOffConfirmDescription:
-      "麥克風已關閉，這段錄製將不會收錄任何音訊。若需要旁白，請先開啟麥克風再開始錄製。",
-    startWithoutMic: "仍要開始",
+    micOffConfirmTitle: "您的麥克風已靜音",
+    micOffConfirmDescription: "若要讓影片有聲音，請取消麥克風靜音。",
+    startWithoutMic: "繼續",
+    unmuteMicrophone: "取消靜音",
     uploadVideo: "上傳影片",
     importLoom: "匯入 Loom",
     importing: "正在匯入...",
@@ -1352,6 +1356,10 @@ const messages = {
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將完成儲存。",
     connectStorageToRetryLoom:
       "在下一個畫面連線儲存：Builder.io（免費方案儲存 + AI）或 S3 相容儲存。Clips 將重試匯入。",
+    leaveConfirmTitle: "離開並捨棄此錄製？",
+    leaveConfirmDescription:
+      "進行中的錄製尚未儲存完成。現在離開此頁面將會捨棄它。",
+    leaveAndDiscard: "離開並捨棄",
   },
   importRoute: {
     pageTitle: "匯入 Loom — Clips",

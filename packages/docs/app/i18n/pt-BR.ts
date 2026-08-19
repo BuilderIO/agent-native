@@ -77,6 +77,7 @@ const ptBR = {
     suggestionDeploy: "Como faço deploy em produção?",
   },
   errors: {
+    loadingLatest: "Carregando a versão mais recente...",
     notFoundTitle: "Página não encontrada",
     notFoundBody: "A página que você procura não existe ou foi movida.",
     goHome: "Ir para o início",

@@ -386,6 +386,24 @@ describe("createBuilderEngine", () => {
     ]);
   });
 
+  it("resolves auto to the Agent Native default before posting to the gateway", async () => {
+    const fetchSpy = vi
+      .fn()
+      .mockResolvedValue(
+        jsonlResponse([
+          { type: "stop", reason: "end_turn", requestId: "req_1" },
+        ]),
+      );
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const engine = createBuilderEngine();
+    await collectEvents(engine.stream({ ...BASE_OPTS, model: "auto" }));
+
+    const body = JSON.parse(fetchSpy.mock.calls[0][1].body);
+    expect(body.model).toBe(BUILDER_DEFAULT_MODEL);
+    expect(body.model).not.toBe("auto");
+  });
+
   it("splits the system prompt at the cache sentinel, keeping the breakpoint on the stable prefix", async () => {
     const fetchSpy = vi
       .fn()

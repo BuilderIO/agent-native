@@ -3350,7 +3350,7 @@ function ProjectFolderPicker({
                   description="Continue on a paired computer"
                 >
                   <span className="code-agents-project-select__item">
-                    <IconCloud size={14} strokeWidth={1.8} />
+                    <IconRoute size={14} strokeWidth={1.8} />
                     <span>Portal</span>
                   </span>
                 </SelectItem>

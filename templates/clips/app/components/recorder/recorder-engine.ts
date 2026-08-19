@@ -505,6 +505,8 @@ export class RecorderEngine {
   private cameraComposite: CameraCompositeHandle | null = null;
   private audioMixCtx: AudioContext | null = null;
   private audioMixSources: MediaStreamAudioSourceNode[] = [];
+  private wakeLock: WakeLockSentinel | null = null;
+  private wakeLockGeneration = 0;
   private recorder: MediaRecorder | null = null;
   private mimeType: string = "video/webm";
 
@@ -890,7 +892,7 @@ export class RecorderEngine {
         this.opts.displaySurface ?? "window",
       );
       const displayOptions: ExtendedDisplayMediaOptions =
-        screenCaptureDisplayOptions(displaySurface);
+        screenCaptureDisplayOptions(displaySurface, wantsMic);
 
       if (wantsMic || wantsDisplay) {
         this.audioMixCtx?.close().catch(() => {});
@@ -904,6 +906,14 @@ export class RecorderEngine {
         } catch (err) {
           throw this.friendlyError(err, "screen");
         }
+        // The OS is as free to sleep/lock the display during a pause as
+        // during active recording, which ends getDisplayMedia's video track
+        // outright (unlike the mic/camera, display capture requires an
+        // active compositor). Without this, a paused recording left idle
+        // finalizes early with no warning — see onDisplayTrackEnded below.
+        // Best-effort: unsupported browsers or a denied request must never
+        // block capture.
+        void this.acquireWakeLock();
       }
 
       if (wantsCamera) {
@@ -2360,9 +2370,34 @@ export class RecorderEngine {
     );
   }
 
+  /** Best-effort — unsupported browsers or a denied request must never block capture. */
+  private async acquireWakeLock(): Promise<void> {
+    const generation = ++this.wakeLockGeneration;
+    try {
+      // coercion-ok: optional chaining yields undefined only when the Wake
+      // Lock API itself is absent (older/other browsers) — a real rejection
+      // (denied request) is caught below, not coerced here.
+      const wakeLock = (await navigator.wakeLock?.request?.("screen")) ?? null;
+      if (generation !== this.wakeLockGeneration || !this.displayStream) {
+        wakeLock?.release().catch(() => {});
+        return;
+      }
+      this.wakeLock = wakeLock;
+    } catch {
+      if (generation === this.wakeLockGeneration) this.wakeLock = null;
+    }
+  }
+
+  private releaseWakeLock(): void {
+    this.wakeLockGeneration += 1;
+    this.wakeLock?.release().catch(() => {});
+    this.wakeLock = null;
+  }
+
   private cleanupTracks(): void {
     // Clear before stopping tracks so the `ended` events our own stop() fires
     // aren't mistaken for a disconnect.
+    this.releaseWakeLock();
     this.cameraLive = false;
     this.audioMixSources = [];
     this.audioMixCtx?.close().catch(() => {});

@@ -907,7 +907,8 @@ read `references/code-layers.md`. For the VS Code-style source workbench
   reserved for editor-internal state (selection chrome, editor-chrome scale
   compensation, clipboard/surface tokens) — the editor strips any property
   under those prefixes before persisting a cross-screen style capture
-  (`isEditorInternalCssVar` in `app/pages/DesignEditor.tsx`), so a design that
+  (`isEditorInternalCssVar` in `app/pages/design-editor/portable-style.ts`),
+  so a design that
   defines its own theming under that namespace would silently lose those
   values on a cross-screen move. Use `--color-*`, `--font-*`, or another
   design-owned prefix for tokens/tweaks instead.

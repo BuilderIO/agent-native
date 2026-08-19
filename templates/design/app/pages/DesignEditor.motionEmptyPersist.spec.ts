@@ -32,6 +32,8 @@ function readSource(relative: string): string {
 
 describe("motion empty-track persistence (Item 2)", () => {
   const editorSrc = readSource("./DesignEditor.tsx");
+  // The motion autosave effect body now lives in its own module.
+  const autosaveSrc = readSource("./design-editor/effects/motion-autosave.ts");
 
   it("wires the remove-motion-timeline action mutation", () => {
     // Formatting may wrap the call across lines, so match on the distinctive
@@ -44,21 +46,23 @@ describe("motion empty-track persistence (Item 2)", () => {
   it("routes the empty-tracks autosave case through removeMotionTimeline", () => {
     // The empty branch must call removeMotionTimeline with designId + timelineId
     // rather than silently returning.
-    const emptyBranchIdx = editorSrc.indexOf("if (motionTracks.length === 0)");
+    const emptyBranchIdx = autosaveSrc.indexOf(
+      "if (motionTracks.length === 0)",
+    );
     expect(emptyBranchIdx).toBeGreaterThan(-1);
     // removeMotionTimeline is invoked somewhere after that guard.
-    const removeCallIdx = editorSrc.indexOf(
+    const removeCallIdx = autosaveSrc.indexOf(
       "removeMotionTimeline(",
       emptyBranchIdx,
     );
     expect(removeCallIdx).toBeGreaterThan(emptyBranchIdx);
-    expect(editorSrc).toContain("timelineId: timelineIdAtSchedule");
+    expect(autosaveSrc).toContain("timelineId: timelineIdAtSchedule");
   });
 
   it("only removes when a persisted timeline exists (else just clears dirty)", () => {
     // No timeline id → nothing to remove, so it clears the dirty flag instead
     // of erroring against a non-existent row.
-    expect(editorSrc).toContain("if (!motionTimelineId) {");
+    expect(autosaveSrc).toContain("if (!motionTimelineId) {");
   });
 
   it("does NOT loosen apply-motion-edit's min(1) tracks schema", () => {

@@ -62,6 +62,23 @@ describe("agent tool approval store", () => {
     );
   });
 
+  it("gives a delayed approval click at least 30 minutes before the grant expires", async () => {
+    // Regression for a user who steps away mid-approval (e.g. updating their
+    // client) and comes back to a click that silently does nothing because
+    // the durable grant already expired. 15 minutes was not enough room.
+    const { createAgentToolApproval } =
+      await import("./tool-approval-store.js");
+
+    const before = Date.now();
+    await createAgentToolApproval(binding);
+    const after = Date.now();
+
+    const insertArgs = dbMocks.execute.mock.calls[4]?.[0].args as unknown[];
+    const expiresAt = insertArgs[8] as number;
+    expect(expiresAt - after).toBeGreaterThanOrEqual(30 * 60_000);
+    expect(expiresAt - before).toBeLessThanOrEqual(60 * 60_000 + 1_000);
+  });
+
   it("recovers a unique pending turn when a continuation omits its turn id", async () => {
     dbMocks.execute
       .mockResolvedValueOnce({ rows: [], rowsAffected: 0 })

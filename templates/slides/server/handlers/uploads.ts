@@ -21,7 +21,7 @@ import {
 } from "../lib/uploaded-reference-storage.js";
 import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
 import {
-  resolveSlidesRequestAuthContext,
+  resolveSlidesRequestAuth,
   withSlidesRequestContext,
 } from "./request-auth-context.js";
 
@@ -211,7 +211,12 @@ export async function saveUploadedReferenceFile(args: {
 
 // Upload one or more files
 export const uploadFiles = defineEventHandler(async (event) => {
-  const authContext = await resolveSlidesRequestAuthContext(event);
+  const auth = await resolveSlidesRequestAuth(event);
+  if (!auth.ok) {
+    setResponseStatus(event, auth.statusCode);
+    return { error: auth.error };
+  }
+  const authContext = auth.context;
   const email = authContext.email;
   if (!email) {
     setResponseStatus(event, 401);

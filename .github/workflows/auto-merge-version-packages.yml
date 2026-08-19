@@ -34,12 +34,12 @@ concurrency:
 jobs:
   auto-merge:
     name: Force-merge changeset-release/main
-    # Defense in depth: head ref alone is enough (only the bot pushes to
-    # changeset-release/main), but check the author too so a future
-    # branch-name collision can't trigger a merge.
+    # The webhook sender is the GitHub-recorded actor that caused this event;
+    # unlike commit author fields, it cannot be forged inside a commit object.
     if: |
       github.event.pull_request.head.ref == 'changeset-release/main' &&
       github.event.pull_request.user.login == 'builder-io-integration[bot]' &&
+      github.event.sender.login == 'builder-io-integration[bot]' &&
       !github.event.pull_request.draft
     runs-on: ubuntu-latest
     steps:
@@ -50,9 +50,47 @@ jobs:
           app-id: ${{ secrets.BUILDER_BOT_FOR_LINT_APP_ID }}
           private-key: ${{ secrets.BUILDER_BOT_FOR_LINT_PRIVATE_KEY }}
 
-      - name: Force-merge with admin bypass
+      # `synchronize` can fire for a later push to the same branch. The job
+      # gate above binds this run to the actor recorded on the webhook before
+      # this step checks the head.
+      - name: Verify event-bound head
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          actual_head=$(gh api "repos/$REPO/pulls/$PR_NUMBER" --jq '.head.sha')
+          if [ "$actual_head" != "$HEAD_SHA" ]; then
+            echo "::error::PR head moved from verified event SHA $HEAD_SHA to $actual_head — refusing admin-merge." >&2
+            exit 1
+          fi
+
+      - name: Verify release-only diff
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          files=$(gh api --paginate "repos/$REPO/pulls/$PR_NUMBER/files" --jq '.[].filename')
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              .changeset/*.md|package.json|pnpm-lock.yaml|*/package.json|*/CHANGELOG.md)
+                ;;
+              *)
+                echo "::error::Refusing admin-merge for unexpected release PR path: $file" >&2
+                exit 1
+                ;;
+            esac
+          done <<< "$files"
+
+      - name: Force-merge with admin bypass
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: gh pr merge "$PR_NUMBER" --repo "$REPO" --admin --squash --match-head-commit "$HEAD_SHA"

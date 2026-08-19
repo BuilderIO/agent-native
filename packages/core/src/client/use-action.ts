@@ -73,6 +73,14 @@ function isActionTimeout(error: unknown): boolean {
   );
 }
 
+function isActionMethodMismatch(error: unknown): boolean {
+  return (
+    !!error &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "action_method_mismatch"
+  );
+}
+
 /** @internal exported for tests */
 export function defaultActionQueryRetry(
   failureCount: number,
@@ -82,6 +90,8 @@ export function defaultActionQueryRetry(
   // A timeout already made the user wait the full timeout window once;
   // silently retrying would multiply that wait. Surface it instead.
   if (isActionTimeout(error)) return false;
+  // Wrong verb is deterministic — retrying sends the same wrong verb again.
+  if (isActionMethodMismatch(error)) return false;
   if (isBrowserResourceExhaustion(error)) return false;
   // Network-level failures never carry an HTTP `status` (actionFetch only
   // sets it after a response arrives). Chrome reports connection-pool
@@ -454,6 +464,27 @@ async function performActionFetch<T>(
       (raw && raw.slice(0, 200)) ||
       res.statusText ||
       `HTTP ${res.status}`;
+
+    // mountActionRoutes only ever returns 405 for one reason: the verb this
+    // call sent doesn't match the action's declared `http.method`. The client
+    // has no way to look that method up ahead of time (defineAction lives in
+    // server-only modules), so callers routinely default to POST and hit this
+    // blind. Name the action and the required method instead of leaving a
+    // bare 405 for the caller to reverse-engineer from a "Use X" string.
+    if (res.status === 405) {
+      const requiredMethod = /\bUse (GET|POST|PUT|DELETE)\b/.exec(message)?.[1];
+      const error = new Error(
+        `Action ${name} was called with ${method}, but it declares ` +
+          `http: { method: "${requiredMethod ?? "?"}" }. Pass { method: "${requiredMethod ?? "..."}" } ` +
+          `to this call (or use the hook that defaults to it) to match the action's declared method.`,
+      );
+      (error as any).status = 405;
+      (error as any).code = "action_method_mismatch";
+      (error as any).sentMethod = method;
+      if (requiredMethod) (error as any).requiredMethod = requiredMethod;
+      throw error;
+    }
+
     const error = new Error(`Action ${name} failed: ${message}`);
     (error as any).status = res.status;
     throw error;
