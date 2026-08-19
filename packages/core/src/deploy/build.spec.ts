@@ -11,6 +11,7 @@ import {
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DISABLED_SSR_CACHE_HEADERS,
+  SSR_QUERY_CACHE_KEY_HEADER,
   ssrCacheHeadersForPolicy,
 } from "../shared/cache-control.js";
 import {
@@ -290,7 +291,10 @@ function makeTempDir(): string {
   return dir;
 }
 
-async function importGeneratedWorker(entrySource: string) {
+async function importGeneratedWorker(
+  entrySource: string,
+  options: { responseHeaders?: Record<string, string> } = {},
+) {
   const dir = makeTempDir();
   const nodeModules = path.join(dir, "node_modules", "react-router");
   fs.mkdirSync(nodeModules, { recursive: true });
@@ -324,7 +328,11 @@ export function createRequestHandler() {
     if (url.pathname === "/redirect") {
       return new Response(null, {
         status: 302,
-        headers: { location: "/login", "content-type": "text/html" },
+        headers: {
+          location: "/login",
+          "content-type": "text/html",
+          ...${JSON.stringify(options.responseHeaders ?? {})},
+        },
       });
     }
     if (url.pathname === "/private-html") {
@@ -708,6 +716,25 @@ export default (event) =>
     );
 
     expect(response.headers.get("netlify-vary")).toBe("query=_routes|index");
+  });
+
+  it("uses the full Netlify query key for marked public redirects", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    const source = generateWorkerEntry([], []);
+    const worker = await importGeneratedWorker(source, {
+      responseHeaders: {
+        [SSR_QUERY_CACHE_KEY_HEADER]: "query",
+      },
+    });
+
+    const response = await worker.fetch(
+      new Request("https://app.test/redirect?from=home"),
+      {},
+      {},
+    );
+
+    expect(response.headers.get("netlify-vary")).toBe("query");
+    expect(response.headers.get(SSR_QUERY_CACHE_KEY_HEADER)).toBeNull();
   });
 
   it("inlines the disabled SSR cache policy when AGENT_NATIVE_SSR_CACHE is off", async () => {
