@@ -70,16 +70,16 @@ reference from Slack, fetch them through the artifact's owning connector or
 public URL; never send the Slack bearer token to an external service.
 
 - Load the value from `.env` without printing it, then call Slack `auth.test`
-  before the first request. Require `ok: true`, `team_id`, and `user_id`, and
-  verify the returned user resolves to `agent-native` (using `users.info` with
-  the returned `user_id` when the human-readable `user` field is insufficient).
-  Keep the stable identity tuple `{ team_id, user_id, bot_id }`, with
-  `bot_id` included when Slack returns it, for all read-back checks.
+  before the first request. Require `ok: true`, `team_id`, `user_id`, and
+  `bot_id`; verify `users.info(user_id)` returns a bot user (`is_bot: true`)
+  whose canonical name or display name is `agent-native`. Keep the stable
+  identity tuple `{ team_id, user_id, bot_id }` for all read-back checks.
 - Use that same bearer token for channel history, thread replies, reactions,
   and Slack metadata. Use Slack cursors until the requested history or thread
-  is complete. A message read-back must match the `team_id` and `user_id`, and
-  must match `bot_id` when the message includes it; a reaction read-back must
-  include the same `user_id` in its users list.
+  is complete. A bot-message read-back must match the `team_id` and `bot_id`;
+  if Slack also includes a `user` author, it must match `user_id`, but a missing
+  `user` field is valid for bot messages. A reaction read-back must include the
+  same `user_id` in its users list.
 - After every reaction or reply, re-read through the same token and verify the
   reaction or reply exists and matches that identity tuple.
 - If the token is absent, invalid, or resolves to any identity other than
