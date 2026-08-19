@@ -14,9 +14,12 @@ const mocks = vi.hoisted(() => ({
   oauthCallbackResponse: vi.fn(),
   oauthDesktopExchangePage: vi.fn(),
   oauthErrorPage: vi.fn(),
+  prepareDesktopOAuthBrowserBinding: vi.fn(),
   readBody: vi.fn(),
+  matchesDesktopOAuthBrowserBinding: vi.fn(),
   resolveOAuthOwner: vi.fn(),
   resolveOAuthRedirectUri: vi.fn(),
+  registerDesktopExchange: vi.fn(),
   resolveSecret: vi.fn(),
   runWithRequestContext: vi.fn(),
   safeReturnPath: vi.fn(),
@@ -27,6 +30,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
+  getHeader: (event: any, name: string) => event.headers?.[name.toLowerCase()],
+  getMethod: (event: any) => event.method ?? "GET",
   getQuery: (event: any) => event.query ?? {},
   setResponseStatus: mocks.setResponseStatus,
 }));
@@ -45,7 +50,9 @@ vi.mock("@agent-native/core/server", () => ({
   oauthCallbackResponse: mocks.oauthCallbackResponse,
   oauthDesktopExchangePage: mocks.oauthDesktopExchangePage,
   oauthErrorPage: mocks.oauthErrorPage,
+  prepareDesktopOAuthBrowserBinding: mocks.prepareDesktopOAuthBrowserBinding,
   readBody: mocks.readBody,
+  matchesDesktopOAuthBrowserBinding: mocks.matchesDesktopOAuthBrowserBinding,
   resolveGoogleSignInCredentials: () => {
     const clientId = process.env.GOOGLE_SIGN_IN_CLIENT_ID;
     const clientSecret = process.env.GOOGLE_SIGN_IN_CLIENT_SECRET;
@@ -77,6 +84,7 @@ vi.mock("@agent-native/core/server", () => ({
   },
   resolveOAuthOwner: mocks.resolveOAuthOwner,
   resolveOAuthRedirectUri: mocks.resolveOAuthRedirectUri,
+  registerDesktopExchange: mocks.registerDesktopExchange,
   resolveSecret: mocks.resolveSecret,
   runWithRequestContext: mocks.runWithRequestContext,
   safeReturnPath: mocks.safeReturnPath,
@@ -105,8 +113,12 @@ const {
   handleGoogleCallback,
 } = await import("./google-auth.js");
 
-function createEvent(query: Record<string, string> = {}) {
-  return { query };
+function createEvent(
+  query: Record<string, string> = {},
+  headers: Record<string, string> = {},
+  method = "GET",
+) {
+  return { query, headers, method };
 }
 
 describe("Calendar Google auth-url handler", () => {
@@ -132,6 +144,9 @@ describe("Calendar Google auth-url handler", () => {
       (_context: unknown, callback: () => unknown) => callback(),
     );
     mocks.encodeOAuthState.mockReturnValue("encoded-state");
+    mocks.registerDesktopExchange.mockResolvedValue("v".repeat(43));
+    mocks.prepareDesktopOAuthBrowserBinding.mockReturnValue("b".repeat(43));
+    mocks.matchesDesktopOAuthBrowserBinding.mockReturnValue(true);
     mocks.createOAuthSession.mockResolvedValue({
       sessionToken: "owner-session-token",
     });
@@ -178,6 +193,33 @@ describe("Calendar Google auth-url handler", () => {
     );
   });
 
+  it("requires a verifier-bound POST for desktop auth-url bootstraps", async () => {
+    const verifier = "v".repeat(32);
+    const headers = { "x-agent-native-desktop-verifier": verifier };
+
+    await expect(
+      getGoogleAuthUrl(
+        createEvent({ desktop: "1", flow_id: "flow-get" }, headers) as any,
+      ),
+    ).resolves.toEqual({ error: "Invalid desktop exchange challenge." });
+    expect(mocks.registerDesktopExchange).not.toHaveBeenCalled();
+
+    await expect(
+      getGoogleAuthUrl(
+        createEvent(
+          { desktop: "1", flow_id: "flow-post" },
+          headers,
+          "POST",
+        ) as any,
+      ),
+    ).resolves.toEqual({ url: expect.any(String) });
+    expect(mocks.registerDesktopExchange).toHaveBeenCalledWith(
+      "flow-post",
+      verifier,
+      "b".repeat(43),
+    );
+  });
+
   it("uses Calendar API credentials when a signed-in user connects Google Calendar", async () => {
     mocks.getSession.mockResolvedValue({
       email: "owner@example.com",
@@ -218,6 +260,8 @@ describe("Calendar Google auth-url handler", () => {
       desktop: true,
       addAccount: true,
       flowId: "flow-123",
+      desktopVerifierHash: "desktop-verifier-hash",
+      desktopBrowserBindingHash: "browser-binding-hash",
     });
     mocks.resolveOAuthOwner.mockResolvedValue({
       owner: "owner@example.com",
@@ -248,6 +292,7 @@ describe("Calendar Google auth-url handler", () => {
       "flow-123",
       "owner-session-token",
       "owner@example.com",
+      "desktop-verifier-hash",
     );
     expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
       event,
@@ -274,6 +319,8 @@ describe("Calendar Google auth-url handler", () => {
       orgId: "org-123",
       desktop: true,
       flowId: "flow-456",
+      desktopVerifierHash: "desktop-verifier-hash",
+      desktopBrowserBindingHash: "browser-binding-hash",
     });
     mocks.exchangeCode.mockResolvedValue("secondary@example.com");
     mocks.oauthCallbackResponse.mockReturnValue("ok");
@@ -300,6 +347,7 @@ describe("Calendar Google auth-url handler", () => {
       "flow-456",
       "owner-session-token",
       "owner@example.com",
+      "desktop-verifier-hash",
     );
     expect(mocks.oauthCallbackResponse).toHaveBeenCalledWith(
       event,

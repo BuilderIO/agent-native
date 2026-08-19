@@ -926,6 +926,19 @@ export default function CodeAgentsHub({
     chatFirstSurfaceTabsStore.closeAll();
     setChatFirstSurfacePanelOpen(false);
   }, [chatFirstSurfaceTabsStore, setChatFirstSurfacePanelOpen]);
+  const openScheduledChatWithPrompt = useCallback(
+    (prompt: string) => {
+      returnToChatFirstChats();
+      window.setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("agent-native:scheduled-chat-prompt", {
+            detail: { prompt },
+          }),
+        );
+      }, 250);
+    },
+    [returnToChatFirstChats],
+  );
   const chatFirstNavigation = useMemo(
     () => ({
       activeTab: activeChatFirstPrimaryTab,
@@ -2478,7 +2491,10 @@ export default function CodeAgentsHub({
           }
           renderChatFirstMainSurface={
             scheduledTasksOpen ? (
-              <CodeAgentSchedulesPanel host={host} />
+              <CodeAgentSchedulesPanel
+                host={host}
+                onCreateWithAgent={openScheduledChatWithPrompt}
+              />
             ) : chatFirstAllAppsOpen ? (
               <DesktopAppsGrid
                 apps={listApps}
